@@ -1189,7 +1189,9 @@ export class Workspace {
         (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
       )
         throw new Error("Worktree changes have changed. Review them and try again.");
-      await revalidate?.();
+      // Automatic approval awaits another policy check below. Ordinary confirmation
+      // has no intervening work before the final revalidation, so do it only once.
+      if (automatic) await revalidate?.();
       if (automatic && !(await autoApprove?.())) {
         changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
         if (!(await confirm(entry.branch ?? entry.worktree, changes))) return false;
@@ -1322,7 +1324,7 @@ export class Workspace {
               throw new KeptWorktree("worktree changed");
             const reason = this.sessionSkip(tree.path);
             if (reason) throw new KeptWorktree(reason);
-            if (await this.deps.worktrees.changes(repository, tree.path))
+            if (await this.deps.worktrees.changes(repository, tree.path, identity))
               throw new KeptWorktree("uncommitted changes");
             if (!(await this.deps.worktrees.mergedCommit(repository, current, base)))
               throw new KeptWorktree("not merged");
@@ -1331,10 +1333,9 @@ export class Workspace {
             repository,
             tree.path,
             tree.branch,
-            async () => {
-              await revalidate();
-              return true;
-            },
+            // The run is already approved; removeTree revalidates immediately
+            // after this callback and again around terminal shutdown and removal.
+            () => Promise.resolve(true),
             revalidate,
             true,
           );
