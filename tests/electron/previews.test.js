@@ -33,11 +33,11 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
   git("commit", "-qm", "preview fixtures");
   git("worktree", "add", "-b", "topic/preview", checkout);
   const options = {
-    emptyBoard: true,
+    fixture: "empty-board",
     args: [`--user-data-dir=${profile}`],
     home: path.join(root, "home"),
   };
-  let app = await launchApp(context, false, options);
+  let app = await launchApp(context, options);
   let page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await app.evaluate(({ dialog }, repo) => {
@@ -109,7 +109,7 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
   await page.getByRole("menuitem", { name: "Preview file…", exact: true }).click();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
-  app = await launchApp(context, false, options);
+  app = await launchApp(context, { ...options, fixture: "restored" });
   page = await boardPage(app);
   await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
   for (const id of ids)
@@ -276,10 +276,9 @@ async function typeIntoFocusedContents(app, text, allowNoFocus = false) {
 }
 
 test("Markdown previews render hostile documents safely, follow native theme and navigate to a sibling", async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "repository" });
   const page = await boardPage(app);
-  const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
-  const root = terminal.worktree;
+  const root = (await page.evaluate(() => window.desktop.workspace())).repositories[0].path;
   // The malformed remote image port also exercises Chromium's rejected-resource
   // path. Electron 44's development security warnings may throw Invalid URL for
   // that performance entry; it does not invalidate the preview's document URL.
@@ -367,7 +366,7 @@ test("Markdown previews render hostile documents safely, follow native theme and
 });
 
 test("preview host loads and reloads detached, never steals terminal keystrokes, and focuses on a click", async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
   const root = terminal.worktree;
@@ -510,7 +509,7 @@ test("preview host loads and reloads detached, never steals terminal keystrokes,
 });
 
 test("preview host keeps keyboard focus after a user-clicked link navigation", async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
   const root = terminal.worktree;
@@ -638,7 +637,7 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
 
 // Each response stays pending until app teardown: no network or elapsed-time mock.
 async function stuckPreviewHandoff(context, cancellation) {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
   await writeFile(
@@ -733,10 +732,9 @@ test("preview handoff deadline restores board keyboard input during a never-fini
 });
 
 test("preview host isolates hostile pages, blocks network and navigation, scales bounds and clears closed partitions", async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "repository" });
   const page = await boardPage(app);
-  const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
-  const root = terminal.worktree;
+  const root = (await page.evaluate(() => window.desktop.workspace())).repositories[0].path;
   const server = require("node:http").createServer((_request, response) =>
     response.end("unwanted"),
   );
@@ -910,7 +908,8 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
   await writeFile(path.join(repo, "notes.md"), "# Agent notes");
   await writeFile(path.join(repo, "narrow.md"), "# Narrow notes");
   const credentials = path.join(root, "credentials");
-  const app = await launchApp(context, true, {
+  const app = await launchApp(context, {
+    fixture: "running-shell",
     args: [`--user-data-dir=${path.join(root, "user-data")}`],
     env: {
       HOME: home,
@@ -1212,7 +1211,7 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
 });
 
 async function composedPreview(context, borderWidth = 1, content, file = "overlay.html") {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
   await writeFile(
@@ -1531,9 +1530,9 @@ test("preview focused native input reaches board shortcuts including the tile le
 
 test("preview live reload handles saves, assets, missing files, scroll and closes watchers", async (context) => {
   const { rename, unlink } = require("node:fs/promises");
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "repository" });
   const page = await boardPage(app);
-  const root = (await page.evaluate(() => window.desktop.workspace())).terminals[0].worktree;
+  const root = (await page.evaluate(() => window.desktop.workspace())).repositories[0].path;
   const document = (text) =>
     `<link rel="stylesheet" href="live.css"><div style="height:4000px">${text}</div>`;
   await writeFile(path.join(root, "live.html"), document("first"));
@@ -1722,9 +1721,9 @@ test("preview live reload handles saves, assets, missing files, scroll and close
 
 test("preview live reload follows retargeted symlinks and junctions", async (context) => {
   const { symlink, rename } = require("node:fs/promises");
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "repository" });
   const page = await boardPage(app);
-  const root = (await page.evaluate(() => window.desktop.workspace())).terminals[0].worktree;
+  const root = (await page.evaluate(() => window.desktop.workspace())).repositories[0].path;
   for (const name of ["one", "two"]) {
     await mkdir(path.join(root, name));
     await writeFile(path.join(root, name, "index.html"), `<p>${name}</p>`);
@@ -1758,9 +1757,9 @@ test("preview live reload follows retargeted symlinks and junctions", async (con
 });
 
 test("preview external links always use trusted review and drop scripted requests while pending", async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "repository" });
   const page = await boardPage(app);
-  const root = (await page.evaluate(() => window.desktop.workspace())).terminals[0].worktree;
+  const root = (await page.evaluate(() => window.desktop.workspace())).repositories[0].path;
   await writeFile(path.join(root, "links.html"), "<p>Links</p>");
   await app.evaluate(({ shell }) => {
     globalThis.previewExternalOpened = [];
@@ -1846,7 +1845,7 @@ test("preview network permission allows local HTTPS only and resets after restar
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const secureUrl = `https://127.0.0.1:${secure.address().port}/`;
   const plainUrl = `http://127.0.0.1:${plain.address().port}/`;
-  const app = await launchApp(context, true, options);
+  const app = await launchApp(context, { ...options, fixture: "running-shell" });
   const page = await boardPage(app);
   const root = (await page.evaluate(() => window.desktop.workspace())).terminals[0].worktree;
   await writeFile(
@@ -1917,7 +1916,7 @@ test("preview network permission allows local HTTPS only and resets after restar
     await app.evaluate(({ app }) => app.quit());
     await dialog.getByRole("button", { name: "Stop all and quit", exact: true }).click();
   });
-  const restored = await launchApp(context, false, options);
+  const restored = await launchApp(context, { ...options, fixture: "restored" });
   const restoredPage = await boardPage(restored);
   // Board startup can finish before the persisted previews have been restored.
   await expect
@@ -2051,10 +2050,10 @@ async function movedPreviewPixels(app, id) {
 
 for (const kind of ["html", "markdown"]) {
   test(`user ${kind} preview moves to a fresh window, resets network and keeps live reload`, async (context) => {
-    const app = await launchApp(context);
+    const app = await launchApp(context, { fixture: "repository" });
     const page = await boardPage(app);
     await page.evaluate(() => window.desktop.saveSetup({ colorMode: "dark" }));
-    const root = (await page.evaluate(() => window.desktop.workspace())).terminals[0].worktree;
+    const root = (await page.evaluate(() => window.desktop.workspace())).repositories[0].path;
     const file = kind === "html" ? "move.html" : "move.md";
     const document = (text) =>
       kind === "html"

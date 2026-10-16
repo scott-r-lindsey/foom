@@ -25,7 +25,7 @@ test("fresh focused terminal cursor blinks and preserves application style on re
   const directory = await mkdtemp(path.join(tmpdir(), "foom-cursor-probe-"));
   removeAfterApps(context, directory);
   const marker = path.join(directory, "stage");
-  const app = await launchApp(context, true, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   // ACKs originate in xterm's write callback, after parsing (not after paint).
   await app.evaluate(({ ipcMain }) => {
@@ -227,7 +227,7 @@ test("fresh focused terminal cursor blinks and preserves application style on re
 test("terminal runs an interactive shell behind an isolated bridge", {
   timeout: deadline(45_000),
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   console.info("Electron launched");
   try {
     const page = await boardPage(app);
@@ -603,7 +603,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
 test("utility host survives output floods without losing rows or delaying another PTY", {
   timeout: deadline(45_000),
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   await boardPage(app);
   const measured = await app.evaluate(
     async ({ app }, { node, probe }) => {
@@ -684,7 +684,7 @@ test("utility host survives output floods without losing rows or delaying anothe
 test("utility host survives concurrent terminal exits and drains multi-terminal shutdown", {
   timeout: deadline(45_000),
 }, async (context) => {
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   fixtureCleanup(context).apps.unshift(async () => {
     await app.evaluate(async () => {
       const host = globalThis.ptyRaceHost;
@@ -763,7 +763,7 @@ test("utility host survives concurrent terminal exits and drains multi-terminal 
 test("a crashed utility host reports failure and the renderer can restart", {
   timeout: deadline(45_000),
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   await page.waitForFunction(
     () => !/Starting|exited|Unable/.test(document.querySelector(".tile-status").textContent),
@@ -804,7 +804,7 @@ test("host answers color queries once through real view transitions and system t
 }, async (context) => {
   const directory = await mkdtemp(path.join(tmpdir(), "foom-color-probe-"));
   removeAfterApps(context, directory);
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   await page.waitForFunction(
     () => !document.querySelector(".tile-status").textContent.includes("Starting"),
@@ -885,7 +885,7 @@ test("focus reports reach the shell without counting as a reply", {
   timeout: deadline(45_000),
   skip: process.platform === "win32" && "The prompt script is POSIX shell",
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   await page.evaluate(() => {
     window.foomStates = [];
@@ -939,7 +939,7 @@ test("middle click reports without pasting while tracking and Shift preserves Li
   removeAfterApps(context, root);
   const marker = path.join(root, "input");
   await writeFile(marker, "");
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   await page.locator(".xterm-helper-textarea").focus();
   await page.keyboard.type(
@@ -999,7 +999,7 @@ test("wheel moves less and preserves normal shell scrollback", {
   timeout: deadline(30000),
   skip: process.platform === "win32" && "less is a POSIX pager",
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   await page.evaluate(() => {
     window.pagerOutput = "";
@@ -1054,7 +1054,8 @@ test("Bash command status reaches the sidebar without closing the shell", {
   const root = await mkdtemp(path.join(tmpdir(), "foom-program-"));
   removeAfterApps(context, root);
   await require("node:fs/promises").copyFile("/bin/sleep", path.join(root, "vim"));
-  const app = await launchApp(context, true, {
+  const app = await launchApp(context, {
+    fixture: "running-shell",
     env: { SHELL: "/bin/bash", PATH: root },
   });
   const page = await boardPage(app);
@@ -1130,7 +1131,7 @@ test("Bash command status reaches the sidebar without closing the shell", {
 test("shell fixture starts through keyboard while startup layout moves", {
   timeout: deadline(45000),
 }, async (context) => {
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await page.evaluate(() => {
     window.fixtureMoving = true;
@@ -1159,7 +1160,7 @@ test("restored exited sessions hide the unattached terminal until restarted", as
   const profile = await mkdtemp(path.join(tmpdir(), "foom-restored-cursor-"));
   removeAfterApps(context, profile);
   const options = { args: [`--user-data-dir=${profile}`] };
-  const app = await launchApp(context, true, options);
+  const app = await launchApp(context, { ...options, fixture: "running-shell" });
   const page = await boardPage(app);
   const input = page.locator(".xterm-helper-textarea");
   await input.pressSequentially("exit");
@@ -1174,7 +1175,7 @@ test("restored exited sessions hide the unattached terminal until restarted", as
     .toBe(1);
   await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
 
-  const restoredApp = await launchApp(context, false, { ...options, emptyBoard: true });
+  const restoredApp = await launchApp(context, { fixture: "restored", ...options });
   const restored = await boardPage(restoredApp);
   await expect(restored.locator(".board-row")).toHaveCount(1);
   // The restored terminal cannot take input focus; activate its row directly.
@@ -1218,14 +1219,14 @@ test("new and restored shells show a silent foreground program until the next pr
     await input.press("Control+c");
     await expect(row.locator(".session-program")).toHaveCount(0);
   };
-  const app = await launchApp(context, true, options);
+  const app = await launchApp(context, { ...options, fixture: "running-shell" });
   await showsSleep(await boardPage(app));
   await quitAndWait(app, async () => {
     await app.evaluate(({ app }) => app.quit());
     await (await confirmationPage(app)).getByRole("button", { name: "Stop all and quit" }).click();
   });
 
-  const restoredApp = await launchApp(context, false, { ...options, emptyBoard: true });
+  const restoredApp = await launchApp(context, { fixture: "restored", ...options });
   const restored = await boardPage(restoredApp);
   const row = restored.locator(".board-row[data-kind='shell']");
   await expect(row).toHaveCount(1);

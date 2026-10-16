@@ -104,7 +104,7 @@ function assertDialogAboveBoard(evidence) {
 test("trusted quit dialog appears above the board on first show and after hide/show reuse", {
   timeout: deadline(45_000),
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const board = await boardPage(app);
   const dialog = await confirmationPage(app);
   const evidence = [];
@@ -205,7 +205,7 @@ test("macOS quit from an inactive app activates trusted consent and keeps board 
   skip: process.platform !== "darwin",
   timeout: deadline(45_000),
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const board = await boardPage(app);
   const dialog = await confirmationPage(app);
   for (const accept of [false, true]) {
@@ -269,7 +269,7 @@ test("macOS quit from an inactive app activates trusted consent and keeps board 
 test("trusted dialog presentation failure releases the board and allows a new request", {
   timeout: deadline(45_000),
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const board = await boardPage(app);
   const dialog = await confirmationPage(app);
   await app.evaluate(({ BrowserWindow }) => {
@@ -351,7 +351,7 @@ for (const action of ["close", "quit", "shortcut"]) {
   test(`quit via ${action} confirms, cancel preserves PTYs, and confirm reaps shells`, {
     timeout: deadline(45_000),
   }, async (context) => {
-    const app = await launchApp(context);
+    const app = await launchApp(context, { fixture: "running-shell" });
     let page = await boardPage(app);
     if (action === "close" && process.platform === "darwin") {
       await page.evaluate(() => window.desktop.appMenu.execute("close-window"));
@@ -485,7 +485,7 @@ for (const action of ["close", "quit", "shortcut"]) {
 test("closing with an exited terminal quits without confirmation", {
   timeout: deadline(45_000),
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   await page.waitForFunction(
     () => !/Starting|Unable/.test(document.querySelector(".tile-status").textContent),
@@ -524,7 +524,7 @@ test("closing with an exited terminal quits without confirmation", {
 test("trusted quit dialog isolates answers, passes axe in every theme and survives a board crash", {
   timeout: deadline(45000),
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const board = await boardPage(app);
   const dialog = await confirmationPage(app);
   const processes = await app.evaluate(({ BrowserWindow }) =>
@@ -699,7 +699,7 @@ test("trusted quit dialog isolates answers, passes axe in every theme and surviv
 test("trusted card follows interface scale and clears its scrim on every dismissal", {
   timeout: deadline(45000),
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const board = await boardPage(app);
   let dialog = await confirmationPage(app);
   const expectDialogFits = async (zoom) => {
@@ -1069,8 +1069,8 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
     ],
     { cwd: repo },
   );
-  const app = await launchApp(context, false, {
-    emptyBoard: true,
+  const app = await launchApp(context, {
+    fixture: "agent",
     env: { HOME: home, PATH: bin, TEST_ARGV: output },
   });
   const page = await boardPage(app);

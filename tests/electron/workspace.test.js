@@ -26,7 +26,7 @@ const {
 } = require("./harness.js");
 
 test("board starts with live terminals only and focuses rows without opening", async (context) => {
-  const app = await launchApp(context, false);
+  const app = await launchApp(context, { fixture: "running-shell", shell: "hidden" });
   const page = await boardPage(app);
   const row = page.locator(".board-row");
   await expect(row).toHaveCount(1);
@@ -79,8 +79,8 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
   if (process.platform !== "win32") {
     await writeFile(path.join(bin, "claude"), FAKE_CLAUDE, { mode: 0o755 });
   }
-  const app = await launchApp(context, false, {
-    emptyBoard: true,
+  const app = await launchApp(context, {
+    fixture: "agent",
     env: {
       HOME: path.join(root, "home"),
       PATH: bin,
@@ -234,7 +234,7 @@ test("sidebar refuses deletion of a running shell and enables it after exit, pre
   isolatedGit(["worktree", "add", "-b", "external", external], { cwd: repo });
   const dirty = path.join(external, "unsaved.txt");
   await writeFile(dirty, "keep until confirmed");
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
@@ -360,8 +360,8 @@ process.stdin.resume();
       { mode: 0o755 },
     );
   }
-  const app = await launchApp(context, false, {
-    emptyBoard: true,
+  const app = await launchApp(context, {
+    fixture: "agent",
     env: {
       HOME: path.join(root, "home"),
       PATH: bin,
@@ -580,7 +580,7 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
   removeAfterApps(context, root);
   const marker = path.join(root, "keys");
   await writeFile(marker, "");
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   await page.locator(".xterm-helper-textarea").focus();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
@@ -661,7 +661,7 @@ test("persistent sidebar keeps Escape in the PTY and routes keyboard navigation"
 });
 
 test("empty sidebar and terminal pane stay accessible at both widths", async (context) => {
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   for (const width of [1000, 640]) {
     await app.evaluate(({ BrowserWindow }, width) => {
@@ -712,7 +712,7 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
     ],
     { cwd: repo },
   );
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await app.evaluate(({ dialog, BrowserWindow }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
@@ -929,8 +929,8 @@ test("tiles build irregular layouts, preserve views and replace explicitly for a
   await mkdir(repo);
   await mkdir(path.join(root, "home"));
   isolatedGit(["init", "-q", repo]);
-  const app = await launchApp(context, false, {
-    emptyBoard: true,
+  const app = await launchApp(context, {
+    fixture: "empty-board",
     env: { HOME: path.join(root, "home") },
   });
   const page = await boardPage(app);
@@ -1073,7 +1073,7 @@ test("tiles build irregular layouts, preserve views and replace explicitly for a
 });
 
 test("launching into a narrow full tile uses the focused fallback and empty tiles support mouse controls", async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   const original = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
@@ -1167,7 +1167,7 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
 test("tile leader avoids AltGr chords and cancels unmatched keys", {
   skip: process.platform === "darwin" && "macOS retains Command tile bindings",
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   const leader = async (keyCode) => {
     await boardCommand(app, "Space");
@@ -1194,7 +1194,7 @@ test("tile leader avoids AltGr chords and cancels unmatched keys", {
 });
 
 test("tile terminal viewport has no native overflow bars", async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openSettingsScreen(page);
@@ -1229,7 +1229,7 @@ test("tile terminal viewport has no native overflow bars", async (context) => {
 test("click-again repository removal rejects double clicks, cancels, expires and confirms", {
   timeout: deadline(45000),
 }, async (context) => {
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   const profile = await app.evaluate(({ app }) => app.getPath("userData"));
   const repo = path.join(profile, "remove-fixture");
@@ -1269,8 +1269,8 @@ test("click-again repository removal rejects double clicks, cancels, expires and
 test("profile lock focuses the first app, exits duplicates and permits another profile", {
   timeout: deadline(45000),
 }, async (context) => {
-  const first = await launchApp(context, false, {
-    emptyBoard: true,
+  const first = await launchApp(context, {
+    fixture: "empty-board",
     env: {
       FOOM_SESSION: "parent-session",
       FOOM_TOKEN: "parent-token",
@@ -1295,7 +1295,7 @@ test("profile lock focuses the first app, exits duplicates and permits another p
     [],
   );
   const profile = await first.evaluate(({ app }) => app.getPath("userData"));
-  const second = await launchApp(context, false, { emptyBoard: true });
+  const second = await launchApp(context, { fixture: "empty-board" });
   assert.notEqual(await second.evaluate(({ app }) => app.getPath("userData")), profile);
   await first.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows().find(
@@ -1352,7 +1352,7 @@ test("external Git changes refresh inventory and retain sessions in removed work
     });
   git("init", "-q", "-b", "main");
   git("commit", "--allow-empty", "-qm", "init");
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   page.on("console", (message) => {
     if (message.type() === "error") context.diagnostic(`Inventory renderer: ${message.text()}`);
@@ -1646,7 +1646,7 @@ test("commands removed from the wordmark menu keep their shortcuts", {
   timeout: deadline(45000),
   skip: process.platform === "darwin",
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   const filter = page.getByRole("textbox", { name: "Filter repositories and sessions" });
   await filter.fill("before");
@@ -1673,7 +1673,7 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   const repo = path.join(root, "repo");
   await mkdir(repo);
   isolatedGit(["init", "-q", repo]);
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await app.evaluate(({ dialog, BrowserWindow }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
@@ -1896,7 +1896,7 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   const remote = path.join(root, "remote.git");
   git("clone", "--bare", repo, remote);
   git("remote", "add", "origin", remote);
-  const app = await launchApp(context, false, { emptyBoard: true, home });
+  const app = await launchApp(context, { fixture: "empty-board", home });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
@@ -1963,7 +1963,7 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
 test("multiple windows share sessions, keep views exclusive and retain terminals on close", {
   timeout: deadline(60000),
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const first = await boardPage(app);
   await expect(first.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
   const original = (await first.evaluate(() => window.desktop.workspace())).terminals[0].id;
@@ -2046,8 +2046,8 @@ test("multiple windows restore independent layouts, bounds and interface size", 
 }, async (context) => {
   const profile = await mkdtemp(path.join(tmpdir(), "foom-window-restore-"));
   removeAfterApps(context, profile);
-  const options = { args: [`--user-data-dir=${profile}`], emptyBoard: true };
-  const app = await launchApp(context, false, options);
+  const options = { args: [`--user-data-dir=${profile}`], fixture: "empty-board" };
+  const app = await launchApp(context, options);
   const first = await boardPage(app);
   await expect(first.getByRole("button", { name: "Foom config", exact: true })).toBeVisible();
   await first.evaluate(() => window.desktop.appMenu.execute("split-right"));
@@ -2085,7 +2085,7 @@ test("multiple windows restore independent layouts, bounds and interface size", 
     placements.map((item) => item.scale),
     [110, 90],
   );
-  const restored = await launchApp(context, false, options);
+  const restored = await launchApp(context, { ...options, fixture: "restored" });
   await expect
     .poll(
       () => restored.windows().filter((page) => page.url() === "app://bundle/index.html").length,
@@ -2111,7 +2111,7 @@ test("sidebar panels hover, pin, rename and launch a home shell", async (context
   // Exercise soft-wrapped cwd output even on platforms with short temporary paths.
   const fixtureHome = path.join(root, `home-${"x".repeat(80)}`);
   await mkdir(fixtureHome);
-  const app = await launchApp(context, false, { emptyBoard: true, home: fixtureHome });
+  const app = await launchApp(context, { fixture: "empty-board", home: fixtureHome });
   const page = await boardPage(app);
   const home = page.getByRole("treeitem", { name: "Home shell", exact: true });
   await home.hover();
@@ -2196,7 +2196,7 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
   for (const branch of [...Array.from({ length: 8 }, (_, i) => `merged-${i}`), "dirty"])
     git("worktree", "add", "-b", branch, path.join(root, branch));
   await writeFile(path.join(root, "dirty", "keep.txt"), "keep");
-  const app = await launchApp(context, false, { emptyBoard: true, home });
+  const app = await launchApp(context, { fixture: "empty-board", home });
   fixtureCleanup(context).apps.unshift(async () => {
     // Run before launchApp's close callback, including after an assertion failure.
     await app.evaluate(() => globalThis.cleanupRestore?.()).catch(() => {});
@@ -2377,7 +2377,7 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
 });
 
 test("wide blank tiles start as columns, full boards grow right, and hide refills without moving siblings", async (context) => {
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await app.evaluate(({ BrowserWindow }) => {
@@ -2446,7 +2446,7 @@ test("wide blank tiles start as columns, full boards grow right, and hide refill
 });
 
 test("gutter double-click evens three columns and Tidy tiles removes holes through the menu", async (context) => {
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await app.evaluate(({ BrowserWindow }) => {
@@ -2538,7 +2538,7 @@ test("gutter double-click evens three columns and Tidy tiles removes holes throu
 });
 
 test("sidebar collapses at any width, refits once and opens a narrow overlay without reflow", async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   const input = page.locator(".xterm-helper-textarea");
   await expect(input).toBeFocused();
@@ -2643,13 +2643,13 @@ test("sidebar collapses at any width, refits once and opens a narrow overlay wit
 test("sidebar choice restores after restart and new windows start expanded", async (context) => {
   const profile = await mkdtemp(path.join(tmpdir(), "foom-sidebar-restore-"));
   removeAfterApps(context, profile);
-  const options = { args: [`--user-data-dir=${profile}`], emptyBoard: true };
-  const app = await launchApp(context, false, options);
+  const options = { args: [`--user-data-dir=${profile}`], fixture: "empty-board" };
+  const app = await launchApp(context, options);
   const page = await boardPage(app);
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
   await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
   await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
-  const restoredApp = await launchApp(context, false, options);
+  const restoredApp = await launchApp(context, { ...options, fixture: "restored" });
   const restored = await boardPage(restoredApp);
   await expect(restored.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
   await restored.evaluate(() => window.desktop.appMenu.execute("new-window"));
@@ -2668,7 +2668,7 @@ test("sidebar choice restores after restart and new windows start expanded", asy
 test("tile layouts restore v1 terminal content and v2 mixed content after inventory", {
   timeout: deadline(60000),
 }, async (context) => {
-  const app = await launchApp(context, false);
+  const app = await launchApp(context, { fixture: "running-shell", shell: "hidden" });
   const page = await boardPage(app);
   await expect(page.locator(".board-row").first()).toBeVisible();
   const id = await page.locator(".board-row").first().getAttribute("data-drag-session");

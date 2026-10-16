@@ -41,7 +41,9 @@ test("launches an agent in a managed worktree and routes its attention signals",
   git("commit", "-q", "--allow-empty", "-m", "init");
   const credentials = path.join(root, "credentials.json");
 
-  const app = await launchApp(context, false, {
+  const app = await launchApp(context, {
+    fixture: "running-shell",
+    shell: "hidden",
     args: [`--user-data-dir=${path.join(root, "user-data")}`],
     // A private HOME keeps the login shell from loading rc files that would put a real
     // agent ahead of the fake one on PATH.
@@ -401,10 +403,7 @@ else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
     { cwd: repo },
   );
   await writeFile(help, "--no-alt-screen");
-  const app = await launchApp(context, false, {
-    emptyBoard: true,
-    env: { HOME: home, PATH: bin },
-  });
+  const app = await launchApp(context, { fixture: "agent", env: { HOME: home, PATH: bin } });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
@@ -488,10 +487,7 @@ else {
     { cwd: repo },
   );
   await writeFile(help, "--no-alt-screen -c, --config <value>");
-  const app = await launchApp(context, false, {
-    emptyBoard: true,
-    env: { HOME: home, PATH: bin },
-  });
+  const app = await launchApp(context, { fixture: "agent", env: { HOME: home, PATH: bin } });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
@@ -625,11 +621,11 @@ if (resumed) {
     );
     await chmod(path.join(bin, agent), 0o755);
     const options = {
-      emptyBoard: true,
+      fixture: "agent",
       args: [`--user-data-dir=${profile}`],
       env: { HOME: home, PATH: bin, TEST_ARGV: argvFile },
     };
-    const app = await launchApp(context, false, options);
+    const app = await launchApp(context, options);
     const page = await boardPage(app);
     await app.evaluate(({ dialog }, directory) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
@@ -660,7 +656,7 @@ if (resumed) {
       )
       .toBe(conversation);
     await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
-    const restoredApp = await launchApp(context, false, options);
+    const restoredApp = await launchApp(context, { ...options, fixture: "restored" });
     const restored = await boardPage(restoredApp);
     await expect
       .poll(() => restored.evaluate(async () => (await window.desktop.workspace()).terminals))
@@ -809,10 +805,7 @@ process.stdin.on('data', data => {
     ],
     { cwd: repo },
   );
-  const app = await launchApp(context, false, {
-    emptyBoard: true,
-    env: { HOME: home, PATH: bin },
-  });
+  const app = await launchApp(context, { fixture: "agent", env: { HOME: home, PATH: bin } });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
@@ -953,8 +946,8 @@ process.stdin.on('data', (data) => {
       ],
       { cwd: repo },
     );
-    const app = await launchApp(context, false, {
-      firstRun,
+    const app = await launchApp(context, {
+      fixture: firstRun ? "first-run" : "agent",
       env: { HOME: home, PATH: bin },
     });
     const page = await boardPage(app);
@@ -1080,7 +1073,7 @@ test("console pairing requires trusted approval and gives only read-only reposit
   timeout: deadline(45000),
 }, async (context) => {
   const { assertCliPairing } = require("./cli-checks.js");
-  const app = await launchApp(context, false);
+  const app = await launchApp(context, { fixture: "repository" });
   const page = await boardPage(app);
   const profile = await app.evaluate(({ app }) => app.getPath("userData"));
   const repository = await page.evaluate(
@@ -1142,10 +1135,7 @@ process.stdin.on("data", (key) => {
 `,
   );
   await chmod(path.join(bin, "claude"), 0o755);
-  const app = await launchApp(context, false, {
-    home,
-    env: { HOME: home, PATH: bin },
-  });
+  const app = await launchApp(context, { fixture: "agent", home, env: { HOME: home, PATH: bin } });
   const page = await boardPage(app);
   const folder = path.join(home, ".foom", "config");
   const gear = page.locator(".config-gear");
@@ -1312,7 +1302,8 @@ test("an orchestrator adopts an open PR, launches its child without taking focus
     JSON.stringify({ pr: { headRepositoryOwner: { login: "fixture" } }, checks: [] }),
   );
   const credentials = path.join(root, "credentials.json");
-  const app = await launchApp(context, false, {
+  const app = await launchApp(context, {
+    fixture: "agent",
     args: [`--user-data-dir=${path.join(root, "user-data")}`],
     env: {
       HOME: home,
@@ -1474,7 +1465,8 @@ test("an orchestrator wait_for wakes on a child PR required-check conclusion", {
   const forgeState = path.join(root, "forge.json");
   await writeFile(forgeState, JSON.stringify({ checks: [{ bucket: "pending" }], exitCode: 8 }));
   const credentials = path.join(root, "credentials.json");
-  const app = await launchApp(context, false, {
+  const app = await launchApp(context, {
+    fixture: "agent",
     args: [`--user-data-dir=${path.join(root, "user-data")}`],
     env: {
       HOME: home,
@@ -1669,7 +1661,8 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
   git("init", "-q", "-b", "main");
   git("commit", "-q", "--allow-empty", "-m", "init");
   const credentials = path.join(root, "credentials.json");
-  const app = await launchApp(context, false, {
+  const app = await launchApp(context, {
+    fixture: "agent",
     args: [`--user-data-dir=${path.join(root, "user-data")}`],
     env: {
       HOME: home,
@@ -2524,7 +2517,7 @@ req.end(JSON.stringify(payload));
     await writeFile(path.join(bin, agent), fake);
     await chmod(path.join(bin, agent), 0o755);
     const options = {
-      emptyBoard: true,
+      fixture: "agent",
       home,
       args: [`--user-data-dir=${profile}`],
       env: {
@@ -2533,7 +2526,7 @@ req.end(JSON.stringify(payload));
         TEST_FAKE_CREDENTIALS: credentials,
       },
     };
-    const app = await launchApp(context, false, options);
+    const app = await launchApp(context, options);
     const first = await boardPage(app);
     await app.evaluate(({ dialog }, repo) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
@@ -2660,7 +2653,7 @@ req.end(JSON.stringify(payload));
     const saved = JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8"));
     assert.equal(saved.filter((row) => row.running).length, 3);
     assert.ok(saved.find((row) => row.id === parentId).orchestrator.identity);
-    const restored = await launchApp(context, false, options);
+    const restored = await launchApp(context, { ...options, fixture: "restored" });
     let pages;
     await expect
       .poll(() => {
@@ -2776,7 +2769,7 @@ req.end(JSON.stringify(payload));
     const beforeDisabled = await rows(page);
     await page.evaluate(() => window.desktop.saveSetup({ restoreSessions: false }));
     await quit(restored);
-    const disabled = await launchApp(context, false, options);
+    const disabled = await launchApp(context, { ...options, fixture: "restored" });
     const off = await boardPage(disabled);
     await expect
       .poll(() => rows(off))
@@ -2831,8 +2824,8 @@ process.exit(1);
 `,
     );
     await chmod(path.join(bin, agent), 0o755);
-    const app = await launchApp(context, false, {
-      emptyBoard: true,
+    const app = await launchApp(context, {
+      fixture: "agent",
       args: [`--user-data-dir=${profile}`],
       env: { HOME: home, PATH: bin, TEST_ARGV: argvFile },
     });
@@ -2937,8 +2930,8 @@ process.stdin.resume();`,
       ],
       { cwd: repo },
     );
-    const app = await launchApp(context, false, {
-      emptyBoard: true,
+    const app = await launchApp(context, {
+      fixture: "agent",
       env: { HOME: home, PATH: bin, TEST_ARGV: output, FIXTURE_BYPASS: "private-bypass-value" },
     });
     const page = await boardPage(app);
@@ -3250,7 +3243,7 @@ else process.exit(2);
 `,
     { mode: 0o755 },
   );
-  const app = await launchApp(context, false, { emptyBoard: true, env: { HOME: home, PATH: bin } });
+  const app = await launchApp(context, { fixture: "agent", env: { HOME: home, PATH: bin } });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, repo) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
@@ -3424,8 +3417,8 @@ test("built-in duplication creates unique untrusted plugins, edits and approves 
     ],
     { cwd: repo },
   );
-  const app = await launchApp(context, false, {
-    emptyBoard: true,
+  const app = await launchApp(context, {
+    fixture: "agent",
     env: { HOME: home, PATH: bin, TEST_ARGV: output },
   });
   await app.evaluate(({ dialog, shell }, repo) => {

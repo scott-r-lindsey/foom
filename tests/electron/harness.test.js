@@ -48,7 +48,7 @@ test("final Electron quit unwinds the debugger evaluation before resuming", asyn
 });
 
 test("agent discovery uses the fixture login shell and controlled PATH", async (context) => {
-  const app = await launchApp(context, false, { firstRun: true });
+  const app = await launchApp(context, { fixture: "first-run" });
   const page = await boardPage(app);
   const scan = await page.evaluate(() => window.desktop.scanAgents(true));
   const environment = await app.evaluate(() => ({
@@ -98,7 +98,7 @@ test("fixture cleanup closes every app before removing directories and retains q
 
 // First-paint readiness must not replace the independent ongoing-frame check.
 test("a compositor-ready board still fails when animation callbacks are withheld", async (context) => {
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   const original = await page.evaluateHandle(() => window.requestAnimationFrame);
   await page.evaluate(() => {
