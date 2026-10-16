@@ -2804,23 +2804,32 @@ test.each(["claude", "agy"] as const)(
   },
 );
 
-test("merged cleanup rechecks content after exiting terminal resources", async () => {
-  const workspace = await launched();
-  await workspace.exited("t1", 0);
-  vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
-  vi.mocked(deps.terminals, true).stop.mockImplementation(() => {
-    vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(false);
-    return Promise.resolve();
-  });
-  await expect(
-    cleanupCommand(workspace, { kind: "delete-merged-worktrees", repository: repo.path }, () =>
-      Promise.resolve(true),
-    ),
-  ).resolves.toBeUndefined();
-  expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
-  expect(deps.worktrees.deleteMergedBranch).not.toHaveBeenCalled();
-  await workspace.dispose();
-});
+test.each(["unmerged", "dirty", "replaced", "commit", "branch"])(
+  "merged cleanup refuses %s worktrees after exiting terminal resources",
+  async (change) => {
+    const workspace = await launched();
+    await workspace.exited("t1", 0);
+    vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(true);
+    vi.mocked(deps.terminals, true).stop.mockImplementation(() => {
+      if (change === "unmerged") vi.mocked(deps.worktrees.mergedCommit).mockResolvedValue(false);
+      if (change === "dirty") vi.mocked(deps.worktrees.changes).mockResolvedValue("?? file\0");
+      if (change === "replaced") vi.mocked(deps.worktrees.removalIdentity).mockResolvedValue("new");
+      if (change === "commit")
+        vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, head: "new-head" }]);
+      if (change === "branch")
+        vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, branch: "other" }]);
+      return Promise.resolve();
+    });
+    await expect(
+      cleanupCommand(workspace, { kind: "delete-merged-worktrees", repository: repo.path }, () =>
+        Promise.resolve(true),
+      ),
+    ).resolves.toBeUndefined();
+    expect(vi.mocked(deps.worktrees.removeWorktree)).not.toHaveBeenCalled();
+    expect(deps.worktrees.deleteMergedBranch).not.toHaveBeenCalled();
+    await workspace.dispose();
+  },
+);
 
 test("a session launched during confirmation is skipped", async () => {
   const workspace = new Workspace(deps);

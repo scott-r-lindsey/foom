@@ -1947,14 +1947,24 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
   await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
   await expect(confirmation.getByRole("button", { name: "Delete 2", exact: true })).toBeVisible();
+  const cleanupStarted = performance.now();
   await confirmation.getByRole("button", { name: "Delete 2", exact: true }).click();
-  await expect
-    .poll(
-      async () =>
-        (await page.evaluate((repository) => window.desktop.worktrees(repository), repository))
-          .length,
-    )
-    .toBe(2);
+  try {
+    await expect(confirmation.getByRole("button", { name: "Done", exact: true })).toBeVisible();
+    await expect(confirmation.locator('[data-cleanup="removed"]')).toHaveCount(2);
+    assert.equal(
+      (await page.evaluate((repository) => window.desktop.worktrees(repository), repository))
+        .length,
+      2,
+    );
+  } finally {
+    context.diagnostic(
+      `Merged cleanup: ${JSON.stringify({
+        elapsedMs: performance.now() - cleanupStarted,
+        checklist: await confirmation.locator(".cleanup").innerText(),
+      })}`,
+    );
+  }
   for (const branch of ["merged-one", "merged-two"]) {
     await assert.rejects(realpath(paths[branch]), { code: "ENOENT" });
     await expect.poll(() => git("branch", "--list", branch).toString().trim()).toBe("");
