@@ -33,7 +33,12 @@ function guardAgentProbes(directories, log) {
         path.basename(file) === file
           ? (process.env.PATH ?? "")
               .split(path.delimiter)
-              .map((directory) => path.join(directory, file))
+              .flatMap((directory) =>
+                (process.platform === "win32" && !path.extname(file)
+                  ? [file, `${file}.exe`, `${file}.com`, `${file}.cmd`]
+                  : [file]
+                ).map((name) => path.join(directory, name)),
+              )
               .find((candidate) => existsSync(candidate))
           : file;
       if (executable) assertFixtureAgent(executable, directories);
@@ -59,16 +64,6 @@ async function isolatedEnvironment(root, extraPath = "") {
   // Expose just Node, never its installation directory (which may contain Codex).
   if (process.platform === "win32") await copyFile(process.execPath, path.join(bin, "node.exe"));
   else await symlink(process.execPath, path.join(bin, "node"));
-  // Default fixtures must never reach the host GitHub CLI, including auth probes.
-  const ghName = process.platform === "win32" ? "gh.exe" : "gh";
-  if (
-    !extraPath
-      .split(path.delimiter)
-      .some((directory) => directory && existsSync(path.join(directory, ghName)))
-  ) {
-    if (process.platform === "win32") await copyFile(process.execPath, path.join(bin, ghName));
-    else await writeFile(path.join(bin, ghName), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
-  }
   const system =
     process.platform === "win32"
       ? [
@@ -90,6 +85,19 @@ async function isolatedEnvironment(root, extraPath = "") {
           ),
         ]
       : ["/usr/bin", "/bin"];
+  // Default fixtures must never reach the host GitHub CLI, including auth probes.
+  const ghName = process.platform === "win32" ? "gh.exe" : "gh";
+  if (
+    !extraPath
+      .split(path.delimiter)
+      .some(
+        (directory) =>
+          directory && !system.includes(directory) && existsSync(path.join(directory, ghName)),
+      )
+  ) {
+    if (process.platform === "win32") await copyFile(process.execPath, path.join(bin, ghName));
+    else await writeFile(path.join(bin, ghName), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  }
   const controlled = [
     ...new Set([bin, ...extraPath.split(path.delimiter).filter(Boolean), ...system]),
   ].join(path.delimiter);

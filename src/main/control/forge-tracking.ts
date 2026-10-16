@@ -7,8 +7,8 @@ import type { ForgeProvider, ForgeWorktree, PullRequest } from "./forge.d";
 
 interface Entry extends ForgeWorktree {
   board?: BoardPullRequest;
-  orchestrator?: boolean;
-  visible?: boolean;
+  orchestrator: boolean;
+  refresh: number;
   remote?: string;
   number?: number;
   pr?: PullRequest;
@@ -35,7 +35,10 @@ export class ForgeTracking {
   }
   constructor(
     private readonly directory: string,
-    private readonly inspect: (tree: ForgeWorktree) => Promise<string | undefined>,
+    private readonly inspect: (
+      tree: ForgeWorktree,
+      orchestrator?: boolean,
+    ) => Promise<string | undefined>,
     private readonly changed: () => void,
     private readonly provider: (remote: string) => ForgeProvider | undefined = forgeProvider,
     private readonly now: () => number = Date.now,
@@ -43,7 +46,7 @@ export class ForgeTracking {
 
   static async open(
     userData: string,
-    inspect: (tree: ForgeWorktree) => Promise<string | undefined>,
+    inspect: (tree: ForgeWorktree, orchestrator?: boolean) => Promise<string | undefined>,
     changed: () => void,
   ): Promise<ForgeTracking> {
     const tracker = new ForgeTracking(await privateDirectory(userData), inspect, changed);
@@ -72,6 +75,7 @@ export class ForgeTracking {
           (typeof number !== "number" || !Number.isSafeInteger(number) || number <= 0)
         )
           continue;
+        if (row["orchestrator"] !== undefined && typeof row["orchestrator"] !== "boolean") continue;
         const pr = pullRequest(row["pr"]);
         if (row["pr"] !== undefined && !pr) continue;
         // Revalidate ownership before making any network call or exposing saved data.
@@ -106,14 +110,13 @@ export class ForgeTracking {
       (number === undefined || previous.number === number)
     ) {
       if (orchestrator) previous.orchestrator = true;
-      else previous.visible = true;
       return;
     }
     if (this.entries.size >= 1000 && !previous) return;
     this.entries.set(tree.path, {
       ...tree,
       orchestrator,
-      visible: !orchestrator,
+      refresh: 0,
       ...(number === undefined ? {} : { number }),
       available: false,
       failures: 0,
@@ -140,7 +143,6 @@ export class ForgeTracking {
     const paths = new Set(trees.map((tree) => tree.path));
     for (const [path, entry] of this.entries) {
       if (entry.repository !== repository || paths.has(path)) continue;
-      entry.visible = false;
       if (!entry.orchestrator) this.entries.delete(path);
     }
     for (const tree of trees) this.track(tree, undefined, false);
@@ -149,6 +151,7 @@ export class ForgeTracking {
   recheck(path: string): void {
     const entry = this.entries.get(path);
     if (!entry || (!this.enabled && !entry.orchestrator)) return;
+    entry.refresh++;
     entry.due = 0;
     void this.poll();
   }
@@ -165,7 +168,7 @@ export class ForgeTracking {
     return entry?.repository === repository && entry.available ? pullRequest(entry.pr) : undefined;
   }
 
-  /** Serial, globally spaced requests; one worktree per tick, no overlap or catch-up burst. */
+  /** Serial repository batches (legacy providers retain single-checkout lookup). */
   poll(): Promise<void> {
     this.running = this.running
       .then(async () => {
@@ -174,8 +177,9 @@ export class ForgeTracking {
           .sort((a, b) => a.due - b.due)
           .find((row) => row.due <= this.now() && (row.orchestrator || this.enabled));
         if (!entry) return;
-        const remote = await this.inspect(entry).catch(() => undefined);
-        if (this.stopped() || this.entries.get(entry.path) !== entry) return;
+        const remote = await this.inspect(entry, entry.orchestrator).catch(() => undefined);
+        if (this.stopped() || this.pauses.size > 0 || this.entries.get(entry.path) !== entry)
+          return;
         const previous = entry.available ? JSON.stringify(entry.pr) : undefined;
         if (remote === undefined) {
           this.entries.delete(entry.path);
@@ -192,7 +196,8 @@ export class ForgeTracking {
               entry.number ?? (remote === entry.remote ? entry.pr?.number : undefined),
             )
             .catch(() => undefined);
-          if (this.stopped() || this.entries.get(entry.path) !== entry) return;
+          if (this.stopped() || this.pauses.size > 0 || this.entries.get(entry.path) !== entry)
+            return;
           const pr = pullRequest(result);
           entry.available = pr !== undefined;
           if (pr) {
@@ -221,7 +226,7 @@ export class ForgeTracking {
     );
     const rows: Entry[] = [];
     for (const entry of candidates) {
-      const current = await this.inspect(entry).catch(() => undefined);
+      const current = await this.inspect(entry, entry.orchestrator).catch(() => undefined);
       if (this.stopped() || this.pauses.size > 0) return;
       if (this.entries.get(entry.path) !== entry) continue;
       if (current !== remote) {
@@ -238,6 +243,7 @@ export class ForgeTracking {
       rows.push(entry);
     }
     if (rows.length === 0) return;
+    const revisions = new Map(rows.map((entry) => [entry, entry.refresh]));
     const result = await provider
       .batch?.(
         rows.map((entry) => {
@@ -265,6 +271,7 @@ export class ForgeTracking {
       const previous = entry.available ? JSON.stringify([entry.pr, entry.board]) : undefined;
       const pr = result?.get(entry.branch);
       const old = entry.board;
+      const oldHead = entry.pr?.headSha;
       const discovered = pr && !entry.pr && entry.number === undefined;
       entry.available = pr !== undefined;
       if (pr) {
@@ -289,13 +296,15 @@ export class ForgeTracking {
               : result.size
                 ? 120000
                 : 600000);
+      if (entry.refresh !== revisions.get(entry)) entry.due = 0;
       if (
         pr &&
         old &&
         pr.board.state === "OPEN" &&
         pr.board.checks &&
         pr.board.checks.pending === 0 &&
-        (old.number !== pr.number ||
+        (oldHead !== pr.headSha ||
+          old.number !== pr.number ||
           old.checks?.pending !== 0 ||
           old.checks.failed !== pr.board.checks.failed) &&
         pr.board.checks.passed + pr.board.checks.failed > 0

@@ -460,7 +460,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     }
     const forge = await ForgeTracking.open(
       app.getPath("userData"),
-      async (tree) => {
+      async (tree, orchestrator) => {
         if (!worktrees.listRepositories().some((repo) => repo.path === tree.repository))
           return undefined;
         const owned = (await worktrees.listWorktrees(tree.repository)).find(
@@ -468,6 +468,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
         );
         if (
           !owned ||
+          (orchestrator && !owned.managed) ||
           owned.branch !== tree.branch ||
           (await worktrees.launchIdentity(tree.repository, tree.path)) !== tree.identity
         )
@@ -507,7 +508,9 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
               row.worktree === tree.path &&
               row.kind === "agent" &&
               !row.exited &&
-              row.state?.state === "working",
+              (row.execution
+                ? row.execution.phase === "working" || row.execution.phase === "starting"
+                : row.state === null || row.state.state === "working"),
           );
         if (!pr.checks || (pr.checks.failed === 0 && active)) return;
         const notice = new Notification({
@@ -521,6 +524,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
             [...windows.values()].find(({ window }) => window.isFocused()) ??
             windows.values().next().value;
           if (!target) return;
+          if (target.window.isMinimized()) target.window.restore();
           target.window.show();
           target.window.focus();
           target.window.webContents.send("workspace:focus-worktree", tree.path);

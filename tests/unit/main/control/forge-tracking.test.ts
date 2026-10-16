@@ -508,16 +508,18 @@ it("discards in-flight batch replies on pause, disable and checkout replacement"
     h.tracker.setEnabled(true);
     h.tracker.sync(tree.repository, [tree]);
     let finish: (value: ReadonlyMap<string, typeof h.observation>) => void = () => {};
-    h.batch.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-    );
+    let announce = () => {};
+    const started = new Promise<void>((resolve) => {
+      announce = resolve;
+    });
+    h.batch.mockImplementationOnce(() => {
+      announce();
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
     const poll = h.tracker.poll();
-    // Await the observable provider invocation, without elapsed-time waits.
-    for (let tick = 0; tick < 10 && h.batch.mock.calls.length === 0; tick++)
-      await Promise.resolve();
+    await started;
     expect(h.batch).toHaveBeenCalledTimes(1);
     if (action === "pause") h.tracker.pause("sleep", true);
     else if (action === "disable") h.tracker.setEnabled(false);
@@ -526,4 +528,54 @@ it("discards in-flight batch replies on pause, disable and checkout replacement"
     await poll;
     expect(h.tracker.readBoard(tree.repository, tree.path)).toBeUndefined();
   }
+});
+
+it("does not lose an idle refresh that arrives during an in-flight repository read", async () => {
+  const h = batched();
+  h.tracker.setEnabled(true);
+  h.tracker.sync(tree.repository, [tree]);
+  let announce = () => {};
+  const started = new Promise<void>((resolve) => {
+    announce = resolve;
+  });
+  let finish: (value: ReadonlyMap<string, typeof h.observation>) => void = () => {};
+  h.batch.mockImplementationOnce(() => {
+    announce();
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  const first = h.tracker.poll();
+  await started;
+  h.tracker.recheck(tree.path);
+  finish(new Map([[tree.branch, h.observation]]));
+  await first;
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(2);
+});
+
+it("notifies for a new failed head even when checks finish between polls", async () => {
+  const h = batched();
+  const completed = vi.fn();
+  h.tracker.onCompleted = completed;
+  h.tracker.setEnabled(true);
+  h.tracker.sync(tree.repository, [tree]);
+  const failed = {
+    ...h.observation,
+    requiredChecks: "failure" as const,
+    board: { ...h.observation.board, checks: { passed: 0, failed: 1, pending: 0 } },
+  };
+  h.result(new Map([[tree.branch, failed]]));
+  await h.tracker.poll();
+  expect(completed).not.toHaveBeenCalled();
+  h.result(new Map([[tree.branch, { ...failed, headSha: "b".repeat(40) }]]));
+  h.tracker.recheck(tree.path);
+  await h.tracker.poll();
+  expect(completed).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ path: tree.path }),
+    failed.board,
+  );
+  h.tracker.recheck(tree.path);
+  await h.tracker.poll();
+  expect(completed).toHaveBeenCalledTimes(1);
 });

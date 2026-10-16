@@ -1,8 +1,10 @@
+import type { WorkspaceTerminal } from "../../../src/shared/workspace";
 import type * as ForgeModule from "../../../src/main/control/forge";
 import { DEFAULT_SETTINGS } from "../../../src/main/setup/settings";
 import { runForge } from "../../../src/main/control/forge";
 const forgeUi = vi.hoisted(() => ({
   supported: true,
+  rows: undefined as WorkspaceTerminal[] | undefined,
   events: new Map<string, () => void>(),
   notices: [] as { title: string; body: string; click?: () => void }[],
 }));
@@ -27,7 +29,7 @@ const forgeMock = vi.hoisted(() => ({
   open: vi.fn<
     (
       directory: string,
-      inspect: (tree: ForgeWorktree) => Promise<string | undefined>,
+      inspect: (tree: ForgeWorktree, orchestrator?: boolean) => Promise<string | undefined>,
       changed: () => void,
     ) => Promise<unknown>
   >(),
@@ -191,7 +193,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     prepareQuit = async () => {};
     cancelQuit = () => {};
     snapshot = () => ({
-      terminals: [
+      terminals: forgeUi.rows ?? [
         {
           id: "t1",
           agent: "claude",
@@ -630,6 +632,7 @@ beforeEach(() => {
   mock.catalog = { interface: [], terminal: [], errors: [] };
   mock.state.windows = [mock.window];
   mock.ready.mockResolvedValue();
+  forgeUi.rows = undefined;
   forgeUi.notices = [];
   forgeUi.events.clear();
   forgeUi.supported = true;
@@ -1908,6 +1911,8 @@ test("forge observations require registered, managed worktrees with matching bra
   expect(await inspect({ ...tree, identity: "other" })).toBeUndefined();
   listWorktrees.mockResolvedValueOnce([{ path: "/tree", managed: false, branch: "child-one" }]);
   expect(await inspect(tree)).toBe("https://github.com/o/r");
+  listWorktrees.mockResolvedValueOnce([{ path: "/tree", managed: false, branch: "child-one" }]);
+  expect(await inspect(tree, true)).toBeUndefined();
   forgeRemote.mockResolvedValueOnce(undefined);
   expect(await inspect(tree)).toBe("");
   forgeMock.open.mock.lastCall?.[2]();
@@ -2220,6 +2225,57 @@ test("forge lifecycle pauses on power events and completion notifications honor 
     forgeUi.supported = false;
     tracker.onCompleted?.(tree, pr);
     expect(forgeUi.notices).toHaveLength(2);
+  } finally {
+    get.mockRestore();
+  }
+});
+
+test("pass notifications use current execution evidence rather than stale verdicts", async () => {
+  const get = vi
+    .spyOn(mock.settingsStore, "get")
+    .mockReturnValue({ ...DEFAULT_SETTINGS, showPullRequests: true });
+  try {
+    await start();
+    const tracker = mock.workspace.deps?.forge;
+    if (!tracker) throw new Error("Missing tracker");
+    const tree = { repository: "/repo", path: "/tree", identity: "id", branch: "feature" };
+    const pr = {
+      number: 12,
+      title: "PR",
+      url: "https://github.com/o/r/pull/12",
+      state: "OPEN" as const,
+      checks: { passed: 1, pending: 0, failed: 0 },
+    };
+    const row: WorkspaceTerminal = {
+      id: "t1",
+      kind: "agent",
+      agent: "claude",
+      repository: "/repo",
+      worktree: "/tree",
+      branch: "feature",
+      state: null,
+      attention: "hooks",
+    };
+    for (const phase of ["starting", "working"] as const) {
+      forgeUi.rows = [
+        { ...row, execution: { terminalId: "t1", launch: 1, revision: 1, turn: 1, phase } },
+      ];
+      tracker.onCompleted?.(tree, pr);
+    }
+    forgeUi.rows = [row];
+    tracker.onCompleted?.(tree, pr);
+    expect(forgeUi.notices).toHaveLength(0);
+    forgeUi.rows = [
+      { ...row, execution: { terminalId: "t1", launch: 1, revision: 2, turn: 1, phase: "idle" } },
+    ];
+    tracker.onCompleted?.(tree, pr);
+    expect(forgeUi.notices).toHaveLength(1);
+    forgeUi.rows = [{ ...row, exited: true }];
+    tracker.onCompleted?.(tree, pr);
+    expect(forgeUi.notices).toHaveLength(2);
+    mock.window.isMinimized.mockReturnValueOnce(true);
+    forgeUi.notices[1]?.click?.();
+    expect(mock.window.restore).toHaveBeenCalled();
   } finally {
     get.mockRestore();
   }

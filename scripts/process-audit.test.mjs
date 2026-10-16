@@ -171,7 +171,7 @@ test("fixture login shell ignores inherited PATH and never exposes Node's siblin
   const { isolatedEnvironment } = await import("../tests/electron/agent-isolation.js");
   const root = await mkdtemp(path.join(tmpdir(), "foom-login-shell-"));
   context.after(() => rm(root, { recursive: true, force: true }));
-  const env = await isolatedEnvironment(root);
+  const env = await isolatedEnvironment(root, ["/usr/bin", "/bin"].join(path.delimiter));
   const output = execFileSync(env.SHELL, ["-ilc", 'printf "\\000FOOM_PATH\\000%s\\000" "$PATH"'], {
     env: { ...process.env, PATH: "/host/agents" },
   }).toString();
