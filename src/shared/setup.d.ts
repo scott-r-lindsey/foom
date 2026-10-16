@@ -18,6 +18,8 @@ export interface Settings {
   concurrentChildren: number;
   /** Orchestrators may remove their own merged, clean worktrees without review. Profile only. */
   autoRemoveMergedWorktrees: boolean;
+  /** Unset until the first GitHub CLI login probe. Profile only. */
+  showPullRequests?: boolean;
   agents: AgentValues<boolean>;
   agentArguments: AgentValues<readonly string[]>;
   /** Main-owned acknowledgement; renderer save requests may not set this. */

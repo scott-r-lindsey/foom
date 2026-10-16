@@ -1641,3 +1641,54 @@ test("sidebar toggle preserves terminal focus, moves tree focus and restores the
   view.unmount();
   vi.unstubAllGlobals();
 });
+
+test("PR notification focus reveals a filtered collapsed checkout and disposes its subscription", async () => {
+  let focus: ((path: string) => void) | undefined;
+  const off = vi.fn();
+  const command = vi.fn(() => Promise.resolve());
+  const pr = {
+    number: 12,
+    title: "PR",
+    url: "https://github.com/o/r/pull/12",
+    state: "OPEN" as const,
+    checks: { passed: 0, failed: 1, pending: 0 },
+  };
+  const source: BoardSource = {
+    ...createSampleSource([]),
+    getSidebar: () => [
+      {
+        ...repository,
+        worktrees: repository.worktrees.map((tree) =>
+          tree.path === "/tree" ? { ...tree, pullRequest: pr } : tree,
+        ),
+      },
+    ],
+    sidebarCommand: command,
+    onFocusWorktree: (listener) => {
+      focus = listener;
+      return off;
+    },
+  };
+  const view = render(<Board source={source} />);
+  fireEvent.change(view.getByLabelText("Filter repositories and sessions"), {
+    target: { value: "absent" },
+  });
+  fireEvent.click(view.getByRole("button", { name: "Collapse sidebar" }));
+  act(() => {
+    focus?.("/gone");
+    focus?.("/tree");
+  });
+  expect(view.getByRole("button", { name: "Collapse sidebar" })).toBeTruthy();
+  expect(document.activeElement?.textContent).toContain("feature");
+  fireEvent.click(view.getByRole("button", { name: "Pull request #12 · failed" }));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(command).toHaveBeenCalledWith({
+    kind: "open-pull-request",
+    repository: "/foom",
+    worktree: "/tree",
+  });
+  view.unmount();
+  expect(off).toHaveBeenCalled();
+});

@@ -339,3 +339,243 @@ it("refuses invalid adoption numbers in memory and persisted tracking", async ()
   }
   expect(h.lookup).not.toHaveBeenCalled();
 });
+
+function batched() {
+  let now = 100;
+  const observation = {
+    ...pending,
+    board: {
+      number: 340,
+      title: "PR",
+      url: "https://github.com/o/r/pull/340",
+      state: "OPEN" as const,
+      checks: { passed: 0, failed: 0, pending: 1 },
+    },
+  };
+  let result: ReadonlyMap<string, typeof observation> | undefined = new Map([
+    [tree.branch, observation],
+  ]);
+  const batch = vi.fn(() => Promise.resolve(result));
+  const inspect = vi.fn(() => Promise.resolve("https://github.com/o/r"));
+  const changed = vi.fn();
+  const tracker = new ForgeTracking(
+    directory,
+    inspect,
+    changed,
+    () => ({ batch, lookup: vi.fn() }),
+    () => now,
+  );
+  trackers.push(tracker);
+  return {
+    tracker,
+    observation,
+    batch,
+    inspect,
+    changed,
+    result: (next: typeof result) => {
+      result = next;
+    },
+    advance: (ms: number) => {
+      now += ms;
+    },
+  };
+}
+it("batches every checkout in a repository, discovers required checks, and changes cadence", async () => {
+  const h = batched();
+  h.tracker.setEnabled(true);
+  h.tracker.sync(tree.repository, [tree, { ...tree, path: join(root, "second"), branch: "other" }]);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(1);
+  expect(h.tracker.readBoard(tree.repository, tree.path)).toEqual(h.observation.board);
+  h.advance(1000);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(2);
+  h.advance(19999);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(2);
+  h.advance(1);
+  h.result(
+    new Map([
+      [
+        tree.branch,
+        {
+          ...h.observation,
+          requiredChecks: "success",
+          board: { ...h.observation.board, checks: { passed: 1, failed: 0, pending: 0 } },
+        },
+      ],
+    ]),
+  );
+  const complete = vi.fn();
+  h.tracker.onCompleted = complete;
+  await h.tracker.poll();
+  expect(complete).toHaveBeenCalledTimes(1);
+  h.advance(119999);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(3);
+  h.advance(1);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(4);
+  expect(complete).toHaveBeenCalledTimes(1);
+  h.result(new Map());
+  h.advance(120000);
+  await h.tracker.poll();
+  expect(h.tracker.readBoard(tree.repository, tree.path)).toBeUndefined();
+  h.advance(599999);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(5);
+  h.advance(1);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(6);
+});
+it("pauses on sleep and lock, rechecks on idle, and disables only board polling", async () => {
+  const h = batched();
+  h.tracker.sync(tree.repository, [tree]);
+  await h.tracker.poll();
+  h.tracker.recheck(tree.path);
+  await h.tracker.poll();
+  expect(h.batch).not.toHaveBeenCalled();
+  h.tracker.setEnabled(true);
+  h.tracker.pause("sleep", true);
+  h.tracker.pause("lock", true);
+  await h.tracker.poll();
+  h.tracker.pause("sleep", false);
+  await h.tracker.poll();
+  expect(h.batch).not.toHaveBeenCalled();
+  h.tracker.pause("lock", false);
+  await h.tracker.poll();
+  h.tracker.recheck(tree.path);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(2);
+  h.tracker.setEnabled(false);
+  expect(h.tracker.readBoard(tree.repository, tree.path)).toBeUndefined();
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(2);
+  h.tracker.track(tree);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(3);
+  expect(h.tracker.read(tree.repository, tree.path)).toEqual(pending);
+  h.tracker.sync(tree.repository, []);
+  h.tracker.recheck(tree.path);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(4);
+});
+it("backs off failed repository reads, retires removed identities, and resumes on setting enable", async () => {
+  const h = batched();
+  h.tracker.setEnabled(true);
+  h.tracker.sync(tree.repository, [tree]);
+  h.result(undefined);
+  await h.tracker.poll();
+  h.advance(59999);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(1);
+  h.advance(1);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(2);
+  h.tracker.setEnabled(false);
+  h.tracker.setEnabled(true);
+  h.result(new Map([[tree.branch, h.observation]]));
+  await h.tracker.poll();
+  expect(h.tracker.readBoard(tree.repository, tree.path)).toBeDefined();
+  h.tracker.sync(tree.repository, []);
+  expect(h.tracker.readBoard(tree.repository, tree.path)).toBeUndefined();
+  h.tracker.recheck("missing");
+  h.tracker.sync(tree.repository, [tree]);
+  h.inspect.mockResolvedValueOnce("https://github.com/o/r").mockResolvedValueOnce("changed");
+  await h.tracker.poll();
+  expect(h.tracker.read(tree.repository, tree.path)).toBeUndefined();
+});
+
+it("handles rejected batch reads and revalidation failures without leaking observations", async () => {
+  const h = batched();
+  h.tracker.setEnabled(true);
+  h.tracker.sync(tree.repository, [tree]);
+  await h.tracker.poll();
+  h.batch.mockRejectedValueOnce(new Error("offline"));
+  h.tracker.recheck(tree.path);
+  await h.tracker.poll();
+  expect(h.tracker.readBoard(tree.repository, tree.path)).toBeUndefined();
+  h.inspect
+    .mockResolvedValueOnce("https://github.com/o/r")
+    .mockRejectedValueOnce(new Error("removed"));
+  h.tracker.recheck(tree.path);
+  await h.tracker.poll();
+  expect(h.tracker.read(tree.repository, tree.path)).toBeUndefined();
+});
+it("discards in-flight batch replies on pause, disable and checkout replacement", async () => {
+  for (const action of ["pause", "disable", "replace"] as const) {
+    const h = batched();
+    h.tracker.setEnabled(true);
+    h.tracker.sync(tree.repository, [tree]);
+    let finish: (value: ReadonlyMap<string, typeof h.observation>) => void = () => {};
+    let announce = () => {};
+    const started = new Promise<void>((resolve) => {
+      announce = resolve;
+    });
+    h.batch.mockImplementationOnce(() => {
+      announce();
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
+    const poll = h.tracker.poll();
+    await started;
+    expect(h.batch).toHaveBeenCalledTimes(1);
+    if (action === "pause") h.tracker.pause("sleep", true);
+    else if (action === "disable") h.tracker.setEnabled(false);
+    else h.tracker.sync(tree.repository, [{ ...tree, identity: "replacement" }]);
+    finish(new Map([[tree.branch, h.observation]]));
+    await poll;
+    expect(h.tracker.readBoard(tree.repository, tree.path)).toBeUndefined();
+  }
+});
+
+it("does not lose an idle refresh that arrives during an in-flight repository read", async () => {
+  const h = batched();
+  h.tracker.setEnabled(true);
+  h.tracker.sync(tree.repository, [tree]);
+  let announce = () => {};
+  const started = new Promise<void>((resolve) => {
+    announce = resolve;
+  });
+  let finish: (value: ReadonlyMap<string, typeof h.observation>) => void = () => {};
+  h.batch.mockImplementationOnce(() => {
+    announce();
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  const first = h.tracker.poll();
+  await started;
+  h.tracker.recheck(tree.path);
+  finish(new Map([[tree.branch, h.observation]]));
+  await first;
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(2);
+});
+
+it("notifies for a new failed head even when checks finish between polls", async () => {
+  const h = batched();
+  const completed = vi.fn();
+  h.tracker.onCompleted = completed;
+  h.tracker.setEnabled(true);
+  h.tracker.sync(tree.repository, [tree]);
+  const failed = {
+    ...h.observation,
+    requiredChecks: "failure" as const,
+    board: { ...h.observation.board, checks: { passed: 0, failed: 1, pending: 0 } },
+  };
+  h.result(new Map([[tree.branch, failed]]));
+  await h.tracker.poll();
+  expect(completed).not.toHaveBeenCalled();
+  h.result(new Map([[tree.branch, { ...failed, headSha: "b".repeat(40) }]]));
+  h.tracker.recheck(tree.path);
+  await h.tracker.poll();
+  expect(completed).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ path: tree.path }),
+    failed.board,
+  );
+  h.tracker.recheck(tree.path);
+  await h.tracker.poll();
+  expect(completed).toHaveBeenCalledTimes(1);
+});

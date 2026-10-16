@@ -483,6 +483,15 @@ const desktop: DesktopApi = {
   removeWorktree: (id) => ipcRenderer.invoke("workspace:remove", id),
   panelFacts: (repository, worktree) =>
     ipcRenderer.invoke("workspace:panel-facts", repository, worktree),
+  onFocusWorktree(callback) {
+    const listener = (_event: Electron.IpcRendererEvent, path: unknown) => {
+      if (typeof path === "string" && path.length <= 4096) callback(path);
+    };
+    ipcRenderer.on("workspace:focus-worktree", listener);
+    return () => {
+      ipcRenderer.removeListener("workspace:focus-worktree", listener);
+    };
+  },
   sidebarInventory: () => ipcRenderer.invoke("workspace:sidebar"),
   sidebarCommand: (command) => ipcRenderer.invoke("workspace:sidebar-command", command),
   workspace: () => ipcRenderer.invoke("workspace:snapshot"),

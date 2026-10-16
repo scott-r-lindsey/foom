@@ -1,3 +1,4 @@
+import { PullRequestMark } from "./pull-request";
 import type { PreviewSummary } from "../../shared/workspace";
 import { ResumeField } from "./resume-field-view";
 import { PanelIntent } from "./panel-intent";
@@ -383,6 +384,24 @@ export function Sidebar({
     });
     setArrival(path);
   };
+  useEffect(
+    () =>
+      source.onFocusWorktree?.((path) => {
+        const repository = source
+          .getSidebar?.()
+          .find((repo) => repo.worktrees.some((tree) => tree.path === path));
+        if (!repository) return;
+        pendingRef.current.focus = worktreeKey(path);
+        setCollapsed?.(false);
+        if (narrow) setOverlay(true);
+        setFilter("");
+        save({
+          ...preferences,
+          expanded: { ...preferences.expanded, [repositoryKey(repository.path)]: true },
+        });
+      }),
+    [source, save, preferences, setCollapsed, narrow],
+  );
   const launchers = (location: SidebarLocation) =>
     launcherActions(options, source.shellName?.()).map((action) => ({
       ...action,
@@ -1079,7 +1098,7 @@ export function Sidebar({
                 return (
                   <div key={rid}>
                     {index > 0 && tree[index - 1]?.section !== repo.section && (
-                      <hr className="tree-separator" />
+                      <hr className="tree-separator" aria-hidden="true" />
                     )}
                     <div
                       role="treeitem"
@@ -1312,6 +1331,18 @@ export function Sidebar({
                                       </span>
                                     </span>
                                   </button>
+                                  {worktree.pullRequest && (
+                                    <PullRequestMark
+                                      pr={worktree.pullRequest}
+                                      open={() =>
+                                        command({
+                                          kind: "open-pull-request",
+                                          repository: repo.repository.path,
+                                          worktree: worktree.path,
+                                        })
+                                      }
+                                    />
+                                  )}
                                   {cleanupItem &&
                                     !(
                                       cleanupItem.state === "kept" &&

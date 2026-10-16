@@ -633,6 +633,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     "codeFolder",
     "codexNotifierAcknowledged",
     "setupComplete",
+    "showPullRequests",
     "worktreeLocation",
   ]);
   const effective = (await page.evaluate(() => window.desktop.setupState())).settings;
@@ -644,6 +645,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     restoreSessions: true,
     concurrentChildren: 4,
     autoRemoveMergedWorktrees: false,
+    showPullRequests: false,
     agents: { claude: true, codex: true, agy: true },
     agentArguments: { claude: [], codex: [], agy: [] },
     agentBypassAcknowledged: { claude: false, codex: false, agy: false },

@@ -133,6 +133,7 @@ export interface StartWorktreeRequest {
 }
 
 export interface WorkspaceApi {
+  onFocusWorktree?(callback: (path: string) => void): () => void;
   actionLog(query: ActionLogQuery): Promise<ActionLogPage>;
   clearActionLog(): Promise<void>;
   confirmations: ConfirmationClient;
@@ -188,6 +189,7 @@ export type SidebarCommand =
   | { kind: "copy-home-path" }
   | { kind: "config-launch"; run: AgentId; origin?: "menu" }
   | { kind: "copy-config-path" }
+  | { kind: "open-pull-request"; repository: string; worktree: string }
   | { kind: "copy-worktree-path"; repository: string; worktree: string }
   | { kind: "launch"; repository: string; worktree: string; run: AgentId }
   | { kind: "remove-worktree"; repository: string; worktree: string }

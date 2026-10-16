@@ -405,3 +405,35 @@ test("reports a failed handoff link action without unhandled rejection", async (
   fireEvent.click(view.getByRole("link"));
   expect(await view.findByText("Unable to open this handoff link.")).toBeDefined();
 });
+
+test("checkout panel renders a plain PR title, state and complete check counts", () => {
+  const pullRequest = {
+    number: 12,
+    title: "<b>Untrusted title</b>",
+    url: "https://github.com/o/r/pull/12",
+    state: "OPEN" as const,
+    checks: { passed: 2, failed: 1, pending: 3 },
+  };
+  const view = render(
+    <PanelFacts
+      subject={{ kind: "worktree", repository, tree: { ...tree, pullRequest } }}
+      source={source}
+      options={undefined}
+    />,
+  );
+  expect(view.getByText("#12 · <b>Untrusted title</b>")).toBeTruthy();
+  expect(view.getByText("2 passed · 1 failed · 3 running")).toBeTruthy();
+  expect(view.container.querySelector("b")).toBeNull();
+  view.rerender(
+    <PanelFacts
+      subject={{
+        kind: "worktree",
+        repository,
+        tree: { ...tree, pullRequest: { ...pullRequest, checks: null } },
+      }}
+      source={source}
+      options={undefined}
+    />,
+  );
+  expect(view.getByText("Checks").nextElementSibling?.textContent).toBe("Unknown");
+});

@@ -156,6 +156,16 @@ refresh remains the fallback. Sidebar commands still re-read Git inventory and v
 The live board source marks sessions whose checkout is absent or prunable without
 changing their terminal state, capabilities or attachment.
 
+The main-owned forge tracker also decorates checkout inventory with validated PR
+number, title, state, generated GitHub URL and complete check counts. Renderer
+components read these facts through BoardSource. The open-PR sidebar command
+validates sender, repository and current checkout identity, then opens the tracker’s
+URL through Electron shell; no renderer-supplied URL is accepted. Notification clicks
+send a checkout focus event and never attach a terminal. Sleep/lock events pause the
+tracker. Settings’ profile-only showPullRequests preference gates board polling;
+orchestrator tracking remains independent. See the [batched forge contract](orchestration.md#child-pr-and-required-checks-340)
+for bounded queries, matching, cadence and required-check semantics.
+
 ## Renderer
 
 Board windows disable Electron's `backgroundThrottling`. Native occlusion must not
@@ -785,7 +795,7 @@ sends no placement event. `close` accepts only owned, exited children and delega
 to the normal sidebar close path; the final screen is discarded while the checkout,
 branch and review state remain.
 
-Foom also reads PR and required-check status for orchestrator-owned child
+Foom also reads PR and check status for board checkouts and orchestrator-owned child
 worktrees through a main-owned forge provider. GitHub is supported through your
 own `gh` CLI and existing login; Foom stores no tokens, makes no forge writes and
 sends no terminal content. The CLI contacts GitHub with repository and branch/PR
@@ -795,11 +805,11 @@ and required-check conclusion appear in session metadata, and `wait_for` wakes o
 conclusion changes. gh 2.45.0 uses a read-only GraphQL fallback when
 `pr checks --json` fails. Unavailable, malformed or incomplete check results retain
 verified PR fields with `requiredChecks: "unknown"`; this is never a successful
-conclusion or evidence of an empty required set. Every conclusion retains the PR
+conclusion or evidence of an empty required set. Batched queries verify that the
+check commit matches the PR head; single-PR adoption lookups retain the final
 head/state recheck. The mapping survives restart and a new orchestrator generation,
-without transferring authority over old children. Successful reads recur every
-30 seconds; unavailable results back off from 60 seconds to at most 10 minutes.
-Polling is serial with at least a second between worktrees and stops on shutdown.
+without transferring authority over old children. Successful reads use the shared repository cadence; unavailable results back off from 60 seconds to at most 10 minutes.
+Polling is serial by repository, pauses during sleep and screen lock, and stops on shutdown.
 See [the data, persistence and polling contract](orchestration.md#child-pr-and-required-checks-340).
 
 **Child handoffs implemented in #514.** `control/handoffs.ts` holds serialized,
