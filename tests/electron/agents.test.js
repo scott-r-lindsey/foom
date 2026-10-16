@@ -1884,11 +1884,14 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       const file = path.join(root, "handoff.txt");
       await writeFile(file, summary);
       const state = (await call(parent.controlToken, "session_state", { id: childId })).body.result;
-      const waiting = call(parent.controlToken, "wait_for", {
-        ids: [childId],
-        after: { [childId]: state.revision },
-        timeoutMs: 30000,
-      });
+      const waitDeadline = Date.now() + deadline(30000);
+      const waitFrom = (revision) =>
+        call(parent.controlToken, "wait_for", {
+          ids: [childId],
+          after: { [childId]: revision },
+          timeoutMs: Math.min(30000, Math.max(0, waitDeadline - Date.now())),
+        });
+      const waiting = waitFrom(state.revision);
       const execFile = require("node:util").promisify(require("node:child_process").execFile);
       const cli = async (credential, args) => {
         const { stdout } = await execFile("foom", [...args, "--json"], {
@@ -1914,7 +1917,22 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         "report",
       ]);
       assert.equal(report.seq, 1);
-      const woke = (await waiting).body.result;
+      // A fresh snapshot after acknowledgement must already contain the report.
+      assert.deepEqual(
+        (await call(parent.controlToken, "session_state", { id: childId })).body.result.handoff,
+        { seq: 1, status: "failed" },
+      );
+      let woke = (await waiting).body.result;
+      // Startup output and settled verdicts also change the revision. A wait
+      // resolved before the report was accepted keeps that earlier snapshot.
+      while (woke.sessions[0].handoff === undefined) {
+        context.diagnostic(`Pre-handoff wait snapshot: ${JSON.stringify(woke)}`);
+        assert.equal(woke.timedOut, false);
+        assert.deepEqual(woke.changed, [childId]);
+        assert.ok(Date.now() < waitDeadline, "Handoff was not observed before the wait deadline");
+        woke = (await waitFrom(woke.sessions[0].revision)).body.result;
+      }
+      assert.equal(woke.timedOut, false);
       assert.deepEqual(woke.changed, [childId]);
       assert.deepEqual(woke.sessions[0].handoff, { seq: 1, status: "failed" });
       assert.ok(!JSON.stringify(woke).includes(summary));
