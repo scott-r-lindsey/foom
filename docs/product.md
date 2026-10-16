@@ -529,7 +529,7 @@ the concurrent child limit set in Settings → General (default 4, integer 1–1
 without restarting it; **Revoke orchestrator** takes it back.
 One session per repository holds the role: making another the orchestrator asks once and
 revokes the first. The session keeps its own launch flags, including bypass. Every
-agent sees the orchestration tools from launch, refused until you grant the role; tell
+agent sees the existing orchestration tools from launch, refused until you grant the role; tell
 the agent when you do.
 Children cannot orchestrate through Foom and never inherit your launch flags. The orchestrator's panel lists its
 actions and their outcomes. Each attached session panel shows MCP Connecting…,
@@ -545,7 +545,7 @@ Managed policy and deny rules still win; other Foom tools receive no grant.
 
 The packaged `foom` console can inspect session metadata and, for sessions you
 made orchestrator, create worktrees, launch and stop children, request worktree
-removal, and read bounded tails or wait for child state. Every orchestrator gets
+removal, and read bounded tails or handoffs, or wait for child state. Every agent and child gets
 the CLI on its process-local PATH, including when MCP is unavailable. Antigravity
 orchestrates through the CLI alone. Agents launched by Foom
 use only their inherited repository scope. Humans and scripts request pairing with
@@ -554,6 +554,28 @@ grant read-only access for ten minutes. Pairing expires after 60 seconds and nev
 grants terminal output, typing or mutation access. Credentials remain in memory.
 Optional `--install-cli` / `--uninstall-cli` commands manage only Foom-owned PATH
 setup; absolute-path use needs no installation. See [console usage](orchestration.md#console-helper-and-local-pairing-154).
+
+Children can report `done`, `blocked` or `failed` with the child-only `handoff`
+MCP tool or `foom handoff --status STATUS --summary-file FILE|- --idempotency-key KEY`.
+The launch prompt asks them to report before stopping, including after CI fails.
+The optional links are HTTPS URLs. Each summary is bounded to 8 KiB; at most ten
+links and twenty reports per child are retained. New reports are limited to one
+per ten seconds; replaying the same request returns its original result.
+
+The parent pulls a report with `read_handoff` or `foom read-handoff ID [--seq N]`.
+That MCP tool is listed only to orchestrators; the CLI remains available after
+elevation when a client has cached its original tool list. `wait_for` wakes on a
+new report and returns only its sequence and status. Foom never types reports
+into a terminal, changes the child's light based on a report, or treats reports as
+instructions. Take over, revoke/transfer and parent exit end access. Reports
+persist with the child until its row closes; restored ownership restores access.
+
+The child row shows a status word and glyph. Its panel shows the latest summary as
+plain text and links that ask before opening in your browser. Only failed reports
+use magenta. The Action log records “Handoff #n (status)” and actor/parent IDs,
+without summary text or links. Child-authored summaries and links may be sent to
+the orchestrator's model provider, just like terminal tails; the Make orchestrator
+disclosure names both. Foom itself sends neither to a network service.
 
 An orchestrator can request at most the last 40 lines of each child's terminal,
 with likely secrets redacted and each response capped at 16 KiB. These results may

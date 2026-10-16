@@ -1,3 +1,4 @@
+import type { HandoffMetadata } from "../../shared/handoff";
 import type { DialogContent } from "../../shared/confirmation";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import { prepareTail } from "../evaluator/terminal-tail";
@@ -30,6 +31,8 @@ export class ReviewedReplies {
     private readonly host: ReplyHost,
     private readonly now: () => number,
     private readonly forge: (row: WorkspaceTerminal) => unknown = () => undefined,
+    private readonly handoff: (row: WorkspaceTerminal) => HandoffMetadata | undefined = () =>
+      undefined,
   ) {}
 
   invalidate(id: string): void {
@@ -78,7 +81,7 @@ export class ReviewedReplies {
       throw new ControlError("invalid_request");
     authorize();
     const stamp = this.revisions.get(id) ?? 0;
-    const metadata = new SessionMetadata(() => this.host.terminals(), this.forge);
+    const metadata = new SessionMetadata(() => this.host.terminals(), this.forge, this.handoff);
     const terminalMetadata = new SessionMetadata(() => this.host.terminals());
     const terminalRevision = object(terminalMetadata.read(actor, "session_state", { id }))[
       "revision"

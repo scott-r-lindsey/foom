@@ -706,7 +706,7 @@ export function Sidebar({
             data-state={lightState(row)}
             data-exited={Boolean(row.exited)}
             tabIndex={docked || row.id === selected ? 0 : -1}
-            aria-label={`${compact ? `${row.home ? "~" : row.config ? "Foom config" : row.repository} · ` : ""}${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.orchestration?.role === "child" ? ` · Child of ${parentOf(row) ? sessionName(parentOf(row) ?? row, preferences) : row.orchestration.parentId}` : ""}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
+            aria-label={`${compact ? `${row.home ? "~" : row.config ? "Foom config" : row.repository} · ` : ""}${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.orchestration?.role === "child" ? ` · Child of ${parentOf(row) ? sessionName(parentOf(row) ?? row, preferences) : row.orchestration.parentId}` : ""}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.handoff ? ` · Handoff ${row.handoff.status}` : ""}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
             ref={(element) => {
               if (element) buttons.current.set(row.id, element);
               else buttons.current.delete(row.id);
@@ -751,6 +751,22 @@ export function Sidebar({
               <span className="session-top">
                 {!compact && (
                   <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
+                )}
+                {row.handoff && (
+                  <span
+                    className="session-handoff"
+                    data-status={row.handoff.status}
+                    title={`Handoff #${String(row.handoff.seq)} (${row.handoff.status})`}
+                  >
+                    <span aria-hidden="true">
+                      {row.handoff.status === "done"
+                        ? "✓"
+                        : row.handoff.status === "failed"
+                          ? "■"
+                          : "⊘"}
+                    </span>{" "}
+                    {row.handoff.status}
+                  </span>
                 )}
                 {row.bypass && (
                   <span className="session-bypass" title="Launched with a bypass argument">

@@ -1,3 +1,4 @@
+import { handoffCommand } from "./handoff";
 import { validateConfig } from "./config";
 import { dirname } from "node:path";
 import { ControlError } from "../node-common/control-validation";
@@ -90,7 +91,11 @@ export async function execute(
       words.splice(i, 2);
     }
     const persistent = words.length === 1 && words[0] === "pair";
-    const request = persistent ? undefined : command(words);
+    const request = persistent
+      ? undefined
+      : words[0] === "handoff"
+        ? await handoffCommand(words, io.input)
+        : command(words);
     if (connection && (profile || repository || persistent)) throw new ControlError("forbidden");
     if (!connection && !repository) throw new ControlError("unauthorized");
     const authenticated =
@@ -134,6 +139,10 @@ export async function execute(
   } catch (error) {
     const code = error instanceof ControlError ? error.code : "unavailable";
     output({ error: code }, true);
-    return code === "invalid_request" ? 2 : code === "unauthorized" || code === "forbidden" ? 3 : 4;
+    return code === "invalid_request"
+      ? 2
+      : code === "unauthorized" || code === "forbidden" || code === "no_parent"
+        ? 3
+        : 4;
   }
 }

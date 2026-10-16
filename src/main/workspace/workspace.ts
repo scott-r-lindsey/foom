@@ -305,6 +305,14 @@ export class Workspace {
       {
         ...(deps.forge === undefined ? {} : { forge: deps.forge }),
         terminals: () => this.snapshot().terminals,
+        auditHandoff: async (actor, report) => {
+          const audit = (await this.control)?.audit;
+          if (!audit) throw new ControlError("unavailable");
+          await audit.handoff(actor, report);
+        },
+        saveHandoffs: async () => {
+          await this.deps.sessions?.save(this.records());
+        },
         createWorktree: (repository, branch) => this.createChildWorktree(repository, branch),
         adoptWorktree: (repository, number, unused, revalidate) =>
           this.withRepository(repository, async () => {
@@ -472,11 +480,13 @@ export class Workspace {
             : false
       )
         continue;
+      this.orchestration.handoffs.restore(entry.id, entry.handoffs ?? []);
       this.saved.set(entry.id, entry);
       const row = { ...entry };
       delete row.running;
       delete row.orchestrator;
       delete row.parentId;
+      delete row.handoffs;
       this.launched.set(entry.id, row);
       this.track(entry.id).exitCode = -1;
     }
@@ -493,6 +503,7 @@ export class Workspace {
       const saved = this.restoring.has(entry.id) ? this.saved.get(entry.id) : undefined;
       return {
         ...entry,
+        handoffs: this.orchestration.handoffs.entries(entry.id),
         ...(saved?.orchestrator ? { orchestrator: saved.orchestrator } : {}),
         ...(saved?.parentId ? { parentId: saved.parentId } : {}),
         running: this.restoring.has(entry.id) || !entry.exited,
@@ -1649,7 +1660,10 @@ export class Workspace {
     };
   }
 
-  async sidebarCommand(command: SidebarCommand, confirm: ConfirmWorkspace): Promise<void> {
+  async sidebarCommand(
+    command: Exclude<SidebarCommand, { kind: "open-handoff-link" }>,
+    confirm: ConfirmWorkspace,
+  ): Promise<void> {
     if (this.closed) throw new Error("Workspace is closed");
     if (command.kind === "resume-id") return this.resumeId(command, confirm);
     if (command.kind === "home-shell") return this.startHomeShell();
@@ -1955,9 +1969,10 @@ export class Workspace {
     });
   }
 
-  private orchestrationView(id: string): Pick<WorkspaceTerminal, "orchestration"> {
+  private orchestrationView(id: string): Pick<WorkspaceTerminal, "orchestration" | "handoff"> {
     const view = this.orchestration.view(id);
-    return view ? { orchestration: view } : {};
+    const handoff = this.orchestration.handoffs.latest(id);
+    return { ...(view ? { orchestration: view } : {}), ...(handoff ? { handoff } : {}) };
   }
 
   /**
@@ -2107,7 +2122,7 @@ export class Workspace {
           false,
           identity,
           undefined,
-          { control: { parentId }, ...(prompt === undefined ? {} : { prompt }) },
+          { control: { parentId }, prompt: prompt ?? "Await your assigned task." },
         );
         return launched.id;
       } finally {

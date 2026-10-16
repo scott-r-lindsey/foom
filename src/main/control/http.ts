@@ -169,7 +169,7 @@ export class ControlHttp {
           end(
             code === "unauthorized"
               ? 401
-              : code === "forbidden"
+              : code === "forbidden" || code === "no_parent"
                 ? 403
                 : code === "not_found"
                   ? 404

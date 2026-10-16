@@ -1,3 +1,4 @@
+import type { Handoff } from "./handoff";
 import type { PreviewOpenAction } from "./previews";
 import type { ActionLogQuery, ActionLogPage } from "./action-log";
 import type { CleanupProgress } from "./cleanup";
@@ -67,6 +68,8 @@ export interface WorkspaceTerminal {
   environment?: readonly string[];
   /** Main-computed orchestration role and visible action history; never persisted. */
   orchestration?: OrchestrationView;
+  /** Latest child-authored report, displayed only as inert text and validated links. */
+  handoff?: Handoff;
   roleNotRestored?: boolean;
 }
 
@@ -180,6 +183,7 @@ export interface SidebarInventory {
   home?: HomeShellFacts;
 }
 export type SidebarCommand =
+  | { kind: "open-handoff-link"; id: string; seq: number; index: number }
   | { kind: "home-shell" }
   | { kind: "copy-home-path" }
   | { kind: "config-launch"; run: AgentId; origin?: "menu" }

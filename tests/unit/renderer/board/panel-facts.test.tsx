@@ -350,3 +350,58 @@ test.each(["connecting", "connected", "not-connected"] as const)(
     );
   },
 );
+
+test.each(["done", "blocked", "failed"] as const)(
+  "displays %s handoffs as inert text and links with scoped commands",
+  (status) => {
+    const sidebarCommand = vi.fn(() => Promise.resolve());
+    const report = {
+      seq: 2,
+      status,
+      summary: "<img src=x>\n**Not Markdown**",
+      links: ["https://example.com/pr/1"],
+      timestamp: "2026-10-15T00:00:00.000Z",
+    };
+    const view = render(
+      <PanelFacts
+        subject={{ kind: "session", row: { ...row, handoff: report }, tile: undefined }}
+        source={{ ...source, sidebarCommand }}
+        options={undefined}
+      />,
+    );
+    expect(view.container.querySelector(".handoff-summary")?.textContent).toBe(report.summary);
+    expect(view.container.querySelector(".handoff-summary img")).toBeNull();
+    fireEvent.click(view.getByRole("link"));
+    expect(sidebarCommand).toHaveBeenCalledWith({
+      kind: "open-handoff-link",
+      id: row.id,
+      seq: 2,
+      index: 0,
+    });
+  },
+);
+
+test("reports a failed handoff link action without unhandled rejection", async () => {
+  const view = render(
+    <PanelFacts
+      subject={{
+        kind: "session",
+        row: {
+          ...row,
+          handoff: {
+            seq: 1,
+            status: "done",
+            summary: "Done",
+            links: ["https://example.com"],
+            timestamp: "2026-10-15T00:00:00.000Z",
+          },
+        },
+        tile: undefined,
+      }}
+      source={{ ...source, sidebarCommand: () => Promise.reject(new Error("gone")) }}
+      options={undefined}
+    />,
+  );
+  fireEvent.click(view.getByRole("link"));
+  expect(await view.findByText("Unable to open this handoff link.")).toBeDefined();
+});

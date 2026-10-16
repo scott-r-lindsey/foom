@@ -752,7 +752,7 @@ it.each([
       else
         expect(args?.slice(-2)).toEqual([
           "--",
-          `Task from your Foom orchestrator (another agent, not the user):\n\n${prompt}`,
+          `Task from your Foom orchestrator (another agent, not the user):\nBefore stopping when finished, blocked, or CI fails, report to your parent with handoff({ status: done|blocked|failed, summary, links?, idempotencyKey }), or foom handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL] --idempotency-key KEY. Handoffs are pull-only; they never type into a terminal.\n\n${prompt}`,
         ]);
       expect(prepare).toHaveBeenCalledTimes(hooks ? (prompt === undefined ? 1 : 2) : 0);
       service.release("terminal-id");
@@ -887,7 +887,7 @@ it.each(["not-installed", "installed", "outdated", "disabled", "unavailable"] as
     }
   },
 );
-it.each([false, true])(
+it.each([false, true, "child"])(
   "launches Antigravity with process-local CLI PATH (orchestrator=%s)",
   async (orchestrator) => {
     help += "\n--prompt-interactive <prompt>";
@@ -906,11 +906,15 @@ it.each([false, true])(
       ...request,
       agent: "agy",
       defaultArguments: ["--prompt-interactive", "literal $(text)"],
-      ...(orchestrator ? { control: { role: "orchestrator" as const } } : {}),
+      ...(orchestrator === "child"
+        ? { control: { parentId: "parent" } }
+        : orchestrator
+          ? { control: { role: "orchestrator" as const } }
+          : {}),
     });
     const spec = create.mock.calls.at(-1)?.[0];
     expect(spec?.args).toEqual(["--prompt-interactive", `literal $(text)\n\n${CLI_GUIDANCE}`]);
-    expect(spec?.env?.["PATH"]).toContain(join(root, "console 日本語"));
+    expect(spec?.env?.["PATH"]).toBe(`${join(root, "console 日本語")}${delimiter}${root}`);
     expect(spec?.args.join(" ")).not.toContain("control-secret");
     expect(process.env["PATH"]).toBe(inheritedPath);
     expect(prepareMcpLaunch).not.toHaveBeenCalled();
@@ -1078,7 +1082,7 @@ it.each([
     }
     expect(args.slice(-2)).toEqual([
       "--",
-      "Task from your Foom orchestrator (another agent, not the user):\n\nShow the mockup",
+      "Task from your Foom orchestrator (another agent, not the user):\nBefore stopping when finished, blocked, or CI fails, report to your parent with handoff({ status: done|blocked|failed, summary, links?, idempotencyKey }), or foom handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL] --idempotency-key KEY. Handoffs are pull-only; they never type into a terminal.\n\nShow the mockup",
     ]);
     if (attached) {
       expect(args.filter((arg) => arg === "--allowedTools")).toHaveLength(1);

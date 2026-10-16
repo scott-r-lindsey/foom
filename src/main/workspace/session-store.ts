@@ -1,3 +1,4 @@
+import { storedHandoffs } from "../../node-common/handoff";
 import { builtinAgent, validAgentId } from "../../shared/providers/catalog";
 import { knownAgentId as isAgentId } from "../agents/providers/registry";
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
@@ -37,6 +38,7 @@ export function readSessions(value: unknown): StoredSession[] {
       orchestrator,
       parentId,
       providerOrigin,
+      handoffs,
     } = data;
     if (
       (providerOrigin !== undefined &&
@@ -69,6 +71,7 @@ export function readSessions(value: unknown): StoredSession[] {
     ids.add(id);
     return {
       id,
+      ...(handoffs === undefined ? {} : { handoffs: storedHandoffs(handoffs) }),
       ...(providerOrigin === "config" || providerOrigin === "bundled" ? { providerOrigin } : {}),
       ...(running === undefined ? {} : { running }),
       ...(role === undefined ? {} : { orchestrator: role }),
@@ -95,7 +98,7 @@ export class SessionStore {
   async load(): Promise<StoredSession[]> {
     try {
       const contents = await readFile(join(this.directory, "sessions.json"), "utf8");
-      if (contents.length > 1024 * 1024) return [];
+      if (Buffer.byteLength(contents) > 32 * 1024 * 1024) return [];
       const value: unknown = JSON.parse(contents);
       return readSessions(value);
     } catch {
@@ -115,10 +118,12 @@ export class SessionStore {
           providerOrigin,
           home,
           config,
+          handoffs,
           running,
           orchestrator,
           parentId,
         }) => ({
+          handoffs,
           running,
           orchestrator,
           parentId,
@@ -134,6 +139,8 @@ export class SessionStore {
         }),
       ),
     );
+    if (Buffer.byteLength(data) > 32 * 1024 * 1024)
+      return Promise.reject(new Error("Session storage capacity reached"));
     const next = this.pending
       .catch(() => {})
       .then(async () => {

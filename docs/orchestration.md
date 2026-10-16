@@ -23,7 +23,7 @@ including one running with bypass permissions. Main permits one active orchestra
 per canonical repository, with a configurable limit of
 running children (Settings → General → Concurrent children per orchestrator; default
 4, integer 1–16), each in a new worktree in that repository. Children get ordinary
-read-only credentials and cannot create grandchildren through Foom. Agent-native
+scoped credentials for metadata, previews and reporting to their parent; they cannot create grandchildren through Foom. Agent-native
 subagents and processes outside Foom are not controlled by this limit.
 
 Per-agent default launch arguments (#164) apply to user launches. Orchestrator
@@ -358,10 +358,12 @@ under the existing launch/removal locks. Git and processes use argument arrays.
 | `create_worktree` | Orchestrator | New validated branch/worktree, or adoption by open same-repository PR number; main-owned provenance |
 | `launch` | Orchestrator | One ordinary child in its newly created empty worktree; enabled agent and ≤16 KiB initial prompt; no role/permission-policy arguments |
 | `tail` | Orchestrator, own child only | Latest 1–40 physical lines, redacted, ≤16 KiB UTF-8 result, no historical pagination |
+| `handoff` | Live owned child only | `status` done/blocked/failed, 1–8192 UTF-8 byte `summary`, up to ten HTTPS `links` of 2048 bytes each, `idempotencyKey`; no recipient argument |
+| `read_handoff` | Orchestrator, own child only | Child `id`, optional positive `seq`; latest by default, bounded untrusted child-authored data |
 | `reply` | Orchestrator, own child only | Exact question revision plus ≤4 KiB proposal; gate below, never general terminal input |
 | `stop` | Orchestrator, own child only | Graceful stop with existing bounded termination fallback; retains worktree and final screen |
 | `remove_worktree` | Orchestrator, own created worktree only | Requests an app confirmation unless Auto-remove merged worktrees is enabled in Settings → General; no force option or deleting branches |
-| `wait_for` | Orchestrator, own children only | Up to the configured child limit of IDs, after-revision cursor, timeout 0–30 seconds; returns state metadata or timeout |
+| `wait_for` | Orchestrator, own children only | Up to the configured child limit of IDs, after-revision cursor, timeout 0–30 seconds; returns state/PR/handoff metadata or timeout |
 | `operation_status` | Orchestrator or authorized human CLI grant, own operations only | Exactly one of operation ID or idempotency key; returns the operation record described below, never child output |
 
 `create_worktree({ pullRequest: N, idempotencyKey })` (#337) uses the #340
@@ -387,8 +389,10 @@ registered with forge tracking by the requested PR number for child session PR
 metadata, including when multiple open PRs share a head branch. The console fallback
 is `foom create-worktree --pull-request N --idempotency-key KEY`.
 
-Ordinary agents never see orchestration tools in `tools/list`; the service also
-rejects direct calls to hidden methods. Config-only tools for #84 are a separate
+Existing orchestration tools are listed to every agent for clients that cache tools
+(#303). The new `handoff` tool is listed only to live owned children, and
+`read_handoff` only to orchestrators. Main also checks every direct call. A client
+that cached tools before elevation can use `foom read-handoff` instead. Config-only tools for #84 are a separate
 role, not privileges inherited by orchestrators. #67 remote access is out of scope.
 A human CLI grant exposes only its approved operations through the same validators.
 
@@ -568,6 +572,57 @@ repository, branch/PR identifiers and read-only status requests. Foom stores no
 tokens, makes no forge writes and sends no terminal content. No terminal/model
 output is used to discover PRs.
 
+## Child handoffs (#514)
+
+A child reports before stopping when it finishes, gets blocked, or sees CI fail.
+`handoff({ status, summary, links?, idempotencyKey })` uses its existing launch
+credential and derives the recipient from main-owned parent/child ownership.
+Ordinary agents, human CLI grants, orchestrators, taken-over children and children
+whose parent is no longer active receive fixed `no_parent`. Children cannot
+orchestrate or choose a recipient. Every controlled agent, including children,
+receives the bundled CLI directory on its process-local PATH; neither human PATH
+installation nor per-launch MCP support is required.
+
+Main and console share the input validators: status is `done`, `blocked` or
+`failed`; summary is 1–8192 UTF-8 bytes with no control characters except LF/tab;
+links are at most ten HTTPS URLs of at most 2048 UTF-8 bytes each. Unknown fields
+are refused. The console reads a bounded UTF-8 regular file or stdin:
+
+```text
+foom handoff --status done --summary-file FILE|- [--link HTTPS_URL]… --idempotency-key KEY
+foom read-handoff ID [--seq N]
+```
+
+Both commands support `--json` and use the same control service. `no_parent` exits
+3. One new report is permitted per child per ten seconds. Matching idempotent
+replays return the original `{ seq, status, timestamp }`, even after history
+rotation; changed input with the same key is refused. Deduplication is scoped to
+the launch generation, bounded to 4096 reports per app lifetime and independent of
+the twenty reports retained per child. The oldest report is dropped on the 21st.
+
+`read_handoff` returns `seq`, `status`, `summary`, `links`, ISO timestamp,
+`untrusted: true` and a fixed notice. These are child-authored data, never user
+instructions. `sessions`, `session_state` and `wait_for` include only the latest
+`handoff: { seq, status }`; a new sequence changes the metadata revision and wakes
+a wait. Reports do not change terminal execution or attention state. Nothing is
+written into any PTY. The Reply gate and proposed #336/#343 follow-up channel are
+unchanged; orchestrator waiting state is separate (#515).
+
+Take over, revoke/transfer and parent exit end access as they do for tails. A
+restored parent can read retained reports only after its child ownership has been
+restored. Reports persist in the child's private session record and disappear when
+that row closes, including after takeover. Session storage is bounded to 32 MiB;
+a failed save reports an error, retains the accepted report in memory, and a replay
+flushes it again without creating a duplicate. Audit failure refuses a new report.
+
+The row carries a small status word and glyph; only failed reports use magenta.
+The panel shows the latest summary as plain text and links that ask before opening
+in the external browser. Main resolves each link by child ID, sequence and index,
+never a renderer-provided URL. The Action log records `Handoff #n (status)` with
+actor/parent IDs and no summary or links. The launch prefix names both report
+interfaces. Make orchestrator discloses that reports, like tails, may reach the
+orchestrator agent's model provider; Foom itself sends neither to a network service.
+
 ## Reply gate
 
 The `reply` request names a child `id`, the `revision` and `verdictId` from
@@ -641,7 +696,7 @@ mandatory. Redact and bound user-controlled metadata too.
 
 No file, diff, transcript, keystroke, raw hook or unlimited scrollback endpoint is
 added. Terminal output can itself contain file contents, diffs or echoed input;
-redaction is heuristic. Tails returned to an orchestrator can go to **that agent's
+redaction is heuristic. Tails and child-authored handoffs returned to an orchestrator can go to **that agent's
 model provider**, independently of the evaluator's configured provider. Repeated
 bounded reads can accumulate substantial output. Disclose this at orchestrator
 launch and in [product privacy](product.md#orchestration-and-privacy-planned).
@@ -777,6 +832,7 @@ foom launch WORKTREE_ID --agent claude|codex|agy [--prompt TEXT] --idempotency-k
 foom stop ID --idempotency-key KEY
 foom close ID --idempotency-key KEY
 foom remove-worktree WORKTREE_ID --idempotency-key KEY
+foom read-handoff ID [--seq N]
 foom tail ID [--lines 1-40]
 foom wait-for ID... [--after '{"ID":"REVISION"}'] [--timeout-ms 0-30000]
 ```
@@ -831,7 +887,7 @@ helper; its validation schemas and config-only capabilities remain #84's work.
 orchestrator launch and the disabled New orchestrator menu item were removed. As
 #155 shipped them, the panel listed **Launch <agent> as Foom orchestrator…**, which
 launched an agent in the main checkout with an orchestrator grant and a prompt
-naming the CLI and MCP tools. Every agent still gets the console directory on its
+naming the CLI and MCP tools. Every agent, including children, gets the console directory on its
 process-local PATH, and the CLI works when MCP attachment is unavailable or denied
 by client policy. Antigravity uses only the CLI, without any MCP configuration.
 
@@ -846,6 +902,8 @@ retry with the same key returns that record.
 | `launch` | `worktreeId`, `agent` (`claude`, `codex`, `agy`), optional `prompt` ≤16 KiB | `resultId` is the child session ID |
 | `stop` | `id` | Existing graceful stop; an already exited child succeeds; a stop error is `indeterminate` |
 | `remove_worktree` | `worktreeId` | Returns an operation (`pending_confirmation` when review is needed); poll `operation_status` |
+| `handoff` (child only) | `status`, `summary`, optional `links`, `idempotencyKey` | `{ seq, status, timestamp }` |
+| `read_handoff` (orchestrator only) | `id`, optional `seq` | Bounded report with `untrusted: true` |
 | `tail` | `id`, optional `lines` 1–40 | `{ id, revision, timestamp, lines, truncated, untrusted: true, notice }` |
 | `wait_for` | `ids` (1–configured child limit), optional `after` map of ID → revision, `timeoutMs` 0–30000 | `{ sessions, changed, timedOut }` |
 

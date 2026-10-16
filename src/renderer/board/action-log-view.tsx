@@ -122,6 +122,7 @@ export function ActionLog({
               "close",
               "remove_worktree",
               "reply",
+              "handoff",
               "take_over",
               "make_orchestrator",
               "revoke_orchestrator",

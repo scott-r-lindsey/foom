@@ -5,7 +5,7 @@ import type { WindowIpc } from "../window/window-ipc";
 import type { ExecutionTransition } from "../../shared/execution";
 import { ConfirmationArming } from "../confirmations/arming";
 import type { DialogContent, ConfirmWorkspace } from "../../shared/confirmation";
-import { dialog, ipcMain } from "electron";
+import { dialog, ipcMain, shell } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
 import type { AgentId } from "../../shared/agents";
 import type { VerdictAction } from "../../shared/evaluator";
@@ -62,6 +62,22 @@ function sidebarCommand(value: unknown): SidebarCommand {
   if (kind === "home-shell" || kind === "copy-home-path" || kind === "copy-config-path") {
     if (Object.keys(value).length !== 1) throw new Error("Invalid home shell request");
     return { kind };
+  }
+  if (kind === "open-handoff-link") {
+    const { id, seq, index } = value;
+    if (
+      Object.keys(value).length !== 4 ||
+      !conversationId(id) ||
+      typeof seq !== "number" ||
+      !Number.isSafeInteger(seq) ||
+      seq < 1 ||
+      typeof index !== "number" ||
+      !Number.isInteger(index) ||
+      index < 0 ||
+      index >= 10
+    )
+      throw new Error("Invalid handoff link");
+    return { kind, id, seq, index };
   }
   if (kind === "resume-id") {
     const checkout = value["checkout"];
@@ -148,7 +164,8 @@ export function orchestratorDisclosure(id: string, replacing?: string): DialogCo
         label: "It reads",
         items: [
           "The last 40 lines of each child's terminal, with likely secrets redacted.",
-          "Those lines may be sent to this agent's model provider under its own settings; redaction cannot catch every secret, and repeated reads collect more.",
+          "Child-authored handoff summaries and links, reported when a child finishes, gets blocked or fails.",
+          "Those lines and handoffs may be sent to this agent's model provider under its own settings; redaction cannot catch every secret, and repeated reads collect more.",
         ],
       },
       {
@@ -350,6 +367,30 @@ export function attachWorkspace(
           !workspace.ownsSession(command.id)
         )
           throw new Error("Unknown or foreign terminal ID");
+        if (command.kind === "open-handoff-link") {
+          const link = () =>
+            workspace.orchestration.handoffs
+              .entries(command.id)
+              .find((report) => report.seq === command.seq)?.links[command.index];
+          const url = link();
+          if (!url || new URL(url).protocol !== "https:")
+            throw new Error("Handoff link unavailable");
+          return requestDialog({
+            title: "Open external link?",
+            subject: url,
+            detail: "This link was supplied by a child agent. Open it in your browser?",
+            accept: "Open link",
+          }).then(async (accepted) => {
+            if (
+              accepted &&
+              !contents.isDestroyed() &&
+              contents.mainFrame.url === APP_URL &&
+              workspace.ownsSession(command.id) &&
+              link() === url
+            )
+              await shell.openExternal(url);
+          });
+        }
         const confirm = confirmation(JSON.stringify(command));
         return workspace.sidebarCommand(command, (request) => {
           if (

@@ -1608,6 +1608,12 @@ test("an Antigravity orchestrator reviews worktree cleanup and revokes through t
   await runOrchestratorScenario(context, true, "cleanup");
 });
 
+test("a child hands off results through the CLI without terminal input and the parent pulls them", {
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, false, "handoff");
+});
+
 // Each scenario owns its app/profile and cleanup; no state crosses test boundaries.
 async function runOrchestratorScenario(context, cliOnly, phase) {
   const { chmod, mkdir, readdir, readFile, symlink, writeFile } = require("node:fs/promises");
@@ -1870,6 +1876,99 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
     });
     assert.equal(launched.body.result.status, "succeeded", JSON.stringify(launched.body));
     const childId = launched.body.result.resultId;
+    if (phase === "handoff") {
+      await expect.poll(() => existsSync(`${credentials}.child-one`)).toBe(true);
+      const child = await read("child-one");
+      assert.match(child.args.at(-1), /Before stopping.*CI fails/s);
+      const summary = "CI failed. <img src=x onerror=alert(1)>\n**Plain child-authored text**";
+      const file = path.join(root, "handoff.txt");
+      await writeFile(file, summary);
+      const state = (await call(parent.controlToken, "session_state", { id: childId })).body.result;
+      const waiting = call(parent.controlToken, "wait_for", {
+        ids: [childId],
+        after: { [childId]: state.revision },
+        timeoutMs: 30000,
+      });
+      const execFile = require("node:util").promisify(require("node:child_process").execFile);
+      const cli = async (credential, args) => {
+        const { stdout } = await execFile("foom", [...args, "--json"], {
+          env: {
+            PATH: credential.cliPath,
+            FOOM_CONTROL_URL: credential.controlUrl,
+            FOOM_CONTROL_TOKEN: credential.controlToken,
+            FOOM_CONTROL_INSTANCE: credential.instanceId,
+          },
+          timeout: deadline(10000),
+        });
+        return JSON.parse(stdout).result;
+      };
+      const report = await cli(child, [
+        "handoff",
+        "--status",
+        "failed",
+        "--summary-file",
+        file,
+        "--link",
+        "https://example.com/pull/514",
+        "--idempotency-key",
+        "report",
+      ]);
+      assert.equal(report.seq, 1);
+      const woke = (await waiting).body.result;
+      assert.deepEqual(woke.changed, [childId]);
+      assert.deepEqual(woke.sessions[0].handoff, { seq: 1, status: "failed" });
+      assert.ok(!JSON.stringify(woke).includes(summary));
+      assert.equal((await cli(parent, ["read-handoff", childId, "--seq", "1"])).summary, summary);
+      const row = page.locator(`[data-drag-session="${childId}"]`);
+      await expect(row.locator(".session-handoff")).toHaveText("■ failed");
+      await row
+        .locator("..")
+        .getByRole("button", { name: /^Actions for/ })
+        .click();
+      await expect(page.locator(".handoff-summary")).toHaveText(summary);
+      await expect(page.locator(".handoff-summary img")).toHaveCount(0);
+      await expect(page.locator(".handoff-links a")).toHaveAttribute(
+        "href",
+        "https://example.com/pull/514",
+      );
+      await assertAccessible(page);
+      await page.screenshot({ path: "test-results/child-handoff.png", animations: "disabled" });
+      await page.getByRole("textbox", { name: "Filter repositories and sessions" }).hover();
+      await page.keyboard.press("Escape");
+      await page.getByRole("button", { name: "Foom menu" }).click();
+      await page.getByRole("menuitem", { name: "Action log", exact: true }).click();
+      await page.getByLabel("Action", { exact: true }).selectOption("handoff");
+      const history = page.getByRole("region", { name: "Action history" });
+      await expect(history.getByText("Handoff #1 (failed)")).toBeVisible();
+      await expect(history).not.toContainText(summary);
+      const log = await page.evaluate(() =>
+        window.desktop.actionLog({ search: "", action: "handoff", status: "", offset: 0 }),
+      );
+      assert.equal(log.entries[0].actorId, childId);
+      assert.equal(log.entries[0].parentId, parentId);
+      assert.equal(existsSync(`${credentials}.reply-child-one`), false);
+      await page.getByRole("searchbox").press("Escape");
+      await page.evaluate(
+        (id) => window.desktop.sidebarCommand({ kind: "take-over", id }),
+        childId,
+      );
+      assert.equal(
+        (
+          await call(child.controlToken, "handoff", {
+            status: "done",
+            summary: "later",
+            idempotencyKey: "later",
+          })
+        ).body.error,
+        "no_parent",
+      );
+      assert.equal(
+        (await call(parent.controlToken, "read_handoff", { id: childId })).body.error,
+        "not_found",
+      );
+      return;
+    }
+
     if (phase === "children") {
       const extraTree = await call(parent.controlToken, "create_worktree", {
         idempotencyKey: "tree-limit",

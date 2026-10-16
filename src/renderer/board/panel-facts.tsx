@@ -142,6 +142,7 @@ export function PanelFacts({
   options: LaunchOptions | undefined;
 }) {
   const [now] = useState(Date.now);
+  const [handoffError, setHandoffError] = useState("");
   const copy = (command: SidebarCommand) =>
     source.sidebarCommand?.(command) ?? Promise.reject(new Error("Copy unavailable"));
   const repository =
@@ -421,6 +422,44 @@ export function PanelFacts({
             </Fact>
           )}
           {subject.row.roleNotRestored && <Fact label="Orchestrator">Role was not restored</Fact>}
+          {subject.row.handoff && (
+            <Fact label="Handoff">
+              <Chip tone={subject.row.handoff.status === "failed" ? "failed" : "neutral"}>
+                {subject.row.handoff.status === "done"
+                  ? "✓"
+                  : subject.row.handoff.status === "failed"
+                    ? "■"
+                    : "⊘"}{" "}
+                {subject.row.handoff.status} · #{subject.row.handoff.seq}
+              </Chip>
+              <p className="handoff-summary">{subject.row.handoff.summary}</p>
+              <ul className="handoff-links">
+                {subject.row.handoff.links.map((url, index) => (
+                  <li key={`${String(index)}-${url}`}>
+                    <a
+                      href={url}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        setHandoffError("");
+                        void copy({
+                          kind: "open-handoff-link",
+                          id: subject.row.id,
+                          seq: subject.row.handoff?.seq ?? 0,
+                          index,
+                        }).catch(() => {
+                          setHandoffError("Unable to open this handoff link.");
+                        });
+                      }}
+                    >
+                      {url}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+              <Sub>Child-authored · {subject.row.handoff.timestamp}</Sub>
+              {handoffError && <span role="status">{handoffError}</span>}
+            </Fact>
+          )}
           {subject.row.orchestration && (
             <OrchestrationFacts view={subject.row.orchestration} source={source} />
           )}

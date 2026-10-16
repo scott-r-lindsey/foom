@@ -1,3 +1,4 @@
+import type { HandoffMetadata } from "../../shared/handoff";
 import { pullRequest } from "./forge";
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
@@ -22,6 +23,8 @@ export class SessionMetadata {
   constructor(
     private readonly source: () => readonly WorkspaceTerminal[],
     private readonly forge: (row: WorkspaceTerminal) => unknown = () => undefined,
+    private readonly handoff: (row: WorkspaceTerminal) => HandoffMetadata | undefined = () =>
+      undefined,
   ) {}
 
   read(
@@ -55,6 +58,7 @@ export class SessionMetadata {
   }
 
   private row(row: WorkspaceTerminal) {
+    const handoff = this.handoff(row);
     const pr = pullRequest(this.forge(row));
     const execution = row.execution;
     const fresh =
@@ -75,6 +79,7 @@ export class SessionMetadata {
       state = "quiet_ok";
     const reported = row.exited ? "exited" : state;
     return {
+      ...(handoff === undefined ? {} : { handoff }),
       ...(pr === undefined ? {} : { pullRequest: pr }),
       id: row.id,
       agent: row.agent,
@@ -90,6 +95,7 @@ export class SessionMetadata {
         .update(
           JSON.stringify([
             pr ?? null,
+            handoff ?? null,
             row.launchVersion ?? 0,
             execution?.launch ?? 0,
             execution?.revision ?? 0,

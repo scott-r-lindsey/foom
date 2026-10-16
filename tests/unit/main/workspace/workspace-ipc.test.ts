@@ -7,10 +7,12 @@ const mock = vi.hoisted(() => ({
   handle:
     vi.fn<(channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => void>(),
   removeHandler: vi.fn(),
+  openExternal: vi.fn<() => Promise<void>>(),
   showMessageBox: vi.fn<() => Promise<{ response: number }>>(),
   showOpenDialog: vi.fn<() => Promise<{ canceled: boolean; filePaths: string[] }>>(),
 }));
 vi.mock("electron", () => ({
+  shell: { openExternal: mock.openExternal },
   ipcMain: { handle: mock.handle, removeHandler: mock.removeHandler },
   dialog: { showOpenDialog: mock.showOpenDialog, showMessageBox: mock.showMessageBox },
 }));
@@ -29,7 +31,9 @@ const contents = {
 };
 const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame } as unknown as IpcMainInvokeEvent;
+const handoffEntries = vi.fn(() => [{ seq: 1, links: ["https://example.com/pr/1"] }]);
 const workspace = {
+  orchestration: { handoffs: { entries: handoffEntries } },
   actionLog: vi.fn(),
   clearActionLog: vi.fn(),
   panelFacts: vi.fn(),
@@ -693,4 +697,37 @@ test("validates fixed setup action requests and uses the trusted dialog", async 
   contents.isDestroyed.mockReturnValue(false);
   frame.url = "https://untrusted.invalid";
   await expect(confirm(content)).resolves.toBe(false);
+});
+
+test("handoff links resolve from owned records and require trusted confirmation", async () => {
+  const command = { kind: "open-handoff-link", id: "restored", seq: 1, index: 0 };
+  requestDialog.mockResolvedValueOnce(true);
+  await invoke("workspace:sidebar-command", [command]);
+  expect(requestDialog).toHaveBeenCalledWith(
+    expect.objectContaining({ subject: "https://example.com/pr/1" }),
+  );
+  expect(mock.openExternal).toHaveBeenCalledWith("https://example.com/pr/1");
+  mock.openExternal.mockClear();
+  requestDialog.mockResolvedValueOnce(false);
+  await invoke("workspace:sidebar-command", [command]);
+  expect(mock.openExternal).not.toHaveBeenCalled();
+  for (const change of [
+    { url: "https://evil.test" },
+    { seq: 0 },
+    { seq: 1.5 },
+    { index: -1 },
+    { index: 10 },
+    { id: "foreign" },
+  ])
+    expect(() => invoke("workspace:sidebar-command", [{ ...command, ...change }])).toThrow();
+  handoffEntries.mockReturnValueOnce([]);
+  expect(() => invoke("workspace:sidebar-command", [command])).toThrow("unavailable");
+  handoffEntries.mockReturnValueOnce([{ seq: 1, links: ["file:///tmp/private"] }]);
+  expect(() => invoke("workspace:sidebar-command", [command])).toThrow("unavailable");
+  requestDialog.mockImplementationOnce(() => {
+    handoffEntries.mockReturnValueOnce([]);
+    return Promise.resolve(true);
+  });
+  await invoke("workspace:sidebar-command", [command]);
+  expect(mock.openExternal).not.toHaveBeenCalled();
 });
