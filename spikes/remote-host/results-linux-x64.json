@@ -1,0 +1,439 @@
+{
+  "date": "2026-10-16T03:15:33.286Z",
+  "node": "v24.17.0",
+  "herdr": "0.9.3",
+  "transport": "OpenSSH loopback Docker; compression disabled",
+  "measurements": [
+    {
+      "adapter": "B",
+      "remote": false,
+      "terminals": 3,
+      "echoSamples": 50,
+      "echoMedianMs": 5.902819999999338,
+      "echoP95Ms": 6.160439999999653,
+      "seqMs": 1615.4703689999988,
+      "receivedTerminalBytes": 16888917,
+      "reconnectCatchupMs": 41.480100000000675,
+      "daemonSurvived": true,
+      "bridgeMode": "600"
+    },
+    {
+      "adapter": "B",
+      "remote": true,
+      "terminals": 3,
+      "echoSamples": 50,
+      "echoMedianMs": 5.424648000000161,
+      "echoP95Ms": 6.4536300000036135,
+      "seqMs": 1854.982812999995,
+      "receivedTerminalBytes": 16888917,
+      "reconnectCatchupMs": 209.66072800000256,
+      "daemonSurvived": true,
+      "bridgeMode": "600"
+    },
+    {
+      "adapter": "A",
+      "remote": false,
+      "terminals": 3,
+      "echoSamples": 50,
+      "echoMedianMs": 15.985437000003003,
+      "echoP95Ms": 20.844715999999607,
+      "seqMs": 669.5974069999938,
+      "receivedTerminalBytes": 15383,
+      "reconnectCatchupMs": 287.2213879999981,
+      "daemonSurvived": true,
+      "bridgeMode": "600"
+    },
+    {
+      "adapter": "A",
+      "remote": true,
+      "terminals": 3,
+      "echoSamples": 50,
+      "echoMedianMs": 16.308713999998872,
+      "echoP95Ms": 21.33079500000167,
+      "seqMs": 443.3709680000029,
+      "receivedTerminalBytes": 10590,
+      "reconnectCatchupMs": 464.40919399999984,
+      "daemonSurvived": true,
+      "bridgeMode": "600"
+    }
+  ],
+  "relay": [
+    {
+      "adapter": "B",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "accepted",
+      "revoked": false
+    },
+    {
+      "adapter": "B",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": false
+    },
+    {
+      "adapter": "B",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": false
+    },
+    {
+      "adapter": "B",
+      "kind": "mcp",
+      "method": "initialize",
+      "outcome": "accepted",
+      "revoked": false
+    },
+    {
+      "adapter": "B",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "accepted",
+      "revoked": false
+    },
+    {
+      "adapter": "B",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "denied",
+      "revoked": false
+    },
+    {
+      "adapter": "B",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "B",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "B",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "B",
+      "kind": "mcp",
+      "method": "initialize",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "B",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "B",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "B",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "accepted",
+      "revoked": false
+    },
+    {
+      "adapter": "B",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": false
+    },
+    {
+      "adapter": "B",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": false
+    },
+    {
+      "adapter": "B",
+      "kind": "mcp",
+      "method": "initialize",
+      "outcome": "accepted",
+      "revoked": false
+    },
+    {
+      "adapter": "B",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "accepted",
+      "revoked": false
+    },
+    {
+      "adapter": "B",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "denied",
+      "revoked": false
+    },
+    {
+      "adapter": "B",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "B",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "B",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "B",
+      "kind": "mcp",
+      "method": "initialize",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "B",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "B",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "A",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "accepted",
+      "revoked": false
+    },
+    {
+      "adapter": "A",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": false
+    },
+    {
+      "adapter": "A",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": false
+    },
+    {
+      "adapter": "A",
+      "kind": "mcp",
+      "method": "initialize",
+      "outcome": "accepted",
+      "revoked": false
+    },
+    {
+      "adapter": "A",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "accepted",
+      "revoked": false
+    },
+    {
+      "adapter": "A",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "denied",
+      "revoked": false
+    },
+    {
+      "adapter": "A",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "A",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "A",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "A",
+      "kind": "mcp",
+      "method": "initialize",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "A",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "A",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "A",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "accepted",
+      "revoked": false
+    },
+    {
+      "adapter": "A",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": false
+    },
+    {
+      "adapter": "A",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": false
+    },
+    {
+      "adapter": "A",
+      "kind": "mcp",
+      "method": "initialize",
+      "outcome": "accepted",
+      "revoked": false
+    },
+    {
+      "adapter": "A",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "accepted",
+      "revoked": false
+    },
+    {
+      "adapter": "A",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "denied",
+      "revoked": false
+    },
+    {
+      "adapter": "A",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "A",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "A",
+      "kind": "hook",
+      "method": "stop",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "A",
+      "kind": "mcp",
+      "method": "initialize",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "A",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "denied",
+      "revoked": true
+    },
+    {
+      "adapter": "A",
+      "kind": "mcp",
+      "method": "tools/call",
+      "outcome": "denied",
+      "revoked": true
+    }
+  ],
+  "fidelity": [
+    {
+      "adapter": "B",
+      "remote": false,
+      "headlessEqual": true
+    },
+    {
+      "adapter": "B",
+      "remote": true,
+      "headlessEqual": true
+    },
+    {
+      "adapter": "A",
+      "remote": false,
+      "sourceCellsEqual": false,
+      "sourceCursorEqual": true,
+      "sourceBufferEqual": false,
+      "actualBuffer": "normal"
+    },
+    {
+      "adapter": "A",
+      "remote": true,
+      "sourceCellsEqual": false,
+      "sourceCursorEqual": true,
+      "sourceBufferEqual": false,
+      "actualBuffer": "normal"
+    }
+  ],
+  "sea": {
+    "node": "v24.17.0",
+    "platform": "linux",
+    "arch": "x64",
+    "raw": 123931840,
+    "gzip9": 43865328,
+    "sha256": "97f2957841dd83f90da2ad2d0d88154c819efeca04d3175b832248af45f829ab",
+    "addon": 75976
+  },
+  "herdrSha256": "18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7",
+  "image": "sha256:69f919497cada9a8611f3de61df902d9f94bf20f84552ef5bd93125c38608ef9",
+  "openssh": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024",
+  "versionMismatchRejected": true
+}
