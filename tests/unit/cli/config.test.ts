@@ -203,16 +203,14 @@ test("execute bypasses inherited credentials, pairing and profile discovery and 
   );
 });
 
-test("a folder Foom set up validates, including its repository, docs, schemas and .gitkeep", async () => {
+test("a folder Foom set up validates, including its docs, schemas, .gitkeep and a user's own .git", async () => {
   const root = await fixture();
   const { ConfigService } = await import("../../../src/main/config/service");
-  const { ConfigGit, prepareIsolation } = await import("../../../src/main/config/git");
   const { configPart } = await import("../../../src/main/config/approval");
   const { DEFAULT_SETTINGS } = await import("../../../src/main/setup/settings");
   const folder = join(root, "config");
   const service = new ConfigService({
     root: folder,
-    git: new ConfigGit(folder, await prepareIsolation(join(root, "isolation"))),
     defaults: configPart(DEFAULT_SETTINGS),
     apply: () => {},
     baseline: { get: () => null, set: () => Promise.resolve() },
@@ -221,6 +219,8 @@ test("a folder Foom set up validates, including its repository, docs, schemas an
   });
   await service.initialize({ terminalFontSize: 16 });
   await service.dispose();
+  await mkdir(join(folder, ".git"));
+  await put(folder, ".git/HEAD", "ref: refs/heads/main\n");
   expect(await validateConfig(folder)).toEqual({ problems: [], code: 0 });
   expect(await validateConfig(join(folder, "sounds"))).toEqual({ problems: [], code: 0 });
   // Unknown entries are still refused.

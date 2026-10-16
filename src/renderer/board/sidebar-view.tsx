@@ -565,12 +565,9 @@ export function Sidebar({
       : []),
     { label: "Open folder", run: () => source.config?.openFolder() },
   ]);
-  const configTone = configStatus?.pending
-    ? "needs"
-    : configStatus?.rejected
-      ? "failed"
-      : undefined;
-  const configLabel = `Foom config${configStatus?.pending ? ", needs you" : ""}${configStatus?.rejected ? `, ${String(configStatus.rejected)} rejected` : ""}`;
+  const configRejected = configStatus?.rejected.length ?? 0;
+  const configTone = configStatus?.pending ? "needs" : configRejected ? "failed" : undefined;
+  const configLabel = `Foom config${configStatus?.pending ? ", needs you" : ""}${configRejected ? `, ${String(configRejected)} rejected` : ""}`;
   const configGearRef = useRef<HTMLButtonElement>(null);
   const configPanel = () => {
     if (configGearRef.current) togglePanel("config", configGearRef.current);
@@ -1442,7 +1439,7 @@ export function Sidebar({
         </div>
       </nav>
       <footer className="sidebar-footer">
-        {!compact && (configStatus?.pending || configStatus?.rejected || configRows.length > 0) && (
+        {!compact && (configStatus?.pending || configRejected > 0 || configRows.length > 0) && (
           <div className="config-dock">
             <button
               type="button"
@@ -1458,9 +1455,9 @@ export function Sidebar({
                   Needs you
                 </span>
               )}
-              {!!configStatus?.rejected && (
+              {configRejected > 0 && (
                 <span className="panel-chip" data-tone="failed">
-                  {configStatus.rejected} rejected
+                  {configRejected} rejected
                 </span>
               )}
             </button>

@@ -683,20 +683,18 @@ test("Foom config calls pass fixed channels and status events are validated", as
   mock.invoke.mockResolvedValue({});
   await api.configStatus();
   await api.decideConfig("keep", "f".repeat(64));
-  await api.revertConfig("a".repeat(40));
   await api.openConfigFolder();
-  expect(mock.invoke.mock.calls.slice(-4)).toEqual([
+  expect(mock.invoke.mock.calls.slice(-3)).toEqual([
     ["config:status"],
     ["config:decide", "keep", "f".repeat(64)],
-    ["config:revert", "a".repeat(40)],
     ["config:open-folder"],
   ]);
   const callback = vi.fn();
   const off = api.onConfigChange(callback);
   const listener = mock.on.mock.calls.find(([name]) => name === "config:changed")?.[1];
   if (!listener) throw new Error("Missing listener");
-  const status = { folder: "/c", available: true, changes: [] };
-  for (const value of [status, null, { ...status, folder: 1 }, { ...status, changes: {} }])
+  const status = { folder: "/c", available: true, rejected: [] };
+  for (const value of [status, null, { ...status, folder: 1 }, { ...status, rejected: {} }])
     listener({}, value);
   expect(callback).toHaveBeenCalledExactlyOnceWith(status);
   off();

@@ -13,7 +13,6 @@ import { attachPreviews } from "./previews/ipc";
 import type { Settings } from "../shared/setup";
 import { ThemeLibrary } from "./themes/library";
 import { ConfigService } from "./config/service";
-import { ConfigGit, prepareIsolation } from "./config/git";
 import { attachConfig } from "./config/ipc";
 import { configPart } from "./config/approval";
 import { DEFAULT_SETTINGS } from "./setup/settings";
@@ -998,10 +997,6 @@ if (!ownsProfile) {
       addTailSecrets(environment.redactions());
       config = new ConfigService({
         root: configRoot,
-        git: new ConfigGit(
-          configRoot,
-          await prepareIsolation(path.join(app.getPath("userData"), "config-git")),
-        ),
         defaults: configPart(DEFAULT_SETTINGS),
         apply: (values) => {
           const previous = settings.get();
@@ -1012,6 +1007,10 @@ if (!ownsProfile) {
         baseline: {
           get: () => settings.configDigest(),
           set: (value) => settings.setConfigDigest(value),
+        },
+        appliedText: {
+          get: () => settings.configText(),
+          set: (text) => settings.setConfigText(text),
         },
         themeBaseline: {
           get: (file) => settings.themeDigest(file),

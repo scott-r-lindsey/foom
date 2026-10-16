@@ -1,32 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
-import type { ConfigChange, ConfigStatus } from "../../shared/foom-config";
+import { useEffect, useState } from "react";
+import type { ConfigStatus } from "../../shared/foom-config";
 import type { SetupSource } from "./setup-source.d";
 
 type ConfigSource = NonNullable<SetupSource["config"]>;
 
-export function shortAgo(now: number, time: number): string {
-  const minutes = Math.max(0, Math.floor((now - time) / 60_000));
-  if (minutes < 60) return `${String(minutes)}m`;
-  const hours = Math.floor(minutes / 60);
-  return hours < 48 ? `${String(hours)}h` : `${String(Math.floor(hours / 24))}d`;
-}
-
-const LABELS: Record<ConfigChange["state"], string> = {
-  applied: "Applied",
-  rejected: "Rejected",
-  pending: "Pending",
-};
-
-/** Settings → Foom config: the folder, a held change, and recent changes with Revert. */
+/** Settings → Foom config: the folder, and only what needs the user now. */
 export function ConfigControls({ config }: { config: ConfigSource }) {
-  const [view, setView] = useState<{ status?: ConfigStatus; now: number }>(() => ({
-    now: Date.now(),
-  }));
-  const { status, now } = view;
+  const [status, setStatus] = useState<ConfigStatus>();
   const pending = status?.pending;
-  const setStatus = useCallback((next: ConfigStatus) => {
-    setView({ status: next, now: Date.now() });
-  }, []);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -44,7 +25,7 @@ export function ConfigControls({ config }: { config: ConfigSource }) {
       active = false;
       unsubscribe();
     };
-  }, [config, setStatus]);
+  }, [config]);
   const run = (work: () => Promise<ConfigStatus | undefined>) => {
     setBusy(true);
     setError("");
@@ -107,49 +88,22 @@ export function ConfigControls({ config }: { config: ConfigSource }) {
           </button>
         </section>
       )}
-      <h3>Recent changes</h3>
-      {status?.changes.length ? (
-        <ul className="config-changes" aria-label="Recent changes">
-          {status.changes.map((change) => (
-            <li key={change.id} className="config-change" data-state={change.state}>
-              <time dateTime={new Date(change.time).toISOString()}>
-                {shortAgo(now, change.time)}
-              </time>
+      {status?.rejected.length ? (
+        <ul className="config-changes" aria-label="Rejected files">
+          {status.rejected.map((entry) => (
+            <li key={entry.file} className="config-change">
               <span className="config-change-text">
-                {change.summary}
-                <small>
-                  {change.file}
-                  {change.hash ? ` · ${change.hash}` : ""}
-                  {change.reason ? ` · ${change.reason}` : ""}
-                </small>
+                {entry.file}
+                <small>{entry.reason}</small>
               </span>
               <span className="config-status">
                 <span className="config-light" aria-hidden="true" />
-                {LABELS[change.state]}
-                {change.warnings ? ` · ${String(change.warnings)} warnings` : ""}
+                Rejected
               </span>
-              {change.state === "applied" && change.commit ? (
-                <button
-                  type="button"
-                  className="config-revert"
-                  disabled={busy}
-                  aria-label={`Revert ${change.summary}`}
-                  onClick={() => {
-                    const commit = change.commit;
-                    if (commit) run(() => config.revert(commit));
-                  }}
-                >
-                  Revert
-                </button>
-              ) : (
-                <span className="config-revert" />
-              )}
             </li>
           ))}
         </ul>
-      ) : (
-        <p className="config-note">No changes yet.</p>
-      )}
+      ) : null}
       {error && (
         <p className="preflight-error" role="alert">
           {error}

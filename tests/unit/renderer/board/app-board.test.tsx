@@ -15,10 +15,8 @@ const mock = vi.hoisted(() => ({
     Promise.resolve({
       folder: "/home/.foom/config",
       available: true,
-      uncommitted: 0,
       pending: null,
-      changes: [],
-      rejected: 0,
+      rejected: [],
     } as ConfigStatus),
   ),
   configListener: undefined as ((status: ConfigStatus) => void) | undefined,
@@ -875,33 +873,20 @@ test("the Foom config dock contains its sessions, shows chips, launches there an
     mock.configListener?.({
       folder: "/home/.foom/config",
       available: true,
-      uncommitted: 2,
       pending: {
         id: "a".repeat(64),
         action: "turn hooks off",
         file: "settings.json",
         detail: "hooks: on → off",
       },
-      changes: [
-        {
-          id: "c",
-          time: Date.now(),
-          summary: "Add Deep theme",
-          file: "themes/deep.json",
-          state: "applied",
-          commit: "a".repeat(40),
-          hash: "aaaaaaa",
-        },
-      ],
-      rejected: 1,
+      rejected: [{ file: "settings.json", reason: "$: malformed-json" }],
     });
   });
   expect(row.textContent).toContain("Needs you");
   expect(row.textContent).toContain("1 rejected");
   fireEvent.click(screen.container.querySelector(".config-gear") ?? document.body);
   const panel = screen.getByRole("dialog", { name: "Foom config details and commands" });
-  expect(panel.textContent).toContain("2 uncommitted");
-  expect(panel.textContent).toContain("Add Deep theme");
+  expect(panel.textContent).toContain("1 rejected");
   expect(panel.textContent).toContain("hooks: on → off");
   fireEvent.click(screen.getByRole("button", { name: "/home/.foom/config" }));
   await settle();

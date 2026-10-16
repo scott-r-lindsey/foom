@@ -36,7 +36,6 @@ export interface SetupSource {
   config?: {
     status(): Promise<ConfigStatus>;
     decide(decision: "allow" | "keep", id: string): Promise<ConfigStatus>;
-    revert(commit: string): Promise<ConfigStatus>;
     openFolder(): Promise<void>;
     subscribe(listener: (status: ConfigStatus) => void): () => void;
   };

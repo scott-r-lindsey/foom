@@ -200,28 +200,6 @@ export function PanelFacts({
               unknown
             )}
           </Fact>
-          <Fact label="Working tree">
-            {subject.status?.uncommitted == null
-              ? unknown
-              : subject.status.uncommitted === 0
-                ? "Clean"
-                : `${String(subject.status.uncommitted)} uncommitted`}
-          </Fact>
-          <Fact label="Last change">
-            {(() => {
-              const last = subject.status?.changes.find((change) => change.state === "applied");
-              return last ? (
-                <>
-                  {last.summary}{" "}
-                  <Sub>
-                    {last.hash} · {ago(now, last.time)}
-                  </Sub>
-                </>
-              ) : (
-                "None"
-              );
-            })()}
-          </Fact>
           {subject.status?.pending && (
             <Fact label="Approval">
               <Chip tone="needs" dot>
@@ -230,12 +208,12 @@ export function PanelFacts({
               <Sub>{subject.status.pending.detail}</Sub>
             </Fact>
           )}
-          {Boolean(subject.status?.rejected) && (
+          {Boolean(subject.status?.rejected.length) && (
             <Fact label="Rejected">
-              <Chip tone="failed">{subject.status?.rejected} rejected</Chip>
+              <Chip tone="failed">{subject.status?.rejected.length} rejected</Chip>
             </Fact>
           )}
-          {subject.status?.error && <Fact label="Git">{subject.status.error}</Fact>}
+          {subject.status?.error && <Fact label="Problem">{subject.status.error}</Fact>}
           <Fact label="Sessions">
             <Chip tone="working">{subject.rows.filter((row) => !row.exited).length} running</Chip>
           </Fact>

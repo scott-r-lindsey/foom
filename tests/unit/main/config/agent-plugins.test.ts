@@ -5,7 +5,6 @@ import { afterEach, expect, it, vi } from "vitest";
 import v2Fixture from "../../../fixtures/agent-plugin-v2.json";
 import manifest from "../../../fixtures/agent-plugin.json";
 import { ConfigService } from "../../../../src/main/config/service";
-import { ConfigGit, prepareIsolation } from "../../../../src/main/config/git";
 import { configPart } from "../../../../src/main/config/approval";
 import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 import {
@@ -27,7 +26,6 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "foom-config-plugins-"));
   roots.push(root);
   const folder = join(root, "config");
-  const git = new ConfigGit(folder, await prepareIsolation(join(root, "isolation")));
   const digests = new Map<string, string>();
   const baseline = {
     get: (file: string) => digests.get(file) ?? null,
@@ -39,7 +37,6 @@ async function fixture() {
   };
   const dependencies = {
     root: folder,
-    git,
     defaults: configPart(DEFAULT_SETTINGS),
     apply: vi.fn((_values: ConfigSettings) => undefined),
     baseline: { get: () => null, set: () => Promise.resolve() },
@@ -91,7 +88,7 @@ it("reloads edits, fails launches bound to the old bytes, and withdraws invalid 
   expect(invalid.agentPlugins?.[0]?.reason).toContain("missing-key");
   await writeFile(f.file, Buffer.from([255]));
   await f.service.refresh();
-  expect(f.service.status().changes[0]?.reason).toBe("$: invalid-manifest");
+  expect(f.service.status().rejected[0]?.reason).toBe("$: invalid-manifest");
   await writeFile(f.file, JSON.stringify(manifest));
   await f.service.refresh();
   expect(knownAgentId(manifest.id)).toBe(true);
@@ -104,14 +101,14 @@ it("rejects mismatched IDs and redirected files without reading outside the fold
   const f = await fixture();
   await writeFile(f.file, JSON.stringify({ ...manifest, id: "other-agent" }));
   await f.service.refresh();
-  expect(f.service.status().changes[0]?.reason).toContain("filename-mismatch");
+  expect(f.service.status().rejected[0]?.reason).toContain("filename-mismatch");
   expect(knownAgentId("other-agent")).toBe(false);
   await rm(f.file);
   const outside = join(f.root, "outside.json");
   await writeFile(outside, JSON.stringify(manifest));
   await symlink(outside, f.file);
   await f.service.refresh();
-  expect(f.service.status().changes[0]?.reason).toContain("unsafe-file");
+  expect(f.service.status().rejected[0]?.reason).toContain("unsafe-file");
   expect(knownAgentId(manifest.id)).toBe(false);
   expect(await readFile(outside, "utf8")).toBe(JSON.stringify(manifest));
 });

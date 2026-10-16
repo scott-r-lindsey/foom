@@ -2037,13 +2037,6 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
   await page.getByRole("button", { name: "Personal v2", exact: true }).click();
   await expect(page.locator(".sidebar-shell")).toHaveCSS("background-color", "rgb(1, 2, 3)");
-  await page
-    .getByRole("region", { name: "Settings", exact: true })
-    .getByRole("button", { name: "Foom config", exact: true })
-    .click();
-  await expect(
-    page.locator(".config-change").filter({ hasText: "themes/personal.json" }).first(),
-  ).toContainText(/Applied · \d+ warnings/);
   await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
   await expect(page.locator(".tile-title").first()).toHaveCSS("--surface", "#141414");
   await expect(page.locator(".board-row").first()).toHaveCSS("border-radius", "0px");

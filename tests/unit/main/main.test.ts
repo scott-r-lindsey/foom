@@ -128,10 +128,6 @@ vi.mock("../../../src/main/config/service", () => ({
     dispose = () => Promise.resolve();
   },
 }));
-vi.mock("../../../src/main/config/git", () => ({
-  ConfigGit: vi.fn(),
-  prepareIsolation: () => Promise.resolve({}),
-}));
 vi.mock("../../../src/main/config/ipc", () => ({ attachConfig: mock.attachConfig }));
 import type { WindowPlacement } from "../../../src/main/window/window-placement";
 import type { ConfigServiceDependencies } from "../../../src/main/config/service";
@@ -472,6 +468,8 @@ const mock = vi.hoisted(() => {
       themeDigest: vi.fn<(_file: string) => string | null>(() => null),
       setThemeDigest: vi.fn((_file: string, _digest: string | null) => Promise.resolve()),
       setConfigDigest: vi.fn(() => Promise.resolve()),
+      configText: vi.fn(() => null),
+      setConfigText: vi.fn(() => Promise.resolve()),
       update: vi.fn(() => Promise.resolve()),
       get: (): Pick<Settings, "colorMode" | "interfaceScale" | "interfaceTheme"> &
         Partial<Pick<Settings, "agentBypassAcknowledged" | "showPullRequests">> => ({
@@ -1736,6 +1734,9 @@ test("Foom config migrates profile values, applies file changes live and broadca
   expect(deps.baseline.get()).toBeNull();
   await deps.baseline.set("d".repeat(64));
   expect(mock.settingsStore.setConfigDigest).toHaveBeenCalledWith("d".repeat(64));
+  expect(deps.appliedText?.get()).toBeNull();
+  await deps.appliedText?.set("{}");
+  expect(mock.settingsStore.setConfigText).toHaveBeenCalledWith("{}");
   expect(mock.attachConfig).toHaveBeenCalled();
   const config = mock.workspace.deps?.config;
   if (!config) throw new Error("Expected config launch dependencies");

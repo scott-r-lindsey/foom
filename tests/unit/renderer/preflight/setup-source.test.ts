@@ -68,7 +68,6 @@ test("Foom config reaches main only through the config bridge", async () => {
   const desktop = {
     configStatus: vi.fn(() => Promise.resolve("status")),
     decideConfig: vi.fn(() => Promise.resolve("decided")),
-    revertConfig: vi.fn(() => Promise.resolve("reverted")),
     openConfigFolder: vi.fn(async () => {}),
     onConfigChange: vi.fn(() => "off"),
   };
@@ -78,8 +77,6 @@ test("Foom config reaches main only through the config bridge", async () => {
   await expect(config.status()).resolves.toBe("status");
   await expect(config.decide("keep", "f".repeat(64))).resolves.toBe("decided");
   expect(desktop.decideConfig).toHaveBeenCalledWith("keep", "f".repeat(64));
-  await expect(config.revert("a".repeat(40))).resolves.toBe("reverted");
-  expect(desktop.revertConfig).toHaveBeenCalledWith("a".repeat(40));
   await config.openFolder();
   expect(desktop.openConfigFolder).toHaveBeenCalled();
   const listener = vi.fn();

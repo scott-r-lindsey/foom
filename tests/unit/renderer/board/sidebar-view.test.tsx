@@ -129,10 +129,8 @@ async function emptySections(rows: readonly BoardRow[] = []) {
         Promise.resolve({
           folder: "/config",
           available: true,
-          uncommitted: 0,
           pending: null,
-          changes: [],
-          rejected: 0,
+          rejected: [],
         }),
       subscribe: () => () => {},
       openFolder: () => Promise.resolve(),
@@ -1273,9 +1271,10 @@ test.each([
   const status = {
     folder: "/config",
     available: true,
-    uncommitted: 0,
-    rejected,
-    changes: [],
+    rejected: Array.from({ length: rejected }, (_, n) => ({
+      file: `themes/${String(n)}.json`,
+      reason: "$: malformed-json",
+    })),
     pending: held
       ? { id: "held", action: "turn off alerts", file: "settings.json", detail: "alerts" }
       : null,
@@ -1362,10 +1361,8 @@ test("config panel orders Settings, launchers and folder commands; dock uses the
             Promise.resolve({
               folder: "/config",
               available: true,
-              uncommitted: 0,
               pending: null,
-              rejected: 0,
-              changes: [],
+              rejected: [],
             }),
           subscribe: () => () => {},
           openFolder,
@@ -1422,10 +1419,8 @@ test("config status changes remove an empty dock, retain an exited session and d
   const clean = {
     folder: "/config",
     available: true,
-    uncommitted: 0,
     pending: null,
-    rejected: 0,
-    changes: [],
+    rejected: [],
   };
   const source: BoardSource = {
     ...base,
@@ -1444,7 +1439,7 @@ test("config status changes remove an empty dock, retain an exited session and d
   });
   expect(view.container.querySelector(".config-dock")).toBeNull();
   act(() => {
-    notify?.({ ...clean, rejected: 1 });
+    notify?.({ ...clean, rejected: [{ file: "settings.json", reason: "$: malformed-json" }] });
   });
   expect(view.container.querySelector(".config-dock")?.textContent).toContain("1 rejected");
   act(() => {
