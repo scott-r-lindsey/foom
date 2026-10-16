@@ -469,7 +469,7 @@ test("first run still performs setup before opening the board, without a Preflig
   expect(screen.queryByRole("main", { name: "Board" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Start preflight" }));
   await settle();
-  for (let step = 0; step < 3; step++) {
+  for (let step = 0; step < 2; step++) {
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await settle();
   }

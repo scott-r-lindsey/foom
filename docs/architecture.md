@@ -74,7 +74,7 @@ The browser-safe `shared/terminal-colors.ts` runs in both the host and renderer;
 
 Within those features:
 
-- `preflight-view.tsx` coordinates navigation, scans, persistence, errors, heading focus and launch. Welcome, agents, repositories, worktrees and readiness render in their own `*-step.tsx` modules; they receive state and actions from the coordinator. The welcome step shows instead of tells: `welcome-noise.tsx` tiles ten made-up terminals like a window manager, then folds them into ten lights, one of which needs you. `welcome-noise-output.ts` generates their output: colored, bursty, with streamed prose and per-agent status lines, and each light follows its own terminal's output rate. It is decorative (`aria-hidden`) and shows its final frame under reduced motion.
+- `preflight-view.tsx` coordinates navigation, scans, persistence, errors, heading focus and launch. Welcome, agents, repositories and readiness render in their own `*-step.tsx` modules; they receive state and actions from the coordinator. The welcome step shows instead of tells: `welcome-noise.tsx` tiles ten made-up terminals like a window manager, then folds them into ten lights, one of which needs you. `welcome-noise-output.ts` generates their output: colored, bursty, with streamed prose and per-agent status lines, and each light follows its own terminal's output rate. It is decorative (`aria-hidden`) and shows its final frame under reduced motion.
 - `board.ts` contains production board helpers. `sample-rows.ts` holds development fixture rows and is imported only by the sample source and tests.
 - `styles/styles.css` is an ordered import manifest for base, board/terminal, preflight, appearance, welcome, welcome animation, repository picker, layout overrides, tooltips, agent cards and branch field styles. The build bundles it into the existing `styles.css` asset; there are no runtime imports or new asset permissions. Keep the import order: the later preflight/layout/card rules intentionally follow the base feature rules.
 
@@ -1016,8 +1016,11 @@ Each registered window has its own trusted IPC sender and setup coordinator. The
 controllers mounted but detaches and hides their views while Settings is open. Esc
 restores sidebar row focus after the terminal has reattached; selecting a sidebar
 terminal closes Settings. The shared setup coordinator renders the same Agents,
-Repositories, Worktrees, Evaluator and Appearance controls in both paths, with guided
-navigation only in preflight. Settings adds Terminal font and size, interface Themes and
+Repositories and Appearance controls in both paths, with guided navigation only in
+preflight: Welcome → Agents (T-2) → Repositories (T-1) → Go / no-go (T-0). Worktree
+location controls live only in Settings. The existing `worktreeLocation` schema and
+root default are unchanged; completing or replaying setup never resets a saved choice.
+Settings adds Terminal font and size, interface Themes and
 Sound controls. Successful `setup:save` calls publish `setup:changed` to keep live
 consumers synchronized. Repository selection changes save immediately in Settings,
 with controls disabled during the write and refused selections restored to the
