@@ -1,3 +1,4 @@
+import { readHandoffRequest } from "../node-common/handoff";
 import { validAgentId } from "../shared/providers/catalog";
 import { ControlError, identifier, object } from "../node-common/control-validation";
 import type { Command } from "./types";
@@ -6,6 +7,17 @@ export function command(args: readonly string[]): Command {
   if (args.length > 16 || args.some((arg) => Buffer.byteLength(arg) > 16384))
     throw new ControlError("invalid_request");
   const [name, ...words] = args;
+  if (name === "read-handoff") {
+    if (words.length !== 1 && !(words.length === 3 && words[1] === "--seq"))
+      throw new ControlError("invalid_request");
+    return {
+      method: "read_handoff",
+      params: readHandoffRequest({
+        id: words[0],
+        ...(words.length === 3 ? { seq: integer(words[2], Number.MAX_SAFE_INTEGER, 1) } : {}),
+      }),
+    };
+  }
   if (name === "previews" && words.length === 0) return { method: "list_previews", params: {} };
   if (name === "open-preview" && words.length === 1) {
     const path = words[0];

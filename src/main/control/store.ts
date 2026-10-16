@@ -1,3 +1,4 @@
+import type { Handoff } from "../../shared/handoff";
 import type { PreviewAudit } from "./previews";
 import { randomUUID } from "node:crypto";
 import type { ActionLogEntry, ActionLogPage } from "../../shared/action-log";
@@ -66,6 +67,19 @@ export class ControlStore {
         status,
         targetId,
         reason: status === "refused" ? "refused" : "completed",
+      }),
+    );
+  }
+
+  handoff(actor: Principal, report: Handoff): Promise<void> {
+    return this.serialize(() =>
+      this.append({
+        actor,
+        operationId: randomUUID(),
+        action: "handoff",
+        targetId: actor.terminalId,
+        status: "succeeded",
+        reason: `Handoff #${String(report.seq)} (${report.status})`,
       }),
     );
   }

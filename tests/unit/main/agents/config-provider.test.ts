@@ -91,7 +91,7 @@ it("discovers approved capabilities, constructs literal argv, resumes, and flags
     JSON.stringify(binding.observerArgv),
     ...mcp.args,
     "--prompt",
-    "Task from your Foom orchestrator (another agent, not the user):\n\nLiteral {hookArgv} $(echo never)",
+    "Task from your Foom orchestrator (another agent, not the user):\nBefore stopping when finished, blocked, or CI fails, report to your parent with handoff({ status: done|blocked|failed, summary, links?, idempotencyKey }), or foom handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL] --idempotency-key KEY. Handoffs are pull-only; they never type into a terminal.\n\nLiteral {hookArgv} $(echo never)",
   ]);
   expect(
     provider.arguments(installation, request, [], [], undefined, undefined, false, false),

@@ -271,3 +271,23 @@ test("preserves config-agent conversation metadata while its provider is unavail
     expect(() => readSessions([value])).toThrow();
   expect(() => readSessions([{ ...record, agent: "unavailable-fixture" }])).toThrow();
 });
+
+test("retains bounded child handoffs across restart and deletes them with the row", async () => {
+  const { store } = await setup();
+  const handoffs = [
+    {
+      seq: 7,
+      status: "blocked",
+      summary: "CI is red",
+      links: ["https://example.com/pr/1"],
+      timestamp: "2026-10-15T00:00:00.000Z",
+    },
+  ];
+  await store.save(readSessions([{ ...record, parentId: "parent", handoffs }]));
+  expect((await store.load())[0]?.handoffs).toEqual(handoffs);
+  await store.save([]);
+  expect(await store.load()).toEqual([]);
+  expect(() =>
+    readSessions([{ ...record, handoffs: [{ ...handoffs[0], summary: "bad\u001b" }] }]),
+  ).toThrow();
+});

@@ -43,7 +43,7 @@ export class ControlService {
     readonly operations: Operations,
     source: () => readonly WorkspaceTerminal[] = () => [],
     private readonly orchestration?: Pick<Orchestration, "call"> &
-      Partial<Pick<Orchestration, "childLimit" | "pullRequest">>,
+      Partial<Pick<Orchestration, "childLimit" | "pullRequest" | "canHandoff" | "handoffMetadata">>,
     private readonly connectionChanged: (
       id: string,
       state: McpConnection | undefined,
@@ -56,7 +56,11 @@ export class ControlService {
     ) => Promise<void> = () => Promise.resolve(),
     readonly previews?: PreviewBroker,
   ) {
-    this.metadata = new SessionMetadata(source, (row) => this.orchestration?.pullRequest?.(row));
+    this.metadata = new SessionMetadata(
+      source,
+      (row) => this.orchestration?.pullRequest?.(row),
+      (row) => this.orchestration?.handoffMetadata?.(row),
+    );
   }
 
   childLimit(): number {
@@ -290,17 +294,22 @@ export class ControlService {
       ? [
           ...READ_ONLY,
           ...views,
-          ...(this.orchestration ? ORCHESTRATION_METHODS : []),
+          ...(this.orchestration ? ORCHESTRATION_METHODS.filter((name) => name !== "handoff") : []),
           "operation_status",
         ]
-      : [...READ_ONLY, ...views];
+      : [...READ_ONLY, ...views, ...(this.orchestration?.canHandoff?.(actor) ? ["handoff"] : [])];
   }
 
   /** Every method an agent could be granted; listing one grants nothing. */
   listed(actor: Principal): string[] {
     return actor.role === "cli"
       ? this.capabilities(actor)
-      : this.capabilities({ ...actor, role: "orchestrator" });
+      : [
+          ...this.capabilities({ ...actor, role: "orchestrator" }).filter(
+            (name) => name !== "read_handoff" || actor.role === "orchestrator",
+          ),
+          ...(this.orchestration?.canHandoff?.(actor) ? ["handoff"] : []),
+        ];
   }
 
   /** Adapters' entry point: orchestration actions are asynchronous, the rest delegate to dispatch. */
@@ -325,8 +334,11 @@ export class ControlService {
       if (request["version"] !== 1 || request["instanceId"] !== this.instanceId)
         throw new ControlError("invalid_request");
       const params = object(request["params"]);
-      if (actor.role !== "orchestrator" || !this.orchestration) throw new ControlError("forbidden");
-      const result = await this.orchestration.call(actor, method, params, this.operations);
+      if (!this.orchestration || (method !== "handoff" && actor.role !== "orchestrator"))
+        throw new ControlError(method === "handoff" ? "no_parent" : "forbidden");
+      const result = await this.orchestration.call(actor, method, params, this.operations, () => {
+        this.assertActive(actor);
+      });
       this.assertActive(actor);
       if (method === "tail" || method === "wait_for")
         await this.refused(

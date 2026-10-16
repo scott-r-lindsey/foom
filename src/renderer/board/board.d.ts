@@ -1,3 +1,4 @@
+import type { Handoff } from "../../shared/handoff";
 import type { McpConnection } from "../../shared/workspace";
 import type { ExecutionSnapshot } from "../../shared/execution";
 import type { OrchestrationView } from "../../shared/workspace";
@@ -30,6 +31,7 @@ export interface BoardRow {
   /** Main's orchestrator role and action history, or a child's parent and takeover. */
   mcpConnection?: McpConnection | undefined;
   orchestration?: OrchestrationView | undefined;
+  handoff?: Handoff | undefined;
   roleNotRestored?: boolean | undefined;
   kind: "sample" | "shell" | "agent";
   repository: string;

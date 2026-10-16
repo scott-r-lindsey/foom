@@ -4,6 +4,7 @@ export class ControlError extends Error {
       | "invalid_request"
       | "unauthorized"
       | "forbidden"
+      | "no_parent"
       | "not_found"
       | "conflict"
       | "capacity"

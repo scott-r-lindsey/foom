@@ -802,6 +802,23 @@ without transferring authority over old children. Successful reads recur every
 Polling is serial with at least a second between worktrees and stops on shutdown.
 See [the data, persistence and polling contract](orchestration.md#child-pr-and-required-checks-340).
 
+**Child handoffs implemented in #514.** `control/handoffs.ts` holds serialized,
+bounded child reports and generation-scoped deduplication. The orchestration broker
+checks the live parent and child ownership before and after asynchronous audit work;
+the service also rechecks the exact launch principal. Shared Node validators serve
+MCP/main and the console's bounded file/stdin reader. `read_handoff` uses existing
+owned-child checks; report sequence/status participate in session revisions and
+`wait_for`. The initial full cursor used for reviewed replies includes this metadata;
+its terminal-only freshness gate remains unchanged.
+
+Reports persist with the child session record (twenty maximum; aggregate session
+storage capped at 32 MiB). The renderer receives the latest report as inert text,
+while control session metadata and the private Action log omit report contents.
+Link actions carry a terminal ID, report sequence and index through validated board
+IPC; main reads the stored HTTPS URL, asks through the trusted dialog and rechecks
+the record before opening it. No terminal input capability is involved. See
+[handoff contracts and lifecycle](orchestration.md#child-handoffs-514).
+
 **Sidebar nesting and action log implemented in #157.** The board source exposes
 main-owned relationships and the private audit API. In the expanded sidebar, children appear under their
 orchestrator, with their own worktree label, light, row panel and keyboard access.

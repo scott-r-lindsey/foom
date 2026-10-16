@@ -440,3 +440,27 @@ it("private child directories reject paths and dot components", async () => {
   const nested = await privateDirectory(directory, "mcp-data");
   await verifyPrivate(nested, true);
 });
+
+it("audits handoff sequence and status without child-authored contents", async () => {
+  const store = new ControlStore(directory);
+  await store.handoff(
+    { ...record.actor, terminalId: "child", parentId: "parent", role: "agent" },
+    {
+      seq: 3,
+      status: "failed",
+      summary: "Private child-authored summary",
+      links: ["https://example.com/private"],
+      timestamp: new Date().toISOString(),
+    },
+  );
+  const page = await store.read({ search: "", action: "handoff", status: "", offset: 0 });
+  expect(page.entries[0]).toMatchObject({
+    actorId: "child",
+    parentId: "parent",
+    reason: "Handoff #3 (failed)",
+  });
+  expect(JSON.stringify(page)).not.toContain("Private child");
+  expect(await readFile(join(directory, "actions-0.jsonl"), "utf8")).not.toContain(
+    "https://example.com/private",
+  );
+});

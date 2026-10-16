@@ -202,6 +202,7 @@ export function createAppSource(): BoardSource {
         launchFlags: entry.launchFlags,
         environment: entry.environment,
         orchestration: entry.orchestration,
+        handoff: entry.handoff,
         roleNotRestored: entry.roleNotRestored,
         mcpConnection: entry.mcpConnection,
         worktreeRemoved: !entry.home && !entry.config && (!checkout || checkout.prunable),

@@ -162,7 +162,8 @@ it("lists orchestration tools only to the orchestrator and runs them through the
   expect(JSON.stringify(await agent.init())).toMatch(
     /may make you this repository's Foom orchestrator/u,
   );
-  expect(JSON.stringify(await agent.send("tools/list"))).toBe(listed);
+  expect(JSON.stringify(await agent.send("tools/list"))).not.toContain('"name":"read_handoff"');
+  expect(listed).toContain('"name":"read_handoff"');
   const refused = await agent.tool("stop", { idempotencyKey: "x", id: "child" });
   expect(refused.isError).toBe(true);
   expect(refused.content[0]?.text).toMatch(/^forbidden: you are not this repository's/u);
@@ -256,4 +257,39 @@ it("lists the current configured wait_for bound on each tools request", async ()
     const listed = await agent.send("tools/list");
     expect(JSON.stringify(listed)).toContain(`"maxItems":${String(limit)}`);
   }
+});
+
+it("lists handoff only for owned children and refuses hidden direct calls", async () => {
+  const parent = client(tokens.orchestrator);
+  await parent.init();
+  const tree = await parent.tool("create_worktree", { branch: "report", idempotencyKey: "tree" });
+  await parent.tool("launch", {
+    worktreeId: tree.structuredContent?.["resultId"],
+    agent: "claude",
+    idempotencyKey: "child",
+  });
+  const grant = service.prepare(repo, join(repo, "report"), "agent", "parent");
+  grant.bind("child");
+  const child = client(grant.env["FOOM_CONTROL_TOKEN"] ?? "");
+  await child.init();
+  expect(JSON.stringify(await child.send("tools/list"))).toContain('"name":"handoff"');
+  expect(JSON.stringify(await child.send("tools/list"))).not.toContain('"name":"read_handoff"');
+  expect(
+    await child.tool("handoff", { status: "done", summary: "Completed", idempotencyKey: "report" }),
+  ).toMatchObject({ isError: false, structuredContent: { seq: 1 } });
+  expect(await parent.tool("read_handoff", { id: "child" })).toMatchObject({
+    isError: false,
+    structuredContent: { summary: "Completed", untrusted: true },
+  });
+  expect(await parent.tool("handoff", {})).toMatchObject({
+    isError: true,
+    content: [{ text: "no_parent" }],
+  });
+  orchestration.takeOver("child");
+  expect(JSON.stringify(await child.send("tools/list"))).not.toContain('"name":"handoff"');
+  expect(await child.tool("handoff", {})).toMatchObject({
+    isError: true,
+    content: [{ text: "no_parent" }],
+  });
+  expect(await child.tool("read_handoff", { id: "child" })).toMatchObject({ isError: true });
 });
