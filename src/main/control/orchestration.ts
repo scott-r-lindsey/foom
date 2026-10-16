@@ -61,7 +61,7 @@ export interface OrchestrationHost {
     repository: string,
     branch: string,
   ): Promise<{ path: string; branch: string; identity: string }>;
-  /** An ordinary child in the checkout created with `identity`: no bypass defaults, a read-only grant. */
+  /** An ordinary child in the checkout created with `identity`: the user's non-bypass defaults, a read-only grant. */
   launch(
     parentId: string,
     repository: string,
@@ -75,6 +75,8 @@ export interface OrchestrationHost {
     repository: string,
     path: string,
   ): Promise<{ branch: string; identity: string } | undefined>;
+  /** Whether the user's default arguments for this agent bypass permissions. */
+  bypassDefaults?(agent: AgentId): boolean;
   stop(id: string): Promise<void>;
   close(id: string): Promise<void>;
   place?(id: string, parentId: string): void;
@@ -631,6 +633,9 @@ export class Orchestration {
       return this.refuse(actor, parent, operations, operation, label, "conflict");
     if (this.running(parent) + parent.starting >= this.childLimit())
       return this.refuse(actor, parent, operations, operation, label, "capacity");
+    // Children run with the user's defaults, so bypass defaults refuse before spawning.
+    if (this.host.bypassDefaults?.(agent))
+      return this.refuse(actor, parent, operations, operation, label, "forbidden");
     // Still charged to the unused budget until the spawn succeeds.
     tree.state = "starting";
     parent.starting++;

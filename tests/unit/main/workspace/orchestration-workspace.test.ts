@@ -302,15 +302,67 @@ it("releases the slot when the session has no control grant", async () => {
   expect(workspace.orchestration.active(repo.path)).toBe("parent");
 });
 
-it("creates fresh branches and launches children without bypass defaults or confirmation", async () => {
+it.each([
+  ["claude", ["--dangerously-skip-permissions"]],
+  ["codex", ["-c", 'sandbox_mode="danger-full-access"']],
+] as const)(
+  "refuses %s children whose defaults bypass permissions before spawning",
+  async (agent, args) => {
+    const workspace = new Workspace(deps);
+    workspace.configure({
+      hooks: false,
+      agents: { claude: true, codex: true, agy: true },
+      agentArguments: { claude: [], codex: [], agy: [], [agent]: args },
+    });
+    await orchestrate(workspace);
+    const operations = new Operations(
+      () => Promise.resolve(),
+      () => undefined,
+    );
+    const actor = principal();
+    const tree = (await workspace.orchestration.call(
+      actor,
+      "create_worktree",
+      { idempotencyKey: "a", branch: "feature" },
+      operations,
+    )) as Operation;
+    launch.mockClear();
+    await expect(
+      workspace.orchestration.call(
+        actor,
+        "launch",
+        { idempotencyKey: "b", worktreeId: tree.resultId, agent, prompt: "Write tests" },
+        operations,
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+    expect(launch).not.toHaveBeenCalled();
+    // The refused worktree stays unused, so it launches once the defaults are fixed.
+    workspace.configure({
+      hooks: false,
+      agents: { claude: true, codex: true, agy: true },
+      agentArguments: { claude: [], codex: [], agy: [] },
+    });
+    launch.mockResolvedValueOnce({ id: "child", attention: "evaluator" });
+    await expect(
+      workspace.orchestration.call(
+        actor,
+        "launch",
+        { idempotencyKey: "c", worktreeId: tree.resultId, agent },
+        operations,
+      ),
+    ).resolves.toMatchObject({ status: "succeeded", resultId: "child" });
+  },
+);
+
+it("creates fresh branches and launches children with the user's defaults and no confirmation", async () => {
   const workspace = new Workspace(deps);
   workspace.configure({
     hooks: false,
     agents: { claude: true, codex: true, agy: true },
-    agentArguments: { claude: ["--dangerously-skip-permissions"], codex: [], agy: [] },
+    agentArguments: { claude: ["--model", "opus"], codex: [], agy: [] },
   });
   await orchestrate(workspace);
-  expect(launch.mock.calls[0]?.[0].defaultArguments).toEqual(["--dangerously-skip-permissions"]);
+  expect(launch.mock.calls[0]?.[0].defaultArguments).toEqual(["--model", "opus"]);
   const operations = new Operations(
     () => Promise.resolve(),
     () => undefined,
@@ -340,7 +392,7 @@ it("creates fresh branches and launches children without bypass defaults or conf
   expect(launch).toHaveBeenLastCalledWith(
     expect.objectContaining({
       worktree: child.path,
-      defaultArguments: [],
+      defaultArguments: ["--model", "opus"],
       sharedCheckout: false,
       mainCheckout: false,
       control: { parentId: "parent" },
@@ -349,7 +401,7 @@ it("creates fresh branches and launches children without bypass defaults or conf
   );
   const row = workspace.snapshot().terminals.find((entry) => entry.id === "child");
   expect(row).toMatchObject({
-    launchFlags: [],
+    launchFlags: ["--model", "opus"],
     bypass: false,
     orchestration: { role: "child", parentId: "parent", takenOver: false },
   });
@@ -843,7 +895,7 @@ it("restores running parents and owned children with new launches and retains hi
   expect(launch.mock.calls[1]?.[0]).toMatchObject({
     control: { parentId: "parent" },
     conversationId: "child-conversation",
-    defaultArguments: [],
+    defaultArguments: ["--verbose"],
     prompt: "Resume your previous task.",
   });
   expect(launch.mock.calls[2]?.[0].control).toBeUndefined();
@@ -876,6 +928,55 @@ it("restores running parents and owned children with new launches and retains hi
   const before = save.mock.calls.length;
   await workspace.exited("parent", 0);
   expect(save).toHaveBeenCalledTimes(before);
+  await workspace.dispose();
+});
+
+it("restores a child as exited instead of spawning it with bypass defaults", async () => {
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  deps.sessions = {
+    load: () =>
+      Promise.resolve(
+        readSessions([
+          {
+            id: "parent",
+            agent: "claude",
+            repository: repo.path,
+            worktree: repo.path,
+            branch: "main",
+            conversationId: "parent-conversation",
+            running: true,
+            orchestrator: { identity: "identity", history: [] },
+          },
+          {
+            id: "child",
+            agent: "claude",
+            repository: repo.path,
+            worktree: child.path,
+            branch: "feature",
+            conversationId: "child-conversation",
+            running: true,
+            parentId: "parent",
+          },
+        ]),
+      ),
+    save: () => Promise.resolve(),
+    flush: async () => {},
+  };
+  launch.mockImplementation((request) =>
+    Promise.resolve({ id: request.terminalId ?? "new", attention: "evaluator" }),
+  );
+  const workspace = new Workspace(deps);
+  workspace.configure({
+    hooks: false,
+    agents: { claude: true, codex: true, agy: true },
+    agentArguments: { claude: ["--dangerously-skip-permissions"], codex: [], agy: [] },
+  });
+  await workspace.restore();
+  await workspace.restartSaved();
+  expect(launch.mock.calls.map(([request]) => request.terminalId)).toEqual(["parent"]);
+  expect(workspace.snapshot().terminals.find(({ id }) => id === "child")).toMatchObject({
+    exited: true,
+  });
   await workspace.dispose();
 });
 
