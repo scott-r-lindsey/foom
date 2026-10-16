@@ -21,8 +21,8 @@ const pending: ConfigStatus = {
       mark: "FT",
       command: "fixture-cli",
       file: "agents/fixture.json",
-      state: "pending",
-      decisionId: "digest",
+      state: "rejected",
+      reason: "$.launch: invalid",
     },
     {
       id: "broken",
@@ -90,25 +90,22 @@ function fixture() {
   };
 }
 
-test("pending and rejected cards block launch and only request main's trusted review; approvals refresh discovery", async () => {
+test("rejected config plugins block launch and show their reason without any approval action", async () => {
   const f = fixture();
   const view = render(<AgentsStep {...f.props} />);
   const card = await screen.findByRole("region", { name: "Fixture" });
   expect(within(card).getByRole("switch")).toHaveProperty("disabled", true);
   expect(within(card).getByRole("textbox")).toBeTruthy();
-  expect(within(card).getAllByText("Approval required")).toHaveLength(3);
+  expect(within(card).getAllByText("Unavailable")).toHaveLength(3);
+  expect(within(card).getByText("Rejected · launch blocked")).toBeTruthy();
+  expect(within(card).getByText("$.launch: invalid")).toBeTruthy();
+  expect(within(card).queryByRole("button", { name: "Review…" })).toBeNull();
   expect(screen.getByText("$.id: invalid")).toBeTruthy();
-  expect(f.config.decide).not.toHaveBeenCalled();
-  fireEvent.click(within(card).getByRole("button", { name: "Review…" }));
-  await waitFor(() => {
-    expect(f.config.decide).toHaveBeenCalledExactlyOnceWith("allow", "digest");
-  });
+  act(() => f.update({ ...pending, agentPlugins: [] }));
   await waitFor(() => {
     expect(screen.queryByRole("region", { name: "Fixture" })).toBeNull();
   });
-  expect(f.scan).toHaveBeenCalledWith(true);
-  act(() => f.update(pending));
-  expect(screen.getByRole("region", { name: "Fixture" })).toBeTruthy();
+  expect(f.scan).toHaveBeenCalledWith(false);
   act(() =>
     f.update({
       ...pending,
@@ -131,20 +128,8 @@ test("pending and rejected cards block launch and only request main's trusted re
   expect(f.unsubscribe).toHaveBeenCalledOnce();
 });
 
-test("review refusal stays blocked, failures surface, and status replies after unmount are ignored", async () => {
+test("status replies after unmount are ignored", async () => {
   const f = fixture();
-  f.config.decide.mockResolvedValueOnce(pending);
-  f.config.decide.mockRejectedValueOnce(Error("Plugin replaced"));
-  const view = render(<AgentsStep {...f.props} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Review…" }));
-  await waitFor(() => {
-    expect(screen.getByRole("button", { name: "Review…" })).toHaveProperty("disabled", false);
-  });
-  expect(screen.getByText("Approval pending · launch blocked")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Review…" }));
-  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Plugin replaced");
-  view.unmount();
-  act(() => f.update(pending));
   let complete: (next: ConfigStatus) => void = () => {};
   f.config.status.mockImplementation(
     () =>
@@ -160,7 +145,7 @@ test("review refusal stays blocked, failures surface, and status replies after u
   });
 });
 
-test("status errors and late rejections are handled without granting plugin approval", async () => {
+test("status errors and late rejections are handled", async () => {
   const f = fixture();
   f.config.status.mockRejectedValueOnce(Error("Config unavailable"));
   const view = render(<AgentsStep {...f.props} />);
@@ -212,7 +197,7 @@ test("registry-only agent cards save literal defaults and hook choices, with fac
     />,
   );
   const card = screen.getByRole("region", { name: "Fixture" });
-  expect(within(card).getByText("Approved")).toBeTruthy();
+  expect(within(card).queryByText("Approved")).toBeNull();
   expect(within(card).getByText("/bin/fixture")).toBeTruthy();
   fireEvent.click(within(card).getByRole("button", { name: "Screen rules" }));
   expect(f.save).toHaveBeenCalledWith({ agentHooks: { fixture: false } });

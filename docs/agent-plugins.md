@@ -1,7 +1,7 @@
 # Agent plugin format v2 — review draft (#423)
 
 Status: parser implemented by #430 and the generic config launch engine by #431,
-2026-10-14. Approved v2 config plugins support discovery, launch, private MCP files,
+2026-10-14. v2 config plugins support discovery, launch, private MCP files,
 prompts, preview grants, argument/environment bypass disclosure, resume and local
 attention rules. Hook channels, private hook files, payload mapping and observed health are implemented
 by #432. Setup status, fixed plugin actions and private staging are implemented by #433.
@@ -15,14 +15,14 @@ Read with [agent measurements](agents.md), [architecture](architecture.md), and
 [orchestration](orchestration.md). #407/#415 established v1; the
 [#410 decision](https://github.com/scott-r-lindsey/foom/issues/410#issuecomment-6175139041)
 puts Copilot on hold for v2. [#424](https://github.com/scott-r-lindsey/foom/issues/424)
-requires a config copy of a built-in to carry every behavior after approval. Bundled and config
+requires a config copy of a built-in to carry every behavior. Bundled and config
 manifests use exactly the same engine. There are no privileged manifest capability
 names, agent-ID switches, executable modules, or automatic manifest downloads.
 
 ## Proposed forge kind (#520)
 
 [Forge manifests](forge-plugins.md) proposes `kind: "forge"` in this same plugin
-system, sharing loading, exact-byte approval and Settings cards.
+system, sharing loading and Settings cards.
 It includes a JSON Schema draft, full GitHub/GitLab examples and a public/constructed
 fixture spike. **Proposed, not decided:** existing agent v1/v2 manifests do not
 change; user approval is required before #521 implementation.
@@ -37,7 +37,7 @@ execution/health integration. The v1 fixture is `tests/fixtures/agent-plugin.jso
 
 | Current behavior | v2 data | Generic engine responsibility |
 | --- | --- | --- |
-| Resolve claude/codex/agy on login PATH; fixed help/version, 5 s, 256 KiB; ignore relative PATH entries and Windows wrappers | `executables`, `discovery` | Resolve and probe only approved providers; keep full version; fail capability facts closed |
+| Resolve claude/codex/agy on login PATH; fixed help/version, 5 s, 256 KiB; ignore relative PATH entries and Windows wrappers | `executables`, `discovery` | Resolve and probe only loaded providers; keep full version; fail capability facts closed |
 | Claude hooks: stable >=2.1.284 plus complete --settings; Codex notify >=0.155.1 plus -c; lifecycle >=0.161.0 (currently version-only) | Version grammar and help-token predicates | Numeric stable-version comparison with no upper bound; no manifest regex for version extraction |
 | Claude MCP >=2.1.293 + --mcp-config; Codex MCP >=0.161.0 + -c; agy has no verified per-launch MCP | `discovery.facts`, conditional launch blocks | MCP fact independent of hooks; policy denial is not permission to weaken client settings |
 | Codex --no-alt-screen only if complete flag advertised | `inline` fact, display block | Display independent of hook toggle |
@@ -147,7 +147,7 @@ engine after substitution and layering; this parser never expands launch data.
 | File | `{name,scope,format,content,when?}`; scope launch or plugin; format json or toml; content multiline template; must parse after typed expansion |
 | Channel | `{id,when,observer,arguments,mapping,disclosure?}` |
 | observer | `{transport,placement,version,response,delivery,timeoutMs,sequence?,basename?,commandArguments?}`; transport stdin or argv-last; placement launch, stable or plugin; version 1–100000 integer or `{posix,win32}` integers for existing platform ABIs; response silent or empty-json-first; delivery foreground or detached; timeoutMs 1000–3000; sequence boolean default false; basename [A-Za-z][A-Za-z0-9_-]* <=40 default observer; commandArguments <=8 literal event/label tokens [A-Za-z][A-Za-z0-9_-]* <=64, never executable code |
-| disclosure | `{id,text,acknowledgement:"profile"}`; ID and Text; selected channel requires main-recorded digest-bound acknowledgement; the trusted Allow plugin dialog explicitly acknowledges each channel disclosure for those exact bytes in that profile, using the existing plugin approval baseline; never renderer boolean consent |
+| disclosure | `{id,text,acknowledgement:"profile"}`; ID and Text; bundled channels require main-recorded acknowledgement; config plugins load without one (#539); never renderer boolean consent |
 
 Allowed placeholders, with no recursion or environment interpolation by Foom:
 
@@ -252,7 +252,7 @@ selected manifest/default argv for bypass. Environment checks use the final laun
 environment (inherited, All sessions, provider list, Foom variables), with Windows
 case-insensitive names. Existing environment safety rules and secret storage stay
 in force. A matching environment bypass requires a trusted confirmation on every
-human launch; only names and match reason are displayed. Approval of a manifest
+human launch; only names and match reason are displayed. Loading a manifest
 is not this consent. For unverified boolean semantics, present-nonempty is a
 conservative disclosure, not a claim the CLI enables bypass for every value.
 
@@ -292,7 +292,7 @@ Only reduced action/event, validated IDs and enumerated Stop facts leave the
 receiver. Discard source payload immediately, never log prompts, transcript paths,
 inputs/outputs or arbitrary field values. Keep existing 64 KiB body, 8 KiB header,
 32-connection, 5 s receive limits, literal loopback/Host checks, no Origin, token
-constant-time comparison, revoke-on-exit and terminal binding. Manifest approval
+constant-time comparison, revoke-on-exit and terminal binding. A manifest
 cannot override these limits or grant permissions through hooks.
 
 conversation.newId arguments are inserted at the arguments stage before other manifest arguments, on new launches only; assign/persist the UUID after successful spawn and pin hook identity against it.
@@ -338,7 +338,7 @@ no unsafe quantifiers/groups. Bare valid IDs remain engine behavior with an expl
 agent choice. No quotes, paths, shell syntax, extra flags, optional picker/name/prefix
 resume forms, equals form or command execution. Ambiguous matches across active
 plugins require explicit provider selection. Renderer may receive validated public
-patterns but raw paste stays local; main checks plugin approval and ID again.
+patterns but raw paste stays local; main checks the loaded provider and ID again.
 
 ### Setup status and fixed actions
 
@@ -382,7 +382,7 @@ Command actions use the same resolved agent executable, fixed argv and only
 {pluginDir}; no user/payload interpolation, subprocess choice, cwd selection, shell,
 stdin program, retries or executable downloads. The content-addressed staging fingerprint covers expanded files and generated observer bytes. Ownership may declare optional `unfingerprintedVersion` (ABI integer), accepting recognized versions at or above that floor only when the fingerprint is absent. An explicit fingerprint mismatch remains outdated. Observer plugins carry `foomStagingFingerprint` in CLI-owned plugin metadata; a changed definition is outdated and offers update even at the same ABI version. Staging verification rejects extra files, links and changed bytes before invoking the CLI. Stage files first for review;
 serialize actions per executable/plugin ownership target, re-probe before/after,
-re-read approval bytes and recheck ownership after trusted confirmation. Conflicting
+re-read manifest bytes and recheck ownership after trusted confirmation. Conflicting
 copies share the ownership lock, including case aliases on Windows/macOS. Failed commands report fixed errors and require
 rescan, never assume success. Install only absent, update only recognized outdated,
 enable only recognized disabled, remove only recognized installed/outdated/disabled.
@@ -398,39 +398,27 @@ permitted only for the disclosed opt-in lifecycle plugin CLI path, as today; the
 format does not authorize global Claude/Codex/Copilot setup writes. Any new global
 mutation integration requires its own reviewed architecture decision.
 
-## Trust model and approval dialog
+## Trust model
+
+Config manifests load without an approval step (#539). Agents already run as the
+user: anything that can write the config folder can also write shell startup files
+or executables on PATH, so per-manifest approval guarded one door among many. What
+keeps an agent inside its worktree is the agent's own sandbox or permission prompts.
 
 | Boundary | Required behavior |
 | --- | --- |
 | Bundled manifests | Trusted as build inputs; same validator/engine/features as config. Build provenance cannot be claimed in JSON |
-| Config manifest | No probing, setup execution or launch until exact original bytes approved in separate TrustedDialog; persist SHA-256 in profile, not config git |
-| Edits/removal/restart | Changed/invalid => immediately withdraw future launch authority; re-read before probe/preparation/spawn/action; registry revision invalidates caches. Running sessions retain immutable mapping/argv binding; removal clears digest; restart only exact digest |
-| Cancel/Keep | Cancel grants nothing; Keep restores approved bytes or removes unapproved addition. Invalid diagnostics are fixed JSON path/reason, no raw exception or secret |
-| Consent distinctions | Manifest approval permits offered behavior; setup action, argument bypass, environment bypass, notifier replacement and human orchestration grants remain separate main-owned decisions |
+| Config manifest | Valid original bytes load on the scan that reads them; invalid bytes are rejected whole and never probed or launched |
+| Edits/removal/restart | An edit reloads the provider; re-read before probe/preparation/spawn/action and refuse bytes changed since loading; registry revision invalidates caches. Running sessions retain immutable mapping/argv binding; removal removes the provider |
+| Diagnostics | Invalid diagnostics are fixed JSON path/reason, no raw exception or secret |
+| Consent distinctions | Setup actions, argument bypass, environment bypass and human orchestration grants remain separate main-owned decisions |
 | Renderer and agent | Cannot write consent/health/fact fields or answer through board IPC. Validate sender top frame and exact origin/request ID in trusted window; no hook or model response is an instruction |
-| Local user | Manifest approval is not executable-content attestation or OS isolation. PATH executable may change; worktrees are not sandboxes |
+| Local user | Loading is not executable-content attestation or OS isolation. PATH executable may change; worktrees are not sandboxes |
 
-The trusted dialog focuses Cancel, renders inert text, and must show the following
-without omission/truncation (scrolling permitted). Include before/after for edits.
-
-| Section | Contents |
-| --- | --- |
-| Identity/provenance | ID/name/badge, config path, byte digest, bundled vs config origin |
-| Executables/probes | Every executable basename, resolution policy and currently resolved path if available; fixed --version/--help; all version grammars/help conditions |
-| Launch | Every argv entry in every block, order, conditions, substitutions, prompt/guidance composition, new/resume ID policy, preview grants and merge behavior |
-| Protection/bypass | All reserved and bypass matchers, environment names/predicates, explanation that defaults/worktree do not guarantee sandboxing |
-| Files/observers | Exact file content bytes (escaped visibly), scope/name, generated destination, every hook definition and fixed observer argv per platform, ABI/version, response/transport/timeouts/order; global-write prohibition |
-| Hook/execution facts | Every extractor/requirement/alias/event/action, dedupe/pinning, completion/health/fallback requirements and disclosure text |
-| Setup | Every fixed action argv, target installation location/name, permitted state, probe/metadata read paths/ownership guards, full instructions and removal route; separately approved each time invoked |
-| Attention/resume | All detection rules/provenance and paste patterns, unsupported capabilities/open verification status |
-| Consequences | Runs as the user; notifier replacement scope; installed observer is inert without launch credentials; changed definitions need review; approval is revocable for future launches |
-
-Disclosure text supplied by a plugin cannot suppress the engine's mandatory
-consequence text. Confirmation acceptance is bound to the proposal digest and
-resolved operation, revalidated afterward. Raw manifest bytes may be viewed only
-in the trusted content surface; secrets/tokens never appear in templates, argv,
-files, renderer, logs or consent records. Agent hook command definitions use fixed
-observer paths only. Observer output cannot approve a tool.
+Secrets and tokens never appear in templates, argv, files, renderer, logs or consent
+records. Agent hook command definitions use fixed observer paths only. Observer
+output cannot approve a tool. A channel's `disclosure` text is no longer shown at
+load; notifier replacement remains per launch.
 
 ### Customizing a built-in agent
 
@@ -442,11 +430,11 @@ was removed in #538.
 
 A copy gains no trust: no profile digest, Codex legacy notifier acknowledgement,
 bundled observer provenance, hook observation, per-agent defaults or environment
-secrets carry over. Normal config validation and exact-byte **Allow plugin**
-approval precede discovery and launch; subsequent edits revoke that approval.
+secrets carry over. Normal config validation precedes discovery and launch; an
+edit reloads it.
 Codex copies use private config observer paths and their own health observations.
 Antigravity copies retain the same declared setup target and ownership checks:
-status is freshly inspected after approval, never copied from the built-in card.
+status is freshly inspected after loading, never copied from the built-in card.
 An existing recognized lifecycle installation can be observed by the generic engine;
 install/update/enable/remove still require separate trusted setup confirmation and
 serialize on that same ownership target. The card switch can turn the built-in off
@@ -463,19 +451,19 @@ while the copy stays on.
 | Prompt constants, grants, per-turn reconciliation, config/child constraints, restore and checkout identity | Prompt/resume layout, merge grammar, CLI guidance selection, restore capability fact |
 | Local evaluator, provider provenance, tool authorization, process audits | Detection rules, approved preview-tool syntax and bounded paste patterns |
 
-New per-provider enable/default/environment scopes use approved IDs, including config copies of built-ins; legacy three built-in settings migrate without widening a grant. The renderer receives only validated card/status/role facts.
+New per-provider enable/default/environment scopes use loaded provider IDs, including config copies of built-ins; legacy three built-in settings migrate without widening a grant. The renderer receives only validated card/status/role facts.
 
 No operations named claude/codex/agy/copilot, no manifest-loaded modules, no
 built-in-only capability bit. Adding a provider requires JSON and measurements,
 not workspace/renderer branches. ABI-level observer versioning is generic code;
-custom manifests can express every bundled selection after approval. Product
+custom manifests can express every bundled selection. Product
 privacy, context isolation, sandboxing and terminal ownership are unchanged.
 
 ## Migration and acceptance for later implementation
 
 | Input/state | Required migration |
 | --- | --- |
-| v1 config | Read original bytes with unchanged v1 validation/semantics; normalize internally, never rewrite/auto-approve as v2. Existing digest still grants only v1 behavior |
+| v1 config | Read original bytes with unchanged v1 validation/semantics; normalize internally, never rewrite as v2; still grants only v1 behavior |
 | v1 fields | launch arrays become blocks; hooksHelp/mcpHelp become literal requirements preserving v1 substring semantics only in compatibility adapter; hook mapping becomes one channel/cases. bypass strings retain exact matching; empty reserved/environment/paste/setup; v1 launch order unchanged |
 | v1 detection | Keep v1 limits/IDs; wider v2 priority/underscore support does not silently expand v1 acceptance |
 | v2 conversion | Explicit user file edit gets new full review. Unsupported versions invalid with fixed reason |
@@ -483,7 +471,7 @@ privacy, context isolation, sandboxing and terminal ownership are unchanged.
 | Codex health | Transfer only identical definition fingerprint; stable observer command/timeout must remain identical for unchanged observer. Changed generated definition invalidates Foom health and lets Codex request review |
 | agy plugin | Recognize current foomObserverVersion 2, do not reinstall; newer version supported as today, older offers update, disabled needs enable; unknown foom refuses mutation |
 | Config copy of a built-in | Copy with identity changed; full manifest, hand-made (#538 removed the Settings action). No loss of hooks/setup/resume/protections. Consent/observed health not copied; same ownership target serialized across copies |
-| Dormant conversations | Missing/unapproved provider preserves row/ID but grants no launch; new invocation rechecks approved provider and checkout |
+| Dormant conversations | Missing/invalid provider preserves row/ID but grants no launch; new invocation rechecks the loaded provider and checkout |
 
 Later implementation must keep existing unit/Electron/native hook tests passing on
 all three OSes, add a manifest-only fixture (no real agent CLI probes), and verify
@@ -518,7 +506,7 @@ manifest to the build list, pin its ID/digest in the loader, replace its legacy
 registration, remove its old policy branches, and add compatibility/failure tests.
 The shared catalog reserves all existing built-in IDs throughout conversion;
 config registration independently rejects collisions. Config copies change identity
-and require normal exact-byte config approval; bundled origin/consent is never
+and load as ordinary config plugins; bundled origin/consent is never
 copied. Config files cannot claim `bundled` provenance.
 
 Main assigns `origin: bundled` to loaded providers and `providerOrigin: bundled`
@@ -590,8 +578,7 @@ Codex compatibility details (#435):
 - The existing `codexNotifierAcknowledged` setting is retained. A separate
   build-owned consent digest permits its use only for this reviewed equivalent
   disclosure/effect; changing a manifest lock does not silently migrate consent.
-  Config copies rely on their own exact-byte plugin approval, never that legacy
-  acknowledgement or bundled health. Enablement, defaults, environment scopes,
+  Config copies never inherit that legacy acknowledgement or bundled health. Enablement, defaults, environment scopes,
   argument bypass acknowledgement and dormant conversation IDs keep the same keys.
 - Private notify paths now use the generic launch directory. Generated observers
   add a launch-bound channel header and bound input; their timeout, silent

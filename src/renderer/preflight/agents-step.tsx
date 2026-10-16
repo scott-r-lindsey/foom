@@ -56,10 +56,10 @@ export function AgentsStep({
       dispose();
     };
   }, [configSource]);
-  const held = (config?.agentPlugins ?? []).filter((plugin) => !builtinAgent(plugin.id));
+  const rejected = (config?.agentPlugins ?? []).filter((plugin) => !builtinAgent(plugin.id));
   const choices = [
     ...agentChoices(report),
-    ...held.filter((plugin) => !agentChoices(report).some((agent) => agent.id === plugin.id)),
+    ...rejected.filter((plugin) => !agentChoices(report).some((agent) => agent.id === plugin.id)),
   ];
   return (
     <div className="agents-page">
@@ -96,7 +96,7 @@ export function AgentsStep({
       <div className="agent-cards">
         {choices.map(({ id, name, command }) => {
           const agent = report?.agents.find((entry) => entry.id === id);
-          const plugin = held.find((entry) => entry.id === id);
+          const plugin = rejected.find((entry) => entry.id === id);
           const installed = Boolean(agent?.path);
           const blocked = Boolean(plugin);
           const missing = !installed && !blocked && state.settings.agents[id] !== false;
@@ -255,13 +255,7 @@ export function AgentsStep({
                       ].map(([label, available]) => (
                         <div key={String(label)}>
                           <dt>{label}</dt>
-                          <dd>
-                            {blocked
-                              ? "Approval required"
-                              : available
-                                ? "Available"
-                                : "Unavailable"}
-                          </dd>
+                          <dd>{!blocked && available ? "Available" : "Unavailable"}</dd>
                         </div>
                       ))}
                     </dl>
@@ -301,49 +295,11 @@ export function AgentsStep({
                           <span>
                             Foom config · <code>{plugin?.file ?? agent?.source}</code>
                           </span>
-                          <span
-                            className={
-                              plugin?.state === "pending"
-                                ? "agent-needs"
-                                : plugin?.state === "rejected"
-                                  ? "preflight-error"
-                                  : undefined
-                            }
-                          >
-                            {plugin?.state === "pending"
-                              ? "Approval pending · launch blocked"
-                              : plugin?.state === "rejected"
-                                ? "Rejected · launch blocked"
-                                : "Approved"}
-                          </span>
+                          {plugin && (
+                            <span className="preflight-error">Rejected · launch blocked</span>
+                          )}
                           {plugin?.reason && (
                             <span className="preflight-error">{plugin.reason}</span>
-                          )}
-                          {plugin?.decisionId && configSource && (
-                            <button
-                              type="button"
-                              disabled={reviewing}
-                              onClick={() => {
-                                setReviewing(true);
-                                setError("");
-                                void configSource
-                                  .decide("allow", plugin.decisionId ?? "")
-                                  .then(
-                                    async (next) => {
-                                      setConfig(next);
-                                      await scan(true);
-                                    },
-                                    (caught: unknown) => {
-                                      setError(message(caught));
-                                    },
-                                  )
-                                  .finally(() => {
-                                    setReviewing(false);
-                                  });
-                              }}
-                            >
-                              Review…
-                            </button>
                           )}
                         </>
                       ) : (

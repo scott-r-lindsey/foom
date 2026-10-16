@@ -5,7 +5,6 @@ import type { AgentManifestV2 } from "../../shared/agent-manifest-v2";
 import { v2Provider } from "../agents/providers/v2";
 import type { AgentProvider } from "../agents/providers/registry";
 import { configProvider } from "../agents/providers/config";
-import { pluginDisclosure } from "../agents/providers/disclosure";
 import { randomUUID } from "node:crypto";
 import { constants, watch } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
@@ -51,12 +50,7 @@ export interface ConfigServiceDependencies {
     get(file: string): string | null;
     set(file: string, value: string | null): Promise<void>;
   };
-  pluginBaseline?: {
-    get(file: string): string | null;
-    set(file: string, value: string | null): Promise<void>;
-  };
   applyPlugins?(providers: readonly AgentProvider[]): void;
-  confirmPlugin?(content: DialogContent): Promise<boolean>;
   confirmArguments?(content: DialogContent): Promise<boolean>;
   acknowledgeBypass?(agents: readonly ("claude" | "codex" | "agy")[]): Promise<void>;
   onStatus?(status: ConfigStatus): void;
@@ -183,16 +177,7 @@ export function revertable(path: string): boolean {
 export class ConfigService {
   private applied: Applied = DEFAULTS;
   private pending: Pending | null = null;
-  private heldPlugins = new Map<
-    string,
-    {
-      text: string;
-      hash: string;
-      manifest: AgentPluginManifest | AgentManifestV2;
-      previous: string | null;
-    }
-  >();
-  private approvedPlugins = new Map<string, { text: string; provider: AgentProvider }>();
+  private loadedPlugins = new Map<string, { text: string; provider: AgentProvider }>();
   private events: ConfigChange[] = [];
   private appliedThemes = new Map<string, { text: string; parsed: ParsedThemeFile }>();
   private heldThemes = new Map<string, { text: string; previous: string | null }>();
@@ -563,12 +548,6 @@ export class ConfigService {
     this.publish();
   }
 
-  private async removePluginFile(file: string): Promise<void> {
-    if (!(await this.contained("agents")))
-      throw new Error("A Foom config folder is redirected outside the config folder");
-    await rm(this.path(file), { force: true });
-  }
-
   private async pluginPaths(): Promise<string[]> {
     if (!(await this.contained("agents"))) return [];
     const names = await readdir(this.path("agents")).catch(() => []);
@@ -579,11 +558,11 @@ export class ConfigService {
       .map((name) => `agents/${name}`);
   }
 
+  /** A valid manifest loads as read; an edit reloads it and an invalid file is rejected whole. */
   private async scanPlugins(tree: Map<string, TreeEntry>): Promise<void> {
     const paths = new Set([
       ...(await this.pluginPaths()),
-      ...this.approvedPlugins.keys(),
-      ...this.heldPlugins.keys(),
+      ...this.loadedPlugins.keys(),
       ...[...tree.keys()].filter((file) => /^agents\/[a-z][a-z0-9-]{0,39}\.json$/u.test(file)),
     ]);
     const active: AgentProvider[] = [];
@@ -592,16 +571,13 @@ export class ConfigService {
       try {
         bytes = await this.read(file);
       } catch {
-        this.approvedPlugins.delete(file);
-        this.heldPlugins.delete(file);
+        this.loadedPlugins.delete(file);
         this.reject(file, "unreadable", "$: unsafe-file");
         continue;
       }
       if (!bytes) {
-        this.approvedPlugins.delete(file);
-        this.heldPlugins.delete(file);
+        this.loadedPlugins.delete(file);
         this.rejected.delete(file);
-        await this.deps.pluginBaseline?.set(file, null);
         if (tree.has(file)) await this.commit(new Map([[file, null]]), `Remove ${file}`);
         continue;
       }
@@ -614,8 +590,7 @@ export class ConfigService {
         if (file !== `agents/${manifest.id}.json`)
           throw new AgentManifestError("$.id", "filename-mismatch");
       } catch (error) {
-        this.approvedPlugins.delete(file);
-        this.heldPlugins.delete(file);
+        this.loadedPlugins.delete(file);
         this.reject(
           file,
           digest(bytes),
@@ -625,35 +600,23 @@ export class ConfigService {
       }
       this.rejected.delete(file);
       const hash = digest(bytes);
-      const previous = this.approvedPlugins.get(file);
-      if (this.deps.pluginBaseline?.get(file) !== hash) {
-        let restore = previous?.text ?? this.heldPlugins.get(file)?.previous ?? null;
-        if (!restore) {
-          const committed = await this.committed(file);
-          if (committed && digest(committed) === this.deps.pluginBaseline?.get(file))
-            restore = decode(committed);
-        }
-        this.heldPlugins.set(file, { text, hash, manifest, previous: restore });
-        this.approvedPlugins.delete(file);
-        continue;
-      }
+      const previous = this.loadedPlugins.get(file);
+      // A launch binds the definition it was offered; an edit waits for the next scan.
       const provider =
         previous?.text === text
           ? previous.provider
           : createConfigProvider(manifest, async () => {
               const current = await this.read(file);
-              if (
-                !current ||
-                digest(current) !== hash ||
-                this.deps.pluginBaseline?.get(file) !== hash
-              )
-                throw new Error("Agent plugin changed. Review it again.");
+              if (!current || digest(current) !== hash)
+                throw new Error("Agent plugin changed. Try again.");
             });
-      this.approvedPlugins.set(file, { text, provider });
-      this.heldPlugins.delete(file);
+      this.loadedPlugins.set(file, { text, provider });
       active.push(provider);
       if (tree.get(file)?.object !== (await this.deps.git.objectId(bytes)))
-        await this.commit(new Map([[file, bytes]]), `Approve ${manifest.name} agent plugin`);
+        await this.commit(
+          new Map([[file, bytes]]),
+          `${tree.has(file) ? "Update" : "Add"} ${manifest.name} agent plugin`,
+        );
     }
     this.deps.applyPlugins?.(active);
     const defaults = this.applied.values.agentArguments;
@@ -664,51 +627,6 @@ export class ConfigService {
         this.deps.apply(this.applied.values);
       }
     }
-  }
-
-  private async decidePlugin(decision: "allow" | "keep", id: unknown): Promise<ConfigStatus> {
-    const held = [...this.heldPlugins.entries()].find(
-      ([file, proposal]) => digest(file + proposal.text) === id,
-    );
-    if (!held)
-      throw new Error(
-        this.heldPlugins.size
-          ? "The change was replaced. Review it again."
-          : "No change is waiting for approval",
-      );
-    const [file, proposal] = held;
-    if (id !== digest(file + proposal.text))
-      throw new Error("The change was replaced. Review it again.");
-    const check = async () => {
-      const bytes = await this.read(file);
-      if (!bytes || digest(bytes) !== proposal.hash) {
-        await this.scan();
-        throw new Error("The file changed. Review the new change.");
-      }
-    };
-    await check();
-    if (decision === "allow") {
-      if (
-        !(await this.deps.confirmPlugin?.(
-          pluginDisclosure(proposal.manifest, {
-            file,
-            digest: proposal.hash,
-            text: proposal.text,
-            previous: proposal.previous,
-          }),
-        ))
-      )
-        return this.status();
-      await check();
-      if (!this.deps.pluginBaseline) throw new Error("Agent approval storage is unavailable");
-      await this.deps.pluginBaseline.set(file, proposal.hash);
-    } else {
-      if (proposal.previous === null) await this.removePluginFile(file);
-      else await this.writeFile(file, proposal.previous);
-    }
-    this.heldPlugins.delete(file);
-    await this.scan();
-    return this.status();
   }
 
   private async scanSettings(tree: Map<string, TreeEntry>): Promise<void> {
@@ -1058,31 +976,19 @@ export class ConfigService {
     }));
     const pending = this.pending;
     const held = this.heldThemes.entries().next().value;
-    const plugin = this.heldPlugins.entries().next().value;
     return {
-      agentPlugins: [
-        ...[...this.heldPlugins].map(([file, proposal]) => ({
-          id: proposal.manifest.id,
-          name: proposal.manifest.name,
-          mark: proposal.manifest.badge,
-          command: proposal.manifest.executables[0] ?? proposal.manifest.id,
+      agentPlugins: [...this.rejected.keys()]
+        .filter((file) => file.startsWith("agents/"))
+        .map((file) => ({
+          id: file.slice(7, -5),
+          name: file.slice(7, -5),
+          mark: "?",
+          command: file.slice(7, -5),
           file,
-          state: "pending" as const,
-          decisionId: digest(file + proposal.text),
+          state: "rejected" as const,
+          reason: this.events.find((event) => event.file === file && event.state === "rejected")
+            ?.reason,
         })),
-        ...[...this.rejected.keys()]
-          .filter((file) => file.startsWith("agents/"))
-          .map((file) => ({
-            id: file.slice(7, -5),
-            name: file.slice(7, -5),
-            mark: "?",
-            command: file.slice(7, -5),
-            file,
-            state: "rejected" as const,
-            reason: this.events.find((event) => event.file === file && event.state === "rejected")
-              ?.reason,
-          })),
-      ],
       folder: this.deps.root,
       available: this.available,
       uncommitted: this.uncommitted,
@@ -1100,14 +1006,7 @@ export class ConfigService {
               action: "use a theme where needs-you is hard to tell apart",
               detail: "attention-distinctness",
             }
-          : plugin
-            ? {
-                id: digest(plugin[0] + plugin[1].text),
-                file: plugin[0],
-                action: "add or change an agent plugin",
-                detail: "Review its executable, arguments, bypass flags and hook mapping",
-              }
-            : null,
+          : null,
       changes: [...this.events, ...applied].sort((a, b) => b.time - a.time).slice(0, MAX_EVENTS),
       rejected: this.rejected.size,
       ...(this.error ? { error: this.error } : {}),
@@ -1165,12 +1064,10 @@ export class ConfigService {
     if (decision !== "allow" && decision !== "keep")
       return Promise.reject(new Error("Invalid decision"));
     return this.serial(async () => {
-      if ([...this.heldPlugins].some(([file, proposal]) => digest(file + proposal.text) === id))
-        return this.decidePlugin(decision, id);
       const pending = this.pending;
       if (!pending) {
         const held = this.heldThemes.entries().next().value;
-        if (!held) return this.decidePlugin(decision, id);
+        if (!held) throw new Error("No change is waiting for approval");
         const [file, proposal] = held;
         if (id !== digest(file + proposal.text))
           throw new Error("The change was replaced. Review it again.");

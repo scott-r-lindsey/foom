@@ -5,7 +5,6 @@ import { afterEach, expect, it, vi } from "vitest";
 import fixture from "../../../fixtures/agent-plugin.json";
 import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
 import { configProvider } from "../../../../src/main/agents/providers/config";
-import { pluginDisclosure } from "../../../../src/main/agents/providers/disclosure";
 import {
   knownAgentId,
   replaceConfigProviders,
@@ -188,14 +187,6 @@ it("refuses invalid prompts and endpoints and unsupported resume/prompt template
       false,
     ),
   ).toThrow("cannot take");
-  expect(
-    pluginDisclosure(minimal).sections?.find((section) => section.label === "Hook mapping")?.items,
-  ).toEqual(["(none)"]);
-  expect(
-    pluginDisclosure({ ...minimal, bypassArguments: [] }).sections?.find(
-      (section) => section.label === "Bypass arguments",
-    )?.items[0],
-  ).toContain("none declared");
 });
 it("maps only fixed top-level fields, pins conversation identity and discards arbitrary payload text", () => {
   const mapping = manifest.attention.hook;

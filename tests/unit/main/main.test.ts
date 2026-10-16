@@ -2060,21 +2060,10 @@ test("worktree removal blocks preview opens and closes every window's previews b
   await expect(first.validate("/tree")).resolves.toBeUndefined();
 });
 
-test("config plugin consent uses the trusted window and profile digests, refreshes changed registries and reports discovery failure", async () => {
+test("config plugins refresh changed registries and report discovery failure", async () => {
   await start();
   const deps = mock.config.deps;
-  if (!deps?.pluginBaseline || !deps.applyPlugins || !deps.confirmPlugin)
-    throw Error("Missing plugin consent capabilities");
-  expect(deps.pluginBaseline.get("agents/fixture.json")).toBeNull();
-  await deps.pluginBaseline.set("agents/fixture.json", "a".repeat(64));
-  expect(mock.settingsStore.setThemeDigest).toHaveBeenCalledWith(
-    "agents/fixture.json",
-    "a".repeat(64),
-  );
-  const content = { title: "Allow fixture plugin?", accept: "Allow plugin" };
-  mock.message.mockResolvedValueOnce({ response: 1 });
-  expect(await deps.confirmPlugin(content)).toBe(true);
-  expect(mock.message).toHaveBeenLastCalledWith(content);
+  if (!deps?.applyPlugins) throw Error("Missing plugin capabilities");
   const provider = configProvider(parseAgentPlugin(JSON.stringify(pluginFixture)), () =>
     Promise.resolve(),
   );
@@ -2098,7 +2087,7 @@ test("config plugin consent uses the trusted window and profile digests, refresh
   replaceConfigProviders([]);
 });
 
-test("approved plugins load before the first workspace exists without starting discovery from the config callback", async () => {
+test("config plugins load before the first workspace exists without starting discovery from the config callback", async () => {
   const warn = vi.spyOn(console, "error").mockImplementation(() => undefined);
   mock.config.initialize.mockImplementationOnce(() => {
     const provider = configProvider(parseAgentPlugin(JSON.stringify(pluginFixture)), () =>

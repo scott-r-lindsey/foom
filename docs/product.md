@@ -709,18 +709,17 @@ Worktrees offers Foom’s folder or a location next to each repository, with an 
 destination. Changes apply to future creation; existing worktrees stay where they are.
 
 Agents and Repositories use the same controls as preflight. Agents shows one central-column card per provider, including config
-plugins pending approval or rejected by validation. A missing installation is one
+plugins, and plugins rejected by validation. A missing installation is one
 line. Every card has an On/Off switch. Off removes the agent from launch menus
 and discovery probes while retaining its defaults, environment and attention preferences.
 To customize a built-in agent, copy its bundled manifest into the config folder's
 `agents/` folder with a new ID and name (see [agent plugins](agent-plugins.md#customizing-a-built-in-agent)).
-Settings offers no action for it. The copy is held for **Allow plugin** like any
-other config plugin. Both built-in and copy can remain on, or the built-in can be turned off.
+Settings offers no action for it. Like any valid config plugin, the copy loads as
+soon as Foom reads it. Both built-in and copy can remain on, or the built-in can be turned off.
 Each installed agent's card groups attention, MCP/resume/inline facts, default
-arguments, its environment editor, and plugin source/approval. Hooks/Screen rules
+arguments, its environment editor, and plugin source. Hooks/Screen rules
 appears only for agents with hook support; the global Attach hooks switch still
-wins. Per-agent attention preferences apply to future launches. Review… requests
-main's trusted plugin confirmation; a card never grants approval itself. Changes apply immediately and persist. A repository scan in Settings
+wins. Per-agent attention preferences apply to future launches. Changes apply immediately and persist. A repository scan in Settings
 starts with the already-added repositories checked; toggling a selection saves it
 at once and reports any refusal.
 When agy is detected without its plugin and the user has never answered the offer,

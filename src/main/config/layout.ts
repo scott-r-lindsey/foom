@@ -256,8 +256,8 @@ can be reviewed and reverted from Settings → Foom config.
 - Version 2 supports generic launch, discovery, resume, prompt/guidance, MCP and attention data; hooks, health and setup declarations stay unavailable until their engines ship.
 - A minimal version 1 manifest is \`{ "kind": "agent", "version": 1, "id": "example-agent", "name": "Example Agent", "badge": "EX", "executables": ["example-agent"], "launch": { "arguments": [], "prompt": ["--prompt", "{prompt}"], "resume": ["--resume", "{conversationId}"] }, "bypassArguments": ["--yolo"], "attention": { "minimumEngineVersion": 1, "rules": [] } }\`.
 - IDs match filenames and cannot be claude, codex, agy or shell. Executables are names on PATH, not paths or shell command strings. Every argv entry is literal. Unknown keys and unsafe detection regexes are rejected.
-- New and edited manifests wait for a trusted confirmation showing executables, all argv templates, bypass flags and hook mappings. A commit does not approve them. Changed or invalid plugins cannot launch; running sessions keep their original launch bindings.
-- \`foom config validate\` checks manifests offline but grants no consent. To remove a plugin, remove its manifest. Keep it on restores approved bytes or removes an unapproved addition.
+- A valid manifest loads as soon as Foom reads it; an edit reloads it. An invalid file is rejected whole and cannot launch. Running sessions keep their original launch bindings.
+- Run \`foom config validate\` after editing a manifest. To remove a plugin, remove its manifest.
 
 ## Not in this folder
 
@@ -323,6 +323,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
     "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
     "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
+    "da0c1cc124400b4e6f204fb6b29b181aec5ef76f1edc336bd7cb9ce6a6a252e4",
   ],
   "AGENTS.md": [
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
@@ -332,6 +333,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
     "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
     "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
+    "da0c1cc124400b4e6f204fb6b29b181aec5ef76f1edc336bd7cb9ce6a6a252e4",
   ],
   "CLAUDE.md": [
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
@@ -341,6 +343,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
     "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
     "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
+    "da0c1cc124400b4e6f204fb6b29b181aec5ef76f1edc336bd7cb9ce6a6a252e4",
   ],
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [

@@ -509,20 +509,18 @@ filename. `claude`, `codex`, `agy`, `shell`, `all`, `constructor` and `prototype
 }
 ```
 
-Only an approved plugin appears in discovery and checkout launchers. Settings → Agents shows approval on the plugin’s card; Settings →
-Foom config also holds every addition or edit. Review… or Allow opens the separate trusted dialog,
-with Cancel focused, showing executable names, fixed probes, every argv template,
-allowed tools, bypass arguments, hook mapping and detection rules. Foom re-reads
-the exact bytes after approval and persists their digest in the profile. A git
-commit in the config folder grants no consent. Changed or invalid files revoke
-future launches immediately; an already running session retains its launch binding.
-Keep it on restores the approved file or removes an unapproved addition. Invalid
-files report a fixed JSON path/reason in Recent changes. Removing a file removes
-that provider and its approval. Restart trusts only an exact approved digest.
+A valid plugin appears in discovery and checkout launchers as soon as Foom reads it;
+there is no approval step (#539). Agents already run as the user, so a manifest
+grants nothing an agent able to write the config folder could not already do; the
+agent's own sandbox or permission prompts are what keep it inside its worktree.
+An edit reloads the plugin; a launch still checks that the file is unchanged since
+it was loaded, and an already running session retains its launch binding. An
+invalid file is rejected whole: its card shows a fixed JSON path/reason and it
+cannot launch. Removing a file removes that provider.
 
 Executable names are basenames, not paths or shell programs combined with arguments.
 Foom resolves them on its controlled login PATH and performs only fixed `--version`
-and `--help` probes after approval. `hooksHelp` and `mcpHelp` list literal help text
+and `--help` probes. `hooksHelp` and `mcpHelp` list literal help text
 required for the respective attachment; missing/failed probes disable attachment.
 Foom never downloads manifests or executes discovery scripts. Windows shell
 wrappers (`.cmd`, `.bat`, `.ps1`) are refused, as with built-in discovery.
