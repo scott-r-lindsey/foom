@@ -694,7 +694,11 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     },
     await realpath(repo),
   );
-  assert.equal(created.tree.path, path.join(created.root, "app", "first-run-default"));
+  // macOS temp homes resolve through /private; Git reports the resolved worktree path.
+  assert.equal(
+    created.tree.path,
+    path.join(await realpath(created.root), "app", "first-run-default"),
+  );
 
   // Settings returns to the same sidebar row.
   await shellRow.focus();
