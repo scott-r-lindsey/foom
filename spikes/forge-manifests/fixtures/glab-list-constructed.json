@@ -1,0 +1,6 @@
+{
+  "provenance": "Constructed list shape; not observed output",
+  "source": "https://docs.gitlab.com/api/merge_requests/#list-project-merge-requests",
+  "stdout": "[{\"id\": 100, \"iid\": 7, \"project_id\": 42, \"source_project_id\": 42, \"target_project_id\": 42, \"source_branch\": \"feature/manifest\", \"target_branch\": \"main\", \"state\": \"opened\", \"sha\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"title\": \"Synthetic schema fixture\", \"web_url\": \"https://gitlab.com/example/fixture/-/merge_requests/7\"}]",
+  "exitCode": 0
+}

@@ -1,0 +1,16 @@
+query($id: ID!) {
+  node(id: $id) { ... on PullRequest {
+    headRefOid
+    commits(last: 1) { nodes { commit {
+      oid
+      statusCheckRollup { contexts(first: 100) {
+        pageInfo { hasNextPage }
+        nodes {
+          __typename
+          ... on CheckRun { isRequired(pullRequestId: $id) status conclusion }
+          ... on StatusContext { isRequired(pullRequestId: $id) state }
+        }
+      } }
+    } } }
+  } }
+}

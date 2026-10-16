@@ -1,0 +1,15 @@
+{
+  "provenance": "recorded public repository; 2026-10-15; gh 2.45.0; Linux",
+  "argv": [
+    "pr",
+    "view",
+    "14700",
+    "--repo",
+    "github.com/cli/cli",
+    "--json",
+    "id"
+  ],
+  "exitCode": 0,
+  "stdout": "{\"id\":\"PR_kwDODKw3uc8AAAABImKalw\"}\n",
+  "stderr": ""
+}

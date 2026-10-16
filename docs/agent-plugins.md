@@ -19,6 +19,14 @@ requires a duplicate to carry every behavior after approval. Bundled and config
 manifests use exactly the same engine. There are no privileged manifest capability
 names, agent-ID switches, executable modules, or automatic manifest downloads.
 
+## Proposed forge kind (#520)
+
+[Forge manifests](forge-plugins.md) proposes `kind: "forge"` in this same plugin
+system, sharing loading, exact-byte approval, Settings cards and duplication.
+It includes a JSON Schema draft, full GitHub/GitLab examples and a public/constructed
+fixture spike. **Proposed, not decided:** existing agent v1/v2 manifests do not
+change; user approval is required before #521 implementation.
+
 ## Behavior inventory and representation
 
 This inventory describes code at `844ea9f`, not new measurements. Primary sources:

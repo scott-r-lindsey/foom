@@ -1,0 +1,15 @@
+{
+  "provenance": "recorded public repository; 2026-10-15; gh 2.45.0; Linux",
+  "argv": [
+    "pr",
+    "view",
+    "14700",
+    "--repo",
+    "github.com/cli/cli",
+    "--json",
+    "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository,headRepository,title,url"
+  ],
+  "exitCode": 0,
+  "stdout": "{\"headRefName\":\"docs/gh-skill-gh-api-field-passing\",\"headRefOid\":\"6c06828bccf3526337f40ab91dbc56ae53b4837f\",\"headRepository\":{\"id\":\"R_kgDOVKvA5Q\",\"name\":\"cli\"},\"headRepositoryOwner\":{\"id\":\"MDQ6VXNlcjE2NzM5MDEx\",\"name\":\"Mat\u00edas Olivera\",\"login\":\"MatiasOlivera\"},\"isCrossRepository\":true,\"number\":14700,\"state\":\"OPEN\",\"title\":\"docs(gh-skill): document gh api field passing pitfalls\",\"url\":\"https://github.com/cli/cli/pull/14700\"}\n",
+  "stderr": ""
+}
