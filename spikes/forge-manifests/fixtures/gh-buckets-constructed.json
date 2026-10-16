@@ -1,0 +1,42 @@
+{
+  "provenance": "Constructed from gh manual; installed gh 2.45.0 lacks JSON checks",
+  "source": "https://cli.github.com/manual/gh_pr_checks",
+  "cases": [
+    {
+      "exitCode": 0,
+      "stdout": "[{\"bucket\":\"pass\"}]",
+      "expected": "success"
+    },
+    {
+      "exitCode": 1,
+      "stdout": "[{\"bucket\":\"fail\"}]",
+      "expected": "failure"
+    },
+    {
+      "exitCode": 8,
+      "stdout": "[{\"bucket\":\"pending\"}]",
+      "expected": "pending"
+    },
+    {
+      "exitCode": 0,
+      "stdout": "[{\"bucket\":\"skipping\"}]",
+      "expected": "success"
+    },
+    {
+      "exitCode": 1,
+      "stdout": "[{\"bucket\":\"cancel\"}]",
+      "expected": "failure"
+    },
+    {
+      "exitCode": 0,
+      "stdout": "[]",
+      "expected": "none"
+    },
+    {
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "no required checks reported on the 'feature/checks' branch\n",
+      "expected": "none"
+    }
+  ]
+}

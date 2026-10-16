@@ -795,6 +795,15 @@ sends no placement event. `close` accepts only owned, exited children and delega
 to the normal sidebar close path; the final screen is discarded while the checkout,
 branch and review state remain.
 
+### Forge observations
+
+**Proposed, not decided (#520):** [forge manifests](forge-plugins.md) would add
+`kind: "forge"` to the existing plugin loader, exact-byte approval and Settings
+card system. GitHub and GitLab would use the same data engine, with user-owned
+host assignments, fixed argv and bounded JSON mapping. Fork/default-branch policy,
+head verification and polling remain in main. The spec and spike change no runtime
+behavior; user approval is required before #521 starts.
+
 Foom also reads PR and check status for board checkouts and orchestrator-owned child
 worktrees through a main-owned forge provider. GitHub is supported through your
 own `gh` CLI and existing login; Foom stores no tokens, makes no forge writes and

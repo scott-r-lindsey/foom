@@ -1,0 +1,20 @@
+{
+  "provenance": "recorded public repository; 2026-10-15; gh 2.45.0; Linux",
+  "argv": [
+    "pr",
+    "list",
+    "--repo",
+    "github.com/cli/cli",
+    "--head",
+    "docs/gh-skill-gh-api-field-passing",
+    "--state",
+    "open",
+    "--limit",
+    "2",
+    "--json",
+    "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository"
+  ],
+  "exitCode": 0,
+  "stdout": "[{\"headRefName\":\"docs/gh-skill-gh-api-field-passing\",\"headRefOid\":\"6c06828bccf3526337f40ab91dbc56ae53b4837f\",\"headRepositoryOwner\":{\"id\":\"MDQ6VXNlcjE2NzM5MDEx\",\"name\":\"Mat\u00edas Olivera\",\"login\":\"MatiasOlivera\"},\"isCrossRepository\":true,\"number\":14700,\"state\":\"OPEN\"}]\n",
+  "stderr": ""
+}

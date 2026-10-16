@@ -1,0 +1,16 @@
+{
+  "provenance": "recorded public repository cli/cli PR 14700; 2026-10-15; gh 2.45.0; Linux",
+  "argv": [
+    "api",
+    "graphql",
+    "--hostname",
+    "github.com",
+    "-f",
+    "query=query($id: ID!) {\n  node(id: $id) { ... on PullRequest {\n    headRefOid\n    commits(last: 1) { nodes { commit {\n      oid\n      statusCheckRollup { contexts(first: 100) {\n        pageInfo { hasNextPage }\n        nodes {\n          __typename\n          ... on CheckRun { isRequired(pullRequestId: $id) status conclusion }\n          ... on StatusContext { isRequired(pullRequestId: $id) state }\n        }\n      } }\n    } } }\n  } }\n}",
+    "-f",
+    "id=PR_kwDODKw3uc8AAAABImKalw"
+  ],
+  "exitCode": 0,
+  "stdout": "{\"data\":{\"node\":{\"headRefOid\":\"6c06828bccf3526337f40ab91dbc56ae53b4837f\",\"commits\":{\"nodes\":[{\"commit\":{\"oid\":\"6c06828bccf3526337f40ab91dbc56ae53b4837f\",\"statusCheckRollup\":{\"contexts\":{\"pageInfo\":{\"hasNextPage\":false},\"nodes\":[{\"__typename\":\"CheckRun\",\"isRequired\":false,\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"},{\"__typename\":\"CheckRun\",\"isRequired\":false,\"status\":\"COMPLETED\",\"conclusion\":\"SKIPPED\"},{\"__typename\":\"CheckRun\",\"isRequired\":false,\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"},{\"__typename\":\"CheckRun\",\"isRequired\":false,\"status\":\"COMPLETED\",\"conclusion\":\"SKIPPED\"},{\"__typename\":\"CheckRun\",\"isRequired\":false,\"status\":\"COMPLETED\",\"conclusion\":\"SKIPPED\"},{\"__typename\":\"CheckRun\",\"isRequired\":false,\"status\":\"COMPLETED\",\"conclusion\":\"SKIPPED\"},{\"__typename\":\"CheckRun\",\"isRequired\":false,\"status\":\"COMPLETED\",\"conclusion\":\"SKIPPED\"}]}}}}]}}}}",
+  "stderr": ""
+}
