@@ -913,7 +913,7 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
     args: [`--user-data-dir=${path.join(root, "user-data")}`],
     env: {
       HOME: home,
-      PATH: [bin, "/usr/bin", "/bin"].join(path.delimiter),
+      PATH: bin,
       TEST_FAKE_CREDENTIALS: credentials,
     },
   });

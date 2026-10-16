@@ -1,3 +1,4 @@
+import type { BoardPullRequest } from "../../shared/forge";
 import { lstat, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { atomicPrivate, privateDirectory, verifyPrivate } from "./private-files";
@@ -5,6 +6,9 @@ import { forgeBranch, forgeProvider, pullRequest } from "./forge";
 import type { ForgeProvider, ForgeWorktree, PullRequest } from "./forge.d";
 
 interface Entry extends ForgeWorktree {
+  board?: BoardPullRequest;
+  orchestrator: boolean;
+  refresh: number;
   remote?: string;
   number?: number;
   pr?: PullRequest;
@@ -23,12 +27,18 @@ export class ForgeTracking {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private running: Promise<void> = Promise.resolve();
   private closed = false;
+  private enabled = false;
+  private readonly pauses = new Set<string>();
+  onCompleted?: (tree: ForgeWorktree, pr: BoardPullRequest) => void;
   private stopped(): boolean {
     return this.closed;
   }
   constructor(
     private readonly directory: string,
-    private readonly inspect: (tree: ForgeWorktree) => Promise<string | undefined>,
+    private readonly inspect: (
+      tree: ForgeWorktree,
+      orchestrator?: boolean,
+    ) => Promise<string | undefined>,
     private readonly changed: () => void,
     private readonly provider: (remote: string) => ForgeProvider | undefined = forgeProvider,
     private readonly now: () => number = Date.now,
@@ -36,7 +46,7 @@ export class ForgeTracking {
 
   static async open(
     userData: string,
-    inspect: (tree: ForgeWorktree) => Promise<string | undefined>,
+    inspect: (tree: ForgeWorktree, orchestrator?: boolean) => Promise<string | undefined>,
     changed: () => void,
   ): Promise<ForgeTracking> {
     const tracker = new ForgeTracking(await privateDirectory(userData), inspect, changed);
@@ -65,10 +75,15 @@ export class ForgeTracking {
           (typeof number !== "number" || !Number.isSafeInteger(number) || number <= 0)
         )
           continue;
+        if (row["orchestrator"] !== undefined && typeof row["orchestrator"] !== "boolean") continue;
         const pr = pullRequest(row["pr"]);
         if (row["pr"] !== undefined && !pr) continue;
         // Revalidate ownership before making any network call or exposing saved data.
-        this.track(tree, typeof number === "number" ? number : undefined);
+        this.track(
+          tree,
+          typeof number === "number" ? number : undefined,
+          row["orchestrator"] !== false,
+        );
         const entry = this.entries.get(tree.path);
         if (entry) {
           if (pr) entry.pr = pr;
@@ -80,7 +95,7 @@ export class ForgeTracking {
     }
   }
 
-  track(tree: ForgeWorktree, number?: number): void {
+  track(tree: ForgeWorktree, number?: number, orchestrator = true): void {
     if (
       this.closed ||
       !validTree(tree) ||
@@ -93,11 +108,15 @@ export class ForgeTracking {
       previous.branch === tree.branch &&
       previous.repository === tree.repository &&
       (number === undefined || previous.number === number)
-    )
+    ) {
+      if (orchestrator) previous.orchestrator = true;
       return;
+    }
     if (this.entries.size >= 1000 && !previous) return;
     this.entries.set(tree.path, {
       ...tree,
+      orchestrator,
+      refresh: 0,
       ...(number === undefined ? {} : { number }),
       available: false,
       failures: 0,
@@ -106,35 +125,83 @@ export class ForgeTracking {
     this.schedule();
   }
 
+  get boardEnabled(): boolean {
+    return this.enabled;
+  }
+
+  setEnabled(enabled: boolean): void {
+    if (this.enabled === enabled) return;
+    this.enabled = enabled;
+    for (const entry of this.entries.values()) entry.due = 0;
+    this.changed();
+    this.schedule();
+  }
+
+  pause(reason: string, paused: boolean): void {
+    if (paused) this.pauses.add(reason);
+    else this.pauses.delete(reason);
+    this.schedule();
+  }
+
+  sync(repository: string, trees: readonly ForgeWorktree[]): void {
+    const paths = new Set(trees.map((tree) => tree.path));
+    for (const [path, entry] of this.entries) {
+      if (entry.repository !== repository || paths.has(path)) continue;
+      if (!entry.orchestrator) this.entries.delete(path);
+    }
+    for (const tree of trees) this.track(tree, undefined, false);
+  }
+
+  recheck(path: string): void {
+    const entry = this.entries.get(path);
+    if (!entry || (!this.enabled && !entry.orchestrator)) return;
+    entry.refresh++;
+    entry.due = 0;
+    void this.poll();
+  }
+
+  readBoard(repository: string, path: string): BoardPullRequest | undefined {
+    const entry = this.entries.get(path);
+    return this.enabled && entry?.repository === repository && entry.available
+      ? entry.board
+      : undefined;
+  }
+
   read(repository: string, path: string): PullRequest | undefined {
     const entry = this.entries.get(path);
     return entry?.repository === repository && entry.available ? pullRequest(entry.pr) : undefined;
   }
 
-  /** Serial, globally spaced requests; one worktree per tick, no overlap or catch-up burst. */
+  /** Serial repository batches (legacy providers retain single-checkout lookup). */
   poll(): Promise<void> {
     this.running = this.running
       .then(async () => {
-        if (this.closed) return;
+        if (this.closed || this.pauses.size > 0) return;
         const entry = [...this.entries.values()]
           .sort((a, b) => a.due - b.due)
-          .find((row) => row.due <= this.now());
+          .find((row) => row.due <= this.now() && (row.orchestrator || this.enabled));
         if (!entry) return;
-        const remote = await this.inspect(entry).catch(() => undefined);
-        if (this.stopped() || this.entries.get(entry.path) !== entry) return;
+        const remote = await this.inspect(entry, entry.orchestrator).catch(() => undefined);
+        if (this.stopped() || this.pauses.size > 0 || this.entries.get(entry.path) !== entry)
+          return;
         const previous = entry.available ? JSON.stringify(entry.pr) : undefined;
         if (remote === undefined) {
           this.entries.delete(entry.path);
         } else {
           if (entry.remote !== undefined && remote !== entry.remote) delete entry.number;
           const provider = this.provider(remote);
+          if (provider?.batch) {
+            await this.pollRepository(entry.repository, remote, provider);
+            return;
+          }
           const result = await provider
             ?.lookup(
               entry.branch,
               entry.number ?? (remote === entry.remote ? entry.pr?.number : undefined),
             )
             .catch(() => undefined);
-          if (this.stopped() || this.entries.get(entry.path) !== entry) return;
+          if (this.stopped() || this.pauses.size > 0 || this.entries.get(entry.path) !== entry)
+            return;
           const pr = pullRequest(result);
           entry.available = pr !== undefined;
           if (pr) {
@@ -153,6 +220,106 @@ export class ForgeTracking {
     return this.running;
   }
 
+  private async pollRepository(
+    repository: string,
+    remote: string,
+    provider: ForgeProvider,
+  ): Promise<void> {
+    const candidates = [...this.entries.values()].filter(
+      (entry) => entry.repository === repository && (entry.orchestrator || this.enabled),
+    );
+    const rows: Entry[] = [];
+    for (const entry of candidates) {
+      const current = await this.inspect(entry, entry.orchestrator).catch(() => undefined);
+      if (this.stopped() || this.pauses.size > 0) return;
+      if (this.entries.get(entry.path) !== entry) continue;
+      if (current !== remote) {
+        this.entries.delete(entry.path);
+        this.changed();
+        continue;
+      }
+      if (entry.remote !== undefined && entry.remote !== remote) {
+        delete entry.number;
+        delete entry.pr;
+        delete entry.board;
+        entry.available = false;
+      }
+      rows.push(entry);
+    }
+    if (rows.length === 0) return;
+    const revisions = new Map(rows.map((entry) => [entry, entry.refresh]));
+    const result = await provider
+      .batch?.(
+        rows.map((entry) => {
+          const number =
+            entry.remote === undefined || entry.remote === remote
+              ? (entry.number ?? entry.pr?.number)
+              : undefined;
+          return { branch: entry.branch, ...(number === undefined ? {} : { number }) };
+        }),
+      )
+      .catch(() => undefined);
+    if (this.stopped() || this.pauses.size > 0) return;
+    const running =
+      result &&
+      [...result.values()].some(
+        (pr) =>
+          pr.state === "OPEN" &&
+          (pr.board.checks === null ||
+            pr.board.checks.pending > 0 ||
+            pr.requiredChecks === "unknown"),
+      );
+    for (const entry of rows) {
+      if (this.entries.get(entry.path) !== entry || (!this.enabled && !entry.orchestrator))
+        continue;
+      const previous = entry.available ? JSON.stringify([entry.pr, entry.board]) : undefined;
+      const pr = result?.get(entry.branch);
+      const old = entry.board;
+      const oldHead = entry.pr?.headSha;
+      const discovered = pr && !entry.pr && entry.number === undefined;
+      entry.available = pr !== undefined;
+      if (pr) {
+        entry.pr = {
+          number: pr.number,
+          headSha: pr.headSha,
+          state: pr.state,
+          requiredChecks: pr.requiredChecks,
+        };
+        entry.board = pr.board;
+      }
+      entry.remote = remote;
+      entry.failures = result ? 0 : Math.min(entry.failures + 1, 5);
+      entry.due =
+        this.now() +
+        (discovered
+          ? 1000
+          : !result
+            ? forgeDelay(entry.failures)
+            : running
+              ? 20000
+              : result.size
+                ? 120000
+                : 600000);
+      if (entry.refresh !== revisions.get(entry)) entry.due = 0;
+      if (
+        pr &&
+        old &&
+        pr.board.state === "OPEN" &&
+        pr.board.checks &&
+        pr.board.checks.pending === 0 &&
+        (oldHead !== pr.headSha ||
+          old.number !== pr.number ||
+          old.checks?.pending !== 0 ||
+          old.checks.failed !== pr.board.checks.failed) &&
+        pr.board.checks.passed + pr.board.checks.failed > 0
+      )
+        this.onCompleted?.(entry, pr.board);
+      const current = entry.available ? JSON.stringify([entry.pr, entry.board]) : undefined;
+      if (previous !== current) this.changed();
+    }
+    await this.save();
+  }
+
   private async save(): Promise<void> {
     await atomicPrivate(
       this.directory,
@@ -165,12 +332,13 @@ export class ForgeTracking {
         remote: entry.remote,
         pr: entry.pr,
         number: entry.number,
+        orchestrator: entry.orchestrator,
       })),
     );
   }
 
   private schedule(): void {
-    if (this.closed || this.timer || this.entries.size === 0) return;
+    if (this.closed || this.pauses.size > 0 || this.timer || this.entries.size === 0) return;
     this.timer = setTimeout(() => {
       this.timer = undefined;
       void this.poll().finally(() => {

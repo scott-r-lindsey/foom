@@ -488,6 +488,20 @@ export function Preflight({
           />
           <span>Auto-remove merged worktrees</span>
         </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={state.settings.showPullRequests ?? false}
+            onChange={(event) => {
+              save({ showPullRequests: event.target.checked });
+            }}
+          />
+          <span>Show pull requests and checks</span>
+        </label>
+        <p>
+          Foom uses your GitHub CLI to send repository and branch names to GitHub. It sends no
+          terminal content.
+        </p>
         <label className="concurrent-children">
           Concurrent children per orchestrator
           <input

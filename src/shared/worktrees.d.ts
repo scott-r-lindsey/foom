@@ -1,9 +1,11 @@
+import type { BoardPullRequest } from "./forge";
 export interface Repository {
   readonly path: string;
   readonly name: string;
 }
 
 export interface Worktree {
+  readonly pullRequest?: BoardPullRequest;
   readonly path: string;
   readonly head: string | null;
   readonly bare: boolean;

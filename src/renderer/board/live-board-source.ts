@@ -419,6 +419,7 @@ export function createAppSource(): BoardSource {
       read: (query) => window.desktop.actionLog(query),
       clear: () => window.desktop.clearActionLog(),
     },
+    onFocusWorktree: (callback) => window.desktop.onFocusWorktree?.(callback) ?? (() => {}),
     sidebarCommand: async (command) => {
       if ("id" in command && command.id === shellId && command.kind === "restart") {
         await restart();

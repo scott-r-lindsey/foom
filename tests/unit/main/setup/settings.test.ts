@@ -651,3 +651,15 @@ test("per-agent hook preferences and plugin enablement persist as bounded valida
   ])
     expect(() => parseSettingsPatch({ agentHooks })).toThrow("Invalid settings");
 });
+
+test("pull request privacy preference is boolean, profile-only and survives restart", async () => {
+  const root = await directory();
+  const store = await SettingsStore.open(root);
+  expect(store.get().showPullRequests).toBeUndefined();
+  for (const value of [null, "true", 1, {}])
+    expect(() => parseSettingsPatch({ showPullRequests: value })).toThrow();
+  await store.update({ showPullRequests: false });
+  expect((await SettingsStore.open(root)).get().showPullRequests).toBe(false);
+  await store.update({ showPullRequests: true });
+  expect((await SettingsStore.open(root)).get().showPullRequests).toBe(true);
+});

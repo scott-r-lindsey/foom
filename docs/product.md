@@ -228,6 +228,19 @@ also removed only if it still points to the exact checked commit. Branch deletio
 share one checked-ref transaction after removals. Moved or checked-out branches
 are kept and reported; a concurrent ref race aborts the transaction safely.
 
+Worktree rows show a matched GitHub PR as **#N** and a check glyph with a status
+label in its accessible name and tooltip. Running checks are neutral, passed checks
+green, failed checks magenta; merged/closed PRs are muted without a check mark.
+Click the number to open the PR in the default browser. The checkout panel shows
+its plain-text title, state and passed/failed/running counts. Forks and the default
+branch never match, and ambiguous matches remain absent.
+
+When observed checks finish, Foom raises a desktop notification with the PR number
+and failure count. A pass notifies only if no agent in that checkout is working.
+Clicking focuses the checkout in the sidebar. The existing Sound alert switch and
+mute preference suppress these notifications; notifications are silent. Missing or
+logged-out `gh`, unknown remotes and unavailable results show no board error.
+
 ## Application menu and attention badge
 
 Foom owns its menu and shortcuts. Click the sidebar's **foom** wordmark on any
@@ -585,7 +598,7 @@ file contents, diffs or echoed input, and redaction cannot catch every secret.
 The Make orchestrator dialog discloses this data path. The agent's own tools and provider
 settings continue to govern its other data access.
 
-Foom also reads PR and required-check status for orchestrator-owned child
+Foom also reads PR and check status for board checkouts and orchestrator-owned child
 worktrees through a main-owned forge provider. GitHub is supported through your
 own `gh` CLI and existing login; Foom stores no tokens, makes no forge writes and
 sends no terminal content. The CLI contacts GitHub with repository and branch/PR
@@ -593,9 +606,10 @@ identifiers to read PR and CI metadata. Unknown remotes and missing, logged-out 
 unavailable CLIs leave these fields absent. Validated PR number, head SHA, state
 and required-check conclusion appear in session metadata, and `wait_for` wakes on
 conclusion changes. The mapping survives restart and a new orchestrator generation,
-without transferring authority over old children. Successful reads recur every
-30 seconds; unavailable results back off from 60 seconds to at most 10 minutes.
-Polling is serial with at least a second between worktrees and stops on shutdown.
+without transferring authority over old children. Reads recur every 20 seconds while checks run, two minutes when
+settled, or ten minutes with no matching PRs; failures back off up to ten minutes.
+Polling pauses during sleep and screen lock, rechecks on agent idle/exit, and stops
+on shutdown.
 See [the data, persistence and polling contract](orchestration.md#child-pr-and-required-checks-340).
 
 Permission and credential prompts always stay with you. With the current agent
@@ -675,6 +689,8 @@ Open **Settings** from the board, or press ⌘, on macOS and Ctrl+Shift+, elsewh
 It replaces the terminal tiles beside the persistent sidebar in the same window.
 Esc returns to the tiles and restores the same focused sidebar row.
 Selecting a terminal in the sidebar also leaves Settings; terminals keep running throughout.
+
+General offers **Show pull requests and checks**, defaulting to on when the GitHub CLI is installed and logged in on first use. The disclosure reads: “Foom uses your GitHub CLI to send repository and branch names to GitHub. It sends no terminal content.” Turning it off stops non-orchestrator polling. Foom stores no tokens and makes no forge writes.
 
 General offers **Restore sessions on launch**, on by default. Turning it on through agent-edited config requires Allow because it also permits restoring orchestrator control. General also offers **Auto-remove merged worktrees**, off by default and applying to all repositories.
 

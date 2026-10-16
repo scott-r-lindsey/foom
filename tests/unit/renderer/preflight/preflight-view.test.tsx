@@ -883,3 +883,25 @@ test("concurrent card saves preserve other agents' defaults and continue after a
     });
   });
 });
+
+test("General discloses GitHub polling and saves its privacy toggle", async () => {
+  const initial = setupState();
+  const source = fake(initial);
+  render(<Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "General" }));
+  expect(
+    screen.getByText(
+      "Foom uses your GitHub CLI to send repository and branch names to GitHub. It sends no terminal content.",
+    ),
+  ).toBeTruthy();
+  const toggle = screen.getByRole("checkbox", { name: "Show pull requests and checks" });
+  expect(toggle).toHaveProperty("checked", false);
+  fireEvent.click(toggle);
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ showPullRequests: true });
+  });
+  fireEvent.click(toggle);
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ showPullRequests: false });
+  });
+});

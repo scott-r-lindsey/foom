@@ -1850,3 +1850,19 @@
   padding-left: 16px;
   overflow-wrap: anywhere;
 }
+
+.pull-request {
+  flex-shrink: 0;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.pull-request[data-status="passed"] {
+  color: var(--done-ink);
+}
+.pull-request[data-status="failed"] {
+  color: var(--failed-ink);
+}
