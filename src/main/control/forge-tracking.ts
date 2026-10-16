@@ -125,6 +125,10 @@ export class ForgeTracking {
     this.schedule();
   }
 
+  get boardEnabled(): boolean {
+    return this.enabled;
+  }
+
   setEnabled(enabled: boolean): void {
     if (this.enabled === enabled) return;
     this.enabled = enabled;

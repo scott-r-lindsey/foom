@@ -1639,7 +1639,7 @@ export class Workspace {
       repositories: await Promise.all(
         this.deps.worktrees.listRepositories().map(async (repository) => {
           const worktrees = await this.worktrees(repository.path);
-          if (this.deps.forge) {
+          if (this.deps.forge?.boardEnabled) {
             const tracked = await Promise.all(
               worktrees
                 .filter((tree) => tree.branch && !tree.bare && !tree.prunable)

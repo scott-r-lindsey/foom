@@ -3925,6 +3925,10 @@ test("board forge inventory validates checkout identity and opens only main-owne
   deps.openExternal = open;
   const workspace = new Workspace(deps);
   try {
+    vi.mocked(deps.worktrees.launchIdentity).mockClear();
+    await workspace.sidebarInventory();
+    expect(sync).not.toHaveBeenCalled();
+    expect(deps.worktrees.launchIdentity).not.toHaveBeenCalled();
     workspace.configure({
       hooks: true,
       agents: { claude: true, codex: true, agy: true },
