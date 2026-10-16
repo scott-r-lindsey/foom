@@ -788,7 +788,8 @@ provider, rejects forks and the default branch, validates its head, fetches from
 main-selected origin and tracks origin's branch for plain push. An orchestrator's
 own unused checkout may be reused after identity checks; other checked-out heads
 are refused. Both paths share the unused budget, branch locks and forge tracking. Children launch with
-no default arguments (so never bypass), `sharedCheckout` off, a read-only grant
+the user's default arguments as written (refused, never stripped, when they bypass
+permissions), `sharedCheckout` off, a read-only grant
 naming their parent, and an optional prompt as one final argv entry. Claude Code
 and Codex place `--` immediately before that prompt, after all launch options, so
 variadic options cannot consume it. Launches without a prompt omit the terminator. Exit,

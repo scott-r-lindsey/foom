@@ -348,6 +348,7 @@ export class Workspace {
           }),
         launch: (parentId, repository, worktree, identity, agent, prompt) =>
           this.launchChild(parentId, repository, worktree, identity, agent, prompt),
+        bypassDefaults: (agent) => hasBypassArgument(agent, this.defaultArguments[agent] ?? []),
         restoreWorktree: async (repository, path) => {
           if (path === repository) return undefined;
           const tree = (await this.deps.worktrees.listWorktrees(repository)).find(
@@ -979,9 +980,12 @@ export class Workspace {
       const tree = (await this.deps.worktrees.listWorktrees(request.repository)).find(
         (entry) => entry.path === request.worktree,
       );
-      // Orchestrator children never inherit the user's (possibly bypass) defaults.
+      // Children use the user's defaults as written, but never bypass: an orchestrator
+      // cannot pass on the user's acknowledgement for manual launches.
       const child = extra.control !== undefined && "parentId" in extra.control;
-      const defaultArguments = child ? [] : (this.defaultArguments[request.agent] ?? []);
+      const defaultArguments = this.defaultArguments[request.agent] ?? [];
+      if (child && hasBypassArgument(request.agent, defaultArguments))
+        throw new ControlError("forbidden");
       const result = await this.agents.launch({
         ...request,
         ...extra,

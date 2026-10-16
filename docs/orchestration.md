@@ -26,9 +26,10 @@ running children (Settings → General → Concurrent children per orchestrator;
 scoped credentials for metadata, previews and reporting to their parent; they cannot create grandchildren through Foom. Agent-native
 subagents and processes outside Foom are not controlled by this limit.
 
-Per-agent default launch arguments (#164) apply to user launches. Orchestrator
-children (#155) must not inherit bypass defaults unless their design explicitly
-allows it with its own authorization rules. A user's acknowledgement for manual
+Per-agent default launch arguments (#164) apply to user launches and to orchestrator
+children (#155, #535). Children must never run with bypass defaults: a launch whose
+defaults bypass permissions is refused rather than silently stripped, unless a future
+design explicitly allows it with its own authorization rules. A user's acknowledgement for manual
 launches does not authorize an orchestrator to grant bypass to children.
 
 **Reply finding:** none of the three current PTY integrations proves that a prose
@@ -930,8 +931,10 @@ retry with the same key returns that record.
 
 Prompts and branch names reject control characters other than newline and tab,
 Unicode format characters, and a leading `-`, so they cannot become options.
-Children receive no default arguments, never share a checkout, and get a read-only
-grant naming their parent. The prompt follows a fixed line naming the orchestrator
+Children receive the user's Settings default arguments for their agent exactly as
+written (for example a model choice), never share a checkout, and get a read-only
+grant naming their parent. If those defaults bypass permissions, `launch` is refused
+with `forbidden` before spawning and the worktree stays unused. The prompt follows a fixed line naming the orchestrator
 as its author, so the argv entry can never equal a subcommand such as `logout`.
 Claude Code and Codex take it as the final positional argument; Antigravity composes
 it with the CLI guidance through `--prompt-interactive` and refuses a prompt on
