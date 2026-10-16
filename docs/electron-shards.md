@@ -28,8 +28,10 @@ Test deadlines and step limits are unchanged.
 
 `harness.js` owns reusable launch, fixture, cleanup, diagnostics and interaction
 helpers. Feature-specific helpers stay beside their scenarios. It registers no
-tests. Launches retain isolated profiles and repositories, fixture login shells
-and controlled PATH, the agent guard, process auditing, sandboxing and shared
+tests. See [explicit fixtures](electron-fixtures.md) for fixture selection and
+setup/body/teardown timing definitions. Launches retain isolated profiles and
+repositories, fixture login shells and controlled PATH, the agent guard, process
+auditing, sandboxing and shared
 `test-policy.js` deadlines. Cleanup quits every app before removing fixtures.
 
 The wrapper passes `--test-concurrency=1` explicitly: feature files run serially

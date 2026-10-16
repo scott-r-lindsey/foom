@@ -24,7 +24,7 @@ const {
 test("Environment settings reach a launched shell; main refuses reserved names", {
   timeout: deadline(45_000),
 }, async (context) => {
-  const app = await launchApp(context, false);
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await page.waitForFunction(() => typeof window.desktop?.saveEnvironment === "function");
   const refused = await page.evaluate(() =>
@@ -83,7 +83,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
   const directory = await mkdtemp(path.join(tmpdir(), "foom-view-probe-"));
   removeAfterApps(context, directory);
   const marker = path.join(directory, "stage");
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   const hide = page.locator(".config-gear");
   const open = page.locator(".board-row[data-kind='shell']");
@@ -190,7 +190,7 @@ test("Settings transitions restore background fullscreen output repeatedly", {
 });
 
 test("a fresh profile opens preflight, and it passes accessibility checks", async (context) => {
-  const app = await launchApp(context, false, { firstRun: true });
+  const app = await launchApp(context, { fixture: "first-run" });
   const page = await boardPage(app);
   await page.getByRole("button", { name: "Start preflight" }).waitFor();
   assert.equal(await page.locator(".board-home").count(), 0);
@@ -287,7 +287,7 @@ async function assertPreflightFits(page, label) {
 test("preflight fits safely through resize, zoom, long input and changing steps", {
   timeout: deadline(60_000),
 }, async (context) => {
-  const app = await launchApp(context, false, { firstRun: true });
+  const app = await launchApp(context, { fixture: "first-run" });
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByRole("button", { name: "Start preflight", exact: true }).click();
@@ -362,7 +362,7 @@ test("large repository scans remain readable and filter without changing scale",
       isolatedGit(["init", "-q", directory]);
     }
   }
-  const app = await launchApp(context, false, { firstRun: true });
+  const app = await launchApp(context, { fixture: "first-run" });
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await app.evaluate(({ BrowserWindow, dialog }, directory) => {
@@ -412,8 +412,8 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await mkdir(nodeBin);
   await symlink(process.execPath, path.join(nodeBin, "node"));
 
-  const app = await launchApp(context, false, {
-    firstRun: true,
+  const app = await launchApp(context, {
+    fixture: "first-run",
     args: [`--user-data-dir=${userData}`],
     // A private HOME and PATH hide any agents installed on this machine.
     env: {
@@ -684,7 +684,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
 });
 
 test("the board stays usable at 300% in a small window", async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   const shellRow = page.locator(".board-row[data-kind='shell']");
   await shellRow.waitFor({ timeout: deadline(10000) });
@@ -786,7 +786,7 @@ test("the board stays usable at 300% in a small window", async (context) => {
 });
 
 test("appearance switches light and dark, and zoom shortcuts resize the interface", async (context) => {
-  const app = await launchApp(context, false, { firstRun: true });
+  const app = await launchApp(context, { fixture: "first-run" });
   const page = await boardPage(app);
   await page.getByRole("button", { name: "Start preflight" }).waitFor();
   // Exercise theme changes after the rows appear, independently of CI startup speed.
@@ -905,7 +905,7 @@ test("preflight scans a code folder and adds the repositories worked on recently
     isolatedGit(["init", "-q", "-b", "main", repo]);
     if (stale) await utimes(path.join(repo, ".git", "HEAD"), old, old);
   }
-  const app = await launchApp(context, false, { firstRun: true });
+  const app = await launchApp(context, { fixture: "first-run" });
   const page = await boardPage(app);
   await app.evaluate(({ dialog }, folder) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
@@ -933,7 +933,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   const repository = path.join(root, "settings-example");
   await mkdir(repository);
   isolatedGit(["init", "-q", repository]);
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   await app.evaluate(({ dialog }, folder) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
   }, root);
@@ -1135,7 +1135,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
 });
 
 test("every Settings section passes axe in light and dark, including the narrow layout", async (context) => {
-  const app = await launchApp(context, false);
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await openSettingsScreen(page);
   for (const name of [
@@ -1169,8 +1169,8 @@ test("every Settings section passes axe in light and dark, including the narrow 
 test("window size defaults to 60 percent and survives a normal quit and relaunch", async (context) => {
   const profile = await mkdtemp(path.join(tmpdir(), "foom-window-size-"));
   removeAfterApps(context, profile);
-  const options = { args: [`--user-data-dir=${profile}`], emptyBoard: true };
-  const app = await launchApp(context, false, options);
+  const options = { args: [`--user-data-dir=${profile}`], fixture: "empty-board" };
+  const app = await launchApp(context, options);
   const initial = await app.evaluate(({ BrowserWindow, screen }) => {
     const window = BrowserWindow.getAllWindows().find(
       (window) => window.webContents.getURL() === "app://bundle/index.html",
@@ -1198,7 +1198,7 @@ test("window size defaults to 60 percent and survives a normal quit and relaunch
     width: size[0],
     height: size[1],
   });
-  const restored = await launchApp(context, false, options);
+  const restored = await launchApp(context, { ...options, fixture: "restored" });
   assert.deepEqual(
     await restored.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()
@@ -1213,7 +1213,7 @@ test("window size defaults to 60 percent and survives a normal quit and relaunch
 test("every interface theme applies live to native chrome and passes axe on board and Settings", {
   timeout: deadline(55000),
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   const choices = [
     ["eclipse-light", "Eclipse Light", "light", "#f3f0fa"],
@@ -1327,7 +1327,7 @@ test("every interface theme applies live to native chrome and passes axe on boar
 });
 
 test("volume sliders keep the dragged value while sound saves settle", async (context) => {
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   fixtureCleanup(context).apps.unshift(async () => {
     await app.evaluate(() => globalThis.soundSaveRestore?.()).catch(() => {});
   });
@@ -1407,7 +1407,8 @@ test("recorded sounds refresh and preview user files while shell attention and c
   // on the environment override that only worked on Linux.
   const shellHome = path.join(root, "shell-home");
   await mkdir(shellHome);
-  const app = await launchApp(context, true, {
+  const app = await launchApp(context, {
+    fixture: "running-shell",
     home: root,
     env: { HOME: shellHome, USERPROFILE: shellHome },
   });
@@ -1519,9 +1520,9 @@ test("Settings persists literal agent defaults and discloses bypass once per age
     { cwd: repo },
   );
   const profile = path.join(root, "profile");
-  const app = await launchApp(context, false, {
+  const app = await launchApp(context, {
+    fixture: "agent",
     args: [`--user-data-dir=${profile}`],
-    emptyBoard: true,
     env: { HOME: home, PATH: bin, TEST_ARGV: output },
   });
   const page = await boardPage(app);
@@ -1611,7 +1612,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
 });
 
 test("neutral identity badges keep labels and geometry across themes and interface scales", async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   const basePixelRatio = await page.evaluate(() => window.devicePixelRatio);
   const row = page.locator('.board-row[data-kind="shell"]');
@@ -1694,7 +1695,7 @@ test("custom theme files appear live, update selected colors and retain rejected
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-custom-theme-"));
   removeAfterApps(context, root);
-  const app = await launchApp(context, true, { home: root });
+  const app = await launchApp(context, { fixture: "empty-board", home: root });
   const page = await boardPage(app);
   await boardCommand(app, ",", process.platform !== "darwin");
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
@@ -1798,9 +1799,9 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
     "inference-openai.key.12345678-1234-4234-8234-123456789abc.tmp",
   );
   await writeFile(temporary, Buffer.from([0, 128, 255]));
-  const app = await launchApp(context, false, {
+  const app = await launchApp(context, {
+    fixture: "empty-board",
     args: [`--user-data-dir=${root}`],
-    emptyBoard: true,
   });
   const page = await boardPage(app);
   const state = await page.evaluate(() => window.desktop.setupState());
@@ -1845,11 +1846,7 @@ test("Settings agent menu launches config and focuses its existing window", {
   const executable = path.join(bin, process.platform === "win32" ? "claude.exe" : "claude");
   await copyFile(process.execPath, executable);
   await chmod(executable, 0o755);
-  const app = await launchApp(context, false, {
-    home,
-    emptyBoard: true,
-    env: { HOME: home, PATH: bin },
-  });
+  const app = await launchApp(context, { fixture: "agent", home, env: { HOME: home, PATH: bin } });
   const first = await boardPage(app);
   await first.evaluate(() =>
     window.desktop.saveSetup({
@@ -1946,7 +1943,7 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
 }, async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "foom-v2-theme-"));
   removeAfterApps(context, root);
-  const app = await launchApp(context, true, { home: root });
+  const app = await launchApp(context, { fixture: "running-shell", home: root });
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   const { interfaceThemes } = require("../../build/shared/interface-themes.js");
@@ -2014,7 +2011,7 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
 });
 
 test("footer config gear opens Settings and launches a docked Shell", async (context) => {
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   const gear = page.locator(".config-gear");
   const dock = page.locator(".config-dock");
@@ -2036,7 +2033,7 @@ test("footer config gear opens Settings and launches a docked Shell", async (con
 });
 
 test("sidebar footer zoom and master volume stay synchronized and presets are absent", async (context) => {
-  const app = await launchApp(context, false);
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(page.getByRole("button", { name: "Foom config", exact: true })).toBeVisible();
@@ -2191,7 +2188,7 @@ test("sidebar footer zoom and master volume stay synchronized and presets are ab
 });
 
 test("terminal font picker updates open shells and config shells and refits their grids", async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
   await page.getByRole("menuitem", { name: "Split right", exact: true }).click();

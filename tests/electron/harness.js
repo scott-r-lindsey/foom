@@ -2,7 +2,15 @@ const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { AxeBuilder } = require("@axe-core/playwright");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, readFile, realpath, rm, writeFile } = require("node:fs/promises");
+const {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { _electron: electron } = require("@playwright/test");
 const { deadline, expect } = require("./test-policy.js");
@@ -410,9 +418,16 @@ const fixtureCleanups = new WeakMap();
 function fixtureCleanup(context) {
   let cleanup = fixtureCleanups.get(context);
   if (!cleanup) {
-    cleanup = { apps: [], directories: new Set(), probeLogs: [], launches: new WeakMap() };
+    cleanup = {
+      apps: [],
+      directories: new Set(),
+      probeLogs: [],
+      launches: new WeakMap(),
+      timing: { start: performance.now(), setup: 0, fixtures: [] },
+    };
     fixtureCleanups.set(context, cleanup);
     context.after(async () => {
+      const teardownStart = performance.now();
       const failures = [];
       try {
         await cleanup.audit?.capture();
@@ -450,6 +465,21 @@ function fixtureCleanup(context) {
           console.warn(`Unable to remove test fixture ${directory}:`, error);
         }
       }
+      if (cleanup.timing.fixtures.length) {
+        const timing = {
+          name: context.name,
+          fixtures: cleanup.timing.fixtures,
+          setupMs: cleanup.timing.setup,
+          bodyMs: teardownStart - cleanup.timing.start - cleanup.timing.setup,
+          teardownMs: performance.now() - teardownStart,
+        };
+        context.diagnostic?.(`Fixture timing: ${JSON.stringify(timing)}`);
+        await mkdir("test-results", { recursive: true });
+        await appendFile(
+          `test-results/fixture-timings-${process.pid}.jsonl`,
+          `${JSON.stringify(timing)}\n`,
+        );
+      }
       if (failures.length) throw new AggregateError(failures, "Electron teardown failed");
     });
   }
@@ -467,7 +497,7 @@ async function prepareProfile(options) {
   const given = options.args?.find((arg) => arg.startsWith("--user-data-dir="));
   const owned = given ? undefined : await mkdtemp(path.join(tmpdir(), "foom-profile-"));
   const profile = given ? given.slice("--user-data-dir=".length) : owned;
-  if (!options.firstRun) {
+  if (options.fixture !== "first-run") {
     await mkdir(profile, { recursive: true });
     await writeFile(
       path.join(profile, "settings.json"),
@@ -488,7 +518,7 @@ async function prepareProfile(options) {
   };
 }
 
-async function launchCheckoutShell(app, page) {
+async function addFixtureRepository(app, page) {
   const profile = await app.evaluate(({ app }) => app.getPath("userData"));
   const directory = path.join(profile, "shell-fixture");
   await mkdir(directory, { recursive: true });
@@ -511,7 +541,13 @@ async function launchCheckoutShell(app, page) {
   await expect(fixtureRow).toBeVisible();
   const expand = fixtureRow.getByRole("button", { name: "Expand shell-fixture", exact: true });
   if (await expand.count()) await expand.press("Enter");
-  await fixtureRow
+  return repository;
+}
+
+async function launchCheckoutShell(app, page) {
+  await addFixtureRepository(app, page);
+  await page
+    .getByRole("treeitem", { name: "shell-fixture", exact: true })
     .getByRole("button", { name: "Actions for Main checkout", exact: true })
     .press("Enter");
   await page.getByRole("menuitem", { name: /^Shell \(/ }).press("Enter");
@@ -527,7 +563,29 @@ async function restartShellFromSidebar(page) {
 // through the existing frame assertion, then flush before interaction or quit.
 let firstBoardStartup = true;
 
-async function launchApp(context, openShell = true, options = {}) {
+// Each fixture gets a fresh app/profile. "restored" adds no inventory: the test
+// owns the persisted profile and must assert the restored sessions itself.
+// The default is retained only for the menu test owned by #509/#511.
+async function launchApp(context, options = { fixture: "running-shell" }) {
+  assert.ok(
+    ["first-run", "empty-board", "repository", "running-shell", "agent", "restored"].includes(
+      options.fixture,
+    ),
+    "Choose an explicit Electron fixture",
+  );
+  if (options.fixture === "agent")
+    assert.ok(options.env?.PATH, "Agent fixtures require a controlled CLI directory");
+  if (options.fixture === "restored")
+    assert.ok(
+      options.args?.some((arg) => arg.startsWith("--user-data-dir=")),
+      "Restore fixtures require their persisted profile",
+    );
+  assert.ok(
+    options.shell === undefined ||
+      (options.fixture === "running-shell" && options.shell === "hidden"),
+    "Only a running shell can be hidden",
+  );
+  const setupStart = performance.now();
   const traceStartup =
     firstBoardStartup && process.platform === "linux" && process.env.CI === "true";
   firstBoardStartup = false;
@@ -536,6 +594,7 @@ async function launchApp(context, openShell = true, options = {}) {
   // Do not supply executablePath: that skips Playwright's Electron loader.
   require("electron");
   const cleanup = fixtureCleanup(context);
+  cleanup.timing.start = Math.min(cleanup.timing.start, setupStart);
   cleanup.audit ??= await auditProcesses(context);
   const profile = await prepareProfile(options);
   if (profile.owned) removeAfterApps(context, profile.owned);
@@ -733,7 +792,27 @@ async function launchApp(context, openShell = true, options = {}) {
   });
   // The shell markup now arrives with React’s first commit.
   const page = await boardPage(app);
-  if (options.firstRun || options.emptyBoard) return app;
+  const ready = () => {
+    cleanup.timing.setup += performance.now() - setupStart;
+    cleanup.timing.fixtures.push(options.shell === "hidden" ? "hidden-shell" : options.fixture);
+    return app;
+  };
+  if (options.fixture === "first-run" || options.fixture === "restored") return ready();
+  assert.deepEqual(
+    (await page.evaluate(() => window.desktop.workspace())).terminals,
+    [],
+    "Fixtures must start without implicit terminals",
+  );
+  if (options.fixture === "empty-board" || options.fixture === "agent") return ready();
+  if (options.fixture === "repository") {
+    await addFixtureRepository(app, page);
+    assert.deepEqual(
+      (await page.evaluate(() => window.desktop.workspace())).terminals,
+      [],
+      "Registering a repository must not launch a shell",
+    );
+    return ready();
+  }
   await launchCheckoutShell(app, page);
   await page.locator(".board-row[data-kind='shell']").waitFor();
   // Report startup errors directly instead of timing out on a permanently disabled control.
@@ -741,17 +820,24 @@ async function launchApp(context, openShell = true, options = {}) {
     .poll(() => page.locator(".tile-status").textContent(), { timeout: deadline(10000) })
     .not.toBe("Starting shell…");
   assert.doesNotMatch(await page.locator(".tile-status").textContent(), /Unable|failed/);
-  if (!openShell) {
+  assert.equal(
+    (await page.evaluate(() => window.desktop.workspace())).terminals[0].exited,
+    false,
+    "Running-shell fixtures require a live terminal",
+  );
+  if (options.shell === "hidden") {
     await page.getByRole("button", { name: "Hide", exact: true }).click();
     await boardCommand(app, "B");
+    await expect(page.locator(".tile-terminal")).toBeHidden();
+    await expect(page.locator(".board-row[data-kind='shell']")).toBeFocused();
   }
-  if (openShell) {
+  if (options.shell !== "hidden") {
     // Use the board's keyboard action for setup; pointer clicks wait for layout
     // stability and can stall during the first window's startup on a CI display.
     await page.locator(".board-row[data-kind='shell']").press("Enter");
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   }
-  return app;
+  return ready();
 }
 
 // A stand-in for Claude Code: reports a hook-capable version, prompts in plain text,

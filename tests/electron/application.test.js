@@ -9,7 +9,7 @@ const { boardPage, launchApp, launchCheckoutShell } = require("./harness.js");
 test("shared board startup restores a native-hidden CDP-visible board and delivers frames", {
   timeout: deadline(45_000),
 }, async (context) => {
-  const app = await launchApp(context, false, { emptyBoard: true });
+  const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()
@@ -71,7 +71,7 @@ test("shared board startup restores a native-hidden CDP-visible board and delive
 test("bundled brand fonts and both system themes render in Electron", {
   timeout: deadline(45_000),
 }, async (context) => {
-  const app = await launchApp(context);
+  const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   await page.waitForLoadState("domcontentloaded");
   const palettes = {
