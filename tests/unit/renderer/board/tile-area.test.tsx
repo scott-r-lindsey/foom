@@ -253,6 +253,21 @@ test("activity changes tile light brightness without remounting, and only attent
     tile.querySelector<HTMLElement>(".board-light")?.style.getPropertyValue("--light-opacity"),
   ).not.toBe("");
 });
+test("waiting title bars name the count without changing terminal attachments", () => {
+  const { screen, click, data, views } = setup();
+  click(0);
+  const tile = screen.getByRole("region", { name: /Tile 1:/ });
+  const mounts = views[0]?.mount.mock.calls.length;
+  act(() => {
+    data.update("permission", { state: "waiting", waitingOn: 2, reason: "Waiting on 2" });
+  });
+  expect(tile.getAttribute("data-state")).toBe("waiting");
+  expect(within(tile).getByText("Waiting on 2")).toBeTruthy();
+  expect(
+    within(tile).getByRole("img", { name: "Waiting on 2" }).getAttribute("data-light-state"),
+  ).toBe("waiting");
+  expect(views[0]?.mount.mock.calls.length).toBe(mounts);
+});
 test("restored live sessions wait for inventory; removed sessions become empty without stopping processes", () => {
   const layout = placeSession(arrangedLayout(initialLayout(), "rows"), "permission");
   if (!layout) throw new Error("No layout");

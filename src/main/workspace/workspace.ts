@@ -1,3 +1,4 @@
+import { waitingState } from "./waiting-state";
 import { observerHealth } from "../agents/providers/installed-observers";
 import { flushV2Health } from "../agents/providers/v2-health";
 import type { V2HookRuntime } from "../../shared/v2-hooks";
@@ -667,10 +668,14 @@ export class Workspace {
   private currentState(id: string): TerminalState | null {
     const terminal = this.terminals.get(id);
     const state = terminal?.state;
-    if (!state) return null;
-    return terminal.hook?.action === "needs_input"
-      ? { ...state, attentionKind: "permission" }
-      : state;
+    return waitingState(
+      id,
+      terminal?.hook?.action === "needs_input" && state
+        ? { ...state, attentionKind: "permission" }
+        : (state ?? null),
+      terminal?.execution?.snapshot(),
+      this.orchestration.waitingOn(id),
+    );
   }
 
   snapshot(): WorkspaceSnapshot {
@@ -2182,6 +2187,7 @@ export class Workspace {
       (event) => {
         terminal.generation++;
         this.deps.onExecution?.(event);
+        this.refresh();
         const entry = this.launched.get(id);
         if (entry?.kind === "agent" && event.to === "idle")
           this.deps.forge?.recheck(entry.worktree);
@@ -2286,7 +2292,7 @@ export class Workspace {
       inputRevision: terminal.inputVersion ?? 0,
       timestamp: this.now(),
     };
-    this.deps.onState(terminal.state);
+    this.deps.onState(this.currentState(id) ?? terminal.state);
   }
 
   private async evaluate(

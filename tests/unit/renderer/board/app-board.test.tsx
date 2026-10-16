@@ -1097,3 +1097,57 @@ test("the application owns and disposes preview composition independently of til
   delete window.desktop.previews;
   Reflect.deleteProperty(document, "getAnimations");
 });
+
+test("main waiting presentation clears on equal-timestamp snapshots and real attention", async () => {
+  const execution: ExecutionTransition = {
+    terminalId: "a",
+    launch: 1,
+    revision: 2,
+    turn: 1,
+    phase: "idle",
+    from: "working",
+    to: "idle",
+    source: "hook",
+    at: 10,
+  };
+  const state: TerminalState = { ...verdict("a", 100), execution, state: "done" };
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [{ ...agent("a", state), execution }],
+  });
+  const source = createAppSource();
+  const off = source.connect?.();
+  await settle();
+  mock.state?.({ ...state, waitingOn: 2 });
+  // Snapshot is authoritative at the same timestamp; a later refresh carries the derived count.
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [{ ...agent("a", { ...state, waitingOn: 2 }), execution }],
+  });
+  mock.changed?.();
+  await settle();
+  expect(source.getSnapshot()[0]).toMatchObject({
+    state: "waiting",
+    reason: "Waiting on 2",
+    waitingSince: 0,
+  });
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [{ ...agent("a", state), execution }],
+  });
+  mock.changed?.();
+  await settle();
+  expect(source.getSnapshot()[0]?.state).toBe("done");
+  mock.state?.({ ...state, verdictId: "failed", state: "failed" });
+  expect(source.getSnapshot()[0]?.state).toBe("failed");
+  const blocked = { ...execution, revision: 3, phase: "blocked" as const };
+  mock.state?.({
+    ...state,
+    timestamp: 101,
+    execution: blocked,
+    state: "needs_input",
+    attentionKind: "question",
+  });
+  expect(source.getSnapshot()[0]?.state).toBe("needs_input");
+  off?.();
+});

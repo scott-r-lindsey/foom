@@ -26,12 +26,23 @@ The light carries two separate signals.
 | Done | Green | Finished successfully |
 | Failed | Magenta, square | Exited with an error or gave up |
 | Quiet | Dim neutral | Quiet but fine (dev server, long install) |
+| Waiting | Neutral hourglass | Idle orchestrator waiting on children |
 
 - Done and Failed dim once the user has looked at them.
 - Agent Needs you clears when supported evidence shows execution resumed, or when the user dismisses attention. Typing and terminal output alone do not prove resumed execution. Shell attention retains reply/output behavior. Opening a terminal never clears attention.
 - Failed uses a square light, so the state never depends on color alone.
 - A solid light means the process is running. Exited sessions have a hollow ring (square outline for Failed), green after Done, magenta after Failed and muted otherwise. Their name and badge dim, a muted `exited` follows the name, and the accessible name includes Exited.
 - Every verdict carries a one-line reason and the signal that produced it, for example `Wants to edit src/main/main.ts · pattern: (y/n)`.
+
+An idle orchestrator shows **Waiting on N** while owned children are still running
+without a read handoff, or have a newer unread handoff. Each child counts once.
+Reading the latest handoff settles that child even if its process remains alive;
+reading an older report does not clear a newer one. Exiting without an unread report,
+takeover, close, parent exit and revocation remove that child's waiting contribution.
+Waiting does not count as Needs you or Working. Real questions, permission,
+credential and provider prompts, and failures retain their normal state. When no
+children remain pending, the parent's normal idle/done state returns. Waiting is
+presentation only: no terminal input, execution or evaluator verdict is changed.
 
 With Claude hooks attached, an idle title stops working audio but stays Quiet until
 Stop confirms completion. This keeps Esc interruptions from producing a Done chime.

@@ -437,3 +437,22 @@ test("checkout panel renders a plain PR title, state and complete check counts",
   );
   expect(view.getByText("Checks").nextElementSibling?.textContent).toBe("Unknown");
 });
+
+test("repository facts count waiting parents without conflating child counts", async () => {
+  const waiting = { ...row, state: "waiting" as const, waitingOn: 3 };
+  const view = render(
+    <PanelFacts
+      subject={{
+        kind: "repository",
+        repository,
+        rows: [waiting, { ...waiting, id: "second", waitingOn: 1 }],
+      }}
+      source={source}
+      options={undefined}
+    />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(view.getByText("2 waiting").getAttribute("data-tone")).toBe("neutral");
+});

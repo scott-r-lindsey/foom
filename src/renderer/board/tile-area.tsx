@@ -257,6 +257,9 @@ function Tile({
                 role="img"
                 aria-label={light(row).label}
               />
+              {row.state === "waiting" && (
+                <span className="session-waiting">{light(row).label}</span>
+              )}
               <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
               <span className="tile-location" title={`${row.repository} › ${row.branch}`}>
                 {row.repository} › {row.branch}

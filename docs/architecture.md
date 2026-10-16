@@ -166,6 +166,14 @@ tracker. Settings’ profile-only showPullRequests preference gates board pollin
 orchestrator tracking remains independent. See the [batched forge contract](orchestration.md#child-pr-and-required-checks-340)
 for bounded queries, matching, cadence and required-check semantics.
 
+Idle orchestrator waiting is derived in main from execution, attention and owned
+child handoff-read cursors. `TerminalState.waitingOn` is board presentation metadata;
+raw evaluator history and control session states retain their existing meaning.
+The live source maps it to Waiting, with a neutral hourglass and count. Child
+changes refresh snapshots; execution transitions invalidate old presentation, and
+snapshots replace the same equal-timestamp verdict so a handoff read can clear Waiting
+without a new evaluator verdict.
+
 ## Renderer
 
 Board windows disable Electron's `backgroundThrottling`. Native occlusion must not

@@ -1102,6 +1102,42 @@ describe("child handoff ownership and waits", () => {
       });
     return { h, child, actor, grant, report };
   }
+  it("counts running children and unread reports, clearing only the latest read", async () => {
+    const { h, child, report } = await setup();
+    expect(h.orchestration.waitingOn("missing")).toBe(0);
+    expect(h.orchestration.waitingOn("parent")).toBe(1);
+    await report();
+    h.exit(child.id);
+    expect(h.orchestration.waitingOn("parent")).toBe(1);
+    await h.call("read_handoff", { id: child.id });
+    expect(h.orchestration.waitingOn("parent")).toBe(0);
+  });
+  it("keeps newer reports unread and permits a running child to hand off", async () => {
+    const { h, child, report } = await setup();
+    await report();
+    await h.call("read_handoff", { id: child.id });
+    expect(h.orchestration.waitingOn("parent")).toBe(0);
+    h.advance(10000);
+    await report({ idempotencyKey: "next" });
+    await h.call("read_handoff", { id: child.id, seq: 1 });
+    expect(h.orchestration.waitingOn("parent")).toBe(1);
+    await h.call("read_handoff", { id: child.id });
+    await h.call("read_handoff", { id: child.id, seq: 1 });
+    expect(h.orchestration.waitingOn("parent")).toBe(0);
+  });
+  it.each(["exit", "takeover", "revoke", "parent-exit", "close"])(
+    "clears waiting on the last child's %s",
+    async (change) => {
+      const { h, child } = await setup();
+      expect(h.orchestration.waitingOn("parent")).toBe(1);
+      if (change === "exit") h.exit(child.id);
+      else if (change === "takeover") h.orchestration.takeOver(child.id);
+      else if (change === "revoke") h.orchestration.revoke("parent");
+      else if (change === "parent-exit") h.exit("parent");
+      else h.orchestration.removed(child.id);
+      expect(h.orchestration.waitingOn("parent")).toBe(0);
+    },
+  );
   it("lists reports only for children, reads only for parents, and wakes a metadata-only wait", async () => {
     const { h, child, actor, report } = await setup();
     expect(h.service.listed(actor)).toContain("handoff");

@@ -622,7 +622,12 @@ instructions. `sessions`, `session_state` and `wait_for` include only the latest
 `handoff: { seq, status }`; a new sequence changes the metadata revision and wakes
 a wait. Reports do not change terminal execution or attention state. Nothing is
 written into any PTY. The Reply gate and proposed #336/#343 follow-up channel are
-unchanged; orchestrator waiting state is separate (#515).
+unchanged. The board derives an idle parent's **Waiting on N** presentation from
+owned running children without a read handoff and children with a newer unread
+report (#515). Successful `read_handoff` advances that child's in-memory read
+cursor monotonically; reading metadata or opening the human panel does not.
+Read cursors belong to the current ownership and are not restored after restart;
+retained reports start unread. No new control-plane write or execution state is added.
 
 Take over, revoke/transfer and parent exit end access as they do for tails. A
 restored parent can read retained reports only after its child ownership has been

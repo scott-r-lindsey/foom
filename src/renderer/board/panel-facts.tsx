@@ -48,6 +48,7 @@ const stateTone: Record<BoardRow["state"], Tone> = {
   done: "done",
   failed: "failed",
   quiet_ok: "neutral",
+  waiting: "neutral",
 };
 function Chip({ tone, dot, children }: { tone: Tone; dot?: boolean; children: ReactNode }) {
   return (
@@ -282,14 +283,17 @@ export function PanelFacts({
             )}
           </Fact>
           <Fact label="Sessions">
-            {(["needs_input", "working", "done", "failed", "quiet_ok"] as const).map((state) => {
-              const matching = subject.rows.filter((row) => row.state === state);
-              return matching[0] ? (
-                <Chip key={state} tone={stateTone[state]} dot>
-                  {matching.length} {light(matching[0]).label.toLowerCase()}
-                </Chip>
-              ) : null;
-            })}
+            {(["needs_input", "working", "waiting", "done", "failed", "quiet_ok"] as const).map(
+              (state) => {
+                const matching = subject.rows.filter((row) => row.state === state);
+                return matching[0] ? (
+                  <Chip key={state} tone={stateTone[state]} dot>
+                    {matching.length}{" "}
+                    {state === "waiting" ? "waiting" : light(matching[0]).label.toLowerCase()}
+                  </Chip>
+                ) : null;
+              },
+            )}
             {subject.rows.length === 0 && <Sub>None</Sub>}
           </Fact>
         </>

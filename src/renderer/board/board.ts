@@ -3,6 +3,7 @@ import type { BoardRow, BoardState } from "./board.d";
 
 const labels: Record<BoardState, string> = {
   working: "Working",
+  waiting: "Waiting",
   needs_input: "Needs you",
   done: "Done",
   failed: "Failed",
@@ -20,7 +21,9 @@ export function light(row: BoardRow): { label: string; opacity: number } {
       ? `Exited · ${row.kind === "shell" ? "Shell" : labels[row.state]}`
       : row.kind === "shell" && row.state !== "needs_input"
         ? "Running"
-        : labels[row.state],
+        : row.state === "waiting"
+          ? `Waiting on ${String(row.waitingOn ?? 0)}`
+          : labels[row.state],
     opacity,
   };
 }

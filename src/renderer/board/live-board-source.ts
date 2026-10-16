@@ -66,11 +66,14 @@ export function createAppSource(): BoardSource {
   const stateRow = (row: BoardRow, state: TerminalState): BoardRow => ({
     ...row,
     rate: rates.get(row.id) ?? row.rate,
-    state: state.state,
-    reason: `${state.reason} · ${state.signal}`,
+    state: state.waitingOn ? "waiting" : state.state,
+    waitingOn: state.waitingOn,
+    reason: state.waitingOn
+      ? `Waiting on ${String(state.waitingOn)}`
+      : `${state.reason} · ${state.signal}`,
     verdictId: state.verdictId,
     waitingSince:
-      state.state === "needs_input"
+      !state.waitingOn && state.state === "needs_input"
         ? row.state === "needs_input"
           ? row.waitingSince
           : state.timestamp
@@ -87,7 +90,21 @@ export function createAppSource(): BoardSource {
     const saved = snapshotStates.get(id);
     const live = current(event) ? event : undefined;
     const snapshot = current(saved) ? saved : undefined;
-    return live && (!snapshot || live.timestamp >= snapshot.timestamp) ? live : snapshot;
+    // A refreshed projection can clear Waiting without a new verdict. Preserve
+    // event precedence for distinct verdicts that happen within the same millisecond.
+    const sameVerdict =
+      live &&
+      snapshot &&
+      live.verdictId === snapshot.verdictId &&
+      live.state === snapshot.state &&
+      live.signal === snapshot.signal &&
+      live.reason === snapshot.reason;
+    return live &&
+      (!snapshot ||
+        live.timestamp > snapshot.timestamp ||
+        (live.timestamp === snapshot.timestamp && !sameVerdict))
+      ? live
+      : snapshot;
   };
   const executionRow = (row: BoardRow): BoardRow => {
     const execution = executions.get(row.id);
