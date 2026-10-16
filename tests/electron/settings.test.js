@@ -291,7 +291,7 @@ test("preflight fits safely through resize, zoom, long input and changing steps"
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByRole("button", { name: "Start preflight", exact: true }).click();
-  for (let step = 0; step < 3; step++)
+  for (let step = 0; step < 2; step++)
     await page.getByRole("button", { name: "Continue", exact: true }).click();
   const rail = page.getByRole("navigation", { name: "Preflight steps" });
   for (const [width, height, zoom] of [
@@ -322,12 +322,12 @@ test("preflight fits safely through resize, zoom, long input and changing steps"
     await expect
       .poll(() => page.evaluate(() => [window.innerWidth, window.innerHeight]))
       .toEqual([Math.round((size.width * 100) / zoom), Math.round((size.height * 100) / zoom)]);
-    for (const step of ["Welcome", "Agents", "Repositories", "Worktrees", "Go / no-go"]) {
+    for (const step of ["Welcome", "Agents", "Repositories", "Go / no-go"]) {
       await rail.getByRole("button", { name: new RegExp(step) }).click();
       await assertPreflightFits(page, `${width}×${height} at ${zoom}%: ${step}`);
     }
   }
-  await rail.getByRole("button", { name: /Worktrees/ }).click();
+  await rail.getByRole("button", { name: /Repositories/ }).click();
   for (const control of [
     "Larger",
     "Larger",
@@ -407,6 +407,18 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await mkdir(repo);
   await mkdir(path.join(root, "home"));
   isolatedGit(["init", "-q", repo]);
+  isolatedGit([
+    "-C",
+    repo,
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.com",
+    "commit",
+    "--allow-empty",
+    "-qm",
+    "Initial",
+  ]);
   // Node gets its own folder: agents installed beside it must stay hidden.
   const nodeBin = path.join(root, "node-bin");
   await mkdir(nodeBin);
@@ -560,32 +572,32 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await page.getByRole("button", { name: "Choose folder…" }).click();
   await page.getByText("1 of 1 selected").waitFor();
   await assertFooter();
-  for (const heading of ["Where should new worktrees go?", "Hold. Something needs fixing."]) {
-    await tabTo(page, "Continue");
-    await page.keyboard.press("Enter");
-    await page.getByText(heading).waitFor();
-    await assertFooter();
-    if (heading.startsWith("Where should")) {
-      await app.evaluate(({ BrowserWindow }) => {
-        const window = BrowserWindow.getAllWindows().find(
-          (window) => window.webContents.getURL() === "app://bundle/index.html",
-        );
-        window.setSize(800, 600);
-        window.webContents.setZoomFactor(1.5);
-      });
-      await assertFooter(false);
-      await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeInViewport();
-      await expect(page.getByRole("button", { name: "Back", exact: true })).toBeInViewport();
-      await app.evaluate(({ BrowserWindow, screen }) => {
-        const window = BrowserWindow.getAllWindows().find(
-          (window) => window.webContents.getURL() === "app://bundle/index.html",
-        );
-        window.webContents.setZoomFactor(1);
-        const available = screen.getPrimaryDisplay().workAreaSize;
-        window.setSize(Math.min(1600, available.width), Math.min(1000, available.height));
-      });
-    }
-  }
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    window.setSize(800, 600);
+    window.webContents.setZoomFactor(1.5);
+  });
+  await assertFooter(false);
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeInViewport();
+  await expect(page.getByRole("button", { name: "Back", exact: true })).toBeInViewport();
+  await app.evaluate(({ BrowserWindow, screen }) => {
+    const window = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    window.webContents.setZoomFactor(1);
+    const available = screen.getPrimaryDisplay().workAreaSize;
+    window.setSize(Math.min(1600, available.width), Math.min(1000, available.height));
+  });
+  await tabTo(page, "Continue");
+  await page.keyboard.press("Enter");
+  await page.getByText("Hold. Something needs fixing.").waitFor();
+  await assertFooter();
+  await expect(
+    page.getByRole("navigation", { name: "Preflight steps" }).locator("ol button"),
+  ).toHaveCount(4);
+  await expect(page.locator(".preflight-poll")).not.toContainText("Worktrees");
   await expect(page.getByRole("button", { name: "Launch" })).toBeDisabled();
   await page.getByRole("button", { name: "Fix" }).click();
 
@@ -674,6 +686,20 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     codeFolder: await realpath(repo),
   });
 
+  const created = await page.evaluate(
+    async (repository) => {
+      const state = await window.desktop.setupState();
+      const tree = await window.desktop.createWorktree(repository, "first-run-default");
+      return { tree, root: state.worktreeRoot };
+    },
+    await realpath(repo),
+  );
+  // macOS temp homes resolve through /private; Git reports the resolved worktree path.
+  assert.equal(
+    created.tree.path,
+    path.join(await realpath(created.root), "app", "first-run-default"),
+  );
+
   // Settings returns to the same sidebar row.
   await shellRow.focus();
   await openSettingsScreen(page);
@@ -684,6 +710,38 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   // The board remains visible behind Settings, so it cannot acknowledge Escape.
   await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
   await expect(shellRow).toBeFocused();
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Worktrees", exact: true }).click();
+  await page.getByRole("radio", { name: /Put them next to/ }).check();
+  await expect
+    .poll(
+      async () =>
+        JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8")).settings
+          .worktreeLocation,
+    )
+    .toBe("adjacent");
+  await quitAndWait(app, async () => {
+    await app.evaluate(({ app }) => app.quit());
+    const confirmation = await confirmationPage(app);
+    await confirmation.getByRole("button", { name: "Stop all and quit" }).click();
+  });
+  const reopened = await launchApp(context, {
+    fixture: "first-run",
+    args: [`--user-data-dir=${userData}`],
+    home: path.join(root, "home"),
+  });
+  const reopenedPage = await boardPage(reopened);
+  await openSettingsScreen(reopenedPage);
+  await reopenedPage.getByRole("button", { name: "Worktrees", exact: true }).click();
+  await expect(reopenedPage.getByRole("radio", { name: /Put them next to/ })).toBeChecked();
+  await expect(
+    reopenedPage.getByText(`${await realpath(repo)}-feat/search`, { exact: true }),
+  ).toBeVisible();
+  const trees = await reopenedPage.evaluate(
+    (repository) => window.desktop.worktrees(repository),
+    await realpath(repo),
+  );
+  assert.ok(trees.some((tree) => tree.path === created.tree.path));
 });
 
 test("the board stays usable at 300% in a small window", async (context) => {
@@ -922,7 +980,7 @@ test("preflight scans a code folder and adds the repositories worked on recently
   await expect(page.getByRole("region", { name: "Older" }).getByRole("checkbox")).not.toBeChecked();
   await assertAccessible(page);
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByText("Where should new worktrees go?").waitFor();
+  await page.getByText("Hold. Something needs fixing.").waitFor();
   await assertAccessible(page);
   const added = await page.evaluate(async () =>
     (await window.desktop.workspace()).repositories.map((repo) => repo.name).sort(),
@@ -1789,6 +1847,7 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
       settings: {
         setupComplete: true,
         hooks: false,
+        worktreeLocation: "adjacent",
         interfaceScale: 110,
         inference: { kind: "openai", model: "saved-model" },
         inferenceTimeoutMs: 15000,
@@ -1809,6 +1868,7 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
   const page = await boardPage(app);
   const state = await page.evaluate(() => window.desktop.setupState());
   assert.equal(state.settings.hooks, false);
+  assert.equal(state.settings.worktreeLocation, "adjacent");
   assert.equal(state.settings.interfaceScale, 110);
   assert.equal("inference" in state.settings, false);
   assert.equal("inferenceTimeoutMs" in state.settings, false);
@@ -1831,9 +1891,17 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
   await page.evaluate(() => window.desktop.saveSetup({ setupComplete: false }));
   await page.reload();
   await page.getByRole("button", { name: "Start preflight" }).waitFor();
-  await expect(
-    page.getByRole("navigation", { name: "Preflight steps" }).locator("ol").getByRole("button"),
-  ).toHaveCount(5);
+  const steps = page.getByRole("navigation", { name: "Preflight steps" }).locator("ol");
+  await expect(steps.getByRole("button")).toHaveText([
+    "Welcome",
+    "T-2Agents",
+    "T-1Repositories",
+    "T-0Go / no-go",
+  ]);
+  assert.equal(
+    (await page.evaluate(() => window.desktop.setupState())).settings.worktreeLocation,
+    "adjacent",
+  );
   await expect(page.getByText(/Evaluator|Run check|API key/)).toHaveCount(0);
 });
 

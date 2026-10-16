@@ -662,14 +662,14 @@ the action log and supports the same operations and idempotency as other mutatio
 
 ## First run
 
-Setup is a preflight countdown:
+Setup starts with Welcome, then a preflight countdown:
 
-1. **Agents** (T-3): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom supplies hooks and credentials per launch. Antigravity’s row shows Hooks with an active plugin and Screen rules otherwise. It offers Install plugin, Update plugin or Enable plugin inline; Remove plugin is inline. Install and update open a trusted confirmation disclosing location, behavior and removal, with no disclosure paragraphs in the step.
-2. **Repositories** (T-2): "Where do you keep your code?" Foom suggests common code folders that hold repositories, with a count for each, or you choose one. It scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked.
-3. **Worktrees** (T-1): choose where new worktrees live: Foom's folder (`~/.foom/worktrees`, the default) or next to each repository.
-4. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step. Launch needs every item GO: at least one agent ready and one repository added.
+1. **Agents** (T-2): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom supplies hooks and credentials per launch. Antigravity’s row shows Hooks with an active plugin and Screen rules otherwise. It offers Install plugin, Update plugin or Enable plugin inline; Remove plugin is inline. Install and update open a trusted confirmation disclosing location, behavior and removal, with no disclosure paragraphs in the step.
+2. **Repositories** (T-1): "Where do you keep your code?" Foom suggests common code folders that hold repositories, with a count for each, or you choose one. It scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked.
+3. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step. Launch needs every item GO: at least one agent ready and one repository added.
 
-On wide windows the steps use the extra width: agents as a grid and the worktree choices side by side.
+New profiles use Foom’s worktree folder (`~/.foom/worktrees`) without a location prompt.
+Saved location choices are preserved, including when setup is incomplete.
 
 Preflight derives a shared enlargement from the actual space left beside or below the
 rail, then checks the rendered content, including wrapping and the fixed footer. It
@@ -694,8 +694,10 @@ General offers **Show pull requests and checks**, defaulting to on when the GitH
 
 General offers **Restore sessions on launch**, on by default. Turning it on through agent-edited config requires Allow because it also permits restoring orchestrator control. General also offers **Auto-remove merged worktrees**, off by default and applying to all repositories.
 
-Agents, Repositories, and Worktrees use the same controls as
-preflight. Agents shows one central-column card per provider, including config
+Worktrees offers Foom’s folder or a location next to each repository, with an example
+destination. Changes apply to future creation; existing worktrees stay where they are.
+
+Agents and Repositories use the same controls as preflight. Agents shows one central-column card per provider, including config
 plugins pending approval or rejected by validation. A missing installation is one
 line. Every card has an On/Off switch. Off removes the agent from launch menus
 and discovery probes while retaining its defaults, environment and attention preferences.

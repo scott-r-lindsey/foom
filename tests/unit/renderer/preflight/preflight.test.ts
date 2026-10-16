@@ -44,7 +44,6 @@ test("go / no-go needs a ready agent and a repository", () => {
     "Claude Code, Codex, Antigravity",
     "Claude Code: hooks · Codex: notify · Antigravity: rules",
     "app",
-    "/home/me/.foom/worktrees",
   ]);
 
   const none = pollRows(setupState({ worktreeLocation: "adjacent" }), report(), []);
@@ -54,7 +53,7 @@ test("go / no-go needs a ready agent and a repository", () => {
   ]);
   expect(none[0]?.detail).toMatch(/Install Claude Code, Codex or Antigravity/);
   expect(none[1]?.detail).toBe("Nothing to watch yet");
-  expect(none[3]?.detail).toBe("Next to each repository");
+  expect(none.map((row) => row.system)).toEqual(["Agents", "Signals", "Repositories"]);
   expect(pollRows(setupState(), undefined, [])[0]?.detail).toBe("Still scanning");
 });
 

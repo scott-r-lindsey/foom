@@ -299,27 +299,13 @@ test("first run walks every step, saves each choice, and launches", async () => 
   fireEvent.click(screen.getByRole("checkbox", { name: /^old/ }));
   expect(screen.getByText("1 repository selected")).toBeTruthy();
 
-  // Leaving the step saves the selection; Worktrees is its own step.
+  // Leaving Repositories saves before readiness; Back returns directly to the selection.
   fireEvent.click(button("Continue"));
-  await screen.findByText("Where should new worktrees go?");
+  await screen.findByText("All stations go.");
   expect(source.apply).toHaveBeenCalledWith(["/home/me/code/app"]);
-  expect(screen.getByText("/home/me/.foom/worktrees/app/feat/search")).toBeTruthy();
-  fireEvent.click(screen.getByRole("radio", { name: /Put them next to each repository/ }));
-  await waitFor(() => {
-    expect(source.save).toHaveBeenLastCalledWith({ worktreeLocation: "adjacent" });
-  });
-  expect(screen.getByText("/home/me/code/app-feat/search")).toBeTruthy();
-  fireEvent.click(screen.getByRole("radio", { name: /Keep worktrees in Foom's folder/ }));
-  await waitFor(() => {
-    expect(source.save).toHaveBeenLastCalledWith({ worktreeLocation: "root" });
-  });
-  expect(screen.getByText("/home/me/.foom/worktrees/app/feat/search")).toBeTruthy();
-  fireEvent.click(screen.getByRole("radio", { name: /next to each repository/ }));
-  await screen.findByText("/home/me/code/app-feat/search");
-  fireEvent.click(button("Continue"));
-  expect(screen.getByText("All stations go.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Worktrees/ })).toBeNull();
   fireEvent.click(button("Back"));
-  expect(screen.getByText("Where should new worktrees go?")).toBeTruthy();
+  expect(screen.getByText("Where do you keep your code?")).toBeTruthy();
   fireEvent.click(button("Continue"));
   expect(screen.getByText("All stations go.")).toBeTruthy();
   fireEvent.click(button("Launch"));
@@ -330,7 +316,7 @@ test("first run walks every step, saves each choice, and launches", async () => 
   fireEvent.keyDown(launch, { key: "Escape" });
   expect(launched).toHaveBeenCalledOnce();
   expect(launched.mock.calls[0]?.[0]).toMatchObject({
-    settings: { setupComplete: true, hooks: false, worktreeLocation: "adjacent" },
+    settings: { setupComplete: true, hooks: false, worktreeLocation: "root" },
   });
 });
 
@@ -353,7 +339,7 @@ test("with no agents installed, go / no-go holds and links back to each fix", as
   expect(screen.getAllByText("Not found")).toHaveLength(3);
   expect(screen.getAllByRole("switch")).toHaveLength(3);
   expect(screen.getAllByText("Not found")).toHaveLength(3);
-  for (let step = 0; step < 3; step++) fireEvent.click(button("Continue"));
+  for (let step = 0; step < 2; step++) fireEvent.click(button("Continue"));
   expect(screen.getByText("Hold. Something needs fixing.")).toBeTruthy();
   expect(button("Launch")).toHaveProperty("disabled", true);
   expect(screen.getAllByText("NO-GO")).toHaveLength(2);
@@ -392,14 +378,10 @@ test("errors from main are shown without the IPC wrapper", async () => {
   );
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   await screen.findByRole("alert");
-  fireEvent.click(button("Start preflight"));
-  fireEvent.click(button("Continue"));
-  fireEvent.click(button("Continue"));
-  fireEvent.click(screen.getByRole("radio", { name: /next to each repository/ }));
+  fireEvent.click(screen.getByLabelText("Dark"));
   await waitFor(() => {
     expect(screen.getByRole("alert").textContent).toBe("Disk full");
   });
-  fireEvent.click(button("Continue"));
   expect(message("plain")).toBe("plain");
 });
 
@@ -409,7 +391,7 @@ test("a failed launch save keeps preflight open with the error", async () => {
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
   await screen.findByText("3 agents ready");
-  for (let step = 0; step < 3; step++) fireEvent.click(button("Continue"));
+  for (let step = 0; step < 2; step++) fireEvent.click(button("Continue"));
   await screen.findByText("All stations go.");
   source.save.mockRejectedValueOnce(new Error("Disk full"));
   fireEvent.click(button("Launch"));
@@ -606,7 +588,7 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ worktreeLocation: "adjacent" });
   });
-  expect(screen.getByText("Where should new worktrees go?")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Worktrees" })).toBeTruthy();
   fireEvent.click(button("Appearance"));
   fireEvent.click(button("Open themes folder"));
   expect(source.openThemesFolder).toHaveBeenCalledWith("theme");
@@ -905,3 +887,48 @@ test("General discloses GitHub polling and saves its privacy toggle", async () =
     expect(source.save).toHaveBeenCalledWith({ showPullRequests: false });
   });
 });
+
+test.each(["root", "adjacent"] as const)(
+  "incomplete setup preserves saved %s location through launch and Settings",
+  async (worktreeLocation) => {
+    const initial = setupState({ worktreeLocation });
+    const source = fake(initial);
+    source.repositories.mockResolvedValue([{ path: "/code/app", name: "app" }]);
+    const view = render(<Preflight source={source} initial={initial} onLaunched={vi.fn()} />);
+    fireEvent.click(button("Start preflight"));
+    await screen.findByText("3 agents ready");
+    fireEvent.click(button("Continue"));
+    fireEvent.click(button("Continue"));
+    await screen.findByText("All stations go.");
+    fireEvent.click(button("Launch"));
+    await screen.findByRole("dialog", { name: "Launch" });
+    expect((await source.state()).settings.worktreeLocation).toBe(worktreeLocation);
+    expect(source.save).toHaveBeenCalledExactlyOnceWith({ setupComplete: true });
+    view.unmount();
+    render(
+      <Preflight
+        source={source}
+        initial={await source.state()}
+        onLaunched={vi.fn()}
+        settingsMode
+      />,
+    );
+    fireEvent.click(button("Worktrees"));
+    expect(
+      screen.getByRole("radio", {
+        name: worktreeLocation === "root" ? /Keep worktrees/ : /Put them next to/,
+      }),
+    ).toHaveProperty("checked", true);
+    fireEvent.click(screen.getByRole("radio", { name: /Put them next to/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Keep worktrees/ }));
+    await waitFor(() => {
+      expect(source.save).toHaveBeenLastCalledWith({ worktreeLocation: "root" });
+    });
+    expect(screen.getByText("/home/me/.foom/worktrees/app/feat/search")).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: /Put them next to/ }));
+    await waitFor(() => {
+      expect(source.save).toHaveBeenLastCalledWith({ worktreeLocation: "adjacent" });
+    });
+    expect(screen.getByText("/code/app-feat/search")).toBeTruthy();
+  },
+);

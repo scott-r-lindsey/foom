@@ -6,9 +6,8 @@ import type { Repository } from "../../shared/worktrees";
 
 export const STEPS = [
   { t: "", label: "Welcome" },
-  { t: "T-3", label: "Agents" },
-  { t: "T-2", label: "Repositories" },
-  { t: "T-1", label: "Worktrees" },
+  { t: "T-2", label: "Agents" },
+  { t: "T-1", label: "Repositories" },
   { t: "T-0", label: "Go / no-go" },
 ] as const;
 
@@ -109,7 +108,7 @@ export function pollRows(
   repositories: readonly Repository[],
 ): PollRow[] {
   const ready = readyAgents(report, state);
-  const { hooks, worktreeLocation } = state.settings;
+  const { hooks } = state.settings;
   return [
     {
       system: "Agents",
@@ -136,12 +135,6 @@ export function pollRows(
         ? repositories.map((repository) => repository.name).join(", ")
         : "None added. Add at least one",
       step: 2,
-    },
-    {
-      system: "Worktrees",
-      go: true,
-      detail: worktreeLocation === "root" ? state.worktreeRoot : "Next to each repository",
-      step: 3,
     },
   ];
 }

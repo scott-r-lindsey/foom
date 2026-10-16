@@ -377,7 +377,7 @@ export function Preflight({
         />
       </>
     );
-  } else if (step === 3) {
+  } else if (settingsMode && step === 3) {
     content = (
       <WorktreesStep
         headingRef={headingRef}
@@ -561,13 +561,11 @@ export function Preflight({
         3,
       )
     ) : step === 3 ? (
-      nav(step - 1, "You can change this any time from Preflight", step + 1)
-    ) : step === 4 ? (
       <div className="preflight-nav">
         <button
           type="button"
           onClick={() => {
-            go(3);
+            go(2);
           }}
         >
           Back
