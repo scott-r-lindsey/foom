@@ -290,29 +290,25 @@ it("drops only a newly protected provider default list on approval and rejects i
 });
 
 it.each(["claude", "codex", "agy"])(
-  "duplicates the complete %s build input without transferring trust",
+  "a hand-made copy of the %s build input stays untrusted until approved",
   async (id) => {
     const { bundledAgentData } = await import("../../../../src/shared/bundled-agent-data");
     const f = await fixture();
     const original = bundledAgentData.find((entry) => entry.id === id);
     if (!original) throw Error("Missing bundled manifest");
-    const { status } = await f.service.duplicateAgent(id);
-    const copy = status.agentPlugins?.find((entry) => entry.id === `${id}-custom`);
-    expect(copy?.state).toBe("pending");
-    expect(copy?.name).toBe(`${original.name} (custom)`);
     const file = join(f.folder, `agents/${id}-custom.json`);
-    const text = await readFile(file, "utf8");
-    expect(JSON.parse(text)).toEqual({
+    const text = JSON.stringify({
       ...original,
       id: `${id}-custom`,
       name: `${original.name} (custom)`,
     });
+    await writeFile(file, text);
+    const status = await f.service.refresh();
+    const copy = status.agentPlugins?.find((entry) => entry.id === `${id}-custom`);
+    expect(copy?.state).toBe("pending");
     expect(knownAgentId(`${id}-custom`)).toBe(false);
     expect(f.digests.size).toBe(0);
-    expect(f.confirm).not.toHaveBeenCalled();
     if (!copy?.decisionId) throw Error("Missing decision");
-    await f.service.decide("allow", copy.decisionId);
-    expect(knownAgentId(copy.id)).toBe(false);
     f.confirm.mockResolvedValue(true);
     await f.service.decide("allow", copy.decisionId);
     const provider = agentProvider(copy.id);
@@ -323,55 +319,3 @@ it.each(["claude", "codex", "agy"])(
     await expect(provider.validate?.()).rejects.toThrow("changed");
   },
 );
-
-it("reserves existing names, serializes copies, and never overwrites files or links", async () => {
-  const f = await fixture();
-  const first = join(f.folder, "agents/claude-custom.json");
-  await writeFile(first, "user bytes");
-  const outside = join(f.root, "outside.json");
-  await writeFile(outside, "outside bytes");
-  await symlink(outside, join(f.folder, "agents/claude-custom-2.json"));
-  const statuses = await Promise.all([
-    f.service.duplicateAgent("claude"),
-    f.service.duplicateAgent("claude"),
-  ]);
-  expect(statuses[1].status.agentPlugins?.map((entry) => entry.id)).toEqual(
-    expect.arrayContaining(["claude-custom-3", "claude-custom-4"]),
-  );
-  expect(await readFile(first, "utf8")).toBe("user bytes");
-  expect(await readFile(outside, "utf8")).toBe("outside bytes");
-});
-
-it("refuses unknown providers, full catalogs, unavailable and redirected agents directories", async () => {
-  const f = await fixture();
-  await expect(f.service.duplicateAgent("../claude")).rejects.toThrow("built-in");
-  await expect(f.service.duplicateAgent(manifest.id)).rejects.toThrow("built-in");
-  await Promise.all(
-    Array.from({ length: 50 }, (_, n) =>
-      writeFile(join(f.folder, `agents/reserved-${String(n)}.json`), "{}"),
-    ),
-  );
-  await expect(f.service.duplicateAgent("codex")).rejects.toThrow("full");
-  await rm(join(f.folder, "agents"), { recursive: true });
-  await expect(f.service.duplicateAgent("codex")).rejects.toThrow("unavailable");
-  await symlink(
-    f.root,
-    join(f.folder, "agents"),
-    process.platform === "win32" ? "junction" : "dir",
-  );
-  await expect(f.service.duplicateAgent("codex")).rejects.toThrow("unavailable");
-  await f.service.dispose();
-  await expect(f.service.duplicateAgent("codex")).rejects.toThrow("unavailable");
-});
-
-it("does not revive an approval for a previously deleted copy before the watcher catches up", async () => {
-  const f = await fixture();
-  f.digests.set("agents/claude-custom.json", "stale approval");
-  const { status } = await f.service.duplicateAgent("claude");
-  expect(
-    status.agentPlugins?.some(
-      (entry) => entry.id === "claude-custom-2" && entry.state === "pending",
-    ),
-  ).toBe(true);
-  expect(knownAgentId("claude-custom-2")).toBe(false);
-});

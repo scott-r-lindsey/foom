@@ -433,7 +433,6 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "changeAgyPlugin",
           "scanAgents",
           "launchAgent",
-          "duplicateAgent",
           "configStatus",
           "decideConfig",
           "revertConfig",

@@ -504,7 +504,6 @@ const desktop: DesktopApi = {
   changeAgyPlugin: (action) => ipcRenderer.invoke("agents:agy-plugin", action),
   scanAgents: (refresh) => ipcRenderer.invoke("agents:scan", refresh),
   launchAgent: (request) => ipcRenderer.invoke("agents:launch", request),
-  duplicateAgent: (id) => ipcRenderer.invoke("config:duplicate-agent", id),
   configStatus: () => ipcRenderer.invoke("config:status"),
   decideConfig: (decision, id) => ipcRenderer.invoke("config:decide", decision, id),
   revertConfig: (commit) => ipcRenderer.invoke("config:revert", commit),

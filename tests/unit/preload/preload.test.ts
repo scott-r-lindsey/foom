@@ -685,13 +685,11 @@ test("Foom config calls pass fixed channels and status events are validated", as
   await api.decideConfig("keep", "f".repeat(64));
   await api.revertConfig("a".repeat(40));
   await api.openConfigFolder();
-  await api.duplicateAgent("claude");
-  expect(mock.invoke.mock.calls.slice(-5)).toEqual([
+  expect(mock.invoke.mock.calls.slice(-4)).toEqual([
     ["config:status"],
     ["config:decide", "keep", "f".repeat(64)],
     ["config:revert", "a".repeat(40)],
     ["config:open-folder"],
-    ["config:duplicate-agent", "claude"],
   ]);
   const callback = vi.fn();
   const off = api.onConfigChange(callback);

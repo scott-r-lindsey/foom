@@ -48,13 +48,7 @@ export interface ConfigStatus {
   error?: string;
 }
 
-export interface ConfigAgentDuplicate {
-  id: string;
-  status: ConfigStatus;
-}
-
 export interface ConfigApi {
-  duplicateAgent(id: string): Promise<ConfigAgentDuplicate>;
   configStatus(): Promise<ConfigStatus>;
   /** Allow applies and commits the held change; keep restores the last applied file. */
   decideConfig(decision: "allow" | "keep", id: string): Promise<ConfigStatus>;

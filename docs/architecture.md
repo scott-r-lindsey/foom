@@ -2048,10 +2048,5 @@ and the global hooks switch takes precedence. Preferences apply on future launch
 including notifier disclosure gating. Default arguments save on blur through the
 existing main-owned bypass disclosure and acknowledgement.
 
-Settings cards expose `config:duplicate-agent` with exactly one build-owned agent
-ID. Main validates the trusted top frame, chooses the copy identity and exclusively
-creates its file from bundled JSON build data with only root ID/name changed.
-It scans through the existing unapproved-plugin gate and returns status; the renderer
-reveals the pending card and opens the fixed config folder. No approval baseline or
-profile consent is written. Disabled agents remain configurable but skip CLI discovery
+Disabled agents remain configurable but skip CLI discovery
 and setup probes; enablement changes invalidate workspace discovery caches.
