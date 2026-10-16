@@ -35,6 +35,7 @@ export interface WorktreeSource {
 }
 /** Samples and the live source share rows, verdicts and activity batches. */
 export interface BoardSource {
+  onFocusWorktree?: (callback: (path: string) => void) => () => void;
   previews?: {
     getSnapshot(): readonly PreviewSummary[];
     getHistory?(): readonly PreviewOpenAction[];

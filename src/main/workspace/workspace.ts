@@ -132,6 +132,7 @@ export interface WorkspaceDependencies {
   acknowledgeNotifier(): Promise<void>;
   acknowledgeAgyPluginOffer?(): Promise<void>;
   forge?: ForgeTracking;
+  openExternal?: (url: string) => Promise<void>;
   sessions?: Pick<SessionStore, "load" | "save" | "flush">;
   copyText?(text: string): void | Promise<void>;
   agents?: (
@@ -443,9 +444,11 @@ export class Workspace {
           | "restoreSessions"
           | "concurrentChildren"
           | "autoRemoveMergedWorktrees"
+          | "showPullRequests"
         >
       >,
   ): void {
+    this.deps.forge?.setEnabled(settings.showPullRequests === true);
     this.restoreEnabled = settings.restoreSessions ?? true;
     this.concurrentChildren = settings.concurrentChildren ?? 4;
     this.autoRemoveMergedWorktrees = settings.autoRemoveMergedWorktrees ?? false;
@@ -1636,10 +1639,36 @@ export class Workspace {
       repositories: await Promise.all(
         this.deps.worktrees.listRepositories().map(async (repository) => {
           const worktrees = await this.worktrees(repository.path);
+          if (this.deps.forge) {
+            const tracked = await Promise.all(
+              worktrees
+                .filter((tree) => tree.branch && !tree.bare && !tree.prunable)
+                .map(async (tree) => {
+                  const identity = await this.deps.worktrees
+                    .launchIdentity(repository.path, tree.path)
+                    .catch(() => undefined);
+                  return identity && tree.branch
+                    ? {
+                        repository: repository.path,
+                        path: tree.path,
+                        identity,
+                        branch: tree.branch,
+                      }
+                    : undefined;
+                }),
+            );
+            this.deps.forge.sync(
+              repository.path,
+              tracked.filter((tree) => tree !== undefined),
+            );
+          }
           return {
             ...repository,
             worktrees: [
-              ...worktrees,
+              ...worktrees.map((tree) => {
+                const pullRequest = this.deps.forge?.readBoard(repository.path, tree.path);
+                return pullRequest ? { ...tree, pullRequest } : tree;
+              }),
               ...(this.cleanupRuns
                 .get(repository.path)
                 ?.removedTrees.filter(
@@ -1675,6 +1704,13 @@ export class Workspace {
     }
     if (command.kind === "copy-home-path") {
       await this.deps.copyText?.(homeDirectory);
+      return;
+    }
+    if (command.kind === "open-pull-request") {
+      await this.deps.worktrees.launchIdentity(command.repository, command.worktree);
+      const pr = this.deps.forge?.readBoard(command.repository, command.worktree);
+      if (!pr) throw new Error("Pull request unavailable");
+      await this.deps.openExternal?.(pr.url);
       return;
     }
     if (command.kind === "copy-worktree-path") {
@@ -2146,6 +2182,9 @@ export class Workspace {
       (event) => {
         terminal.generation++;
         this.deps.onExecution?.(event);
+        const entry = this.launched.get(id);
+        if (entry?.kind === "agent" && event.to === "idle")
+          this.deps.forge?.recheck(entry.worktree);
         for (const listener of this.executionListeners) listener(event);
       },
       this.now,
@@ -2573,6 +2612,8 @@ export class Workspace {
     return this.enqueue(id, async (terminal) => {
       if (terminal.exitCode !== undefined) return;
       terminal.exitCode = code;
+      const entry = this.launched.get(id);
+      if (entry?.kind === "agent") this.deps.forge?.recheck(entry.worktree);
       this.persist();
       delete terminal.hook;
       await this.evaluate(id, terminal);

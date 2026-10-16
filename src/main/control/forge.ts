@@ -1,3 +1,4 @@
+import { batchForge } from "./forge-batch";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { ForgeProvider, PullRequest } from "./forge.d";
@@ -7,7 +8,7 @@ const FIELDS = "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossR
 export type ForgeRunner = (args: readonly string[]) => Promise<string>;
 
 /** Fail closed without surfacing CLI diagnostics (which can contain credentials). */
-const run: ForgeRunner = async (args) => {
+export const runForge: ForgeRunner = async (args) => {
   try {
     const result = await execute("gh", [...args], {
       timeout: 10000,
@@ -143,12 +144,13 @@ export function githubRepository(remote: string): string | undefined {
 
 export function forgeProvider(
   remote: string,
-  runner: ForgeRunner = run,
+  runner: ForgeRunner = runForge,
 ): ForgeProvider | undefined {
   const selected = githubRepository(remote);
   if (!selected) return undefined;
   const repository = `github.com/${selected}`;
   return {
+    batch: (matches) => batchForge(selected, matches, runner),
     async resolve(number) {
       if (!Number.isSafeInteger(number) || number <= 0) return undefined;
       try {

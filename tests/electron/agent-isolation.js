@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { promisify } = require("node:util");
 const { execFileSync } = require("node:child_process");
-const { appendFileSync, realpathSync } = require("node:fs");
+const { appendFileSync, realpathSync, existsSync } = require("node:fs");
 const { copyFile, mkdir, symlink, writeFile } = require("node:fs/promises");
 
 function inside(directory, file) {
@@ -14,7 +14,7 @@ function inside(directory, file) {
 }
 
 function assertFixtureAgent(file, directories) {
-  if (!/^(claude|codex|agy)(\.(exe|com|cmd))?$/i.test(path.basename(file))) return;
+  if (!/^(claude|codex|agy|copilot|gh)(\.(exe|com|cmd))?$/i.test(path.basename(file))) return;
   const resolved = realpathSync(file);
   assert.ok(
     directories.some((directory) => inside(realpathSync(directory), resolved)),
@@ -29,7 +29,14 @@ function guardAgentProbes(directories, log) {
   const original = children.execFile;
   function check(file) {
     try {
-      assertFixtureAgent(file, directories);
+      const executable =
+        path.basename(file) === file
+          ? (process.env.PATH ?? "")
+              .split(path.delimiter)
+              .map((directory) => path.join(directory, file))
+              .find((candidate) => existsSync(candidate))
+          : file;
+      if (executable) assertFixtureAgent(executable, directories);
     } catch (error) {
       appendFileSync(log, `${error.message}\n`);
       throw error;
@@ -52,6 +59,16 @@ async function isolatedEnvironment(root, extraPath = "") {
   // Expose just Node, never its installation directory (which may contain Codex).
   if (process.platform === "win32") await copyFile(process.execPath, path.join(bin, "node.exe"));
   else await symlink(process.execPath, path.join(bin, "node"));
+  // Default fixtures must never reach the host GitHub CLI, including auth probes.
+  const ghName = process.platform === "win32" ? "gh.exe" : "gh";
+  if (
+    !extraPath
+      .split(path.delimiter)
+      .some((directory) => directory && existsSync(path.join(directory, ghName)))
+  ) {
+    if (process.platform === "win32") await copyFile(process.execPath, path.join(bin, ghName));
+    else await writeFile(path.join(bin, ghName), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  }
   const system =
     process.platform === "win32"
       ? [

@@ -156,6 +156,16 @@ refresh remains the fallback. Sidebar commands still re-read Git inventory and v
 The live board source marks sessions whose checkout is absent or prunable without
 changing their terminal state, capabilities or attachment.
 
+The main-owned forge tracker also decorates checkout inventory with validated PR
+number, title, state, generated GitHub URL and complete check counts. Renderer
+components read these facts through BoardSource. The open-PR sidebar command
+validates sender, repository and current checkout identity, then opens the tracker’s
+URL through Electron shell; no renderer-supplied URL is accepted. Notification clicks
+send a checkout focus event and never attach a terminal. Sleep/lock events pause the
+tracker. Settings’ profile-only showPullRequests preference gates board polling;
+orchestrator tracking remains independent. See the [batched forge contract](orchestration.md#child-pr-and-required-checks-340)
+for bounded queries, matching, cadence and required-check semantics.
+
 ## Renderer
 
 Board windows disable Electron's `backgroundThrottling`. Native occlusion must not
@@ -797,8 +807,7 @@ conclusion changes. gh 2.45.0 uses a read-only GraphQL fallback when
 verified PR fields with `requiredChecks: "unknown"`; this is never a successful
 conclusion or evidence of an empty required set. Every conclusion retains the PR
 head/state recheck. The mapping survives restart and a new orchestrator generation,
-without transferring authority over old children. Successful reads recur every
-30 seconds; unavailable results back off from 60 seconds to at most 10 minutes.
+without transferring authority over old children. Successful reads use the shared repository cadence; unavailable results back off from 60 seconds to at most 10 minutes.
 Polling is serial with at least a second between worktrees and stops on shutdown.
 See [the data, persistence and polling contract](orchestration.md#child-pr-and-required-checks-340).
 

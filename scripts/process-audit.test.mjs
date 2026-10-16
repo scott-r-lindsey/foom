@@ -142,7 +142,7 @@ test("agent guard permits fixtures and rejects outside paths and escaping symlin
   const outside = path.join(root, "fixture-other");
   await mkdir(fixture);
   await mkdir(outside);
-  for (const name of ["claude", "codex.exe", "agy"]) {
+  for (const name of ["claude", "codex.exe", "agy", "copilot", "gh"]) {
     await writeFile(path.join(fixture, name), "fixture");
     await writeFile(path.join(outside, name), "outside");
     assertFixtureAgent(path.join(fixture, name), [fixture]);
@@ -176,6 +176,10 @@ test("fixture login shell ignores inherited PATH and never exposes Node's siblin
     env: { ...process.env, PATH: "/host/agents" },
   }).toString();
   assert.equal(output, `\0FOOM_PATH\0${env.PATH}\0`);
+  assert.throws(
+    () => execFileSync(path.join(root, "bin", "gh"), ["auth", "status"]),
+    (error) => error.status === 1,
+  );
   assert.deepEqual(env.PATH.split(path.delimiter), [path.join(root, "bin"), "/usr/bin", "/bin"]);
   assert.equal(
     execFileSync(path.join(root, "bin", "node"), ["--version"])

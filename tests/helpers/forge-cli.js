@@ -5,6 +5,30 @@ const fs = require("node:fs");
 const args = process.argv.slice(2);
 const fixture = JSON.parse(fs.readFileSync(process.env.TEST_FORGE_STATE, "utf8"));
 if (fixture.error) { process.stderr.write("Forge unavailable"); process.exit(2); }
+if (args[0] === "auth" && args.join(" ") === "auth status --hostname github.com") process.exit(fixture.loggedOut ? 1 : 0);
+if (args[0] === "api" && args[5]?.startsWith("query=query($owner:")) {
+  if (args[1] !== "graphql" || args[2] !== "--hostname" || args[3] !== "github.com") process.exit(2);
+  const owner = args.find((arg) => arg.startsWith("owner="))?.slice(6);
+  const name = args.find((arg) => arg.startsWith("name="))?.slice(5);
+  const headSha = fixture.pr?.headRefOid ?? "a".repeat(40);
+  const contexts = fixture.contexts ?? (fixture.checks ?? [{ bucket: "pending" }]).map(({ bucket }) => ({
+    __typename: "CheckRun", isRequired: true,
+    status: bucket === "pending" ? "IN_PROGRESS" : "COMPLETED",
+    conclusion: ({pass: "SUCCESS", fail: "FAILURE", cancel: "CANCELLED", skipping: "SKIPPED"})[bucket] ?? null,
+  }));
+  const pr = { number: 340, title: "Fixture pull request", headRefOid: headSha, headRefName: "child-one", state: "OPEN",
+    headRepository: { nameWithOwner: owner + "/" + name }, isCrossRepository: false,
+    commits: { nodes: [{ commit: { oid: headSha, statusCheckRollup: { contexts: { pageInfo: { hasNextPage: false }, nodes: contexts } } } }] }, ...fixture.pr };
+  const repository = { defaultBranchRef: { name: "main" } };
+  for (const selection of args[5].matchAll(/p([0-9]+): pullRequest/g)) {
+    const index = selection[1];
+    const branch = args.find((arg) => arg.startsWith("b" + index + "="))?.split("=").slice(1).join("=") ?? pr.headRefName;
+    const bound = args[5].includes("p" + index + ": pullRequest(number:");
+    repository["p" + index] = bound ? pr : { pageInfo: { hasNextPage: false }, nodes: fixture.absent || branch !== pr.headRefName ? [] : [pr] };
+  }
+  process.stdout.write(JSON.stringify({ data: { repository } }));
+  process.exit(0);
+}
 if (args[0] === "api") {
   if (args[1] !== "graphql" || args[2] !== "--hostname" || args[3] !== "github.com" ||
       args[4] !== "-f" || !args[5].startsWith("query=query($id: ID!)") ||

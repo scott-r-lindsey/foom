@@ -486,7 +486,7 @@ reported capacity line and upstream render snapshots are in
 
 ## Child PR and required checks (#340)
 
-Main tracks branches only in orchestrator-owned worktrees, choosing a read-only
+Main tracks branches in every registered repository’s board checkouts and in orchestrator-owned worktrees, choosing a read-only
 forge provider from the repository's origin URL (or its sole remote). GitHub on
 `github.com` is supported first, through the user's existing `gh` login. Unknown
 hosts, missing or logged-out CLIs and unavailable/malformed PR results omit PR
@@ -494,7 +494,7 @@ metadata; they do not fail a control request. Unavailable check results preserve
 verified PR fields with an `unknown` conclusion. No additional opt-in is required by
 the 2026-10-13 decision. GitLab and enterprise hosts await providers.
 
-The provider's branch lookup is reusable by #337. It runs only fixed `gh pr list`,
+The provider’s single-PR branch lookup is reusable by #337; repository polling uses the batched contract below. It runs only fixed `gh pr list`,
 `gh pr view`, `gh pr checks --required` and read-only `gh api graphql` queries
 with execFile argument arrays,
 explicit repository selection, disabled prompts, 10-second command deadlines and
@@ -531,9 +531,10 @@ or only optional contexts yields `none`. Missing rollup fields, invalid/unknown 
 GraphQL errors, denied/rate-limited calls and malformed check JSON yield `unknown`.
 This contract addition is persisted and exposed like the other conclusions;
 `unknown` is neither success nor proof that no checks are required. A verified PR
-with unknown checks refreshes at the normal 30-second interval and changes session
-revisions when its conclusion recovers. The final PR head/state recheck is required
-for every conclusion, including `unknown`. Newer gh versions keep the existing
+with unknown checks refreshes at the active polling interval and changes session
+revisions when its conclusion recovers. The single-PR lookup’s final head/state recheck is required
+for every conclusion, including `unknown`; batched reads compare the head SHA with
+the check commit inside the same GraphQL response. Newer gh versions keep the existing
 `pr checks --required --json bucket` path. No minimum-version upgrade is needed
 for the tested 2.45.0 fallback. Read-only verification for #366 on 2026-10-13:
 `/usr/bin/gh` 2.45.0 rejects `--json` and PR #1 in this repository returns exit 1,
@@ -552,15 +553,30 @@ human review, while terminal changes still do. A new generation can read previou
 mapping through repository-scoped session metadata, without gaining stop, tail or
 wait authority over those children.
 
-Successful observations are refreshed every 30 seconds. Unavailable results or
-branches without a PR back off to 60, 120, 240, 480 and at most 600 seconds, resetting
-to 30 seconds on success. Polls process one worktree at a time with at least one
-second between samples; there are no overlapping processes or catch-up bursts.
-Large sets therefore take longer. A failed/rate-limited PR metadata call is treated as
-unavailable and receives this same backoff; a check-only failure yields `unknown`
-without hiding verified PR metadata. Tracking is bounded to 1,000 worktrees.
-Main checks managed-worktree identity and branch before each sample; removal or
-replacement retires the observation. Polling ends at app shutdown.
+Board and child observations share one tracker. Repository polls use one bounded
+`gh api graphql` command with branch variables and validated numeric PR aliases.
+Discovery requires one open same-repository head and excludes the repository’s
+reported default branch. Bound PRs retain CLOSED/MERGED observations. The query
+returns title (plain text), head, state and at most 100 check contexts per head;
+partial pages or invalid head/check data yield unknown checks. Board counts include
+all checks; orchestration conclusions include only required checks. Newly discovered
+numbers bind on the following scheduler tick; until then required checks are unknown.
+This avoids guessing required status from optional checks. Existing single-PR lookup
+and its compatibility fallback remain available for adoption.
+
+Polls run every 20 seconds while checks run or are unknown, every two minutes when
+settled, and every ten minutes when no PR matches. Failed repository reads retain
+60, 120, 240, 480 and 600-second backoff. Polling is serial, with one repository
+per scheduler tick and no overlapping processes. Sleep and screen lock pause it;
+both must clear before resuming. Agent idle and exit transitions request an immediate
+read. Main validates checkout identity and branch before polling; removal or
+replacement retires observations. Shutdown stops polling. Tracking remains bounded
+to 1,000 checkouts and command output to 256 KiB.
+
+Settings → General → Show pull requests and checks defaults from the first `gh auth
+status --hostname github.com` probe. Its disclosure names repository and branch
+transmission, with no terminal content. Disabling it hides board observations and
+stops non-orchestrator polling; orchestrator metadata and `wait_for` remain active.
 
 A private, atomically written `control/forge.json` stores checkout identity, branch,
 remote and the narrowed PR mapping separately from launch grants. It survives app

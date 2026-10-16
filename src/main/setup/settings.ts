@@ -61,7 +61,8 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
       (key === "setupComplete" ||
         key === "codexNotifierAcknowledged" ||
         key === "agyPluginOfferAnswered" ||
-        key === "autoRemoveMergedWorktrees") &&
+        key === "autoRemoveMergedWorktrees" ||
+        key === "showPullRequests") &&
       typeof entry === "boolean"
     )
       patch[key] = entry;

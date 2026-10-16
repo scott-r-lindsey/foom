@@ -1,3 +1,15 @@
+import type * as ForgeModule from "../../../src/main/control/forge";
+import { DEFAULT_SETTINGS } from "../../../src/main/setup/settings";
+import { runForge } from "../../../src/main/control/forge";
+const forgeUi = vi.hoisted(() => ({
+  supported: true,
+  events: new Map<string, () => void>(),
+  notices: [] as { title: string; body: string; click?: () => void }[],
+}));
+vi.mock("../../../src/main/control/forge", async (original) => ({
+  ...(await original<typeof ForgeModule>()),
+  runForge: vi.fn(() => Promise.resolve("")),
+}));
 vi.mock("../../../src/main/agents/setup-offers", () => ({
   setupOffers: {
     load: vi.fn(() => Promise.resolve()),
@@ -460,7 +472,8 @@ const mock = vi.hoisted(() => {
       setConfigDigest: vi.fn(() => Promise.resolve()),
       update: vi.fn(() => Promise.resolve()),
       get: (): Pick<Settings, "colorMode" | "interfaceScale" | "interfaceTheme"> &
-        Partial<Pick<Settings, "agentBypassAcknowledged">> => ({
+        Partial<Pick<Settings, "agentBypassAcknowledged" | "showPullRequests">> => ({
+        showPullRequests: false,
         colorMode: "dark",
         interfaceScale: 120,
         interfaceTheme: "follow",
@@ -513,6 +526,24 @@ const mock = vi.hoisted(() => {
   };
 });
 vi.mock("electron", () => ({
+  powerMonitor: {
+    on: (name: string, listener: () => void) => {
+      forgeUi.events.set(name, listener);
+    },
+  },
+  shell: { openExternal: vi.fn(() => Promise.resolve()) },
+  Notification: class {
+    static isSupported() {
+      return forgeUi.supported;
+    }
+    constructor(private readonly options: { title: string; body: string; click?: () => void }) {}
+    on(_event: string, listener: () => void) {
+      this.options.click = listener;
+    }
+    show() {
+      forgeUi.notices.push(this.options);
+    }
+  },
   ipcMain: { handle: vi.fn(), removeHandler: vi.fn() },
   Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
   BrowserWindow: mock.BrowserWindow,
@@ -599,7 +630,15 @@ beforeEach(() => {
   mock.catalog = { interface: [], terminal: [], errors: [] };
   mock.state.windows = [mock.window];
   mock.ready.mockResolvedValue();
-  forgeMock.open.mockResolvedValue({ track: vi.fn(), read: vi.fn(), close: vi.fn() });
+  forgeUi.notices = [];
+  forgeUi.events.clear();
+  forgeUi.supported = true;
+  forgeMock.open.mockResolvedValue({
+    track: vi.fn(),
+    read: vi.fn(),
+    close: vi.fn(),
+    pause: vi.fn(),
+  });
   mock.openWorktrees.mockResolvedValue({
     worktreeRoot: "/home/.foom/worktrees",
     managesPath: mock.managesPath,
@@ -1868,7 +1907,7 @@ test("forge observations require registered, managed worktrees with matching bra
   expect(await inspect({ ...tree, branch: "other" })).toBeUndefined();
   expect(await inspect({ ...tree, identity: "other" })).toBeUndefined();
   listWorktrees.mockResolvedValueOnce([{ path: "/tree", managed: false, branch: "child-one" }]);
-  expect(await inspect(tree)).toBeUndefined();
+  expect(await inspect(tree)).toBe("https://github.com/o/r");
   forgeRemote.mockResolvedValueOnce(undefined);
   expect(await inspect(tree)).toBe("");
   forgeMock.open.mock.lastCall?.[2]();
@@ -2116,4 +2155,72 @@ test("preview popout creates a window, transfers the host record and requests pl
   await moving;
   const { previewHosts } = await import("../../../src/main/main");
   expect(source.moveTo).toHaveBeenCalledWith("a".repeat(32), previewHosts.get(target.id));
+});
+
+test("forge default probes GitHub CLI login once unless the preference was already saved", async () => {
+  const get = vi.spyOn(mock.settingsStore, "get").mockReturnValue({ ...DEFAULT_SETTINGS });
+  try {
+    vi.mocked(runForge).mockResolvedValueOnce("");
+    await start();
+    expect(runForge).toHaveBeenCalledWith(["auth", "status", "--hostname", "github.com"]);
+    expect(mock.settingsStore.update).toHaveBeenCalledWith({ showPullRequests: true });
+  } finally {
+    get.mockRestore();
+  }
+});
+test("missing or logged-out gh defaults board tracking off", async () => {
+  const get = vi.spyOn(mock.settingsStore, "get").mockReturnValue({ ...DEFAULT_SETTINGS });
+  try {
+    vi.mocked(runForge).mockRejectedValueOnce(new Error("missing"));
+    await start();
+    expect(mock.settingsStore.update).toHaveBeenCalledWith({ showPullRequests: false });
+  } finally {
+    get.mockRestore();
+  }
+});
+test("forge lifecycle pauses on power events and completion notifications honor preferences", async () => {
+  let settings = { ...DEFAULT_SETTINGS, showPullRequests: true };
+  const get = vi.spyOn(mock.settingsStore, "get").mockImplementation(() => settings);
+  try {
+    await start();
+    const tracker = mock.workspace.deps?.forge;
+    if (!tracker) throw new Error("Missing tracker");
+    const pause = vi.spyOn(tracker, "pause");
+    for (const name of ["suspend", "resume", "lock-screen", "unlock-screen"])
+      forgeUi.events.get(name)?.();
+    expect(pause).toHaveBeenCalledWith("sleep", true);
+    expect(pause).toHaveBeenCalledWith("lock", false);
+    const tree = { repository: "/repo", path: "/tree", identity: "identity", branch: "feature" };
+    const pr = {
+      number: 12,
+      title: "PR",
+      url: "https://github.com/o/r/pull/12",
+      state: "OPEN" as const,
+      checks: { passed: 0, pending: 0, failed: 2 },
+    };
+    tracker.onCompleted?.(tree, pr);
+    expect(forgeUi.notices[0]).toMatchObject({
+      title: "Pull request #12",
+      body: "2 checks failed",
+    });
+    forgeUi.notices[0]?.click?.();
+    expect(mock.window.webContents.send).toHaveBeenCalledWith("workspace:focus-worktree", "/tree");
+    tracker.onCompleted?.(tree, { ...pr, checks: { passed: 2, pending: 0, failed: 0 } });
+    expect(forgeUi.notices[1]?.body).toBe("Checks passed");
+    tracker.onCompleted?.(tree, { ...pr, checks: null });
+    for (const patch of [
+      { showPullRequests: false },
+      { sound: { ...DEFAULT_SETTINGS.sound, alerts: false } },
+      { sound: { ...DEFAULT_SETTINGS.sound, muted: true } },
+    ]) {
+      settings = { ...DEFAULT_SETTINGS, showPullRequests: true, ...patch };
+      tracker.onCompleted?.(tree, pr);
+    }
+    settings = { ...DEFAULT_SETTINGS, showPullRequests: true };
+    forgeUi.supported = false;
+    tracker.onCompleted?.(tree, pr);
+    expect(forgeUi.notices).toHaveLength(2);
+  } finally {
+    get.mockRestore();
+  }
 });

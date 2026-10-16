@@ -1,3 +1,4 @@
+import { runForge } from "./control/forge";
 import { setupOffers } from "./agents/setup-offers";
 import { replaceConfigProviders, providerRevision } from "./agents/providers/registry";
 import { builtinAgent } from "../shared/providers/catalog";
@@ -38,6 +39,9 @@ import { selectProfile, clearParentHooks } from "./profile";
 import { interfaceThemeSource, resolveInterfaceTheme } from "../shared/interface-themes";
 import {
   app,
+  powerMonitor,
+  shell,
+  Notification,
   BrowserWindow,
   dialog,
   nativeTheme,
@@ -447,6 +451,13 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     await setupOffers.load(app.getPath("userData"));
     if (settings.get().agyPluginOfferAnswered && !setupOffers.answered("agy"))
       await setupOffers.answer("agy");
+    if (settings.get().showPullRequests === undefined) {
+      const loggedIn = await runForge(["auth", "status", "--hostname", "github.com"]).then(
+        () => true,
+        () => false,
+      );
+      await settings.update({ showPullRequests: loggedIn });
+    }
     const forge = await ForgeTracking.open(
       app.getPath("userData"),
       async (tree) => {
@@ -456,7 +467,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
           (row) => row.path === tree.path,
         );
         if (
-          !owned?.managed ||
+          !owned ||
           owned.branch !== tree.branch ||
           (await worktrees.launchIdentity(tree.repository, tree.path)) !== tree.identity
         )
@@ -467,7 +478,58 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
         workspace.refresh();
       },
     ).catch(() => undefined);
+    if (forge) {
+      powerMonitor.on("suspend", () => {
+        forge.pause("sleep", true);
+      });
+      powerMonitor.on("resume", () => {
+        forge.pause("sleep", false);
+      });
+      powerMonitor.on("lock-screen", () => {
+        forge.pause("lock", true);
+      });
+      powerMonitor.on("unlock-screen", () => {
+        forge.pause("lock", false);
+      });
+      forge.onCompleted = (tree, pr) => {
+        const preferences = settings.get();
+        if (
+          !preferences.showPullRequests ||
+          !preferences.sound.alerts ||
+          preferences.sound.muted ||
+          !Notification.isSupported()
+        )
+          return;
+        const active = workspace
+          .snapshot()
+          .terminals.some(
+            (row) =>
+              row.worktree === tree.path &&
+              row.kind === "agent" &&
+              !row.exited &&
+              row.state?.state === "working",
+          );
+        if (!pr.checks || (pr.checks.failed === 0 && active)) return;
+        const notice = new Notification({
+          title: `Pull request #${String(pr.number)}`,
+          body:
+            pr.checks.failed > 0 ? `${String(pr.checks.failed)} checks failed` : "Checks passed",
+          silent: true,
+        });
+        notice.on("click", () => {
+          const target =
+            [...windows.values()].find(({ window }) => window.isFocused()) ??
+            windows.values().next().value;
+          if (!target) return;
+          target.window.show();
+          target.window.focus();
+          target.window.webContents.send("workspace:focus-worktree", tree.path);
+        });
+        notice.show();
+      };
+    }
     workspace = new Workspace({
+      openExternal: (url) => shell.openExternal(url),
       pluginStagingRoot: app.getPath("userData"),
       ...(forge === undefined ? {} : { forge }),
       worktrees,

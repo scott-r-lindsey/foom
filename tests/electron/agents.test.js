@@ -3657,3 +3657,85 @@ test("built-in duplication creates unique untrusted plugins, edits and approves 
   );
   await assertAccessible(page);
 });
+
+test("board pull requests show running failed and passed checks through fixture gh", {
+  skip: process.platform === "win32" && "The fixture gh is a POSIX script",
+}, async (context) => {
+  const { chmod, symlink } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-board-forge-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const repo = path.join(root, "app");
+  const home = path.join(root, "home");
+  for (const directory of [bin, repo, home]) await mkdir(directory);
+  await writeFile(path.join(bin, "gh"), FAKE_GH);
+  await chmod(path.join(bin, "gh"), 0o755);
+  await symlink(process.execPath, path.join(bin, "node"));
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Foom", "-c", "user.email=foom@example.com", ...args], {
+      cwd: repo,
+    });
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+  git("remote", "add", "origin", "https://github.com/fixture/offline.git");
+  const state = path.join(root, "forge.json");
+  await writeFile(state, JSON.stringify({ checks: [{ bucket: "pending" }] }));
+  const app = await launchApp(context, {
+    fixture: "running-shell",
+    args: [`--user-data-dir=${path.join(root, "profile")}`],
+    env: { HOME: home, PATH: bin, TEST_FORGE_STATE: state },
+  });
+  const page = await boardPage(app);
+  await app.evaluate(({ dialog, shell, Notification }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+    globalThis.forgeOpened = [];
+    globalThis.forgeNotices = [];
+    shell.openExternal = async (url) => {
+      globalThis.forgeOpened.push(url);
+    };
+    Notification.isSupported = () => true;
+    Notification.prototype.show = function () {
+      globalThis.forgeNotices.push({ title: this.title, body: this.body });
+      globalThis.lastForgeNotice = this;
+    };
+  }, repo);
+  const repository = await page.evaluate(async () => (await window.desktop.addRepository()).path);
+  await page.evaluate(async (repository) => {
+    await window.desktop.createWorktree(repository, "child-one");
+    await window.desktop.saveSetup({ showPullRequests: true });
+  }, repository);
+  await page.getByRole("button", { name: "Expand app", exact: true }).click();
+  const mark = page.getByRole("button", { name: "Pull request #340 · running", exact: true });
+  await expect(mark).toBeVisible();
+  await mark.click();
+  await expect
+    .poll(() => app.evaluate(() => globalThis.forgeOpened))
+    .toEqual(["https://github.com/fixture/offline/pull/340"]);
+  const transition = async (bucket) => {
+    await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: false }));
+    await expect(page.locator(".pull-request")).toHaveCount(0);
+    await writeFile(state, JSON.stringify({ checks: [{ bucket }] }));
+    await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: true }));
+  };
+  await transition("fail");
+  await expect(
+    page.getByRole("button", { name: "Pull request #340 · failed", exact: true }),
+  ).toBeVisible();
+  await expect
+    .poll(() => app.evaluate(() => globalThis.forgeNotices))
+    .toEqual([{ title: "Pull request #340", body: "1 checks failed" }]);
+  await app.evaluate(() => globalThis.lastForgeNotice.emit("click"));
+  await expect(page.locator(".worktree-row .tree-name:focus")).toContainText("child-one");
+  await transition("pass");
+  await expect(
+    page.getByRole("button", { name: "Pull request #340 · passed", exact: true }),
+  ).toBeVisible();
+  await page
+    .locator(".worktree-row")
+    .filter({ hasText: "child-one" })
+    .getByRole("button", { name: /^Actions for/ })
+    .click();
+  await expect(page.getByText("#340 · Fixture pull request", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 passed · 0 failed · 0 running", { exact: true })).toBeVisible();
+  await assertAccessible(page);
+});
