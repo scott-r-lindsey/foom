@@ -23,7 +23,6 @@ export function createSetupSource(): SetupSource {
       importEnvironment: (names) => desktop.importEnvironment(names),
     },
     config: {
-      duplicateAgent: (id) => desktop.duplicateAgent(id),
       status: () => desktop.configStatus(),
       decide: (decision, id) => desktop.decideConfig(decision, id),
       revert: (commit) => desktop.revertConfig(commit),

@@ -15,14 +15,14 @@ Read with [agent measurements](agents.md), [architecture](architecture.md), and
 [orchestration](orchestration.md). #407/#415 established v1; the
 [#410 decision](https://github.com/scott-r-lindsey/foom/issues/410#issuecomment-6175139041)
 puts Copilot on hold for v2. [#424](https://github.com/scott-r-lindsey/foom/issues/424)
-requires a duplicate to carry every behavior after approval. Bundled and config
+requires a config copy of a built-in to carry every behavior after approval. Bundled and config
 manifests use exactly the same engine. There are no privileged manifest capability
 names, agent-ID switches, executable modules, or automatic manifest downloads.
 
 ## Proposed forge kind (#520)
 
 [Forge manifests](forge-plugins.md) proposes `kind: "forge"` in this same plugin
-system, sharing loading, exact-byte approval, Settings cards and duplication.
+system, sharing loading, exact-byte approval and Settings cards.
 It includes a JSON Schema draft, full GitHub/GitLab examples and a public/constructed
 fixture spike. **Proposed, not decided:** existing agent v1/v2 manifests do not
 change; user approval is required before #521 implementation.
@@ -415,7 +415,7 @@ without omission/truncation (scrolling permitted). Include before/after for edit
 
 | Section | Contents |
 | --- | --- |
-| Identity/provenance | ID/name/badge, config path, byte digest, bundled vs config origin, duplicate source as display metadata only |
+| Identity/provenance | ID/name/badge, config path, byte digest, bundled vs config origin |
 | Executables/probes | Every executable basename, resolution policy and currently resolved path if available; fixed --version/--help; all version grammars/help conditions |
 | Launch | Every argv entry in every block, order, conditions, substitutions, prompt/guidance composition, new/resume ID policy, preview grants and merge behavior |
 | Protection/bypass | All reserved and bypass matchers, environment names/predicates, explanation that defaults/worktree do not guarantee sandboxing |
@@ -432,27 +432,25 @@ in the trusted content surface; secrets/tokens never appear in templates, argv,
 files, renderer, logs or consent records. Agent hook command definitions use fixed
 observer paths only. Observer output cannot approve a tool.
 
-### Duplicate as plugin (#424)
+### Customizing a built-in agent
 
-Settings → Agents offers one quiet action in each built-in card header. Main
-starts from the bundled JSON build input, changing only root `id` and `name`;
-it preserves every manifest field, including hooks, setup, resume and protections.
-The file is created exclusively as `agents/<id>-custom.json`, then `-custom-2`,
-etc. Existing files (including links and invalid JSON) reserve their names and
-are never overwritten. A redirected agents directory or full catalog refuses creation.
-The new pending card is revealed and the config folder opens for editing.
+Copy a bundled manifest from `src/shared/bundled-agents/` into the config folder's
+`agents/` folder and give it a new root `id` and `name`; the file name must be
+`<id>.json`. The copy keeps every manifest field, including hooks, setup, resume and
+protections. Foom offers no Settings action for this; #424's **Duplicate as plugin**
+was removed in #538.
 
-Creation grants no trust: no profile digest, Codex legacy notifier acknowledgement,
+A copy gains no trust: no profile digest, Codex legacy notifier acknowledgement,
 bundled observer provenance, hook observation, per-agent defaults or environment
-secrets are copied. Normal config validation and exact-byte **Allow plugin**
+secrets carry over. Normal config validation and exact-byte **Allow plugin**
 approval precede discovery and launch; subsequent edits revoke that approval.
 Codex copies use private config observer paths and their own health observations.
 Antigravity copies retain the same declared setup target and ownership checks:
 status is freshly inspected after approval, never copied from the built-in card.
 An existing recognized lifecycle installation can be observed by the generic engine;
 install/update/enable/remove still require separate trusted setup confirmation and
-serialize on that same ownership target. Duplicate does not run those actions.
-The card switch retains settings while suppressing discovery probes and launchers.
+serialize on that same ownership target. The card switch can turn the built-in off
+while the copy stays on.
 
 ## Code versus data
 
@@ -465,7 +463,7 @@ The card switch retains settings while suppressing discovery probes and launcher
 | Prompt constants, grants, per-turn reconciliation, config/child constraints, restore and checkout identity | Prompt/resume layout, merge grammar, CLI guidance selection, restore capability fact |
 | Local evaluator, provider provenance, tool authorization, process audits | Detection rules, approved preview-tool syntax and bounded paste patterns |
 
-New per-provider enable/default/environment scopes use approved IDs, including duplicated manifests; legacy three built-in settings migrate without widening a grant. The renderer receives only validated card/status/role facts.
+New per-provider enable/default/environment scopes use approved IDs, including config copies of built-ins; legacy three built-in settings migrate without widening a grant. The renderer receives only validated card/status/role facts.
 
 No operations named claude/codex/agy/copilot, no manifest-loaded modules, no
 built-in-only capability bit. Adding a provider requires JSON and measurements,
@@ -484,7 +482,7 @@ privacy, context isolation, sandboxing and terminal ownership are unchanged.
 | Bundled defaults/consents | Same IDs/enable switches/default argv/session IDs. Profile acknowledgements map to equivalent disclosure identity only if content/effect unchanged; otherwise ask again. Never import trust from agent stores |
 | Codex health | Transfer only identical definition fingerprint; stable observer command/timeout must remain identical for unchanged observer. Changed generated definition invalidates Foom health and lets Codex request review |
 | agy plugin | Recognize current foomObserverVersion 2, do not reinstall; newer version supported as today, older offers update, disabled needs enable; unknown foom refuses mutation |
-| Duplicate #424 | Unique -custom/-custom-2 ID, never overwrite; full manifest copy with identity changed. No loss of hooks/setup/resume/protections. Consent/observed health not copied; same ownership target serialized across copies |
+| Config copy of a built-in | Copy with identity changed; full manifest, hand-made (#538 removed the Settings action). No loss of hooks/setup/resume/protections. Consent/observed health not copied; same ownership target serialized across copies |
 | Dormant conversations | Missing/unapproved provider preserves row/ID but grants no launch; new invocation rechecks approved provider and checkout |
 
 Later implementation must keep existing unit/Electron/native hook tests passing on
@@ -519,7 +517,7 @@ separate exact-definition rules. To convert another provider, add its complete
 manifest to the build list, pin its ID/digest in the loader, replace its legacy
 registration, remove its old policy branches, and add compatibility/failure tests.
 The shared catalog reserves all existing built-in IDs throughout conversion;
-config registration independently rejects collisions. Duplicates change identity
+config registration independently rejects collisions. Config copies change identity
 and require normal exact-byte config approval; bundled origin/consent is never
 copied. Config files cannot claim `bundled` provenance.
 

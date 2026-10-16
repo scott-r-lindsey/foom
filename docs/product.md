@@ -712,15 +712,10 @@ Agents and Repositories use the same controls as preflight. Agents shows one cen
 plugins pending approval or rejected by validation. A missing installation is one
 line. Every card has an On/Off switch. Off removes the agent from launch menus
 and discovery probes while retaining its defaults, environment and attention preferences.
-Built-in card headers offer **Duplicate as plugin**. This opens the config folder
-and reveals an approval-pending card for `agents/<id>-custom.json` (then `-custom-2`,
-and so on), with a distinct ID and display name. Existing files are never overwritten.
-The copy starts from the complete bundled manifest; per-agent settings, secrets,
-acknowledgements and observed hook health are not copied. It cannot probe or launch
-until the trusted **Allow plugin** dialog approves its exact bytes. Antigravity
-setup is inspected afresh against the same CLI-owned installation; approval never
-installs or enables it, and setup mutations still require their own trusted dialog.
-Both built-in and copy can remain on, or the built-in can be turned off.
+To customize a built-in agent, copy its bundled manifest into the config folder's
+`agents/` folder with a new ID and name (see [agent plugins](agent-plugins.md#customizing-a-built-in-agent)).
+Settings offers no action for it. The copy is held for **Allow plugin** like any
+other config plugin. Both built-in and copy can remain on, or the built-in can be turned off.
 Each installed agent's card groups attention, MCP/resume/inline facts, default
 arguments, its environment editor, and plugin source/approval. Hooks/Screen rules
 appears only for agents with hook support; the global Attach hooks switch still

@@ -6,7 +6,7 @@ shared engine and convert GitHub; #522 would ship GitLab after its evidence gate
 There are no new permissions for agents, no forge writes, and no merge automation.
 
 A forge is a second manifest **kind** in the [existing plugin system](agent-plugins.md),
-not another plugin architecture. Built-ins are bundled JSON. An approved duplicate
+not another plugin architecture. Built-ins are bundled JSON. An approved config copy
 can express every built-in behavior, including fallback queries. Main owns process
 execution, ownership decisions and polling; manifests describe CLI syntax and data.
 
@@ -36,11 +36,9 @@ IDs are reserved within their kind. No second trust store or consent IPC.
 
 Settings uses the existing card component in a **Forges** group: name, badge,
 source, approval, detected executable/version, host assignments, available status,
-on/off and **Duplicate as plugin**. Duplication changes only ID/name, creates an
-exclusive `forges/<id>-custom[-N].json`, and copies no approval, enablement, host
-assignments or cached observations. It remains pending until exact bytes are
-approved. The shared duplicate operation receives kind plus a build-owned ID.
-Disabling a card preserves settings but stops probes and polls. This is a behavior
+and on/off. There is no Duplicate action (removed for agents in #538); a hand-made
+config copy of a built-in starts with no approval, enablement, host assignments or
+cached observations. Disabling a card preserves settings but stops probes and polls. This is a behavior
 specification, not approval of a new visual layout.
 
 No executable resolution/probing/auth check occurs for pending, disabled, invalid
@@ -50,7 +48,7 @@ with before/after changes. The trusted dialog names that the CLI runs as the use
 approval of JSON is not executable attestation or an OS sandbox. Main rechecks the
 digest, selected host, enabled state and registry revision before each spawn and
 before publishing results. Changes revoke future work and discard in-flight samples.
-A duplicate receives exactly the same capabilities through the same engine.
+A config copy receives exactly the same capabilities through the same engine.
 
 ## Hosts, remotes and executable selection
 
@@ -80,7 +78,7 @@ assignments `github.com → github` and, when #522 ships, `gitlab.com → gitlab
 The user can choose one approved enabled forge per host in Settings, including
 explicit self-hosted entries such as `git.example.org → gitlab-custom`. An explicit
 assignment may extend that manifest's declared hosts using its same grammar. A
-manifest edit cannot add assignments. Duplicates never steal a host; conflicts or
+manifest edit cannot add assignments. Config copies never steal a host; conflicts or
 missing selected providers are unavailable, with no priority or fallback guessing.
 Host edits are main-validated user settings, not repository/plugin instructions;
 they invalidate observations and require a fresh auth probe. No global CLI config,
@@ -338,7 +336,7 @@ manifest minimum and the scheduler's fleet load. The requested slower non-batch 
 30-second polling. This remains an approval gate: choose a uniform 60-second
 non-batch baseline (30 seconds for successful batch sampling), or preserve 30 seconds
 for all providers in #521 and defer that cadence change to #516. Do not implement
-a privileged provider-ID exception: bundled and duplicate manifests have identical
+a privileged provider-ID exception: bundled manifests and config copies have identical
 scheduling semantics. The worked manifests declare only their minimum interval,
 not a faster polling entitlement. No manifest can raise request concurrency or reset
 backoff. One serial worker, >=1 second between samples, <=1000 tracked worktrees,
@@ -387,7 +385,7 @@ GET avoids the API CLI's field-triggered POST default. See the
 #521 must replay current forge unit cases through the new engine and keep adoption,
 tracking, renderer boundaries and Electron tests passing. Add fixture-only tests for:
 
-- Disabled/unapproved/changed bytes, duplicate cards, conflicting host settings,
+- Disabled/unapproved/changed bytes, config copies of built-ins, conflicting host settings,
   missing executable/auth, exact host and nested namespace parsing, unknown kinds.
 - Invalid branches/numbers, option injection, field-file expansion, controls, URL
   credentials/foreign hosts, shell/GraphQL mutations and wrong placeholder scopes.

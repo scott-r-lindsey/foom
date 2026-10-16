@@ -17,7 +17,6 @@ const service = {
   folder: "/home/.foom/config",
   status: vi.fn(() => status),
   decide: vi.fn(() => Promise.resolve(status)),
-  duplicateAgent: vi.fn(() => Promise.resolve(status)),
   revert: vi.fn(() => Promise.resolve(status)),
 };
 let dispose: () => void;
@@ -36,13 +35,7 @@ function invoke(channel: string, args: unknown[] = [], event: unknown = trusted)
 }
 
 test("checks the sender, top frame and URL on every channel", async () => {
-  for (const channel of [
-    "config:status",
-    "config:decide",
-    "config:revert",
-    "config:open-folder",
-    "config:duplicate-agent",
-  ])
+  for (const channel of ["config:status", "config:decide", "config:revert", "config:open-folder"])
     for (const event of [
       { sender: {}, senderFrame: frame },
       { sender: contents, senderFrame: null },
@@ -67,10 +60,6 @@ test("validates argument counts, decisions and commit IDs at runtime", async () 
   await expect(invoke("config:decide", ["allow", id, id])).rejects.toThrow("arguments");
   for (const value of ["HEAD", "HEAD~1", "a".repeat(39), `${"a".repeat(40)}\n`, 7])
     await expect(invoke("config:revert", [value])).rejects.toThrow("arguments");
-  for (const value of [undefined, "other", "../claude", {}, 4, "claude\n"])
-    await expect(invoke("config:duplicate-agent", [value])).rejects.toThrow("arguments");
-  await expect(invoke("config:duplicate-agent", ["claude", "codex"])).rejects.toThrow("arguments");
-  expect(service.duplicateAgent).not.toHaveBeenCalled();
   expect(service.decide).not.toHaveBeenCalled();
   expect(service.revert).not.toHaveBeenCalled();
 });
@@ -86,8 +75,6 @@ test("routes valid requests, opens only the fixed folder and disposes", async ()
   expect(mock.openPath).toHaveBeenCalledWith("/home/.foom/config");
   mock.openPath.mockResolvedValueOnce("failed");
   await expect(invoke("config:open-folder")).rejects.toThrow("Unable to open");
-  await expect(invoke("config:duplicate-agent", ["claude"])).resolves.toBe(status);
-  expect(service.duplicateAgent).toHaveBeenCalledWith("claude");
   dispose();
-  expect(mock.removeHandler).toHaveBeenCalledTimes(5);
+  expect(mock.removeHandler).toHaveBeenCalledTimes(4);
 });

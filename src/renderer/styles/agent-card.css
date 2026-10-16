@@ -194,10 +194,3 @@
   outline: 2px solid var(--highlight);
   outline-offset: 3px;
 }
-
-.agent-duplicate {
-  border-color: transparent;
-  background: transparent;
-  color: var(--muted);
-  font-size: 11px;
-}

@@ -1,5 +1,3 @@
-import { bundledAgentData } from "../../shared/bundled-agent-data";
-import { bundledProviders } from "../agents/providers/bundled";
 import { parseAgentManifest } from "../../shared/agent-plugin-parser";
 import { AgentManifestError } from "../../shared/agent-manifest";
 import type { AgentPluginManifest } from "../../shared/agent-plugin";
@@ -21,7 +19,7 @@ import type { DialogContent } from "../../shared/confirmation";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { ConfigSettings } from "../../shared/config";
 import { parseSettingsFile } from "../../shared/config-files";
-import type { ConfigAgentDuplicate, ConfigChange, ConfigStatus } from "../../shared/foom-config";
+import type { ConfigChange, ConfigStatus } from "../../shared/foom-config";
 import { SOUND_KINDS } from "../../shared/sounds";
 import type { ParsedThemeFile, ThemeDiagnostic, ThemeKind } from "../../shared/theme-file";
 import { parseThemeFile } from "../../shared/theme-files";
@@ -535,40 +533,6 @@ export class ConfigService {
     return this.serial(async () => {
       await this.scan();
       return this.status();
-    });
-  }
-
-  /** Copy build-owned manifest data only; creation grants no approval or profile consent. */
-  duplicateAgent(id: string): Promise<ConfigAgentDuplicate> {
-    return this.serial(async () => {
-      const data = bundledAgentData.find((entry) => entry.id === id);
-      if (!data || !bundledProviders.some((provider) => provider.id === id))
-        throw new Error("Only built-in agents can be duplicated");
-      if (!this.started || this.closed || !(await this.contained("agents")))
-        throw new Error("The Foom config agents folder is unavailable");
-      // Respect the catalog limit so the new card can always be revealed.
-      const names = await readdir(this.path("agents"));
-      if (names.filter((name) => /^[a-z][a-z0-9-]{0,39}\.json$/u.test(name)).length >= 50)
-        throw new Error("The Foom config agents folder is full");
-      for (let index = 1; ; index++) {
-        const suffix = index === 1 ? "custom" : `custom-${String(index)}`;
-        const copyId = `${id}-${suffix}`;
-        const file = `agents/${copyId}.json`;
-        // A deleted file may still have a profile approval awaiting the next watcher scan.
-        // Never reuse that approval for a newly created copy.
-        if (this.deps.pluginBaseline?.get(file)) continue;
-        // Start from the bundled build input, not the normalized/default-expanded model.
-        const text = JSON.stringify({ ...data, id: copyId, name: `${data.name} (${suffix})` });
-        parseAgentManifest(text);
-        try {
-          await writeFile(this.path(file), text, { flag: "wx", mode: 0o644 });
-        } catch (error) {
-          if (error instanceof Error && "code" in error && error.code === "EEXIST") continue;
-          throw error;
-        }
-        await this.scan();
-        return { id: copyId, status: this.status() };
-      }
     });
   }
 

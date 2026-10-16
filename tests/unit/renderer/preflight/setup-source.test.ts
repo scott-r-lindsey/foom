@@ -66,7 +66,6 @@ test("preflight reaches main only through the setup bridge", async () => {
 
 test("Foom config reaches main only through the config bridge", async () => {
   const desktop = {
-    duplicateAgent: vi.fn(() => Promise.resolve("duplicated")),
     configStatus: vi.fn(() => Promise.resolve("status")),
     decideConfig: vi.fn(() => Promise.resolve("decided")),
     revertConfig: vi.fn(() => Promise.resolve("reverted")),
@@ -76,8 +75,6 @@ test("Foom config reaches main only through the config bridge", async () => {
   Object.defineProperty(window, "desktop", { configurable: true, value: desktop });
   const config = createSetupSource().config;
   if (!config) throw new Error("Expected config source");
-  await expect(config.duplicateAgent?.("codex")).resolves.toBe("duplicated");
-  expect(desktop.duplicateAgent).toHaveBeenCalledWith("codex");
   await expect(config.status()).resolves.toBe("status");
   await expect(config.decide("keep", "f".repeat(64))).resolves.toBe("decided");
   expect(desktop.decideConfig).toHaveBeenCalledWith("keep", "f".repeat(64));
