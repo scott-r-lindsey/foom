@@ -2,7 +2,15 @@ const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { AxeBuilder } = require("@axe-core/playwright");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, readFile, realpath, rm, writeFile } = require("node:fs/promises");
+const {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { _electron: electron } = require("@playwright/test");
 const { deadline, expect } = require("./test-policy.js");
@@ -410,9 +418,16 @@ const fixtureCleanups = new WeakMap();
 function fixtureCleanup(context) {
   let cleanup = fixtureCleanups.get(context);
   if (!cleanup) {
-    cleanup = { apps: [], directories: new Set(), probeLogs: [], launches: new WeakMap() };
+    cleanup = {
+      apps: [],
+      directories: new Set(),
+      probeLogs: [],
+      launches: new WeakMap(),
+      timing: { start: performance.now(), setup: 0, fixtures: [] },
+    };
     fixtureCleanups.set(context, cleanup);
     context.after(async () => {
+      const teardownStart = performance.now();
       const failures = [];
       try {
         await cleanup.audit?.capture();
@@ -449,6 +464,21 @@ function fixtureCleanup(context) {
           // Fixture deletion is best effort; keep assertion/quit failures intact.
           console.warn(`Unable to remove test fixture ${directory}:`, error);
         }
+      }
+      if (cleanup.timing.fixtures.length) {
+        const timing = {
+          name: context.name,
+          fixtures: cleanup.timing.fixtures,
+          setupMs: cleanup.timing.setup,
+          bodyMs: teardownStart - cleanup.timing.start - cleanup.timing.setup,
+          teardownMs: performance.now() - teardownStart,
+        };
+        context.diagnostic?.(`Fixture timing: ${JSON.stringify(timing)}`);
+        await mkdir("test-results", { recursive: true });
+        await appendFile(
+          `test-results/fixture-timings-${process.pid}.jsonl`,
+          `${JSON.stringify(timing)}\n`,
+        );
       }
       if (failures.length) throw new AggregateError(failures, "Electron teardown failed");
     });
@@ -528,6 +558,7 @@ async function restartShellFromSidebar(page) {
 let firstBoardStartup = true;
 
 async function launchApp(context, openShell = true, options = {}) {
+  const setupStart = performance.now();
   const traceStartup =
     firstBoardStartup && process.platform === "linux" && process.env.CI === "true";
   firstBoardStartup = false;
@@ -733,7 +764,20 @@ async function launchApp(context, openShell = true, options = {}) {
   });
   // The shell markup now arrives with React’s first commit.
   const page = await boardPage(app);
-  if (options.firstRun || options.emptyBoard) return app;
+  const ready = () => {
+    cleanup.timing.setup += performance.now() - setupStart;
+    cleanup.timing.fixtures.push(
+      options.firstRun
+        ? "first-run"
+        : options.emptyBoard
+          ? "empty-board"
+          : openShell
+            ? "running-shell"
+            : "hidden-shell",
+    );
+    return app;
+  };
+  if (options.firstRun || options.emptyBoard) return ready();
   await launchCheckoutShell(app, page);
   await page.locator(".board-row[data-kind='shell']").waitFor();
   // Report startup errors directly instead of timing out on a permanently disabled control.
@@ -751,7 +795,7 @@ async function launchApp(context, openShell = true, options = {}) {
     await page.locator(".board-row[data-kind='shell']").press("Enter");
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   }
-  return app;
+  return ready();
 }
 
 // A stand-in for Claude Code: reports a hook-capable version, prompts in plain text,
