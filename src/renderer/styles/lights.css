@@ -60,3 +60,27 @@
     transition: none;
   }
 }
+
+/* A neutral hourglass carries waiting in rows, the compact rail and title bars. */
+.rollup[data-state="waiting"] .board-light,
+:is(.board-row, .terminal-tile) .board-light[data-light-state="waiting"] {
+  background: var(--muted);
+  border-radius: 0;
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% 15%,
+    60% 50%,
+    100% 85%,
+    100% 100%,
+    0 100%,
+    0 85%,
+    40% 50%,
+    0 15%
+  );
+  box-shadow: none;
+}
+.session-waiting {
+  color: var(--muted);
+  font-family: var(--font-mono);
+}

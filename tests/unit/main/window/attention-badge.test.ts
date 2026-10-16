@@ -51,7 +51,10 @@ test.each(["linux", "win32", "darwin"] as const)(
       updateAttention(window as unknown as BrowserWindow, { repositories: [], terminals }, command);
     };
     const second = { ...terminal("b", "needs_input"), branch: null };
-    update([terminal("a", "needs_input"), second, terminal("c", "working")]);
+    const waiting = terminal("parent", "needs_input");
+    if (!waiting.state) throw new Error("Missing fixture state");
+    waiting.state.waitingOn = 2;
+    update([terminal("a", "needs_input"), second, terminal("c", "working"), waiting]);
     if (platform === "darwin") {
       expect(mock.badge).toHaveBeenLastCalledWith("2");
       const menu: unknown = mock.menu.mock.calls.at(-1)?.[0];

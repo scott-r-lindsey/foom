@@ -2,8 +2,9 @@ import type { Handoff } from "../../shared/handoff";
 import type { McpConnection } from "../../shared/workspace";
 import type { ExecutionSnapshot } from "../../shared/execution";
 import type { OrchestrationView } from "../../shared/workspace";
-export type BoardState = "working" | "needs_input" | "done" | "failed" | "quiet_ok";
+export type BoardState = "waiting" | "working" | "needs_input" | "done" | "failed" | "quiet_ok";
 export interface BoardRow {
+  waitingOn?: number | undefined;
   /** Host-observed foreground process name; never persisted. */
   foregroundProgram?: string;
   execution?: ExecutionSnapshot | undefined;

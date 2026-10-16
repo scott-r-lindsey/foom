@@ -1614,6 +1614,12 @@ test("a child hands off results through the CLI without terminal input and the p
   await runOrchestratorScenario(context, false, "handoff");
 });
 
+test("an idle orchestrator waits on children without hiding real attention", {
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, false, "waiting");
+});
+
 // Each scenario owns its app/profile and cleanup; no state crosses test boundaries.
 async function runOrchestratorScenario(context, cliOnly, phase) {
   const { chmod, mkdir, readdir, readFile, symlink, writeFile } = require("node:fs/promises");
@@ -1626,7 +1632,20 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
   await mkdir(bin);
   await mkdir(repo);
   await mkdir(home);
-  await writeFile(path.join(bin, "claude"), FAKE_ORCHESTRATED_CLAUDE);
+  const waitingFixture = FAKE_ORCHESTRATED_CLAUDE.replace(
+    '  if (key.toString() === "q") process.exit(0);',
+    `  if (key.toString() === "q") process.exit(0);
+  if (!isChild && ["w", "i", "?"].includes(key.toString())) {
+    const title = key.toString() === "w" ? "◐ Working" : "✳ Claude Code";
+    const line = key.toString() === "?" ? "Continue? (y/n)" : "Ready";
+    process.stdout.write("\\x1b[2J\\x1b[H\\x1b]0;" + title + "\\x07" + line + "\\r\\n");
+    return;
+  }`,
+  );
+  await writeFile(
+    path.join(bin, "claude"),
+    phase === "waiting" ? waitingFixture : FAKE_ORCHESTRATED_CLAUDE,
+  );
   if (cliOnly) {
     await writeFile(
       path.join(bin, "agy"),
@@ -1876,6 +1895,48 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
     });
     assert.equal(launched.body.result.status, "succeeded", JSON.stringify(launched.body));
     const childId = launched.body.result.resultId;
+    if (phase === "waiting") {
+      const parentBoard = parentRow.locator(":scope > .board-row");
+      const input = (text) =>
+        page.evaluate(({ id, text }) => window.desktop.input(id, text), { id: parentId, text });
+      await input("w");
+      await expect(parentBoard).toHaveAttribute("data-state", "working");
+      await input("i");
+      await expect(parentBoard).toHaveAttribute("data-state", "waiting");
+      await expect(parentBoard.locator(".board-reason")).toHaveText("Waiting on 1");
+      await expect(parentBoard.locator(".board-light")).toHaveAttribute(
+        "data-light-state",
+        "waiting",
+      );
+      await expect(parentBoard).toHaveAccessibleName(/Waiting on 1/);
+      const waitingColor = await parentBoard
+        .locator(".board-light")
+        .evaluate((element) => getComputedStyle(element).backgroundColor);
+      await input("?");
+      await expect(parentBoard).toHaveAttribute("data-state", "needs_input");
+      assert.notEqual(
+        await parentBoard
+          .locator(".board-light")
+          .evaluate((element) => getComputedStyle(element).backgroundColor),
+        waitingColor,
+      );
+      await input("w");
+      await expect(parentBoard).toHaveAttribute("data-state", "working");
+      await input("i");
+      await expect(parentBoard).toHaveAttribute("data-state", "waiting");
+      await assertAccessible(page);
+      await page.screenshot({
+        path: "test-results/orchestrator-waiting.png",
+        animations: "disabled",
+      });
+      const stop = await call(parent.controlToken, "stop", {
+        id: childId,
+        idempotencyKey: "waiting-stop",
+      });
+      assert.equal(stop.body.result.status, "succeeded");
+      await expect(parentBoard).toHaveAttribute("data-state", "quiet_ok");
+      return;
+    }
     if (phase === "handoff") {
       await expect.poll(() => existsSync(`${credentials}.child-one`)).toBe(true);
       const child = await read("child-one");

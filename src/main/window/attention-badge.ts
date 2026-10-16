@@ -48,7 +48,9 @@ export function updateAttention(
   newWindow: Command,
   focusSession?: (id: string) => void,
 ) {
-  const waiting = snapshot.terminals.filter((terminal) => terminal.state?.state === "needs_input");
+  const waiting = snapshot.terminals.filter(
+    (terminal) => terminal.state?.state === "needs_input" && !terminal.state.waitingOn,
+  );
   const count = waiting.length;
   if (process.platform === "win32")
     window?.setOverlayIcon(

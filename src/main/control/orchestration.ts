@@ -103,6 +103,7 @@ interface Child {
   exited: boolean;
   takenOver: boolean;
   tailAt: number;
+  readHandoff?: number;
 }
 interface Parent {
   readonly repository: string;
@@ -414,6 +415,19 @@ export class Orchestration {
     throw new Error("This session has no orchestrator");
   }
 
+  /** Owned children still running without a read handoff, or with a newer unread report. */
+  waitingOn(id: string): number {
+    const parent = this.parents.get(id);
+    if (!parent?.active) return 0;
+    let count = 0;
+    for (const [childId, child] of parent.children) {
+      if (child.takenOver) continue;
+      const latest = this.handoffs.latest(childId);
+      if (latest ? latest.seq > (child.readHandoff ?? 0) : !child.exited) count++;
+    }
+    return count;
+  }
+
   view(id: string): OrchestrationView | undefined {
     const parent = this.parents.get(id);
     if (parent)
@@ -459,12 +473,15 @@ export class Orchestration {
     switch (method) {
       case "read_handoff": {
         const { id, seq } = readHandoffRequest(params);
-        if (!this.own(this.parent(actor), id)) throw new ControlError("not_found");
+        const child = this.own(this.parent(actor), id);
+        if (!child) throw new ControlError("not_found");
         const report =
           seq === undefined
             ? this.handoffs.latest(id)
             : this.handoffs.entries(id).find((entry) => entry.seq === seq);
         if (!report) throw new ControlError("not_found");
+        child.readHandoff = Math.max(child.readHandoff ?? 0, report.seq);
+        this.host.changed();
         return {
           ...report,
           links: [...report.links],

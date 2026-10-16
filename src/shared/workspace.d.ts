@@ -15,6 +15,8 @@ import type { BranchInventory, CreateOutcome, Repository, Worktree } from "./wor
  * actions and for verdicts that couldn't be stored.
  */
 export interface TerminalState {
+  /** Main-derived board presentation only; does not alter the evaluator verdict. */
+  waitingOn?: number;
   outputRevision?: number;
   inputRevision?: number;
   execution?: ExecutionSnapshot | undefined;

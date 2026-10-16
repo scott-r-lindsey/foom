@@ -110,6 +110,15 @@ test("maps every state to a text label and activity brightness, dimming only ack
   row.rate = 99999;
   expect(light(row).opacity).toBeCloseTo(1);
 });
+test("waiting names its count and stays outside the human attention queue", () => {
+  const row = sampleRows(0)[0];
+  if (!row) throw new Error("Missing row");
+  const waiting: BoardRow = { ...row, state: "waiting", waitingOn: 2 };
+  expect(light(waiting)).toEqual({ label: "Waiting on 2", opacity: 1 });
+  expect(light({ ...waiting, waitingOn: undefined }).label).toBe("Waiting on 0");
+  expect(nextWaiting([waiting])).toBeUndefined();
+  expect(waitTime(waiting, 100)).toBe("—");
+});
 test("queue uses oldest wait, keeps ties stable and never reorders the board", () => {
   const rows = sampleRows(200000);
   const original = rows.map((row) => row.id);

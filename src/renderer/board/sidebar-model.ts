@@ -8,6 +8,7 @@ const ranks: Record<BoardState, number> = {
   working: 3,
   done: 2,
   quiet_ok: 1,
+  waiting: 1,
 };
 export const agentNames: ReadonlyMap<string, string> = new Map([
   ["claude", "Claude Code"],
