@@ -681,8 +681,9 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await expect(page.locator(".board-terminal")).toBeHidden();
   await page.keyboard.press("Escape");
   await expect(page.locator(".board-home")).toBeVisible();
-  // Focus returns after the board is shown; macOS can report it a frame later.
-  await expect.poll(() => shellRow.evaluate((row) => row === document.activeElement)).toBe(true);
+  // The board remains visible behind Settings, so it cannot acknowledge Escape.
+  await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
+  await expect(shellRow).toBeFocused();
 });
 
 test("the board stays usable at 300% in a small window", async (context) => {
