@@ -30,6 +30,10 @@
     ],
     "successExitCodes": [
       0
+    ],
+    "failureContains": [
+      "api call failed:",
+      "No token provided"
     ]
   },
   "environment": {

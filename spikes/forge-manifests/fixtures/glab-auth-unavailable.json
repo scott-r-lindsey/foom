@@ -1,0 +1,15 @@
+{
+  "provenance": "Recorded read-only glab 1.36.0 auth probe, Linux 2026-10-15; raw stdout/stderr discarded",
+  "argv": [
+    "auth",
+    "status",
+    "--hostname",
+    "gitlab.com"
+  ],
+  "exitCode": 0,
+  "observedFailureMarkers": [
+    "api call failed:",
+    "No token provided"
+  ],
+  "expectedAvailability": "unavailable"
+}

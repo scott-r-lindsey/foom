@@ -94,9 +94,12 @@ and `--help` probes are display/evidence only; no minimum-version gate hides the
 GitHub 2.45 fallback. No automatic installation. Run in a main-owned neutral working
 directory, not the repository, with explicit host/project arguments and stdin closed.
 
-`auth.argv` is fixed except for the validated host slot. Exit 0 means available;
-all other exits, timeout or spawn failure mean unavailable. Discard stdout/stderr,
-which can contain identity or credentials. Do not use `--show-token` or JSON auth
+`auth.argv` is fixed except for the validated host slot. Exit 0 with no declared
+`failureContains` marker means available; all other exits, timeout or spawn failure
+mean unavailable. Optional `failureContains` is <=8 literal case-sensitive strings
+<=128 characters, tested against bounded stdout/stderr without regex or extraction.
+Any match means unavailable. The glab example catches `api call failed:` and
+`No token provided`: installed glab 1.36.0 reports those errors with exit 0. Discard stdout/stderr after marker testing; they can contain identity or credentials. Do not use `--show-token` or JSON auth
 output. Cache success per host/executable/digest for at most five minutes; retry
 failures on the normal backoff or explicit refresh. Auth does not confer ownership.
 A CLI status failure leaves that host unavailable even if public anonymous reads
@@ -116,7 +119,7 @@ absent operations/fallbacks disable those features. Explicit null is not omissio
 | --- | --- |
 | `kind`, `version`, `id`, `name`, `badge`, `executables` | Identity and resolved CLI; `forge`, `1` |
 | `remote` | Host declarations and namespace/comparison grammar |
-| `auth` | `argv`, `successExitCodes: [0]` |
+| `auth` | `argv`, `successExitCodes: [0]`, optional `failureContains` |
 | `environment?` | Fixed nonsecret prompt/pager overrides only; absent means none |
 | `minimumIntervalSeconds?` | 30–86400; may slow Foom's cadence, never accelerate it |
 | `operations` | `lookupByBranch: {open, all}`, `resolveNumber`, `refresh`; optional `display`, `batchStatus` |
@@ -408,7 +411,9 @@ are untrusted input, not instructions. No current coverage thresholds are weaken
 2. **Auth preflight parity:** retain mandatory exit-0 gating, or make it advisory
    for public anonymous reads? This proposal gates. `gh auth status` can fail for
    another account on the same host even when a selected account can read; measure
-   supported versions before deciding. No auth output parsing or config changes.
+   supported versions before deciding. The proposed fixed negative-marker scan
+   handles the observed glab exit-0 failure but needs healthy/failed-version
+   coverage before shipping. No credential extraction or config changes.
 3. **Non-batch cadence:** choose uniform 60 seconds or preserve the 30-second
    baseline for all providers during migration. The issue requests a slower fallback and exact current GitHub
    behavior; both cannot change the same interval simultaneously. Recommendation:

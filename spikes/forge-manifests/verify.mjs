@@ -45,6 +45,9 @@ assert.equal(JSON.parse(list.stdout)[0].headRefOid, pr.headRefOid);
 assert.equal(JSON.parse(rollup.stdout).data.node.headRefOid, pr.headRefOid);
 assert.notEqual(unsupported.exitCode, 0);
 assert.match(unsupported.stderr, /unknown flag: --json/);
+const auth = await read("fixtures/glab-auth-unavailable.json");
+assert.equal(auth.exitCode, 0);
+assert.deepEqual((await read("gitlab.json")).auth.failureContains, auth.observedFailureMarkers);
 const glab = JSON.parse((await read("fixtures/glab-mr-constructed.json")).stdout);
 assert.equal(glab.iid, 7);
 assert.notEqual(glab.iid, glab.id); // Local MR number, not global ID.

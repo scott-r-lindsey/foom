@@ -80,6 +80,16 @@
           },
           "minItems": 1,
           "maxItems": 1
+        },
+        "failureContains": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
         }
       },
       "required": [

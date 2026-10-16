@@ -16,6 +16,7 @@ implementation. User approval is required before #521. No application files chan
 | `fixtures/gh-rollup-public.json` | Recorded existing fallback query; complete optional-only contexts, hence none at the reducer level |
 | `fixtures/gh-checks-unsupported.json` | Recorded unsupported JSON flag on gh 2.45.0; requires fallback |
 | `fixtures/gh-buckets-constructed.json` | Constructed documented modern buckets/exits plus existing no-check diagnostic; not a live modern-gh capture |
+| `fixtures/glab-auth-unavailable.json` | Recorded exit/marker facts only; raw auth output discarded |
 | `fixtures/glab-mr-constructed.json` | Constructed single MR/head-pipeline object with synthetic IDs and example path |
 | `fixtures/glab-list-constructed.json` | Constructed project MR list; deliberately omits detail-only pipeline |
 | `verify.mjs` | Offline schema rejection/acceptance, duplicate shape, fallback query parity and fixture integrity checks |
@@ -30,7 +31,8 @@ refuse this PR before reading checks. Public results are snapshots and may chang
 
 The installed `/usr/bin/glab` is 1.36.0. A read-only
 `glab auth status --hostname gitlab.com` reported no token and an unauthorized
-`/user` response. Auth text was not retained as a fixture. No login/config change,
+`/user` response **with exit 0**, confirmed in a second read-only probe. Only
+exit/marker facts are retained; raw auth text was not retained as a fixture. No login/config change,
 private repository request or GitLab MR capture was attempted. Constructed fixtures
 use documented API field shapes, **not observed glab output**. They deliberately
 omit descriptions, authors and unrelated response fields. `glab api --help` locally
