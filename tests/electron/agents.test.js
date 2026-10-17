@@ -2135,6 +2135,12 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       const childEntry = childRow.locator("..");
       const parentEntry = parentSession.locator("..");
       await expect(childRow).toHaveCount(1);
+      await childRow.click();
+      const worker = page.locator(".tile-title").getByRole("img", { name: "Worker" });
+      await expect(worker).toBeVisible();
+      await expect(worker.locator("title")).toHaveText(
+        "Child of " + (await parentSession.locator(".session-name").innerText()),
+      );
       const childMark = childRow.locator('.session-robot-mark[data-kind="rx"]');
       const parentMark = parentSession.locator('.session-robot-mark[data-kind="tx"]');
       await expect(childMark).toHaveAttribute("aria-hidden", "true");
