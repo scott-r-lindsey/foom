@@ -102,7 +102,11 @@ export class ControlHttp {
       });
       return;
     }
-    response.once("close", release);
+    const disconnected = new AbortController();
+    response.once("close", () => {
+      release();
+      disconnected.abort();
+    });
     if (mcp) {
       try {
         this.mcp.transport(actor, request.headers, request.method ?? "");
@@ -160,7 +164,19 @@ export class ControlHttp {
             this.service.mcpConnected(actor);
             if (!response.writableEnded) end(result.status, result.body, result.sessionId);
           } else {
-            const result = await this.service.call(actor, value);
+            if (
+              typeof value === "object" &&
+              value !== null &&
+              "method" in value &&
+              value.method === "wait_for" &&
+              "params" in value &&
+              typeof value.params === "object" &&
+              value.params !== null &&
+              "untilEvent" in value.params &&
+              value.params.untilEvent === true
+            )
+              request.socket.setTimeout(0);
+            const result = await this.service.call(actor, value, disconnected.signal);
             if (!response.writableEnded) end(200, { result });
           }
         } catch (error) {

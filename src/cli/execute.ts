@@ -104,8 +104,19 @@ export async function execute(
         io.error(`Pairing code: ${code}. Approve read-only access in Foom within 60 seconds.\n`);
       }));
     try {
-      if (request) output({ result: await call(authenticated, request) });
-      else {
+      if (request) {
+        const result = await call(authenticated, request);
+        output({ result });
+        if (
+          request.method === "wait_for" &&
+          request.params["untilEvent"] &&
+          typeof result === "object" &&
+          result !== null &&
+          "timedOut" in result &&
+          result.timedOut === true
+        )
+          return 5;
+      } else {
         output({ ready: true, protocol: 1 });
         let buffer = "";
         for await (const chunk of io.input) {

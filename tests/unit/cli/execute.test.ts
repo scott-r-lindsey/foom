@@ -151,3 +151,16 @@ it.each([
   expect(pair).not.toHaveBeenCalled();
   expect(JSON.stringify(vi.mocked(output.error).mock.calls)).not.toContain("SECRET");
 });
+
+it("prints blocking wait metadata and uses distinct timeout exit 5", async () => {
+  vi.mocked(inherited).mockReturnValue({ token: "SECRET", endpoint: "local", instanceId: "id" });
+  for (const timedOut of [true, false]) {
+    const result = { sessions: [], changed: [], timedOut };
+    vi.mocked(call).mockResolvedValueOnce(result);
+    const output = io();
+    expect(
+      await execute(["wait-for", "--until-event", "--timeout", "0"], "1", output, {}, "/foom"),
+    ).toBe(timedOut ? 5 : 0);
+    expect(output.out).toHaveBeenCalledWith(JSON.stringify({ result }) + "\n");
+  }
+});
