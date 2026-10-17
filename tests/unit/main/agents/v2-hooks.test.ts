@@ -549,16 +549,6 @@ it("pins pasted and assigned IDs while manual resume permits a new first event",
     expect(binding.v2?.channels.has("notify")).toBe(true);
   }
 });
-it("acknowledges selected channel disclosures in the exact-byte trusted plugin review", async () => {
-  const { pluginDisclosure } = await import("../../../../src/main/agents/providers/disclosure");
-  const review = pluginDisclosure(model());
-  expect(
-    review.sections?.some(
-      (section) => section.label === "Channel acknowledgement: notifier-replacement",
-    ),
-  ).toBe(true);
-  expect(JSON.stringify(review)).toContain("these exact manifest bytes");
-});
 it("rejects file replacement during an owned read and tolerates cleanup failure after revocation", async () => {
   const { readOwnedFile, writeOwnedFile } = await import(
     "../../../../src/main/agents/providers/v2-files"

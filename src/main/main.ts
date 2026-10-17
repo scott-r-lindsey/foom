@@ -1017,10 +1017,6 @@ if (!ownsProfile) {
           get: (file) => settings.themeDigest(file),
           set: (file, value) => settings.setThemeDigest(file, value),
         },
-        pluginBaseline: {
-          get: (file) => settings.themeDigest(file),
-          set: (file, value) => settings.setThemeDigest(file, value),
-        },
         applyPlugins: (providers) => {
           const before = providerRevision();
           replaceConfigProviders(providers);
@@ -1034,7 +1030,6 @@ if (!ownsProfile) {
                 console.error("Unable to refresh agent plugins");
               });
         },
-        confirmPlugin: (content) => requestTrusted(content, new AbortController().signal),
         confirmArguments: (content) => requestTrusted(content, new AbortController().signal),
         acknowledgeBypass: async (agents) => {
           const acknowledged = { ...settings.get().agentBypassAcknowledged };

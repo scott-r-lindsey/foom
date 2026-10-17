@@ -3063,8 +3063,8 @@ process.exit(1);
 
 for (const version of [1, 2])
   test(version === 1
-    ? "a manifest-only fixture agent cannot launch before trusted approval and requires approval again after edits"
-    : "a manifest-only v2 fixture agent cannot launch before trusted approval and requires approval again after edits", {
+    ? "a manifest-only fixture agent loads from the config folder, reloads edits and is withdrawn when invalid"
+    : "a manifest-only v2 fixture agent loads from the config folder, reloads edits and is withdrawn when invalid", {
     timeout: deadline(60_000),
   }, async (context) => {
     const { chmod, copyFile } = require("node:fs/promises");
@@ -3238,31 +3238,8 @@ process.stdin.resume();`,
     const card = page
       .locator(".agent-card")
       .filter({ has: page.getByRole("heading", { name: "Fixture agent", exact: true }) });
-    await expect(card).toContainText("Approval pending · launch blocked");
-    await expect(card.getByRole("switch")).toBeDisabled();
-    assert.equal(
-      (await page.evaluate(() => window.desktop.scanAgents(true))).agents.some(
-        (agent) => agent.id === "foom-test-agent",
-      ),
-      false,
-    );
-    await assert.rejects(launch(), /Invalid sidebar command/);
-    await card.getByRole("button", { name: "Review…", exact: true }).click();
-    let disclosure = await confirmationPage(app);
-    await expect(disclosure.getByRole("button", { name: "Cancel" })).toBeFocused();
-    await expect(disclosure.getByRole("alertdialog")).toContainText(
-      version === 1 ? "Executable names (resolved on PATH)" : "Executable resolution and probes",
-    );
-    await expect(disclosure.getByRole("alertdialog")).toContainText("$(literal)");
-    await expect(disclosure.getByRole("alertdialog")).toContainText("--yolo");
-    await disclosure.getByRole("button", { name: "Cancel" }).click();
-    await expect(
-      page.getByText("Approval pending · launch blocked", { exact: true }),
-    ).toBeVisible();
-    await card.getByRole("button", { name: "Review…", exact: true }).click();
-    disclosure = await confirmationPage(app);
-    await disclosure.getByRole("button", { name: "Allow plugin", exact: true }).click();
-    await expect(card.getByText("Approved", { exact: true })).toBeVisible();
+    await expect(card).toContainText("agents/foom-test-agent.json");
+    await expect(card.getByRole("button", { name: "Review…", exact: true })).toHaveCount(0);
     await expect
       .poll(async () =>
         (await page.evaluate(() => window.desktop.scanAgents(true))).agents.some(
@@ -3286,6 +3263,7 @@ process.stdin.resume();`,
           run: "foom-test-agent",
         });
       }, repository.path);
+      const disclosure = await confirmationPage(app);
       await expect(
         disclosure.getByRole("heading", { name: "Launch Fixture agent with bypass?" }),
       ).toBeVisible();
@@ -3340,20 +3318,11 @@ process.stdin.resume();`,
 
     await writeFile(file, JSON.stringify({ ...manifest, name: "Edited fixture" }));
     await expect(
-      page.getByText("Approval pending · launch blocked", { exact: true }),
+      page.locator(".agent-card").getByRole("heading", { name: "Edited fixture", exact: true }),
     ).toBeVisible();
+    await writeFile(file, "{}");
+    await expect(page.getByText("Rejected · launch blocked", { exact: true })).toBeVisible();
     await assert.rejects(launch(), /Invalid sidebar command/);
-    await page
-      .getByRole("navigation", { name: "Settings sections" })
-      .getByRole("button", { name: "Foom config", exact: true })
-      .click();
-    const banner = page.getByRole("region", { name: "Change waiting for approval" });
-    await banner.getByRole("button", { name: "Keep it on" }).click();
-    await expect(banner).toHaveCount(0);
-    assert.deepEqual(
-      JSON.parse(await readFile(file, "utf8")),
-      JSON.parse(JSON.stringify(manifest)),
-    );
   });
 
 test("v2 plugin setup confirms fixed actions and refuses unknown, malformed and linked metadata", {
@@ -3465,10 +3434,7 @@ else process.exit(2);
   const card = page
     .locator(".agent-card")
     .filter({ has: page.getByRole("heading", { name: "Setup fixture", exact: true }) });
-  await card.getByRole("button", { name: "Review…", exact: true }).click();
-  let dialog = await confirmationPage(app);
-  await dialog.getByRole("button", { name: "Allow plugin", exact: true }).click();
-  await expect(card.getByText("Approved", { exact: true })).toBeVisible();
+  await expect(card).toContainText("agents/foom-test-agent.json");
   const rescan = async (state) => {
     const report = await page.evaluate(() => window.desktop.scanAgents(true));
     assert.equal(
@@ -3480,7 +3446,7 @@ else process.exit(2);
   };
   await rescan("not-installed");
   await card.getByRole("button", { name: "Install", exact: true }).click();
-  dialog = await confirmationPage(app);
+  let dialog = await confirmationPage(app);
   await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
   await expect(dialog.getByRole("alertdialog")).toContainText("Staged files");
   await expect(dialog.getByRole("alertdialog")).toContainText(".gemini/config/plugins/foom");

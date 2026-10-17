@@ -30,8 +30,7 @@ export interface ConfigAgent {
   mark: string;
   command: string;
   file: string;
-  state: "pending" | "rejected";
-  decisionId?: string;
+  state: "rejected";
   reason?: string | undefined;
 }
 export interface ConfigStatus {

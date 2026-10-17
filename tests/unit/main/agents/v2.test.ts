@@ -28,7 +28,6 @@ import {
 } from "../../../../src/main/agents/default-arguments";
 import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
 import { detectAgent } from "../../../../src/main/evaluator/agent-rules";
-import { pluginDisclosure } from "../../../../src/main/agents/providers/disclosure";
 import type { AgentManifestV2 } from "../../../../src/shared/agent-manifest-v2";
 import type { AgentLaunch } from "../../../../src/shared/agents";
 import type { ControlLaunch } from "../../../../src/main/control/types";
@@ -395,7 +394,7 @@ it("supports file-free server-parentheses grants, conditional blocks and alterna
   expect(noMcp.prepared.mcp).toBe(false);
   expect(noMcp.prepared.args).toContain("--allow=Bad(");
 });
-it("supports hooks, health and setup, reviews the whole surface, and applies approved attention rules", () => {
+it("supports hooks, health and setup, and applies config attention rules", () => {
   const m = model();
   for (const source of [hookFixture, healthFixture, setupFixture])
     expect(() =>
@@ -403,29 +402,6 @@ it("supports hooks, health and setup, reviews the whole surface, and applies app
     ).not.toThrow();
   replaceConfigProviders([v2Provider(m, () => Promise.resolve())]);
   expect(detectAgent(m.id, { title: "Working", progress: null }, [])?.id).toBe("working");
-  const disclosure = pluginDisclosure(m, {
-    file: "agents/fixture-v2.json",
-    digest: "byte-digest",
-    text: "exact bytes",
-    previous: "old bytes",
-  });
-  const text = JSON.stringify(disclosure);
-  for (const section of [
-    "byte-digest",
-    "old bytes",
-    "exact bytes",
-    "bypassEnvironment",
-    "reservedArguments",
-    "resumePaste",
-    "execution",
-    "CLI",
-    "setup",
-    "prompt",
-  ])
-    expect(text).toContain(section);
-  expect(pluginDisclosure(m).sections?.length).toBeGreaterThan(10);
-  for (const section of disclosure.sections ?? [])
-    expect(section.items.every((item) => typeof item === "string")).toBe(true);
 });
 
 it("recovers only invalid provider defaults and keeps immutable approved launch data", async () => {

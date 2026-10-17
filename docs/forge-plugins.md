@@ -16,7 +16,7 @@ The complete, standalone worked manifests are [GitHub](../spikes/forge-manifests
 and [GitLab](../spikes/forge-manifests/gitlab.json). The executable
 [JSON Schema draft](../spikes/forge-manifests/forge.schema.json) uses draft 2020-12.
 The tables and semantic constraints below are part of the proposal; JSON Schema
-alone cannot validate query safety, placeholder scope or exact-byte approval.
+alone cannot validate query safety or placeholder scope.
 [Spike evidence](../spikes/forge-manifests/README.md) separates recorded output from
 constructed fixtures, and describes validation without live CLIs.
 
@@ -24,30 +24,29 @@ Dependency status: #520 has no listed prerequisite. #521 also depends on #516
 being merged; this spec does not authorize starting either follow-up early.
 
 Versioning is per kind: `kind: "forge", version: 1`; existing `agent` v1 and v2
-bytes, directories, IDs, approvals and semantics remain unchanged. The shared
+bytes, directories, IDs and semantics remain unchanged. The shared
 loader dispatches on `(kind, version)` before kind-specific validation. Unknown
 kinds/versions are invalid, never interpreted as agents. No automatic rewriting.
 
 Proposed config location: `forges/<id>.json`, using the same contained-directory,
-64 KiB descriptor-bounded reads, file watcher, Recent changes, config git, Revert,
-Keep and profile-only SHA-256 approval machinery as `agents/`. Each kind has a
-50-file catalog cap and its own ID namespace; registry keys include kind. Bundled
-IDs are reserved within their kind. No second trust store or consent IPC.
+64 KiB descriptor-bounded reads, file watcher and validation as `agents/`; a valid
+file loads with no approval step, like agents (#539). Each kind has a 50-file
+catalog cap and its own ID namespace; registry keys include kind. Bundled IDs are
+reserved within their kind. No trust store or consent IPC.
 
 Settings uses the existing card component in a **Forges** group: name, badge,
-source, approval, detected executable/version, host assignments, available status,
+source, detected executable/version, host assignments, available status,
 and on/off. There is no Duplicate action (removed for agents in #538); a hand-made
-config copy of a built-in starts with no approval, enablement, host assignments or
+config copy of a built-in starts with no enablement, host assignments or
 cached observations. Disabling a card preserves settings but stops probes and polls. This is a behavior
 specification, not approval of a new visual layout.
 
-No executable resolution/probing/auth check occurs for pending, disabled, invalid
-or changed manifests. Approval shows every command, environment override, query,
-output mapping, exit rule, host declaration, check meaning and minimum cadence,
-with before/after changes. The trusted dialog names that the CLI runs as the user;
-approval of JSON is not executable attestation or an OS sandbox. Main rechecks the
-digest, selected host, enabled state and registry revision before each spawn and
-before publishing results. Changes revoke future work and discard in-flight samples.
+No executable resolution/probing/auth check occurs for disabled or invalid
+manifests. A valid manifest loads without a trusted dialog. The CLI runs as the
+user; JSON is not executable attestation or an OS sandbox, and the read-only command
+grammar below, not human review, is the safety boundary. Main rechecks the bytes,
+selected host, enabled state and registry revision before each spawn and before
+publishing results. Edits reload the manifest and discard in-flight samples.
 A config copy receives exactly the same capabilities through the same engine.
 
 ## Hosts, remotes and executable selection
@@ -75,7 +74,7 @@ unavailable, with no probe to an inferred host.
 
 A declaration is compatibility data, **not host authority**. Main ships default
 assignments `github.com → github` and, when #522 ships, `gitlab.com → gitlab`.
-The user can choose one approved enabled forge per host in Settings, including
+The user can choose one enabled forge per host in Settings, including
 explicit self-hosted entries such as `git.example.org → gitlab-custom`. An explicit
 assignment may extend that manifest's declared hosts using its same grammar. A
 manifest edit cannot add assignments. Config copies never steal a host; conflicts or
@@ -146,7 +145,7 @@ entries and control characters are rejected. Query LF/tab is the sole exception.
 project (including slashes) once and is allowed only for project endpoint segments;
 `json` serializes branches only. No arbitrary output-to-argv bindings. Node ID is
 the only intermediate identifier. Reject out-of-scope slots, dangling query/node
-bindings, nested parts and incompatible encodings before approval. Manifest values
+bindings, nested parts and incompatible encodings at load. Manifest values
 must use raw CLI string fields, never typed `--field` file-reading conversion for
 untrusted identifiers. No arguments that load scripts/files or evaluate output.
 
@@ -171,7 +170,7 @@ tokens. Every process has a 10-second deadline and 256 KiB per-output-stream cap
 kill/reap on overflow/timeout. A sample has at most eight processes and 80 seconds,
 including auth/display; no retries inside it. Shutdown/revocation cancels and reaps.
 
-Read-only is a reviewed contract, not a claim that arbitrary approved binaries are
+Read-only is a reviewed contract, not a claim that arbitrary configured binaries are
 sandboxed. The parser rejects GraphQL mutation/subscription operations using a real
 GraphQL grammar (including fragments), permits one query, and forbids endpoint
 substitution from output. API commands must declare GET explicitly, except GraphQL
@@ -180,13 +179,13 @@ file inputs and shell entry points are invalid. New CLI syntax requires a review
 read-only grammar in the generic command validator before shipping; it must apply
 equally to bundled/config manifests, never grant a built-in-only escape hatch.
 This enforcement design is an explicit implementation gate, not solved by the JSON
-Schema. Approval still cannot prove an installed executable behaves honestly.
+Schema. Validation cannot prove an installed executable behaves honestly.
 
 ## Operations and observation lifecycle
 
 Main invokes a fixed workflow; manifests cannot supply a general program or loops.
 
-1. Revalidate worktree identity, branch, host assignment and approval. With no bound
+1. Revalidate worktree identity, branch, host assignment and loaded manifest bytes. With no bound
    number, run `lookupByBranch.open` (or `.all` for an explicit all-state request).
    Its JSON root must be an array with exactly one result. Zero is no match; two or
    more is ambiguous even if only one would pass ownership. Commands request two
@@ -273,8 +272,8 @@ Project evidence has two initial representations, usable by any manifest:
 The parser rejects identical source/target selector paths in numeric-ID mappings
 and requires all evidence selectors; no constant identity/decision fields exist.
 Tests must reject missing, mistyped and contradictory evidence and cannot accept a
-manifest-supplied policy result. Approval still reviews whether selectors describe
-the CLI correctly; this is not cryptographic attestation of an arbitrary CLI response.
+manifest-supplied policy result. Nothing verifies that selectors describe the CLI
+correctly; this is not cryptographic attestation of an arbitrary CLI response.
 
 Neither representation permits caller-provided truth values or relaxed fork/default
 branch policy. Remote changes, provider changes and host reassignments clear number
@@ -385,7 +384,7 @@ GET avoids the API CLI's field-triggered POST default. See the
 #521 must replay current forge unit cases through the new engine and keep adoption,
 tracking, renderer boundaries and Electron tests passing. Add fixture-only tests for:
 
-- Disabled/unapproved/changed bytes, config copies of built-ins, conflicting host settings,
+- Disabled/invalid/changed bytes, config copies of built-ins, conflicting host settings,
   missing executable/auth, exact host and nested namespace parsing, unknown kinds.
 - Invalid branches/numbers, option injection, field-file expansion, controls, URL
   credentials/foreign hosts, shell/GraphQL mutations and wrong placeholder scopes.
@@ -404,7 +403,7 @@ are untrusted input, not instructions. No current coverage thresholds are weaken
 
 1. **Command safety grammar:** settle how the shared validator proves a new CLI's
    accepted command forms are read-only without a per-provider execution adapter.
-   Fixed argv + approval is not proof. #521 must not quietly reduce this to a
+   Fixed argv is not proof. #521 must not quietly reduce this to a
    manifest `readOnly: true` flag or ship a privileged GitHub exception.
 2. **Auth preflight parity:** retain mandatory exit-0 gating, or make it advisory
    for public anonymous reads? This proposal gates. `gh auth status` can fail for

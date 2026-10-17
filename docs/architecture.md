@@ -552,7 +552,7 @@ Git commands have a 30-second process deadline.
 
 The [agent plugin format v2](agent-plugins.md) parser (#430) supports offline
 validation and a normalized v1 compatibility model. #431 adds the generic launch
-engine for approved v2 config plugins: fixed discovery, conditional ordered argv,
+engine for v2 config plugins: fixed discovery, conditional ordered argv,
 private MCP data files, prompts and preview grants, argument and environment
 bypass, resume and attention rules. Hooks/health and setup are implemented by #432/#433. Claude (#434), Codex (#435) and Antigravity (#436) use the same v2 engine through bundled build-locked manifests; v1 retains its compatibility adapter.
 
@@ -812,7 +812,7 @@ branch and review state remain.
 ### Forge observations
 
 **Proposed, not decided (#520):** [forge manifests](forge-plugins.md) would add
-`kind: "forge"` to the existing plugin loader, exact-byte approval and Settings
+`kind: "forge"` to the existing plugin loader and Settings
 card system. GitHub and GitLab would use the same data engine, with user-owned
 host assignments, fixed argv and bounded JSON mapping. Fork/default-branch policy,
 head verification and polling remain in main. The spec and spike change no runtime
@@ -1458,7 +1458,7 @@ reopens review. The [probe and limitations](agents.md#stable-codex-lifecycle-obs
 record real Linux timing and the outstanding Windows real-CLI probe.
 
 Codex's behavior is supplied by the locked bundled v2 manifest and the same launch,
-mapping and health engine as approved config plugins (#435). The build generates
+mapping and health engine as config plugins (#435). The build generates
 stable installed observers with the existing filenames and serialized commands.
 Only bundled provenance selects installed assets and the existing exact-definition
 profile health file; copied config manifests use their own private stable paths
@@ -1973,7 +1973,7 @@ Claude, Codex and Antigravity register through the build-locked bundled manifest
 agent IDs. Shared built-in policy metadata is browser-safe. Main emits generic observed-health and notifier-selection facts to the renderer; config manifests cannot grant themselves build provenance or migrated profile consent. Agent identities can now be strings, but runtime IPC accepts only IDs in
 main's current approved provider registry. Config providers cannot register a
 built-in ID or duplicate another provider. Built-in orchestration restore checks
-remain unchanged. Approved v2 plugins may declare restore capability, but a grant
+remain unchanged. v2 config plugins may declare restore capability, but a grant
 still requires persisted human orchestration provenance and matching repository
 identity, an installed approved provider and supported per-launch MCP.
 
@@ -1988,34 +1988,24 @@ resolver and platform wrapper restrictions. Foom fetches nothing for plugins.
 The config service creates and watches `agents/`, resubscribing when it is replaced.
 It considers at most 50 matching direct JSON filenames per directory scan. Reads
 use the same contained-directory and descriptor-bounded 64 KiB policy as config
-settings. Missing, unsafe, malformed or unapproved manifests never enter the active
-registry, so they cannot launch even discovery probes. Pending additions/changes
-appear in the existing Foom config dock and Settings status; invalid manifests
-appear in Recent changes with fixed paths/reasons. Approved files are committed
-through the hardened config git plumbing. Plugin paths also support Revert;
-restored bytes must pass the same validation and approval gate.
-
-`pluginDisclosure` supplies every executable, fixed probe, argv template, bypass
-argument, hook mapping and detection rule to the main-owned trusted window. A board
-Allow request only opens that window; it grants nothing itself. Cancel leaves the
-proposal pending. Main re-reads the proposal before and after the answer and refuses
-changed bytes. Approval digests live only in the profile (the existing per-file
-`themeDigests` record also stores `agents/<id>.json` digests), never in agent-editable
-config. Recording a digest must succeed before registration. An agent's own config
-git commit cannot approve its manifest. Keep restores the approved committed bytes
-when available, otherwise removes an unapproved addition. Deletion clears approval.
+settings. Missing, unsafe or malformed manifests never enter the active registry,
+so they cannot launch even discovery probes; invalid manifests appear as rejected
+cards and in Recent changes with fixed paths/reasons. A valid manifest enters the
+registry on the scan that reads it, with no approval step (#539): agents already
+run as the user, so approval guarded one door among many. Valid files are committed
+through the hardened config git plumbing. Older profiles may still hold
+`agents/<id>.json` entries in `themeDigests`; they are ignored.
 
 Registry revisions invalidate both workspace and agent-service discovery caches.
 Each config provider captures a main-only byte-validation callback. Discovery checks
 it before probing; launch checks it before preparation and again immediately before
-spawning, and rejects a replaced provider. Approval is for manifest bytes, not the
-contents of an executable on the user's PATH; worktrees and same-user processes
-remain outside an isolation guarantee. Running sessions keep their launch-bound
+spawning, and rejects a replaced provider until the next scan loads the edit.
+Worktrees and same-user processes remain outside an isolation guarantee. Running sessions keep their launch-bound
 hook extractors after a file change. Config sessions receive no repository control
 grant, as before. Config agents inherit All sessions environment settings; the
 existing per-agent Environment editors remain built-in scopes.
 
-The hook receiver captures the approved mapping at registration. Fixed top-level
+The hook receiver captures the loaded mapping at registration. Fixed top-level
 extractors discard all other fields, validate and pin conversation identity, and
 emit only a bounded `plugin:<id>:<event>` signal plus the existing enumerated action.
 Unknown events are inert. The launch supplies the same private fixed stdin/argv
@@ -2023,10 +2013,10 @@ adapter, loopback token and cleanup lifecycle as built-ins. Neither templates no
 hook output can request capabilities, execute code inside main or obtain secrets.
 Terminal content stays in the existing local evaluator.
 
-Session metadata marks config-agent origin separately from approval. A missing or
-unapproved provider retains its dormant conversation row across restart; syntactic
-ID validation and that marker grant no launch authority. Resume still resolves an
-approved provider and revalidates the checkout. Merged cleanup retains a recorded
+Session metadata marks config-agent origin. A missing or invalid provider retains
+its dormant conversation row across restart; syntactic ID validation and that marker
+grant no launch authority. Resume still resolves a loaded provider and revalidates
+the checkout. Merged cleanup retains a recorded
 agent conversation even while its provider is unavailable.
 
 
@@ -2034,10 +2024,8 @@ agent conversation even while its provider is unavailable.
 
 Settings → Agents and preflight's Agents step share the provider-driven card view.
 Discovery includes display-only provider name, badge, executable, resume support,
-plugin source and declared bypass flags. Config status separately reports pending
-and rejected manifests without probing unapproved executables. Review names the
-selected manifest digest through the existing config decision IPC, even when other
-changes are held; main retains its trusted confirmation and exact-byte recheck.
+plugin source and declared bypass flags. Config status separately reports rejected
+manifests without probing their executables.
 
 Agent enablement, default argv and environment lists accept bounded syntactically
 valid provider IDs; those values grant no discovery or launch authority. Environment
