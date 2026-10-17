@@ -3,12 +3,12 @@ import type { BrowserWindow } from "electron";
 import type { WindowIpc } from "../window/window-ipc";
 import type { ConfigService } from "./service";
 
-const CHANNELS = ["config:status", "config:decide", "config:revert", "config:open-folder"];
+const CHANNELS = ["config:status", "config:decide", "config:open-folder"];
 
-/** Settings → Foom config. Commits are named by ID only; main checks them against its list. */
+/** Settings → Foom config. Decisions name the held change's digest; main checks it. */
 export function attachConfig(
   window: BrowserWindow,
-  service: Pick<ConfigService, "status" | "decide" | "revert" | "folder">,
+  service: Pick<ConfigService, "status" | "decide" | "folder">,
   ipc: WindowIpc = ipcMain,
   openPath: (path: string) => Promise<string> = (path) => shell.openPath(path),
 ): () => void {
@@ -21,7 +21,7 @@ export function attachConfig(
         event.senderFrame.url !== "app://bundle/index.html"
       )
         throw new Error("Untrusted IPC sender");
-      const expected = { "config:decide": 2, "config:revert": 1 }[channel] ?? 0;
+      const expected = channel === "config:decide" ? 2 : 0;
       if (args.length !== expected) throw new Error("Invalid config arguments");
       const [value, id] = args;
       if (channel === "config:status") return service.status();
@@ -33,11 +33,6 @@ export function attachConfig(
         )
           throw new Error("Invalid config arguments");
         return service.decide(value, id);
-      }
-      if (channel === "config:revert") {
-        if (typeof value !== "string" || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(value))
-          throw new Error("Invalid config arguments");
-        return service.revert(value);
       }
       if (await openPath(service.folder)) throw new Error("Unable to open the Foom config folder");
       return undefined;

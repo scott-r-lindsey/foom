@@ -229,8 +229,7 @@ config folder. When the user asks to change how Foom looks, sounds or behaves, o
 it launches agents, they mean Foom, not your own agent configuration.
 
 This folder configures Foom. Foom watches it, validates every change and applies
-valid changes live. It is a git repository: every applied change is a commit, so it
-can be reviewed and reverted from Settings → Foom config.
+valid changes live. It is plain files: Foom keeps no history of it.
 
 ## Files
 
@@ -247,7 +246,7 @@ can be reviewed and reverted from Settings → Foom config.
 - \`terminal-themes/*.json\`: terminal colors,
   \`{ "kind": "terminal-theme", "name", "background", "foreground", "cursor", "ansi" }\`.
   Select one with \`"terminalTheme": "user:<filename>.json"\`.
-- \`sounds/{working,done,needs-you,refusal}/\`: recordings. They are not committed.
+- \`sounds/{working,done,needs-you,refusal}/\`: recordings.
 - \`schemas/\`: JSON Schemas for the three JSON formats.
 
 ## Agent plugins
@@ -288,7 +287,6 @@ These are set in Foom's Settings window, not here. Tell the user exactly what to
 - A file edit that newly makes needs-you hard to distinguish in the active theme,
   or selects such a theme, waits for approval. Hue-only warnings do not wait.
   Sizes and turning sounds on apply without approval.
-- Foom commits applied changes itself. Do not rewrite history.
 - Foom owns this guide, AGENTS.md, CLAUDE.md, .gitignore and schemas/. It refreshes
   them on upgrade unless you have edited them.
 `;
@@ -324,6 +322,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
     "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
     "da0c1cc124400b4e6f204fb6b29b181aec5ef76f1edc336bd7cb9ce6a6a252e4",
+    "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
   ],
   "AGENTS.md": [
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
@@ -334,6 +333,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
     "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
     "da0c1cc124400b4e6f204fb6b29b181aec5ef76f1edc336bd7cb9ce6a6a252e4",
+    "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
   ],
   "CLAUDE.md": [
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
@@ -344,6 +344,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
     "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
     "da0c1cc124400b4e6f204fb6b29b181aec5ef76f1edc336bd7cb9ce6a6a252e4",
+    "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
   ],
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [

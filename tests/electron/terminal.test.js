@@ -435,7 +435,6 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "launchAgent",
           "configStatus",
           "decideConfig",
-          "revertConfig",
           "openConfigFolder",
           "onConfigChange",
           "listTerminalFonts",

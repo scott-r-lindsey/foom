@@ -25,7 +25,6 @@ export function createSetupSource(): SetupSource {
     config: {
       status: () => desktop.configStatus(),
       decide: (decision, id) => desktop.decideConfig(decision, id),
-      revert: (commit) => desktop.revertConfig(commit),
       openFolder: () => desktop.openConfigFolder(),
       subscribe: (listener) => desktop.onConfigChange(listener),
     },

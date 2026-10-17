@@ -10,10 +10,8 @@ afterEach(cleanup);
 const pending: ConfigStatus = {
   folder: "/config",
   available: true,
-  uncommitted: 1,
   pending: null,
-  changes: [],
-  rejected: 1,
+  rejected: [{ file: "settings.json", reason: "$: malformed-json" }],
   agentPlugins: [
     {
       id: "fixture",

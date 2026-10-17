@@ -1089,7 +1089,7 @@ test("console pairing requires trusted approval and gives only read-only reposit
   );
 });
 
-test("an agent configures Foom in the config folder with review, approval and revert", {
+test("an agent configures Foom in the config folder with validation and approval", {
   timeout: deadline(90_000),
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
@@ -1145,7 +1145,6 @@ process.stdin.on("data", (key) => {
   await page.locator(".config-gear").click();
   const panel = page.getByRole("dialog", { name: "Foom config details and commands" });
   await expect(panel).toContainText(folder);
-  await expect(panel).toContainText("Clean");
   await panel.getByRole("menuitem", { name: "Claude Code" }).click();
   const id = await expect
     .poll(async () => {
@@ -1182,17 +1181,18 @@ process.stdin.on("data", (key) => {
   await boardCommand(app, ",", process.platform !== "darwin");
   const sections = page.getByRole("navigation", { name: "Settings sections" });
   await sections.getByRole("button", { name: "Foom config", exact: true }).click();
-  const changes = page.getByRole("list", { name: "Recent changes" });
-  const added = changes.getByRole("listitem").filter({ hasText: "Add Agent theme" });
-  await expect(added).toContainText("Applied");
-  await expect(added).toContainText(/themes\/agent\.json · [0-9a-f]{7}/);
+  // Nothing needs the user, so the section lists nothing beyond the folder.
+  await expect(page.getByRole("button", { name: "Open folder", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Recent changes" })).toHaveCount(0);
+  const problems = page.getByRole("list", { name: "Rejected files" });
+  await expect(problems).toHaveCount(0);
   await sections.getByRole("button", { name: "Themes", exact: true }).click();
   await expect(page.getByRole("button", { name: "Agent", exact: true })).toBeVisible();
 
   // 3. An invalid theme is rejected and the last good colors stay.
   await page.evaluate((id) => window.desktop.input(id, "i"), id);
   await sections.getByRole("button", { name: "Foom config", exact: true }).click();
-  const rejected = changes.getByRole("listitem").filter({ hasText: "Rejected themes/agent.json" });
+  const rejected = problems.getByRole("listitem").filter({ hasText: "themes/agent.json" });
   await expect(rejected).toContainText("$.colors.accent: not-a-color");
   const catalog = await page.evaluate(() => window.desktop.listThemes());
   assert.equal(
@@ -1246,24 +1246,13 @@ process.stdin.on("data", (key) => {
   const restored = JSON.parse(await readFile(path.join(folder, "settings.json"), "utf8"));
   assert.notEqual(restored.sound?.alerts, false);
 
-  // 5. Revert on the theme change removes the theme.
+  // 5. A fixed theme clears its rejection; Foom never made the folder a git repository.
   await page.evaluate((id) => window.desktop.input(id, "g"), id);
   await expect
     .poll(() => readFile(path.join(folder, "themes/agent.json"), "utf8"))
     .toBe(JSON.stringify(good));
-  await expect(rejected).toHaveCount(1);
-  await page.getByRole("button", { name: "Revert Add Agent theme" }).first().click();
-  await expect(
-    changes.getByRole("listitem").filter({ hasText: 'Revert "Add Agent theme"' }),
-  ).toContainText("Applied");
-  await expect
-    .poll(() =>
-      readFile(path.join(folder, "themes/agent.json")).then(
-        () => "present",
-        () => "removed",
-      ),
-    )
-    .toBe("removed");
+  await expect(rejected).toHaveCount(0);
+  await assert.rejects(require("node:fs/promises").access(path.join(folder, ".git")));
   await assertAccessible(page);
 });
 

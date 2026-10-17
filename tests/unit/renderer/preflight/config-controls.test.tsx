@@ -1,37 +1,16 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { ConfigControls, shortAgo } from "../../../../src/renderer/preflight/config-controls";
+import { ConfigControls } from "../../../../src/renderer/preflight/config-controls";
 import type { ConfigStatus } from "../../../../src/shared/foom-config";
 
 afterEach(cleanup);
 
-const now = Date.now();
 const base: ConfigStatus = {
   folder: "/home/me/.foom/config",
   available: true,
-  uncommitted: 0,
   pending: null,
-  rejected: 1,
-  changes: [
-    {
-      id: "a",
-      time: now - 2 * 60_000,
-      summary: "Add Deep Field theme",
-      file: "themes/deep-field.json",
-      state: "applied",
-      commit: "4c1e9a2".padEnd(40, "0"),
-      hash: "4c1e9a2",
-    },
-    {
-      id: "b",
-      time: now - 6 * 60_000,
-      summary: "Rejected terminal-themes/gruvbox.json",
-      file: "terminal-themes/gruvbox.json",
-      state: "rejected",
-      reason: "$.ansi[9]: not-a-color",
-    },
-  ],
+  rejected: [{ file: "terminal-themes/gruvbox.json", reason: "$.ansi[9]: not-a-color" }],
 };
 
 function source(status: ConfigStatus) {
@@ -39,7 +18,6 @@ function source(status: ConfigStatus) {
   return {
     status: vi.fn(() => Promise.resolve(status)),
     decide: vi.fn(() => Promise.resolve({ ...status, pending: null })),
-    revert: vi.fn(() => Promise.resolve(status)),
     openFolder: vi.fn(() => Promise.resolve()),
     subscribe: vi.fn((next: (status: ConfigStatus) => void) => {
       listener = next;
@@ -52,22 +30,15 @@ function source(status: ConfigStatus) {
   };
 }
 
-test("lists recent changes with state words, hashes and reasons, and reverts by commit", async () => {
+test("lists rejected files with their reasons and opens the folder", async () => {
   const config = source(base);
   render(<ConfigControls config={config} />);
-  expect(await screen.findByText("Add Deep Field theme")).toBeTruthy();
+  expect(await screen.findByText("terminal-themes/gruvbox.json")).toBeTruthy();
   expect(screen.getByText("/home/me/.foom/config")).toBeTruthy();
-  expect(screen.getByText("Applied")).toBeTruthy();
   expect(screen.getByText("Rejected")).toBeTruthy();
-  expect(screen.getByText(/themes\/deep-field\.json · 4c1e9a2/)).toBeTruthy();
-  expect(screen.getByText(/ansi\[9\]: not-a-color/)).toBeTruthy();
-  // Only applied changes can be reverted.
-  expect(screen.getAllByRole("button", { name: /^Revert/ })).toHaveLength(1);
-  await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Revert Add Deep Field theme" }));
-    await Promise.resolve();
-  });
-  expect(config.revert).toHaveBeenCalledWith(base.changes[0]?.commit);
+  expect(screen.getByText("$.ansi[9]: not-a-color")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /^Revert/ })).toBeNull();
+  expect(screen.queryByText("Recent changes")).toBeNull();
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Open folder" }));
     await Promise.resolve();
@@ -113,20 +84,27 @@ test("a held change shows the amber banner with Allow and Keep it on", async () 
   expect(config.decide).toHaveBeenLastCalledWith("allow", "b".repeat(64));
 });
 
-test("failures are shown, an empty history says so, and unmount unsubscribes", async () => {
-  const config = source({ ...base, changes: [], error: "Git is unavailable." });
-  config.revert.mockRejectedValue(new Error("changed after this change"));
+test("failures are shown, nothing is listed when all is well, and unmount unsubscribes", async () => {
+  const config = source({ ...base, rejected: [], error: "The Foom config folder is unavailable." });
   const view = render(<ConfigControls config={config} />);
-  expect(await screen.findByText("Git is unavailable.")).toBeTruthy();
-  expect(screen.getByText("No changes yet.")).toBeTruthy();
+  expect(await screen.findByText("The Foom config folder is unavailable.")).toBeTruthy();
+  expect(screen.queryByRole("list", { name: "Rejected files" })).toBeNull();
   act(() => {
     config.push(base);
   });
+  expect(screen.getByRole("list", { name: "Rejected files" })).toBeTruthy();
+  config.decide.mockRejectedValue(new Error("The file changed. Review the new change."));
+  act(() => {
+    config.push({
+      ...base,
+      pending: { id: "c".repeat(64), action: "turn hooks off", file: "settings.json", detail: "x" },
+    });
+  });
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Revert Add Deep Field theme" }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
     await Promise.resolve();
   });
-  expect(screen.getByRole("alert").textContent).toBe("changed after this change");
+  expect(screen.getByRole("alert").textContent).toBe("The file changed. Review the new change.");
   config.openFolder.mockRejectedValue("nope");
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Open folder" }));
@@ -142,11 +120,4 @@ test("an unavailable folder reports it", async () => {
   config.status.mockRejectedValue(new Error("no"));
   render(<ConfigControls config={config} />);
   expect((await screen.findByRole("alert")).textContent).toBe("Foom config is unavailable.");
-});
-
-test("short ages", () => {
-  expect(shortAgo(10 * 60_000, 0)).toBe("10m");
-  expect(shortAgo(3 * 3_600_000, 0)).toBe("3h");
-  expect(shortAgo(72 * 3_600_000, 0)).toBe("3d");
-  expect(shortAgo(0, 1000)).toBe("0m");
 });

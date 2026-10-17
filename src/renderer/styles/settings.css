@@ -366,11 +366,6 @@
 .config-change + .config-change {
   border-top: var(--shape-border, 1px) solid var(--line);
 }
-.config-change time {
-  width: 34px;
-  font: 11px var(--mono, monospace);
-  color: var(--muted);
-}
 .config-change-text {
   flex: 1;
   display: flex;
@@ -387,24 +382,11 @@
 .config-light {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
-  background: var(--done, var(--muted));
-}
-.config-change[data-state="rejected"] .config-light {
   border-radius: var(--shape-radius, 1px);
   background: var(--failed);
 }
-.config-change[data-state="rejected"] .config-status {
+.config-change .config-status {
   color: var(--failed-ink);
-}
-.config-change[data-state="pending"] .config-light {
-  background: var(--attention);
-}
-.config-change[data-state="pending"] .config-status {
-  color: var(--attention-ink);
-}
-.config-revert {
-  width: 64px;
 }
 .config-row .panel-chip {
   margin-inline-start: 4px;

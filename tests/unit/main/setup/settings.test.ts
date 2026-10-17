@@ -388,11 +388,18 @@ test("attaching Foom config moves agent-editable values out of the profile exact
     file,
     JSON.stringify({
       ...raw,
-      themeDigests: { "themes/ok.json": "c".repeat(64), "../x": "c".repeat(64), "themes/y": 1 },
+      themeDigests: {
+        "themes/ok.json": "c".repeat(64),
+        "agents/old.json": "c".repeat(64),
+        "../x": "c".repeat(64),
+        "themes/y": 1,
+      },
     }),
   );
   const filtered = await SettingsStore.open(dir);
   expect(filtered.themeDigest("themes/ok.json")).toBe("c".repeat(64));
+  // Plugin approvals were removed in #539; their old digests are dropped.
+  expect(filtered.themeDigest("agents/old.json")).toBeNull();
   expect(filtered.themeDigest("../x")).toBeNull();
   expect(filtered.themeDigest("themes/y")).toBeNull();
   await writeFile(file, JSON.stringify(raw));
@@ -410,6 +417,12 @@ test("attaching Foom config moves agent-editable values out of the profile exact
   await store.setConfigDigest("b".repeat(64));
   await store.setConfigDigest("b".repeat(64));
   expect((await SettingsStore.open(dir)).configDigest()).toBe("b".repeat(64));
+  // The applied settings copy persists for Keep it on after a restart, within the file limit.
+  expect(store.configText()).toBeNull();
+  await store.setConfigText('{"kind":"settings"}');
+  await store.setConfigText('{"kind":"settings"}');
+  await store.setConfigText("x".repeat(65537));
+  expect((await SettingsStore.open(dir)).configText()).toBe('{"kind":"settings"}');
   store.setConfig({});
   expect(store.get().terminalFontSize).toBe(14);
 });
@@ -422,12 +435,14 @@ test("a version 2 profile ignores stray config keys and invalid digests", async 
       version: 2,
       settings: { setupComplete: true, hooks: false, sound: { bad: true } },
       configDigest: "not-a-digest",
+      configText: 7,
     }),
   );
   const store = await SettingsStore.open(dir);
   expect(store.get()).toMatchObject({ setupComplete: true, hooks: true });
   expect(store.get().sound).toEqual(DEFAULT_SETTINGS.sound);
   expect(store.configDigest()).toBeNull();
+  expect(store.configText()).toBeNull();
   expect(store.legacyConfig()).toBeUndefined();
 });
 

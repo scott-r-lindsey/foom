@@ -48,7 +48,7 @@ src/
     agents/           # CLI discovery, launch and invocation-scoped hooks
     evaluator/        # local rules, tail redaction and verdict log
     setup/            # settings, repository discovery and setup IPC
-    config/           # Foom config folder: hardened git, layout, approval, live reload
+    config/           # Foom config folder: layout, approval, live reload
   terminal-host/      # utility-process entry, PTYs, headless screens and activity
   preload/            # sandboxed window.desktop bridge
   shared/             # declaration contracts and platform-neutral runtime helpers
@@ -1598,51 +1598,23 @@ consent records stay in the profile. The folder holds `settings.json`, `themes/`
 settings and both theme formats, generated from the shared validators). Foom writes
 its files at first launch and replaces one on upgrade only when it is missing or
 byte-identical to a version Foom shipped earlier (`OWNED_HISTORY`), so user edits
-survive. `.gitignore` excludes recordings under `sounds/` and keeps `.gitkeep`
-files so the folder structure is tracked. `WorktreeService` refuses to register a
+survive. The folder is plain files (#540): Foom never creates, reads or writes a
+`.git` there, and leaves an existing one untouched. `.gitignore` excludes recordings
+under `sounds/` and keeps `.gitkeep` files, for users who keep the folder in their
+own repository. `WorktreeService` refuses to register a
 repository that is, contains or sits inside the folder, checking before it runs any
 git command there. The check is installed before saved repositories load, so a
 conflicting saved registration is dropped, and config sessions refuse to start if a
 registered repository contains the folder. `foom config validate` skips the Foom-owned entries and `.gitkeep`.
-
-**Git.** If `.git` does not exist in the folder itself (a parent repository never
-counts), main runs `git init` with an empty template and makes an initial commit;
-an existing repository is left as it is. The repository is untrusted: an agent can
-write `.git/config`, hooks, attributes and refs. `main/config/git.ts` runs every
-call through `execFile` with an argument array, `--git-dir`/`--work-tree`, and:
-
-- an environment without inherited `GIT_*` variables, `GIT_CONFIG_NOSYSTEM=1`,
-  `GIT_CONFIG_GLOBAL` set to an empty Foom-owned file, `GIT_ATTR_NOSYSTEM=1` and no
-  terminal prompts;
-- `-c core.hooksPath=<empty Foom-owned folder>`, `core.fsmonitor=false`,
-  `core.untrackedCache=false`, `--no-pager`, `core.pager=cat`, `core.editor=:`,
-  `commit.gpgSign=false`, `log.showSignature=false`, `diff.external=`,
-  `core.attributesFile=`, `credential.helper=`, `gc.auto=0` and `protocol.allow=never`.
-
-The hooks folder, template folder and global file live in the profile's
-`config-git/` and are recreated empty on every launch. Foom uses plumbing only:
-`hash-object --no-filters`, `read-tree`/`update-index --cacheinfo` against a private
-index, `write-tree`, `commit-tree`, `update-ref` with the expected old value,
-`ls-tree`, `cat-file blob`, and `log`/`diff-tree` without patches, text conversion
-or external diff. None of these reads filters, diff or merge drivers. Porcelain
-`add`, `commit`, `status`, `diff`, `checkout` and `revert` are never used. Blob IDs
-for comparisons are computed in main from bytes Foom read itself. After a commit
-Foom mirrors the committed paths into the real index, best effort.
-
-Before every git call Foom checks that `.git` is a real folder inside the config
-folder, not a link or a `gitdir:` file, has no `commondir`, and that its `HEAD`,
-`objects`, `refs` and `index` are not links. Otherwise git would follow them to
-another repository and Foom would commit there. Redirected metadata, including a
-replacement after setup, stops recording with a status naming the entry; settings
-still apply from the file.
 
 **Settings.** The allowlisted keys from #206 live in `config/settings.json`. On the
 first launch with a version 1 profile, main writes them into a new `settings.json`
 (an existing file wins and the profile values are dropped), then rewrites the
 profile as version 2 without them in the same step. Values the file cannot express,
 such as portable palette objects, fall back to the default. A version 2 profile
-stores only profile settings plus `configDigest`: the SHA-256 of the settings file
-this profile last applied. If the folder cannot be prepared, settings stay in the
+stores only profile settings plus `configDigest`, the SHA-256 of the settings file
+this profile last applied, and `configText`, a copy of that file (at most 64 KiB)
+so Keep it on can restore it after a restart. If the folder cannot be prepared, settings stay in the
 version 1 profile and migration is retried at the next launch. On upgrade from either profile version, nonempty validated per-agent launch
 arguments move once into settings.json when its key is absent. Invalid profile
 lists retain the existing per-agent drop rule. The migration trusts only the
@@ -1651,8 +1623,8 @@ baseline before removing the profile copy. A failed migration retains the profil
 copy for retry. An existing argument key remains a file proposal, compared against
 the migrated profile defaults. Empty profile defaults leave the key absent.
 Settings saves split
-the patch: config keys are written to the file atomically and committed with a
-subject naming the change; profile keys go to the profile. On Windows only, atomic
+the patch: config keys are written to the file atomically and applied; profile
+keys go to the profile. On Windows only, atomic
 replacement retries EPERM/EBUSY up to five attempts with 25, 50, 100 and 200 ms
 backoff for transient external sharing locks. It never unlinks the destination;
 exhaustion removes the temporary file, reports a fixed error naming the config
@@ -1663,15 +1635,12 @@ waits 250 ms after the last event and scans serially. When `themes` or
 `terminal-themes` is replaced, the root watcher resubscribes to it. Reads refuse
 links, nonregular files and files over 64 KiB; a theme folder that is a link or
 resolves elsewhere is refused for reads, writes and removals, so nothing outside the
-folder is committed or deleted. `settings.json` is compared with the text
-Foom last applied, theme files with the last commit. Settings use the #206 parser
-and theme files the #205 parser; an invalid file is rejected whole with a filename,
-JSON path and fixed reason, and the last good version stays in effect. A valid
-settings change applies live and is committed (Settings saves return once applied;
-each save is committed from its own snapshot right after). If a commit fails, a
-later scan records the applied file again; valid theme additions, edits and
-removals are committed one file per commit (the theme library applies them through
-its own watcher). Sound catalogs still refresh when Settings → Sound opens.
+folder is read or deleted. `settings.json` is compared with the text Foom last
+applied. Settings use the #206 parser and theme files the #205 parser; an invalid
+file is rejected whole with a filename, JSON path and fixed reason, and the last
+good version stays in effect. A valid settings change applies live; the theme
+library applies theme additions, edits and removals through its own watcher.
+Sound catalogs still refresh when Settings → Sound opens.
 
 **Approval.** A change is held instead of applied when, compared with the effective
 settings in force, it turns alerts off, sets the alert volume to 0, turns hooks off,
@@ -1680,28 +1649,21 @@ attention-distinctness hold described below. Settings → Foom config
 and the config footer dock show the held change in amber. The held change carries an ID,
 the digest of its text, and a decision must name it: if an agent replaced the
 proposal after the banner was shown, the decision is refused and the new one shown.
-**Allow** rechecks that the file still has the held content, applies it and commits. **Keep it on** writes back the
-last applied text (the last commit's bytes when they match it) and commits that if
-the last commit differs. At startup the working file is trusted only if its digest
-matches `configDigest`; otherwise the last commit is trusted if its digest matches;
-otherwise the baseline is the defaults (`{ "kind": "settings" }`), so an off switch
-written while Foom was closed, or committed by an agent, is held and Keep it on
-restores a valid default file. A Settings save replaces a held change. Every file argument change holds,
+**Allow** rechecks that the file still has the held content and applies it. **Keep it on** writes back the
+last applied text. At startup the working file is trusted only if its digest
+matches `configDigest`; otherwise the profile's `configText` is trusted if its
+digest matches; otherwise the baseline is the defaults (`{ "kind": "settings" }`),
+so an off switch written while Foom was closed is held and Keep it on restores a
+valid default file. A Settings save replaces a held change. Every file argument change holds,
 regardless of known bypass detection. Allow opens the existing main-owned trusted
 dialog containing literal before/after lists and known bypass flags, then rechecks
 the proposal bytes before applying. Accepted bypass changes persist per-agent
 acknowledgement in the profile. Argument text never enters board status metadata.
 Settings UI edits use the config writer directly and retain their bypass dialog.
 
-**Recent changes and Revert.** Status lists the last 20 commits with time, subject,
-files and short hash, merged with rejected and pending entries recorded this
-session. Revert accepts only a full commit ID from that list whose paths are all
-`settings.json` or theme files, and refuses commits that would delete
-`settings.json` or whose files changed since. Foom writes each path's parent
-version (or removes an added file) and scans; the result is validated, held or
-committed as `Revert "<subject>"` like any other change. This replaces the
-`git revert` the issue proposed, whose merge machinery can run repository-configured
-merge drivers and checkout filters.
+**Status.** Settings → Foom config shows the folder, **Open folder**, and only
+what needs the user now: a held change, or each rejected file with its fixed
+reason. There is no change history (#540).
 
 **Sessions and IPC.** The board's Foom config footer panel runs agents and shells in the
 folder: no worktree, no repository-scoped control grant, the usual per-launch hooks
@@ -1717,9 +1679,8 @@ validated `config` flag (folder path equal to itself, no branch) and restore onl
 for the current folder. Sidebar commands
 `config-launch` (a run kind and optional menu origin) and `copy-config-path`
 carry no paths.
-`config:status`, `config:decide` (`allow` or `keep`), `config:revert` (a full hex
-commit ID) and `config:open-folder` check the trusted top frame and exact argument
-counts; main pushes `config:changed`. File contents, raw parser messages and
+`config:status`, `config:decide` (`allow` or `keep` with the held change's digest)
+and `config:open-folder` check the trusted top frame and exact argument counts; main pushes `config:changed`. File contents, raw parser messages and
 absolute paths other than the folder itself never reach the renderer. The folder
 never holds secrets; Foom sends nothing from it to any network service.
 
@@ -1767,13 +1728,11 @@ direct Appearance selections do not hold. Attention distinctness includes
 separation from readable ink as well as failure, accent, highlight and done.
 
 The approved version is the one this profile last applied, recorded as a
-per-file digest in the profile like the settings baseline. Agents can commit in
-the config folder, so a commit alone never approves a palette: after a restart,
-a committed theme counts only if its digest matches. Allow verifies the proposal
+per-file digest in the profile like the settings baseline. After a restart the
+file counts as approved only if its digest matches. Allow verifies the proposal
 digest and current bytes and records the new digest. Keep it on restores the
-approved version, or a committed version with no attention conflicts; when
-neither exists it switches `interfaceTheme` back to the default and leaves the
-file in place.
+approved version applied in this session; when there is none it switches
+`interfaceTheme` back to the default and leaves the file in place.
 
 ## Previews
 
@@ -1990,10 +1949,9 @@ It considers at most 50 matching direct JSON filenames per directory scan. Reads
 use the same contained-directory and descriptor-bounded 64 KiB policy as config
 settings. Missing, unsafe or malformed manifests never enter the active registry,
 so they cannot launch even discovery probes; invalid manifests appear as rejected
-cards and in Recent changes with fixed paths/reasons. A valid manifest enters the
+cards and in Settings → Foom config with fixed paths/reasons. A valid manifest enters the
 registry on the scan that reads it, with no approval step (#539): agents already
-run as the user, so approval guarded one door among many. Valid files are committed
-through the hardened config git plumbing. Older profiles may still hold
+run as the user, so approval guarded one door among many. Older profiles may still hold
 `agents/<id>.json` entries in `themeDigests`; they are ignored.
 
 Registry revisions invalidate both workspace and agent-service discovery caches.

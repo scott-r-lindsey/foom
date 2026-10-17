@@ -133,6 +133,8 @@ export class SettingsStore {
   private migrated = false;
   private argumentsToMove: Settings["agentArguments"] | undefined;
   private digest: string | null = null;
+  /** The config settings file this profile last applied, for Keep it on after a restart. */
+  private text: string | null = null;
   /** Digests of the interface theme files this profile last applied, by config path. */
   private themeDigests: Readonly<Record<string, string>> = {};
   private writer: ConfigWriter | undefined;
@@ -210,12 +212,14 @@ export class SettingsStore {
           const digest = state["configDigest"];
           store.digest =
             typeof digest === "string" && /^[0-9a-f]{64}$/.test(digest) ? digest : null;
+          const text = state["configText"];
+          store.text = typeof text === "string" && text.length <= 65536 ? text : null;
           const themes = state["themeDigests"];
           if (record(themes)) {
             const kept: Record<string, string> = {};
             for (const [file, value] of Object.entries(themes).slice(0, MAX_THEME_DIGESTS))
               if (
-                /^(?:themes|agents)\/[^/]{1,200}$/.test(file) &&
+                /^themes\/[^/]{1,200}$/.test(file) &&
                 typeof value === "string" &&
                 /^[0-9a-f]{64}$/.test(value)
               )
@@ -300,6 +304,18 @@ export class SettingsStore {
     });
   }
 
+  /** The config settings file this profile last applied. */
+  configText(): string | null {
+    return this.text;
+  }
+
+  async setConfigText(text: string): Promise<void> {
+    if (text === this.text || text.length > 65536) return;
+    await this.write(() => {
+      this.text = text;
+    });
+  }
+
   async setConfigDigest(digest: string): Promise<void> {
     if (digest === this.digest) return;
     await this.write(() => {
@@ -333,6 +349,7 @@ export class SettingsStore {
           settings: this.settings,
           migrated: this.migrated,
           digest: this.digest,
+          text: this.text,
           themeDigests: this.themeDigests,
           writer: this.writer,
           legacy: this.legacy,
@@ -354,6 +371,7 @@ export class SettingsStore {
                         ...(this.argumentsToMove ? { agentArguments: this.argumentsToMove } : {}),
                       },
                       configDigest: this.digest,
+                      ...(this.text === null ? {} : { configText: this.text }),
                       ...(Object.keys(this.themeDigests).length
                         ? { themeDigests: this.themeDigests }
                         : {}),
@@ -370,6 +388,7 @@ export class SettingsStore {
           this.settings = snapshot.settings;
           this.migrated = snapshot.migrated;
           this.digest = snapshot.digest;
+          this.text = snapshot.text;
           this.themeDigests = snapshot.themeDigests;
           this.writer = snapshot.writer;
           this.legacy = snapshot.legacy;
