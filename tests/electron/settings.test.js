@@ -705,7 +705,14 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await openSettingsScreen(page);
   await page.getByRole("region", { name: "Settings" }).waitFor();
   await expect(page.locator(".board-terminal")).toBeHidden();
-  await page.keyboard.press("Escape");
+  // The opening helper observes mount focus, but later board updates can move it.
+  // Give this keyboard interaction a Settings target at dispatch, and wait for
+  // native document focus too: activeElement alone survives a window losing focus.
+  await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
+  await page
+    .getByRole("region", { name: "Settings" })
+    .getByRole("heading", { name: "Agents", exact: true })
+    .press("Escape");
   await expect(page.locator(".board-home")).toBeVisible();
   // The board remains visible behind Settings, so it cannot acknowledge Escape.
   await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
