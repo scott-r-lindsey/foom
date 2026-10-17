@@ -5,8 +5,12 @@ Research for [#119](https://github.com/scott-r-lindsey/foom/issues/119), checked
 HTTP foundation is implemented in #152; see the [current architecture](architecture.md#control-plane)
 for its exposed methods and storage contract. Read-only MCP is implemented in #153,
 the console CLI and pairing in #154, and orchestrators with their children in #155;
-reviewed replies (#156) and the full hierarchy and log view (#157) remain. The
-original #119 research changed no application code.
+reviewed replies (#156) and the [hierarchy and action log](#sidebar-nesting-and-action-log-157)
+are also implemented. The original #119 research changed no application code.
+This document owns the detailed control-plane protocol; see the
+[documentation map](README.md) for its relationship to product and architecture.
+The [child follow-up channel](#proposed-child-follow-up-channel-336) is a proposal,
+not a current capability.
 
 ## Decision
 
@@ -311,7 +315,7 @@ and shutdown. No control registration depends on hooks being enabled. Scrub all
 inherited Foom credentials before constructing each child's environment, then add
 fresh child-scoped values. Never return tokens to the renderer, logs, MCP results
 or error text. New Foom instances and resumed sessions receive fresh credentials;
-automatic restore may re-grant orchestrator control only from Foom's main-owned session store, when restore is enabled, the orchestrator was active at quit, the same repository identity is still registered and the CLI is a verified Claude Code or Codex release. Hook data, conversation metadata, agent output and environment flags never grant roles. Otherwise the session resumes ordinarily and its panel says the role was not restored. Every re-grant has a new principal generation and token. The verified repository identity is carried into the launch and rechecked before spawning. Tokens, confirmations, replies, waits and in-flight mutations never survive; unresolved persisted operation intents still require human reconciliation.
+automatic restore may re-grant orchestrator control only from Foom's main-owned session store, when restore is enabled, the orchestrator was active at quit, the same repository identity is still registered and the installed provider supports restore control and per-launch MCP. Bundled restore support is Claude Code/Codex; valid v2 config providers may declare the same capability, subject to these provenance checks (see [architecture](architecture.md#agent-provider-registry-and-manifest-approval-407)). Hook data, conversation metadata, agent output and environment flags never grant roles. Otherwise the session resumes ordinarily and its panel says the role was not restored. Every re-grant has a new principal generation and token. The verified repository identity is carried into the launch and rechecked before spawning. Tokens, confirmations, replies, waits and in-flight mutations never survive; unresolved persisted operation intents still require human reconciliation.
 
 Restored parents launch before their running, non-taken-over children. Those children keep child launch rules (no user defaults and an orchestrator prompt prefix), count toward the configured child limit, and may be stopped, tailed and waited for by the new parent. Stop returns a conflict while a restored child is still starting; it cannot report success for a PTY that does not exist yet. Taken-over children and children without a re-granted parent resume ordinarily. The active panel and its action history continue without a restore badge.
 
@@ -669,9 +673,9 @@ panel's **Reset reviewed replies** command resets the three-send budget and
 cooldown, cancels pending review, and preserves the one-proposal-per-verdict
 limit. **Take over** permanently ends the parent's access to that child.
 
-Add an attention kind independent of the visible light:
-`question`, `permission`, `credential`, `provider`, or `unknown`. Today `needs_input` and model
-confidence do not carry this distinction; neither can authorize `reply`.
+Main tracks an attention kind independent of the visible light:
+`question`, `permission`, `credential`, `provider`, or `unknown`. A generic
+`needs_input` verdict or confidence value cannot authorize `reply`.
 Permission hooks, `(y/n)`, Allow/confirm prompts, password context, and uncertain
 cases remain human-only Needs you (amber plus a label). Echo-off alone does not
 classify a credential prompt. A model may suggest `question`, but cannot grant a
@@ -721,7 +725,7 @@ added. Terminal output can itself contain file contents, diffs or echoed input;
 redaction is heuristic. Tails and child-authored handoffs returned to an orchestrator can go to **that agent's
 model provider**, independently of the evaluator's configured provider. Repeated
 bounded reads can accumulate substantial output. Disclose this at orchestrator
-launch and in [product privacy](product.md#orchestration-and-privacy-planned).
+launch and in [product privacy](product.md#orchestration-and-privacy).
 Foom's API limits do not restrict the agent's pre-existing filesystem tools.
 
 Every action records an operation ID, actor/parent/child IDs, repository/worktree

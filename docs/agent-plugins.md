@@ -1,4 +1,4 @@
-# Agent plugin format v2 — review draft (#423)
+# Agent plugin format v2 (#423)
 
 Status: parser implemented by #430 and the generic config launch engine by #431,
 2026-10-14. v2 config plugins support discovery, launch, private MCP files,
@@ -57,7 +57,7 @@ execution/health integration. The v1 fixture is `tests/fixtures/agent-plugin.jso
 | Codex lifecycle validates source, turn_id, tool_name, stop_hook_active; notify validates turn-id and caches 128 completed IDs | Mapping validation, dedupe, event predicates | Authenticate first; validate before pinning, bounded cache, same conversation pin across channels |
 | agy validates event header, positive sequence <=2147483647, conversationId, Stop reason + fullyIdle; NO_TOOL_CALL aliases model_stop | Header extractors, sequence, aliases, ordered Stop cases | Old/duplicate reports inert; error/step-limit failed, background work working, fully idle classify |
 | Resume argv: Claude --resume ID; Codex resume ID; agy --conversation ID; fresh hooks/current defaults; preserve terminal/checkout | `launch.resume`, `conversation` | Validate identity, launch serialization, revoke old invocation; CLI owns retention, never read transcripts |
-| Bare IDs and literal three-word pasted commands: claude --resume/-r, codex resume, agy --conversation; no shell parsing | `resumePaste` bounded token patterns | Parse locally; IPC carries only agent + validated ID; main revalidates against approved provider |
+| Bare IDs and literal three-word pasted commands: claude --resume/-r, codex resume, agy --conversation; no shell parsing | `resumePaste` bounded token patterns | Parse locally; IPC carries only agent + validated ID; main revalidates against loaded provider |
 | First valid hook ID pins launch; manual agy resume can start a new conversation; pasted IDs pin against supplied ID | `conversation.resumePin` | Preserve manual first-event behavior; paste strict binding; reject later ID mismatch |
 | Config greeting fixed main-owned text; resume has no greeting; agy merges user interactive prompts | Prompt/guidance merge policy | No repository grant for config sessions; fixed greeting and provenance remain Foom text |
 | Children use no user defaults; fixed provenance prefix; Claude/Codex -- prompt last, agy interactive prompt; CLI guidance covers later human role change | Prompt policy, guidance fact | Validate <=16 KiB prompt; role grants, child limits, fresh credentials and PATH stay in main |
@@ -461,19 +461,22 @@ privacy, context isolation, sandboxing and terminal ownership are unchanged.
 
 ## Migration and acceptance for later implementation
 
+This section retains the original migration checklist; v1 compatibility and the
+v2 engine are now implemented. The Copilot shipping gates below remain future work.
+
 | Input/state | Required migration |
 | --- | --- |
 | v1 config | Read original bytes with unchanged v1 validation/semantics; normalize internally, never rewrite as v2; still grants only v1 behavior |
 | v1 fields | launch arrays become blocks; hooksHelp/mcpHelp become literal requirements preserving v1 substring semantics only in compatibility adapter; hook mapping becomes one channel/cases. bypass strings retain exact matching; empty reserved/environment/paste/setup; v1 launch order unchanged |
 | v1 detection | Keep v1 limits/IDs; wider v2 priority/underscore support does not silently expand v1 acceptance |
-| v2 conversion | Explicit user file edit gets new full review. Unsupported versions invalid with fixed reason |
+| v2 conversion | Explicit file edit is parsed and revalidated, then loaded without manifest approval. Unsupported versions invalid with fixed reason |
 | Bundled defaults/consents | Same IDs/enable switches/default argv/session IDs. Profile acknowledgements map to equivalent disclosure identity only if content/effect unchanged; otherwise ask again. Never import trust from agent stores |
 | Codex health | Transfer only identical definition fingerprint; stable observer command/timeout must remain identical for unchanged observer. Changed generated definition invalidates Foom health and lets Codex request review |
 | agy plugin | Recognize current foomObserverVersion 2, do not reinstall; newer version supported as today, older offers update, disabled needs enable; unknown foom refuses mutation |
 | Config copy of a built-in | Copy with identity changed; full manifest, hand-made (#538 removed the Settings action). No loss of hooks/setup/resume/protections. Consent/observed health not copied; same ownership target serialized across copies |
 | Dormant conversations | Missing/invalid provider preserves row/ID but grants no launch; new invocation rechecks the loaded provider and checkout |
 
-Later implementation must keep existing unit/Electron/native hook tests passing on
+Changes to the implemented engine must keep existing unit/Electron/native hook tests passing on
 all three OSes, add a manifest-only fixture (no real agent CLI probes), and verify
 invalid/changed-byte races, stable Codex definitions/fallback/deduplication, unknown
 plugin ownership, setup cancellation, bypass environment redaction, protected argv
@@ -545,7 +548,7 @@ Antigravity compatibility details (#436):
 
 - The same `agy` settings, defaults, conversation IDs and bypass acknowledgement remain in place. The profile-only legacy offer answer is copied into generic offer tracking; this grants no setup or hook trust. Setup now uses the shared trusted action dialog for install, update, enable and remove. Its status/actions are supplied by the manifest. Unknown ownership still refuses mutation. An explicit plugin preference object with a missing enabled leaf remains unavailable, encoded as an ordered metadata condition. The legacy setup IPC name forwards to these same checks and confirmations.
 - `observer.protocol: "ordered-v2"` selects the existing fixed native ordered transport ABI: one plugin channel, stdin, version 2, empty JSON first, detached delivery, sequence counter and one-second network timeout. It retains root-level observer filenames, exact relative commands (`sh ./observer.sh EVENT`, or the existing PowerShell form), and all three native script files byte for byte. It uses `FOOM_HOOK_ORDER` and accepts a missing channel header only for that launch-bound single channel. #467 remains unresolved; no plugin-working-directory assumption was changed.
-- `ownership.unfingerprintedVersion: 2` explicitly accepts recognized legacy versions >=2 when the fingerprint is absent. Current version 2 therefore remains installed with no reinstall or update offer, as do newer versions under the previous policy. Older versions offer Update; disabled versions offer Enable. An explicit mismatched fingerprint still offers Update, with separately reviewed staging before `plugin install` runs. This generic compatibility field is available to approved config copies too.
+- `ownership.unfingerprintedVersion: 2` explicitly accepts recognized legacy versions >=2 when the fingerprint is absent. Current version 2 therefore remains installed with no reinstall or update offer, as do newer versions under the previous policy. Older versions offer Update; disabled versions offer Enable. An explicit mismatched fingerprint still offers Update, with separately reviewed staging before `plugin install` runs. This generic compatibility field is available to valid config copies too.
 - Staging adds only `foomStagingFingerprint` to `plugin.json`; hooks and observer scripts keep their existing bytes. It does not rewrite an installed plugin. The extra metadata allows subsequent definition changes to offer Update at the same ABI version; users review it through the normal setup dialog. Generic config fixtures without the compatibility protocol retain channel-specific subdirectories and headers.
 - Sequenced completion reports rely on validated monotonic sequence deduplication rather than inferred execution-turn deduplication. A newer failure remains visible even if its working report was lost after an earlier completion. Unsequenced lifecycle/notify turn deduplication is unchanged.
 - Reduced hook diagnostics use `plugin:agy:<case-id>` plus generic channel/turn metadata. Unknown events are inert (204), without pinning identity or emitting evidence, as for config plugins; malformed known events still fail closed. Reserved defaults and missing prompt-value errors now use generic wording. Tests assert these explained differences while retaining the lifecycle, privacy, ordering, resume and failure checks.
@@ -595,7 +598,7 @@ Codex compatibility details (#435):
 
 The four standalone JSON blocks below instantiate this schema without inheritance or external includes. Claude, Codex and Antigravity are shipped bundled manifests. The remaining drafts are parser fixtures pending conversion or verification. Tests use bundled origin to validate reserved identities; config copies need a distinct ID.
 Rules for existing agents are copied from current packaged JSON including priority,
-provenance and measured limitations. The Copilot draft contains disabled proposed hook and MCP templates, with no setup. They cannot attach until contracts are verified and revised bytes approved; it specifies verified
+provenance and measured limitations. The Copilot draft contains disabled proposed hook and MCP templates, with no setup. They cannot attach until contracts are verified and templates updated in a reviewed application change; it specifies verified
 launch surfaces and conservative environment disclosure. Open questions follow.
 
 ### Claude Code

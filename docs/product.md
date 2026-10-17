@@ -2,7 +2,14 @@
 
 Foom is a desktop workspace for running many coding agents at once, in git worktrees with one terminal per session. Its job is to route your attention. Terminals can stay hidden or share the workspace in tiles; Foom tells you which one needs you.
 
-The target is about 10 concurrent agents. Supported agents are Claude Code (`claude`), Codex (`codex`), and Antigravity (`agy`). Any other CLI runs as a plain terminal, watched by the evaluator.
+This is the authority for user-visible behavior and established product decisions.
+Unqualified descriptions are implemented behavior; explicitly labelled targets and
+future work are planned design. See the [documentation map](README.md) for related
+protocol, contributor and research references.
+
+The target is about 10 concurrent agents. Bundled agents are Claude Code (`claude`),
+Codex (`codex`), and Antigravity (`agy`). Valid config-authored agent plugins add
+providers; other CLIs can run in a plain shell, watched by the evaluator.
 
 ## Terms
 
@@ -146,8 +153,8 @@ value resets to 100%. The speaker shape shows muted (also at zero), low or high
 volume. Moving the slider unmutes; releasing it plays a short sample. The rail
 keeps only the gear. The gear opens a
 pinned panel to the right, bottom-aligned and pointing at the gear. **Settings**
-is its first command, with its shortcut; ⌘, / Ctrl+, and the app menu still open
-Settings directly. Then come the agent launchers and Shell (run in the config
+is its first command, with its shortcut; ⌘, on macOS, Ctrl+Shift+, on
+Windows/Linux and the app menu still open Settings directly. Then come the agent launchers and Shell (run in the config
 folder), **Open Foom config settings** and **Open folder**. A launcher for the
 running session says “running”; launching again focuses it.
 
@@ -865,8 +872,8 @@ needs you (turning alerts off, alert or master volume 0, master mute, hooks off,
 wait in an amber banner, such as "An agent wants to turn off the needs-you sound",
 with **Allow** and **Keep it on**. Keep it on restores the file.
 
-`agentArguments` in settings.json contains literal lists for `claude`, `codex` and
-`agy`. Every file-originated argument change waits for Allow, including removing
+`agentArguments` in settings.json contains literal lists keyed by provider ID,
+including the required `claude`, `codex` and `agy` entries. Every file-originated argument change waits for Allow, including removing
 arguments. Allow opens the trusted dialog with each changed agent's before and
 after lists, one argument per line, and names known bypass flags. Accepting also
 records bypass acknowledgement. Settings edits write the same file directly and
