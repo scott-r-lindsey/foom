@@ -99,12 +99,7 @@ export function AppMenu({
     },
     [close],
   );
-  const wordmark = (
-    <span aria-hidden="true">
-      fo
-      <span className="wordmark-hole" />m
-    </span>
-  );
+  const wordmark = <span aria-hidden="true">foom</span>;
   const command = (item: CommandItem, step = false): RowAction => ({
     label: item.label,
     hint: item.shortcut,

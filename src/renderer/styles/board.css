@@ -161,17 +161,6 @@
 .wordmark {
   color: var(--ink);
 }
-.wordmark-hole {
-  display: inline-block;
-  width: 0.52em;
-  height: 0.52em;
-  margin: 0 0.035em;
-  border-radius: 50%;
-  background: var(--hole);
-  box-shadow:
-    0 0 0 2px var(--accent),
-    0 0 12px var(--accent-deep);
-}
 .board-empty {
   margin: 20vh auto;
   text-align: center;

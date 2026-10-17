@@ -1,3 +1,4 @@
+import { Wordmark } from "../ui/wordmark";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export function prefersReducedMotion(): boolean {
@@ -115,12 +116,7 @@ export function LaunchSequence({ onDone }: { onDone: () => void }) {
       <p className="launch-count" role="status">
         {phase === "liftoff" ? (
           <>
-            <span className="wordmark" role="img" aria-label="foom">
-              <span aria-hidden="true">
-                fo
-                <span className="wordmark-hole" />m
-              </span>
-            </span>
+            <Wordmark />
             <small>Takeoff was faster than expected.</small>
           </>
         ) : (
