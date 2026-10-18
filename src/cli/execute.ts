@@ -3,7 +3,7 @@ import { validateConfig } from "./config";
 import { dirname } from "node:path";
 import { ControlError } from "../node-common/control-validation";
 import { command } from "./commands";
-import { call, inherited, pair, profilePath } from "./client";
+import { call, inherited, pair, profilePath, UnknownOutcome } from "./client";
 import { installCli } from "./install";
 import { run } from "./cli";
 import type { ConsoleIo } from "./types";
@@ -148,6 +148,10 @@ export async function execute(
     }
     return 0;
   } catch (error) {
+    if (error instanceof UnknownOutcome) {
+      output({ error: "unknown_outcome", idempotencyKey: error.idempotencyKey }, true);
+      return 6;
+    }
     const code = error instanceof ControlError ? error.code : "unavailable";
     output({ error: code }, true);
     return code === "invalid_request"

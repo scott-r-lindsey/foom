@@ -157,8 +157,8 @@ export class ControlHttp {
           const value: unknown = JSON.parse(
             new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)),
           );
-          // A bounded wait_for may hold the response for up to 30 seconds.
-          request.socket.setTimeout(35000);
+          // Leave room for the CLI's 60-second mutation deadline as well as bounded waits.
+          request.socket.setTimeout(65000);
           if (mcp) {
             const result = await this.mcp.dispatch(actor, request.headers, value);
             this.service.mcpConnected(actor);
