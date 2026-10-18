@@ -1758,8 +1758,12 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         text: JSON.stringify({ id, args }) + "\n",
       });
       const file = `${credentials}.response-${id}`;
+      // One existing command budget covers transport and operation completion;
+      // observing a CLI timeout must not start another full wait window.
+      const expires = Date.now() + deadline(40000);
+      const remaining = () => Math.max(1, expires - Date.now());
       // The fixture renames a fully written response into place after the CLI exits.
-      await expect.poll(() => existsSync(file), { timeout: deadline(40000) }).toBe(true);
+      await expect.poll(() => existsSync(file), { timeout: remaining() }).toBe(true);
       const result = JSON.parse(await readFile(file, "utf8"));
       const response = {
         status: result.code === 0 ? 200 : result.code === 3 ? 403 : 400,
@@ -1776,12 +1780,15 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         if (accepted.status !== 200) return response;
         if (accepted.body.result.status === "running") {
           await expect
-            .poll(async () => {
-              const workspace = await page.evaluate(() => window.desktop.workspace());
-              const role = workspace.terminals.find((row) => row.id === parentId)?.orchestration;
-              return role?.history?.find((entry) => entry.id === accepted.body.result.operationId)
-                ?.status;
-            })
+            .poll(
+              async () => {
+                const workspace = await page.evaluate(() => window.desktop.workspace());
+                const role = workspace.terminals.find((row) => row.id === parentId)?.orchestration;
+                return role?.history?.find((entry) => entry.id === accepted.body.result.operationId)
+                  ?.status;
+              },
+              { timeout: remaining() },
+            )
             .toMatch(/^(pending_confirmation|succeeded|failed|declined|cancelled|indeterminate)$/);
         }
         return lookup();
