@@ -2671,6 +2671,9 @@ test("sidebar choice restores after restart and new windows start expanded", asy
     "aria-valuenow",
     "240",
   );
+  await expect
+    .poll(async () => Math.round((await restored.locator(".sidebar-shell").boundingBox()).width))
+    .toBe(240);
   await restored.evaluate(() => window.desktop.appMenu.execute("new-window"));
   await expect
     .poll(

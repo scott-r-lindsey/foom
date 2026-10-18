@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -54,6 +54,9 @@ test("width clamps to a usable header and 40% without modifying saved width", ()
   expect(clampSidebarWidth(600, 1200)).toBe(480);
   const f = fixture(450);
   expect(f.handle.getAttribute("aria-valuenow")).toBe("450");
+  expect(f.container.querySelector("aside")?.style.getPropertyValue("--sidebar-width")).toBe(
+    "450px",
+  );
   vi.stubGlobal("innerWidth", 800);
   fireEvent(window, new Event("resize"));
   expect(f.handle.getAttribute("aria-valuenow")).toBe("320");
@@ -119,4 +122,20 @@ test("unmounting while captured clears the resize flag and signals terminal refi
   expect(sidebar?.dataset["resizing"]).toBeUndefined();
   expect(end).toHaveBeenCalledOnce();
   expect(f.onDrag).toHaveBeenLastCalledWith(false);
+});
+
+test("release applies the final width before signalling terminal refit when pointer updates batch", () => {
+  vi.stubGlobal("innerWidth", 1200);
+  const f = fixture();
+  const sidebar = f.container.querySelector("aside");
+  const widths: (string | undefined)[] = [];
+  sidebar?.addEventListener("sidebar-resize-end", () => {
+    widths.push(sidebar.style.getPropertyValue("--sidebar-width"));
+  });
+  act(() => {
+    pointer("pointerdown", f.handle);
+    pointer("pointermove", f.handle, { clientX: 400 });
+    pointer("pointerup", f.handle);
+  });
+  expect(widths).toEqual(["400px"]);
 });

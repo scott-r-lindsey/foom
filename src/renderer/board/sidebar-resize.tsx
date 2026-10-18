@@ -42,7 +42,8 @@ export function SidebarResize({
       window.removeEventListener("resize", resize);
     };
   }, []);
-  useLayoutEffect(() => {
+  // The parent aside ref is attached after child layout effects.
+  useEffect(() => {
     sidebarRef.current?.style.setProperty("--sidebar-width", `${String(displayed)}px`);
   }, [sidebarRef, displayed]);
   useEffect(() => {
@@ -57,6 +58,8 @@ export function SidebarResize({
     const active = dragRef.current;
     if (!active) return;
     dragRef.current = undefined;
+    // Publish final geometry before allowing terminal observers to refit.
+    sidebarRef.current?.style.setProperty("--sidebar-width", `${String(active.width)}px`);
     save?.(active.width);
     setDraft(undefined);
     sidebarRef.current?.removeAttribute("data-resizing");
