@@ -3,7 +3,6 @@ import { CONTROL_TOOL_CLASSES } from "../../../../src/shared/control-tool-classe
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { expect, it, vi } from "vitest";
-import v1Fixture from "../../../fixtures/agent-plugin.json";
 import data from "../../../../src/shared/bundled-agents/claude.json";
 import { bundledProvider, bundledProviders } from "../../../../src/main/agents/providers/bundled";
 import {
@@ -41,11 +40,14 @@ function binding(): AgentHooks {
 it("accepts only locked v2 build inputs and immutable data, never JSON-declared provenance", () => {
   expect(bundledProviders).toContain(provider);
   expect(provider.origin).toBe("bundled");
-  expect(Object.isFrozen(provider.model?.hooks?.channels)).toBe(true);
+  expect(Object.isFrozen(provider.model.hooks?.channels)).toBe(true);
   const tampered = { ...data, executables: ["unexpected"] };
   expect(() => bundledProvider(tampered, "claude", digest(data))).toThrow("integrity");
   expect(() => bundledProvider(data, "another", digest(data))).toThrow("identity");
-  expect(() => bundledProvider(v1Fixture, v1Fixture.id, digest(v1Fixture))).toThrow("identity");
+  const unsupported = { ...data, version: 1 };
+  expect(() => bundledProvider(unsupported, "claude", digest(unsupported))).toThrow(
+    "use version 2",
+  );
   const provenance = { ...data, origin: "bundled" };
   expect(() => bundledProvider(provenance, "claude", digest(provenance))).toThrow("unknown-key");
   expect(() => parseAgentManifest(JSON.stringify(data))).toThrow("reserved-id");
@@ -69,7 +71,7 @@ it("launches a complete renamed copy on the same engine without carrying bundled
     "2.1.293 (Claude Code)",
     "--settings --mcp-config",
   );
-  const original = await provider.prepareLaunch?.(
+  const original = await provider.prepareLaunch(
     installation,
     request,
     ["--model", "test"],
@@ -78,7 +80,7 @@ it("launches a complete renamed copy on the same engine without carrying bundled
     true,
     binding(),
   );
-  const duplicate = await copy.prepareLaunch?.(
+  const duplicate = await copy.prepareLaunch(
     copyInstallation,
     { ...request, agent: copy.id },
     ["--model", "test"],
@@ -88,10 +90,10 @@ it("launches a complete renamed copy on the same engine without carrying bundled
     binding(),
   );
   try {
-    expect(duplicate?.args).toEqual(original?.args);
+    expect(duplicate.args).toEqual(original.args);
   } finally {
-    original?.dispose();
-    duplicate?.dispose();
+    original.dispose();
+    duplicate.dispose();
   }
 });
 
@@ -111,7 +113,7 @@ it.each([false, true])(
       bind: vi.fn(),
       dispose: vi.fn(),
     };
-    const prepared = await provider.prepareLaunch?.(
+    const prepared = await provider.prepareLaunch(
       installation,
       { ...request, conversationId: "existing-session", prompt: "Fix it" },
       [
@@ -127,7 +129,7 @@ it.each([false, true])(
       hooks,
       hooks ? binding() : undefined,
     );
-    if (!prepared) throw new Error("Missing engine");
+
     const file = prepared.args[prepared.args.indexOf("--mcp-config") + 1] ?? "";
     try {
       expect(prepared.mcpArguments).toEqual(["--mcp-config", file]);
@@ -249,7 +251,7 @@ it.each([
   async ({ defaults }) => {
     const installation = provider.discover("/fixture/claude", "2.1.293", "--mcp-config");
     for (const attached of [false, true]) {
-      const prepared = await provider.prepareLaunch?.(
+      const prepared = await provider.prepareLaunch(
         installation,
         request,
         defaults,
@@ -263,7 +265,7 @@ it.each([
         false,
         false,
       );
-      if (!prepared) throw new Error("Missing engine");
+
       try {
         if (!attached) {
           expect(prepared.args).toEqual(defaults);

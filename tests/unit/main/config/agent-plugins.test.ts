@@ -127,7 +127,7 @@ it("a held settings change does not hold plugins", async () => {
   expect(knownAgentId(other.id)).toBe(true);
   expect(knownAgentId(manifest.id)).toBe(true);
 });
-it("replaces v1 authority with a v2 manifest under the same ID and keeps it across a restart", async () => {
+it("replaces a provider with an edited v2 manifest under the same ID and keeps it across a restart", async () => {
   const f = await fixture();
   await writeFile(f.file, JSON.stringify(manifest));
   await f.service.refresh();
@@ -136,13 +136,13 @@ it("replaces v1 authority with a v2 manifest under the same ID and keeps it acro
   await writeFile(f.file, JSON.stringify({ ...v2.default, id: manifest.id }));
   const status = await f.service.refresh();
   expect(status.agentPlugins).toEqual([]);
-  expect(agentProvider(manifest.id).model?.version).toBe(2);
+  expect(agentProvider(manifest.id).model.version).toBe(2);
   await expect(old.validate?.()).rejects.toThrow("changed");
   await f.service.dispose();
   const restarted = new ConfigService(f.dependencies);
   services.push(restarted);
   await restarted.initialize();
-  expect(agentProvider(manifest.id).model?.version).toBe(2);
+  expect(agentProvider(manifest.id).model.version).toBe(2);
   expect(restarted.status().agentPlugins).toEqual([]);
 });
 it("drops only a newly protected provider default list on load and rejects invalid saves", async () => {
@@ -159,7 +159,7 @@ it("drops only a newly protected provider default list on load and rejects inval
   const settingsBytes = await readFile(settingsFile, "utf8");
   await writeFile(join(f.folder, "agents", `${v2Fixture.id}.json`), JSON.stringify(v2Fixture));
   await f.service.refresh();
-  expect(agentProvider(v2Fixture.id).model?.version).toBe(2);
+  expect(agentProvider(v2Fixture.id).model.version).toBe(2);
   expect(f.dependencies.apply.mock.calls.at(-1)?.[0].agentArguments).toEqual({
     ...argumentsBefore,
     [v2Fixture.id]: [],
@@ -192,5 +192,25 @@ it.each(["claude", "codex", "agy"])(
     expect(provider.legacyChannelConsent).not.toBe(true);
     await writeFile(file, `${text} `);
     await expect(provider.validate?.()).rejects.toThrow("changed");
+  },
+);
+
+it.each([1, 3, "2", null])(
+  "withdraws unsupported agent version %s with a fixed diagnostic",
+  async (version) => {
+    const f = await fixture();
+    await writeFile(f.file, JSON.stringify(manifest));
+    await f.service.refresh();
+    const loaded = agentProvider(manifest.id);
+    await writeFile(f.file, JSON.stringify({ ...manifest, version }));
+    const status = await f.service.refresh();
+    expect(knownAgentId(manifest.id)).toBe(false);
+    expect(status.agentPlugins?.[0]).toMatchObject({
+      id: manifest.id,
+      state: "rejected",
+      reason:
+        "$.version: Agent manifest version 1 is no longer supported; use version 2 (see README.md)",
+    });
+    await expect(loaded.validate?.()).rejects.toThrow("changed");
   },
 );

@@ -680,7 +680,7 @@ export class Workspace {
           agents.map(async (agent) => {
             if (!knownAgentId(agent.id)) return agent;
             const provider = agentProvider(agent.id);
-            if (!agent.path || !provider.model?.health) return agent;
+            if (!agent.path || !provider.model.health) return agent;
             const health = agent.healthSupported
               ? await observerHealth(
                   provider.model,
@@ -717,7 +717,7 @@ export class Workspace {
   ): Promise<AgentReport> {
     const provider = agentProvider(id);
     const model = provider.model;
-    if (!model?.setup) throw new Error("Agent setup is unavailable");
+    if (!model.setup) throw new Error("Agent setup is unavailable");
     const revision = providerRevision();
     const report = await this.scanAgents(true);
     const executable = report.agents.find((entry) => entry.id === id)?.path;

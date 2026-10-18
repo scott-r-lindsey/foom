@@ -117,7 +117,7 @@ The `foom/process-boundaries` ESLint rule checks static imports, re-exports, lit
 
 Import implementations and their types directly from their owning modules; do not
 add migration-only `export *` forwarding files. Provider launch helpers live in
-`main/agents/providers/{cli-launch,hook-launch,hook-adapters,mcp-launch}.ts`;
+`main/agents/providers/{cli-launch,hook-launch,v2-observers,mcp-launch}.ts`;
 private-file helpers and control validation live in
 `node-common/{private-files,control-validation}.ts`; browser-safe argument helpers
 live in `shared/providers/arguments.ts`. Source, tests and mocks use these same
@@ -636,10 +636,10 @@ Git commands have a 30-second process deadline.
 ## Agent discovery and launch
 
 The [agent plugin format v2](agent-plugins.md) parser (#430) supports offline
-validation and a normalized v1 compatibility model. #431 adds the generic launch
+validation. #431 adds the generic launch
 engine for v2 config plugins: fixed discovery, conditional ordered argv,
 private MCP data files, prompts and preview grants, argument and environment
-bypass, resume and attention rules. Hooks/health and setup are implemented by #432/#433. Claude (#434), Codex (#435) and Antigravity (#436) use the same v2 engine through bundled build-locked manifests; v1 retains its compatibility adapter.
+bypass, resume and attention rules. Hooks/health and setup are implemented by #432/#433. Claude (#434), Codex (#435) and Antigravity (#436) use the same v2 engine through bundled build-locked manifests.
 
 **Today:** `src/main/agents/agents.ts` provides a main-only `AgentService`, following the worktree service's integration boundary. `scan()` resolves PATH with the account's login shell (`-ilc`, a fixed printf program with NUL delimiters), then probes each resolved executable with bounded `--version` and `--help` calls. It retains full version strings. Shell failures report a warning and use inherited PATH; Windows uses inherited PATH and native executables. Relative and empty PATH components are ignored. Windows batch/PowerShell wrappers are not executed through a command shell; installations exposing only those wrappers currently need a native executable on PATH.
 
@@ -1186,7 +1186,7 @@ Requests POST JSON to `/hooks`, with `X-Foom-Session` and `Authorization` contai
 
 The first supported event pins the agent session/thread ID for that launch. Subsequent events must match; Codex also requires a turn ID. Only `{ terminalId, action, signal, conversationId }` escapes the receiver. The validated conversation ID is saved locally by Workspace and is not forwarded into evaluation. PermissionRequest and `permission_prompt` produce `needs_input`; Stop, `idle_prompt`, and Codex `agent-turn-complete` produce `classify`. No event directly sets Done. Agent text, paths, tool inputs, and Codex `input-messages` are discarded, never logged, executed, or forwarded to the evaluator. Classification still uses only the redacted terminal tail.
 
-The hook command cannot run Node from the packaged app because the RunAsNode fuse is disabled. `src/main/agents/providers/hook-adapters.ts` supplies distinct observer scripts for Claude stdin and Codex's final JSON argument: POSIX `sh` plus `curl`, and Windows PowerShell plus `Invoke-WebRequest`. The launcher writes the returned source to a private launch directory, invokes POSIX files with `sh` or Windows files with `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, supplies the launch environment, and removes the files afterward. On Windows it first runs the generated script in probe mode; a missing interpreter or enforced policy that blocks the script rejects launch with an error and cleans up the script. The execution policy applies only to that PowerShell invocation; user and machine settings are unchanged. Codex's configured notify argument array must end at the script's configured arguments so the CLI can append its JSON argument. Payloads remain data throughout; scripts emit no output or approval decisions, have a three-second HTTP timeout, and exit successfully even when the receiver is unavailable. Per-launch settings and notify attachment, tool availability checks, and notifier-replacement disclosure belong to #12.
+The hook command cannot run Node from the packaged app because the RunAsNode fuse is disabled. `src/main/agents/providers/v2-observers.ts` generates observer scripts from each manifest channel for stdin or the CLI's final JSON argument: POSIX `sh` plus `curl`, and Windows PowerShell plus `Invoke-WebRequest`. The launcher writes the returned source to a private launch directory, invokes POSIX files with `sh` or Windows files with `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, supplies the launch environment, and removes the files afterward. On Windows it first runs the generated script in probe mode; a missing interpreter or enforced policy that blocks the script rejects launch with an error and cleans up the script. The execution policy applies only to that PowerShell invocation; user and machine settings are unchanged. Codex's configured notify argument array must end at the script's configured arguments so the CLI can append its JSON argument. Payloads remain data throughout; scripts emit no output or approval decisions, have a three-second HTTP timeout, and exit successfully even when the receiver is unavailable. Per-launch settings and notify attachment, tool availability checks, and notifier-replacement disclosure belong to #12.
 
 ## Saved conversations
 
@@ -2106,8 +2106,10 @@ remain unchanged. v2 config plugins may declare restore capability, but a grant
 still requires persisted human orchestration provenance and matching repository
 identity, an installed, valid provider and supported per-launch MCP.
 
-`shared/agent-manifest.ts` validates the [version 1 format](agents.md#agent-providers-and-config-authored-plugins-407)
-from `unknown`, rejecting unknown keys at every object boundary, including capability,
+`shared/agent-plugin-parser.ts` validates the [version 2 format](agent-plugins.md)
+from `unknown`, rejecting unsupported versions with the fixed migration diagnostic
+`Agent manifest version 1 is no longer supported; use version 2 (see README.md)`
+and unknown keys at every object boundary, including capability,
 script, environment and network-reference fields. Manifest rules use the shared
 `boundedRegex` implementation used by built-in rules. Manifest argv uses fixed,
 field-specific substitutions and argument arrays; expanded values are never parsed

@@ -26,7 +26,7 @@ it.each([false, true])(
   async (controlled) => {
     const installation = provider.discover("", "1.3.3", "--prompt-interactive <prompt>");
     expect(provider.origin).toBe("bundled");
-    const launch = await provider.prepareLaunch?.(
+    const launch = await provider.prepareLaunch(
       installation,
       { ...request, conversationId: "existing", prompt: "Fix it" },
       ["--model", "test", "-i", "literal $(text)", "loose", "--prompt-interactive=other"],
@@ -34,7 +34,7 @@ it.each([false, true])(
       false,
       false,
     );
-    expect(launch?.args).toEqual([
+    expect(launch.args).toEqual([
       "--conversation",
       "existing",
       "--model",
@@ -54,8 +54,8 @@ it.each([false, true])(
             `${CHILD_PROMPT}\n\nFix it`,
           ]),
     ]);
-    launch?.dispose();
-    const greeting = await provider.prepareLaunch?.(
+    launch.dispose();
+    const greeting = await provider.prepareLaunch(
       installation,
       request,
       ["-i", "-literal"],
@@ -63,11 +63,11 @@ it.each([false, true])(
       true,
       false,
     );
-    expect(greeting?.args).toEqual(["--prompt-interactive", `-literal\n\n${CONFIG_PROMPT}`]);
-    greeting?.dispose();
+    expect(greeting.args).toEqual(["--prompt-interactive", `-literal\n\n${CONFIG_PROMPT}`]);
+    greeting.dispose();
     const unsupported = provider.discover("", "1.0.0", "--other");
     await expect(
-      provider.prepareLaunch?.(
+      provider.prepareLaunch(
         unsupported,
         { ...request, prompt: "Fix" },
         [],
@@ -90,7 +90,7 @@ it("accepts installed channel-less observers only through their launch-bound pro
     hooks = await prepareHookLaunch(receiver, "agy", vi.fn(), process.platform, scratch);
     const installation = await provider.enrich(provider.discover("/fixture/agy", "1.3.3", ""));
     expect(installation.hooks).toBe(true);
-    prepared = await provider.prepareLaunch?.(
+    prepared = await provider.prepareLaunch(
       installation,
       request,
       [],
@@ -99,7 +99,7 @@ it("accepts installed channel-less observers only through their launch-bound pro
       true,
       hooks,
     );
-    expect(prepared?.args).toEqual([]);
+    expect(prepared.args).toEqual([]);
     const post = async (
       event: string,
       sequence: string,

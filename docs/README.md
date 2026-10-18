@@ -51,7 +51,7 @@ Architecture retains the core rules and feature details at their existing anchor
 Product and architecture describe established decisions and implemented behavior
 unless a passage explicitly marks a target or future change. Orchestration combines
 an implemented protocol with evidence and a clearly labelled proposed child
-follow-up channel. Agent plugin v1/v2 parsing, launch, hooks and setup are implemented;
+follow-up channel. Agent plugin v2 parsing, launch, hooks and setup are implemented;
 its Copilot examples and forge extension remain drafts with shipping gates.
 
 The following are evidence or proposals, not current feature specifications:

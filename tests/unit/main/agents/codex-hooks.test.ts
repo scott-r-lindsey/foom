@@ -15,7 +15,7 @@ import { V2Health, flushV2Health } from "../../../../src/main/agents/providers/v
 import { observerAssets } from "../../../../src/main/agents/providers/v2-observers";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { manifestHooks } from "../../../helpers/manifest-hooks";
-const channel = agentProvider("codex").model?.hooks?.channels[0];
+const channel = agentProvider("codex").model.hooks?.channels[0];
 if (!channel) throw new Error("Missing lifecycle channel");
 function codexObserverSource(platform: "posix" | "win32") {
   if (!channel) throw new Error("Missing channel");

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
-import { hookAdapter } from "../../../../src/main/agents/providers/hook-adapters";
+import { observerAssets } from "../../../../src/main/agents/providers/v2-observers";
+import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import type { HookSignal } from "../../../../src/shared/hooks";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -49,7 +50,9 @@ it.skipIf(process.platform === "win32")(
     onTestFinished(() => receiver.close());
     const launch = receiver.register("real-probe-terminal", "claude");
     const adapter = join(directory, "observer.sh");
-    await writeFile(adapter, hookAdapter("stdin", "posix").source, { mode: 0o600 });
+    const channel = agentProvider("claude").model.hooks?.channels[0];
+    if (!channel) throw new Error("Missing lifecycle channel");
+    await writeFile(adapter, observerAssets(channel, false)["observer.sh"] ?? "", { mode: 0o600 });
     const observerCommand = `sh '${adapter}'`;
     const create = vi.fn((_spec: TerminalSpec) => "real-probe-terminal");
     const service = new AgentService(

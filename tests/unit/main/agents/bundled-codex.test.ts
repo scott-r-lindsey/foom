@@ -29,7 +29,7 @@ import { V2ExecutionHooks, V2Health } from "../../../../src/main/agents/provider
 
 const provider = agentProvider("codex");
 const model = provider.model;
-if (!model) throw new Error("Missing bundled model");
+
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const directories: string[] = [];
 afterEach(async () => {
@@ -95,7 +95,7 @@ it.each(["linux", "win32"] as const)(
     );
     try {
       const expected = codexHookArguments(codexObserverCommand(platform));
-      const prepared = await provider.prepareLaunch?.(
+      const prepared = await provider.prepareLaunch(
         installation,
         request,
         [],
@@ -108,14 +108,14 @@ it.each(["linux", "win32"] as const)(
       expect(second.v2?.values["observerCommand:lifecycle"]).toBe(
         first.v2?.values["observerCommand:lifecycle"],
       );
-      expect(prepared?.args.slice(1, 13)).toEqual(expected);
-      expect(prepared?.args[0]).toBe("--no-alt-screen");
-      expect(prepared?.args.slice(13)).toEqual([
+      expect(prepared.args.slice(1, 13)).toEqual(expected);
+      expect(prepared.args[0]).toBe("--no-alt-screen");
+      expect(prepared.args.slice(13)).toEqual([
         "-c",
         `notify=${JSON.stringify(first.v2?.values["observerArgv:notify"])}`,
       ]);
       expect(expected.join(" ")).not.toMatch(/FOOM_|token|http:|foom-v2/u);
-      prepared?.dispose();
+      prepared.dispose();
     } finally {
       first.dispose();
       second.dispose();
@@ -206,15 +206,15 @@ it("keeps consent bound to the reviewed build revision and never lends it to con
   );
   expect(copy.origin).toBe("config");
   expect(copy.legacyChannelConsent).toBeUndefined();
-  expect(copy.model?.hooks).toEqual(model.hooks);
-  expect(copy.model?.setup).toEqual(model.setup);
-  expect(copy.model?.bypassArguments).toEqual(model.bypassArguments);
+  expect(copy.model.hooks).toEqual(model.hooks);
+  expect(copy.model.setup).toEqual(model.setup);
+  expect(copy.model.bypassArguments).toEqual(model.bypassArguments);
   expect(copy.resume("existing-session")).toEqual(["resume", "existing-session"]);
   const profile = await directory();
   const health = await installedHealth(model, profile);
   health.set("trusted");
   await health.flush();
-  expect((await installedHealth(copy.model ?? model, profile)).get()).toBe("not-reviewed");
+  expect((await installedHealth(copy.model, profile)).get()).toBe("not-reviewed");
 });
 
 it("preserves resume/default/MCP/observer/prompt order without widening tool grants", async () => {
@@ -239,7 +239,7 @@ it("preserves resume/default/MCP/observer/prompt order without widening tool gra
     dispose: vi.fn(),
   };
   try {
-    const prepared = await provider.prepareLaunch?.(
+    const prepared = await provider.prepareLaunch(
       installation,
       { ...request, conversationId: "existing-session", prompt: "Fix it" },
       ["--model", "test"],
@@ -248,7 +248,7 @@ it("preserves resume/default/MCP/observer/prompt order without widening tool gra
       true,
       hooks,
     );
-    const args = prepared?.args ?? [];
+    const args = prepared.args;
     expect(args.slice(0, 6)).toEqual([
       "resume",
       "existing-session",
@@ -258,7 +258,7 @@ it("preserves resume/default/MCP/observer/prompt order without widening tool gra
       "-c",
     ]);
     const attachment = args[6] ?? "";
-    expect(prepared?.mcpArguments).toEqual(["-c", attachment]);
+    expect(prepared.mcpArguments).toEqual(["-c", attachment]);
     const name = attachment.match(/^mcp_servers\.(foom_[a-f0-9]+)=/u)?.[1];
     if (!name) throw new Error("Missing MCP name");
     expect(attachment).toBe(
@@ -318,16 +318,9 @@ it("shares config-copy health with the launch engine while keeping its paths and
     parseAgentManifest(JSON.stringify({ ...data, id: "codex-copy" })).model,
     () => Promise.resolve(),
   );
-  const hooks = await prepareV2Hooks(
-    receiver,
-    copy.model ?? model,
-    vi.fn(),
-    false,
-    profile,
-    profile,
-  );
+  const hooks = await prepareV2Hooks(receiver, copy.model, vi.fn(), false, profile, profile);
   try {
-    const health = await observerHealth(copy.model ?? model, profile, false, false);
+    const health = await observerHealth(copy.model, profile, false, false);
     expect(health).toBe(hooks.v2?.runtime?.health);
     expect(hooks.v2?.values["observerCommand:lifecycle"]).not.toBe(codexObserverCommand("linux"));
     health.set("trusted");

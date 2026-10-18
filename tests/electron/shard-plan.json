@@ -86,9 +86,6 @@
         5.115, 16.678, 12.165
       ],
       "a fresh profile opens preflight, and it passes accessibility checks": [4.099, 9.847, 6.443],
-      "a manifest-only fixture agent loads from the config folder, reloads edits and is withdrawn when invalid": [
-        5.782, 18.87, 11.709
-      ],
       "agent discovery uses the fixture login shell and controlled PATH": [4.087, 37.141, 12.168],
       "an agent fixture opens full-board previews in columns, retains focus and respects human close": [
         11.23, 0, 20.642

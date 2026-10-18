@@ -131,6 +131,7 @@ test("unedited earlier guides refresh to the current one", () => {
     expect(history).toContain("d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5");
     // The guide shipped with restoreSessions, before the launch-argument guidance.
     expect(history).toContain("878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858");
+    expect(history).toContain("a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d");
     expect(history).not.toContain(digest(OWNED_FILES[file] ?? ""));
   }
 });

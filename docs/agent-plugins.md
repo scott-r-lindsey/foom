@@ -12,7 +12,7 @@ reviewed specification; [agent cards #409](https://github.com/scott-r-lindsey/fo
 is now closed.
 
 Read with [agent measurements](agents.md), [architecture](architecture.md), and
-[orchestration](orchestration.md). #407/#415 established v1; the
+[orchestration](orchestration.md). The
 [#410 decision](https://github.com/scott-r-lindsey/foom/issues/410#issuecomment-6175139041)
 puts Copilot on hold for v2. [#424](https://github.com/scott-r-lindsey/foom/issues/424)
 requires a config copy of a built-in to carry every behavior. Bundled and config
@@ -23,7 +23,7 @@ names, agent-ID switches, executable modules, or automatic manifest downloads.
 
 [Forge manifests](forge-plugins.md) adds `kind: "forge", version: 1` to the same
 plugin system. `shared/plugin-parser.ts` dispatches before kind-specific validation;
-agent v1/v2 parsing and semantics stay unchanged. The config scanner now uses this dispatcher for `agents/` and `forges/`, rejects
+agents accept only version 2. The config scanner now uses this dispatcher for `agents/` and `forges/`, rejects
 wrong-kind files and applies its existing contained-directory, bounded-read and
 watcher rules to both. Each kind has its own 50-file cap and ID namespace.
 
@@ -38,10 +38,10 @@ no-approval/no-Duplicate agent workflow also applies to that future forge wiring
 ## Behavior inventory and representation
 
 This inventory describes code at `844ea9f`, not new measurements. Primary sources:
-`src/shared/agent-manifest.ts`, `agent-plugin.d.ts`, `providers/{catalog,arguments}.ts`,
+`src/shared/agent-plugin-parser.ts`, `agent-manifest-v2.d.ts`, `providers/{catalog,arguments}.ts`,
 `src/main/agents/providers/*.ts`, `src/main/agents/*.ts`,
 `src/main/config/service.ts`, `src/renderer/board/resume-field.ts`, and workspace
-execution/health integration. The v1 fixture is `tests/fixtures/agent-plugin.json`.
+execution/health integration. The v2 fixture is `tests/fixtures/agent-plugin.json`.
 
 | Current behavior | v2 data | Generic engine responsibility |
 | --- | --- | --- |
@@ -60,7 +60,7 @@ execution/health integration. The v1 fixture is `tests/fixtures/agent-plugin.jso
 | agy observers return {} before bounded stdin; detached 1 s transport; local ordering counter; inert outside Foom | Observer response/delivery/sequence options | Foom supplies implementation on each OS, allocates sequence before detaching, redirects handles; no plugin-authored scripts |
 | Reserved defaults: -- terminator and --no-alt-screen for every provider; Claude settings/safe-mode/bare and session selectors; Codex notify/hooks key paths, hook-trust bypass, resume/fork/last; agy conversation/continue/-c | `reservedArguments` plus engine-wide invariants | Validate defaults before launch; drop only invalid provider list on load; save rejects whole invalid patch |
 | Bypass: direct flags; Claude permission-mode bypassPermissions; Codex sandbox/-s danger-full-access and nested sandbox_mode overrides | `bypassArguments` structured matchers | Conservative OR across all argv; later flags never cancel disclosure; --allow-dangerously-skip-permissions alone is not bypass |
-| v1 has no environment bypass support | `bypassEnvironment` | Inspect final layered environment in main; confirmation and neutral ◇ Bypass label; never expose secret values |
+| Environment bypass disclosure | `bypassEnvironment` | Inspect final layered environment in main; confirmation and neutral ◇ Bypass label; never expose secret values |
 | Claude notifications permission_prompt / idle_prompt only; unknown events inert | Ordered event cases and required extractors | No prompt, tool-input, output or transcript retention |
 | Codex lifecycle validates source, turn_id, tool_name, stop_hook_active; notify validates turn-id and caches 128 completed IDs | Mapping validation, dedupe, event predicates | Authenticate first; validate before pinning, bounded cache, same conversation pin across channels |
 | agy validates event header, positive sequence <=2147483647, conversationId, Stop reason + fullyIdle; NO_TOOL_CALL aliases model_stop | Header extractors, sequence, aliases, ordered Stop cases | Old/duplicate reports inert; error/step-limit failed, background work working, fully idle classify |
@@ -330,11 +330,10 @@ execution turn; an attached notify can complete a later turn lacking lifecycle.
 
 ### Detection and resume paste
 
-Detection retains v1's rule object: required id, state (working/blocked/idle/unknown),
+Detection rules contain: required id, state (working/blocked/idle/unknown),
 priority, region (title/bottom/after_horizontal_rule), match, reason; optional lines,
 not, comment. IDs use [a-z][a-z0-9_-]* <=40 (underscore preserves bundled rule IDs).
-Priority is integer 0–2000: v1 config's 1000 ceiling cannot encode bundled 1050–1200
-rules losslessly. lines 1–40, reason <=128, comment <=256; not <=8 matcher objects.
+Priority is integer 0–2000. lines 1–40, reason <=128, comment <=256; not <=8 matcher objects.
 Matcher has contains? and regex? arrays <=8 strings each, at least one; <=128 each.
 Contains entries are conjunctive, case-insensitive as today's detector; regex subset
 uses boundedRegex (no groups, repetitions, alternation, backreferences). Matcher
@@ -473,15 +472,11 @@ privacy, context isolation, sandboxing and terminal ownership are unchanged.
 
 ## Migration and acceptance for later implementation
 
-This section retains the original migration checklist; v1 compatibility and the
-v2 engine are now implemented. The Copilot shipping gates below remain future work.
+The v2 engine is implemented; older agent manifest formats are unsupported. The Copilot shipping gates below remain future work.
 
 | Input/state | Required migration |
 | --- | --- |
-| v1 config | Read original bytes with unchanged v1 validation/semantics; normalize internally, never rewrite as v2; still grants only v1 behavior |
-| v1 fields | launch arrays become blocks; hooksHelp/mcpHelp become literal requirements preserving v1 substring semantics only in compatibility adapter; hook mapping becomes one channel/cases. bypass strings retain exact matching; empty reserved/environment/paste/setup; v1 launch order unchanged |
-| v1 detection | Keep v1 limits/IDs; wider v2 priority/underscore support does not silently expand v1 acceptance |
-| v2 conversion | Explicit file edit is parsed and revalidated, then loaded without manifest approval. Unsupported versions invalid with fixed reason |
+| Agent manifest versions | Only version 2 is accepted. Every other version rejects the file whole with `Agent manifest version 1 is no longer supported; use version 2 (see README.md)` |
 | Bundled defaults/consents | Same IDs/enable switches/default argv/session IDs. Profile acknowledgements map to equivalent disclosure identity only if content/effect unchanged; otherwise ask again. Never import trust from agent stores |
 | Codex health | Transfer only identical definition fingerprint; stable observer command/timeout must remain identical for unchanged observer. Changed generated definition invalidates Foom health and lets Codex request review |
 | agy plugin | Recognize current foomObserverVersion 2, do not reinstall; newer version supported as today, older offers update, disabled needs enable; unknown foom refuses mutation |
