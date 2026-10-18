@@ -1,23 +1,19 @@
 import type { SetupState } from "../../shared/setup";
 import type { Repository } from "../../shared/worktrees";
-import type { StepHeading, StepActions } from "./preflight-step.d";
+import type { StepActions } from "./preflight-step.d";
 import { examplePath } from "./preflight";
 
-export function WorktreesStep({
-  headingRef,
+export function WorktreeLocationControls({
   state,
   repositories,
   save,
-}: StepHeading &
-  StepActions & {
-    state: SetupState;
-    repositories: readonly Repository[];
-  }) {
+}: StepActions & {
+  state: SetupState;
+  repositories: readonly Repository[];
+}) {
   return (
     <>
-      <h2 ref={headingRef} tabIndex={-1}>
-        Worktrees
-      </h2>
+      <h3>New worktrees</h3>
       <fieldset className="preflight-options preflight-split">
         <legend className="visually-hidden">Where new worktrees go</legend>
         <label className="preflight-option">

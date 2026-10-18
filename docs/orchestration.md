@@ -887,8 +887,19 @@ to the same control API used by MCP. Main's existing API decides authorization; 
 agents and human CLI grants cannot query orchestration operations. Responses use
 stable `{result}` / `{error}` envelopes; `--json` also makes offline output JSON.
 Exit status is 0 for success, 2 for usage/schema errors, 3 for authentication or
-scope denial, 4 for unavailable services, capacity, not-found or I/O errors, and 5 for an
-overall blocking-wait timeout (which still prints the metadata result).
+scope denial, 4 for unavailable services, capacity, not-found or I/O errors, 5 for an
+overall blocking-wait timeout (which still prints the metadata result), and 6 for
+an unknown mutation outcome.
+
+`create-worktree`, `launch`, `stop`, `close`, `remove-worktree` and `reply` wait up
+to 60 seconds for a response. A timeout, lost connection or unreadable response
+prints `{ "error": "unknown_outcome", "idempotencyKey": "KEY" }` to stderr and
+exits 6: the action may have been accepted or succeeded. With the same credentials,
+run `foom operation-status --idempotency-key KEY` to recover the operation record.
+Continue checking that key if it is running or pending confirmation. Never retry
+with a new key; even `not_found` does not establish that nothing happened. An
+unresolved or indeterminate outcome requires human reconciliation. A received
+server error keeps its existing error envelope and exit code.
 No exception text or credentials are printed. Responses are bounded to 256 KiB,
 including full 100-session pages with Unicode names; pairing responses are limited
 to 4 KiB.
@@ -1024,7 +1035,8 @@ New conversation on a child's row ends the orchestrator's ownership of that ID. 
 read 80 host lines, redact with `prepareTail` (which fails closed above 128 KiB),
 then keep the requested lines and trim whole lines from the start to 16 KiB (a
 single oversized line keeps its end on a UTF-8 boundary). The HTTP adapter extends
-the socket deadline to 35 seconds after a request body arrives, for `wait_for`.
+the socket deadline to 65 seconds after a request body arrives, allowing the CLI's
+60-second mutation deadline and bounded `wait_for` calls.
 
 **Removal.** Settings → General offers one **Auto-remove merged worktrees** checkbox
 for all repositories, off by default, stored in the profile rather than agent-editable

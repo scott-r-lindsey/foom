@@ -1,4 +1,5 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { AgentBadge } from "../board/agent-badge";
 import { prefersReducedMotion } from "./launch-sequence";
 import { type Agent, Feed, type Line, TICK_MS } from "./welcome-noise-output";
 
@@ -106,7 +107,14 @@ export function NoiseToCalm({ random = Math.random }: { random?: () => number })
         };
         return (
           <div key={branch} className="noise-tile" data-state={current} style={style}>
-            <div className="noise-title">{branch}</div>
+            <div className="noise-title">
+              <span className="noise-light" />
+              <AgentBadge mark={agent === "Claude Code" ? "CC" : agent === "Codex" ? "CX" : "AG"} />
+              <span className="noise-location">foom › {branch}</span>
+              <span className="noise-tile-menu">{index + 1}⌄</span>
+              <span>□</span>
+              <span>×</span>
+            </div>
             <pre className="noise-output">
               {view?.lines.map((line) => (
                 <span key={line.id} className="noise-line">
@@ -121,9 +129,10 @@ export function NoiseToCalm({ random = Math.random }: { random?: () => number })
             </pre>
             <div className="noise-row">
               <span className="noise-light" />
+              <AgentBadge mark={agent === "Claude Code" ? "CC" : agent === "Codex" ? "CX" : "AG"} />
               <span className="noise-branch">{branch}</span>
               <span className="noise-agent">
-                {current === "needs_input" ? "needs you" : current === "done" ? "done" : agent}
+                {current === "needs_input" ? "needs you" : current === "done" ? "done" : "working"}
               </span>
             </div>
           </div>

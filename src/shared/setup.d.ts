@@ -16,6 +16,8 @@ export interface Settings {
   restoreSessions: boolean;
   /** Starting, running and stopping children per orchestrator, integer 1–16. */
   concurrentChildren: number;
+  /** Git activity window in days, integer 1–365, default 30. */
+  recentRepositoryDays: number;
   /** Minutes before unread child events need the human; 0 disables, integer 0–1440. */
   unreadChildMinutes: number;
   /** Orchestrators may remove their own merged, clean worktrees without review. Profile only. */
@@ -57,7 +59,7 @@ export interface FoundRepository {
   branch: string | null;
   /** Latest git activity (ms since epoch), from reflog, index and HEAD file times. */
   lastActive: number | null;
-  /** Active within the last 30 days. */
+  /** Active within recentRepositoryDays at scan time. */
   recent: boolean;
   /** Already added to Foom. */
   added: boolean;

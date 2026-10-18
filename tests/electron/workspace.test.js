@@ -1198,7 +1198,7 @@ test("tile terminal viewport has no native overflow bars", async (context) => {
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openSettingsScreen(page);
-  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await page.getByRole("button", { name: "Themes", exact: true }).click();
   await page.getByRole("button", { name: "Dracula", exact: true }).click();
   await expect
     .poll(() =>

@@ -73,6 +73,8 @@ test("custom terminal palettes select by file ID and preview parsed colors", () 
   );
   const custom = screen.getByRole("button", { name: "Terminal custom" });
   expect(custom.getAttribute("aria-pressed")).toBe("true");
+  expect(custom.previousElementSibling?.tagName).toBe("HR");
+  expect(custom.previousElementSibling?.previousElementSibling?.tagName).toBe("BUTTON");
   fireEvent.click(custom);
   expect(onChange).toHaveBeenCalledWith({ terminalTheme: "user:term.json" });
   expect(screen.getByLabelText("Terminal theme preview").style.backgroundColor).toBe(

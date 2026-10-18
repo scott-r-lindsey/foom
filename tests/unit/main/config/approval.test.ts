@@ -93,6 +93,12 @@ test("owned files refresh only when missing or matching an earlier Foom version"
     minimum: 1,
     maximum: 16,
   });
+  expect(schema.properties["recentRepositoryDays"]).toEqual({
+    type: "integer",
+    minimum: 1,
+    maximum: 365,
+    default: 30,
+  });
   expect(Object.keys(schema.properties).sort()).toEqual(
     [
       "kind",
@@ -109,6 +115,7 @@ test("owned files refresh only when missing or matching an earlier Foom version"
       "hooks",
       "restoreSessions",
       "concurrentChildren",
+      "recentRepositoryDays",
     ].sort(),
   );
   for (const file of ["schemas/theme.schema.json", "schemas/terminal-theme.schema.json"])

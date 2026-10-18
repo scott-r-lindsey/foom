@@ -128,6 +128,7 @@ const settingsSchema = schema("foom:settings", {
     hooks: { type: "boolean" },
     restoreSessions: { type: "boolean" },
     concurrentChildren: { type: "integer", minimum: 1, maximum: 16 },
+    recentRepositoryDays: { type: "integer", minimum: 1, maximum: 365, default: 30 },
   },
 });
 
@@ -235,7 +236,7 @@ valid changes live. It is plain files: Foom keeps no history of it.
 
 - \`settings.json\`: \`{ "kind": "settings", ... }\` with any of the allowed keys:
   \`colorMode\`, \`panelColor\`, \`interfaceTheme\`, \`terminalTheme\`, \`interfaceScale\`,
-  \`terminalFontSize\`, \`terminalFont\` (a family name, default Hack Nerd Font Mono), \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\`, \`restoreSessions\` and \`concurrentChildren\` (integer 1–16, default 4). Any other key rejects the file.
+  \`terminalFontSize\`, \`terminalFont\` (a family name, default Hack Nerd Font Mono), \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\`, \`restoreSessions\` and \`concurrentChildren\` (integer 1–16, default 4), and \`recentRepositoryDays\` (integer 1–365, default 30). Any other key rejects the file.
   Consent records, paths and secrets are not configurable here.
   \`agentArguments\` names all three agents: \`{ "claude": [], "codex": [], "agy": [] }\`.
   Each list is literal argv, one string per argument, with no shell parsing.
@@ -351,6 +352,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   ],
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [
+    "7adeb4afdb505fdaeaf83ef3056e662f30ed502021c49adae30eb60e7bc17cca",
     "8a7b5812d9d8784e1a093861e3fecd0d8d9b74190d1fdcfb9701f2af37510624",
     "e975ab7aba189e009bbcd16becb6c096679dc5c46017d585a46cbda130af804e",
     "24d2c65f96e90c242c21990e919dee89287addcd1ddbb2d39892f9033beb49f6",

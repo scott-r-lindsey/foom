@@ -30,6 +30,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   hooks: true,
   restoreSessions: true,
   concurrentChildren: 4,
+  recentRepositoryDays: 30,
   unreadChildMinutes: 5,
   autoRemoveMergedWorktrees: false,
   forges: Object.freeze({ github: true }),
