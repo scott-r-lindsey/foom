@@ -1,7 +1,6 @@
-import { waitingState } from "./waiting-state";
+import { ExecutionOwner } from "./execution-owner";
 import { observerHealth } from "../agents/providers/installed-observers";
 import { flushV2Health } from "../agents/providers/v2-health";
-import type { V2HookRuntime } from "../../shared/v2-hooks";
 import { PluginSetup } from "../agents/plugin-setup";
 import { stagePlugin } from "../agents/plugin-staging";
 import { agentProvider, knownAgentId, providerRevision } from "../agents/providers/registry";
@@ -13,9 +12,7 @@ import type { McpConnection } from "../../shared/workspace";
 import { homeDirectory, homeShellFacts, shellPath } from "./home-shell";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import { AgyPlugin } from "../agents/agy-plugin";
-import { createHash } from "node:crypto";
-import { AgentExecution } from "../agents/execution";
-import type { ExecutionPhase, ExecutionSource, ExecutionTransition } from "../../shared/execution";
+import type { ExecutionTransition } from "../../shared/execution";
 import { conversationId, resumeArguments } from "../agents/conversation";
 import { SessionOwner } from "./session-owner";
 import type { SessionStore } from "./session-store";
@@ -27,7 +24,6 @@ import type { ControlRuntime } from "../control/runtime";
 import { Orchestration, UncertainEffect } from "../control/orchestration";
 import type { ConfirmWorkspace, DialogContent } from "../../shared/confirmation";
 import { EMPTY_AGENT_ARGUMENTS, hasBypassArgument } from "../agents/default-arguments";
-import { detectAgent, ruleRegion } from "../evaluator/agent-rules";
 import type { AgentEvidence } from "../../shared/agent-detection";
 import { basename, delimiter } from "node:path";
 import type { SidebarCommand, SidebarInventory } from "../../shared/workspace";
@@ -54,28 +50,6 @@ import type {
 import type { WorktreeService } from "./worktrees";
 
 type Agents = Pick<AgentService, "scan" | "launch" | "release" | "dispose" | "setHooksEnabled">;
-type Terminal = {
-  v2Hooks?: V2HookRuntime;
-  execution?: AgentExecution;
-  completedTurn?: number;
-  interrupted?: boolean;
-  actionVerdict?: string;
-  attentionKey?: string;
-  dismissedAttention?: string;
-  evidence?: AgentEvidence;
-  shellRunning?: boolean;
-  foregroundProgram?: string;
-  exitCode?: number;
-  hook?: HookSignal;
-  permissionReply?: boolean;
-  permissionProgress?: boolean;
-  state: TerminalState | null;
-  /** Bumped by replies and dismissals; evaluations that began earlier are discarded. */
-  generation: number;
-  outputVersion: number;
-  inputVersion?: number;
-};
-
 export interface WorkspaceDependencies {
   pluginStagingRoot?: string;
   worktrees: Pick<
@@ -170,10 +144,8 @@ export class Workspace {
   private readonly agents: Agents;
   private readonly sessions: SessionOwner;
   private readonly cleanup: CleanupOwner;
-  private launchSequence = 0;
-  private readonly executionListeners = new Set<(event: ExecutionTransition) => void>();
   private readonly launched = new Map<string, WorkspaceTerminal>();
-  private readonly terminals = new Map<string, Terminal>();
+  private readonly executionOwner: ExecutionOwner;
   private readonly agyPlugin = new AgyPlugin();
   private readonly hookKeys = new Map<string, string>();
   private readonly queues = new Map<string, Promise<void>>();
@@ -260,8 +232,7 @@ export class Workspace {
         (key, terminalId) => {
           if (terminalId) {
             this.hookKeys.set(key, terminalId);
-            this.execution(terminalId);
-            if (binding.v2?.runtime) this.track(terminalId).v2Hooks = binding.v2.runtime;
+            this.executionOwner.attachHooks(terminalId, binding.v2?.runtime);
           } else this.hookKeys.delete(key);
         },
         undefined,
@@ -370,6 +341,38 @@ export class Workspace {
       this.now,
       () => this.concurrentChildren,
     );
+    this.executionOwner = new ExecutionOwner({
+      terminal: (id) => this.launched.get(id),
+      tail: (id, lines) => deps.terminals.tail(id, lines),
+      verdicts: deps.verdicts,
+      enqueue: (id, work) => this.enqueue(id, work),
+      closed: () => this.closed,
+      refresh: () => {
+        this.refresh();
+      },
+      recheck: (id) => {
+        const entry = this.launched.get(id);
+        if (entry?.kind === "agent") deps.forge?.recheck(entry.worktree);
+      },
+      exited: () => {
+        this.persist();
+      },
+      invalidateReply: (id) => {
+        this.orchestration.invalidateReply(id);
+      },
+      publishChildEvents: () => {
+        this.orchestration.childEvents.publish();
+      },
+      waitingOn: (id) => this.orchestration.waitingOn(id),
+      unreadAt: (id) => this.orchestration.unreadChildren.overdue(id),
+      onExecution: (event) => {
+        deps.onExecution?.(event);
+      },
+      onState: (state) => {
+        deps.onState(state);
+      },
+      now: this.now,
+    });
     const prepareWorktreeRemoval = deps.prepareWorktreeRemoval?.bind(deps);
     this.cleanup = new CleanupOwner({
       worktrees: deps.worktrees,
@@ -387,8 +390,8 @@ export class Workspace {
       terminals: () => [...this.launched.values()],
       running: (id) =>
         this.sessions.isRestoring(id) ||
-        (!this.launched.get(id)?.dormant && this.terminals.get(id)?.exitCode === undefined),
-      exitCode: (id) => this.terminals.get(id)?.exitCode,
+        (!this.launched.get(id)?.dormant && this.executionOwner.view(id).exitCode === undefined),
+      exitCode: (id) => this.executionOwner.view(id).exitCode,
       stop: (id) => deps.terminals.stop(id),
       exited: (id, code) => this.exited(id, code),
       kill: (id) => deps.terminals.kill(id),
@@ -411,10 +414,10 @@ export class Workspace {
       terminal: (id) => this.launched.get(id),
       restoreRow: (row) => {
         this.launched.set(row.id, row);
-        this.track(row.id).exitCode = -1;
+        this.executionOwner.markExited(row.id, -1);
       },
       failed: (id) => {
-        this.track(id).exitCode = -1;
+        this.executionOwner.markExited(id, -1);
       },
       busy: (id, value) => {
         if (value) this.busySessions.add(id);
@@ -536,61 +539,27 @@ export class Workspace {
     this.refresh();
   }
 
-  private currentState(id: string): TerminalState | null {
-    const terminal = this.terminals.get(id);
-    const state = terminal?.state;
-    const current = waitingState(
-      id,
-      terminal?.hook?.action === "needs_input" && state
-        ? { ...state, attentionKind: "permission" }
-        : (state ?? null),
-      terminal?.execution?.snapshot(),
-      this.orchestration.waitingOn(id),
-    );
-    // The orchestrator's own attention (a permission prompt, a question) keeps its
-    // reason and verdict; the unread reminder only raises otherwise-quiet states.
-    if (current?.state === "needs_input") return current;
-    const unreadAt = this.orchestration.unreadChildren.overdue(id);
-    if (unreadAt !== undefined)
-      return {
-        id,
-        execution: terminal?.execution?.snapshot(),
-        verdictId: null,
-        state: "needs_input",
-        reason: "Child report unread",
-        signal: "orchestration:unread",
-        confidence: 1,
-        timestamp: unreadAt,
-        attentionKind: "unknown",
-      };
-    return current;
-  }
-
   snapshot(): WorkspaceSnapshot {
     return {
       repositories: this.deps.worktrees.listRepositories(),
-      terminals: [...this.launched.values()].map((entry) => ({
-        ...entry,
-        ...(this.terminals.get(entry.id)?.execution
-          ? { execution: this.terminals.get(entry.id)?.execution?.snapshot() }
-          : {}),
-        ...(this.terminals.get(entry.id)?.exitCode !== undefined
-          ? { exitCode: this.terminals.get(entry.id)?.exitCode }
-          : {}),
-        foregroundProgram:
-          this.terminals.get(entry.id)?.exitCode === undefined
-            ? (this.terminals.get(entry.id)?.foregroundProgram ?? "")
-            : "",
-        state: this.currentState(entry.id),
-        outputRevision: this.terminals.get(entry.id)?.outputVersion ?? 0,
-        inputRevision: this.terminals.get(entry.id)?.inputVersion ?? 0,
-        exited:
-          !this.sessions.isRestoring(entry.id) &&
-          (entry.dormant === true || this.terminals.get(entry.id)?.exitCode !== undefined),
-        ...this.orchestrationView(entry.id),
-        ...(this.sessions.roleNotRestored(entry.id) ? { roleNotRestored: true } : {}),
-        mcpConnection: this.mcpConnections.get(entry.id),
-      })),
+      terminals: [...this.launched.values()].map((entry) => {
+        const view = this.executionOwner.view(entry.id);
+        return {
+          ...entry,
+          ...(view.execution ? { execution: view.execution } : {}),
+          ...(view.exitCode !== undefined ? { exitCode: view.exitCode } : {}),
+          foregroundProgram: view.exitCode === undefined ? (view.foregroundProgram ?? "") : "",
+          state: this.executionOwner.currentState(entry.id),
+          outputRevision: view.outputRevision,
+          inputRevision: view.inputRevision,
+          exited:
+            !this.sessions.isRestoring(entry.id) &&
+            (entry.dormant === true || view.exitCode !== undefined),
+          ...this.orchestrationView(entry.id),
+          ...(this.sessions.roleNotRestored(entry.id) ? { roleNotRestored: true } : {}),
+          mcpConnection: this.mcpConnections.get(entry.id),
+        };
+      }),
     };
   }
 
@@ -821,7 +790,7 @@ export class Workspace {
       (entry) =>
         entry.worktree === worktree &&
         entry.kind === "agent" &&
-        this.terminals.get(entry.id)?.exitCode === undefined,
+        this.executionOwner.view(entry.id).exitCode === undefined,
     );
     return !active || confirm({ kind: "shared-agent" });
   }
@@ -915,10 +884,7 @@ export class Workspace {
         bypass: result.bypass ?? hasBypassArgument(request.agent, defaultArguments),
         state: null,
       });
-      const tracked = this.track(result.id);
-      const execution = this.execution(result.id);
-      if (tracked.exitCode !== undefined) execution.transition("exited", "exit");
-      else if (tracked.evidence) void this.evidence(result.id, tracked.evidence, true);
+      this.executionOwner.launched(result.id);
       this.persist();
       this.refresh();
       return { id: result.id, attention: result.attention };
@@ -993,7 +959,7 @@ export class Workspace {
           attention: "evaluator",
           state: null,
         });
-        this.track(id);
+        this.executionOwner.ensure(id);
         this.persist();
         this.refresh();
         return id;
@@ -1069,7 +1035,7 @@ export class Workspace {
   private async startHomeShell(restoreId?: string): Promise<void> {
     const windows = process.platform === "win32";
     const environment = this.shellEnvironment();
-    if (restoreId !== undefined) this.terminals.delete(restoreId);
+    if (restoreId !== undefined) this.executionOwner.reset(restoreId);
     const id = await this.deps.terminals.create({
       ...(restoreId === undefined ? {} : { id: restoreId }),
       command: shellPath(),
@@ -1094,7 +1060,7 @@ export class Workspace {
       state: null,
       startedAt: this.now(),
     });
-    this.track(id);
+    this.executionOwner.ensure(id);
     this.persist();
     this.refresh();
   }
@@ -1114,7 +1080,7 @@ export class Workspace {
     if (!config) throw new Error("Foom config is unavailable");
     const running = [...this.launched.values()].some(
       (entry) =>
-        entry.config && !entry.dormant && this.terminals.get(entry.id)?.exitCode === undefined,
+        entry.config && !entry.dormant && this.executionOwner.view(entry.id).exitCode === undefined,
     );
     if (running || this.configStarting) return;
     this.configStarting = true;
@@ -1122,7 +1088,7 @@ export class Workspace {
       await config.check();
       if (run === "shell") {
         const environment = this.shellEnvironment(config.cliDirectory);
-        if (replacement) this.terminals.delete(replacement.id);
+        if (replacement) this.executionOwner.reset(replacement.id);
         const id = await this.deps.terminals.create({
           ...(replacement ? { id: replacement.id } : {}),
           command: shellPath(),
@@ -1147,7 +1113,7 @@ export class Workspace {
           state: null,
           startedAt: this.now(),
         });
-        this.track(id);
+        this.executionOwner.ensure(id);
         this.persist();
         this.refresh();
         return;
@@ -1169,12 +1135,12 @@ export class Workspace {
       }
       if (replacement) {
         const old = this.launched.get(replacement.id);
-        if (!old || this.terminals.get(old.id)?.exitCode === undefined)
+        if (!old || this.executionOwner.view(old.id).exitCode === undefined)
           throw new Error("Session is no longer exited");
         await this.queues.get(old.id);
         if (!old.dormant) await this.deps.terminals.kill(old.id);
         old.dormant = true;
-        this.terminals.delete(old.id);
+        this.executionOwner.reset(old.id);
         this.deps.verdicts.forget(old.id);
       }
       const defaultArguments = this.defaultArguments[run] ?? [];
@@ -1200,7 +1166,7 @@ export class Workspace {
             : {}),
         });
       } catch (error) {
-        if (replacement) this.track(replacement.id).exitCode = -1;
+        if (replacement) this.executionOwner.markExited(replacement.id, -1);
         this.deps.onChange?.();
         throw error;
       }
@@ -1228,10 +1194,7 @@ export class Workspace {
         bypass: result.bypass ?? hasBypassArgument(run, defaultArguments),
         state: null,
       });
-      const tracked = this.track(result.id);
-      const execution = this.execution(result.id);
-      if (tracked.exitCode !== undefined) execution.transition("exited", "exit");
-      else if (tracked.evidence) void this.evidence(result.id, tracked.evidence, true);
+      this.executionOwner.launched(result.id);
       this.persist();
       this.refresh();
     } finally {
@@ -1357,7 +1320,7 @@ export class Workspace {
         await this.deps.copyText?.(entry.conversationId);
         return;
       }
-      if (this.terminals.get(entry.id)?.exitCode === undefined)
+      if (this.executionOwner.view(entry.id).exitCode === undefined)
         throw new Error("Session is still running");
       if (command.kind === "resume") resumeArguments(entry.agent, entry.conversationId);
       this.busySessions.add(entry.id);
@@ -1386,7 +1349,7 @@ export class Workspace {
       const entry = this.launched.get(command.id);
       if (!entry && command.kind !== "stop" && command.kind !== "close")
         throw new Error("Unknown session");
-      const exited = this.terminals.get(command.id)?.exitCode !== undefined;
+      const exited = this.executionOwner.view(command.id).exitCode !== undefined;
       if (command.kind === "stop") {
         if (!(await confirm({ kind: "stop" }))) return;
         await this.deps.terminals.stop(command.id);
@@ -1464,7 +1427,7 @@ export class Workspace {
           entry.agent === agent &&
           entry.conversationId === id &&
           !entry.dormant &&
-          this.terminals.get(entry.id)?.exitCode === undefined,
+          this.executionOwner.view(entry.id).exitCode === undefined,
       );
       if (running) {
         this.deps.reveal?.(running.id);
@@ -1532,12 +1495,12 @@ export class Workspace {
           if (replacement) {
             if (!restoring) this.orchestration.relaunched(replacement.id);
             const old = this.launched.get(replacement.id);
-            if (!old || this.terminals.get(old.id)?.exitCode === undefined)
+            if (!old || this.executionOwner.view(old.id).exitCode === undefined)
               throw new Error("Session is no longer exited");
             await this.queues.get(old.id);
             if (!old.dormant) await this.deps.terminals.kill(old.id);
             old.dormant = true;
-            this.terminals.delete(old.id);
+            this.executionOwner.reset(old.id);
             this.deps.verdicts.forget(old.id);
           }
           try {
@@ -1569,7 +1532,7 @@ export class Workspace {
               )
             ).id;
           } catch (error) {
-            if (replacement) this.track(replacement.id).exitCode = -1;
+            if (replacement) this.executionOwner.markExited(replacement.id, -1);
             this.deps.onChange?.();
             throw error;
           }
@@ -1578,7 +1541,7 @@ export class Workspace {
             throw new Error("Worktree has changed. Select it and try again.");
           const windows = process.platform === "win32";
           const environment = this.shellEnvironment();
-          if (replacement) this.terminals.delete(replacement.id);
+          if (replacement) this.executionOwner.reset(replacement.id);
           const id = await this.deps.terminals.create({
             ...(replacement ? { id: replacement.id } : {}),
             command: windows ? "powershell.exe" : process.env["SHELL"] || "/bin/bash",
@@ -1602,7 +1565,7 @@ export class Workspace {
             attention: "evaluator",
             state: null,
           });
-          this.track(id);
+          this.executionOwner.ensure(id);
           this.persist();
           this.refresh();
           return id;
@@ -1632,7 +1595,7 @@ export class Workspace {
         entry.agent === "shell" ||
         entry.config ||
         this.sessions.isRestoring(id) ||
-        this.terminals.get(id)?.exitCode !== undefined
+        this.executionOwner.view(id).exitCode !== undefined
       )
         throw new Error("Only a running agent session can orchestrate");
       const view = this.orchestration.view(id);
@@ -1776,81 +1739,15 @@ export class Workspace {
   }
 
   subscribeExecution(listener: (event: ExecutionTransition) => void): () => void {
-    this.executionListeners.add(listener);
-    return () => {
-      this.executionListeners.delete(listener);
-    };
+    return this.executionOwner.subscribeExecution(listener);
   }
 
-  private execution(id: string): AgentExecution {
-    const terminal = this.track(id);
-    terminal.execution ??= new AgentExecution(
-      id,
-      ++this.launchSequence,
-      (event) => {
-        terminal.generation++;
-        this.deps.onExecution?.(event);
-        this.refresh();
-        const entry = this.launched.get(id);
-        if (entry?.kind === "agent" && event.to === "idle")
-          this.deps.forge?.recheck(entry.worktree);
-        for (const listener of this.executionListeners) listener(event);
-      },
-      this.now,
-    );
-    return terminal.execution;
-  }
-
-  private transition(id: string, phase: ExecutionPhase, source: ExecutionSource): void {
-    const terminal = this.track(id);
-    const event = this.execution(id).transition(phase, source, terminal.permissionProgress);
-    if (!event) return;
-    if (phase !== "blocked") {
-      delete terminal.attentionKey;
-      delete terminal.dismissedAttention;
-    }
-    if (phase === "working") {
-      delete terminal.hook;
-      delete terminal.permissionReply;
-      delete terminal.permissionProgress;
-      delete terminal.completedTurn;
-    }
-    if (
-      phase === "idle" &&
-      event.from === "working" &&
-      (source === "hook" || !this.completionHook(id))
-    )
-      terminal.completedTurn = event.turn;
-    if (phase === "idle" && event.from === "working" && source !== "hook")
-      terminal.v2Hooks?.idle(event.turn);
-    if (phase === "exited" && event.from === "working") terminal.interrupted = true;
-  }
-
-  private completionHook(id: string): boolean {
-    const entry = this.launched.get(id);
-    if (this.track(id).v2Hooks) return this.track(id).v2Hooks?.required() === true;
-    return (
-      entry?.attention === "hooks" &&
-      Boolean(!builtinAgent(entry.agent) || builtinAgent(entry.agent)?.completionHook)
-    );
-  }
-
-  private track(id: string): Terminal {
-    let terminal = this.terminals.get(id);
-    if (!terminal) {
-      terminal = { state: null, generation: 0, outputVersion: 0 };
-      this.terminals.set(id, terminal);
-    }
-    return terminal;
-  }
-
-  /** Evaluations for one terminal run in order, so a slow one can't overwrite a newer one. */
-  private enqueue(id: string, work: (terminal: Terminal) => Promise<void>): Promise<void> {
+  /** Evaluations remain ordered across invocations reusing the same terminal ID. */
+  private enqueue(id: string, work: () => Promise<void>): Promise<void> {
     const previous = this.queues.get(id) ?? Promise.resolve();
     const next = previous
       .then(async () => {
-        const terminal = this.terminals.get(id);
-        if (terminal && !this.closed) await work(terminal);
+        if (this.executionOwner.has(id) && !this.closed) await work();
       })
       .catch((error: unknown) => {
         console.error("Unable to evaluate terminal:", error);
@@ -1862,277 +1759,23 @@ export class Workspace {
     return next;
   }
 
-  private publish(id: string, terminal: Terminal, state: Omit<TerminalState, "id" | "timestamp">) {
-    const phase = terminal.execution?.snapshot().phase;
-    const dismissed =
-      terminal.dismissedAttention !== undefined &&
-      terminal.dismissedAttention === terminal.attentionKey;
-    const resolved =
-      phase === "blocked" && dismissed
-        ? "quiet_ok"
-        : phase === "working" && state.state !== "needs_input"
-          ? "working"
-          : phase === "blocked" && state.signal !== "user:dismissed"
-            ? "needs_input"
-            : (phase === "idle" || phase === "starting") && state.state === "working"
-              ? "quiet_ok"
-              : state.state;
-    this.orchestration.invalidateReply(id);
-    terminal.state = {
-      id,
-      ...state,
-      ...(terminal.execution ? { execution: terminal.execution.snapshot() } : {}),
-      state: resolved,
-      ...(resolved === "needs_input"
-        ? {
-            attentionKind:
-              terminal.hook?.action === "needs_input"
-                ? "permission"
-                : (state.attentionKind ?? "unknown"),
-          }
-        : {}),
-      outputRevision: terminal.outputVersion,
-      inputRevision: terminal.inputVersion ?? 0,
-      timestamp: this.now(),
-    };
-    this.orchestration.childEvents.publish();
-    this.deps.onState(this.currentState(id) ?? terminal.state);
-  }
-
-  private async evaluate(
-    id: string,
-    terminal: Terminal,
-    generation?: number,
-    outputVersion = terminal.outputVersion,
-  ): Promise<void> {
-    const inputVersion = terminal.inputVersion ?? 0;
-    // A reply or dismissal since this evaluation began makes its evidence stale.
-    const stale = () =>
-      this.closed ||
-      this.terminals.get(id) !== terminal ||
-      (terminal.exitCode === undefined && (terminal.inputVersion ?? 0) !== inputVersion) ||
-      (generation !== undefined && generation !== terminal.generation) ||
-      (terminal.exitCode === undefined &&
-        (!terminal.hook || terminal.permissionProgress) &&
-        outputVersion !== terminal.outputVersion);
-    if (stale()) return;
-    let tail: string[] = [];
-    try {
-      tail = await this.deps.terminals.tail(id, 40);
-    } catch {
-      // A failed host has no screen. Exit codes and hooks still decide.
-    }
-    terminal.v2Hooks?.review(tail);
-    let record = await this.deps.verdicts.classify({
-      terminalId: id,
-      tail,
-      ...this.agentInput(id, terminal),
-      ...(terminal.hook && !terminal.permissionProgress ? { hook: terminal.hook } : {}),
-      ...(terminal.exitCode !== undefined ? { exitCode: terminal.exitCode } : {}),
-    });
-    if (stale()) return;
-    const execution = terminal.execution?.snapshot();
-    const agentInput = this.agentInput(id, terminal);
-    const detected =
-      agentInput.agent && agentInput.evidence
-        ? detectAgent(agentInput.agent, agentInput.evidence, tail)
-        : undefined;
-    if (execution && terminal.exitCode === undefined) {
-      if (record.verdict.state === "needs_input") {
-        // Compare the attention evidence, not verdict IDs or animated title frames.
-        const attentionEvidence =
-          terminal.hook && !terminal.permissionProgress
-            ? ""
-            : record.verdict.signal.startsWith("pattern:")
-              ? tail.findLast((line) => line.trim().length > 0)?.trim()
-              : detected?.state === "blocked" && detected.region !== "title" && agentInput.evidence
-                ? ruleRegion(detected, agentInput.evidence, tail)
-                : tail;
-        terminal.attentionKey = createHash("sha256")
-          .update(JSON.stringify([record.verdict.signal, attentionEvidence]))
-          .digest("hex");
-        if (terminal.dismissedAttention !== terminal.attentionKey)
-          delete terminal.dismissedAttention;
-        this.transition(
-          id,
-          "blocked",
-          terminal.hook && !terminal.permissionProgress ? "hook" : "screen",
-        );
-      } else if (
-        execution.phase === "blocked" &&
-        record.verdict.state === "working" &&
-        detected?.state === "working" &&
-        record.verdict.signal === `rules:${agentInput.agent ?? ""}:${detected.id}`
-      ) {
-        this.transition(id, "working", "title");
-      } else if (
-        execution.phase === "idle" &&
-        terminal.completedTurn === execution.turn &&
-        record.verdict.state === "working"
-      ) {
-        record = {
-          ...record,
-          verdict: {
-            state: "done",
-            reason: "Agent turn completed",
-            signal: "execution:completed",
-            confidence: 0.95,
-          },
-        };
-      } else if (
-        execution.phase === "idle" &&
-        this.completionHook(id) &&
-        terminal.completedTurn !== execution.turn &&
-        record.verdict.state !== "failed"
-      ) {
-        record = {
-          ...record,
-          verdict: {
-            state: "quiet_ok",
-            reason: "Turn ended without a completion hook",
-            signal: "execution:idle",
-            confidence: 0.95,
-          },
-        };
-      }
-    }
-    if (terminal.interrupted)
-      record = {
-        ...record,
-        verdict: {
-          state: "failed",
-          reason: "Agent exited during a turn",
-          signal: "execution:interrupted",
-          confidence: 1,
-        },
-      };
-    // A blocker transition above is part of this evaluation, not stale evidence.
-    generation = terminal.generation;
-    if (
-      terminal.state?.verdictId &&
-      terminal.state.state === record.verdict.state &&
-      terminal.state.signal === record.verdict.signal &&
-      terminal.state.outputRevision === terminal.outputVersion &&
-      terminal.state.inputRevision === (terminal.inputVersion ?? 0) &&
-      terminal.state.execution?.revision === terminal.execution?.snapshot().revision
-    )
-      return;
-    let verdictId: string | null = record.id;
-    try {
-      await this.deps.verdicts.commit(record);
-    } catch (error) {
-      // The state still goes out; an unstored verdict just has no feedback target.
-      console.error("Unable to record verdict:", error);
-      verdictId = null;
-    }
-    if (stale()) return;
-    this.publish(id, terminal, { verdictId, ...record.verdict });
-  }
-
-  /** Validated host metadata, excluded from persisted sessions. */
   foreground(id: string, name: string): void {
-    const terminal = this.track(id);
-    if (terminal.exitCode !== undefined || terminal.foregroundProgram === name) return;
-    terminal.foregroundProgram = name;
-    this.refresh();
+    this.executionOwner.foreground(id, name);
   }
-
-  /** Invocation-scoped shell markers, never prompt text guessed from screen contents. */
   shellState(id: string, state: ShellState): void {
-    const terminal = this.track(id);
-    if (terminal.exitCode !== undefined) return;
-    const wasRunning = terminal.shellRunning;
-    terminal.shellRunning = state.phase === "running";
-    terminal.generation += 1;
-    if (terminal.hook) return;
-    if (state.phase === "prompt" && wasRunning === false) return;
-    this.publish(id, terminal, {
-      verdictId: null,
-      state:
-        state.phase === "running"
-          ? "working"
-          : wasRunning === undefined
-            ? "quiet_ok"
-            : state.exitCode === 0
-              ? "done"
-              : "failed",
-      reason:
-        state.phase === "running"
-          ? "Command is running"
-          : wasRunning === undefined
-            ? "Shell is ready"
-            : state.exitCode === 0
-              ? "Command completed"
-              : `Command exited with status ${String(state.exitCode)}`,
-      signal: "process:shell",
-      confidence: 1,
-    });
+    this.executionOwner.shellState(id, state);
   }
-
-  /** Output invalidates screen evidence without dismissing authoritative hooks. */
   output(id: string): void {
-    const terminal = this.track(id);
-    terminal.outputVersion += 1;
-    this.orchestration.invalidateReply(id);
-    if (
-      terminal.execution !== undefined ||
-      this.launched.get(id)?.kind === "agent" ||
-      terminal.exitCode !== undefined ||
-      terminal.hook ||
-      terminal.shellRunning === false ||
-      terminal.state?.state === "working"
-    )
-      return;
-    this.publish(id, terminal, {
-      verdictId: null,
-      state: "working",
-      reason: "Terminal output resumed",
-      signal: "process:output",
-      confidence: 1,
-    });
+    this.executionOwner.output(id);
   }
-
-  private agentInput(id: string, terminal: Terminal): Pick<EvaluationInput, "agent" | "evidence"> {
-    const agent = this.launched.get(id)?.agent;
-    return agent && agent !== "shell"
-      ? { agent, evidence: terminal.evidence ?? { title: "", progress: null } }
-      : {};
-  }
-
-  /** Metadata is local evidence; parsing has drained before the host publishes it. */
   evidence(id: string, evidence: AgentEvidence, initial = false): Promise<void> {
-    const terminal = this.track(id);
-    const previousEvidence = terminal.evidence ?? { title: "", progress: null };
-    terminal.evidence = evidence;
-    const { agent } = this.agentInput(id, terminal);
-    // Unknown metadata and progress-only updates are not quiet signals. Keep them
-    // for the next real quiet event rather than submitting an actively changing tail.
-    if ((!initial && previousEvidence.title === evidence.title) || !agent) return Promise.resolve();
-    const previous = detectAgent(agent, previousEvidence, []);
-    const next = detectAgent(agent, evidence, []);
-    if (terminal.permissionReply && next?.state === "working") terminal.permissionProgress = true;
-    const resuming =
-      terminal.execution?.snapshot().phase === "blocked" && next?.state === "working";
-    if (
-      !next ||
-      (!initial && !resuming && previous?.id === next.id && previous.state === next.state)
-    )
-      return Promise.resolve();
-    // A spinner must not override a prompt still present on the screen.
-    if (next.state !== "unknown" && !resuming) this.transition(id, next.state, "title");
-    return this.quiet(id);
+    return this.executionOwner.evidence(id, evidence, initial);
   }
-
-  /** Output went quiet. Live terminals only; an exit verdict is final. */
   quiet(id: string): Promise<void> {
-    const { generation, outputVersion } = this.track(id);
-    return this.enqueue(id, async (terminal) => {
-      if (terminal.exitCode === undefined && terminal.shellRunning !== false)
-        await this.evaluate(id, terminal, generation, outputVersion);
-    });
+    return this.executionOwner.quiet(id);
   }
 
-  /** Hook signals carry a per-launch key; map it back to the terminal before use. */
+  /** Resolve per-launch capabilities and persist validated conversation identity here. */
   hook(signal: HookSignal): Promise<void> {
     const id = this.hookKeys.get(signal.terminalId);
     if (!id) return Promise.resolve();
@@ -2147,168 +1790,30 @@ export class Workspace {
       this.persist();
       this.deps.onChange?.();
     }
-    if (this.track(id).exitCode !== undefined) return Promise.resolve();
-    const health = this.track(id);
-    const runtime = health.v2Hooks;
-    if (
-      runtime &&
-      signal.recoverTurn === true &&
-      signal.action === "classify" &&
-      this.execution(id).snapshot().phase !== "working"
-    )
-      this.transition(id, "working", "hook");
-    if (
-      runtime &&
-      signal.action !== "working" &&
-      !runtime.accept(signal, this.execution(id).snapshot().turn)
-    )
-      return Promise.resolve();
-    if (signal.action === "ready" && signal.signal.startsWith("plugin:")) {
-      if (runtime && health.hook?.action === "needs_input") return Promise.resolve();
-      const wasWorking = this.execution(id).snapshot().phase === "working";
-      this.transition(id, "idle", "hook");
-      if (signal.endsTurn === false && wasWorking) delete health.completedTurn;
-      return Promise.resolve();
-    }
-    if (signal.action === "working") {
-      this.track(id).generation++;
-      this.transition(id, "working", "hook");
-      runtime?.accept(signal, this.execution(id).snapshot().turn);
-      return Promise.resolve();
-    }
-    // A fully idle Stop proves a turn ran even when its background start report
-    // was overtaken. Recover the turn identity before classifying completion.
-    if (
-      (signal.signal === "agy:Stop" || signal.recoverTurn === true) &&
-      signal.action === "classify" &&
-      signal.terminationReason === "model_stop" &&
-      signal.fullyIdle === true &&
-      this.execution(id).snapshot().phase !== "working"
-    )
-      this.transition(id, "working", "hook");
-    if (signal.action === "failed") {
-      this.track(id).hook = { terminalId: id, action: signal.action, signal: signal.signal };
-      if (signal.endsTurn !== false) this.transition(id, "idle", "hook");
-    } else if (signal.action === "needs_input") {
-      delete this.track(id).permissionReply;
-      delete this.track(id).permissionProgress;
-      delete this.track(id).dismissedAttention;
-      this.track(id).hook = { terminalId: id, action: signal.action, signal: signal.signal };
-      this.transition(id, "blocked", "hook");
-    } else if (signal.endsTurn !== false) {
-      const terminal = this.track(id);
-      const turn = terminal.execution?.snapshot().turn;
-      if (turn && (signal.signal.startsWith("plugin:") || signal.signal === "agy:Stop"))
-        terminal.completedTurn = turn;
-      this.transition(id, "idle", "hook");
-    }
-    const { generation } = this.track(id);
-    return this.enqueue(id, async (terminal) => {
-      // A newer lifecycle transition invalidates this queued classification.
-      if (terminal.exitCode !== undefined || terminal.generation !== generation) return;
-      // Explicit permission persists until supported execution evidence resumes work.
-      if (signal.action === "needs_input")
-        terminal.hook = { terminalId: id, action: signal.action, signal: signal.signal };
-      await this.evaluate(id, terminal, generation);
-    });
+    return this.executionOwner.hook(id, signal);
   }
 
-  /** Exit verdicts ignore replies: the process is gone, so its exit always stands. */
   exited(id: string, code: number): Promise<void> {
     this.agents.release(id);
     this.orchestration.exited(id);
-    const current = this.track(id);
-    if (current.execution) this.transition(id, "exited", "exit");
-    return this.enqueue(id, async (terminal) => {
-      if (terminal.exitCode !== undefined) return;
-      terminal.exitCode = code;
-      const entry = this.launched.get(id);
-      if (entry?.kind === "agent") this.deps.forge?.recheck(entry.worktree);
-      this.persist();
-      delete terminal.hook;
-      await this.evaluate(id, terminal);
-    });
+    return this.executionOwner.exited(id, code);
   }
 
-  /** The terminal was killed and removed from the board. */
   removed(id: string): void {
     this.agents.release(id);
     this.orchestration.exited(id);
     this.orchestration.removed(id);
     this.launched.delete(id);
     this.persist();
-    this.terminals.delete(id);
-    this.deps.verdicts.forget(id);
+    this.executionOwner.removed(id);
     this.refresh();
   }
 
-  /**
-   * The user typed into the terminal (terminal-generated reports are filtered out
-   * before this). Record reply feedback once. For agents, lifecycle evidence alone
-   * establishes resumed execution; shells retain their reply behavior.
-   */
   input(id: string): void {
-    const terminal = this.terminals.get(id);
-    if (!terminal) return;
-    terminal.inputVersion = (terminal.inputVersion ?? 0) + 1;
-    this.orchestration.invalidateReply(id);
-    if (terminal.hook?.action === "needs_input") {
-      terminal.permissionReply = true;
-    }
-    if (!terminal.execution) {
-      terminal.generation += 1;
-      delete terminal.hook;
-    }
-    const state = terminal.state;
-    if (state?.state !== "needs_input") return;
-    if (!terminal.execution) this.clear(id, terminal, "replied");
-    if (state.verdictId && state.verdictId !== terminal.actionVerdict) {
-      terminal.actionVerdict = state.verdictId;
-      void this.deps.verdicts
-        .recordAction(id, state.verdictId, "replied")
-        .catch((error: unknown) => {
-          console.error("Unable to record reply:", error);
-        });
-    }
+    this.executionOwner.input(id);
   }
-
-  /** A null `verdictId` refers to a current verdict that couldn't be stored. */
-  async feedback(id: string, verdictId: string | null, action: VerdictAction): Promise<void> {
-    const terminal = this.terminals.get(id);
-    if (!terminal) throw new Error("Unknown terminal");
-    this.orchestration.invalidateReply(id);
-    const current = () => terminal.state !== null && terminal.state.verdictId === verdictId;
-    if (verdictId !== null) {
-      const previousAction = terminal.actionVerdict;
-      terminal.actionVerdict = verdictId;
-      try {
-        await this.deps.verdicts.recordAction(id, verdictId, action);
-      } catch (error) {
-        if (terminal.actionVerdict === verdictId) {
-          if (previousAction === undefined) delete terminal.actionVerdict;
-          else terminal.actionVerdict = previousAction;
-        }
-        throw error;
-      }
-    } else if (!current() || terminal.state?.signal.startsWith("user:"))
-      throw new Error("Invalid verdict feedback");
-    // A newer verdict may have arrived while the action was being recorded.
-    if (action === "ignored" || !current()) return;
-    terminal.generation += 1;
-    if (!terminal.execution) delete terminal.hook;
-    if (action === "dismissed" && terminal.attentionKey !== undefined)
-      terminal.dismissedAttention = terminal.attentionKey;
-    this.clear(id, terminal, action);
-  }
-
-  private clear(id: string, terminal: Terminal, action: "replied" | "dismissed"): void {
-    this.publish(id, terminal, {
-      verdictId: null,
-      state: action === "replied" ? "working" : "quiet_ok",
-      reason: action === "replied" ? "You replied" : "Not attention",
-      signal: action === "replied" ? "user:reply" : "user:dismissed",
-      confidence: 1,
-    });
+  feedback(id: string, verdictId: string | null, action: VerdictAction): Promise<void> {
+    return this.executionOwner.feedback(id, verdictId, action);
   }
 
   /** Call after terminals have stopped. Revokes every launch and closes the receiver. */
@@ -2317,10 +1822,10 @@ export class Workspace {
     this.closed = true;
     this.launchAbort.abort();
     await this.cleanup.dispose();
-    this.executionListeners.clear();
+    this.executionOwner.disposeSubscriptions();
     this.orchestration.disposeUnreadChildren();
     this.deps.watcher?.dispose();
-    for (const id of this.terminals.keys()) this.deps.verdicts.forget(id);
+    this.executionOwner.forgetVerdicts();
     this.agents.dispose();
     await this.deps.forge?.close();
     try {
