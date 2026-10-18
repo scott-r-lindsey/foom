@@ -1,6 +1,6 @@
 # Agent attention signals
 
-Research for #11, checked 2026-09-28 on Linux. This is a capability baseline, not a claim that every installed version behaves identically. Detect each resolved executable with `--version`, retain its full version string, and probe its `--help` before choosing flags. Hook discovery accepts stable numeric Claude Code versions >= 2.1.284 (` (Claude Code)` is an optional product label) and `codex-cli` versions >= 0.155.1, with no upper bound. Help must still advertise the complete `--settings` or `-c` flag. Older, unparseable, prerelease, and custom-suffixed versions use the local rules fallback. Missing or failed help probes also fall back.
+Historical baseline for #11, checked 2026-09-28 on Linux. Later sections record follow-up measurements. Current launch and restoration contracts live in [architecture](architecture.md#agent-discovery-and-launch); this baseline does not supersede them. This is a capability baseline, not a claim that every installed version behaves identically. Detect each resolved executable with `--version`, retain its full version string, and probe its `--help` before choosing flags. Hook discovery accepts stable numeric Claude Code versions >= 2.1.284 (` (Claude Code)` is an optional product label) and `codex-cli` versions >= 0.155.1, with no upper bound. Help must still advertise the complete `--settings` or `-c` flag. Older, unparseable, prerelease, and custom-suffixed versions use the local rules fallback. Missing or failed help probes also fall back.
 
 ## Recommendation
 
@@ -10,7 +10,7 @@ Research for #11, checked 2026-09-28 on Linux. This is a capability baseline, no
 | Codex | `codex-cli 0.155.1` | Per-launch `notify` for turn completion only; use local rules for approvals/questions | Title, screen, process and text rules |
 | Antigravity | `agy 1.1.13` | Local rules: hooks exist, but no per-launch attachment was verified | Screen, process and text rules |
 
-Discovery regression tests cover the baseline, Claude 2.1.285 / 2.2.0 / 3.0.0 and Codex 0.155.2 / 0.156.0 / 1.0.0, older releases, malformed strings, suffixes, and missing flags. These are synthetic discovery/launch tests, not additional real hook measurements. Runtime verification of missing hooks after a completed turn remains part of service/evaluator integration (#50/#14); accepting a version does not prove hooks fired.
+Discovery regression tests cover the baseline, Claude 2.1.285 / 2.2.0 / 3.0.0 and Codex 0.155.2 / 0.156.0 / 1.0.0, older releases, malformed strings, suffixes, and missing flags. These are synthetic discovery/launch tests, not additional real hook measurements. Runtime verification of missing hooks after a completed turn belongs to service/evaluator integration (#50/#14); accepting a version does not prove hooks fired.
 
 Only help/version, two synthetic model calls, and startup PTY behavior were tested locally. Notification timing, actual approval dialogs during tool use, password prompts, Windows, and macOS were not exercised. No global configuration was edited; normal CLI runtime state is separate from configuration. No repository content or real terminal tail was supplied to the model probes.
 
@@ -31,7 +31,7 @@ No transcript or agent runtime file is read. Codex notifies at turn completion;
 if it exits or updates before any notification, Foom cannot recover an unknown ID.
 Hooks-disabled launches likewise cannot capture an ID.
 
-Session metadata is saved privately in Foom's profile and restores as exited rows.
+Session metadata is saved privately in Foom's profile. Current automatic restoration is on by default for eligible running sessions; see [saved conversations](architecture.md#saved-conversations). Other saved rows remain dormant for manual resume.
 Resume revalidates repository/worktree membership and identity, resolves the agent
 executable, and uses argument arrays with fresh per-launch hooks, current defaults
 and the existing shared-checkout/notifier confirmations. It preserves the terminal
@@ -463,15 +463,17 @@ until recorded evidence or a verified structured signal is available.
 
 ## Agent providers and config-authored plugins (#407)
 
-The proposed [agent plugin format v2](agent-plugins.md) is a review draft for
-#423. It inventories current behavior and specifies a common declarative engine;
-the shipping v1 behavior below remains unchanged until implementation is reviewed.
+The [agent plugin format v2](agent-plugins.md) is implemented for config and
+bundled providers. The v1 compatibility example below remains supported; use the
+v2 specification for channels, setup, files and other extended capabilities.
 
 Main uses one `AgentProvider` interface for discovery, executable names, resume,
 MCP attachment, hook selection and launch argv. Claude Code, Codex and Antigravity
-are registered built-in providers. Claude and Antigravity now run the shared v2 engine from a build-locked bundled JSON manifest; [delivery and compatibility](agent-plugins.md#bundled-manifest-delivery-434) describes the generic infrastructure and migration. Their version floors, argument ordering,
+are registered built-in providers. All three now run the shared v2 engine from a build-locked bundled JSON manifest; [delivery and compatibility](agent-plugins.md#bundled-manifest-delivery-434) describes the generic infrastructure and migration. Their version floors, argument ordering,
 notifier disclosure, observed hook health and opt-in lifecycle plugin are unchanged.
-Approved v2 config copies can express the same declarative capabilities, with their own approval and consents.
+Valid v2 config copies can express the same declarative capabilities and load
+without manifest approval. Launch disclosures and setup confirmations still apply;
+copies do not inherit profile consents or observed hook health.
 
 Add a UTF-8 JSON manifest to `~/.foom/config/agents/<id>.json`. This is data,
 never JavaScript loaded into Foom. The file is at most 64 KiB and its lowercase

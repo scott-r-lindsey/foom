@@ -173,8 +173,8 @@ same three-day retention and missing-file failure. Only companion jobs build
 and smoke-test ZIPs, verify strict macOS signatures, stamp eligible nightly
 versions and upload `Foom-OS` artifacts. Nightly publication still waits for the
 complete Quality gate and downloads those same tested artifacts without rebuilding.
-Workflow permissions are unchanged. #488 has not landed, so these instructions
-and measurements remain in their existing documentation locations.
+Workflow permissions are unchanged. See the [documentation map](README.md) and
+[validation guide](validation.md) for contributor entry points and the CI overview.
 
 ## Assignment method
 

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { ChildEvents } from "../../../../src/main/control/child-events";
-import type { ChildObservation } from "../../../../src/main/control/child-events";
+import { UnreadChildEvents } from "../../../../src/main/control/unread-child-events";
+import type { ChildObservation } from "../../../../src/main/control/unread-child-events";
 
-let events: ChildEvents;
+let events: UnreadChildEvents;
 let changed: ReturnType<typeof vi.fn<() => void>>;
 const child = (patch: Partial<ChildObservation> = {}): ChildObservation => ({
   id: "child",
@@ -27,7 +27,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(1000);
   changed = vi.fn();
-  events = new ChildEvents(changed);
+  events = new UnreadChildEvents(changed);
 });
 afterEach(() => {
   events.dispose();

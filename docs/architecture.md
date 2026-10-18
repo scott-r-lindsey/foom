@@ -1,6 +1,15 @@
 # Architecture
 
-This describes the target design. Where the code differs today, the section says so. A PR that changes a decision here updates this file in the same PR.
+This is the authority for process ownership, security boundaries and implementation
+contracts. Unqualified descriptions and **Today** passages describe implemented
+behavior; explicitly proposed/target passages describe future work. A PR that
+changes a decision here updates this file in the same PR. See the
+[documentation map](README.md) for the hierarchy and recommended reading paths.
+
+Start with [processes](#process-model), [security](#security-defaults),
+[source layout](#source-layout), [renderer](#renderer), [terminals](#terminals)
+and [IPC](#ipc-contract). The [map](README.md#architecture-entry-points) links the
+feature sections; [AGENTS.md](../AGENTS.md) owns contributor validation policy.
 
 ## Application profiles
 
@@ -34,6 +43,22 @@ and unrelated environment variables are unchanged.
 | Preload (sandboxed) | A small typed bridge (`window.desktop`) | Import runtime modules beyond what the sandboxed loader allows |
 | Renderer | Drawing: the board, lights, the open terminal view | Import Electron or Node APIs |
 
+## Security defaults
+
+The renderer uses sandboxing, context isolation and no Node integration. The board
+CSP permits only local scripts; inline styles support xterm positioning and colors.
+The `app://` protocol serves an explicit asset allowlist. Navigation, new windows,
+webviews and permission requests are blocked. IPC validates the owning window,
+sender URL, main frame and runtime payloads. Separate native preview views follow
+the [preview isolation contract](#previews).
+
+Production packages use ASAR and hardened Electron fuses and include compiled
+application files, package metadata and production dependencies. Native node-pty
+binaries and spawn helpers are unpacked. Windows uses node-pty's bundled ConPTY
+DLL; RunAsNode stays disabled. Main owns secrets and uses Electron `safeStorage`;
+Foom sends no terminal content to a model or network service. See [secrets](#secrets)
+and [control-plane privacy](orchestration.md#output-privacy-and-visibility).
+
 ## Source layout
 
 Directories expose the process boundaries above, with features grouped within main and renderer:
@@ -42,13 +67,22 @@ Directories expose the process boundaries above, with features grouped within ma
 src/
   main/
     main.ts           # application composition and lifecycle
+    profile.ts        # profile selection, launch identity and environment scrub
     window/           # appearance and window scaling
     terminals/        # terminal IPC capabilities and utility-process client
     workspace/        # workspace coordination, worktree service and IPC
     agents/           # CLI discovery, launch and invocation-scoped hooks
     evaluator/        # local rules, tail redaction and verdict log
     setup/            # settings, repository discovery and setup IPC
-    config/           # Foom config folder: layout, approval, live reload
+    config/           # plain config files, settings/theme holds and live reload
+    control/          # authorization, HTTP/MCP, orchestration, handoffs and forge tracking
+    previews/         # isolated native views, contained reads, registry and watchers
+    confirmations/    # trusted dialogs, arming and removal reviews
+    sounds/           # recording catalog and sound IPC
+    themes/           # custom palette catalog and theme IPC
+    fonts/            # bounded system monospace enumeration
+  cli/                # console helper: control client, pairing, handoff and offline config
+  node-common/        # Node-only validation/private-file helpers shared by main and CLI
   terminal-host/      # utility-process entry, PTYs, headless screens and activity
   preload/            # sandboxed window.desktop bridge
   shared/             # declaration contracts and platform-neutral runtime helpers
@@ -195,7 +229,7 @@ persistent action log. Neither history includes page contents. Showing a row use
 human tile placement. Tile arrivals are local view state with accent tint and an
 edge, cleared by hover or focus, with reduced motion disabling the flare.
 
-**Today:** The board uses React 19 with TSX and reads one typed source through `useSyncExternalStore`. Each stable tile mounts one imperative terminal controller through the source adapter and disposes xterm and subscriptions on unmount. Terminal attachment and measurement remain in the controller to preserve attachment ordering. Board focus and pane selection are independent view state; hovering or focusing a row does not fetch terminal output or select a terminal. The source also supplies path-identified repositories and their complete Git worktree inventory, including empty worktrees and the main checkout, plus validated main-process navigation commands. `sidebar-model.ts` computes stable pin/active/idle sections, filtering, hidden attention counts and roll-ups. `sidebar-view.tsx` renders the tree (or compact session rail by window choice, forced below 720px). Repository and checkout name clicks do not change the terminal pane. Sidebar focus does not attach a terminal; only the board's presentation callback requests that from the tile controller. Open row panels derive actions from current source data so delayed eligibility updates are visible without reopening. `row-menu.tsx` portals panels to the document body, positions them from the row’s viewport rectangle, and owns keyboard navigation and dismissal. `sidebar-preferences.ts` validates versioned localStorage metadata for pins, expansion and terminal-ID names; this metadata grants no process or filesystem capabilities. Session metadata restores as exited rows across application exit; PTYs and screens are not restored. Activity batches feed a disposable DOM-only light controller with logarithmic rate mapping, 120 ms attack and 700 ms release. It holds rate targets for at least one third of a second, writes brightness, scale and halo styles, and samples bounded eight-second SVG traces at 4 Hz in sidebar rows. Reduced motion renders four brightness steps and trace samples at 1 Hz without scaling. Latest activity rates are cached independently of mounted histories, including final zero batches while rows are hidden. New subscribers receive cached rates so remounting cannot revive stale snapshot activity. Closed, exited and nonmoving sessions discard history; unmount removes subscriptions and timers. A separate clock updates wait labels; a separate clock updates wait labels without React commits. Activity goes directly from IPC to light styles without changing the React row snapshot.
+**Today:** The board uses React 19 with TSX and reads one typed source through `useSyncExternalStore`. Each stable tile mounts one imperative terminal controller through the source adapter and disposes xterm and subscriptions on unmount. Terminal attachment and measurement remain in the controller to preserve attachment ordering. Board focus and pane selection are independent view state; hovering or focusing a row does not fetch terminal output or select a terminal. The source also supplies path-identified repositories and their complete Git worktree inventory, including empty worktrees and the main checkout, plus validated main-process navigation commands. `sidebar-model.ts` computes stable pin/active/idle sections, filtering, hidden attention counts and roll-ups. `sidebar-view.tsx` renders the tree (or compact session rail by window choice, forced below 720px). Repository and checkout name clicks do not change the terminal pane. Sidebar focus does not attach a terminal; only the board's presentation callback requests that from the tile controller. Open row panels derive actions from current source data so delayed eligibility updates are visible without reopening. `row-menu.tsx` portals panels to the document body, positions them from the row’s viewport rectangle, and owns keyboard navigation and dismissal. `sidebar-preferences.ts` validates versioned localStorage metadata for pins, expansion and terminal-ID names; this metadata grants no process or filesystem capabilities. Session restoration follows the [saved-conversation contract](#saved-conversations): eligible running sessions launch fresh PTYs when enabled; screens and scrollback are never persisted. Activity batches feed a disposable DOM-only light controller with logarithmic rate mapping, 120 ms attack and 700 ms release. It holds rate targets for at least one third of a second, writes brightness, scale and halo styles, and samples bounded eight-second SVG traces at 4 Hz in sidebar rows. Reduced motion renders four brightness steps and trace samples at 1 Hz without scaling. Latest activity rates are cached independently of mounted histories, including final zero batches while rows are hidden. New subscribers receive cached rates so remounting cannot revive stale snapshot activity. Closed, exited and nonmoving sessions discard history; unmount removes subscriptions and timers. A separate clock updates wait labels without React commits. Activity goes directly from IPC to light styles without changing the React row snapshot.
 
 - **React 19 with TSX**, bundled by esbuild as a production build (`process.env.NODE_ENV` defined). No other UI framework, component kit, or CSS-in-JS. Styles are plain CSS using the tokens in `tokens.css`.
 - **The renderer holds view state only.** Terminal, verdict, and worktree truth lives in main and arrives through `window.desktop`. Components don't call the bridge directly; they read from one board data-source interface shaped like the IPC contract. A sample source serves explicit development builds and tests; the app uses the live source.
@@ -335,7 +369,7 @@ retain xterm's handling. Input still passes through the selected terminal's ID-s
 
 ## IPC contract
 
-Every channel checks the sender (a registered app window, its main frame, `app://bundle/index.html`) and validates every payload at runtime. Every terminal-scoped message carries a terminal ID. Creation returns the new ID; it accepts only dimensions, with shell and working directory selected in main. The future worktree launch specification above remains a main-only capability.
+Every channel checks the sender (a registered app window, its main frame, `app://bundle/index.html`) and validates every payload at runtime. Every terminal-scoped message carries a terminal ID. Creation returns the new ID; it accepts only dimensions, with shell and working directory selected in main. Worktree launch remains a main-only capability.
 
 | Channel | Direction | Payload |
 |---|---|---|
@@ -967,9 +1001,11 @@ in the profile. Validation alone grants no approval.
 | `terminalFont` | Validated family name, default Hack Nerd Font Mono |
 | `terminalFontSize` | Integer 10–32 |
 | `sound` | Exact current `shared/sounds.ts` settings format |
-| `agents` | Exactly boolean `claude`, `codex`, `agy` switches |
-| `agentArguments` | Exactly `claude`, `codex`, `agy` literal argument lists, validated by `parseAgentDefaults`; every file change requires Allow |
+| `agents` | Boolean provider-ID map, at most 100 entries; `claude`, `codex`, `agy` are required |
+| `agentArguments` | Literal argument lists keyed by valid provider IDs, at most 100 entries; `claude`, `codex`, `agy` are required; validated by `parseAgentDefaults`; every file change requires Allow |
 | `hooks` | Boolean |
+| `restoreSessions` | Boolean, default `true`; enabling through the file requires Allow |
+| `concurrentChildren` | Integer 1–16, default 4 |
 
 `shared/config-settings.ts` supplies the same value validation to main's settings
 patch parser and the file parser; theme files use `shared/theme-files.ts` directly.
@@ -1020,11 +1056,11 @@ previews of every board status, including the halo, square failure light and lab
 It neither renders terminal output nor subscribes to activity. The CSP and preload
 surface are unchanged.
 
-Terminal colors are independently stored as `terminalTheme`: `follow` (default), a built-in ID (`foom-light`, `foom-dark`, `solarized-light`, `solarized-dark`, `dracula`), or a portable palette object for future user configuration files. The object has exactly foreground, background, cursor, selectionBackground and the 16 named ANSI colors (black through brightWhite), each a six-digit `#RRGGBB` color. Main validates every key and value; the host protocol validates palettes again. Both processes and the renderer share the same resolver. Palette replacement resets OSC overrides; OSC 104 restores the active theme's ANSI defaults. Settings previews all 16 colors, bold, dim and selection. Third-party palette licenses are bundled in the packaged notices.
+Terminal colors are independently stored as `terminalTheme`: `follow` (default), a built-in ID (`foom-light`, `foom-dark`, `solarized-light`, `solarized-dark`, `dracula`), a `user:<filename>.json` ID, or a portable palette object accepted by profile/IPC validation. Config files use the named choices; custom palette files have the format in [Custom theme files](#custom-theme-files-205). The object has exactly foreground, background, cursor, selectionBackground and the 16 named ANSI colors (black through brightWhite), each a six-digit `#RRGGBB` color. Main validates every key and value; the host protocol validates palettes again. Both processes and the renderer share the same resolver. Palette replacement resets OSC overrides; OSC 104 restores the active theme's ANSI defaults. Settings previews all 16 colors, bold, dim and selection. Third-party palette licenses are bundled in the packaged notices.
 
 The renderer shows preflight until setup is complete; subsequent configuration lives in Settings. The default worktree location applies to the New worktree flow.
 
-Settings opens beside the persistent sidebar with the board button or ⌘/Ctrl+,.
+Settings opens beside the persistent sidebar from the Foom config gear panel or app menu, with ⌘, on macOS or Ctrl+Shift+, elsewhere.
 Main reserves the shortcut through the existing validated `board:command` channel.
 Each registered window has its own trusted IPC sender and setup coordinator. The board keeps its terminal
 controllers mounted but detaches and hides their views while Settings is open. Esc
@@ -1076,10 +1112,12 @@ current defaults and shared-checkout confirmation. Hook events pin against that 
 rejection exits the row normally and keeps the ID; no agent transcript or runtime file is read.
 
 
+`restoreSessions` defaults to `true`; disabling it keeps saved rows dormant for manual resume. Screens and scrollback are never persisted.
+
 Main writes ordered, atomic replacements of private `sessions.json` in the active
 profile. It stores terminal ID, agent, registered repository, worktree, branch and
 validated conversation ID, last known running state and main-owned orchestration provenance (repository identity, parent relationship, bounded action history, owned worktree paths/identities and unused/used state, plus the uncertain-creation budget). Credentials and terminal contents are never stored. Loading validates bounded records and rejects
-malformed IDs, paths, agents and duplicate terminal IDs. Unregistered repositories keep exited rows without launch authority. With restore enabled, eligible running records launch after all saved windows are shown, at most three at a time, with parents first and shared checkouts serialized. Every launch uses the manual resume path and fresh credentials; views attach only once the new host exists. Orchestrator re-grants additionally require the saved repository identity and a verified Claude Code or Codex CLI; see orchestration.md. Restoring a parent validates every owned checkout against the live Git inventory: it must still be a Foom-managed linked worktree in the parent's repository, with matching checkout identity; main, missing, foreign and replaced checkouts grant no ownership. Restored children, including already exited children, recover owned worktrees as used; legacy records without an ownership list use the child path and the host's current branch and identity. Unused owned worktrees remain launchable after restart, within the four-worktree unused budget; used worktrees cannot be launched into again. In-flight launches are saved as used to prevent reuse after an ambiguous shutdown. Restored running children still count against the configured child limit. Shutdown freezes the running records before terminating PTYs, so shutdown exits cannot overwrite the saved state.
+malformed IDs, paths, agents and duplicate terminal IDs. Unregistered repositories keep exited rows without launch authority. With restore enabled, eligible running records launch after all saved windows are shown, at most three at a time, with parents first and shared checkouts serialized. Every launch uses the manual resume path and fresh credentials; views attach only once the new host exists. Orchestrator re-grants additionally require the saved repository identity, supported per-launch MCP and provider restore capability (bundled Claude Code/Codex, or a valid v2 config provider declaring it); see [provider loading](#agent-provider-registry-and-manifest-approval-407) and [orchestration](orchestration.md#identity-and-capability-model). Restoring a parent validates every owned checkout against the live Git inventory: it must still be a Foom-managed linked worktree in the parent's repository, with matching checkout identity; main, missing, foreign and replaced checkouts grant no ownership. Restored children, including already exited children, recover owned worktrees as used; legacy records without an ownership list use the child path and the host's current branch and identity. Unused owned worktrees remain launchable after restart, within the four-worktree unused budget; used worktrees cannot be launched into again. In-flight launches are saved as used to prevent reuse after an ambiguous shutdown. Restored running children still count against the configured child limit. Shutdown freezes the running records before terminating PTYs, so shutdown exits cannot overwrite the saved state.
 
 Resume and New conversation retain the terminal ID. Main drains the previous
 terminal's evaluation queue, removes its exited host screen and launches a fresh
@@ -1927,14 +1965,16 @@ uses the same stack for its preview.
 
 ## Agent provider registry and manifest approval (#407)
 
+The heading is retained for existing links; config manifests no longer require approval.
+
 `main/agents/providers/provider.d.ts` declares the single `AgentProvider` contract.
 Claude, Codex and Antigravity register through the build-locked bundled manifest loader. The bundled loader uses the same strict parser and immutable v2 engine as config providers; JSON cannot claim its origin. See [bundled delivery and compatibility](agent-plugins.md#bundled-manifest-delivery-434) for digest/version rules, unchanged settings/consents and observer ABI differences. The shared engine owns discovery gates, launch argv, MCP attachment, observer selection and hook payload reduction. Workspace uses capability metadata rather than comparing
 agent IDs. Shared built-in policy metadata is browser-safe. Main emits generic observed-health and notifier-selection facts to the renderer; config manifests cannot grant themselves build provenance or migrated profile consent. Agent identities can now be strings, but runtime IPC accepts only IDs in
-main's current approved provider registry. Config providers cannot register a
+main's current loaded provider registry. Config providers cannot register a
 built-in ID or duplicate another provider. Built-in orchestration restore checks
 remain unchanged. v2 config plugins may declare restore capability, but a grant
 still requires persisted human orchestration provenance and matching repository
-identity, an installed approved provider and supported per-launch MCP.
+identity, an installed, valid provider and supported per-launch MCP.
 
 `shared/agent-manifest.ts` validates the [version 1 format](agents.md#agent-providers-and-config-authored-plugins-407)
 from `unknown`, rejecting unknown keys at every object boundary, including capability,

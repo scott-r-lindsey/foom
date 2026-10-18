@@ -454,7 +454,7 @@ export class Workspace {
     this.deps.forge?.setEnabled(settings.showPullRequests === true);
     this.restoreEnabled = settings.restoreSessions ?? true;
     this.concurrentChildren = settings.concurrentChildren ?? 4;
-    const reminderChanged = this.orchestration.childEvents.configure(
+    const reminderChanged = this.orchestration.unreadChildren.configure(
       settings.unreadChildMinutes ?? 5,
     );
     this.autoRemoveMergedWorktrees = settings.autoRemoveMergedWorktrees ?? false;
@@ -674,7 +674,7 @@ export class Workspace {
   private currentState(id: string): TerminalState | null {
     const terminal = this.terminals.get(id);
     const state = terminal?.state;
-    const unreadAt = this.orchestration.childEvents.overdue(id);
+    const unreadAt = this.orchestration.unreadChildren.overdue(id);
     if (unreadAt !== undefined)
       return {
         id,
@@ -732,13 +732,13 @@ export class Workspace {
   }
 
   focusOrchestrator(id: string): void {
-    this.orchestration.syncChildEvents();
-    if (this.orchestration.childEvents.read(id)) this.refresh();
+    this.orchestration.syncUnreadChildEvents();
+    if (this.orchestration.unreadChildren.read(id)) this.refresh();
   }
 
   refresh(): void {
     if (this.closed) return;
-    this.orchestration.syncChildEvents();
+    this.orchestration.syncUnreadChildEvents();
     this.deps.watcher?.sync(this.deps.worktrees.listRepositories());
     this.deps.onChange?.();
   }
@@ -2746,7 +2746,7 @@ export class Workspace {
     this.cleanupRuns.clear();
     this.mergeEligibility.clear();
     this.executionListeners.clear();
-    this.orchestration.childEvents.dispose();
+    this.orchestration.unreadChildren.dispose();
     this.deps.watcher?.dispose();
     for (const id of this.terminals.keys()) this.deps.verdicts.forget(id);
     this.agents.dispose();

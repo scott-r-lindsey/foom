@@ -1,4 +1,4 @@
-import { ChildEvents } from "./child-events";
+import { UnreadChildEvents } from "./unread-child-events";
 import { Handoffs } from "./handoffs";
 import type { Handoff } from "../../shared/handoff";
 import { readHandoffRequest } from "../../node-common/handoff";
@@ -171,7 +171,7 @@ function publicOperation(operation: Operation): Operation {
  */
 export class Orchestration {
   readonly handoffs = new Handoffs();
-  readonly childEvents: ChildEvents;
+  readonly unreadChildren: UnreadChildEvents;
   private readonly slots = new Map<string, Parent>();
   private readonly parents = new Map<string, Parent>();
   private readonly early = new Set<string>();
@@ -183,7 +183,7 @@ export class Orchestration {
     private readonly now: () => number = Date.now,
     readonly childLimit: () => number = () => 4,
   ) {
-    this.childEvents = new ChildEvents(() => {
+    this.unreadChildren = new UnreadChildEvents(() => {
       host.changed();
     }, now);
     this.replies = new ReviewedReplies(
@@ -199,9 +199,9 @@ export class Orchestration {
     );
   }
 
-  syncChildEvents(): void {
+  syncUnreadChildEvents(): void {
     const rows = this.host.terminals();
-    this.childEvents.sync(
+    this.unreadChildren.sync(
       [...this.parents].flatMap(([parentId, parent]) =>
         parent.active
           ? [...parent.children].flatMap(([id, child]) => {
@@ -228,8 +228,8 @@ export class Orchestration {
     if (actor.role !== "orchestrator") return;
     const parent = this.parent(actor);
     if (!this.own(parent, id)) return;
-    this.syncChildEvents();
-    if (this.childEvents.read(actor.terminalId, id)) this.host.changed();
+    this.syncUnreadChildEvents();
+    if (this.unreadChildren.read(actor.terminalId, id)) this.host.changed();
   }
 
   pullRequest(row: WorkspaceTerminal) {

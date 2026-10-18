@@ -17,7 +17,7 @@ interface Entry {
 }
 
 /** Shared child-event cursor. Output and evaluator revisions are deliberately absent. */
-export class ChildEvents {
+export class UnreadChildEvents {
   private readonly entries = new Map<string, Entry>();
   private minutes = 5;
   private timer: ReturnType<typeof setTimeout> | undefined;

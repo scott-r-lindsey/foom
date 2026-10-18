@@ -1351,14 +1351,15 @@ test("every interface theme applies live to native chrome and passes axe on boar
         selection: getComputedStyle(selected).outlineColor,
         swatch: getComputedStyle(selected.querySelectorAll("i")[3]).backgroundColor,
         working: getComputedStyle(working).backgroundColor,
-        brand: getComputedStyle(document.querySelector(".wordmark-hole")).boxShadow,
+        brand: getComputedStyle(document.querySelector(".wordmark")).color,
+        inkRgb: cssColor(root.getPropertyValue("--ink").trim()),
       };
     });
     assert.equal(colors.highlight, expectedHighlight ?? colors.accent);
     assert.equal(colors.selection, colors.highlightRgb);
     assert.equal(colors.swatch, colors.highlightRgb);
     assert.equal(colors.working, colors.accentRgb);
-    assert.ok(colors.brand.includes(colors.accentRgb));
+    assert.equal(colors.brand, colors.inkRgb);
     await assertAccessible(page);
     await page.keyboard.press("Escape");
     await expect(page.locator(".tile-terminal")).toBeVisible();

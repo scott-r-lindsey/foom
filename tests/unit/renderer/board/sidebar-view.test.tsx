@@ -1382,7 +1382,7 @@ test("config panel orders Settings, launchers and folder commands; dock uses the
   const items = within(panel).getAllByRole("menuitem");
   expect(items.map((item) => item.textContent)).toEqual([
     "SettingsCtrl+,",
-    "CCClaude Coderunning",
+    "CCVia Claude Coderunning",
     ">_Shell",
     "Open Foom config settings",
     "Open folder",
@@ -1394,7 +1394,7 @@ test("config panel orders Settings, launchers and folder commands; dock uses the
   fireEvent.click(view.getByRole("menuitem", { name: "Open Foom config settings" }));
   expect(settings).toHaveBeenLastCalledWith("config");
   fireEvent.click(gear);
-  fireEvent.click(view.getByRole("menuitem", { name: /^Claude Code/ }));
+  fireEvent.click(view.getByRole("menuitem", { name: /^Via Claude Code/ }));
   expect(command).toHaveBeenCalledWith({ kind: "config-launch", run: "claude" });
   await act(async () => {
     await Promise.resolve();

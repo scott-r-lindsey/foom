@@ -1145,7 +1145,7 @@ process.stdin.on("data", (key) => {
   await page.locator(".config-gear").click();
   const panel = page.getByRole("dialog", { name: "Foom config details and commands" });
   await expect(panel).toContainText(folder);
-  await panel.getByRole("menuitem", { name: "Claude Code" }).click();
+  await panel.getByRole("menuitem", { name: "Via Claude Code", exact: true }).click();
   const id = await expect
     .poll(async () => {
       const snapshot = await page.evaluate(() => window.desktop.workspace());

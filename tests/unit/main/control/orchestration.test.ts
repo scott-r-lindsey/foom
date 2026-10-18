@@ -1107,9 +1107,9 @@ describe("child handoff ownership and waits", () => {
     async (method) => {
       const { h, child, actor, report } = await setup();
       await report();
-      h.orchestration.syncChildEvents();
+      h.orchestration.syncUnreadChildEvents();
       h.advance(300000);
-      expect(h.orchestration.childEvents.overdue("parent")).toBeDefined();
+      expect(h.orchestration.unreadChildren.overdue("parent")).toBeDefined();
       await h.call("sessions");
       await h.service.call(actor, {
         version: 1,
@@ -1119,10 +1119,10 @@ describe("child handoff ownership and waits", () => {
       });
       h.orchestration.childRead(h.actor, "foreign");
       await h.call("tail", { id: child.id });
-      expect(h.orchestration.childEvents.overdue("parent")).toBeDefined();
+      expect(h.orchestration.unreadChildren.overdue("parent")).toBeDefined();
       await h.call(method, method === "wait_for" ? { ids: [child.id] } : { id: child.id });
-      expect(h.orchestration.childEvents.overdue("parent")).toBeUndefined();
-      h.orchestration.childEvents.dispose();
+      expect(h.orchestration.unreadChildren.overdue("parent")).toBeUndefined();
+      h.orchestration.unreadChildren.dispose();
     },
   );
 
