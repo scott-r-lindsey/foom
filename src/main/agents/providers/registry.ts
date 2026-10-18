@@ -19,7 +19,7 @@ export function agentProvider(id: AgentId): AgentProvider {
   if (!result) throw new Error("Unknown agent");
   return result;
 }
-/** Called only by main's config approval gate, never from a manifest or IPC. */
+/** Called only by the config service's scan and validate path, never from a manifest or IPC. */
 export function replaceConfigProviders(providers: readonly AgentProvider[]): void {
   if (
     providers.some((provider) => builtins.some((builtin) => builtin.id === provider.id)) ||

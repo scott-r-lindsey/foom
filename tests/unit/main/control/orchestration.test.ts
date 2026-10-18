@@ -1061,7 +1061,7 @@ describe("close exited children", () => {
   });
 });
 
-it("launches an approved manifest provider through the ordinary child authorization path", async () => {
+it("launches a validated manifest provider through the ordinary child authorization path", async () => {
   const manifest = parseAgentPlugin(JSON.stringify(pluginFixture));
   replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
   try {

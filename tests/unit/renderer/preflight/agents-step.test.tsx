@@ -179,7 +179,7 @@ test("registry-only agent cards save literal defaults and hook choices, with fac
     inline: false,
     source: "agents/fixture.json",
     bypassArguments: ["--yolo"],
-    reason: "approved",
+    reason: "Config-authored agent; validated launch manifest.",
   };
   const view = render(
     <AgentsStep

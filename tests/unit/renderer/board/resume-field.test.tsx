@@ -182,7 +182,7 @@ test("confirmation expiry preserves the paste and agent choice for retry", async
   expect(done).toHaveBeenCalledOnce();
 });
 
-test("approved plugin paste patterns are bounded and ambiguous commands require an explicit choice", async () => {
+test("validated plugin paste patterns are bounded and ambiguous commands require an explicit choice", async () => {
   const patterns = [{ agent: "fixture-v2", command: "fixture-v2", selector: "--resume" }];
   expect(parseResume("fixture-v2 --resume saved", patterns)).toEqual({
     agent: "fixture-v2",
@@ -208,7 +208,7 @@ test("approved plugin paste patterns are bounded and ambiguous commands require 
   expect(launch).toHaveBeenCalledWith("fixture-v2", "saved");
 });
 
-test("plugin choices show approved names and badges and retain a fallback for absent metadata", () => {
+test("plugin choices show validated names and badges and retain a fallback for absent metadata", () => {
   const view = render(
     <ResumeField
       agents={["fixture-v2", "unknown"]}

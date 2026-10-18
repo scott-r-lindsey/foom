@@ -399,7 +399,7 @@ export class AgentService {
             subject: "This invocation",
             accept: "Launch with bypass",
             detail:
-              "This agent can act as you anywhere on the machine. A worktree is not a sandbox. Manifest approval does not approve bypass for this launch.",
+              "This agent can act as you anywhere on the machine. A worktree is not a sandbox. Manifest validation does not approve bypass for this launch.",
             sections: [
               {
                 label: "Argument bypass matchers",

@@ -1100,7 +1100,7 @@ it.each([
   }
 });
 
-it("discards a discovery result when an approved plugin changes during probing", async () => {
+it("discards a discovery result when a loaded plugin changes during probing", async () => {
   const manifest = parseAgentPlugin(JSON.stringify(pluginFixture));
   const changed = configProvider(manifest, () => Promise.resolve());
   const original = configProvider(manifest, () => {

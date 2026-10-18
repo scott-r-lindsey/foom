@@ -404,7 +404,7 @@ it("supports hooks, health and setup, and applies config attention rules", () =>
   expect(detectAgent(m.id, { title: "Working", progress: null }, [])?.id).toBe("working");
 });
 
-it("recovers only invalid provider defaults and keeps immutable approved launch data", async () => {
+it("recovers only invalid provider defaults and keeps immutable validated launch data", async () => {
   const m = model();
   const provider = v2Provider(m, () => Promise.resolve());
   replaceConfigProviders([provider]);
@@ -444,7 +444,7 @@ it("guidance merge emits its declared canonical flag and preserves literal promp
   expect(prepared.prepared.args.at(-1)).toContain("hello, literal text\n\nFoom provides");
 });
 
-it("approved provider attention remains human-only metadata", () => {
+it("validated provider attention remains human-only metadata", () => {
   const m = model();
   m.attention.rules.push({
     id: "capacity",

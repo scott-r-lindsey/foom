@@ -142,12 +142,12 @@ it("cancels without mutation and serializes conflicting copies across service in
   expect(e.run.mock.calls.every((entry) => entry[1][1] === "list")).toBe(true);
   await e.service.change(e.input()); // cancellation releases the lock
 });
-it("rejects changed approval, executable, ownership and state after confirmation", async () => {
-  for (const change of ["approval", "executable", "ownership", "state", "stage"]) {
+it("rejects changed validation, executable, ownership and state after confirmation", async () => {
+  for (const change of ["validation", "executable", "ownership", "state", "stage"]) {
     const e = await environment();
-    let approved = true;
+    let valid = true;
     const input = e.input("install", async () => {
-      if (change === "approval") approved = false;
+      if (change === "validation") valid = false;
       if (change === "executable") await writeFile(e.executable, "replaced executable");
       if (change === "ownership") {
         await e.owned();
@@ -161,7 +161,7 @@ it("rejects changed approval, executable, ownership and state after confirmation
       return true;
     });
     input.validate = vi.fn(() => {
-      if (!approved) throw Error("Approval revoked");
+      if (!valid) throw Error("Agent plugin changed");
       return Promise.resolve();
     });
     await expect(e.service.change(input)).rejects.toThrow();
