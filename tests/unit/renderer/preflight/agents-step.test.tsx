@@ -277,6 +277,7 @@ test.each(["claude", "custom"])(
 
 test("missing attention replaces the signal control with neutral terse text", () => {
   const f = fixture();
+  f.source.changeAgentSetup = vi.fn(() => Promise.resolve(report()));
   render(
     <AgentsStep
       {...f.props}
@@ -284,7 +285,7 @@ test("missing attention replaces the signal control with neutral terse text", ()
         ...installation("claude"),
         hooks: false,
         attentionSignal: false,
-        setup: { state: "unavailable", actions: [] },
+        setup: { state: "not-installed", actions: [{ id: "install", label: "Install" }] },
         hookState: "not-reviewed",
       })}
     />,
@@ -292,7 +293,9 @@ test("missing attention replaces the signal control with neutral terse text", ()
   const card = screen.getByRole("region", { name: "Claude Code" });
   const signal = within(card).getByText("No attention signal");
   expect(signal.className).toBe("");
-  expect(signal.parentElement?.textContent).toBe("No attention signal");
   expect(within(card).queryByText("Screen rules")).toBeNull();
+  expect(within(card).queryByText("Trust review pending")).toBeNull();
   expect(within(card).queryByRole("button", { name: "Hooks" })).toBeNull();
+  // Setup can still add the signal, so its actions stay available.
+  expect(within(card).getByRole("button", { name: "Install" })).toBeTruthy();
 });

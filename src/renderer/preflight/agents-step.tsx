@@ -217,50 +217,50 @@ export function AgentsStep({
                               <code>{agent.healthInstructions}</code>
                             </>
                           )}
-                          {installed &&
-                            policy?.pluginSetup &&
-                            agent?.agyPlugin?.state === "not-installed" &&
-                            !state.settings.agyPluginOfferAnswered && <span>Plugin available</span>}
-                          {installed && agent?.setup && source?.changeAgentSetup && (
-                            <>
-                              <span>Plugin · {agent.setup.state}</span>
-                              {agent.setup.offer && <span>{agent.setup.offer}</span>}
-                              {agent.setup.actions.map((action) => (
-                                <button
-                                  type="button"
-                                  key={action.id}
-                                  disabled={reviewing || scanning}
-                                  onClick={() => {
-                                    setReviewing(true);
-                                    setError("");
-                                    void source
-                                      .changeAgentSetup?.(id, action.id)
-                                      .then(
-                                        async () => {
-                                          await scan(true);
-                                        },
-                                        (caught: unknown) => {
-                                          setError(message(caught));
-                                        },
-                                      )
-                                      .finally(() => {
-                                        setReviewing(false);
-                                      });
-                                  }}
-                                >
-                                  {action.label}
-                                </button>
-                              ))}
-                            </>
-                          )}
-                          {agent?.agyPlugin && (
-                            <AgyPluginControl
-                              status={agent.agyPlugin}
-                              busy={scanning}
-                              change={changePlugin}
-                            />
-                          )}
                         </>
+                      )}
+                      {installed &&
+                        policy?.pluginSetup &&
+                        agent?.agyPlugin?.state === "not-installed" &&
+                        !state.settings.agyPluginOfferAnswered && <span>Plugin available</span>}
+                      {installed && agent?.setup && source?.changeAgentSetup && (
+                        <>
+                          <span>Plugin · {agent.setup.state}</span>
+                          {agent.setup.offer && <span>{agent.setup.offer}</span>}
+                          {agent.setup.actions.map((action) => (
+                            <button
+                              type="button"
+                              key={action.id}
+                              disabled={reviewing || scanning}
+                              onClick={() => {
+                                setReviewing(true);
+                                setError("");
+                                void source
+                                  .changeAgentSetup?.(id, action.id)
+                                  .then(
+                                    async () => {
+                                      await scan(true);
+                                    },
+                                    (caught: unknown) => {
+                                      setError(message(caught));
+                                    },
+                                  )
+                                  .finally(() => {
+                                    setReviewing(false);
+                                  });
+                              }}
+                            >
+                              {action.label}
+                            </button>
+                          ))}
+                        </>
+                      )}
+                      {agent?.agyPlugin && (
+                        <AgyPluginControl
+                          status={agent.agyPlugin}
+                          busy={scanning}
+                          change={changePlugin}
+                        />
                       )}
                     </div>
                   </div>
