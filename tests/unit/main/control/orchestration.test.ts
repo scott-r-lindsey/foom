@@ -1279,6 +1279,51 @@ describe("blocking child-event waits", () => {
     });
   });
 
+  it("ignores output-only revisions and resumes from the returned event cursor", async () => {
+    const h = harness();
+    const { id } = await h.child("event");
+    const before = (await h.call("session_state", { id })) as { revision: string };
+    let settled = false;
+    const wait = h.call("wait_for", { ids: [id], untilEvent: true }).then((result) => {
+      settled = true;
+      return result as { sessions: { event: string }[] };
+    });
+    const row = h.rows.get(id);
+    if (!row) throw new Error("missing child");
+    h.rows.set(id, { ...row, outputRevision: (row.outputRevision ?? 0) + 1 });
+    h.orchestration.childEvents.publish();
+    await Promise.resolve();
+    await Promise.resolve();
+    const after = (await h.call("session_state", { id })) as { revision: string };
+    expect(after.revision).not.toBe(before.revision);
+    expect(settled).toBe(false);
+    const current = h.rows.get(id);
+    if (!current) throw new Error("missing child");
+    h.rows.set(id, { ...current, exited: true });
+    h.orchestration.childEvents.publish();
+    const result = await wait;
+    expect(result).toMatchObject({ changed: [id], timedOut: false });
+    const cursor = result.sessions[0]?.event;
+    if (!cursor) throw new Error("missing event cursor");
+    expect(
+      await h.call("wait_for", {
+        ids: [id],
+        untilEvent: true,
+        after: { [id]: cursor },
+        timeoutMs: 5,
+      }),
+    ).toMatchObject({ changed: [], timedOut: true });
+    const live = (await h.call("session_state", { id })) as { revision: string };
+    expect(
+      await h.call("wait_for", {
+        ids: [id],
+        untilEvent: true,
+        after: { [id]: live.revision },
+        timeoutMs: 5,
+      }),
+    ).toMatchObject({ changed: [], timedOut: true });
+  });
+
   it("supports cursors, overall timeout and validates long-wait parameters", async () => {
     const h = harness();
     const { id } = await h.child("event");

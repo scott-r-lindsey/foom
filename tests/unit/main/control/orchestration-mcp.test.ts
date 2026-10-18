@@ -396,7 +396,7 @@ it("advertises only current capabilities with CLI fallbacks accepted by the real
     ...(args[0] === "wait-for"
       ? {
           longWait:
-            "foom wait-for [ID...] --until-event [--after JSON_ID_TO_REVISION] [--timeout SECONDS]",
+            "foom wait-for [ID...] --until-event [--after JSON_ID_TO_EVENT] [--timeout SECONDS]",
         }
       : {}),
   }));

@@ -858,7 +858,7 @@ foom remove-worktree WORKTREE_ID --idempotency-key KEY
 foom read-handoff ID [--seq N]
 foom tail ID [--lines 1-40]
 foom wait-for ID... [--after '{"ID":"REVISION"}'] [--timeout-ms 0-30000]
-foom wait-for [ID...] --until-event [--after '{"ID":"REVISION"}'] [--timeout SECONDS]
+foom wait-for [ID...] --until-event [--after '{"ID":"EVENT"}'] [--timeout SECONDS]
 ```
 
 The four mutations require an idempotency key. After losing a response, query
@@ -868,11 +868,16 @@ redaction, the 40-line/16 KiB cap and one request per child per second; `wait-fo
 accepts one to the configured child limit of distinct IDs and waits at most 30 seconds. The console gives
 that wait a 35-second transport deadline.
 
-`--until-event` removes the transport deadline and waits for a watched revision
-change. Without IDs it snapshots the caller's currently owned children; at least
+`--until-event` removes the transport deadline and waits for a watched child's
+lifecycle state, handoff, PR state or required-check conclusion to change. Terminal
+output and input alone never end it; a session `revision` also moves with output,
+so long waits compare a separate `event` cursor that each returned session carries.
+Without IDs it snapshots the caller's currently owned children; at least
 one child is required, and children launched later are not added to that wait.
-Without `--after`, it captures current revisions and waits for the next change;
-with `--after`, an already changed revision returns immediately. The same owned-child
+Without `--after`, it captures current cursors and waits for the next change;
+`--after` takes the `event` values from a previous long-wait result, or session
+`revision` values. A revision that is still current adopts the current cursor; any
+other value has already changed and returns immediately. The same owned-child
 checks and configured ID limit apply. `--timeout SECONDS` is an optional overall
 integer deadline (0–2147483 seconds); `--timeout-ms` is also accepted with this mode
 (0–2147483647), but cannot be combined with `--timeout`. The result is the same

@@ -241,7 +241,7 @@ export class ControlService {
             ...(name === "wait_for"
               ? {
                   longWait:
-                    "foom wait-for [ID...] --until-event [--after JSON_ID_TO_REVISION] [--timeout SECONDS]",
+                    "foom wait-for [ID...] --until-event [--after JSON_ID_TO_EVENT] [--timeout SECONDS]",
                 }
               : {}),
           })),

@@ -159,6 +159,31 @@ function bounded(lines: readonly string[]): { lines: string[]; truncated: boolea
   return { lines: result, truncated };
 }
 
+interface SessionEventFacts {
+  id: string;
+  state: string;
+  reason: string;
+  handoff?: { seq: number; status: string };
+  pullRequest?: { number: number; state: string; requiredChecks: string };
+}
+
+/** Long-wait cursor: lifecycle, handoff and PR facts, never output or input counters. */
+function eventCursor(row: SessionEventFacts): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        row.state,
+        row.reason,
+        row.handoff?.seq ?? 0,
+        row.handoff?.status ?? null,
+        row.pullRequest?.number ?? null,
+        row.pullRequest?.state ?? null,
+        row.pullRequest?.requiredChecks ?? null,
+      ]),
+    )
+    .digest("hex");
+}
+
 function publicOperation(operation: Operation): Operation {
   const { operationId, action, targetId, resultId, status, createdAt, updatedAt, reason } =
     operation;
@@ -400,7 +425,6 @@ export class Orchestration {
 
   /** The human takes a child: the orchestrator can no longer stop, tail or wait for it. */
   invalidateReply(id: string): void {
-    this.childEvents.publish();
     this.replies.invalidate(id);
   }
 
@@ -957,17 +981,24 @@ export class Orchestration {
     )
       throw new ControlError("invalid_request");
     const deadline = typeof timeout === "number" ? Date.now() + timeout : undefined;
+    // The session revision also moves with terminal output, so a working child would
+    // end every wait. Long waits compare only the facts an orchestrator acts on.
     const read = () => {
       active();
       const parent = this.parent(actor);
       if (targets.some((id) => !this.own(parent, id))) throw new ControlError("not_found");
-      return targets.map(
-        (id) =>
-          this.metadata.read(actor, "session_state", { id }) as { id: string; revision: string },
-      );
+      return targets.map((id) => {
+        const row = this.metadata.read(actor, "session_state", { id }) as SessionEventFacts & {
+          revision: string;
+        };
+        return { ...row, event: eventCursor(row) };
+      });
     };
     const initial = read();
-    if (params["after"] === undefined) for (const row of initial) after[row.id] = row.revision;
+    // A still-current session revision means nothing changed yet; adopt its cursor.
+    for (const row of initial)
+      if (params["after"] === undefined || after[row.id] === row.revision)
+        after[row.id] = row.event;
     return new Promise((resolve, reject) => {
       let unsubscribe = () => {};
       const cleanup = () => {
@@ -982,7 +1013,7 @@ export class Orchestration {
         try {
           const sessions = read();
           const changed = sessions
-            .filter((row) => after[row.id] !== row.revision)
+            .filter((row) => after[row.id] !== row.event)
             .map((row) => row.id);
           if (changed.length || (deadline !== undefined && Date.now() >= deadline)) {
             cleanup();
