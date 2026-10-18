@@ -1,3 +1,4 @@
+import { CONTROL_TOOL_CLASSES } from "./control-tool-classes";
 import {
   object,
   text,
@@ -183,10 +184,10 @@ export function guidance(v: unknown, p: string) {
 export function tools(v: unknown, p: string) {
   const d = object(v, p, ["names", "format", "arguments"], ["merge"]);
   return {
-    names: array(enumeration("open_preview", "list_previews", "close_preview"), 3)(
-      d["names"],
-      `${p}.names`,
-    ),
+    names: array(
+      enumeration(...Object.keys(CONTROL_TOOL_CLASSES)),
+      Object.keys(CONTROL_TOOL_CLASSES).length,
+    )(d["names"], `${p}.names`),
     format: enumeration("mcp-double-underscore", "server-parentheses")(d["format"], `${p}.format`),
     arguments: argv(d["arguments"], `${p}.arguments`),
     merge: optional(merge)(d["merge"], `${p}.merge`),

@@ -2,7 +2,7 @@
 
 Status: parser implemented by #430 and the generic config launch engine by #431,
 2026-10-14. v2 config plugins support discovery, launch, private MCP files,
-prompts, preview grants, argument/environment bypass disclosure, resume and local
+prompts, Foom tool grants, argument/environment bypass disclosure, resume and local
 attention rules. Hook channels, private hook files, payload mapping and observed health are implemented
 by #432. Setup status, fixed plugin actions and private staging are implemented by #433.
 Setup staging materializes Foom-generated hook observers referenced by plugin-scope files (#464).
@@ -69,7 +69,7 @@ execution/health integration. The v1 fixture is `tests/fixtures/agent-plugin.jso
 | First valid hook ID pins launch; manual agy resume can start a new conversation; pasted IDs pin against supplied ID | `conversation.resumePin` | Preserve manual first-event behavior; paste strict binding; reject later ID mismatch |
 | Config greeting fixed main-owned text; resume has no greeting; agy merges user interactive prompts | Prompt/guidance merge policy | No repository grant for config sessions; fixed greeting and provenance remain Foom text |
 | Children use no user defaults; fixed provenance prefix; Claude/Codex -- prompt last, agy interactive prompt; CLI guidance covers later human role change | Prompt policy, guidance fact | Validate <=16 KiB prompt; role grants, child limits, fresh credentials and PATH stay in main |
-| Claude MCP merges variadic/comma-separated allowedTools/allowed-tools including equals forms, preserving separators inside parentheses; only three preview tools pre-approved | `toolPermissions` merge grammar and names | Deduplicate without widening roles; deny/managed policy still wins; no grants without MCP |
+| Claude MCP merges variadic/comma-separated allowedTools/allowed-tools including equals forms, preserving separators inside parentheses; every tool on Foom’s own per-launch server pre-approved | `toolPermissions` merge grammar and names | Deduplicate without widening roles; deny/managed policy still wins; no grants without MCP |
 | Restore orchestrator currently verified only for Claude/Codex; agy false | `conversation.restoreControl` | Human-origin persisted role + repo identity checks; ordinary resume separate; manifest fact never grants a role |
 | Rules, provider stalls, readiness/completion distinction | `attention.rules`, `execution` | Exit/hook/blocker precedence, local classification, no automatic reply; provider attention remains human-only |
 
@@ -151,7 +151,7 @@ engine after substitution and layering; this parser never expands launch data.
 | Launch block | `{arguments,when?}`; Argv and Condition. arguments/display/resume/mcp use this shape; resume implies validated requested conversationId |
 | prompt | `{arguments,requires?}`; requires fact ID; final task is one argv value. Foom rejects a launch requiring a missing fact |
 | guidance | `{when,merge?}`; inserts fixed CLI_GUIDANCE or CONFIG_PROMPT through the prompt stage; merge `{flags,output,separators}` with <=8 flag names, output flag, separators literal whitespace-comma or whitespace; only merges when selected |
-| toolPermissions | `{names,format,arguments,merge?}`; names subset of open_preview/list_previews/close_preview, <=3 unique; format mcp-double-underscore or server-parentheses; arguments template expanded once per tool (unless merge combines); merge `{flags,output,separators:"whitespace-comma-parentheses"}` |
+| toolPermissions | `{names,format,arguments,merge?}`; names subset of the 17 classified Foom server tools in `src/shared/control-tool-classes.ts`, <=17 unique; format mcp-double-underscore or server-parentheses; arguments template expanded once per tool (unless merge combines); merge `{flags,output,separators:"whitespace-comma-parentheses"}` |
 | File | `{name,scope,format,content,when?}`; scope launch or plugin; format json or toml; content multiline template; must parse after typed expansion |
 | Channel | `{id,when,observer,arguments,mapping,disclosure?}` |
 | observer | `{transport,placement,version,response,delivery,timeoutMs,sequence?,basename?,commandArguments?}`; transport stdin or argv-last; placement launch, stable or plugin; version 1–100000 integer or `{posix,win32}` integers for existing platform ABIs; response silent or empty-json-first; delivery foreground or detached; timeoutMs 1000–3000; sequence boolean default false; basename [A-Za-z][A-Za-z0-9_-]* <=40 default observer; commandArguments <=8 literal event/label tokens [A-Za-z][A-Za-z0-9_-]* <=64, never executable code |
@@ -241,8 +241,12 @@ permissions never come from manifest text. Availability is not authorization.
 
 Tool merge parses variadic aliases and equals forms; commas/whitespace inside
 balanced parentheses belong to the rule. Unbalanced input is refused. Preserve
-user rules, deduplicate, append exact random-server preview names only with MCP.
-No allow-all, wildcard, metadata or orchestration tool grants from this field.
+user rules, deduplicate, and append exact random-server names from the real Foom
+server registry only with MCP, filtered by the manifest's classified tool names.
+The bundled Claude manifest includes every registered tool (#299), including child
+handoffs and orchestration. No allow-all, wildcard, other-server or non-Foom tool
+grants are added. Server-side roles and human confirmations remain authoritative;
+see the [per-launch disclosure](orchestration.md#claude-code).
 
 ### Argument and environment matchers
 
@@ -457,7 +461,7 @@ while the copy stays on.
 | Generic extractors/validators/event reducer and execution/health state machines | Field/event names, requirements, aliases, completion/fallback conditions |
 | PATH resolution, argv execution, IPC validation, trust dialogs and digest storage | Argument protections, bypass matchers, status readers and offered setup action argv |
 | Prompt constants, grants, per-turn reconciliation, config/child constraints, restore and checkout identity | Prompt/resume layout, merge grammar, CLI guidance selection, restore capability fact |
-| Local evaluator, provider provenance, tool authorization, process audits | Detection rules, approved preview-tool syntax and bounded paste patterns |
+| Local evaluator, provider provenance, tool authorization, process audits | Detection rules, approved Foom-tool syntax and bounded paste patterns |
 
 New per-provider enable/default/environment scopes use loaded provider IDs, including config copies of built-ins; legacy three built-in settings migrate without widening a grant. The renderer receives only validated card/status/role facts.
 

@@ -1,3 +1,5 @@
+import { mcpTools } from "../../../../src/main/control/mcp-tools";
+import { CONTROL_TOOL_CLASSES } from "../../../../src/shared/control-tool-classes";
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { expect, it, vi } from "vitest";
@@ -164,9 +166,7 @@ it.each([false, true])(
         "Read",
         "Edit",
         "Bash(git log *, git diff *)",
-        ...["open_preview", "list_previews", "close_preview"].map(
-          (tool) => `mcp__${name}__${tool}`,
-        ),
+        ...mcpTools(1, []).map(({ name: tool }) => `mcp__${name}__${tool}`),
         ...(hooks ? ["--settings", settings] : []),
         "--",
         "Task from your Foom orchestrator (another agent, not the user):\nBefore stopping when finished, blocked, or CI fails, report to your parent with handoff({ status: done|blocked|failed, summary, links?, idempotencyKey }), or foom handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL] --idempotency-key KEY. Handoffs are pull-only; they never type into a terminal.\n\nFix it",
@@ -202,3 +202,95 @@ it("preserves legacy session identities and accepts only matching persisted orig
     "Invalid",
   );
 });
+
+// Deliberate review boundary: a new registered tool must be classified and granted explicitly.
+it("classifies every real server tool and includes every classification in the bundled grant", () => {
+  const registered = mcpTools(1, [])
+    .map(({ name }) => name)
+    .sort();
+  expect(registered).toEqual(Object.keys(CONTROL_TOOL_CLASSES).sort());
+  expect([...data.launch.toolPermissions.names].sort()).toEqual(registered);
+  expect(CONTROL_TOOL_CLASSES).toEqual({
+    whoami: "read",
+    sessions: "read",
+    session_state: "read",
+    open_preview: "preview",
+    list_previews: "preview",
+    close_preview: "preview",
+    handoff: "child",
+    read_handoff: "orchestration",
+    create_worktree: "orchestration",
+    launch: "orchestration",
+    reply: "orchestration",
+    stop: "orchestration",
+    close: "orchestration",
+    remove_worktree: "orchestration",
+    tail: "orchestration",
+    wait_for: "orchestration",
+    operation_status: "orchestration",
+  });
+});
+
+it.each([
+  { defaults: [] },
+  { defaults: ["--model", "fixture"] },
+  {
+    defaults: [
+      "--allowedTools",
+      "Read",
+      "Bash(git status, git log)",
+      "--allowed-tools=Read,mcp__other__custom",
+      "--disallowedTools",
+      "mcp__*__stop",
+    ],
+  },
+])(
+  "grants only the attached Foom server and preserves user defaults $defaults",
+  async ({ defaults }) => {
+    const installation = provider.discover("/fixture/claude", "2.1.293", "--mcp-config");
+    for (const attached of [false, true]) {
+      const prepared = await provider.prepareLaunch?.(
+        installation,
+        request,
+        defaults,
+        attached
+          ? {
+              env: { FOOM_CONTROL_URL: "http://127.0.0.1:1234/control/v1" },
+              bind: vi.fn(),
+              dispose: vi.fn(),
+            }
+          : undefined,
+        false,
+        false,
+      );
+      if (!prepared) throw new Error("Missing engine");
+      try {
+        if (!attached) {
+          expect(prepared.args).toEqual(defaults);
+          continue;
+        }
+        const file = prepared.mcpArguments?.[1];
+        if (!file) throw new Error("Missing attachment");
+        const name = (await readFile(file, "utf8")).match(/foom_[a-f0-9]{32}/u)?.[0];
+        if (!name) throw new Error("Missing server name");
+        expect(prepared.args.filter((arg) => arg.startsWith("mcp__foom_"))).toEqual(
+          mcpTools(1, []).map(({ name: tool }) => `mcp__${name}__${tool}`),
+        );
+        expect(prepared.args.filter((arg) => arg === "--allowedTools")).toHaveLength(1);
+        expect(prepared.args).not.toContain("mcp__*");
+        expect(prepared.args).not.toContain("--dangerously-skip-permissions");
+        if (defaults.includes("Read")) {
+          expect(prepared.args.filter((arg) => arg === "Read")).toHaveLength(1);
+          expect(prepared.args).toContain("Bash(git status, git log)");
+          expect(prepared.args).toContain("mcp__other__custom");
+          expect(prepared.args[prepared.args.indexOf("--disallowedTools") + 1]).toBe(
+            "mcp__*__stop",
+          );
+        }
+        if (defaults.includes("--model")) expect(prepared.args.slice(0, 2)).toEqual(defaults);
+      } finally {
+        prepared.dispose();
+      }
+    }
+  },
+);

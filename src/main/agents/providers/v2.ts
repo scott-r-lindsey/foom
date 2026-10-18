@@ -1,3 +1,4 @@
+import { mcpTools } from "../../control/mcp-tools";
 import { PluginSetup } from "../plugin-setup";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -303,11 +304,13 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
         let toolIndex = 0;
         const tools = model.launch.toolPermissions;
         if (mcp && tools)
-          grants = tools.names.map((tool) =>
-            tools.format === "mcp-double-underscore"
-              ? `mcp__${String(values["mcpName"] ?? "")}__${tool}`
-              : `${String(values["mcpName"] ?? "")}(${tool})`,
-          );
+          grants = mcpTools(1, [])
+            .filter((tool) => tools.names.includes(tool.name))
+            .map(({ name: tool }) =>
+              tools.format === "mcp-double-underscore"
+                ? `mcp__${String(values["mcpName"] ?? "")}__${tool}`
+                : `${String(values["mcpName"] ?? "")}(${tool})`,
+            );
         const expand = (templates: readonly string[]) =>
           templates.map((arg) => expandV2(arg, values));
         for (const stage of model.launch.order) {

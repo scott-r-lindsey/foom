@@ -101,11 +101,17 @@ Orchestrator children are outside this feature's scope; see [orchestration](orch
 
 ## Claude Code
 
-Claude Code launches with MCP also pre-approve only `open_preview`, `list_previews`
-and `close_preview` on that random per-launch server using `--allowedTools`.
+Claude Code launches with MCP pre-approve every registered Foom tool on its own
+random per-launch server using exact `mcp__<server>__<tool>` names in `--allowedTools`: preview,
+read, child-handoff and orchestration tools. Names derive from the real server
+registry, filtered by reviewed manifest names; every added tool must be classified.
 User default allow rules are merged and deduplicated, including the `--allowed-tools`
 alias, equals forms and variadic/comma-separated lists. Managed policy and deny
-rules still win; no metadata or orchestration tool receives this grant. Launches
+rules still win. No other MCP server or non-Foom tool receives an added grant.
+Orchestration tools are refused server-side until the human grants the role.
+`remove_worktree` and `reply` still need human confirmation in Foom (apart from
+the existing explicit opt-in merged-clean removal policy). No global config is
+edited. Launches
 without MCP retain their default arguments unchanged. See the
 [per-launch disclosure](orchestration.md#claude-code).
 
