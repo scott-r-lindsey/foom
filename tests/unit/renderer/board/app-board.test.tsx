@@ -923,7 +923,7 @@ test.each(["via-claude", "via-codex", "via-agy"] as const)(
       worktree: "/home/.foom/config",
       branch: null,
     };
-    // Another launch can appear in the same refresh; select the config session specifically.
+    // Another launch can appear in the same refresh; select the new config session.
     mock.sidebarCommand.mockImplementationOnce(() => {
       mock.workspace.mockResolvedValue({
         repositories: [],
@@ -943,11 +943,19 @@ test.each(["via-claude", "via-codex", "via-agy"] as const)(
     expect(mock.open).toHaveBeenLastCalledWith("cfg");
     expect(screen.queryByRole("heading", { name: "Settings" })).toBeNull();
     mock.open.mockClear();
+    mock.sidebarCommand.mockImplementationOnce(() => {
+      mock.workspace.mockResolvedValue({
+        repositories: [],
+        terminals: [agent("other"), configured, { ...configured, id: "cfg-2" }],
+      });
+      return Promise.resolve();
+    });
     act(() => {
       mock.command?.(route);
     });
     await settle();
-    expect(mock.open).not.toHaveBeenCalledWith("other");
+    expect(mock.open).toHaveBeenLastCalledWith("cfg-2");
+    expect(mock.open).not.toHaveBeenCalledWith("cfg");
     expect(screen.container.querySelectorAll(".terminal-tile[data-empty=false]")).toHaveLength(1);
   },
 );

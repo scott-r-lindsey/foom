@@ -578,11 +578,9 @@ export function Board({
           value.kind === "home-shell" ||
           value.kind === "config-launch"
         ) {
-          // One config session at a time: a second launch focuses the running one.
-          const created =
-            value.kind === "config-launch"
-              ? source.getSnapshot().find((row) => row.config && !row.exited)
-              : source.getSnapshot().find((row) => !before.has(row.id));
+          const created = source
+            .getSnapshot()
+            .find((row) => !before.has(row.id) && (value.kind !== "config-launch" || row.config));
           if (created) {
             open(created, false, destination);
             const name = value.kind === "restart" ? preferences.names[value.id] : undefined;

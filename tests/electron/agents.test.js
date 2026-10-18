@@ -1170,14 +1170,6 @@ process.stdin.on("data", (key) => {
   );
   const snapshot = await page.evaluate(() => window.desktop.workspace());
   assert.equal(snapshot.terminals.find((entry) => entry.id === id).attention, "hooks");
-  // A second launch focuses the running session instead of starting another.
-  await page.evaluate(() => window.desktop.sidebarCommand({ kind: "config-launch", run: "shell" }));
-  assert.equal(
-    (await page.evaluate(() => window.desktop.workspace())).terminals.filter(
-      (entry) => entry.config,
-    ).length,
-    1,
-  );
 
   // 2. It writes a theme and validates the folder with the bundled CLI.
   await page.evaluate((id) => window.desktop.input(id, "t"), id);

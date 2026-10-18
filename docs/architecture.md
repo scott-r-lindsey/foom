@@ -1459,8 +1459,8 @@ the board reports config-launch availability separately from tile availability,
 so Settings can stay open while choosing an agent. Preflight disables these routes. Availability refreshes on menu reads, execution, window
 focus and settings updates. The preload accepts only the three fixed route IDs.
 The board dispatches the existing `config-launch` command with `origin: "menu"`,
-awaits the source's refreshed inventory, and opens the running config session
-through normal cross-window selection. This optional, validated origin changes
+awaits the source's refreshed inventory, and opens the newly created config session
+through normal session selection. This optional, validated origin changes
 only notifier confirmation presentation: main uses a trusted disclosure dialog
 for menu launches and keeps click-again for sidebar launches. It grants no consent
 and cannot change the executable, directory or launch policy.
@@ -1841,10 +1841,11 @@ never installed. A new agent config session receives a fixed, main-only greeting
 that asks what the user wants to change; resuming a conversation adds no greeting.
 Antigravity receives it only when interactive prompts are supported, preserving
 any user default prompts. `config-launch` carries no prompt.
-One config session runs at a time; a second launch starts
-nothing and the renderer focuses the running session. Session records keep a
-validated `config` flag (folder path equal to itself, no branch) and restore only
-for the current folder. Sidebar commands
+Every config launcher action starts a new session, including while another launch
+is starting or a session is running. Concurrent writes use the config service’s
+validated, serialized writer. Resume targets only the selected conversation.
+Session records keep a validated `config` flag (folder path equal to itself, no
+branch) and restore every session for the current folder. Sidebar commands
 `config-launch` (a run kind and optional menu origin) and `copy-config-path`
 carry no paths.
 `config:status`, `config:decide` (`allow` or `keep` with the held change's digest)
