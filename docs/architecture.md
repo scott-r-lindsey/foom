@@ -901,7 +901,10 @@ The current GitHub provider remains active while side-by-side fixture tests prov
 parity. The new interpreter receives argv-array transport from main; it cannot
 resolve or spawn a CLI itself. Fork/same-repository decisions and trusted
 default-branch refusal remain TypeScript policy. Settings/host routing, executable
-auth/lifecycle, dynamic batch migration and persistence remain integration work.
+auth/lifecycle, large-request scheduling within manifest bounds and persistence
+remain integration work. The interpreter now supports declarative dynamic batch
+AST composition and check-count reduction with old/new offline parity tests;
+activation remains gated on the remaining lifecycle and scheduling integration.
 #516's adaptive cadence and dynamic check-count batches are unchanged.
 
 Foom also reads PR and check status for board checkouts and orchestrator-owned child

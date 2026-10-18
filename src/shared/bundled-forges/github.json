@@ -198,6 +198,158 @@
         "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository,headRepository,title,url"
       ],
       "jsonExitCodes": [0]
+    },
+    "batchStatus": {
+      "command": {
+        "argv": [
+          "api",
+          "graphql",
+          "--hostname",
+          {
+            "parts": [
+              {
+                "slot": "host",
+                "encoding": "literal"
+              }
+            ]
+          },
+          "-f",
+          {
+            "parts": [
+              "query=",
+              {
+                "slot": "query",
+                "encoding": "literal"
+              }
+            ]
+          },
+          "-f",
+          {
+            "parts": [
+              "owner=",
+              {
+                "slot": "projectOwner",
+                "encoding": "literal"
+              }
+            ]
+          },
+          "-f",
+          {
+            "parts": [
+              "name=",
+              {
+                "slot": "projectName",
+                "encoding": "literal"
+              }
+            ]
+          }
+        ],
+        "jsonExitCodes": [0]
+      },
+      "query": "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { defaultBranchRef { name } ...FoomBatch } }",
+      "discovery": "query($branch: String!) { pullRequests(headRefName: $branch, states: OPEN, first: 2) { pageInfo { hasNextPage } nodes { number title headRefName headRefOid state isCrossRepository headRepository { nameWithOwner } commits(last: 1) { nodes { commit { oid statusCheckRollup { contexts(first: 100) {\n pageInfo { hasNextPage } nodes { __typename\n ... on CheckRun {  status conclusion }\n ... on StatusContext {  state }\n } } } } } } } } }",
+      "bound": "query($number: Int!) { pullRequest(number: $number) { number title headRefName headRefOid state isCrossRepository headRepository { nameWithOwner } commits(last: 1) { nodes { commit { oid statusCheckRollup { contexts(first: 100) {\n pageInfo { hasNextPage } nodes { __typename\n ... on CheckRun { isRequired(pullRequestNumber: $number) status conclusion }\n ... on StatusContext { isRequired(pullRequestNumber: $number) state }\n } } } } } } } }",
+      "repository": ["data", "repository"],
+      "defaultBranch": ["defaultBranchRef", "name"],
+      "nodes": ["nodes"],
+      "pageComplete": ["pageInfo", "hasNextPage"],
+      "sourceProject": ["headRepository", "nameWithOwner"],
+      "crossProject": ["isCrossRepository"],
+      "webUrl": {
+        "parts": [
+          "https://",
+          {
+            "slot": "host",
+            "encoding": "literal"
+          },
+          "/",
+          {
+            "slot": "project",
+            "encoding": "literal"
+          },
+          "/pull/",
+          {
+            "slot": "number",
+            "encoding": "literal"
+          }
+        ]
+      },
+      "checks": {
+        "guards": [
+          {
+            "path": ["headRefOid"],
+            "binding": "headSha"
+          },
+          {
+            "path": ["commits", "nodes"],
+            "length": 1
+          },
+          {
+            "path": ["commits", "nodes", 0, "commit", "oid"],
+            "binding": "headSha"
+          }
+        ],
+        "nullAt": ["commits", "nodes", 0, "commit", "statusCheckRollup"],
+        "rows": ["commits", "nodes", 0, "commit", "statusCheckRollup", "contexts", "nodes"],
+        "shape": "array",
+        "limit": 100,
+        "pageComplete": [
+          "commits",
+          "nodes",
+          0,
+          "commit",
+          "statusCheckRollup",
+          "contexts",
+          "pageInfo",
+          "hasNextPage"
+        ],
+        "required": ["isRequired"],
+        "variants": [
+          {
+            "when": {
+              "path": ["__typename"],
+              "equals": "CheckRun"
+            },
+            "status": ["status"],
+            "completed": "COMPLETED",
+            "unfinished": ["IN_PROGRESS", "QUEUED", "PENDING", "WAITING", "REQUESTED"],
+            "value": ["conclusion"],
+            "table": {
+              "SUCCESS": "success",
+              "NEUTRAL": "success",
+              "SKIPPED": "success",
+              "FAILURE": "failure",
+              "ERROR": "failure",
+              "TIMED_OUT": "failure",
+              "ACTION_REQUIRED": "failure",
+              "STARTUP_FAILURE": "failure",
+              "STALE": "failure",
+              "CANCELLED": "failure",
+              "PENDING": "pending"
+            }
+          },
+          {
+            "when": {
+              "path": ["__typename"],
+              "equals": "StatusContext"
+            },
+            "value": ["state"],
+            "table": {
+              "SUCCESS": "success",
+              "NEUTRAL": "success",
+              "SKIPPED": "success",
+              "FAILURE": "failure",
+              "ERROR": "failure",
+              "TIMED_OUT": "failure",
+              "ACTION_REQUIRED": "failure",
+              "STARTUP_FAILURE": "failure",
+              "STALE": "failure",
+              "CANCELLED": "failure",
+              "PENDING": "pending"
+            }
+          }
+        ]
+      }
     }
   },
   "mapping": {

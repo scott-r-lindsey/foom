@@ -48,4 +48,6 @@ export interface ForgeBindings extends ForgeRemote {
   number?: number;
   nodeId?: string;
   query?: string;
+  projectOwner?: string;
+  projectName?: string;
 }

@@ -645,7 +645,8 @@ settings continue to govern its other data access.
 
 Forge manifests are being introduced in stages (#521). The first stage loads and validates
 manifest data and tests a shared interpreter without changing the active provider
-or Settings. When integration activates forge selection, the disclosure will read:
+or Settings. A second stage adds offline dynamic-batch interpretation and parity
+for board counts and required-check conclusions; runtime enablement remains pending. When integration activates forge selection, the disclosure will read:
 “Foom uses your selected forge CLI and its existing login to read PR or merge request
 and CI metadata. It sends repository/project, branch and PR/MR identifiers in
 read-only status requests. Foom does not send terminal content, store forge tokens,

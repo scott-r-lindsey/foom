@@ -26,6 +26,11 @@ for (const name of ["github.json", "gitlab.json"]) {
   copy.name += " custom";
   assert.equal(validate(copy), true, "duplicate has the same shape/capabilities");
 }
+const bundled = await read("../../src/shared/bundled-forges/github.json");
+assert.equal(validate(bundled), true, JSON.stringify(validate.errors));
+const invalidBatch = structuredClone(bundled);
+invalidBatch.operations.batchStatus.extra = true;
+assert.equal(validate(invalidBatch), false, "batch rejects unknown keys");
 const github = await read("github.json");
 const source = await readFile(new URL("../../src/main/control/forge.ts", import.meta.url), "utf8");
 const sourceQuery = /const CHECK_QUERY = `([\s\S]*?)`;/.exec(source)?.[1];

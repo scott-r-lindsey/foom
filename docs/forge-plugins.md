@@ -12,9 +12,11 @@ contained 64 KiB reads, per-kind 50-file caps and byte-bound validation callback
 Loading only builds a catalog; it does not enable or probe a forge.
 Offline tests run the existing provider and new interpreter side by side before
 removing the old provider. This stage does **not** replace the running GitHub provider. Settings/host assignments,
-CLI resolution/auth/cancellation, adaptive batch interpretation, optional display
-metadata and persistence migration remain for the integration stage. Unsupported
-`batchStatus` declarations are rejected rather than silently ignored. GitLab #522
+CLI resolution/auth/cancellation, optional display metadata, persistence migration
+and the active-provider switch remain for the integration stage. A second stage
+adds optional `batchStatus` query composition and interpretation with offline
+old/new parity tests. Runtime selection and the #516 scheduler still use the old
+provider; no new CLI is enabled by this stage. GitLab #522
 still requires authenticated public-project evidence.
 
 A forge is a second manifest **kind** in the [existing plugin system](agent-plugins.md),
@@ -150,12 +152,12 @@ entries and control characters are rejected. Query LF/tab is the sole exception.
 | `project` | Validated owner/namespace/project from selected remote, never caller-supplied URL |
 | `host` | Validated selected host, explicit on every network command |
 | `nodeId` | Check fallback only, bound by previous command; existing ASCII `[A-Za-z0-9][A-Za-z0-9_+/=-]{0,199}` rule |
-| `query` | That plan's fixed GraphQL text, <=16384 bytes, total query text <=32768 bytes; no string substitutions in it |
-| `branches` | Batch only; 1–50 distinct validated branch strings, JSON encoding only |
+| `query` | That plan's fixed or AST-composed GraphQL text, <=16384 expanded bytes, <=32768 total fixed text bytes; no string substitutions |
+| `projectOwner`, `projectName` | Batch only; validated components of the selected pair-namespace project |
 
 `literal` does no escaping; `percent-component` UTF-8 percent-encodes the entire
-project (including slashes) once and is allowed only for project endpoint segments;
-`json` serializes branches only. No arbitrary output-to-argv bindings. Node ID is
+project (including slashes) once and is allowed only for project endpoint segments.
+No arbitrary output-to-argv bindings. Node ID is
 the only intermediate identifier. Reject out-of-scope slots, dangling query/node
 bindings, nested parts and incompatible encodings at load. Manifest values
 must use raw CLI string fields, never typed `--field` file-reading conversion for
@@ -235,11 +237,59 @@ checks unknown until then. Board counts include all checks, while orchestration
 conclusions include only required checks. Main owns batching, budgets and policy.
 
 The earlier candidate-only, fixed-query batch proposal is superseded by the user's
-follow-main decision. The first implementation stage rejects `batchStatus`; the
-integration stage must add a data representation for #516's dynamic batch behavior
-before switching the active provider. It must not replace batching with serial
+follow-main decision. The optional `batchStatus` representation below now expresses dynamic queries and
+check counts. The integration stage must connect it to executable/auth lifecycle
+and prove scheduling parity before switching the active provider. It must not replace batching with serial
 candidate checks or change existing #337/#340/#516 tests. Bundled and config
 manifests must use the same engine, with no provider-ID compatibility exception.
+
+### Dynamic batch query representation
+
+`operations.batchStatus` is an optional closed object. The bundled GitHub JSON
+contains the complete data; a renamed config copy follows the identical engine.
+There is no provider-ID exception. It declares:
+
+- `command`: the read-only GraphQL transport argv, with exit 0 only, explicit
+  `{host}`, `{query}`, `{projectOwner}` and `{projectName}` slots. These last two
+  slots are batch-only validated components of the selected pair-namespace project.
+  The accepted grammar is `api graphql --hostname {host} -f query={query} -f
+  owner={projectOwner} -f name={projectName}`. Main appends raw `-f bN=<branch>`
+  variables in match order; no manifest can select a different dynamic flag.
+- `query`: one GraphQL query with `$owner: String!`, `$name: String!` and exactly
+  one `...FoomBatch` insertion marker at the repository selection.
+- `discovery`: one query with `$branch: String!`, selecting a single unaliased
+  connection field. `bound`: one query with `$number: Int!`, selecting a single
+  unaliased PR field. No additional definitions, directives, default variables or
+  fragment spreads are accepted. Inline type fragments are allowed.
+- `repository`, `defaultBranch`, `nodes`, `pageComplete`: literal response paths.
+  `defaultBranch` and generated `pN` aliases are relative to `repository`;
+  `nodes` and `pageComplete` are relative to a discovery connection.
+- `sourceProject`, `crossProject`: PR-relative project-path and cross-repository
+  evidence. Main validates and compares the full source path to the selected
+  project, requires a literal false cross-project flag, and independently refuses
+  both the reported default branch and any main-supplied Git default branch.
+- `webUrl`: one argv-style parts value with only host/project/number slots. Main
+  requires HTTPS on the exact selected host, with no credentials or port override.
+- `checks`: the existing check-result grammar, relative to each PR. Array shape and
+  a required-flag path are mandatory. Main reduces required rows for orchestration,
+  then all rows for board counts, checking the same head/commit guards in both.
+  Missing, partial or unknown check data never produces green or partial counts.
+
+The engine composes parsed GraphQL ASTs, assigning `pN` aliases and `$bN` branch
+variables. Only positive safe integer PR bindings become numeric AST nodes, including
+`isRequired` arguments; branch text never enters syntax. It rejects duplicate
+branches and more than 1000 matches, ambiguous discovery, missing discovery aliases, partial
+connections and GraphQL errors. Newly discovered PRs retain unknown required
+checks until the next bound poll. Bound CLOSED/MERGED PRs remain observable.
+
+The interpreter retains the existing manifest limits (16 KiB expanded query slot,
+64 KiB total argv, 256 KiB stdout/stderr) and fails unavailable before spawning an
+oversized request. The active-provider switch must address large repository
+requests within these bounds while retaining #516's serial worker, fleet budgets
+and adaptive cadence; this stage does not change the scheduler or silently fall
+back to per-PR requests. No executable or network calls occur in parity tests.
+Recorded public identity/rollup fields are replayed in explicitly derived batch
+envelopes; constructed contexts cover optional failures, unknowns and partial pages.
 
 ## JSON mapping and check reduction
 

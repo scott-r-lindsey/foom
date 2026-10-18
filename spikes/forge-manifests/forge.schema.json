@@ -110,7 +110,7 @@
     },
     "minimumIntervalSeconds": {
       "type": "integer",
-      "minimum": 30,
+      "minimum": 20,
       "maximum": 86400
     },
     "operations": {
@@ -273,14 +273,14 @@
             "host",
             "nodeId",
             "query",
-            "branches"
+            "projectOwner",
+            "projectName"
           ]
         },
         "encoding": {
           "enum": [
             "literal",
-            "percent-component",
-            "json"
+            "percent-component"
           ]
         }
       },
@@ -661,23 +661,54 @@
           "minLength": 1,
           "maxLength": 16384
         },
-        "rows": {
+        "discovery": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "bound": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16384
+        },
+        "repository": {
+          "$ref": "#/$defs/path"
+        },
+        "defaultBranch": {
+          "$ref": "#/$defs/path"
+        },
+        "nodes": {
           "$ref": "#/$defs/path"
         },
         "pageComplete": {
           "$ref": "#/$defs/path"
         },
-        "maxBranches": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 50
+        "sourceProject": {
+          "$ref": "#/$defs/path"
+        },
+        "crossProject": {
+          "$ref": "#/$defs/path"
+        },
+        "webUrl": {
+          "$ref": "#/$defs/arg"
+        },
+        "checks": {
+          "$ref": "#/$defs/result"
         }
       },
       "required": [
         "command",
-        "rows",
+        "query",
+        "discovery",
+        "bound",
+        "repository",
+        "defaultBranch",
+        "nodes",
         "pageComplete",
-        "maxBranches"
+        "sourceProject",
+        "crossProject",
+        "webUrl",
+        "checks"
       ]
     }
   }
