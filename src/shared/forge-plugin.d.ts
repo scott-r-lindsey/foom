@@ -1,7 +1,15 @@
 export type ForgePath = readonly (string | number)[];
 export type ForgeState = "OPEN" | "CLOSED" | "MERGED";
 export type CheckConclusion = "pending" | "success" | "failure" | "none" | "unknown";
-export type ForgeSlot = "branch" | "number" | "project" | "host" | "nodeId" | "query";
+export type ForgeSlot =
+  | "branch"
+  | "number"
+  | "project"
+  | "host"
+  | "nodeId"
+  | "query"
+  | "projectOwner"
+  | "projectName";
 export type ForgeArgument =
   | string
   | { parts: readonly (string | { slot: ForgeSlot; encoding: "literal" | "percent-component" })[] };
@@ -49,6 +57,21 @@ export type ForgeProjects =
       sourceName: ForgePath;
     }
   | { mode: "numeric-project-ids"; source: ForgePath; target: ForgePath; context: ForgePath };
+export interface ForgeBatchPlan {
+  command: ForgeCommand;
+  /** Query with one ...FoomBatch insertion point; item queries each select one field. */
+  query: string;
+  discovery: string;
+  bound: string;
+  repository: ForgePath;
+  defaultBranch: ForgePath;
+  nodes: ForgePath;
+  pageComplete: ForgePath;
+  webUrl: ForgeArgument;
+  sourceProject: ForgePath;
+  crossProject: ForgePath;
+  checks: ForgeCheckResult;
+}
 export interface ForgeManifest {
   kind: "forge";
   version: 1;
@@ -73,6 +96,7 @@ export interface ForgeManifest {
     resolveNumber: ForgeCommand;
     refresh: ForgeCommand;
     display: ForgeCommand | undefined;
+    batchStatus: ForgeBatchPlan | undefined;
   };
   mapping: {
     number: ForgePath;

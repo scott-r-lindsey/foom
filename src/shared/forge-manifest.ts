@@ -1,6 +1,8 @@
 import type {
   CheckConclusion,
   ForgeArgument,
+  ForgeBatchPlan,
+  ForgeCheckResult,
   ForgeCommand,
   ForgeGuard,
   ForgeManifest,
@@ -8,6 +10,7 @@ import type {
   ForgeProjects,
   ForgeVariant,
 } from "./forge-plugin";
+import { validateForgeBatchQueries } from "./forge-batch-query";
 import { manifestJson } from "./agent-manifest-json";
 import {
   array,
@@ -73,6 +76,8 @@ function argument(value: unknown, path: string): ForgeArgument {
           "host",
           "nodeId",
           "query",
+          "projectOwner",
+          "projectName",
         )(slot["slot"], at);
         const encoding = enumeration("literal", "percent-component")(slot["encoding"], at);
         if (encoding === "percent-component" && name !== "project") fail(at, "invalid-encoding");
@@ -191,8 +196,11 @@ function plan(value: unknown, path: string): ForgePlan {
     (bound && !commandSlots(commands[1]?.argv ?? []).includes("nodeId"))
   )
     fail(path, "unused-binding");
+  return { commands, query, result: checkResult(data["result"], path) };
+}
+function checkResult(value: unknown, path: string): ForgeCheckResult {
   const result = object(
-    data["result"],
+    value,
     path,
     ["rows", "shape", "limit", "variants"],
     ["guards", "nullAt", "pageComplete", "required", "rowGuards"],
@@ -200,19 +208,57 @@ function plan(value: unknown, path: string): ForgePlan {
   const shape = enumeration("array", "object")(result["shape"], path);
   const limit = integer(result["limit"], path, shape === "object" ? 1 : 1000, 1);
   return {
-    commands,
+    guards: defaulted(array(guard, 16), [])(result["guards"], path),
+    nullAt: optional(pathValue)(result["nullAt"], path),
+    rows: pathValue(result["rows"], path),
+    shape,
+    limit,
+    pageComplete: optional(pathValue)(result["pageComplete"], path),
+    required: optional(pathValue)(result["required"], path),
+    rowGuards: defaulted(array(guard, 16), [])(result["rowGuards"], path),
+    variants: array(variant, 8, 1)(result["variants"], path),
+  };
+}
+function batchPlan(value: unknown, path: string): ForgeBatchPlan {
+  const data = object(value, path, [
+    "command",
+    "query",
+    "discovery",
+    "bound",
+    "repository",
+    "defaultBranch",
+    "nodes",
+    "pageComplete",
+    "sourceProject",
+    "crossProject",
+    "checks",
+    "webUrl",
+  ]);
+  const query = multiline(data["query"], path);
+  const discovery = multiline(data["discovery"], path);
+  const bound = multiline(data["bound"], path);
+  validateForgeBatchQueries(query, discovery, bound);
+  const parsed = command(data["command"], path, ["host", "query", "projectOwner", "projectName"]);
+  if (parsed.jsonExitCodes.length !== 1 || parsed.jsonExitCodes[0] !== 0)
+    fail(path, "invalid-batch-exit");
+  const webUrl = argument(data["webUrl"], path);
+  if (commandSlots([webUrl]).some((slot) => !["host", "project", "number"].includes(slot)))
+    fail(path, "slot-scope");
+  const result = checkResult(data["checks"], path);
+  if (result.shape !== "array" || !result.required) fail(path, "invalid-batch-checks");
+  return {
+    command: parsed,
     query,
-    result: {
-      guards: defaulted(array(guard, 16), [])(result["guards"], path),
-      nullAt: optional(pathValue)(result["nullAt"], path),
-      rows: pathValue(result["rows"], path),
-      shape,
-      limit,
-      pageComplete: optional(pathValue)(result["pageComplete"], path),
-      required: optional(pathValue)(result["required"], path),
-      rowGuards: defaulted(array(guard, 16), [])(result["rowGuards"], path),
-      variants: array(variant, 8, 1)(result["variants"], path),
-    },
+    discovery,
+    bound,
+    webUrl,
+    repository: pathValue(data["repository"], path),
+    defaultBranch: pathValue(data["defaultBranch"], path),
+    nodes: pathValue(data["nodes"], path),
+    pageComplete: pathValue(data["pageComplete"], path),
+    sourceProject: pathValue(data["sourceProject"], path),
+    crossProject: pathValue(data["crossProject"], path),
+    checks: result,
   };
 }
 function projects(value: unknown, path: string): ForgeProjects {
@@ -281,7 +327,7 @@ export function parseForgeManifest(
     data["operations"],
     at,
     ["lookupByBranch", "resolveNumber", "refresh"],
-    ["display"],
+    ["display", "batchStatus"],
   );
   const lookup = object(operations["lookupByBranch"], at, ["open", "all"]);
   const mapping = object(
@@ -310,7 +356,16 @@ export function parseForgeManifest(
   const numberSlots = ["host", "project", "number"];
   const primary = plan(checks["primary"], at);
   const fallback = optional(plan)(checks["fallback"], at);
-  if ((primary.query?.length ?? 0) + (fallback?.query?.length ?? 0) > 32768) fail(at, "too-large");
+  const batchStatus = optional(batchPlan)(operations["batchStatus"], at);
+  if (
+    (primary.query?.length ?? 0) +
+      (fallback?.query?.length ?? 0) +
+      (batchStatus
+        ? batchStatus.query.length + batchStatus.discovery.length + batchStatus.bound.length
+        : 0) >
+    32768
+  )
+    fail(at, "too-large");
   return freeze({
     kind: literal("forge")(data["kind"], at),
     version: literal(1)(data["version"], at),
@@ -343,6 +398,7 @@ export function parseForgeManifest(
       },
       resolveNumber: command(operations["resolveNumber"], at, numberSlots),
       refresh: command(operations["refresh"], at, numberSlots),
+      batchStatus,
       display: optional((value, path) => command(value, path, numberSlots))(
         operations["display"],
         at,

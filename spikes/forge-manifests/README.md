@@ -1,7 +1,10 @@
 # Forge manifest evidence spike (#520)
 
 Design artifacts for [the proposed spec](../../docs/forge-plugins.md), not a runtime
-implementation. User approval is required before #521. No application files change.
+implementation. #520 was subsequently approved; the bundled runtime manifest now
+lives in `src/shared/bundled-forges/`. The schema tracks #521's follow-main 20-second
+minimum and dynamic batch data format. The worked spike copies remain historical
+examples; the verifier also checks the current bundled manifest's structural shape.
 
 ## Files and evidence provenance
 

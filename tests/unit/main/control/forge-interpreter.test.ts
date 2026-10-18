@@ -1,11 +1,8 @@
+import { expandForgeArguments, forgeJson } from "../../../../src/main/control/forge-execution";
 import { readFile } from "node:fs/promises";
 import { expect, it, vi } from "vitest";
 import { forgeProvider, rollupChecks } from "../../../../src/main/control/forge";
-import {
-  expandForgeArguments,
-  forgeJson,
-  manifestForgeProvider,
-} from "../../../../src/main/control/forge-interpreter";
+import { manifestForgeProvider } from "../../../../src/main/control/forge-interpreter";
 import type { ForgeResponse, ForgeTransport } from "../../../../src/main/control/forge.d";
 import { githubManifest, bundledForge } from "../../../../src/main/control/forge-manifests";
 import github from "../../../../src/shared/bundled-forges/github.json";

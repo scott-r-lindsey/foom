@@ -15,5 +15,5 @@ export function bundledForge(data: unknown, id: string, digest: string) {
 export const githubManifest = bundledForge(
   github,
   "github",
-  "3bac77a68c8d09bac7b93d26435b0543c67c26db06be9e686e842681315266aa",
+  "b88a9a529046dec0617be85ad23c23950e879732f4834e691b31b30b3a95b908",
 );

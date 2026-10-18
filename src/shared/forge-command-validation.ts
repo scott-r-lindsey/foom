@@ -50,6 +50,11 @@ export function validateForgeCommand(argv: readonly ForgeArgument[], auth = fals
   }
   if (signature.join(" ") === "api graphql --hostname {host} -f query={query} -f id={nodeId}")
     return;
+  if (
+    signature.join(" ") ===
+    "api graphql --hostname {host} -f query={query} -f owner={projectOwner} -f name={projectName}"
+  )
+    return;
   // GET endpoints are fixed or assembled from a validated percent-encoded project/number.
   if (
     first === "api" &&
