@@ -1,3 +1,4 @@
+import { OrchestrationMark } from "./orchestration-mark";
 import type { PreviewSummary } from "../../shared/workspace";
 import { TileMenu } from "./tile-menu";
 import { AgentBadge } from "./agent-badge";
@@ -25,6 +26,7 @@ import {
   rowWorktree,
   agentBadges,
   previewOpener,
+  sidebarParent,
 } from "./sidebar-model";
 import {
   rectangles,
@@ -122,6 +124,7 @@ function Tile({
   const lightRef = useRef<HTMLSpanElement>(null);
   const elementRef = useRef<HTMLElement>(null);
   const rowId = row?.id;
+  const parent = row ? sidebarParent(row, rows) : undefined;
   const occupied = Boolean(row || preview);
   const name = row ? sessionName(row, preferences) : (preview?.relativePath ?? "");
   useEffect(
@@ -261,6 +264,14 @@ function Tile({
                 <span className="session-waiting">{light(row).label}</span>
               )}
               <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
+              {row.orchestration?.role === "child" && (
+                <OrchestrationMark
+                  kind="rx"
+                  related={false}
+                  label="Worker"
+                  title={`Child of ${parent ? sessionName(parent, preferences) : row.orchestration.parentId}${row.orchestration.takenOver ? " · Taken over" : ""}`}
+                />
+              )}
               <span className="tile-location" title={`${row.repository} › ${row.branch}`}>
                 {row.repository} › {row.branch}
               </span>

@@ -232,6 +232,55 @@ test("gutter pointer and keyboard changes persist ratios and clamp to 15–85 pe
   fireEvent.keyDown(vertical, { key: "ArrowDown" });
   vi.unstubAllGlobals();
 });
+test("worker trim follows role and takeover metadata without remounting or reattaching", () => {
+  const { screen, click, data, views } = setup();
+  click(0);
+  const tile = screen.getByRole("region", { name: /Tile 1:/ });
+  const terminal = tile.querySelector(".tile-terminal");
+  const mounts = views.map((view) => view.mount.mock.calls.length);
+  const opens = views.map((view) => view.open.mock.calls.length);
+  expect(within(tile).queryByRole("img", { name: "Worker" })).toBeNull();
+  act(() => {
+    data.update("permission", {
+      orchestration: { role: "child", parentId: "parent", takenOver: false },
+    });
+  });
+  const mark = within(tile).getByRole("img", { name: "Worker" });
+  expect(mark.closest(".tile-title")).toBeTruthy();
+  expect(mark.querySelector("title")?.textContent).toBe("Child of parent");
+  expect(mark.getAttribute("data-kind")).toBe("rx");
+  const parent = data.getSnapshot()[1];
+  if (!parent) throw new Error("Missing parent fixture");
+  act(() => {
+    data.update(parent.id, {
+      id: "parent",
+      orchestration: { role: "orchestrator", active: true, children: 1, history: [] },
+    });
+  });
+  expect(mark.querySelector("title")?.textContent).toBe(`Child of ${parent.agent}`);
+
+  act(() => {
+    data.update("permission", {
+      orchestration: { role: "child", parentId: "parent", takenOver: true },
+    });
+  });
+  expect(within(tile).getByRole("img", { name: "Worker" })).toBe(mark);
+  expect(mark.querySelector("title")?.textContent).toBe(`Child of ${parent.agent} · Taken over`);
+  act(() => {
+    data.update("permission", {
+      orchestration: { role: "orchestrator", active: true, children: 0, history: [] },
+    });
+  });
+  expect(within(tile).queryByRole("img", { name: "Worker" })).toBeNull();
+  act(() => {
+    data.update("permission", { orchestration: undefined });
+  });
+  expect(within(tile).queryByRole("img", { name: "Worker" })).toBeNull();
+  expect(tile.querySelector(".tile-terminal")).toBe(terminal);
+  expect(views.map((view) => view.mount.mock.calls.length)).toEqual(mounts);
+  expect(views.map((view) => view.open.mock.calls.length)).toEqual(opens);
+  expect(views.every((view) => view.dispose.mock.calls.length === 0)).toBe(true);
+});
 test("activity changes tile light brightness without remounting, and only attention has the needs-you state", () => {
   const { screen, click, data, views } = setup();
   click(0);
