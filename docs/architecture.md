@@ -1097,6 +1097,7 @@ in the profile. Validation alone grants no approval.
 | `hooks` | Boolean |
 | `restoreSessions` | Boolean, default `true`; enabling through the file requires Allow |
 | `concurrentChildren` | Integer 1–16, default 4 |
+| `recentRepositoryDays` | Integer 1–365, default 30 |
 
 `shared/config-settings.ts` supplies the same value validation to main's settings
 patch parser and the file parser; theme files use `shared/theme-files.ts` directly.
@@ -1159,16 +1160,16 @@ restores sidebar row focus after the terminal has reattached; selecting a sideba
 terminal closes Settings. The shared setup coordinator renders the same Agents,
 Repositories and Appearance controls in both paths, with guided navigation only in
 preflight: Welcome → Agents (T-2) → Repositories (T-1) → Go / no-go (T-0). Worktree
-location controls live only in Settings. The existing `worktreeLocation` schema and
+location controls live only in Settings → General. The existing `worktreeLocation` schema and
 root default are unchanged; completing or replaying setup never resets a saved choice.
-Settings adds Terminal font and size, interface Themes and
+Settings adds Terminal font and size, Themes with both interface and terminal palettes (shipped choices followed by a divider and user choices), and
 Sound controls. Successful `setup:save` calls publish `setup:changed` to keep live
 consumers synchronized. Repository selection changes save immediately in Settings,
 with controls disabled during the write and refused selections restored to the
 registered repositories. Scans in Settings start from existing registrations;
 preflight continues to suggest recent repositories and save when leaving the step.
 
-Repositories come from the user's code folder (one, saved as `codeFolder`). Main offers common folders under home (`~/code`, `~/src`, `~/projects` and similar) that hold repositories, each with a count from a quick scan (the same walk, stopped at 5,000 folders), or shows the native picker; then `src/main/setup/code-scan.ts` walks the folder breadth first with live progress: at most three levels and 20,000 folders (reporting when it stopped early), never following symbolic links, skipping hidden folders, `node_modules`, `Library`, `AppData`, `Applications` and Foom's worktree folder, stopping at each repository, and skipping `.git` files (linked worktrees and submodules). Last activity comes from the modification times of `.git/logs/HEAD`, `.git/index` and `.git/HEAD`, without running git; activity in the last 30 days preselects a repository, as does already being added. The renderer may add or remove only paths from main's latest scan; leaving the step applies the selection, and a refusal (for example a repository with Foom-made worktrees) keeps the user on the step with the reason. `pnpm run start:fresh` runs the app with a throwaway profile to test first run.
+Repositories come from the user's code folder (one, saved as `codeFolder`). Main offers common folders under home (`~/code`, `~/src`, `~/projects` and similar) that hold repositories, each with a count from a quick scan (the same walk, stopped at 5,000 folders), or shows the native picker; then `src/main/setup/code-scan.ts` walks the folder breadth first with live progress: at most three levels and 20,000 folders (reporting when it stopped early), never following symbolic links, skipping hidden folders, `node_modules`, `Library`, `AppData`, `Applications` and Foom's worktree folder, stopping at each repository, and skipping `.git` files (linked worktrees and submodules). Last activity comes from the modification times of `.git/logs/HEAD`, `.git/index` and `.git/HEAD`, without running git; activity within `recentRepositoryDays` (default 30, integer 1–365) preselects a repository, as does already being added. The Repositories day count is editable inline by typing or wheel, clamped to 1–365. The renderer reclassifies the retained timestamps without rescanning and preserves all selections. The renderer may add or remove only paths from main's latest scan; leaving the step applies the selection, and a refusal (for example a repository with Foom-made worktrees) keeps the user on the step with the reason. `pnpm run start:fresh` runs the app with a throwaway profile to test first run.
 
 ## Agent signals
 

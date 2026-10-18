@@ -78,6 +78,7 @@ const LABELS: Record<ConfigSetting, string> = {
   hooks: "Hooks",
   restoreSessions: "Restore sessions on launch",
   concurrentChildren: "Concurrent children per orchestrator",
+  recentRepositoryDays: "Recent repository days",
 };
 
 /** Short commit subject naming what changed, such as "Terminal font size 15". */

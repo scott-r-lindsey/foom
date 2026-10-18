@@ -26,6 +26,9 @@ separate worktree. See [contributor setup](AGENTS.md#building-foom-inside-foom).
 Restart `pnpm start` after source edits; quit the existing Foom Dev app first.
 
 The first launch opens **preflight**: welcome, agents, repositories, then go / no-go.
+Repositories start with 30 days of recent activity; edit the day count in place (1–365)
+to regroup results without rescanning. Settings → General holds worktree placement;
+Appearance holds mode and scale, and Themes holds interface and terminal themes.
 After setup, launch shells and agents from checkout panels, a shell from the home
 row, or create a checkout with **New worktree** in a repository panel. Hidden
 terminals keep running. **Settings** is in the Foom config gear panel and app menu.

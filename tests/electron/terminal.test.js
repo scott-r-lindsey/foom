@@ -821,7 +821,7 @@ test("host answers color queries once through real view transitions and system t
   for (const theme of ["light", "dark", "dracula"]) {
     if (theme === "dracula") {
       await openSettingsScreen(page);
-      await page.getByRole("button", { name: "Terminal", exact: true }).click();
+      await page.getByRole("button", { name: "Themes", exact: true }).click();
       await page.getByRole("button", { name: "Dracula", exact: true }).click();
       await expect
         .poll(() =>

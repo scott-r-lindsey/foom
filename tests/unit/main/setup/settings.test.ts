@@ -690,3 +690,28 @@ test("unread child minutes validates bounded integers and persists only in the p
   await store.update({ unreadChildMinutes: 0 });
   expect((await SettingsStore.open(dir)).get().unreadChildMinutes).toBe(0);
 });
+
+test("recent repository days validates, migrates defaults and persists through config", async () => {
+  expect(DEFAULT_SETTINGS.recentRepositoryDays).toBe(30);
+  for (const recentRepositoryDays of [1, 30, 365])
+    expect(parseSettingsPatch({ recentRepositoryDays })).toEqual({ recentRepositoryDays });
+  for (const recentRepositoryDays of [0, 366, -1, 1.5, "30", null, true, NaN, Infinity, {}, []])
+    expect(() => parseSettingsPatch({ recentRepositoryDays })).toThrow();
+  const dir = await directory();
+  await writeFile(
+    path.join(dir, "settings.json"),
+    JSON.stringify({ version: 1, settings: { hooks: false } }),
+  );
+  const store = await SettingsStore.open(dir);
+  expect(store.get().recentRepositoryDays).toBe(30);
+  await store.update({ recentRepositoryDays: 90 });
+  expect((await SettingsStore.open(dir)).get().recentRepositoryDays).toBe(90);
+  const writer = vi.fn(async () => {});
+  await store.attachConfig(writer, { recentRepositoryDays: 90 }, null);
+  await store.update({ recentRepositoryDays: 7 });
+  expect(writer).toHaveBeenCalledWith({ recentRepositoryDays: 7 });
+  store.setConfig({ recentRepositoryDays: 7 });
+  expect(store.get().recentRepositoryDays).toBe(7);
+  store.setConfig({});
+  expect(store.get().recentRepositoryDays).toBe(30);
+});

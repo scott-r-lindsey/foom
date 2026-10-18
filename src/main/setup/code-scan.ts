@@ -2,8 +2,7 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
 import type { ScanProgress } from "../../shared/setup";
 
-export const RECENT_DAYS = 30;
-const DAY = 86_400_000;
+export { isRecent } from "../../shared/recent-repositories";
 
 /**
  * Heavy system folders that never hold the user's repositories. Names like `build` or
@@ -56,10 +55,6 @@ async function lastActive(gitDirectory: string): Promise<number | null> {
   );
   const known = times.filter((time) => time !== undefined);
   return known.length ? Math.round(Math.max(...known)) : null;
-}
-
-export function isRecent(time: number | null, now: number): boolean {
-  return time !== null && now - time <= RECENT_DAYS * DAY;
 }
 
 /**

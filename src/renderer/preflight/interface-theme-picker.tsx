@@ -1,6 +1,6 @@
 import type { ThemeCatalog } from "../../shared/theme-file";
 import { ThemeFilesStatus } from "./theme-files-status";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { interfaceThemes, resolveInterfaceTheme } from "../../shared/interface-themes";
 import type { InterfaceThemeId } from "../../shared/interface-theme";
@@ -71,46 +71,60 @@ export function InterfaceThemePicker({
   };
   return (
     <div className="interface-theme-settings">
-      <div className="interface-theme-choices" role="group" aria-label="Interface themes">
-        <button
-          type="button"
-          aria-pressed={selected === "system"}
-          onClick={() => {
-            onChange({ interfaceTheme: "follow", colorMode: "system" });
-          }}
-        >
-          System
-          <span className="theme-description">Follow your system’s light or dark appearance</span>
-        </button>
-        {[
-          ...choices.map((id) => ({ id, theme: interfaceThemes[id] })),
-          ...(catalog?.interface ?? []),
-        ].map(({ id, theme: candidate }) => {
-          return (
-            <button
-              type="button"
-              key={id}
-              aria-pressed={selected === id}
-              onClick={() => {
-                onChange({ interfaceTheme: id });
-              }}
-            >
-              {candidate.name}
-              <span className="interface-theme-swatches" aria-hidden="true">
-                {(
-                  ["bg", "surface", "accent", "highlight", "attention", "done", "failed"] as const
-                ).map((key) => (
-                  <i
-                    key={key}
-                    style={{ backgroundColor: candidate.colors[key] ?? candidate.colors.accent }}
-                  />
-                ))}
-              </span>
-            </button>
-          );
-        })}
+      <div className="interface-theme-picker-column">
+        <div className="interface-theme-choices" role="group" aria-label="Interface themes">
+          <button
+            type="button"
+            aria-pressed={selected === "system"}
+            onClick={() => {
+              onChange({ interfaceTheme: "follow", colorMode: "system" });
+            }}
+          >
+            System
+          </button>
+          {[
+            ...choices.map((id) => ({ id, theme: interfaceThemes[id] })),
+            ...(catalog?.interface ?? []),
+          ].map(({ id, theme: candidate }, index) => {
+            return (
+              <Fragment key={id}>
+                {index === choices.length && <hr className="theme-divider" />}
+                <button
+                  type="button"
+                  key={id}
+                  aria-pressed={selected === id}
+                  onClick={() => {
+                    onChange({ interfaceTheme: id });
+                  }}
+                >
+                  {candidate.name}
+                  <span className="interface-theme-swatches" aria-hidden="true">
+                    {(
+                      [
+                        "bg",
+                        "surface",
+                        "accent",
+                        "highlight",
+                        "attention",
+                        "done",
+                        "failed",
+                      ] as const
+                    ).map((key) => (
+                      <i
+                        key={key}
+                        style={{
+                          backgroundColor: candidate.colors[key] ?? candidate.colors.accent,
+                        }}
+                      />
+                    ))}
+                  </span>
+                </button>
+              </Fragment>
+            );
+          })}
+        </div>
+        <ThemeFilesStatus catalog={catalog} kind="theme" openFolder={openFolder} />
       </div>
-      <ThemeFilesStatus catalog={catalog} kind="theme" openFolder={openFolder} />
       <section
         className="interface-theme-preview"
         aria-label="Interface theme preview"
@@ -134,10 +148,6 @@ export function InterfaceThemePicker({
           ))}
         </div>
       </section>
-      <p className="preflight-note">
-        Amber always means Needs you. Magenta always means Failed. Labels and light shapes stay the
-        same in every theme.
-      </p>
     </div>
   );
 }

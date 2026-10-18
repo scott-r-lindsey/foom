@@ -1,3 +1,5 @@
+import { isRecent } from "../../shared/recent-repositories";
+import { RecentDaysInput } from "./recent-days-input";
 import { useEffect, useState } from "react";
 import type { CodeScan, CodeSuggestion, FoundRepository, ScanProgress } from "../../shared/setup";
 import type { Repository } from "../../shared/worktrees";
@@ -68,7 +70,7 @@ function Row({
 
 /**
  * "Where do you keep your code?": pick a folder, scan it with live progress, then
- * choose repositories. Recent ones (git activity in the last 30 days) start checked.
+ * choose repositories. Recent ones start checked in first run.
  */
 export function RepositoryPicker({
   source,
@@ -77,7 +79,11 @@ export function RepositoryPicker({
   progress,
   onScan,
   onSelection,
+  recentDays = 30,
+  onRecentDays = () => undefined,
 }: {
+  recentDays?: number;
+  onRecentDays?: (days: number) => void;
   source: SetupSource;
   selection: CodeSelection | undefined;
   added: readonly Repository[];
@@ -197,8 +203,11 @@ export function RepositoryPicker({
     onSelection({ scan: found, selected: next });
   };
   const groups: [string, FoundRepository[]][] = [
-    ["Recent · last 30 days", shown.filter((repo) => repo.recent)],
-    ["Older", shown.filter((repo) => !repo.recent)],
+    [
+      `Recent · last ${String(recentDays)} days`,
+      shown.filter((repo) => isRecent(repo.lastActive, now, recentDays)),
+    ],
+    ["Older", shown.filter((repo) => !isRecent(repo.lastActive, now, recentDays))],
   ];
 
   return (
@@ -269,9 +278,21 @@ export function RepositoryPicker({
           </div>
           {groups.map(([title, repos]) =>
             repos.length ? (
-              <section key={title} className="repo-group" aria-label={title}>
+              <section
+                key={title.startsWith("Recent") ? "recent" : "older"}
+                className="repo-group"
+                aria-label={title}
+              >
                 <h3>
-                  {title} <span>{repos.length}</span>
+                  {title.startsWith("Recent") ? (
+                    <>
+                      Recent · last <RecentDaysInput value={recentDays} onChange={onRecentDays} />{" "}
+                      days
+                    </>
+                  ) : (
+                    title
+                  )}{" "}
+                  <span>{repos.length}</span>
                 </h3>
                 <ul>
                   {repos.map((repo) => (
