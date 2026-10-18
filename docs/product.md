@@ -23,7 +23,15 @@ providers; other CLIs can run in a plain shell, watched by the evaluator.
 
 The light carries two separate signals.
 
-- **Motion is activity.** Working agents and running shells glow with output: a logarithmic level makes 200 B/s visible and reaches full strength around 4 KB/s. Brightness rises in about 120 ms and falls in about 700 ms; rate targets change no faster than 3 Hz. The light grows up to 1.3× and casts a halo in its own color. Sidebar rows also show an eight-second trace sampled four times a second; tile title bars have glow only. Reduced motion removes scaling and transitions and updates brightness in four steps, and the trace, once a second. Other states hold still.
+- **Motion is activity.** Working agents and running shells glow with output: a logarithmic level makes 200 B/s visible and reaches full strength around 4 KB/s. Brightness rises in about 120 ms and falls in about 700 ms; rate targets change no faster than 3 Hz. The light grows up to 1.3× and casts a halo in its own color. Sidebar rows also show an eight-second trace of peak output in each quarter-second window, independent of the glow’s smoothing and target hold; tile title bars have glow only. Reduced motion removes scaling and transitions and updates brightness in four steps, and the trace, once a second. Other states hold still.
+  Agent and shell scales have separate functions with the same measured knees: zero at
+  0 B/s, level 0.39 at 200 B/s, and full at 4,000 B/s. At 160×48, the #412
+  measurements found Claude Code working at 0.5–1.4 KB/s (levels 0.56–0.78),
+  Codex around 2 KB/s (0.85), and Codex streaming at 7–65 KB/s (full).
+  Both produced 0 B/s idle. Earlier saturation would hide more variation.
+  Trace peaks bypass the glow envelope so short bursts survive; steady output
+  still draws a steady elevated line. Reduced motion quantizes each one-second
+  peak to four levels. [Fixture replay findings](activity-trace.md) explain tile-size limits.
 - **Color is execution and attention state.** Agent lifecycle signals establish Working; the evaluator classifies attention and results.
 
 | State | Light | Meaning |

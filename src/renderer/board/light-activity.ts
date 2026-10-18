@@ -1,8 +1,10 @@
 import type { BoardSource } from "./board-source";
 import type { BoardRow } from "./board.d";
 
-export const outputLevel = (rate: number): number =>
+export const shellOutputLevel = (rate: number): number =>
   Math.min(1, Math.log1p(Math.max(0, rate) / 40) / Math.log1p(100));
+// Measured agent redraws already occupy this range; do not saturate them earlier.
+export const agentOutputLevel = (rate: number): number => shellOutputLevel(rate);
 export const smoothLevel = (previous: number, target: number, elapsed: number): number =>
   previous + (target - previous) * (1 - Math.exp(-elapsed / (target > previous ? 120 : 700)));
 export const movingLight = (row: BoardRow): boolean =>
@@ -21,23 +23,30 @@ export class LightHistory {
   private target = 0;
   private targetAt = -Infinity;
   private sampleAt = -Infinity;
+  private tracePeak = 0;
   private readonly history: { at: number; level: number }[] = [];
   step(
     rate: number,
     now: number,
     elapsed: number,
     reduced: boolean,
+    kind: BoardRow["kind"] = "shell",
   ): { level: number; path: string } | undefined {
+    const level = kind === "agent" ? agentOutputLevel(rate) : shellOutputLevel(rate);
+    // Trace peaks bypass the glow hold and envelope, so brief output is not lost.
+    this.tracePeak = Math.max(this.tracePeak, level);
     // Hold rate targets for at least a third of a second, independently of IPC frequency.
     if (now - this.targetAt >= 1000 / 3) {
-      this.target = outputLevel(rate);
+      this.target = level;
       this.targetAt = now;
     }
     this.level = smoothLevel(this.level, this.target, elapsed);
     if (now - this.sampleAt < (reduced ? 1000 : 250)) return undefined;
     this.sampleAt = now;
     const shown = reduced ? Math.round(this.level * 3) / 3 : this.level;
-    this.history.push({ at: now, level: shown });
+    const traceLevel = reduced ? Math.round(this.tracePeak * 3) / 3 : this.tracePeak;
+    this.history.push({ at: now, level: traceLevel });
+    this.tracePeak = 0;
     while (this.history[0] && (this.history[0].at < now - 8000 || this.history.length > 33))
       this.history.shift();
     return {
@@ -85,7 +94,7 @@ export function subscribeLights(source: BoardSource, targets: () => Target[]): (
         meters.set(row.id, meter);
       }
       meter.rate = latest.get(row.id)?.rate ?? meter.rate;
-      const sample = meter.history.step(meter.rate, now, now - last, reduced);
+      const sample = meter.history.step(meter.rate, now, now - last, reduced, row.kind);
       if (!reduced || sample)
         element.style.setProperty(
           "--activity",
