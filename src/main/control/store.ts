@@ -16,6 +16,7 @@ export class ControlStore {
   constructor(
     private readonly directory: string,
     private readonly changed: () => void = () => {},
+    private readonly rotationBytes = 10 * 1024 * 1024,
   ) {}
 
   private serialize<T>(task: () => Promise<T>): Promise<T> {
@@ -123,7 +124,7 @@ export class ControlStore {
         const path = join(this.directory, `actions-${String(index)}.jsonl`);
         try {
           await verifyPrivate(path, false);
-          if ((await lstat(path)).size > 10 * 1024 * 1024) throw new ControlError("unavailable");
+          if ((await lstat(path)).size > this.rotationBytes) throw new ControlError("unavailable");
           for (const line of (await readFile(path, "utf8")).split("\n")) {
             if (!line) continue;
             const data: unknown = JSON.parse(line);
@@ -238,7 +239,7 @@ export class ControlStore {
     for (const entry of entries) {
       const line = `${JSON.stringify(entry)}\n`;
       const size = Buffer.byteLength(line);
-      if (bytes + size > 10 * 1024 * 1024) {
+      if (bytes + size > this.rotationBytes) {
         await this.appendJson(batch);
         batch = "";
         bytes = 0;
@@ -259,7 +260,7 @@ export class ControlStore {
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
     }
-    if (size + Buffer.byteLength(json) > 10 * 1024 * 1024) {
+    if (size + Buffer.byteLength(json) > this.rotationBytes) {
       await rm(join(this.directory, "actions-4.jsonl"), { force: true });
       for (let index = 3; index >= 0; index--) {
         try {
