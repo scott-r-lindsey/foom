@@ -152,45 +152,55 @@ export class ControlStore {
 
   async persist(record: StoredOperation): Promise<void> {
     return this.serialize(async () => {
-      // Snapshots have a bounded count enforced by Operations; never rotate live deduplication.
+      // Keep the final outcome recoverable until its audit entry is durable.
       await atomicPrivate(this.directory, `operation-${record.operation.operationId}.json`, record);
       await this.append({ actor: record.actor, ...record.operation });
+      if (!["pending_confirmation", "running"].includes(record.operation.status))
+        await rm(join(this.directory, `operation-${record.operation.operationId}.json`));
     });
   }
 
   async recover(): Promise<void> {
-    await this.prune();
-    // No credentials survive restart. Preserve old records for human reconciliation, never replay.
-    for (const name of await readdir(this.directory)) {
-      if (/^operation-[a-f0-9-]{36}\.json$/u.test(name)) {
-        const source = join(this.directory, name);
-        await verifyPrivate(source, false);
-        if ((await lstat(source)).size > 16384) throw new ControlError("unavailable");
-        const value: unknown = JSON.parse(await readFile(source, "utf8"));
-        const status = object(object(value)["operation"])["status"];
-        if (
-          typeof status !== "string" ||
-          ![
-            "pending_confirmation",
-            "running",
-            "succeeded",
-            "failed",
-            "declined",
-            "cancelled",
-            "indeterminate",
-          ].includes(status)
-        )
-          throw new ControlError("unavailable");
-        await this.append({
-          actor: object(value)["actor"],
-          ...object(object(value)["operation"]),
-          operationId: name.slice(10, -5),
-          status: ["pending_confirmation", "running"].includes(status) ? "indeterminate" : status,
-          reason: "recovery",
-        });
-        await rm(source);
+    return this.serialize(async () => {
+      await this.prune();
+      const sources: string[] = [];
+      const entries: ActionLogEntry[] = [];
+      // No credentials survive restart. Preserve old records for human reconciliation, never replay.
+      for (const name of await readdir(this.directory)) {
+        if (/^operation-[a-f0-9-]{36}\.json$/u.test(name)) {
+          const source = join(this.directory, name);
+          await verifyPrivate(source, false);
+          if ((await lstat(source)).size > 16384) throw new ControlError("unavailable");
+          const value: unknown = JSON.parse(await readFile(source, "utf8"));
+          const status = object(object(value)["operation"])["status"];
+          if (
+            typeof status !== "string" ||
+            ![
+              "pending_confirmation",
+              "running",
+              "succeeded",
+              "failed",
+              "declined",
+              "cancelled",
+              "indeterminate",
+            ].includes(status)
+          )
+            throw new ControlError("unavailable");
+          const entry = auditEntry({
+            timestamp: new Date().toISOString(),
+            actor: object(value)["actor"],
+            ...object(object(value)["operation"]),
+            operationId: name.slice(10, -5),
+            status: ["pending_confirmation", "running"].includes(status) ? "indeterminate" : status,
+            reason: "recovery",
+          });
+          if (["pending_confirmation", "running"].includes(status)) entries.push(entry);
+          sources.push(source);
+        }
       }
-    }
+      await this.appendEntries(entries);
+      for (const source of sources) await rm(source);
+    });
   }
 
   async clearAudit(): Promise<void> {
@@ -218,10 +228,31 @@ export class ControlStore {
   }
 
   private async append(value: Record<string, unknown>): Promise<void> {
+    await this.appendEntries([auditEntry({ timestamp: new Date().toISOString(), ...value })]);
+  }
+
+  /** One write and sync per recovery batch; split only at the audit rotation boundary. */
+  private async appendEntries(entries: readonly ActionLogEntry[]): Promise<void> {
+    let batch = "";
+    let bytes = 0;
+    for (const entry of entries) {
+      const line = `${JSON.stringify(entry)}\n`;
+      const size = Buffer.byteLength(line);
+      if (bytes + size > 10 * 1024 * 1024) {
+        await this.appendJson(batch);
+        batch = "";
+        bytes = 0;
+      }
+      batch += line;
+      bytes += size;
+    }
+    if (batch) await this.appendJson(batch);
+  }
+
+  private async appendJson(json: string): Promise<void> {
     await verifyPrivate(this.directory, true);
     const current = join(this.directory, "actions-0.jsonl");
     await this.prune();
-    const json = `${JSON.stringify(auditEntry({ timestamp: new Date().toISOString(), ...value }))}\n`;
     let size = 0;
     try {
       size = (await lstat(current)).size;

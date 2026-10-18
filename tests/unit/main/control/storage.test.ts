@@ -1,5 +1,6 @@
 import {
   chmod,
+  open,
   lstat,
   mkdir,
   mkdtemp,
@@ -11,6 +12,8 @@ import {
   utimes,
   writeFile,
 } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -18,7 +21,12 @@ import fs from "node:fs/promises";
 import { rename } from "node:fs/promises";
 vi.mock("node:fs/promises", async (original) => {
   const actual = await original<typeof fs>();
-  return { ...actual, rename: vi.fn(actual.rename) };
+  return {
+    ...actual,
+    rename: vi.fn(actual.rename),
+    open: vi.fn(actual.open),
+    readFile: vi.fn(actual.readFile),
+  };
 });
 import {
   atomicPrivate,
@@ -27,6 +35,7 @@ import {
   verifyPrivate,
 } from "../../../../src/node-common/private-files";
 import { ControlRuntime } from "../../../../src/main/control/runtime";
+import { Operations } from "../../../../src/main/control/operations";
 import { ControlStore } from "../../../../src/main/control/store";
 import type { StoredOperation } from "../../../../src/main/control/types";
 
@@ -40,6 +49,9 @@ beforeEach(async () => {
   directory = await privateDirectory(root);
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
+  vi.mocked(open).mockReset().mockImplementation(fs.open);
+  vi.mocked(readFile).mockReset().mockImplementation(fs.readFile);
   vi.mocked(rename).mockImplementation(fs.rename);
   await rm(root, { recursive: true, force: true });
 });
@@ -232,15 +244,22 @@ it("refuses a mutation when audit rotation cannot be persisted", async () => {
 });
 
 it.each(["succeeded", "declined", "failed", "cancelled", "indeterminate"] as const)(
-  "preserves known %s outcomes during recovery",
+  "removes completed %s snapshots without duplicating their audit",
   async (status) => {
     const store = new ControlStore(directory);
     await store.persist({ ...record, operation: { ...record.operation, status } });
-    await store.clearAudit();
-    await store.recover();
-    expect(await readFile(join(directory, "actions-0.jsonl"), "utf8")).toContain(
-      `"status":"${status}"`,
+    expect(await readdir(directory)).not.toContain(
+      `operation-${record.operation.operationId}.json`,
     );
+    const before = await readFile(join(directory, "actions-0.jsonl"), "utf8");
+    // Legacy versions left terminal snapshots behind after recording the outcome.
+    await atomicPrivate(directory, `operation-${record.operation.operationId}.json`, {
+      ...record,
+      operation: { ...record.operation, status },
+    });
+    await store.recover();
+    expect(await readFile(join(directory, "actions-0.jsonl"), "utf8")).toBe(before);
+    expect(await readdir(directory)).toEqual(["actions-0.jsonl"]);
   },
 );
 it.each(["invalid", 42, "x".repeat(17000)])(
@@ -463,5 +482,175 @@ it("audits handoff sequence and status without child-authored contents", async (
   expect(JSON.stringify(page)).not.toContain("Private child");
   expect(await readFile(join(directory, "actions-0.jsonl"), "utf8")).not.toContain(
     "https://example.com/private",
+  );
+});
+
+function observeAuditIo(failSync = false) {
+  const writes = vi.fn();
+  const syncs = vi.fn();
+  vi.mocked(open).mockImplementation(async (...args) => {
+    const handle = await fs.open(...args);
+    if (String(args[0]).endsWith("actions-0.jsonl")) {
+      const write = handle.writeFile.bind(handle);
+      const sync = handle.sync.bind(handle);
+      vi.spyOn(handle, "writeFile").mockImplementation(async (...values) => {
+        writes();
+        return write(...values);
+      });
+      vi.spyOn(handle, "sync").mockImplementation(async () => {
+        syncs();
+        if (failSync) throw new Error("sync unavailable");
+        return sync();
+      });
+    }
+    return handle;
+  });
+  return { writes, syncs };
+}
+
+// Measure filesystem recovery on Unix; Windows ACL subprocesses are covered by the smaller cases.
+it.skipIf(process.platform === "win32")(
+  "starts with 400 settled snapshots without any recovery audit writes or syncs",
+  async () => {
+    // Fixture creation does not pay an atomic snapshot fsync per legacy record.
+    for (let index = 0; index < 400; index++)
+      await writeFile(
+        join(directory, `operation-${randomUUID()}.json`),
+        JSON.stringify({
+          ...record,
+          operation: { ...record.operation, status: "succeeded" },
+        }),
+        { mode: 0o600 },
+      );
+    const { writes, syncs } = observeAuditIo();
+    const start = performance.now();
+    const runtime = await ControlRuntime.start(root);
+    try {
+      process.stdout.write(
+        `400 settled snapshots: runtime startup ${(performance.now() - start).toFixed(1)} ms\n`,
+      );
+      expect(writes).not.toHaveBeenCalled();
+      expect(syncs).not.toHaveBeenCalled();
+      expect(await readdir(directory)).toEqual(["discovery.json"]);
+      await runtime.audit.recover();
+      expect(writes).not.toHaveBeenCalled();
+    } finally {
+      await runtime.close();
+    }
+  },
+);
+
+it("batches interrupted snapshots into one durable redacted entry each before removing them", async () => {
+  for (const status of ["running", "pending_confirmation"])
+    await atomicPrivate(directory, `operation-${randomUUID()}.json`, {
+      ...record,
+      operation: { ...record.operation, status, proposal: "token=private-secret" },
+    });
+  const { writes, syncs } = observeAuditIo();
+  const store = new ControlStore(directory);
+  await store.recover();
+  expect(writes).toHaveBeenCalledTimes(1);
+  expect(syncs).toHaveBeenCalledTimes(1);
+  expect(await readdir(directory)).toEqual(["actions-0.jsonl"]);
+  const page = await store.read({ search: "", action: "", status: "", offset: 0 });
+  expect(page.total).toBe(2);
+  expect(new Set(page.entries.map((entry) => entry.operationId)).size).toBe(2);
+  for (const entry of page.entries)
+    expect(entry).toMatchObject({
+      status: "indeterminate",
+      reason: "recovery",
+      proposal: "[REDACTED CREDENTIAL]",
+    });
+  expect(JSON.stringify(page)).not.toMatch(/private-secret|fingerprint|generation/u);
+  await store.recover();
+  expect(writes).toHaveBeenCalledTimes(1);
+});
+
+it("retains snapshots and refuses startup when recovery sync fails", async () => {
+  await atomicPrivate(directory, `operation-${record.operation.operationId}.json`, record);
+  const { syncs } = observeAuditIo(true);
+  await expect(ControlRuntime.start(root)).rejects.toThrow("sync unavailable");
+  expect(syncs).toHaveBeenCalledTimes(1);
+  expect(await readdir(directory)).toContain(`operation-${record.operation.operationId}.json`);
+  expect(await readdir(directory)).not.toContain("discovery.json");
+});
+
+it("retains a final snapshot when its outcome audit cannot sync", async () => {
+  observeAuditIo(true);
+  const completed = { ...record, operation: { ...record.operation, status: "succeeded" as const } };
+  await expect(new ControlStore(directory).persist(completed)).rejects.toThrow("sync unavailable");
+  expect(
+    JSON.parse(
+      await readFile(join(directory, `operation-${record.operation.operationId}.json`), "utf8"),
+    ),
+  ).toEqual(completed);
+});
+
+it.each(["unreadable", "invalid JSON", "invalid terminal actor"])(
+  "refuses startup before audit or deletion for %s snapshots",
+  async (failure) => {
+    const path = join(directory, `operation-${record.operation.operationId}.json`);
+    await atomicPrivate(directory, `operation-${randomUUID()}.json`, record);
+    await atomicPrivate(directory, `operation-${record.operation.operationId}.json`, {
+      ...record,
+      actor: { ...record.actor, terminalId: 42 },
+      operation: { ...record.operation, status: "succeeded" },
+    });
+    if (failure === "invalid JSON") await writeFile(path, "{");
+    if (failure === "unreadable")
+      vi.mocked(readFile).mockRejectedValueOnce(new Error("unreadable"));
+    const { writes, syncs } = observeAuditIo();
+    await expect(ControlRuntime.start(root)).rejects.toThrow();
+    expect(await readdir(directory)).toHaveLength(2);
+    expect(writes).not.toHaveBeenCalled();
+    expect(syncs).not.toHaveBeenCalled();
+  },
+);
+
+// Exercise the batching boundary without thousands of native Windows ACL subprocesses.
+it.skipIf(process.platform === "win32")(
+  "rotates oversized recovery batches at 10 MiB",
+  async () => {
+    const count = 2600;
+    for (let index = 0; index < count; index++)
+      await writeFile(
+        join(directory, `operation-${randomUUID()}.json`),
+        JSON.stringify({
+          ...record,
+          operation: { ...record.operation, proposal: "safe text ".repeat(800) },
+        }),
+        { mode: 0o600 },
+      );
+    await new ControlStore(directory).recover();
+    expect(await readdir(directory)).toEqual(["actions-0.jsonl", "actions-1.jsonl"]);
+    let lines = 0;
+    for (const name of await readdir(directory)) {
+      expect((await lstat(join(directory, name))).size).toBeLessThanOrEqual(10 * 1024 * 1024);
+      lines += (await readFile(join(directory, name), "utf8")).trim().split("\n").length;
+    }
+    expect(lines).toBe(count);
+  },
+);
+
+it("keeps completed-operation deduplication in memory after removing its snapshot", async () => {
+  const store = new ControlStore(directory);
+  const operations = new Operations(
+    (value) => store.persist(value),
+    () => {},
+  );
+  const initial = await operations.begin(record.actor, "stop", "same-key", "{}");
+  await operations.finish(record.actor, initial.operationId, "succeeded", "completed");
+  expect(await readdir(directory)).toEqual(["actions-0.jsonl"]);
+  expect(await operations.begin(record.actor, "stop", "same-key", "{}")).toMatchObject({
+    operationId: initial.operationId,
+    status: "succeeded",
+    created: false,
+  });
+  const restarted = new Operations(
+    (value) => store.persist(value),
+    () => {},
+  );
+  expect(() => restarted.lookup(record.actor, { operationId: initial.operationId })).toThrow(
+    "not_found",
   );
 });

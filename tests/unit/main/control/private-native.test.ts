@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ControlRuntime } from "../../../../src/main/control/runtime";
@@ -49,13 +49,15 @@ test.skipIf(process.platform !== "win32")(
       launch.bind("terminal");
       const actor = runtime.service.authenticate(launch.env["FOOM_CONTROL_TOKEN"] ?? "");
       const operation = await runtime.service.operations.begin(actor, "stop", "key", "{}");
+      const snapshot = `operation-${operation.operationId}.json`;
+      await verifyPrivate(join(directory, snapshot), false);
       await runtime.service.operations.finish(
         actor,
         operation.operationId,
         "succeeded",
         "completed",
       );
-      await verifyPrivate(join(directory, `operation-${operation.operationId}.json`), false);
+      expect(await readdir(directory)).not.toContain(snapshot);
       await verifyPrivate(join(directory, "actions-0.jsonl"), false);
     } finally {
       await runtime.close();

@@ -734,7 +734,13 @@ redacted proposal and delivery status, never raw input or tails; initial prompts
 are omitted. Store a separate private action log, rotate at 10 MiB, retain at most
 five files and 30 days, and support clearing it. Audit intent must be persisted
 before mutations; log failure refuses automation but never blocks human terminal
-input. Record indeterminate outcomes on recovery rather than replaying operations.
+input. Terminal snapshots are removed after the outcome audit is durable; in-memory
+deduplication lasts until quit. Startup validates snapshots before publishing the
+listener: settled snapshots are removed without duplicate audit entries, while
+pending-confirmation and running snapshots produce indeterminate entries in a
+batched write and sync (split only at the 10 MiB rotation boundary). All snapshots
+are then removed. Invalid/unreadable snapshots or audit failures refuse startup;
+recovery never restores credentials or replays operations.
 
 Children appear under their own worktree in the repository sidebar, each with a
 small, dim child glyph, a parent-naming tooltip and an independent light. Hover,
