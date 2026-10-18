@@ -1,9 +1,21 @@
-# Forge manifests — proposed specification (#520)
+# Forge manifests — approved specification (#520)
 
-**Proposed, not decided. User approval is required before #521 starts.** This PR
-adds a design and evidence fixtures, not runtime support. #521 would implement the
-shared engine and convert GitHub; #522 would ship GitLab after its evidence gates.
-There are no new permissions for agents, no forge writes, and no merge automation.
+The user approved the spec in [#520](https://github.com/scott-r-lindsey/foom/issues/520#issuecomment-6207655657),
+with the later [#521 polling decision](https://github.com/scott-r-lindsey/foom/issues/521#issuecomment-6244997818)
+superseding the original cadence proposal. There are no new permissions for agents,
+no forge writes, and no merge automation.
+
+The first #521 implementation stage adds the shared kind dispatcher, strict forge
+parser, build-locked GitHub manifest and transport-injected single-PR interpreter.
+The existing config scanner also loads and watches `forges/<id>.json` with
+contained 64 KiB reads, per-kind 50-file caps and byte-bound validation callbacks.
+Loading only builds a catalog; it does not enable or probe a forge.
+Offline tests run the existing provider and new interpreter side by side before
+removing the old provider. This stage does **not** replace the running GitHub provider. Settings/host assignments,
+CLI resolution/auth/cancellation, adaptive batch interpretation, optional display
+metadata and persistence migration remain for the integration stage. Unsupported
+`batchStatus` declarations are rejected rather than silently ignored. GitLab #522
+still requires authenticated public-project evidence.
 
 A forge is a second manifest **kind** in the [existing plugin system](agent-plugins.md),
 not another plugin architecture. Built-ins are bundled JSON. A valid config copy
@@ -12,7 +24,7 @@ execution, ownership decisions and polling; manifests describe CLI syntax and da
 
 ## Review artifacts and compatibility
 
-The complete, standalone worked manifests are [GitHub](../spikes/forge-manifests/github.json)
+The complete, standalone worked manifests are [GitHub](../src/shared/bundled-forges/github.json)
 and [GitLab](../spikes/forge-manifests/gitlab.json). The executable
 [JSON Schema draft](../spikes/forge-manifests/forge.schema.json) uses draft 2020-12.
 The tables and semantic constraints below are part of the proposal; JSON Schema
@@ -20,8 +32,8 @@ alone cannot validate query safety or placeholder scope.
 [Spike evidence](../spikes/forge-manifests/README.md) separates recorded output from
 constructed fixtures, and describes validation without live CLIs.
 
-Dependency status: #520 has no listed prerequisite. #521 also depends on #516
-being merged; this spec does not authorize starting either follow-up early.
+Dependency status: #520 is approved and #516 is merged. Both prerequisites for
+#521 are satisfied.
 
 Versioning is per kind: `kind: "forge", version: 1`; existing `agent` v1 and v2
 bytes, directories, IDs and semantics remain unchanged. The shared
@@ -109,7 +121,7 @@ All objects reject unknown keys and all JSON rejects duplicate/unsafe keys
 nodes. IDs/name/badge/executable limits match agent manifests. No modules, scripts,
 shell strings, jq, Go templates, regex evaluation, external includes or downloads.
 The schema URL is an identifier, never fetched at runtime. Optional environment
-and guard arrays default to empty, minimum interval defaults to 30 seconds, and
+and guard arrays default to empty, minimum interval defaults to 20 seconds, and
 absent operations/fallbacks disable those features. Explicit null is not omission.
 
 | Root field | Required content |
@@ -118,7 +130,7 @@ absent operations/fallbacks disable those features. Explicit null is not omissio
 | `remote` | Host declarations and namespace/comparison grammar |
 | `auth` | `argv`, `successExitCodes: [0]`, optional `failureContains` |
 | `environment?` | Fixed nonsecret prompt/pager overrides only; absent means none |
-| `minimumIntervalSeconds?` | 30–86400; may slow Foom's cadence, never accelerate it |
+| `minimumIntervalSeconds?` | 20–86400; may slow Foom's cadence, never accelerate it |
 | `operations` | `lookupByBranch: {open, all}`, `resolveNumber`, `refresh`; optional `display`, `batchStatus` |
 | `mapping` | Literal JSON paths, state table and project evidence |
 | `checks` | `meaning`, `primary` plan, optional `fallback` plan |
@@ -215,20 +227,19 @@ a default-branch bypass or authorize a checkout. #337's ownership, branch locks,
 budget and identity rechecks are unchanged. Unsupported/default discovery failures
 remain `forge_unavailable`; existing distinct adoption refusal codes remain intact.
 
-`batchStatus` is optional acceleration: one command, fixed optional GraphQL query,
-`rows` path, `pageComplete` path and `maxBranches` <=50. It consumes a validated
-JSON branches slot and returns records using the same mapping. Each row must carry
-its own branch/number/head/project evidence. Partition by host, project, manifest
-digest and executable; never batch across repos/accounts. Require explicit
-`pageComplete === false` (the path selects a has-next-page flag), a bounded array
-<=1000, no unknown requested-branch substitutions, and one unambiguous row per
-branch. Missing rows have no match only on a complete page. Duplicates invalidate
-that branch; malformed envelope/partial page invalidates the batch. The v1 batch
-operation supplies candidates only: checks and final rechecks still run per
-candidate under the same budgets. It cannot turn one branch's success into another's.
-A failed/absent batch falls back to per-branch sampling at the slower cadence below.
-Neither worked manifest declares a batch: no unmeasured bulk result is presented as
-production-ready. Rich atomic bulk checks would require a later format extension.
+Repository batching must preserve #516's dynamic queries, numeric PR bindings,
+check counts, default-branch exclusion and verified head/check identity. Branch
+values remain GraphQL variables; only validated numeric PR numbers enter query
+syntax. Newly discovered PRs bind on the following scheduler tick, with required
+checks unknown until then. Board counts include all checks, while orchestration
+conclusions include only required checks. Main owns batching, budgets and policy.
+
+The earlier candidate-only, fixed-query batch proposal is superseded by the user's
+follow-main decision. The first implementation stage rejects `batchStatus`; the
+integration stage must add a data representation for #516's dynamic batch behavior
+before switching the active provider. It must not replace batching with serial
+candidate checks or change existing #337/#340/#516 tests. Bundled and config
+manifests must use the same engine, with no provider-ID compatibility exception.
 
 ## JSON mapping and check reduction
 
@@ -305,8 +316,8 @@ rows means none. No invalid/partial result can become a green result.
 | `head-pipeline` | GitLab MR head pipeline at the sampled SHA; not approvals, external status checks, mergeability, merge trains or all branch protection |
 | `commit-status` | Gitea/Forgejo aggregate commit statuses when no reliable required subset is exposed; never label it required |
 
-Keep `requiredChecks` for existing MCP compatibility, add a validated `checksMeaning`
-discriminator to new metadata/UI in #521, and label it “Required checks”, “Head
+Keep `requiredChecks` for existing MCP compatibility. The integration stage adds a
+validated `checksMeaning` discriminator to metadata/UI and labels it “Required checks”, “Head
 pipeline” or “Commit status”. Persist it with observations. No check meaning or
 conclusion grants merge authority. `none` means a verified empty relevant set,
 never that the user may merge; unknown is never success.
@@ -328,18 +339,18 @@ not a claim that GitLab's merge rules match those conclusions. See the
 
 ## Polling, persistence and privacy
 
-Foom owns #516 scheduling and the existing `ForgeTracking` limits. Success baseline
-is 30 seconds, unavailable/no match backs off 60/120/240/480/600 seconds; check-only
-unknown remains a valid observation. Effective delay is the maximum of that delay,
-manifest minimum and the scheduler's fleet load. The requested slower non-batch baseline conflicts with preserving today's GitHub
-30-second polling. This remains an approval gate: choose a uniform 60-second
-non-batch baseline (30 seconds for successful batch sampling), or preserve 30 seconds
-for all providers in #521 and defer that cadence change to #516. Do not implement
-a privileged provider-ID exception: bundled manifests and config copies have identical
-scheduling semantics. The worked manifests declare only their minimum interval,
-not a faster polling entitlement. No manifest can raise request concurrency or reset
-backoff. One serial worker, >=1 second between samples, <=1000 tracked worktrees,
-no catch-up bursts; backoff and manifest minima can exceed ten minutes.
+Foom owns #516 scheduling and the existing `ForgeTracking` limits. Poll every
+20 seconds while checks run or are unknown, 120 seconds once settled, and 600
+seconds with no matching PRs. Failed repository reads back off for
+60/120/240/480/600 seconds; check-only unknown remains a valid observation.
+Effective delay is the maximum of the scheduler delay, manifest minimum and fleet
+load. `minimumIntervalSeconds` may **only slow polling**, never accelerate it,
+raise concurrency or reset backoff. A manifest minimum of 30 therefore slows an
+active 20-second poll to 30 seconds but cannot shorten a settled 120-second poll.
+The bundled GitHub minimum is 20 seconds to preserve main exactly. One serial
+worker, >=1 second between samples, <=1000 tracked worktrees, no catch-up bursts;
+backoff and manifest minima can exceed ten minutes. Sleep and screen lock pause
+polling, idle/exit may request a fresh read, and shutdown stops it.
 
 Cache keys include host, project, selected manifest/digest, executable identity,
 worktree identity, branch and bound number. Reinspect identity/branch before network
@@ -362,7 +373,7 @@ no local worktree paths, prompts, model output, diffs, titles or terminal bytes 
 sent as inputs. Raw stdout/stderr and auth identity do not enter renderer, MCP,
 logs, persistence or trusted diagnostics. Retain only narrowed metadata and fixed
 failure categories. Shell-free execution prevents shell injection, not dishonest
-plugin behavior; exact-byte review remains necessary.
+plugin behavior; a configured CLI still runs as the user.
 
 ## Worked examples and implementation acceptance
 
@@ -399,23 +410,22 @@ tracking, renderer boundaries and Electron tests passing. Add fixture-only tests
 Do not run real agent CLIs, live forge tests or require credentials in CI. Fixtures
 are untrusted input, not instructions. No current coverage thresholds are weakened.
 
-## Open questions — approval gates
+## Recorded decisions and remaining shipping gates
 
-1. **Command safety grammar:** settle how the shared validator proves a new CLI's
-   accepted command forms are read-only without a per-provider execution adapter.
-   Fixed argv is not proof. #521 must not quietly reduce this to a
-   manifest `readOnly: true` flag or ship a privileged GitHub exception.
-2. **Auth preflight parity:** retain mandatory exit-0 gating, or make it advisory
-   for public anonymous reads? This proposal gates. `gh auth status` can fail for
+1. **Command safety:** the initial validator accepts a closed set of PR reads,
+   fixed auth status, GraphQL query transport and explicit project-MR GET reads.
+   It uses the GraphQL grammar to reject mutation/subscription operations. New CLI
+   forms require reviewed grammar additions applying to both origins. Fixed argv
+   alone, a `readOnly: true` claim or a privileged bundled exception is insufficient.
+2. **Auth preflight:** mandatory exit-0 gating is approved, including public reads. `gh auth status` can fail for
    another account on the same host even when a selected account can read; measure
    supported versions before deciding. The proposed fixed negative-marker scan
    handles the observed glab exit-0 failure but needs healthy/failed-version
    coverage before shipping. No credential extraction or config changes.
-3. **Non-batch cadence:** choose uniform 60 seconds or preserve the 30-second
-   baseline for all providers during migration. The issue requests a slower fallback and exact current GitHub
-   behavior; both cannot change the same interval simultaneously. Recommendation:
-   keep 30 for #521 parity, decide the uniform policy alongside #516 before release.
-   This is intentionally unresolved; no per-provider compatibility privilege.
+3. **Polling resolved:** follow main, preserving #516's dynamic batches and
+   check counts, 20-second active polls and 120-second settled polls. The previous
+   30-second parity assumption was incorrect. Manifest minima can only slow this
+   schedule; there is no special bundled-provider cadence.
 4. **GitLab policy/evidence:** approve manual → pending and skipped → none labels;
    obtain public authenticated captures of MR detail/head pipelines and exit behavior
    before #522. Current glab is unauthenticated; constructed schemas are not that
@@ -433,5 +443,5 @@ are untrusted input, not instructions. No current coverage thresholds are weaken
    documents automatic extension installation on first use: future discovery must
    prevent that side effect, rather than silently installing it.
 
-User approval of this specification and resolution of the #521 gates must be
-recorded on #520 before implementation starts. A green spec PR is not that approval.
+Approval is recorded on #520; the later polling decision on #521 takes precedence.
+GitLab evidence and other CLI grammars remain separate shipping gates.

@@ -1,0 +1,455 @@
+{
+  "kind": "forge",
+  "version": 1,
+  "id": "github",
+  "name": "GitHub",
+  "badge": "GH",
+  "executables": ["gh"],
+  "remote": {
+    "hosts": ["github.com"],
+    "namespace": "pair",
+    "case": "ascii-insensitive"
+  },
+  "auth": {
+    "argv": [
+      "auth",
+      "status",
+      "--hostname",
+      {
+        "parts": [
+          {
+            "slot": "host",
+            "encoding": "literal"
+          }
+        ]
+      }
+    ],
+    "successExitCodes": [0]
+  },
+  "environment": {
+    "GH_PROMPT_DISABLED": "1",
+    "GH_PAGER": "cat"
+  },
+  "minimumIntervalSeconds": 20,
+  "operations": {
+    "lookupByBranch": {
+      "open": {
+        "argv": [
+          "pr",
+          "list",
+          "--repo",
+          {
+            "parts": [
+              {
+                "slot": "host",
+                "encoding": "literal"
+              },
+              "/",
+              {
+                "slot": "project",
+                "encoding": "literal"
+              }
+            ]
+          },
+          "--head",
+          {
+            "parts": [
+              {
+                "slot": "branch",
+                "encoding": "literal"
+              }
+            ]
+          },
+          "--state",
+          "open",
+          "--limit",
+          "2",
+          "--json",
+          "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository"
+        ],
+        "jsonExitCodes": [0, 1, 8]
+      },
+      "all": {
+        "argv": [
+          "pr",
+          "list",
+          "--repo",
+          {
+            "parts": [
+              {
+                "slot": "host",
+                "encoding": "literal"
+              },
+              "/",
+              {
+                "slot": "project",
+                "encoding": "literal"
+              }
+            ]
+          },
+          "--head",
+          {
+            "parts": [
+              {
+                "slot": "branch",
+                "encoding": "literal"
+              }
+            ]
+          },
+          "--state",
+          "all",
+          "--limit",
+          "2",
+          "--json",
+          "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository"
+        ],
+        "jsonExitCodes": [0, 1, 8]
+      }
+    },
+    "resolveNumber": {
+      "argv": [
+        "pr",
+        "view",
+        {
+          "parts": [
+            {
+              "slot": "number",
+              "encoding": "literal"
+            }
+          ]
+        },
+        "--repo",
+        {
+          "parts": [
+            {
+              "slot": "host",
+              "encoding": "literal"
+            },
+            "/",
+            {
+              "slot": "project",
+              "encoding": "literal"
+            }
+          ]
+        },
+        "--json",
+        "number,headRefName,state,headRepositoryOwner,isCrossRepository"
+      ],
+      "jsonExitCodes": [0]
+    },
+    "refresh": {
+      "argv": [
+        "pr",
+        "view",
+        {
+          "parts": [
+            {
+              "slot": "number",
+              "encoding": "literal"
+            }
+          ]
+        },
+        "--repo",
+        {
+          "parts": [
+            {
+              "slot": "host",
+              "encoding": "literal"
+            },
+            "/",
+            {
+              "slot": "project",
+              "encoding": "literal"
+            }
+          ]
+        },
+        "--json",
+        "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository"
+      ],
+      "jsonExitCodes": [0]
+    },
+    "display": {
+      "argv": [
+        "pr",
+        "view",
+        {
+          "parts": [
+            {
+              "slot": "number",
+              "encoding": "literal"
+            }
+          ]
+        },
+        "--repo",
+        {
+          "parts": [
+            {
+              "slot": "host",
+              "encoding": "literal"
+            },
+            "/",
+            {
+              "slot": "project",
+              "encoding": "literal"
+            }
+          ]
+        },
+        "--json",
+        "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository,headRepository,title,url"
+      ],
+      "jsonExitCodes": [0]
+    }
+  },
+  "mapping": {
+    "number": ["number"],
+    "branch": ["headRefName"],
+    "headSha": ["headRefOid"],
+    "state": ["state"],
+    "states": {
+      "OPEN": "OPEN",
+      "CLOSED": "CLOSED",
+      "MERGED": "MERGED"
+    },
+    "title": ["title"],
+    "webUrl": ["url"],
+    "projects": {
+      "mode": "owner-and-cross-flag",
+      "owner": ["headRepositoryOwner", "login"],
+      "crossProject": ["isCrossRepository"],
+      "sourceName": ["headRepository", "name"]
+    }
+  },
+  "checks": {
+    "meaning": "required",
+    "primary": {
+      "commands": [
+        {
+          "argv": [
+            "pr",
+            "checks",
+            {
+              "parts": [
+                {
+                  "slot": "number",
+                  "encoding": "literal"
+                }
+              ]
+            },
+            "--repo",
+            {
+              "parts": [
+                {
+                  "slot": "host",
+                  "encoding": "literal"
+                },
+                "/",
+                {
+                  "slot": "project",
+                  "encoding": "literal"
+                }
+              ]
+            },
+            "--required",
+            "--json",
+            "bucket"
+          ],
+          "jsonExitCodes": [0, 1, 8],
+          "emptyDiagnostics": [
+            {
+              "exitCode": 1,
+              "prefix": "no required checks reported on the '",
+              "suffix": "' branch"
+            },
+            {
+              "exitCode": 1,
+              "prefix": "no checks reported on the '",
+              "suffix": "' branch"
+            }
+          ]
+        }
+      ],
+      "result": {
+        "rows": [],
+        "shape": "array",
+        "limit": 1000,
+        "variants": [
+          {
+            "value": ["bucket"],
+            "table": {
+              "pass": "success",
+              "fail": "failure",
+              "pending": "pending",
+              "skipping": "success",
+              "cancel": "failure"
+            }
+          }
+        ]
+      }
+    },
+    "fallback": {
+      "commands": [
+        {
+          "argv": [
+            "pr",
+            "view",
+            {
+              "parts": [
+                {
+                  "slot": "number",
+                  "encoding": "literal"
+                }
+              ]
+            },
+            "--repo",
+            {
+              "parts": [
+                {
+                  "slot": "host",
+                  "encoding": "literal"
+                },
+                "/",
+                {
+                  "slot": "project",
+                  "encoding": "literal"
+                }
+              ]
+            },
+            "--json",
+            "id"
+          ],
+          "jsonExitCodes": [0],
+          "bindNodeId": ["id"]
+        },
+        {
+          "argv": [
+            "api",
+            "graphql",
+            "--hostname",
+            {
+              "parts": [
+                {
+                  "slot": "host",
+                  "encoding": "literal"
+                }
+              ]
+            },
+            "-f",
+            {
+              "parts": [
+                "query=",
+                {
+                  "slot": "query",
+                  "encoding": "literal"
+                }
+              ]
+            },
+            "-f",
+            {
+              "parts": [
+                "id=",
+                {
+                  "slot": "nodeId",
+                  "encoding": "literal"
+                }
+              ]
+            }
+          ],
+          "jsonExitCodes": [0]
+        }
+      ],
+      "query": "query($id: ID!) {\n  node(id: $id) { ... on PullRequest {\n    headRefOid\n    commits(last: 1) { nodes { commit {\n      oid\n      statusCheckRollup { contexts(first: 100) {\n        pageInfo { hasNextPage }\n        nodes {\n          __typename\n          ... on CheckRun { isRequired(pullRequestId: $id) status conclusion }\n          ... on StatusContext { isRequired(pullRequestId: $id) state }\n        }\n      } }\n    } } }\n  } }\n}",
+      "result": {
+        "guards": [
+          {
+            "path": ["errors"],
+            "absent": true
+          },
+          {
+            "path": ["data", "node", "headRefOid"],
+            "binding": "headSha"
+          },
+          {
+            "path": ["data", "node", "commits", "nodes"],
+            "length": 1
+          },
+          {
+            "path": ["data", "node", "commits", "nodes", 0, "commit", "oid"],
+            "binding": "headSha"
+          }
+        ],
+        "nullAt": ["data", "node", "commits", "nodes", 0, "commit", "statusCheckRollup"],
+        "rows": [
+          "data",
+          "node",
+          "commits",
+          "nodes",
+          0,
+          "commit",
+          "statusCheckRollup",
+          "contexts",
+          "nodes"
+        ],
+        "shape": "array",
+        "limit": 100,
+        "pageComplete": [
+          "data",
+          "node",
+          "commits",
+          "nodes",
+          0,
+          "commit",
+          "statusCheckRollup",
+          "contexts",
+          "pageInfo",
+          "hasNextPage"
+        ],
+        "required": ["isRequired"],
+        "variants": [
+          {
+            "when": {
+              "path": ["__typename"],
+              "equals": "CheckRun"
+            },
+            "status": ["status"],
+            "completed": "COMPLETED",
+            "unfinished": ["IN_PROGRESS", "QUEUED", "PENDING", "WAITING", "REQUESTED"],
+            "value": ["conclusion"],
+            "table": {
+              "SUCCESS": "success",
+              "NEUTRAL": "success",
+              "SKIPPED": "success",
+              "FAILURE": "failure",
+              "ERROR": "failure",
+              "TIMED_OUT": "failure",
+              "ACTION_REQUIRED": "failure",
+              "STARTUP_FAILURE": "failure",
+              "STALE": "failure",
+              "CANCELLED": "failure",
+              "PENDING": "pending"
+            }
+          },
+          {
+            "when": {
+              "path": ["__typename"],
+              "equals": "StatusContext"
+            },
+            "value": ["state"],
+            "table": {
+              "SUCCESS": "success",
+              "NEUTRAL": "success",
+              "SKIPPED": "success",
+              "FAILURE": "failure",
+              "ERROR": "failure",
+              "TIMED_OUT": "failure",
+              "ACTION_REQUIRED": "failure",
+              "STARTUP_FAILURE": "failure",
+              "STALE": "failure",
+              "CANCELLED": "failure",
+              "PENDING": "pending"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

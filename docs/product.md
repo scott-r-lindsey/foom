@@ -643,6 +643,15 @@ file contents, diffs or echoed input, and redaction cannot catch every secret.
 The Make orchestrator dialog discloses this data path. The agent's own tools and provider
 settings continue to govern its other data access.
 
+Forge manifests are being introduced in stages (#521). The first stage loads and validates
+manifest data and tests a shared interpreter without changing the active provider
+or Settings. When integration activates forge selection, the disclosure will read:
+“Foom uses your selected forge CLI and its existing login to read PR or merge request
+and CI metadata. It sends repository/project, branch and PR/MR identifiers in
+read-only status requests. Foom does not send terminal content, store forge tokens,
+change CLI login/configuration, or write to the forge.” The current GitHub runtime
+and disclosure remain in place until that integration is complete.
+
 Foom also reads PR and check status for board checkouts and orchestrator-owned child
 worktrees through a main-owned forge provider. GitHub is supported through your
 own `gh` CLI and existing login; Foom stores no tokens, makes no forge writes and

@@ -1,5 +1,5 @@
 import { AgentManifestError } from "./agent-manifest";
-import { parseAgentManifest } from "./agent-plugin-parser";
+import { parsePluginManifest } from "./plugin-parser";
 import { migrateSoundSettings } from "./sounds";
 import { AgentArgumentsError } from "./providers/arguments";
 import { parseConfigSettings, CONFIG_SETTINGS } from "./config-settings";
@@ -56,18 +56,22 @@ export function parseSettingsFile(text: string): ConfigSettings {
 }
 export function validateConfigJson(
   text: string,
-  expected?: "settings" | "agent" | ThemeKind,
+  expected?: "settings" | "agent" | "forge" | ThemeKind,
 ): readonly ThemeDiagnostic[] {
   const value = configJson(text);
   const kind = value["kind"] ?? (value["version"] !== undefined ? "theme" : undefined);
   if (
     (expected && kind !== expected) ||
-    (kind !== "agent" && kind !== "settings" && kind !== "theme" && kind !== "terminal-theme")
+    (kind !== "agent" &&
+      kind !== "forge" &&
+      kind !== "settings" &&
+      kind !== "theme" &&
+      kind !== "terminal-theme")
   )
     throw new ThemeValidationError("$.kind", "invalid-value");
-  if (kind === "agent") {
+  if (kind === "agent" || kind === "forge") {
     try {
-      parseAgentManifest(text);
+      parsePluginManifest(text);
     } catch (error) {
       if (error instanceof AgentManifestError)
         throw new ThemeValidationError(error.path, "invalid-value", error.reason);

@@ -5,4 +5,11 @@ import type { CONFIG_SETTINGS } from "./config-settings";
 export type ConfigSetting = (typeof CONFIG_SETTINGS)[number];
 export type ConfigSettings = Partial<Pick<Settings, ConfigSetting>>;
 
-export type ConfigFolderKind = "config" | "settings" | "agent" | ThemeKind | "sounds" | SoundKind;
+export type ConfigFolderKind =
+  | "config"
+  | "settings"
+  | "agent"
+  | "forge"
+  | ThemeKind
+  | "sounds"
+  | SoundKind;
