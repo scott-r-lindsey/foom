@@ -1,3 +1,4 @@
+import { formatAgentCapabilities } from "../shared/agent-capabilities";
 import { handoffCommand } from "./handoff";
 import { validateConfig } from "./config";
 import { dirname } from "node:path";
@@ -48,12 +49,13 @@ export async function execute(
       )
         throw new ControlError("invalid_request");
       const result = await validateConfig(path);
-      if (json) output(result.problems);
+      if (json) output({ problems: result.problems, agents: result.agents ?? [] });
       else
         for (const problem of result.problems)
           output(
             `${JSON.stringify(problem.file)}: ${problem.path}: ${problem.severity === "warning" ? "warning: " : ""}${problem.reason}${problem.detail ? `: ${problem.detail}` : ""}`,
           );
+      if (!json) for (const agent of result.agents ?? []) output(formatAgentCapabilities(agent));
       return result.code;
     }
     const connection = inherited(env);

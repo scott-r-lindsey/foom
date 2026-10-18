@@ -274,3 +274,28 @@ test.each(["claude", "custom"])(
     expect(f.save).not.toHaveBeenCalled();
   },
 );
+
+test("missing attention replaces the signal control with neutral terse text", () => {
+  const f = fixture();
+  f.source.changeAgentSetup = vi.fn(() => Promise.resolve(report()));
+  render(
+    <AgentsStep
+      {...f.props}
+      report={report({
+        ...installation("claude"),
+        hooks: false,
+        attentionSignal: false,
+        setup: { state: "not-installed", actions: [{ id: "install", label: "Install" }] },
+        hookState: "not-reviewed",
+      })}
+    />,
+  );
+  const card = screen.getByRole("region", { name: "Claude Code" });
+  const signal = within(card).getByText("No attention signal");
+  expect(signal.className).toBe("");
+  expect(within(card).queryByText("Screen rules")).toBeNull();
+  expect(within(card).queryByText("Trust review pending")).toBeNull();
+  expect(within(card).queryByRole("button", { name: "Hooks" })).toBeNull();
+  // Setup can still add the signal, so its actions stay available.
+  expect(within(card).getByRole("button", { name: "Install" })).toBeTruthy();
+});
