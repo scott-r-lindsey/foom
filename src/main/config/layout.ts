@@ -128,6 +128,7 @@ const settingsSchema = schema("foom:settings", {
     hooks: { type: "boolean" },
     restoreSessions: { type: "boolean" },
     concurrentChildren: { type: "integer", minimum: 1, maximum: 16 },
+    recentRepositoryDays: { type: "integer", minimum: 1, maximum: 365, default: 30 },
   },
 });
 
@@ -235,7 +236,7 @@ valid changes live. It is plain files: Foom keeps no history of it.
 
 - \`settings.json\`: \`{ "kind": "settings", ... }\` with any of the allowed keys:
   \`colorMode\`, \`panelColor\`, \`interfaceTheme\`, \`terminalTheme\`, \`interfaceScale\`,
-  \`terminalFontSize\`, \`terminalFont\` (a family name, default Hack Nerd Font Mono), \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\`, \`restoreSessions\` and \`concurrentChildren\` (integer 1–16, default 4). Any other key rejects the file.
+  \`terminalFontSize\`, \`terminalFont\` (a family name, default Hack Nerd Font Mono), \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\`, \`restoreSessions\` and \`concurrentChildren\` (integer 1–16, default 4), and \`recentRepositoryDays\` (integer 1–365, default 30). Any other key rejects the file.
   Consent records, paths and secrets are not configurable here.
   \`agentArguments\` names all three agents: \`{ "claude": [], "codex": [], "agy": [] }\`.
   Each list is literal argv, one string per argument, with no shell parsing.
@@ -315,6 +316,7 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  */
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   "README.md": [
+    "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
     "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
     "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
@@ -326,6 +328,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
   ],
   "AGENTS.md": [
+    "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
     "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
     "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
@@ -337,6 +340,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
   ],
   "CLAUDE.md": [
+    "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
     "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
     "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
@@ -349,6 +353,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   ],
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [
+    "7adeb4afdb505fdaeaf83ef3056e662f30ed502021c49adae30eb60e7bc17cca",
     "8a7b5812d9d8784e1a093861e3fecd0d8d9b74190d1fdcfb9701f2af37510624",
     "e975ab7aba189e009bbcd16becb6c096679dc5c46017d585a46cbda130af804e",
     "24d2c65f96e90c242c21990e919dee89287addcd1ddbb2d39892f9033beb49f6",

@@ -22,7 +22,7 @@ import { Wordmark } from "../ui/wordmark";
 import { WelcomeStep } from "./welcome-step";
 import { AgentsStep } from "./agents-step";
 import { RepositoriesStep } from "./repositories-step";
-import { WorktreesStep } from "./worktrees-step";
+import { WorktreeLocationControls } from "./worktrees-step";
 import { ReadinessStep } from "./readiness-step";
 import type { CodeSelection, Scanning } from "./repository-picker";
 import type { SetupSource } from "./setup-source.d";
@@ -33,7 +33,6 @@ const SETTINGS_SECTIONS = [
   { step: 12, label: "Forges" },
   { step: 10, label: "Environment" },
   { step: 2, label: "Repositories" },
-  { step: 3, label: "Worktrees" },
   { step: 5, label: "Appearance" },
   { step: 6, label: "Terminal" },
   { step: 7, label: "Themes" },
@@ -371,6 +370,11 @@ export function Preflight({
         <RepositoriesStep
           headingRef={headingRef}
           source={source}
+          recentDays={state.settings.recentRepositoryDays}
+          onRecentDays={(recentRepositoryDays) => {
+            save({ recentRepositoryDays });
+          }}
+          immediate={settingsMode}
           code={code}
           repositories={repositories}
           codeScanning={codeScanning}
@@ -378,15 +382,6 @@ export function Preflight({
           setCode={selectRepositories}
         />
       </>
-    );
-  } else if (settingsMode && step === 3) {
-    content = (
-      <WorktreesStep
-        headingRef={headingRef}
-        state={state}
-        repositories={repositories}
-        save={save}
-      />
     );
   } else if (step === 5) {
     content = (
@@ -398,12 +393,6 @@ export function Preflight({
           Choose the light or dark appearance and the size of the interface.
         </p>
         <AppearanceControls settings={state.settings} catalog={state.themes} onChange={save} />
-        <InterfaceThemePicker
-          settings={state.settings}
-          catalog={state.themes}
-          openFolder={() => source.openThemesFolder("theme")}
-          onChange={save}
-        />
       </>
     );
   } else if (step === 6) {
@@ -431,12 +420,6 @@ export function Preflight({
             ))}
           </select>
         </label>
-        <TerminalThemePicker
-          settings={state.settings}
-          catalog={state.themes}
-          openFolder={() => source.openThemesFolder("terminal-theme")}
-          onChange={save}
-        />
       </>
     );
   } else if (step === 7) {
@@ -445,10 +428,18 @@ export function Preflight({
         <h2 ref={headingRef} tabIndex={-1}>
           Themes
         </h2>
+        <h3>Interface theme</h3>
         <InterfaceThemePicker
           settings={state.settings}
           catalog={state.themes}
           openFolder={() => source.openThemesFolder("theme")}
+          onChange={save}
+        />
+        <h3>Terminal theme</h3>
+        <TerminalThemePicker
+          settings={state.settings}
+          catalog={state.themes}
+          openFolder={() => source.openThemesFolder("terminal-theme")}
           onChange={save}
         />
       </>
@@ -461,6 +452,11 @@ export function Preflight({
         <h2 ref={headingRef} tabIndex={-1}>
           Foom config
         </h2>
+        <p className="preflight-intro">
+          The Foom config folder contains plain files that Foom watches and validates. Edit them
+          yourself, or launch an agent from the sidebar’s Foom config entry and ask it for changes.
+          Invalid files are rejected and the last good version stays.
+        </p>
         <ConfigControls config={source.config} />
       </>
     );
@@ -481,6 +477,7 @@ export function Preflight({
         <h2 ref={headingRef} tabIndex={-1}>
           General
         </h2>
+        <WorktreeLocationControls state={state} repositories={repositories} save={save} />
         <label className="check">
           <input
             type="checkbox"

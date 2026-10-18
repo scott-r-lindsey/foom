@@ -37,6 +37,13 @@ test("ten terminals fold into lights, then one needs you and one is done", () =>
   // Each terminal starts mid-session with colored output and a status line.
   expect(container.querySelector(".noise-output .tone-accent")).not.toBeNull();
   expect(container.querySelectorAll(".noise-status")).toHaveLength(AGENTS.length);
+  expect(container.querySelectorAll(".noise-title .board-agent")).toHaveLength(AGENTS.length);
+  expect(container.querySelectorAll(".noise-title .noise-light")).toHaveLength(AGENTS.length);
+  expect(container.querySelectorAll(".noise-row .board-agent")).toHaveLength(AGENTS.length);
+  expect(container.querySelector(".noise-title")?.textContent).toContain(
+    "CCfoom › feat/sidebar-tree",
+  );
+  expect(container.querySelector(".noise-row")?.textContent).toContain("working");
   act(() => {
     vi.advanceTimersByTime(3000);
   });

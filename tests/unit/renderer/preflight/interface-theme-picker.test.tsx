@@ -119,6 +119,8 @@ test("custom themes follow built-ins and selection keeps their file identity", (
   );
   const custom = screen.getByRole("button", { name: "Graphite (custom)" });
   expect(custom.getAttribute("aria-pressed")).toBe("true");
+  expect(custom.previousElementSibling?.tagName).toBe("HR");
+  expect(custom.previousElementSibling?.previousElementSibling?.tagName).toBe("BUTTON");
   fireEvent.click(custom);
   expect(onChange).toHaveBeenCalledWith({ interfaceTheme: "user:custom.json" });
   expect(screen.getByLabelText("Interface theme preview").style.getPropertyValue("--bg")).toBe(

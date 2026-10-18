@@ -734,10 +734,10 @@ the action log and supports the same operations and idempotency as other mutatio
 
 ## First run
 
-Setup starts with Welcome, then a preflight countdown:
+Setup starts with Welcome, then a preflight countdown. The welcome illustration uses the current tile headers: a state light, neutral agent badge, repository and branch, and compact tile controls. Ten active terminals fold into rows with state words; Needs you has a steady amber halo. Reduced motion starts with the settled rows.
 
 1. **Agents** (T-2): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom supplies hooks and credentials per launch. Antigravity’s row shows Hooks with an active plugin and Screen rules otherwise. It offers Install plugin, Update plugin or Enable plugin inline; Remove plugin is inline. Install and update open a trusted confirmation disclosing location, behavior and removal, with no disclosure paragraphs in the step.
-2. **Repositories** (T-1): "Where do you keep your code?" Foom suggests common code folders that hold repositories, with a count for each, or you choose one. It scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked.
+2. **Repositories** (T-1): "Where do you keep your code?" Foom suggests common code folders that hold repositories, with a count for each, or you choose one. It scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked by default. The day count edits in place (integer 1–365); typing or scrolling over it changes the saved window and regroups existing results without rescanning or clearing selections.
 3. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step. Launch needs every item GO: at least one agent ready and one repository added.
 
 New profiles use Foom’s worktree folder (`~/.foom/worktrees`) without a location prompt.
@@ -757,6 +757,10 @@ The rail also holds **Appearance**: System, Light or Dark, and the interface siz
 
 ## Settings
 
+Settings → Foom config explains that the folder contains plain files watched and
+validated by Foom. You can edit them yourself or launch an agent from the sidebar’s
+Foom config entry. Invalid files are rejected and the last good version stays.
+
 Open **Settings** from the board, or press ⌘, on macOS and Ctrl+Shift+, elsewhere.
 It replaces the terminal tiles beside the persistent sidebar in the same window.
 Esc returns to the tiles and restores the same focused sidebar row.
@@ -774,7 +778,7 @@ assign hosts. GitHub defaults to `github.com`. Disabling preserves assignments.
 These profile preferences are preparatory: the existing GitHub provider still polls,
 and cards show declared executables with status “Not checked” until runtime integration.
 
-Worktrees offers Foom’s folder or a location next to each repository, with an example
+General offers Foom’s folder or a location next to each repository for new worktrees, with an example
 destination. Changes apply to future creation; existing worktrees stay where they are.
 
 Agents and Repositories use the same controls as preflight. Agents shows one central-column card per provider, including config
@@ -842,7 +846,7 @@ glow decoration only. Status text and outlines retain color and words. High
 Contrast and `prefers-contrast: more` force Plain and full-strength chip outlines.
 Decoration uses highlight; Working continues to use accent.
 
-Appearance shares the preflight rail's System/Light/Dark and interface-size controls.
+Appearance contains only non-theme settings and shares the preflight rail's System/Light/Dark and interface-size controls.
 Changing either view is reflected in the other without restarting.
 
 Terminal font lists the bundled Hack Nerd Font Mono first, followed by installed
@@ -852,7 +856,7 @@ columns and rows. Missing fonts fall back silently to Hack Nerd Font Mono, Geist
 Mono and `monospace`.
 
 Terminal font size applies to every terminal view: 10–32 pixels, 14 by default,
-independent of interface size. The Terminal section previews text size, all 16 ANSI colors, bold, dim and selection.
+independent of interface size. The Themes section previews text size, all 16 ANSI colors, bold, dim and selection.
 Terminal colors default to Follow interface, with Foom Light/Dark, Solarized Light/Dark
 and Dracula built in. Changes apply live to visible and detached terminals.
 Settings → Themes offers System, Eclipse Light, Eclipse Dark, High Contrast,
@@ -863,8 +867,8 @@ and Appearance System/Light/Dark controls return to the corresponding Eclipse
 appearance; changing interface size keeps the selected theme. Terminal color
 schemes remain independent; Follow interface uses the light/dark base.
 
-Appearance and Terminal list custom themes after the built-ins and offer **Open
-themes folder**. Add interface JSON files to `~/.foom/config/themes/` and terminal
+Themes holds both interface and terminal choices. Each picker lists shipped themes first,
+then user themes below a divider, with file status and **Open themes folder**. Add interface JSON files to `~/.foom/config/themes/` and terminal
 JSON files to `~/.foom/config/terminal-themes/`. New files and valid edits apply live,
 without restarting. Rejected files appear below the picker with a filename, JSON
 path and reason in failure styling. An invalid edit retains that theme's last good

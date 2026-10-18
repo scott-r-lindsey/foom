@@ -661,6 +661,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     hooks: true,
     restoreSessions: true,
     concurrentChildren: 4,
+    recentRepositoryDays: 30,
     unreadChildMinutes: 5,
     autoRemoveMergedWorktrees: false,
     showPullRequests: false,
@@ -724,7 +725,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
   await expect(shellRow).toBeFocused();
   await openSettingsScreen(page);
-  await page.getByRole("button", { name: "Worktrees", exact: true }).click();
+  await page.getByRole("button", { name: "General", exact: true }).click();
   await page.getByRole("radio", { name: /Put them next to/ }).check();
   await expect
     .poll(
@@ -745,7 +746,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   });
   const reopenedPage = await boardPage(reopened);
   await openSettingsScreen(reopenedPage);
-  await reopenedPage.getByRole("button", { name: "Worktrees", exact: true }).click();
+  await reopenedPage.getByRole("button", { name: "General", exact: true }).click();
   await expect(reopenedPage.getByRole("radio", { name: /Put them next to/ })).toBeChecked();
   await expect(
     reopenedPage.getByText(`${await realpath(repo)}-feat/search`, { exact: true }),
@@ -1078,7 +1079,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
       ),
     )
     .toContain("settings-example");
-  await section("Worktrees");
+  await section("General");
   await tabToControl(page.getByRole("radio", { name: /Keep worktrees/ }));
   await page.keyboard.press("ArrowDown");
   await expect
@@ -1212,15 +1213,7 @@ test("every Settings section passes axe in light and dark, including the narrow 
   const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await openSettingsScreen(page);
-  for (const name of [
-    "Agents",
-    "Repositories",
-    "Worktrees",
-    "Appearance",
-    "Terminal",
-    "Themes",
-    "Sound",
-  ]) {
+  for (const name of ["Agents", "Repositories", "Appearance", "Terminal", "Themes", "Sound"]) {
     await page
       .getByRole("navigation", { name: "Settings sections" })
       .getByRole("button", { name, exact: true })
@@ -1773,7 +1766,7 @@ test("custom theme files appear live, update selected colors and retain rejected
   const app = await launchApp(context, { fixture: "empty-board", home: root });
   const page = await boardPage(app);
   await boardCommand(app, ",", process.platform !== "darwin");
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("button", { name: "Themes", exact: true }).click();
   const { interfaceThemes } = require("../../build/shared/interface-themes.js");
   const { terminalThemes, ansiNames } = require("../../build/shared/terminal-themes.js");
   const file = path.join(root, ".foom/config/themes/custom.json");
@@ -1804,7 +1797,7 @@ test("custom theme files appear live, update selected colors and retain rejected
     await page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceTheme),
     "user:custom.json",
   );
-  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await page.getByRole("button", { name: "Themes", exact: true }).click();
   const terminal = terminalThemes.dracula;
   const terminalFile = path.join(root, ".foom/config/terminal-themes/custom.json");
   const terminalTheme = {
@@ -1841,9 +1834,12 @@ test("custom theme files appear live, update selected colors and retain rejected
     )
     .toBe("#101010");
   await writeFile(terminalFile, "{");
-  await expect(page.getByRole("status").filter({ hasText: "Rejected custom.json" })).toContainText(
-    "malformed-json",
-  );
+  await expect(
+    page
+      .locator(".terminal-theme-picker-column")
+      .getByRole("status")
+      .filter({ hasText: "Rejected custom.json" }),
+  ).toContainText("malformed-json");
   await expect(page.getByLabel("Terminal theme preview")).toHaveCSS(
     "background-color",
     "rgb(16, 16, 16)",
@@ -2048,7 +2044,7 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   const file = path.join(root, ".foom/config/themes/personal.json");
   await writeFile(file, JSON.stringify(theme));
   await boardCommand(app, ",", process.platform !== "darwin");
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("button", { name: "Themes", exact: true }).click();
   await page.getByRole("button", { name: "Personal v2", exact: true }).click();
   await expect(page.locator(".sidebar-shell")).toHaveCSS("background-color", "rgb(1, 2, 3)");
   await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
@@ -2303,6 +2299,7 @@ test("terminal font picker updates open shells and config shells and refits thei
       page.evaluate(async () => (await window.desktop.setupState()).settings.terminalFont),
     )
     .toBe(family);
+  await page.getByRole("button", { name: "Themes", exact: true }).click();
   await expect(page.getByLabel("Terminal theme preview")).toHaveCSS("font-family", stack);
   await app.evaluate(() => {
     global.fontResizes = [];

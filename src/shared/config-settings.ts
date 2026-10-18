@@ -22,6 +22,7 @@ export const CONFIG_SETTINGS = [
   "hooks",
   "restoreSessions",
   "concurrentChildren",
+  "recentRepositoryDays",
 ] as const;
 export function isConfigSetting(key: string): key is ConfigSetting {
   return CONFIG_SETTINGS.some((allowed) => allowed === key);
@@ -47,6 +48,14 @@ export function parseConfigSettings(value: unknown): ConfigSettings {
       entry <= 16
     )
       result.concurrentChildren = entry;
+    else if (
+      key === "recentRepositoryDays" &&
+      typeof entry === "number" &&
+      Number.isInteger(entry) &&
+      entry >= 1 &&
+      entry <= 365
+    )
+      result.recentRepositoryDays = entry;
     else if (key === "hooks" && typeof entry === "boolean") result.hooks = entry;
     else if (key === "agents") {
       if (typeof entry !== "object" || entry === null || Array.isArray(entry))

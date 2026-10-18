@@ -15,6 +15,7 @@ export function setupState(
       hooks: true,
       restoreSessions: true,
       concurrentChildren: 4,
+      recentRepositoryDays: 30,
       unreadChildMinutes: 5,
       autoRemoveMergedWorktrees: false,
       forges: { github: true },
