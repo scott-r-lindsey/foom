@@ -116,6 +116,25 @@ it("loads only matching home/config rows and strips stored authority from the li
   expect(f.deps.launch).toHaveBeenCalledWith(config);
 });
 
+it("restores and saves handoff history independently of restart eligibility", async () => {
+  const handoff = {
+    seq: 1,
+    status: "blocked" as const,
+    summary: "Waiting for review",
+    links: [],
+    timestamp: "2026-10-17T00:00:00.000Z",
+  };
+  const f = fixture([row("child", { running: false, handoffs: [handoff] })]);
+  await f.owner.restore();
+  await f.owner.restartSaved();
+  expect(f.orchestration.handoffs.entries("child")).toEqual([handoff]);
+  await f.owner.save();
+  expect(f.store.save.mock.lastCall?.[0]).toMatchObject([
+    { id: "child", running: false, handoffs: [handoff] },
+  ]);
+  expect(f.rows.get("child")).not.toHaveProperty("handoffs");
+});
+
 it("supports an absent store and does not swallow load or explicit save/flush failures", async () => {
   const f = fixture();
   delete f.deps.store;
