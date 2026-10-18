@@ -280,11 +280,19 @@ test("missing attention replaces the signal control with neutral terse text", ()
   render(
     <AgentsStep
       {...f.props}
-      report={report({ ...installation("claude"), hooks: false, attentionSignal: false })}
+      report={report({
+        ...installation("claude"),
+        hooks: false,
+        attentionSignal: false,
+        setup: { state: "unavailable", actions: [] },
+        hookState: "not-reviewed",
+      })}
     />,
   );
   const card = screen.getByRole("region", { name: "Claude Code" });
-  expect(within(card).getByText("No attention signal").className).toBe("");
+  const signal = within(card).getByText("No attention signal");
+  expect(signal.className).toBe("");
+  expect(signal.parentElement?.textContent).toBe("No attention signal");
   expect(within(card).queryByText("Screen rules")).toBeNull();
   expect(within(card).queryByRole("button", { name: "Hooks" })).toBeNull();
 });

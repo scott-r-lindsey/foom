@@ -164,96 +164,103 @@ export function AgentsStep({
                     <div className="agent-inline">
                       {agent?.attentionSignal === false ? (
                         <span>No attention signal</span>
-                      ) : supportsHooks ? (
-                        <div className="agent-signals" aria-label={`${name} attention`}>
-                          {([true, false] as const).map((enabled) => (
-                            <button
-                              key={String(enabled)}
-                              type="button"
-                              aria-pressed={(state.settings.agentHooks?.[id] !== false) === enabled}
-                              onClick={() => {
-                                save({
-                                  agentHooks: { ...state.settings.agentHooks, [id]: enabled },
-                                });
-                              }}
-                            >
-                              {enabled ? "Hooks" : "Screen rules"}
-                            </button>
-                          ))}
-                        </div>
                       ) : (
-                        <span>Screen rules</span>
-                      )}
-                      {supportsHooks && how !== "hooks" && (
-                        <span>
-                          {how === "notify"
-                            ? "Notify + screen rules active"
-                            : "Screen rules active"}
-                          {!state.settings.hooks ? " · hooks off" : ""}
-                        </span>
-                      )}
-                      {agent?.hookState && (
                         <>
-                          <span
-                            className={
-                              agent.hookState === "not-reviewed" || agent.hookState === "outdated"
-                                ? "agent-needs"
-                                : undefined
-                            }
-                          >
-                            {agent.hookState === "trusted"
-                              ? "Trusted · observed working"
-                              : agent.hookState === "not-reviewed"
-                                ? "Trust review pending"
-                                : agent.hookState === "outdated"
-                                  ? "Outdated · review needed"
-                                  : "Declined · Notify fallback"}
-                          </span>
-                          <code>{agent.healthInstructions}</code>
+                          {supportsHooks ? (
+                            <div className="agent-signals" aria-label={`${name} attention`}>
+                              {([true, false] as const).map((enabled) => (
+                                <button
+                                  key={String(enabled)}
+                                  type="button"
+                                  aria-pressed={
+                                    (state.settings.agentHooks?.[id] !== false) === enabled
+                                  }
+                                  onClick={() => {
+                                    save({
+                                      agentHooks: { ...state.settings.agentHooks, [id]: enabled },
+                                    });
+                                  }}
+                                >
+                                  {enabled ? "Hooks" : "Screen rules"}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <span>Screen rules</span>
+                          )}
+                          {supportsHooks && how !== "hooks" && (
+                            <span>
+                              {how === "notify"
+                                ? "Notify + screen rules active"
+                                : "Screen rules active"}
+                              {!state.settings.hooks ? " · hooks off" : ""}
+                            </span>
+                          )}
+                          {agent?.hookState && (
+                            <>
+                              <span
+                                className={
+                                  agent.hookState === "not-reviewed" ||
+                                  agent.hookState === "outdated"
+                                    ? "agent-needs"
+                                    : undefined
+                                }
+                              >
+                                {agent.hookState === "trusted"
+                                  ? "Trusted · observed working"
+                                  : agent.hookState === "not-reviewed"
+                                    ? "Trust review pending"
+                                    : agent.hookState === "outdated"
+                                      ? "Outdated · review needed"
+                                      : "Declined · Notify fallback"}
+                              </span>
+                              <code>{agent.healthInstructions}</code>
+                            </>
+                          )}
+                          {installed &&
+                            policy?.pluginSetup &&
+                            agent?.agyPlugin?.state === "not-installed" &&
+                            !state.settings.agyPluginOfferAnswered && <span>Plugin available</span>}
+                          {installed && agent?.setup && source?.changeAgentSetup && (
+                            <>
+                              <span>Plugin · {agent.setup.state}</span>
+                              {agent.setup.offer && <span>{agent.setup.offer}</span>}
+                              {agent.setup.actions.map((action) => (
+                                <button
+                                  type="button"
+                                  key={action.id}
+                                  disabled={reviewing || scanning}
+                                  onClick={() => {
+                                    setReviewing(true);
+                                    setError("");
+                                    void source
+                                      .changeAgentSetup?.(id, action.id)
+                                      .then(
+                                        async () => {
+                                          await scan(true);
+                                        },
+                                        (caught: unknown) => {
+                                          setError(message(caught));
+                                        },
+                                      )
+                                      .finally(() => {
+                                        setReviewing(false);
+                                      });
+                                  }}
+                                >
+                                  {action.label}
+                                </button>
+                              ))}
+                            </>
+                          )}
+                          {agent?.agyPlugin && (
+                            <AgyPluginControl
+                              status={agent.agyPlugin}
+                              busy={scanning}
+                              change={changePlugin}
+                            />
+                          )}
                         </>
-                      )}
-                      {installed &&
-                        policy?.pluginSetup &&
-                        agent?.agyPlugin?.state === "not-installed" &&
-                        !state.settings.agyPluginOfferAnswered && <span>Plugin available</span>}
-                      {installed && agent?.setup && source?.changeAgentSetup && (
-                        <>
-                          <span>Plugin · {agent.setup.state}</span>
-                          {agent.setup.offer && <span>{agent.setup.offer}</span>}
-                          {agent.setup.actions.map((action) => (
-                            <button
-                              type="button"
-                              key={action.id}
-                              disabled={reviewing || scanning}
-                              onClick={() => {
-                                setReviewing(true);
-                                setError("");
-                                void source
-                                  .changeAgentSetup?.(id, action.id)
-                                  .then(
-                                    async () => {
-                                      await scan(true);
-                                    },
-                                    (caught: unknown) => {
-                                      setError(message(caught));
-                                    },
-                                  )
-                                  .finally(() => {
-                                    setReviewing(false);
-                                  });
-                              }}
-                            >
-                              {action.label}
-                            </button>
-                          ))}
-                        </>
-                      )}
-                      {agent?.agyPlugin && (
-                        <AgyPluginControl
-                          status={agent.agyPlugin}
-                          busy={scanning}
-                          change={changePlugin}
-                        />
                       )}
                     </div>
                   </div>
