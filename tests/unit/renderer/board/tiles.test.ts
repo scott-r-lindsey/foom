@@ -755,3 +755,21 @@ test("agent previews use terminal overflow geometry and narrow fallback without 
     placement: "sidebar",
   });
 });
+
+test("sidebar width persists per window and untrusted values fall back to the default", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+  };
+  const layout = { ...initialLayout(), sidebarWidth: 480, sidebarCollapsed: true };
+  saveLayout(storage, layout, "window-one");
+  expect(restoreLayout(values.get("window-one") ?? null)).toEqual(layout);
+  expect(restoreLayout(values.get("window-two") ?? null).sidebarWidth).toBeUndefined();
+  for (const sidebarWidth of [null, "300", -1, 239, 10001]) {
+    expect(
+      restoreLayout(JSON.stringify({ version: 2, ...layout, sidebarWidth })).sidebarWidth,
+    ).toBeUndefined();
+  }
+});

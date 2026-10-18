@@ -198,7 +198,7 @@ test("gutter pointer and keyboard changes persist ratios and clamp to 15–85 pe
     height: 600,
     toJSON: () => ({}),
   });
-  const gutter = screen.getByRole("separator");
+  const gutter = screen.getByRole("separator", { name: "Resize tiles" });
   gutter.setPointerCapture = vi.fn();
   gutter.releasePointerCapture = vi.fn();
   vi.stubGlobal("PointerEvent", MouseEvent);
@@ -218,7 +218,7 @@ test("gutter pointer and keyboard changes persist ratios and clamp to 15–85 pe
   expect(localStorage.getItem(TILE_STORAGE)).toContain('"ratio":0.85');
   send("split-down");
   click(2);
-  const vertical = screen.getAllByRole("separator")[1];
+  const vertical = screen.getAllByRole("separator", { name: "Resize tiles" })[1];
   if (!vertical) throw new Error("Missing vertical gutter");
   vertical.setPointerCapture = vi.fn();
   vertical.releasePointerCapture = vi.fn();
@@ -388,7 +388,7 @@ test("shell restart stays in the sidebar menu and places the replacement in the 
 test("a zero-sized drag target is harmless and a missing session cannot be restored from storage", () => {
   const { screen, send } = setup();
   send("split-right");
-  const gutter = screen.getByRole("separator");
+  const gutter = screen.getByRole("separator", { name: "Resize tiles" });
   gutter.setPointerCapture = vi.fn();
   gutter.releasePointerCapture = vi.fn();
   fireEvent.pointerDown(gutter);
@@ -746,7 +746,7 @@ test("keyboard gutters collapse empty sides and terminal numbering skips spaces"
   const { screen, click, send } = setup();
   click(0);
   send("split-right");
-  fireEvent.keyDown(screen.getByRole("separator"), { key: "End" });
+  fireEvent.keyDown(screen.getByRole("separator", { name: "Resize tiles" }), { key: "End" });
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
   send("split-right");
   click(1);
@@ -915,7 +915,7 @@ test("gutter double-click and Enter even a run; footer and command tidy keep occ
   await act(async () => {});
   const tiles = () => [...screen.container.querySelectorAll<HTMLElement>(".terminal-tile")];
   const original = tiles();
-  const gutters = screen.getAllByRole("separator");
+  const gutters = screen.getAllByRole("separator", { name: "Resize tiles" });
   fireEvent.doubleClick(gutters[1] ?? document.body);
   tiles().forEach((tile) => {
     expect(parseFloat(tile.style.width)).toBeCloseTo(100 / 3);
@@ -1279,7 +1279,7 @@ test("resizing a preview tile moves its native view without hiding it between st
   fireEvent(window, new Event("resize"));
   await act(async () => {});
   bounds.mockClear();
-  const gutter = screen.getAllByRole("separator")[0];
+  const gutter = screen.getAllByRole("separator", { name: "Resize tiles" })[0];
   if (!gutter) throw new Error("No gutter");
   for (const key of ["ArrowRight", "ArrowRight", "ArrowLeft", "End", "Home"])
     fireEvent.keyDown(gutter, { key });

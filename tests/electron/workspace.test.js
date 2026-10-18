@@ -990,7 +990,7 @@ test("tiles build irregular layouts, preserve views and replace explicitly for a
   await page.evaluate(() => {
     window.soundTones = [];
   });
-  const gutter = page.getByRole("separator").first();
+  const gutter = page.getByRole("separator", { name: "Resize tiles" }).first();
   const box = await gutter.boundingBox();
   assert.ok(box);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 4);
@@ -1106,9 +1106,9 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
   await expect(empty).toHaveAttribute("aria-hidden", "true");
   await expect(empty.locator(".tile-title")).toHaveCount(0);
   await expect(empty.locator("button")).toHaveCount(0);
-  await page.getByRole("separator").first().press("End");
+  await page.getByRole("separator", { name: "Resize tiles" }).first().press("End");
   await expect(page.locator(".terminal-tile")).toHaveCount(2);
-  await page.getByRole("separator").press("End");
+  await page.getByRole("separator", { name: "Resize tiles" }).press("End");
   await expect(page.locator(".terminal-tile")).toHaveCount(1);
   await page.locator(".tile-title").click({ button: "right" });
   await expect(page.getByRole("menuitem", { name: "Split right", exact: true })).toBeFocused();
@@ -1117,7 +1117,7 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
   await expect(page.getByRole("button", { name: "Tile 1 menu", exact: true })).toBeFocused();
   await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
   await page.getByRole("menuitem", { name: "Split right", exact: true }).click();
-  const gutter = page.getByRole("separator");
+  const gutter = page.getByRole("separator", { name: "Resize tiles" });
   const bounds = await page.locator(".tile-area").boundingBox();
   const handle = await gutter.boundingBox();
   assert.ok(bounds && handle);
@@ -2450,7 +2450,7 @@ test("wide blank tiles start as columns, full boards grow right, and hide refill
   const after = await geometry();
   for (const item of after) assert.ok(Math.abs(parseFloat(item.width) - 25) < 0.01);
   await page.getByRole("button", { name: "Hide", exact: true }).last().click();
-  await page.getByRole("separator").first().press("End");
+  await page.getByRole("separator", { name: "Resize tiles" }).first().press("End");
   await expect(tiles).toHaveCount(3);
   await page.locator(".board-row").last().click();
   await expect(tiles).toHaveCount(4);
@@ -2488,12 +2488,12 @@ test("gutter double-click evens three columns and Tidy tiles removes holes throu
       items.map((item) => Math.round(parseFloat(item.style.width) * 100)),
     );
   const ids = await tiles.evaluateAll((items) => items.map((item) => item.dataset.tile));
-  await page.getByRole("separator").first().press("Home");
+  await page.getByRole("separator", { name: "Resize tiles" }).first().press("Home");
   await expect.poll(widths).not.toEqual([3333, 3333, 3333]);
-  await page.getByRole("separator").last().dblclick();
+  await page.getByRole("separator", { name: "Resize tiles" }).last().dblclick();
   await expect.poll(widths).toEqual([3333, 3333, 3333]);
-  await page.getByRole("separator").first().press("End");
-  await page.getByRole("separator").last().press("Enter");
+  await page.getByRole("separator", { name: "Resize tiles" }).first().press("End");
+  await page.getByRole("separator", { name: "Resize tiles" }).last().press("Enter");
   await expect.poll(widths).toEqual([3333, 3333, 3333]);
   await page.getByRole("button", { name: "Hide", exact: true }).nth(1).click();
   await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(1);
@@ -2530,7 +2530,7 @@ test("gutter double-click evens three columns and Tidy tiles removes holes throu
   );
   await page.screenshot({ path: path.join(tmpdir(), "foom-265-tidy-tiles.png") });
   // The same action travels through each platform's real keyboard dispatcher.
-  await page.getByRole("separator").press("Home");
+  await page.getByRole("separator", { name: "Resize tiles" }).press("Home");
   await page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea').focus();
   await app.evaluate(({ BrowserWindow }, mac) => {
     const contents = BrowserWindow.getAllWindows().find(
@@ -2659,12 +2659,18 @@ test("sidebar choice restores after restart and new windows start expanded", asy
   const options = { args: [`--user-data-dir=${profile}`], fixture: "empty-board" };
   const app = await launchApp(context, options);
   const page = await boardPage(app);
+  await page.getByRole("separator", { name: "Sidebar width" }).press("Home");
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
   await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
   await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
   const restoredApp = await launchApp(context, { ...options, fixture: "restored" });
   const restored = await boardPage(restoredApp);
   await expect(restored.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
+  await restored.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  await expect(restored.getByRole("separator", { name: "Sidebar width" })).toHaveAttribute(
+    "aria-valuenow",
+    "240",
+  );
   await restored.evaluate(() => window.desktop.appMenu.execute("new-window"));
   await expect
     .poll(
@@ -2675,6 +2681,10 @@ test("sidebar choice restores after restart and new windows start expanded", asy
     .windows()
     .find((page) => page !== restored && page.url() === "app://bundle/index.html");
   await expect(second.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
+  await expect(second.getByRole("separator", { name: "Sidebar width" })).toHaveAttribute(
+    "aria-valuenow",
+    "300",
+  );
   await assertAccessible(restored);
 });
 
@@ -2810,4 +2820,63 @@ test("tile layouts restore v1 terminal content and v2 mixed content after invent
       animations: "disabled",
     });
   }
+});
+
+test("sidebar border resizes live, persists per window and refits the terminal once", async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  const handle = page.getByRole("separator", { name: "Sidebar width", exact: true });
+  const sidebar = page.locator(".sidebar-shell");
+  await expect(handle).toHaveAttribute("aria-valuenow", "300");
+  await app.evaluate(({ ipcMain }) => {
+    global.borderResizes = [];
+    ipcMain.on("terminal:resize", (_event, id, cols, rows) =>
+      global.borderResizes.push({ id, cols, rows }),
+    );
+  });
+  const bounds = await handle.boundingBox();
+  assert.ok(bounds);
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width / 2 - 50, bounds.y + bounds.height / 2, {
+    steps: 8,
+  });
+  await expect(handle).toHaveAttribute("aria-valuenow", "250");
+  assert.equal(Math.round((await sidebar.boundingBox()).width), 250);
+  assert.equal(await app.evaluate(() => global.borderResizes.length), 0);
+  await page.mouse.up();
+  await expect.poll(() => app.evaluate(() => global.borderResizes.length)).toBe(1);
+  const savedWidth = () =>
+    page.evaluate(() => {
+      const key = Object.keys(localStorage).find((key) => key.startsWith("foom.tiles.v1."));
+      return JSON.parse(localStorage.getItem(key)).sidebarWidth;
+    });
+  await expect.poll(savedWidth).toBe(250);
+  await page.screenshot({ path: "test-results/sidebar-resized.png", animations: "disabled" });
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await expect(handle).toHaveCount(0);
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  await expect(handle).toHaveAttribute("aria-valuenow", "250");
+  await page.waitForFunction(
+    () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
+  );
+  assert.equal(Math.round((await sidebar.boundingBox()).width), 250);
+  await handle.focus();
+  await handle.press("ArrowRight");
+  await expect.poll(savedWidth).toBe(260);
+  await handle.press("End");
+  assert.equal(
+    await handle.getAttribute("aria-valuenow"),
+    await handle.getAttribute("aria-valuemax"),
+  );
+  await handle.press("Home");
+  await expect(handle).toHaveAttribute("aria-valuenow", "240");
+  await page.waitForFunction(
+    () => document.querySelector(".sidebar-shell").getAnimations().length === 0,
+  );
+  await handle.dblclick();
+  await expect.poll(savedWidth).toBe(300);
+  await expect(handle).toHaveAttribute("aria-valuenow", "300");
+  await assertAccessible(page);
 });

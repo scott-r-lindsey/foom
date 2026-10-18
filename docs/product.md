@@ -72,6 +72,14 @@ Its panel-toggle button collapses the sidebar to a 64px rail at any width; Expan
 returns to the tree. View → Collapse sidebar / Expand sidebar and ⌘B on macOS or
 Ctrl+Shift+B on Windows/Linux do the same. Plain Ctrl+B stays with the terminal.
 The choice saves with each window’s tile layout; new windows start expanded.
+Drag the expanded sidebar’s border to resize it live, from 240px to 40% of the
+window (300px by default). A thin highlight and resize cursor mark the border on
+hover or drag. Double-click resets it. The focusable separator reports its width;
+Left/Right resize by 10px and Home/End select the limits. Width saves with each
+window’s tile layout; new windows use the default. Collapsing preserves the width.
+A smaller window clamps the displayed width without changing the saved value.
+The rail and narrow-window overlay have no resize handle. Dragging has no width
+animation; terminals refit once at the end.
 The rail keeps every session’s light and badge, repository dividers, a textual
 needs-you count (including held config changes, absent at zero), and the config gear.
 Session panels open beside the rail and retain keyboard navigation and location names.

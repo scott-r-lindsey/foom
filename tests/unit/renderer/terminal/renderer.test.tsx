@@ -1236,3 +1236,33 @@ test("subpixel geometry changes only resize the host when the fitted grid change
   expect(mock.resize).toHaveBeenLastCalledWith("subpixel-grid", 90, 30);
   controller.dispose();
 });
+
+test("sidebar dragging defers all terminal fits until release and ignores duplicate completion", async () => {
+  const board = document.createElement("div");
+  board.className = "board-home";
+  const sidebar = document.createElement("aside");
+  sidebar.className = "sidebar-shell";
+  sidebar.getAnimations = () => [];
+  const container = document.createElement("div");
+  board.append(sidebar, container);
+  document.body.append(board);
+  const controller = createShell(container, vi.fn(), false, undefined, false);
+  await controller.open("dragging-sidebar");
+  mock.fit.mockClear();
+  mock.resize.mockClear();
+  const observer = mock.resizeCallback.mock.lastCall?.[0];
+  sidebar.dataset["resizing"] = "true";
+  mock.fitCols = 70;
+  observer?.();
+  mock.fitCols = 60;
+  observer?.();
+  expect(mock.fit).not.toHaveBeenCalled();
+  delete sidebar.dataset["resizing"];
+  sidebar.dispatchEvent(new Event("sidebar-resize-end", { bubbles: true }));
+  observer?.();
+  sidebar.dispatchEvent(new Event("sidebar-resize-end", { bubbles: true }));
+  expect(mock.fit).toHaveBeenCalledOnce();
+  expect(mock.resize).toHaveBeenCalledExactlyOnceWith("dragging-sidebar", 60, 24);
+  controller.dispose();
+  board.remove();
+});
