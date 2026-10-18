@@ -1,0 +1,20 @@
+/** Review each new server tool before making it eligible for per-launch approval. */
+export const CONTROL_TOOL_CLASSES = {
+  whoami: "read",
+  sessions: "read",
+  session_state: "read",
+  open_preview: "preview",
+  list_previews: "preview",
+  close_preview: "preview",
+  handoff: "child",
+  read_handoff: "orchestration",
+  create_worktree: "orchestration",
+  launch: "orchestration",
+  reply: "orchestration",
+  stop: "orchestration",
+  close: "orchestration",
+  remove_worktree: "orchestration",
+  tail: "orchestration",
+  wait_for: "orchestration",
+  operation_status: "orchestration",
+} as const;

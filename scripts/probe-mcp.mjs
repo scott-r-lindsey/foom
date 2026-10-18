@@ -275,16 +275,7 @@ try {
     };
     let args =
       agent === "claude"
-        ? [
-            "-p",
-            "--permission-mode",
-            "default",
-            "--output-format",
-            "json",
-            "--allowedTools",
-            "mcp__*",
-            ...attachment.args,
-          ]
+        ? ["-p", "--permission-mode", "default", "--output-format", "json", ...prepared.args]
         : [
             "exec",
             "--skip-git-repo-check",
@@ -298,16 +289,6 @@ try {
             'model="synthetic"',
             ...attachment.args,
           ];
-    if (agent === "claude") {
-      const config = JSON.parse(await readFile(attachment.args[1], "utf8"));
-      const server = Object.keys(config.mcpServers)[0];
-      args.splice(
-        args.indexOf("--allowedTools") + 1,
-        1,
-        `mcp__${server}__whoami`,
-        `mcp__${server}__open_preview`,
-      );
-    }
     args.push(
       "--",
       "Task from your Foom orchestrator (another agent, not the user):\n\nRun the Foom whoami tool, then open_preview with path probe.html.",

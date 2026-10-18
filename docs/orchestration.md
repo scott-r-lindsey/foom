@@ -68,7 +68,8 @@ shadowing an existing `foom` entry. `--settings` continues to carry observer hoo
 skills later, but no plugin or skill is needed here.
 [CLI reference](https://code.claude.com/docs/en/cli-reference).
 
-Proposed argv fragment, represented as JSON rather than a shell command:
+Illustrative argv fragment (the actual grant includes every registered Foom tool),
+represented as JSON rather than a shell command:
 
 ```json
 ["--mcp-config", "/private/foom/launch-id/mcp.json", "--allowedTools", "mcp__foom_launch_id__open_preview", "mcp__foom_launch_id__list_previews", "mcp__foom_launch_id__close_preview"]
@@ -88,14 +89,25 @@ The file is in Foom's private launch directory, outside the checkout:
 }
 ```
 
-When MCP is attached, Foom pre-approves exactly `open_preview`, `list_previews`
-and `close_preview` on its random per-launch server through Claude Code's
-`--allowedTools`. User default allow rules (including `--allowed-tools`, `=` forms
-and variadic/comma-separated lists) are merged into one option with duplicate rules
-removed; argument patterns retain their internal spaces and commas. No other Foom
-tool is added. This permits view changes without an approval prompt, not broader
-file, process or network access. Managed policy and deny rules still win. Codex
-needs no corresponding grant; launches without MCP keep their defaults unchanged.
+When MCP is attached, Foom pre-approves every registered tool on its own random
+per-launch server through Claude Code's `--allowedTools`, using exact names
+`mcp__<server>__<tool>`: previews (`open_preview`, `list_previews`, `close_preview`),
+reads (`whoami`, `sessions`, `session_state`), child reports (`handoff`), and
+orchestration (`create_worktree`, `launch`, `stop`, `close`, `remove_worktree`,
+`tail`, `wait_for`, `read_handoff`, `reply`, `operation_status`). The launch builder
+derives grants from the real server registry, restricted to the manifest's reviewed
+tool names; a test requires every tool to be classified and included.
+
+User default allow rules (including `--allowed-tools`, `=` forms and
+variadic/comma-separated lists) are merged into one option with duplicates removed;
+argument patterns retain their internal spaces and commas. Foom adds no grants
+for other MCP servers or non-Foom tools. Managed policy and deny rules still win.
+This only removes Claude Code's per-call prompt: orchestration tools are refused
+server-side until the human grants the role. `remove_worktree` and `reply` still
+need human confirmation in Foom; the existing explicit Auto-remove merged worktrees
+setting remains the sole removal exception. `handoff` remains restricted to live
+owned children. No global agent or repository configuration is edited. Codex needs
+no corresponding grant; launches without MCP keep their defaults unchanged.
 [CLI allow options](https://code.claude.com/docs/en/cli-reference),
 [permission precedence](https://code.claude.com/docs/en/permissions).
 
@@ -807,6 +819,17 @@ preserved. Claude may update its own temporary profile bookkeeping. Codex sends
 passing it to the control service. Hook settings are independent of MCP attachment. The probe also verifies a final
 child prompt preceded by `--`, including Claude's variadic `--mcp-config` with
 hooks off; the prompt is accepted by both verified releases.
+
+For #299, the probe now uses the production Claude launch arguments, including the
+registry-derived grant, instead of constructing its own allow rules. It still
+checks managed-policy refusal with that grant present. This is a print-mode probe:
+`execFile` closes stdin and provides pipes, with no PTY or TUI login/onboarding
+harness. It cannot assert the absence of an interactive permission prompt: print
+mode refuses permissions instead of displaying that prompt, and an unauthenticated
+TUI can stop at login/onboarding before any tool runs. No interactive-mode or auto
+permission-mode result is claimed from it. The earlier isolated TUI spike in
+[agent-previews §5](agent-previews.md#5-client-reality) remains the interactive
+evidence; the orchestrator will record real-model discovery after merge.
 
 These tested releases establish the minimum supported stable versions: Claude Code
 2.1.293 with `--mcp-config` in help, and Codex 0.161.0 with `-c` in help. Later stable

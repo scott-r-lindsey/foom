@@ -582,9 +582,14 @@ record it without alerting. A later request clears the failure. Settings → Age
 shows MCP available or unavailable from the version and capability gate.
 You can stop a child or take it over, which ends the orchestrator's access to it. Agents launched outside Foom receive no automatic
 access. Agent configuration is attached per launch, never installed globally or
-written into the repository. With MCP attached, Claude Code pre-approves the three
-preview tools on Foom’s random per-launch server, merging your default allow rules.
-Managed policy and deny rules still win; other Foom tools receive no grant.
+written into the repository. With MCP attached, Claude Code pre-approves every tool
+on Foom’s own random per-launch server, merging your default allow rules. This
+covers previews, session metadata, child handoffs and orchestration; other MCP
+servers and non-Foom tools receive no added grant. Managed policy and deny rules
+still win. Orchestration calls are refused server-side until you grant the role.
+`remove_worktree` and `reply` still need human confirmation in Foom; the existing
+explicit Auto-remove merged worktrees setting remains the removal exception.
+The grant applies only to that launch and never edits global agent configuration.
 
 The packaged `foom` console can inspect session metadata and, for sessions you
 made orchestrator, create worktrees, launch and stop children, request worktree

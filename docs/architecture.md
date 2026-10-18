@@ -789,11 +789,16 @@ floors (Claude Code 2.1.293, Codex 0.161.0) and the corresponding help flag
 (`--mcp-config` or `-c`). Supported releases receive a random server name: Claude gets a private temporary MCP JSON file
 with environment expansion, Codex gets an additive `-c` server table referencing the
 bearer environment variable.
-Claude Code launches with MCP also pre-approve only `open_preview`, `list_previews`
-and `close_preview` on that random per-launch server using `--allowedTools`.
+Claude Code launches with MCP pre-approve every registered Foom tool on that
+random per-launch server using exact `mcp__<server>__<tool>` names in `--allowedTools`.
+The server registry supplies the tool names, filtered by the manifest’s reviewed
+list; a test requires every registered tool to be classified and included.
 User default allow rules are merged and deduplicated, including the `--allowed-tools`
 alias, equals forms and variadic/comma-separated lists. Managed policy and deny
-rules still win; no metadata or orchestration tool receives this grant. Launches
+rules still win. Orchestration tools remain refused server-side until the human
+grants the role. `remove_worktree` and `reply` still need human confirmation in
+Foom (apart from the existing opt-in merged-clean removal policy). No other MCP
+server or non-Foom tool is granted; no global config is edited. Launches
 without MCP retain their default arguments unchanged. See the
 [per-launch disclosure](orchestration.md#claude-code).
 Tokens never enter argv or files. Exit, early exit,

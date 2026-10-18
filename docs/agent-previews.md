@@ -95,12 +95,45 @@ Per-launch attachment works unchanged: both CLIs list the three tools next to `w
 | Claude Code TUI with the per-launch `--allowedTools` | No prompts | `claude-tui-allow.json` |
 | Codex `exec` and TUI, default `on-request` | No prompts, with `readOnlyHint` true or false | `codex-*.json` |
 
-A Yes before every preview, with no way to remember the answer, would make the tool more annoying than opening the file by hand. **Recommendation:** when MCP is attached, Foom's Claude Code launch adds `--allowedTools` for exactly these three tools on its own per-launch server. That is not a weaker permission policy: the grant names one random per-launch server, allows only view changes, and widens no file, process or network access. Managed policy still wins, because Claude Code applies it before allow rules (the #153 probe covers managed refusal). `orchestration.md` and the launch disclosure must say so. Do **not** allow `whoami`, `sessions` or `session_state` this way as part of this change. Codex needs nothing. Codex 0.162.1 has only `on-request` and `never`; `untrusted` is rejected with "no longer supported".
+A Yes before every call, with no way to remember the answer, makes tools more
+annoying than using Foom by hand. **Decision for #299 (supersedes the preview-only
+recommendation):** when MCP is attached, Claude Code receives `--allowedTools` for
+every registered tool on Foom's own random per-launch server, with exact names
+`mcp__<server>__<tool>`. This includes the three preview tools; `whoami`, `sessions`,
+`session_state`; child `handoff`; and `create_worktree`, `launch`, `stop`, `close`,
+`remove_worktree`, `tail`, `wait_for`, `read_handoff`, `reply`, `operation_status`.
+Grants derive from the server registry, restricted to reviewed manifest names;
+a test fails if a tool is added without classification and inclusion. User default
+allow rules are merged, including aliases, equals forms and variadic lists.
+No other MCP server or non-Foom tool is added; no global config is edited.
+
+Managed policy and deny rules still win. The grant only removes Claude's per-call
+prompt: orchestration tools are refused server-side until the human grants the
+role. `remove_worktree` and `reply` still need human confirmation in Foom, subject
+to the existing explicit opt-in merged-clean removal policy. Child handoffs retain
+their live-parent checks. See the [launch disclosure](orchestration.md#claude-code).
+Codex needs no corresponding grant. Codex 0.162.1 has only `on-request` and `never`;
+`untrusted` is rejected with "no longer supported".
+
+The nightly/manual Real CLI MCP probe uses the production grant in print mode,
+with synthetic loopback responses and no provider credentials. It cannot assert
+interactive prompt absence: its pipe-based `execFile` runner has neither a PTY
+nor a TUI login/onboarding harness; an unauthenticated interactive client may stop
+before tool execution. See [probe limits](orchestration.md#read-only-mcp-implementation-verification-153).
+No real CLIs were run locally for #299. Auto permission mode is not established.
 
 **Interactive Claude Code connects MCP after the first turn starts.** The first model request carried no Foom tools, only `WaitForMcpServers`; the tools appeared after the model called it ("ready: true"). A real model asked to show something at once may not see `open_preview` on that turn. Claude Code may also defer MCP tools behind tool search, in which case the model sees only the tool's name and the server instructions until it searches. That happens in this very Claude Code session, launched by Foom with installed version 2.1.296. So the name and the server instructions matter more than the description. Proposed additions:
 
 - Server instructions for every agent: "To show the user a Markdown or HTML file you wrote, call open_preview with its path. It never takes focus."
 - `open_preview`'s description, as used in the spike: "Show the user a rendered preview of a Markdown or HTML file in your worktree, in a Foom tile beside the terminals. Use it when you've written something the user should look at, like a mockup or a doc. Path is relative to your worktree. Opening the same file again returns the existing preview. Never takes focus."
+
+### Real-model discovery results (pending after merge)
+
+**Owner: the orchestrator, after #299 merges.** No results recorded yet. Record
+Claude Code and Codex versions, permission mode, first-turn discovery and
+`open_preview` tool-call transcripts for both prompts below; note whether the
+second prompt reuses the same preview ID. Record auto-mode behavior only if
+observed. Do not record terminal output or credentials.
 
 **Not verified: whether real models call it unprompted.** That needs real model calls, which this spike avoided. Before shipping, run two prompts per agent with a real model and the per-launch server: "Write a one-page HTML mockup of a checkout and show it to me", then "Update the button color". Record whether the first turn calls `open_preview` and whether the second reuses the preview instead of opening a new one.
 
@@ -129,7 +162,7 @@ Same exit codes as today: 0 success, 2 usage or schema, 3 auth or scope, 4 capac
    - Fixed-field audit before the result; audit failure refuses.
 3. The preview host loads each view detached and attaches it after `did-finish-load`. Only a human click focuses a preview. This applies to all previews.
 4. Board chrome attributes agent-opened previews: Preview badge, worktree-relative path, "opened by <agent>". The arrival highlight marks the tile; the opener's panel and #157's log list the action.
-5. When MCP is attached, Claude Code launches add `--allowedTools` for the three preview tools on Foom's per-launch server, disclosed in docs. Codex needs no change. Antigravity uses the console commands.
+5. When MCP is attached, Claude Code launches add `--allowedTools` for every registered tool on Foom's own per-launch server, disclosed in docs. Server-side roles and human confirmations remain in force. Codex needs no change. Antigravity uses the console commands.
 6. Server instructions name `open_preview`; the descriptions are as above.
 
 ## Doc changes this implies

@@ -62,7 +62,25 @@
       }
     },
     "toolPermissions": {
-      "names": ["open_preview", "list_previews", "close_preview"],
+      "names": [
+        "whoami",
+        "sessions",
+        "session_state",
+        "open_preview",
+        "list_previews",
+        "close_preview",
+        "handoff",
+        "read_handoff",
+        "create_worktree",
+        "launch",
+        "reply",
+        "stop",
+        "close",
+        "remove_worktree",
+        "tail",
+        "wait_for",
+        "operation_status"
+      ],
       "format": "mcp-double-underscore",
       "arguments": ["--allowedTools", "{tool}"],
       "merge": {
@@ -176,7 +194,7 @@
         "priority": 1200,
         "region": "after_horizontal_rule",
         "match": {
-          "contains": ["esc to cancel", "enter to select", "↑/↓ to navigate"]
+          "contains": ["esc to cancel", "enter to select", "\u2191/\u2193 to navigate"]
         },
         "reason": "Question form",
         "comment": "Ported live_blocked_form navigation branch; the last divider leaves the form footer visible."
@@ -187,7 +205,7 @@
         "priority": 1100,
         "region": "title",
         "match": {
-          "regex": ["^[◐◓◑◒] "]
+          "regex": ["^[\u25d0\u25d3\u25d1\u25d2] "]
         },
         "reason": "Agent is working",
         "comment": "Half-circle spinner introduced in Claude 2.1.228; captured in 2.1.291. Earlier braille variant omitted without a capture."
@@ -198,7 +216,7 @@
         "priority": 250,
         "region": "title",
         "match": {
-          "regex": ["^✳ "]
+          "regex": ["^\u2733 "]
         },
         "reason": "Agent turn ended; checking output",
         "comment": "Idle title can coexist with a question form. Screen blockers have higher priority."
