@@ -73,11 +73,14 @@ it("runs both paths over recorded public gh captures before removing the old pro
   const branch = "docs/gh-skill-gh-api-field-passing";
   const stdout = forgeValue(fixture, ["stdout"]);
   if (typeof stdout !== "string") throw new Error("Invalid recorded stdout");
-  const oldRun = vi.fn(() => Promise.resolve(stdout));
+  const oldRun = vi.fn<(args: readonly string[]) => Promise<string>>(() => Promise.resolve(stdout));
   const newRun = vi.fn(() => Promise.resolve({ code: 0, stdout, stderr: "" }));
   expect(await forgeProvider("https://github.com/cli/cli", oldRun)?.lookup(branch)).toBeUndefined();
   expect(await provider(newRun).lookup(branch)).toBeUndefined();
-  expect(newRun.mock.calls).toEqual(oldRun.mock.calls);
+  // #579 adds only this optional field to the legacy query; #521 maps it separately.
+  expect(newRun.mock.calls).toEqual(
+    oldRun.mock.calls.map(([args]) => [args.map((arg) => arg.replace(",mergeCommit", ""))]),
+  );
   const capture: unknown = JSON.parse(
     await readFile("spikes/forge-manifests/fixtures/gh-rollup-public.json", "utf8"),
   );
@@ -141,7 +144,10 @@ it("preserves old/new argv and observations for derived same-repository fixtures
     const old = await forgeProvider("https://github.com/cli/cli", oldRun)?.lookup(branch);
     const newRun = vi.fn(async (args: readonly string[]) => run(args));
     expect(await provider(newRun).lookup(branch)).toEqual(old);
-    expect(newRun.mock.calls).toEqual(oldRun.mock.calls);
+    // #579 adds only this optional field to the legacy query; #521 maps it separately.
+    expect(newRun.mock.calls).toEqual(
+      oldRun.mock.calls.map(([args]) => [args.map((arg) => arg.replace(",mergeCommit", ""))]),
+    );
   }
 });
 

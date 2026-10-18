@@ -1,3 +1,4 @@
+import { forgeProvider } from "../../../../src/main/control/forge";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
 import { git as execute } from "../../../helpers/git.js";
@@ -1023,6 +1024,107 @@ describe("merged worktree containment", () => {
       );
     },
   );
+  it.each([
+    "merge",
+    "squash",
+    "rebase",
+    "head mismatch",
+    "missing default",
+    "missing object",
+    "dirty",
+    "hostile",
+    "fork",
+    "missing merge",
+    "closed",
+    "unavailable",
+  ])("verifies PR %s hints locally after default changes the same lines", async (mode) => {
+    const lookup = vi.fn((args: readonly string[]) =>
+      Promise.resolve(
+        JSON.stringify(args[1] === "list" ? [response] : args[1] === "checks" ? [] : response),
+      ),
+    );
+    service = new WorktreeService(root, () =>
+      forgeProvider("https://github.com/test/repo", lookup),
+    );
+    await service.addRepository(repo);
+    const tree = await feature();
+    await writeFile(join(repo, "other.txt"), "default change\n");
+    await commit(repo, "default change");
+    if (mode === "merge") {
+      await git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "merge",
+        "--no-ff",
+        "feature",
+        "-m",
+        "merge",
+      );
+    } else if (mode === "rebase") {
+      await git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "cherry-pick",
+        "feature",
+      );
+    } else {
+      await git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "merge",
+        "--squash",
+        "feature",
+      );
+      await commit(repo, "squashed feature");
+    }
+    const mergeCommit = (await git("rev-parse", "HEAD")).trim();
+    if (mode === "missing default") await git("reset", "--hard", "HEAD~1");
+    await writeFile(join(repo, "feature.txt"), "later default edit\n");
+    await commit(repo, "later edit");
+    await remote();
+    const response = {
+      number: 579,
+      headRefName: "feature",
+      headRefOid: tree.head,
+      state: mode === "closed" ? "CLOSED" : "MERGED",
+      isCrossRepository: mode === "fork",
+      headRepositoryOwner: { login: "test" },
+      mergeCommit:
+        mode === "missing merge"
+          ? null
+          : {
+              oid:
+                mode === "hostile"
+                  ? "--help"
+                  : mode === "missing object"
+                    ? "f".repeat(40)
+                    : mergeCommit,
+            },
+    };
+    if (mode === "unavailable") lookup.mockRejectedValue(new Error("offline"));
+    if (mode === "head mismatch") {
+      await writeFile(join(tree.path, "extra.txt"), "local commit");
+      await commit(tree.path, "after PR");
+    }
+    if (mode === "dirty") await writeFile(join(tree.path, "untracked.txt"), "dirty");
+    const current = (await service.listWorktrees(repo)).find((item) => item.path === tree.path);
+    if (!current) throw new Error("Missing fixture");
+    const base = await service.mergedDefault(repo, true);
+    // Content alone cannot authorize these squash/rebase cases after the later edit.
+    expect(await service.mergedCommit(repo, current, base)).toBe(
+      ["merge", "squash", "rebase"].includes(mode),
+    );
+    expect(
+      await service.canAutoRemove(repo, tree.path, await service.removalIdentity(repo, tree.path)),
+    ).toBe(["merge", "squash", "rebase"].includes(mode));
+    expect(lookup).toHaveBeenCalled();
+  });
   it("rejects conflicts and deletes only an unchanged, unchecked-out local branch", async () => {
     const tree = await feature();
     await writeFile(join(repo, "feature.txt"), "different\n");
@@ -1073,10 +1175,53 @@ describe("merged worktree containment", () => {
   });
 });
 
-it.each(["untracked", "commit"])(
+it.each(["untracked", "commit", "forge"])(
   "merged cleanup preserves a real worktree gaining %s after confirmation",
   async (change) => {
+    let merged = true;
+    let prHead = "";
+    let mergeCommit = "";
+    if (change === "forge") {
+      service = new WorktreeService(root, () => ({
+        lookup: () =>
+          Promise.resolve({
+            number: 579,
+            headSha: prHead,
+            mergeCommit,
+            state: merged ? "MERGED" : "CLOSED",
+            requiredChecks: "none",
+          }),
+      }));
+      await service.addRepository(repo);
+    }
     const tree = (await service.createWorktree(repo, "changed")).path;
+    if (change === "forge") {
+      const commit = async (cwd: string) => {
+        await execute(["add", "."], { cwd });
+        await execute(
+          ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "fixture"],
+          { cwd },
+        );
+      };
+      await writeFile(join(tree, "feature.txt"), "feature");
+      await commit(tree);
+      prHead = (await execute(["rev-parse", "HEAD"], { cwd: tree })).stdout.trim();
+      await writeFile(join(repo, "default.txt"), "diverge before squash");
+      await commit(repo);
+      await git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "merge",
+        "--squash",
+        "changed",
+      );
+      await commit(repo);
+      mergeCommit = (await git("rev-parse", "HEAD")).trim();
+      await writeFile(join(repo, "feature.txt"), "later edit");
+      await commit(repo);
+    }
     const removed = (await service.createWorktree(repo, "safe")).path;
     const upstream = join(temporary, "remote.git");
     await git("clone", "--bare", repo, upstream);
@@ -1109,7 +1254,8 @@ it.each(["untracked", "commit"])(
             await vi.waitFor(() => {
               expect(request.feed?.current().stage).toBe("ready");
             });
-            await writeFile(join(tree, "new.txt"), "must survive");
+            if (change === "forge") merged = false;
+            else await writeFile(join(tree, "new.txt"), "must survive");
             if (change === "commit") {
               await execute(["add", "."], { cwd: tree });
               await execute(
@@ -1129,7 +1275,9 @@ it.each(["untracked", "commit"])(
           },
         ),
       ).resolves.toBeUndefined();
-      expect(await readFile(join(tree, "new.txt"), "utf8")).toBe("must survive");
+      expect(
+        await readFile(join(tree, change === "forge" ? "feature.txt" : "new.txt"), "utf8"),
+      ).toBe(change === "forge" ? "feature" : "must survive");
       expect(await git("branch", "--list", "changed")).toContain("changed");
       await expect(realpath(removed)).rejects.toThrow();
       expect(await git("branch", "--list", "safe")).toBe("");
