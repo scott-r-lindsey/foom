@@ -128,6 +128,7 @@ export function Board({
       next = {
         ...next,
         sidebarCollapsed: next.sidebarCollapsed ?? layoutRef.current.sidebarCollapsed ?? false,
+        sidebarWidth: next.sidebarWidth ?? layoutRef.current.sidebarWidth,
       };
       if (
         next.focused !== layoutRef.current.focused ||
@@ -800,6 +801,10 @@ export function Board({
       {removeError && <p role="alert">{removeError}</p>}
       <div className="board-workspace">
         <Sidebar
+          width={layout.sidebarWidth}
+          setWidth={(sidebarWidth) => {
+            changeLayout({ ...layoutRef.current, sidebarWidth });
+          }}
           collapsed={layout.sidebarCollapsed ?? false}
           setCollapsed={(sidebarCollapsed) => {
             changeLayout({ ...layoutRef.current, sidebarCollapsed });

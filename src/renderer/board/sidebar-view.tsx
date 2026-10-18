@@ -1,3 +1,4 @@
+import { SidebarResize } from "./sidebar-resize";
 import { SidebarRepositorySection } from "./sidebar-repository-section";
 import { SidebarSessionRow } from "./sidebar-session-row";
 import { SidebarPreviewRow } from "./sidebar-preview-row";
@@ -59,6 +60,8 @@ export function launcherActions(
 export function Sidebar({
   source,
   collapsed = false,
+  width,
+  setWidth,
   setCollapsed,
   toggleRef,
   onCompact,
@@ -86,6 +89,8 @@ export function Sidebar({
 }: {
   source: BoardSource;
   collapsed?: boolean;
+  width?: number | undefined;
+  setWidth?: (width: number) => void;
   setCollapsed?: (value: boolean) => void;
   toggleRef?: RefObject<(() => void) | undefined>;
   onCompact?: (value: boolean) => void;
@@ -682,6 +687,16 @@ export function Sidebar({
       data-compact={compact}
       data-overlay={narrow && overlay}
     >
+      <SidebarResize
+        key={compact || narrow ? "fixed" : "resizable"}
+        sidebarRef={shellRef}
+        width={width}
+        save={setWidth}
+        enabled={!compact && !narrow}
+        onDrag={(active) => {
+          intent.drag(active || Boolean(dragging));
+        }}
+      />
       <button
         ref={toggleButtonRef}
         type="button"

@@ -295,7 +295,7 @@ attached stream. Host generations continue to reject delayed output acknowledgem
 maximized flag and interface scale. Restore clamps geometry to a connected display,
 falling back to the primary. The preload receives only its window ID and optional
 pop-out terminal ID as main-generated arguments; it receives no profile paths.
-Each window uses its ID to namespace validated localStorage tile metadata, including the sidebar collapse choice. New windows start expanded; the narrow rail override and temporary overlay do not change that choice. The
+Each window uses its ID to namespace validated localStorage tile metadata, including the sidebar collapse choice and expanded width. New windows start expanded at 300px; the narrow rail override and temporary overlay do not change that choice. The
 legacy size file remains a fallback for the first window. Global settings retain
 one writer; window-specific wrappers keep interface scale separate. Setup scans and confirmations stay local to their requesting window. Classification uses the shared local rules.
 

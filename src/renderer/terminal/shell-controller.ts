@@ -170,6 +170,7 @@ export function createShell(
   const resize = () => {
     if (!attached || busy || sidebarChanging) return;
     const sidebar = board?.querySelector(".sidebar-shell");
+    if (sidebar?.getAttribute("data-resizing") === "true") return;
     if (sidebar?.getAnimations().some((animation) => animation.playState === "running")) return;
     const bounds = container.getBoundingClientRect();
     if (!fontResizePending && bounds.width === measuredWidth && bounds.height === measuredHeight)
@@ -245,6 +246,7 @@ export function createShell(
       });
     }
   };
+  board?.addEventListener("sidebar-resize-end", resize);
   board?.addEventListener("transitionrun", sidebarTransition);
   board?.addEventListener("transitionend", sidebarTransition);
   board?.addEventListener("transitioncancel", sidebarTransition);
@@ -347,6 +349,7 @@ export function createShell(
     colors.removeEventListener("change", interfaceChanged);
     observer.disconnect();
     if (sidebarFrame !== undefined) cancelAnimationFrame(sidebarFrame);
+    board?.removeEventListener("sidebar-resize-end", resize);
     board?.removeEventListener("transitionrun", sidebarTransition);
     board?.removeEventListener("transitionend", sidebarTransition);
     board?.removeEventListener("transitioncancel", sidebarTransition);
