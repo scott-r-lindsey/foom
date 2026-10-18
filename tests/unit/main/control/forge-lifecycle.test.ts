@@ -1,8 +1,9 @@
+import type * as Fs from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { afterEach, expect, it, onTestFinished, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { ForgeLifecycle } from "../../../../src/main/control/forge-lifecycle";
 import { parseForgeManifest } from "../../../../src/shared/forge-manifest";
 import github from "../../../../src/shared/bundled-forges/github.json";
@@ -10,8 +11,15 @@ import { githubManifest } from "../../../../src/main/control/forge-manifests";
 import { executeForge, resolveForgeExecutable } from "../../../../src/main/control/forge-process";
 import type { ForgeSelection } from "../../../../src/main/control/forge-lifecycle-types";
 
+vi.mock("node:fs/promises", async (original) => {
+  const fs = await original<typeof Fs>();
+  return { ...fs, rm: vi.fn(fs.rm) };
+});
+
 const roots: string[] = [];
+const lifecycles: ForgeLifecycle[] = [];
 afterEach(async () => {
+  await Promise.all(lifecycles.splice(0).map((lifecycle) => lifecycle.close()));
   vi.restoreAllMocks();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -70,9 +78,7 @@ else {
     environment: { STATE: state, LOG: log, MANIFEST: manifestFile, PIDS: join(root, "pids") },
   });
   lifecycle.replace([plugin]);
-  onTestFinished(async () => {
-    await lifecycle.close();
-  });
+  lifecycles.push(lifecycle);
   const context = { identity: "registered-worktree-generation-1", validate: vi.fn(async () => {}) };
   const selection: ForgeSelection = {
     plugin,
@@ -169,11 +175,13 @@ posix(
     const { lifecycle, selection, update, calls } = await fixture();
     const log = vi.spyOn(console, "error");
     for (const auth of ["not logged in", "authentication required"]) {
-      await update({ auth });
-      expect(await lifecycle.provider(selection).lookup("feature")).toBeUndefined();
-      expect(lifecycle.state()).toBe("unauthenticated");
+      for (const authCode of [0, 1]) {
+        await update({ auth, authCode });
+        expect(await lifecycle.provider(selection).lookup("feature")).toBeUndefined();
+        expect(lifecycle.state()).toBe("unauthenticated");
+      }
     }
-    expect(await calls()).toHaveLength(2);
+    expect(await calls()).toHaveLength(4);
     await update({ forbidden: true });
     expect(await lifecycle.provider(selection).lookup("feature")).toBeUndefined();
     expect(lifecycle.state()).toBe("unauthenticated");
@@ -324,4 +332,18 @@ posix("rejects executable replacement and revoked worktree identity at publicati
   selection.context.validate = () => Promise.reject(new Error("secret-token worktree removed"));
   expect(await lifecycle.provider(selection).resolve?.(42)).toBeUndefined();
   expect(lifecycle.state()).toBe("unavailable");
+});
+
+posix("finishes asynchronous cleanup before final byte/registry publication checks", async () => {
+  const fs = await vi.importActual<typeof Fs>("node:fs/promises");
+  for (const change of ["bytes", "registry"]) {
+    const { lifecycle, selection, manifestFile } = await fixture();
+    vi.mocked(rm).mockImplementationOnce(async (path, options) => {
+      await fs.rm(path, options);
+      if (change === "bytes") await writeFile(manifestFile, JSON.stringify(githubManifest) + " ");
+      else lifecycle.replace([]);
+    });
+    expect(await lifecycle.provider(selection).lookup("feature", 42, "all")).toBeUndefined();
+    expect(lifecycle.state()).toBe(change === "bytes" ? "unavailable" : "cancelled");
+  }
 });

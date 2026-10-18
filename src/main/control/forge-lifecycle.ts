@@ -18,6 +18,12 @@ import { manifestForgeProvider } from "./forge-interpreter";
 import { expandForgeArguments } from "./forge-execution";
 import { executeForge, ForgeExecutionError, resolveForgeExecutable } from "./forge-process";
 
+function authFailure(stdout: string, stderr: string): boolean {
+  return /HTTP(?:\/\d(?:\.\d)?)?\s+(?:401|403)\b|authentication required|not logged in|forbidden/iu.test(
+    `${stdout}\n${stderr}`,
+  );
+}
+
 /** Inactive integration boundary. Only main may select registered plugins and worktree contexts. */
 export class ForgeLifecycle {
   private plugins: readonly LoadedForgeManifest[] = [];
@@ -153,11 +159,7 @@ export class ForgeLifecycle {
               },
               controller.signal,
             );
-            if (
-              /HTTP(?:\/\d(?:\.\d)?)?\s+(?:401|403)\b|authentication required|not logged in|forbidden/iu.test(
-                `${response.code === 0 ? "" : response.stdout}\n${response.stderr}`,
-              )
-            )
+            if (authFailure(response.code === 0 ? "" : response.stdout, response.stderr))
               throw new ForgeExecutionError("unauthenticated");
             return response;
           } catch (error) {
@@ -171,6 +173,7 @@ export class ForgeLifecycle {
           const auth = await transport(expandForgeArguments(plugin.manifest.auth.argv, remote));
           if (
             !plugin.manifest.auth.successExitCodes.includes(auth.code) ||
+            authFailure(auth.stdout, auth.stderr) ||
             plugin.manifest.auth.failureContains.some((marker) =>
               `${auth.stdout}\n${auth.stderr}`.toLowerCase().includes(marker.toLowerCase()),
             )
@@ -183,6 +186,9 @@ export class ForgeLifecycle {
           manifestForgeProvider(plugin.manifest, remote, transport, selection.defaultBranch),
         );
         if (execution.failure) throw execution.failure;
+        // Finish asynchronous cleanup before the final publication checks.
+        await rm(cwd, { recursive: true, force: true });
+        directory = undefined;
         await revalidate();
         assertCurrent();
         if (value === undefined) throw new ForgeExecutionError("unavailable");
