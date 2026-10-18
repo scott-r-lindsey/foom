@@ -62,7 +62,9 @@ export function ForgesSettings({
       <div className="agent-cards">
         {(catalog?.forgePlugins ?? []).map((forge) => {
           const enabled = settings.forges[forge.id] === true;
-          const assigned = Object.entries(settings.forgeHosts).filter(([, id]) => id === forge.id);
+          const assigned = forge.reason
+            ? []
+            : Object.entries(settings.forgeHosts).filter(([, id]) => id === forge.id);
           return (
             <section key={forge.file ?? forge.id} className="agent-card" aria-label={forge.name}>
               <div className="agent-card-head">
@@ -154,7 +156,10 @@ export function ForgesSettings({
           );
         })}
         {Object.entries(settings.forgeHosts)
-          .filter(([, id]) => !(catalog?.forgePlugins ?? []).some((forge) => forge.id === id))
+          .filter(
+            ([, id]) =>
+              !(catalog?.forgePlugins ?? []).some((forge) => forge.id === id && !forge.reason),
+          )
           .map(([host, id]) => (
             <div className="agent-inline" key={host}>
               <code>{host}</code>

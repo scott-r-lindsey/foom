@@ -15,6 +15,14 @@ const catalog: ConfigStatus = {
   pending: null,
   rejected: [],
   forgePlugins: [
+    {
+      id: "github",
+      name: "Rejected GitHub",
+      badge: "?",
+      executables: [],
+      file: "forges/github.json",
+      reason: "$.id: reserved-id",
+    },
     { id: "github", name: "GitHub", badge: "GH", executables: ["gh"] },
     {
       id: "custom",
@@ -221,4 +229,17 @@ test("Settings navigation reaches Forges and persists through the source coordin
   await waitFor(() => {
     expect(within(github).getByText("Turned off")).toBeTruthy();
   });
+});
+
+test("rejected definitions never display a valid manifest's host authority", async () => {
+  const f = fixture();
+  f.props.settings.forgeHosts = { "github.com": "github", "git.example.org": "broken" };
+  render(<ForgesSettings {...f.props} />);
+  const rejected = await screen.findByRole("region", { name: "Rejected GitHub" });
+  expect(within(rejected).queryByText("github.com")).toBeNull();
+  expect(screen.getAllByRole("button", { name: "Remove github.com" })).toHaveLength(1);
+  expect(
+    within(screen.getByRole("region", { name: "Broken" })).queryByText("git.example.org"),
+  ).toBeNull();
+  expect(screen.getByText("broken · Unavailable")).toBeTruthy();
 });

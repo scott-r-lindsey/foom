@@ -644,6 +644,8 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     "autoRemoveMergedWorktrees",
     "codeFolder",
     "codexNotifierAcknowledged",
+    "forgeHosts",
+    "forges",
     "setupComplete",
     "showPullRequests",
     "unreadChildMinutes",
@@ -651,6 +653,8 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   ]);
   const effective = (await page.evaluate(() => window.desktop.setupState())).settings;
   assert.deepEqual(effective, {
+    forges: { github: true },
+    forgeHosts: { "github.com": "github" },
     codexNotifierAcknowledged: false,
     agyPluginOfferAnswered: false,
     setupComplete: true,

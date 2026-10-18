@@ -16,6 +16,16 @@ function entries(value: unknown): [string, unknown][] {
   return result;
 }
 
+function exactHostname(host: string): boolean {
+  if (!forgeHost(host) || ["__proto__", "constructor", "prototype"].includes(host)) return false;
+  try {
+    // Reject alternative numeric IP spellings and any URL-normalized hostname.
+    return new URL(`https://${host}`).hostname === host;
+  } catch {
+    return false;
+  }
+}
+
 export function parseForgeEnablement(value: unknown): Readonly<Record<string, boolean>> {
   return Object.fromEntries(
     entries(value).map(([id, enabled]) => {
@@ -30,12 +40,7 @@ export function parseForgeEnablement(value: unknown): Readonly<Record<string, bo
 export function parseForgeHosts(value: unknown): Readonly<Record<string, string>> {
   return Object.fromEntries(
     entries(value).map(([host, id]) => {
-      if (
-        !forgeHost(host) ||
-        ["__proto__", "constructor", "prototype"].includes(host) ||
-        typeof id !== "string" ||
-        !validForgeId(id)
-      )
+      if (!exactHostname(host) || typeof id !== "string" || !validForgeId(id))
         throw new Error("Use a lowercase DNS hostname and a valid forge.");
       return [host, id];
     }),
