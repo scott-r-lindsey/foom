@@ -1,3 +1,4 @@
+import { UnreadChildEvents } from "./unread-child-events";
 import { ChildEvents } from "./child-events";
 import { Handoffs } from "./handoffs";
 import type { Handoff } from "../../shared/handoff";
@@ -196,18 +197,26 @@ function publicOperation(operation: Operation): Operation {
  */
 export class Orchestration {
   readonly handoffs = new Handoffs();
+  readonly unreadChildren: UnreadChildEvents;
   readonly childEvents = new ChildEvents();
   private readonly slots = new Map<string, Parent>();
   private readonly parents = new Map<string, Parent>();
   private readonly early = new Set<string>();
   private readonly metadata: SessionMetadata;
   private readonly replies: ReviewedReplies;
+  private readonly offUnread: () => void;
 
   constructor(
     private readonly host: OrchestrationHost,
     private readonly now: () => number = Date.now,
     readonly childLimit: () => number = () => 4,
   ) {
+    this.unreadChildren = new UnreadChildEvents(() => {
+      this.changed();
+    }, now);
+    this.offUnread = this.childEvents.subscribe(() => {
+      this.syncUnreadChildEvents();
+    });
     this.replies = new ReviewedReplies(
       host,
       now,
@@ -219,6 +228,44 @@ export class Orchestration {
       (row) => this.pullRequest(row),
       (row) => this.handoffMetadata(row),
     );
+  }
+
+  disposeUnreadChildren(): void {
+    this.offUnread();
+    this.unreadChildren.dispose();
+  }
+
+  syncUnreadChildEvents(): void {
+    const rows = this.host.terminals();
+    this.unreadChildren.sync(
+      [...this.parents].flatMap(([parentId, parent]) =>
+        parent.active
+          ? [...parent.children].flatMap(([id, child]) => {
+              const row = rows.find((entry) => entry.id === id);
+              return child.takenOver || !row
+                ? []
+                : [
+                    {
+                      id,
+                      parentId,
+                      execution: row.execution,
+                      exited: child.exited,
+                      handoff: this.handoffMetadata(row),
+                      pullRequest: this.pullRequest(row),
+                    },
+                  ];
+            })
+          : [],
+      ),
+    );
+  }
+
+  childRead(actor: Principal, id: string): void {
+    if (actor.role !== "orchestrator") return;
+    const parent = this.parent(actor);
+    if (!this.own(parent, id)) return;
+    this.syncUnreadChildEvents();
+    if (this.unreadChildren.read(actor.terminalId, id)) this.changed();
   }
 
   private changed(): void {
@@ -520,6 +567,7 @@ export class Orchestration {
             : this.handoffs.entries(id).find((entry) => entry.seq === seq);
         if (!report) throw new ControlError("not_found");
         child.readHandoff = Math.max(child.readHandoff ?? 0, report.seq);
+        this.childRead(actor, id);
         this.changed();
         return {
           ...report,
@@ -947,6 +995,11 @@ export class Orchestration {
     const timeout = params["timeoutMs"] ?? 0;
     if (typeof timeout !== "number" || !Number.isInteger(timeout) || timeout < 0 || timeout > 30000)
       throw new ControlError("invalid_request");
+    const initial = this.parent(actor);
+    if (targets.some((id) => !this.own(initial, id))) throw new ControlError("not_found");
+    // Calling a validated child-specific wait acknowledges what is already pending,
+    // even when its cursor asks us to keep waiting for the next event.
+    for (const id of targets) this.childRead(actor, id);
     const deadline = this.now() + timeout;
     for (;;) {
       const parent = this.parent(actor);
@@ -957,8 +1010,10 @@ export class Orchestration {
       );
       const changed = sessions.filter((row) => after[row.id] !== row.revision).map((row) => row.id);
       const remaining = deadline - this.now();
-      if (changed.length > 0 || remaining <= 0)
+      if (changed.length > 0 || remaining <= 0) {
+        for (const id of targets) this.childRead(actor, id);
         return { sessions, changed, timedOut: changed.length === 0 };
+      }
       await new Promise((resolve) => setTimeout(resolve, Math.min(250, remaining)));
     }
   }
@@ -995,6 +1050,7 @@ export class Orchestration {
       });
     };
     const initial = read();
+    for (const id of targets) this.childRead(actor, id);
     // A still-current session revision means nothing changed yet; adopt its cursor.
     for (const row of initial)
       if (params["after"] === undefined || after[row.id] === row.revision)
@@ -1017,6 +1073,7 @@ export class Orchestration {
             .map((row) => row.id);
           if (changed.length || (deadline !== undefined && Date.now() >= deadline)) {
             cleanup();
+            for (const id of targets) this.childRead(actor, id);
             resolve({ sessions, changed, timedOut: changed.length === 0 });
           }
         } catch (error) {

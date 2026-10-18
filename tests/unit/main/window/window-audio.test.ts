@@ -4,7 +4,7 @@ import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
 import type { WindowIpc } from "../../../../src/main/window/window-ipc";
 import { WindowAudio } from "../../../../src/main/window/window-audio";
 
-function fixture(audio: WindowAudio, id: number) {
+function fixture(audio: WindowAudio, id: number, focused?: (id: string) => void) {
   const handlers = new Map<string, Parameters<WindowIpc["handle"]>[1]>();
   const ipc: WindowIpc = {
     handle: (key, fn) => {
@@ -23,6 +23,7 @@ function fixture(audio: WindowAudio, id: number) {
     window as unknown as BrowserWindow,
     ipc,
     (session) => session === `session-${String(id)}`,
+    focused,
   );
   const invoke = (channel: string, ...args: unknown[]) =>
     handlers.get(`windows:${channel}`)?.({} as IpcMainInvokeEvent, ...args);
@@ -66,4 +67,20 @@ test("audio context accepts only own view IDs or null and rejects extra argument
   expect(f.invoke("audio-state")).toEqual({ enabled: true, focusedId: "session-1" });
   f.dispose();
   expect(f.handlers.size).toBe(0);
+});
+
+test("reports human focus only for the focused window's validated terminal", () => {
+  const focused = vi.fn();
+  const f = fixture(new WindowAudio(), 1, focused);
+  f.invoke("audio-focus", "session-1");
+  expect(focused).not.toHaveBeenCalled();
+  f.window.isFocused.mockReturnValue(true);
+  f.window.emit("focus");
+  expect(focused).toHaveBeenCalledExactlyOnceWith("session-1");
+  f.invoke("audio-focus", "session-1");
+  expect(focused).toHaveBeenCalledTimes(2);
+  f.invoke("audio-focus", null);
+  f.window.emit("focus");
+  expect(focused).toHaveBeenCalledTimes(2);
+  f.dispose();
 });

@@ -1102,6 +1102,75 @@ describe("child handoff ownership and waits", () => {
       });
     return { h, child, actor, grant, report };
   }
+  it.each(["read_handoff", "session_state", "wait_for"])(
+    "acknowledges child events through %s, excluding sessions and tail",
+    async (method) => {
+      const { h, child, actor, report } = await setup();
+      await report();
+      h.orchestration.syncUnreadChildEvents();
+      h.advance(300000);
+      expect(h.orchestration.unreadChildren.overdue("parent")).toBeDefined();
+      await h.call("sessions");
+      await h.service.call(actor, {
+        version: 1,
+        instanceId: h.service.instanceId,
+        method: "session_state",
+        params: { id: child.id },
+      });
+      h.orchestration.childRead(h.actor, "foreign");
+      await h.call("tail", { id: child.id });
+      expect(h.orchestration.unreadChildren.overdue("parent")).toBeDefined();
+      await h.call(method, method === "wait_for" ? { ids: [child.id] } : { id: child.id });
+      expect(h.orchestration.unreadChildren.overdue("parent")).toBeUndefined();
+      h.orchestration.disposeUnreadChildren();
+    },
+  );
+
+  it.each([false, true])(
+    "acknowledges existing events at wait entry (blocking=%s)",
+    async (blocking) => {
+      const { h, child, report } = await setup();
+      await report();
+      h.orchestration.syncUnreadChildEvents();
+      h.advance(300000);
+      const listed = (await h.call("sessions")) as { sessions: { id: string; revision: string }[] };
+      const revision = listed.sessions.find((row) => row.id === child.id)?.revision;
+      expect(h.orchestration.unreadChildren.overdue("parent")).toBeDefined();
+      await expect(h.call("wait_for", { ids: [child.id, "foreign"] })).rejects.toThrow("not_found");
+      expect(h.orchestration.unreadChildren.overdue("parent")).toBeDefined();
+      const waiting = h.call("wait_for", {
+        ids: [child.id],
+        after: { [child.id]: revision },
+        timeoutMs: 1000,
+        ...(blocking ? { untilEvent: true } : {}),
+      });
+      expect(h.orchestration.unreadChildren.overdue("parent")).toBeUndefined();
+      h.exit(child.id);
+      await expect(waiting).resolves.toMatchObject({ changed: [child.id], timedOut: false });
+      h.advance(300000);
+      expect(h.orchestration.unreadChildren.overdue("parent")).toBeUndefined();
+      h.orchestration.disposeUnreadChildren();
+    },
+  );
+
+  it("observes the shared child-event stream and unsubscribes at disposal", async () => {
+    const { h, child } = await setup();
+    const row = h.rows.get(child.id);
+    if (!row) throw new Error("Missing child");
+    h.rows.set(child.id, {
+      ...row,
+      execution: { terminalId: child.id, launch: 1, revision: 1, turn: 1, phase: "idle" },
+    });
+    h.orchestration.childEvents.publish();
+    await Promise.resolve();
+    h.advance(300000);
+    expect(h.orchestration.unreadChildren.overdue("parent")).toBeDefined();
+    h.orchestration.disposeUnreadChildren();
+    h.orchestration.childEvents.publish();
+    await Promise.resolve();
+    expect(h.orchestration.unreadChildren.overdue("parent")).toBeUndefined();
+  });
+
   it("counts running children and unread reports, clearing only the latest read", async () => {
     const { h, child, report } = await setup();
     expect(h.orchestration.waitingOn("missing")).toBe(0);

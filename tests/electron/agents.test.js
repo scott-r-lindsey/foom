@@ -1609,6 +1609,13 @@ test("an idle orchestrator waits on children without hiding real attention", {
   await runOrchestratorScenario(context, false, "waiting");
 });
 
+test("unread child events mark the orchestrator row and tile until human focus", {
+  timeout: deadline(120_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, false, "unread");
+});
+
 // Each scenario owns its app/profile and cleanup; no state crosses test boundaries.
 async function runOrchestratorScenario(context, cliOnly, phase) {
   const { chmod, mkdir, readdir, readFile, symlink, writeFile } = require("node:fs/promises");
@@ -1633,7 +1640,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
   );
   await writeFile(
     path.join(bin, "claude"),
-    phase === "waiting" ? waitingFixture : FAKE_ORCHESTRATED_CLAUDE,
+    ["waiting", "unread"].includes(phase) ? waitingFixture : FAKE_ORCHESTRATED_CLAUDE,
   );
   if (cliOnly) {
     await writeFile(
@@ -1886,6 +1893,102 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
     assert.equal(launched.status, 200, JSON.stringify(launched.body));
     assert.equal(launched.body.result.status, "succeeded", JSON.stringify(launched.body));
     const childId = launched.body.result.resultId;
+    if (phase === "unread") {
+      const parentBoard = parentRow.locator(":scope > .board-row");
+      await app.evaluate(({ BrowserWindow }) => {
+        BrowserWindow.getAllWindows()
+          .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+          .focus();
+      });
+      await parentBoard.click();
+      await expect
+        .poll(
+          async () => (await page.evaluate(() => window.desktop.windows.audio.state())).focusedId,
+        )
+        .toBe(parentId);
+      await openSettingsScreen(page);
+      await page.getByRole("button", { name: "General", exact: true }).click();
+      const reminder = page.getByRole("spinbutton", {
+        name: "Unread child reminder (minutes; 0 turns off)",
+      });
+      await expect(reminder).toHaveValue("5");
+      await reminder.fill("1");
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.setupState())).settings.unreadChildMinutes,
+        )
+        .toBe(1);
+      await page.keyboard.press("Escape");
+      await expect
+        .poll(
+          async () => (await page.evaluate(() => window.desktop.windows.audio.state())).focusedId,
+        )
+        .toBe(parentId);
+      await page.evaluate((id) => window.desktop.input(id, "w"), parentId);
+      await expect(parentBoard).toHaveAttribute("data-state", "working");
+      await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+      await expect(page.locator(".terminal-tile")).toHaveCount(2);
+      const childRow = page.locator(`[data-drag-session="${childId}"]`);
+      await childRow.click();
+      await expect
+        .poll(
+          async () => (await page.evaluate(() => window.desktop.windows.audio.state())).focusedId,
+        )
+        .toBe(childId);
+      const stopped = await call(parent.controlToken, "stop", {
+        id: childId,
+        idempotencyKey: "unread-stop",
+      });
+      assert.equal(stopped.body.result.status, "succeeded");
+      await expect(childRow).toHaveAttribute("data-exited", "true");
+      await expect
+        .poll(
+          async () => (await page.evaluate(() => window.desktop.windows.audio.state())).focusedId,
+        )
+        .toBe(childId);
+      try {
+        await expect
+          .poll(() => parentBoard.getAttribute("data-state"), { timeout: deadline(75000) })
+          .toBe("needs_input");
+      } catch (error) {
+        context.diagnostic(
+          JSON.stringify(
+            await page.evaluate(async () => ({
+              audio: await window.desktop.windows.audio.state(),
+              terminals: (await window.desktop.workspace()).terminals.map((row) => ({
+                id: row.id,
+                state: row.state,
+                execution: row.execution,
+                exited: row.exited,
+              })),
+            })),
+          ),
+        );
+        throw error;
+      }
+      await expect(parentBoard.locator(".board-reason")).toHaveText(
+        "Child report unread · orchestration:unread",
+      );
+      await expect(parentBoard).toHaveAccessibleName(/Needs you/);
+      const parentTile = page
+        .locator(".terminal-tile")
+        .filter({ has: page.locator(".tile-attention", { hasText: "Child report unread" }) });
+      await expect(parentTile).toHaveAttribute("data-state", "needs_input");
+      await expect(parentTile.locator(".board-light")).toHaveAttribute(
+        "data-light-state",
+        "needs_input",
+      );
+      await assertAccessible(page);
+      await page.screenshot({
+        path: "test-results/unread-child-attention.png",
+        animations: "disabled",
+      });
+      await parentBoard.click();
+      await expect(parentBoard).toHaveAttribute("data-state", "working");
+      await expect(parentTile).toHaveCount(0);
+      return;
+    }
     if (phase === "waiting") {
       const parentBoard = parentRow.locator(":scope > .board-row");
       const input = (text) =>

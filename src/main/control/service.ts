@@ -46,7 +46,12 @@ export class ControlService {
       Partial<
         Pick<
           Orchestration,
-          "childLimit" | "pullRequest" | "canHandoff" | "handoffMetadata" | "childEvents"
+          | "childLimit"
+          | "pullRequest"
+          | "canHandoff"
+          | "handoffMetadata"
+          | "childRead"
+          | "childEvents"
         >
       >,
     private readonly connectionChanged: (
@@ -250,6 +255,8 @@ export class ControlService {
       case "session_state": {
         const result = this.metadata.read(actor, request["method"], params);
         this.assertActive(actor);
+        if (request["method"] === "session_state")
+          this.orchestration?.childRead?.(actor, identifier(params["id"]));
         return result;
       }
       case "operation_status":

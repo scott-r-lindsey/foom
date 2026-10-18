@@ -411,7 +411,7 @@ export class Workspace {
         changed: () => {
           if (!this.closed) {
             this.persist();
-            this.deps.onChange?.();
+            this.refresh();
           }
         },
       },
@@ -445,6 +445,7 @@ export class Workspace {
           | "agentHooks"
           | "restoreSessions"
           | "concurrentChildren"
+          | "unreadChildMinutes"
           | "autoRemoveMergedWorktrees"
           | "showPullRequests"
         >
@@ -453,6 +454,9 @@ export class Workspace {
     this.deps.forge?.setEnabled(settings.showPullRequests === true);
     this.restoreEnabled = settings.restoreSessions ?? true;
     this.concurrentChildren = settings.concurrentChildren ?? 4;
+    const reminderChanged = this.orchestration.unreadChildren.configure(
+      settings.unreadChildMinutes ?? 5,
+    );
     this.autoRemoveMergedWorktrees = settings.autoRemoveMergedWorktrees ?? false;
     if (settings.agentHooks) this.agents.setHooksEnabled(settings.hooks, settings.agentHooks);
     else this.agents.setHooksEnabled(settings.hooks);
@@ -463,6 +467,7 @@ export class Workspace {
     this.enabled = settings.agents;
     this.location = settings.worktreeLocation ?? "root";
     this.acknowledged = settings.codexNotifierAcknowledged ?? false;
+    if (reminderChanged) this.refresh();
   }
 
   private restoreEnabled = true;
@@ -669,7 +674,7 @@ export class Workspace {
   private currentState(id: string): TerminalState | null {
     const terminal = this.terminals.get(id);
     const state = terminal?.state;
-    return waitingState(
+    const current = waitingState(
       id,
       terminal?.hook?.action === "needs_input" && state
         ? { ...state, attentionKind: "permission" }
@@ -677,6 +682,23 @@ export class Workspace {
       terminal?.execution?.snapshot(),
       this.orchestration.waitingOn(id),
     );
+    // The orchestrator's own attention (a permission prompt, a question) keeps its
+    // reason and verdict; the unread reminder only raises otherwise-quiet states.
+    if (current?.state === "needs_input") return current;
+    const unreadAt = this.orchestration.unreadChildren.overdue(id);
+    if (unreadAt !== undefined)
+      return {
+        id,
+        execution: terminal?.execution?.snapshot(),
+        verdictId: null,
+        state: "needs_input",
+        reason: "Child report unread",
+        signal: "orchestration:unread",
+        confidence: 1,
+        timestamp: unreadAt,
+        attentionKind: "unknown",
+      };
+    return current;
   }
 
   snapshot(): WorkspaceSnapshot {
@@ -713,8 +735,14 @@ export class Workspace {
     return repository;
   }
 
+  focusOrchestrator(id: string): void {
+    this.orchestration.syncUnreadChildEvents();
+    if (this.orchestration.unreadChildren.read(id)) this.refresh();
+  }
+
   refresh(): void {
     if (this.closed) return;
+    this.orchestration.syncUnreadChildEvents();
     this.orchestration.childEvents.publish();
     this.deps.watcher?.sync(this.deps.worktrees.listRepositories());
     this.deps.onChange?.();
@@ -2724,6 +2752,7 @@ export class Workspace {
     this.cleanupRuns.clear();
     this.mergeEligibility.clear();
     this.executionListeners.clear();
+    this.orchestration.disposeUnreadChildren();
     this.deps.watcher?.dispose();
     for (const id of this.terminals.keys()) this.deps.verdicts.forget(id);
     this.agents.dispose();

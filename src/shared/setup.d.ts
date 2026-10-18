@@ -16,6 +16,8 @@ export interface Settings {
   restoreSessions: boolean;
   /** Starting, running and stopping children per orchestrator, integer 1–16. */
   concurrentChildren: number;
+  /** Minutes before unread child events need the human; 0 disables, integer 0–1440. */
+  unreadChildMinutes: number;
   /** Orchestrators may remove their own merged, clean worktrees without review. Profile only. */
   autoRemoveMergedWorktrees: boolean;
   /** Unset until the first GitHub CLI login probe. Profile only. */

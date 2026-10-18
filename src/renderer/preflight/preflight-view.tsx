@@ -516,6 +516,20 @@ export function Preflight({
             }}
           />
         </label>
+        <label className="concurrent-children">
+          Unread child reminder (minutes; 0 turns off)
+          <input
+            type="number"
+            min={0}
+            max={1440}
+            step={1}
+            value={state.settings.unreadChildMinutes}
+            onChange={(event) => {
+              if (event.target.validity.valid && event.target.value !== "")
+                save({ unreadChildMinutes: Number(event.target.value) });
+            }}
+          />
+        </label>
       </>
     );
   } else if (step === 8) {

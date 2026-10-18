@@ -216,6 +216,7 @@ vi.mock("../../../src/main/workspace/workspace", () => ({
     ownsSession = mock.workspace.ownsSession;
     initializeControl = mock.workspace.initializeControl;
     refresh = mock.workspace.refresh;
+    focusOrchestrator = mock.workspace.focusOrchestrator;
     quiet = mock.workspace.quiet;
     exited = mock.workspace.exited;
     input = mock.workspace.input;
@@ -390,6 +391,7 @@ const mock = vi.hoisted(() => {
     ),
     initializeControl: vi.fn<() => Promise<void>>(() => Promise.resolve()),
     refresh: vi.fn(),
+    focusOrchestrator: vi.fn(),
     quiet: vi.fn(),
     exited: vi.fn(),
     input: vi.fn(),
@@ -1473,6 +1475,7 @@ test("new windows share one workspace and route reservations, focus and popout i
   expect(mock.terminals.detachView).toHaveBeenCalledWith("t2", mock.instances[1]?.webContents);
   expect(await invokeWindow(2, "windows:audio-state")).toMatchObject({ enabled: false });
   await invokeWindow(2, "windows:audio-focus", "t1");
+  expect(mock.workspace.focusOrchestrator).toHaveBeenCalledWith("t1");
   mock.workspace.deps?.onChange?.();
   expect(mock.ipc.sendChanged).toHaveBeenCalledTimes(3);
 });
