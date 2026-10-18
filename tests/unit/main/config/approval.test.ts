@@ -139,6 +139,8 @@ test("unedited earlier guides refresh to the current one", () => {
     // The guide shipped with restoreSessions, before the launch-argument guidance.
     expect(history).toContain("878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858");
     expect(history).toContain("a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d");
+    // The guide with recentRepositoryDays (#600), before v1 manifests were removed.
+    expect(history).toContain("4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4");
     expect(history).not.toContain(digest(OWNED_FILES[file] ?? ""));
   }
 });

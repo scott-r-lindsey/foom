@@ -315,6 +315,7 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  */
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   "README.md": [
+    "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
     "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
     "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
@@ -327,6 +328,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
   ],
   "AGENTS.md": [
+    "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
     "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
     "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
@@ -339,6 +341,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
   ],
   "CLAUDE.md": [
+    "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
     "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
     "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
