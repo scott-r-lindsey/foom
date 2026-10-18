@@ -1143,8 +1143,23 @@ rejection exits the row normally and keeps the ID; no agent transcript or runtim
 
 `restoreSessions` defaults to `true`; disabling it keeps saved rows dormant for manual resume. Screens and scrollback are never persisted.
 
+`src/main/workspace/session-owner.ts` owns session restoration and persistence behind
+`SessionOwner` and its typed capability dependencies. It holds saved records,
+restoring IDs, roles that could not be restored, repository identities, the shared
+restart promise and the quit freeze. `Workspace` delegates loading, restart,
+saves and quit preparation, and queries restore markers for inventory and launch/
+removal guards. The owner restores handoff history, re-grants parent authority and
+restores child relationships through the orchestration capabilities. Its launch
+adapter calls Workspace's existing home, config and checkout launch paths; launch/
+removal locks, terminal queues, cancellation and execution/verdict state remain in
+Workspace. No owner receives the Workspace object or owns PTYs or terminal views.
+Quit preparation waits for restoration, freezes and flushes the running records
+before PTYs stop; failed preparation or cancelled quit re-enables persistence.
+Workspace still releases agents and control/hook services after terminals stop,
+then asks the owner to drain session writes.
+
 Main writes ordered, atomic replacements of private `sessions.json` in the active
-profile. It stores terminal ID, agent, registered repository, worktree, branch and
+profile through `SessionStore`. It stores terminal ID, agent, registered repository, worktree, branch and
 validated conversation ID, last known running state and main-owned orchestration provenance (repository identity, parent relationship, bounded action history, owned worktree paths/identities and unused/used state, plus the uncertain-creation budget). Credentials and terminal contents are never stored. Loading validates bounded records and rejects
 malformed IDs, paths, agents and duplicate terminal IDs. Unregistered repositories keep exited rows without launch authority. With restore enabled, eligible running records launch after all saved windows are shown, at most three at a time, with parents first and shared checkouts serialized. Every launch uses the manual resume path and fresh credentials; views attach only once the new host exists. Orchestrator re-grants additionally require the saved repository identity, supported per-launch MCP and provider restore capability (bundled Claude Code/Codex, or a valid v2 config provider declaring it); see [provider loading](#agent-provider-registry-and-manifest-approval-407) and [orchestration](orchestration.md#identity-and-capability-model). Restoring a parent validates every owned checkout against the live Git inventory: it must still be a Foom-managed linked worktree in the parent's repository, with matching checkout identity; main, missing, foreign and replaced checkouts grant no ownership. Restored children, including already exited children, recover owned worktrees as used; legacy records without an ownership list use the child path and the host's current branch and identity. Unused owned worktrees remain launchable after restart, within the four-worktree unused budget; used worktrees cannot be launched into again. In-flight launches are saved as used to prevent reuse after an ambiguous shutdown. Restored running children still count against the configured child limit. Shutdown freezes the running records before terminating PTYs, so shutdown exits cannot overwrite the saved state.
 
