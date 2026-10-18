@@ -177,11 +177,12 @@ export function resizeSplit(
   };
 }
 
-/** Count the members of one uninterrupted same-axis run. */
+/** Count columns along the run's axis, including those inside perpendicular subtrees. */
 function runSize(node: TileNode, direction: TileSplit["direction"]): number {
-  return node.kind === "split" && node.direction === direction
-    ? runSize(node.first, direction) + runSize(node.second, direction)
-    : 1;
+  if (node.kind === "tile") return 1;
+  const first = runSize(node.first, direction);
+  const second = runSize(node.second, direction);
+  return node.direction === direction ? first + second : Math.max(first, second);
 }
 function evenRun(node: TileNode, direction: TileSplit["direction"]): TileNode {
   if (node.kind === "tile" || node.direction !== direction) return node;
