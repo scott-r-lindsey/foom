@@ -8,9 +8,7 @@ import { agentProvider, knownAgentId, providerRevision } from "../agents/provide
 import { builtinAgent } from "../../shared/providers/catalog";
 import { ControlError } from "../../node-common/control-validation";
 import type { ForgeTracking } from "../control/forge-tracking";
-import { CleanupRun, KeptWorktree } from "./cleanup-run";
-import type { CleanupCandidate } from "./cleanup-run";
-import type { CleanupReason } from "../../shared/cleanup";
+import { CleanupOwner } from "./cleanup-owner";
 import type { McpConnection } from "../../shared/workspace";
 import { homeDirectory, homeShellFacts, shellPath } from "./home-shell";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
@@ -171,6 +169,7 @@ export class Workspace {
   readonly orchestration: Orchestration;
   private readonly agents: Agents;
   private readonly sessions: SessionOwner;
+  private readonly cleanup: CleanupOwner;
   private launchSequence = 0;
   private readonly executionListeners = new Set<(event: ExecutionTransition) => void>();
   private readonly launched = new Map<string, WorkspaceTerminal>();
@@ -193,25 +192,12 @@ export class Workspace {
   private hooksEnabled = true;
   private agentHooks: Readonly<Record<string, boolean>> = {};
   private concurrentChildren = 4;
-  private autoRemoveMergedWorktrees = false;
   private defaultArguments = EMPTY_AGENT_ARGUMENTS;
   private readonly resumeStarts = new Map<string, Promise<void>>();
   private readonly busySessions = new Set<string>();
   private readonly busyWorktrees = new Set<string>();
   private readonly repositoryOperations = new Map<string, Set<symbol>>();
   private readonly removingRepositories = new Set<string>();
-  private readonly cleanupRuns = new Map<string, CleanupRun>();
-  private readonly mergeScans = new Map<string, Set<Promise<void>>>();
-  private readonly mergeEligibility = new Map<
-    string,
-    {
-      key: string;
-      count: number;
-      expires: number;
-      plan?: readonly CleanupCandidate[];
-      result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
-    }
-  >();
   private enabled: Readonly<Record<AgentId, boolean>> = { claude: true, codex: true, agy: true };
   private readonly now: () => number;
 
@@ -371,41 +357,7 @@ export class Workspace {
         reveal: (id) => this.deps.reveal?.(id),
         tail: (id, lines) => this.deps.terminals.tail(id, lines),
         remove: async (repository, worktree, identity, confirm, revalidate) => {
-          const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
-          if (!tree || tree.path === repository) throw new Error("Worktree is unavailable");
-          // removeTree holds the branch lock while it calls this, so no launch can slip in.
-          const available = async () => {
-            this.requireIdleWorktree(worktree);
-            if ((await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity)
-              throw new Error("Worktree has changed");
-            revalidate();
-          };
-          const removed = await this.removeTree(
-            repository,
-            worktree,
-            tree.branch,
-            async (branch, changes, automatic = false) => {
-              await available();
-              const accepted = await confirm(branch, changes, automatic);
-              if (accepted) await available();
-              return accepted;
-            },
-            available,
-            false,
-            async () => {
-              await available();
-              if (!this.autoRemoveMergedWorktrees) return false;
-              const eligible = await this.deps.worktrees.canAutoRemove(
-                repository,
-                worktree,
-                identity,
-              );
-              await available();
-              return eligible && this.autoRemoveMergedWorktrees;
-            },
-          );
-          this.refresh();
-          return removed;
+          return this.cleanup.removeOwnedTree(repository, worktree, identity, confirm, revalidate);
         },
         dialog: (content, signal) => this.deps.dialog?.(content, signal) ?? Promise.resolve(false),
         changed: () => {
@@ -418,6 +370,42 @@ export class Workspace {
       this.now,
       () => this.concurrentChildren,
     );
+    const prepareWorktreeRemoval = deps.prepareWorktreeRemoval?.bind(deps);
+    this.cleanup = new CleanupOwner({
+      worktrees: deps.worktrees,
+      inventory: (repository) => this.worktrees(repository),
+      known: (repository) => {
+        this.known(repository);
+      },
+      withRepository: (repository, work) => this.withRepository(repository, work),
+      withRepositoryRemoval: (repository, work) => this.withRepositoryRemoval(repository, work),
+      acquireWorktree: (repository, branch) => {
+        const key = `${repository}\0${branch ?? ""}`;
+        if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+        this.busyWorktrees.add(key);
+      },
+      releaseWorktree: (repository, branch) => {
+        this.busyWorktrees.delete(`${repository}\0${branch ?? ""}`);
+      },
+      terminals: () => [...this.launched.values()],
+      running: (id) =>
+        this.sessions.isRestoring(id) ||
+        (!this.launched.get(id)?.dormant && this.terminals.get(id)?.exitCode === undefined),
+      exitCode: (id) => this.terminals.get(id)?.exitCode,
+      stop: (id) => deps.terminals.stop(id),
+      exited: (id, code) => this.exited(id, code),
+      kill: (id) => deps.terminals.kill(id),
+      removed: (id) => {
+        this.removed(id);
+      },
+      ...(prepareWorktreeRemoval ? { prepareWorktreeRemoval } : {}),
+      closed: () => this.closed,
+      refresh: () => {
+        this.refresh();
+      },
+      onChange: () => deps.onChange?.(),
+      now: this.now,
+    });
     this.sessions = new SessionOwner({
       ...(deps.sessions ? { store: deps.sessions } : {}),
       ...(deps.config ? { configRoot: deps.config.root } : {}),
@@ -504,7 +492,7 @@ export class Workspace {
     const reminderChanged = this.orchestration.unreadChildren.configure(
       settings.unreadChildMinutes ?? 5,
     );
-    this.autoRemoveMergedWorktrees = settings.autoRemoveMergedWorktrees ?? false;
+    this.cleanup.configure(settings.autoRemoveMergedWorktrees ?? false);
     if (settings.agentHooks) this.agents.setHooksEnabled(settings.hooks, settings.agentHooks);
     else this.agents.setHooksEnabled(settings.hooks);
     this.agentHooks = settings.agentHooks ?? {};
@@ -653,23 +641,20 @@ export class Workspace {
 
   /** Used by both sidebar confirmation and Settings repository selection. */
   async removeRepository(repository: string, confirm?: () => Promise<boolean>): Promise<void> {
+    return this.cleanup.removeRepository(repository, confirm);
+  }
+
+  private async withRepositoryRemoval(
+    repository: string,
+    work: () => Promise<void>,
+  ): Promise<void> {
     if (this.closed) throw new Error("Workspace is closed");
     this.known(repository);
     if (this.removingRepositories.has(repository) || this.repositoryOperations.has(repository))
       throw new Error("Repository is busy. Try again when its current operation finishes.");
-    const checkSessions = () => {
-      if ([...this.launched.values()].some((entry) => entry.repository === repository))
-        throw new Error("Close this repository's sessions first");
-    };
-    checkSessions();
     this.removingRepositories.add(repository);
     try {
-      if (confirm && !(await confirm())) return;
-      checkSessions();
-      await this.deps.worktrees.removeRepository(repository);
-      this.cleanupRuns.delete(repository);
-      this.mergeEligibility.delete(repository);
-      this.refresh();
+      await work();
     } finally {
       this.removingRepositories.delete(repository);
     }
@@ -1031,326 +1016,7 @@ export class Workspace {
   ): Promise<boolean> {
     const entry = this.launched.get(id);
     if (!entry) throw new Error("Unknown worktree terminal");
-    return this.removeIdleTree(entry.repository, entry.worktree, entry.branch, confirm);
-  }
-
-  private hasRunningSession(worktree: string): boolean {
-    return [...this.launched.values()].some(
-      (entry) =>
-        entry.worktree === worktree &&
-        (this.sessions.isRestoring(entry.id) ||
-          (!entry.dormant && this.terminals.get(entry.id)?.exitCode === undefined)),
-    );
-  }
-
-  private requireIdleWorktree(worktree: string): void {
-    if (this.hasRunningSession(worktree)) throw new Error("A session is running in this worktree");
-  }
-
-  private async removeIdleTree(
-    repository: string,
-    worktree: string,
-    branch: string | null,
-    confirm: (branch: string, changes: string) => Promise<boolean>,
-  ): Promise<boolean> {
-    this.requireIdleWorktree(worktree);
-    return this.removeTree(
-      repository,
-      worktree,
-      branch,
-      (name, changes) => {
-        this.requireIdleWorktree(worktree);
-        return confirm(name, changes);
-      },
-      () => {
-        this.requireIdleWorktree(worktree);
-      },
-    );
-  }
-
-  private async removeTree(
-    repository: string,
-    worktree: string,
-    branch: string | null,
-    confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
-    revalidate?: () => void | Promise<void>,
-    retainBranchLock = false,
-    autoApprove?: () => Promise<boolean>,
-  ): Promise<boolean> {
-    const entry = { repository, worktree, branch };
-    const key = `${entry.repository}\0${entry.branch ?? ""}`;
-    if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
-    this.busyWorktrees.add(key);
-    let removed = false;
-    try {
-      const identity = await this.deps.worktrees.removalIdentity(entry.repository, entry.worktree);
-      let changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
-      const automatic = changes === "" && (await autoApprove?.()) === true;
-      const accepted = automatic
-        ? await confirm(entry.branch ?? entry.worktree, changes, true)
-        : await confirm(entry.branch ?? entry.worktree, changes);
-      if (!accepted) return false;
-      await revalidate?.();
-      if (
-        !automatic &&
-        (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
-      )
-        throw new Error("Worktree changes have changed. Review them and try again.");
-      const entries = [...this.launched.values()].filter(
-        (item) => item.worktree === entry.worktree,
-      );
-      for (const item of entries) {
-        if (item.dormant) continue;
-        await this.deps.terminals.stop(item.id);
-        await this.exited(item.id, -1);
-      }
-      await revalidate?.();
-      if (
-        !automatic &&
-        (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
-      )
-        throw new Error("Worktree changes have changed. Review them and try again.");
-      // Automatic approval awaits another policy check below. Ordinary confirmation
-      // has no intervening work before the final revalidation, so do it only once.
-      if (automatic) await revalidate?.();
-      if (automatic && !(await autoApprove?.())) {
-        changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
-        if (!(await confirm(entry.branch ?? entry.worktree, changes))) return false;
-        await revalidate?.();
-        if (
-          (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !==
-          changes
-        )
-          throw new Error("Worktree changes have changed. Review them and try again.");
-      }
-      await revalidate?.();
-      const release = await this.deps.prepareWorktreeRemoval?.(entry.worktree);
-      try {
-        await this.deps.worktrees.removeWorktree(
-          entry.repository,
-          entry.worktree,
-          changes.length > 0,
-          identity,
-        );
-      } finally {
-        release?.();
-      }
-      for (const item of entries) {
-        if (!item.dormant) await this.deps.terminals.kill(item.id);
-        this.removed(item.id);
-      }
-      removed = true;
-      return true;
-    } finally {
-      if (!retainBranchLock || !removed) this.busyWorktrees.delete(key);
-    }
-  }
-
-  private sessionSkip(worktree: string): CleanupReason | undefined {
-    const sessions = [...this.launched.values()].filter((item) => item.worktree === worktree);
-    if (sessions.some((item) => this.terminals.get(item.id)?.exitCode === undefined))
-      return "running";
-    if (sessions.some((item) => item.kind === "agent" && conversationId(item.conversationId)))
-      return "resumable conversation";
-    return undefined;
-  }
-
-  private async mergedPlan(repository: string, refresh: boolean, inventory?: readonly Worktree[]) {
-    const trees = inventory ?? (await this.worktrees(repository));
-    if (!trees.some((tree) => tree.path !== repository && !tree.bare)) return [];
-    const base = await this.deps.worktrees.mergedDefault(repository, refresh);
-    return Promise.all(
-      trees.map(async (tree) => {
-        let reason: CleanupReason | undefined;
-        if (tree.path === repository || tree.bare) reason = "main checkout";
-        else if (tree.locked || tree.prunable || !tree.branch) reason = "unavailable";
-        else reason = this.sessionSkip(tree.path);
-        if (!reason) {
-          try {
-            if (await this.deps.worktrees.changes(repository, tree.path))
-              reason = "uncommitted changes";
-            else if (!(await this.deps.worktrees.mergedCommit(repository, tree, base)))
-              reason = "not merged";
-          } catch {
-            reason = "unavailable";
-          }
-        }
-        if (reason) return { tree, reason };
-        try {
-          return {
-            tree,
-            reason,
-            identity: await this.deps.worktrees.removalIdentity(repository, tree.path),
-          };
-        } catch {
-          return { tree, reason: "unavailable" as const };
-        }
-      }),
-    );
-  }
-
-  private async deleteMerged(repository: string, confirm: ConfirmWorkspace): Promise<void> {
-    this.known(repository);
-    const existing = this.cleanupRuns.get(repository);
-    if (existing && (existing.pending || existing.current().stage === "run")) {
-      await confirm({
-        kind: "merged-worktrees",
-        subject: basename(repository),
-        worktrees: [],
-        feed: existing,
-      });
-      if (!existing.pending) {
-        this.cleanupRuns.delete(repository);
-        this.refresh();
-      }
-      return;
-    }
-    return this.withRepository(repository, async () => {
-      const run = new CleanupRun({
-        checkingCount: this.mergeEligibility.get(repository)?.count,
-        fetchedAt: () => this.deps.worktrees.mergedFetchTime(repository),
-        fetch: async () => {
-          // Windows cannot remove a checkout while a background Git process uses it as cwd.
-          // Include superseded scans too: their publication is discarded, but they still run.
-          await Promise.all([...(this.mergeScans.get(repository) ?? [])]);
-          return this.deps.worktrees.mergedDefault(repository, true);
-        },
-        changed: () => {
-          this.refresh();
-        },
-        branches: async (removed) => {
-          try {
-            return await this.deps.worktrees.deleteMergedBranches(
-              repository,
-              removed.flatMap(({ tree }) =>
-                tree.branch && tree.head ? [{ branch: tree.branch, head: tree.head }] : [],
-              ),
-            );
-          } finally {
-            for (const { tree } of removed)
-              this.busyWorktrees.delete(`${repository}\0${tree.branch ?? ""}`);
-          }
-        },
-        remove: async ({ tree, identity }, base) => {
-          const revalidate = async () => {
-            const current = (await this.worktrees(repository)).find(
-              (item) => item.path === tree.path,
-            );
-            if (
-              !current ||
-              current.branch !== tree.branch ||
-              current.head !== tree.head ||
-              (await this.deps.worktrees.removalIdentity(repository, tree.path)) !== identity
-            )
-              throw new KeptWorktree("worktree changed");
-            const reason = this.sessionSkip(tree.path);
-            if (reason) throw new KeptWorktree(reason);
-            if (await this.deps.worktrees.changes(repository, tree.path, identity))
-              throw new KeptWorktree("uncommitted changes");
-            if (!(await this.deps.worktrees.mergedCommit(repository, current, base)))
-              throw new KeptWorktree("not merged");
-          };
-          await this.removeTree(
-            repository,
-            tree.path,
-            tree.branch,
-            // The run is already approved; removeTree revalidates immediately
-            // after this callback and again around terminal shutdown and removal.
-            () => Promise.resolve(true),
-            revalidate,
-            true,
-          );
-        },
-      });
-      this.cleanupRuns.set(repository, run);
-      const cached = this.mergeEligibility.get(repository);
-      const prepare =
-        cached?.plan && this.now() < cached.expires
-          ? Promise.resolve(cached.plan)
-          : this.mergedPlan(repository, true);
-      if (cached?.plan && this.now() < cached.expires) run.ready(cached.plan);
-      // Request presentation before awaiting network or filesystem checks.
-      const answer = confirm({
-        kind: "merged-worktrees",
-        subject: basename(repository),
-        worktrees: [],
-        feed: run,
-      });
-      try {
-        run.ready(await prepare);
-      } catch {
-        run.failed();
-      }
-      if (await answer) run.act();
-      const reviewed = run.current().stage === "run" && !run.pending;
-      // Hide resolves presentation, but the repository reservation lasts through the run.
-      await run.settled();
-      if (reviewed || run.current().stage !== "run") {
-        this.cleanupRuns.delete(repository);
-        this.refresh();
-      }
-    });
-  }
-
-  /** Never let remote discovery hold up local inventory or session publication. */
-  private cachedMergeEligibility(repository: string, worktrees: readonly Worktree[]) {
-    if (this.cleanupRuns.get(repository)?.pending)
-      return this.mergeEligibility.get(repository)?.result ?? { canDeleteMerged: false };
-    if (this.closed || !worktrees.some((tree) => tree.path !== repository && !tree.bare)) {
-      this.mergeEligibility.delete(repository);
-      return { canDeleteMerged: false };
-    }
-    const key = JSON.stringify(worktrees.map((tree) => [tree, this.sessionSkip(tree.path)]));
-    const cached = this.mergeEligibility.get(repository);
-    if (cached?.key === key && this.now() < cached.expires) return cached.result;
-    const entry: {
-      key: string;
-      count: number;
-      expires: number;
-      result: { canDeleteMerged: boolean; mergedCount?: number; mergedError?: string };
-      plan?: readonly CleanupCandidate[];
-    } = {
-      key,
-      count: worktrees.length,
-      expires: Number.POSITIVE_INFINITY,
-      result: { canDeleteMerged: false },
-    };
-    this.mergeEligibility.set(repository, entry);
-    const publish = (result: {
-      canDeleteMerged: boolean;
-      mergedCount?: number;
-      mergedError?: string;
-    }) => {
-      // A newer inventory, repository removal or shutdown supersedes this scan.
-      if (this.closed || this.mergeEligibility.get(repository) !== entry) return;
-      entry.result = result;
-      entry.expires = this.now() + 60_000;
-      this.deps.onChange?.();
-    };
-    const scans = this.mergeScans.get(repository) ?? new Set<Promise<void>>();
-    this.mergeScans.set(repository, scans);
-    const scan: Promise<void> = this.mergedPlan(repository, false, worktrees)
-      .then(
-        (plan) => {
-          entry.plan = plan;
-          publish({
-            canDeleteMerged: plan.some((item) => !item.reason),
-            mergedCount: plan.filter((item) => !item.reason).length,
-          });
-        },
-        (error: unknown) => {
-          publish({
-            canDeleteMerged: false,
-            mergedError: error instanceof Error ? error.message : String(error),
-          });
-        },
-      )
-      .finally(() => {
-        scans.delete(scan);
-        if (scans.size === 0) this.mergeScans.delete(repository);
-      });
-    scans.add(scan);
-    return entry.result;
+    return this.cleanup.removeIdleTree(entry.repository, entry.worktree, entry.branch, confirm);
   }
 
   private homeFacts: ReturnType<typeof homeShellFacts> | undefined;
@@ -1581,6 +1247,10 @@ export class Workspace {
               tracked.filter((tree) => tree !== undefined),
             );
           }
+          const { removedWorktrees, ...eligibility } = this.cleanup.inventory(
+            repository.path,
+            worktrees,
+          );
           return {
             ...repository,
             worktrees: [
@@ -1588,16 +1258,9 @@ export class Workspace {
                 const pullRequest = this.deps.forge?.readBoard(repository.path, tree.path);
                 return pullRequest ? { ...tree, pullRequest } : tree;
               }),
-              ...(this.cleanupRuns
-                .get(repository.path)
-                ?.removedTrees.filter(
-                  (tree) => !worktrees.some((current) => current.path === tree.path),
-                ) ?? []),
+              ...removedWorktrees,
             ],
-            ...this.cachedMergeEligibility(repository.path, worktrees),
-            ...(this.cleanupRuns.get(repository.path)?.current().stage === "run"
-              ? { cleanup: this.cleanupRuns.get(repository.path)?.progress }
-              : {}),
+            ...eligibility,
           };
         }),
       ),
@@ -1727,7 +1390,7 @@ export class Workspace {
     }
     this.known(command.repository);
     if (command.kind === "delete-merged-worktrees")
-      return this.deleteMerged(command.repository, confirm);
+      return this.cleanup.deleteMerged(command.repository, confirm);
     if (command.kind === "remove-repository") {
       return this.removeRepository(command.repository, () => confirm({ kind: "remove" }));
     }
@@ -1741,12 +1404,16 @@ export class Workspace {
     if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
     if (tree.path === command.repository)
       throw new Error("Worktree is missing or is the main checkout");
-    await this.removeIdleTree(command.repository, tree.path, tree.branch, (branch, changes) =>
-      confirm(
-        changes
-          ? { kind: "dirty-worktree", title: `Remove ${branch}?`, branch, changes }
-          : { kind: "remove" },
-      ),
+    await this.cleanup.removeIdleTree(
+      command.repository,
+      tree.path,
+      tree.branch,
+      (branch, changes) =>
+        confirm(
+          changes
+            ? { kind: "dirty-worktree", title: `Remove ${branch}?`, branch, changes }
+            : { kind: "remove" },
+        ),
     );
     this.refresh();
   }
@@ -2627,10 +2294,7 @@ export class Workspace {
     if (this.closed) return;
     this.closed = true;
     this.launchAbort.abort();
-    for (const run of this.cleanupRuns.values()) run.stop();
-    await Promise.all([...this.cleanupRuns.values()].map((run) => run.settled()));
-    this.cleanupRuns.clear();
-    this.mergeEligibility.clear();
+    await this.cleanup.dispose();
     this.executionListeners.clear();
     this.orchestration.disposeUnreadChildren();
     this.deps.watcher?.dispose();
