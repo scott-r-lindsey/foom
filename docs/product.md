@@ -623,7 +623,11 @@ sends no terminal content. The CLI contacts GitHub with repository and branch/PR
 identifiers to read PR and CI metadata. Unknown remotes and missing, logged-out or
 unavailable CLIs leave these fields absent. Validated PR number, head SHA, state
 and required-check conclusion appear in session metadata, and `wait_for` wakes on
-conclusion changes. The mapping survives restart and a new orchestrator generation,
+conclusion changes. Orchestrators can also run `foom wait-for --until-event` as
+a background command: it blocks until an owned child's state, handoff, PR state or
+required checks change (not on terminal output), then returns metadata. An optional `--timeout SECONDS` exits 5
+on timeout; role revocation returns an error. No terminal content is returned.
+The mapping survives restart and a new orchestrator generation,
 without transferring authority over old children. Reads recur every 20 seconds while checks run, two minutes when
 settled, or ten minutes with no matching PRs; failures back off up to ten minutes.
 Polling pauses during sleep and screen lock, rechecks on agent idle/exit, and stops

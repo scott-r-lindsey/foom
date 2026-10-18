@@ -43,7 +43,12 @@ export class ControlService {
     readonly operations: Operations,
     source: () => readonly WorkspaceTerminal[] = () => [],
     private readonly orchestration?: Pick<Orchestration, "call"> &
-      Partial<Pick<Orchestration, "childLimit" | "pullRequest" | "canHandoff" | "handoffMetadata">>,
+      Partial<
+        Pick<
+          Orchestration,
+          "childLimit" | "pullRequest" | "canHandoff" | "handoffMetadata" | "childEvents"
+        >
+      >,
     private readonly connectionChanged: (
       id: string,
       state: McpConnection | undefined,
@@ -128,6 +133,7 @@ export class ControlService {
         clearTimeout(grant.mcpTimer);
         if (grant.principal) this.connectionChanged(grant.principal.terminalId, undefined);
         this.grants.delete(generation);
+        this.orchestration?.childEvents?.publish();
       },
     };
   }
@@ -232,6 +238,12 @@ export class ControlService {
           tools: this.capabilities(actor).map((name) => ({
             name,
             cli: `foom ${name === "list_previews" ? "previews" : name.replaceAll("_", "-")}`,
+            ...(name === "wait_for"
+              ? {
+                  longWait:
+                    "foom wait-for [ID...] --until-event [--after JSON_ID_TO_EVENT] [--timeout SECONDS]",
+                }
+              : {}),
           })),
         };
       case "sessions":
@@ -266,6 +278,7 @@ export class ControlService {
       throw new ControlError("not_found");
     }
     if (current.role === role) return;
+    this.orchestration?.childEvents?.publish();
     grant.principal = Object.freeze({
       ...current,
       role,
@@ -323,7 +336,7 @@ export class ControlService {
   }
 
   /** Adapters' entry point: orchestration actions are asynchronous, the rest delegate to dispatch. */
-  async call(actor: Principal, input: unknown): Promise<unknown> {
+  async call(actor: Principal, input: unknown, signal?: AbortSignal): Promise<unknown> {
     this.assertActive(actor);
     const request = object(input);
     const method = request["method"];
@@ -346,9 +359,16 @@ export class ControlService {
       const params = object(request["params"]);
       if (!this.orchestration || (method !== "handoff" && actor.role !== "orchestrator"))
         throw new ControlError(method === "handoff" ? "no_parent" : "forbidden");
-      const result = await this.orchestration.call(actor, method, params, this.operations, () => {
-        this.assertActive(actor);
-      });
+      const result = await this.orchestration.call(
+        actor,
+        method,
+        params,
+        this.operations,
+        () => {
+          this.assertActive(actor);
+        },
+        signal,
+      );
       this.assertActive(actor);
       if (method === "tail" || method === "wait_for")
         await this.refused(
@@ -376,5 +396,6 @@ export class ControlService {
       }
     }
     this.grants.clear();
+    this.orchestration?.childEvents?.publish();
   }
 }

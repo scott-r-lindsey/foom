@@ -60,7 +60,7 @@ it.each([
   ["tail"],
   ["wait-for"],
   ["wait-for", "a", "a"],
-  ["wait-for", "a", "b", "c", "d", "e"],
+  ["wait-for", ...Array.from({ length: 17 }, (_, i) => `child-${String(i)}`)],
   ["wait-for", "a", "--after", "bad"],
   ["wait-for", "a", "--after", "null"],
   ["wait-for", "a", "--after", "[]"],
@@ -134,4 +134,27 @@ it("passes a syntactically valid custom agent ID to main, which owns approval an
   });
   for (const agent of ["/bin/agent", "Agent", "x".repeat(41), "shell"])
     expect(() => command(["launch", "tree", "--agent", agent, ...key])).toThrow();
+});
+
+it("parses blocking waits, optional owned-child targets and overall deadlines", () => {
+  expect(command(["wait-for", "--until-event"])).toEqual({
+    method: "wait_for",
+    params: { untilEvent: true },
+  });
+  expect(command(["wait-for", "child", "--until-event", "--timeout", "60"])).toEqual({
+    method: "wait_for",
+    params: { ids: ["child"], untilEvent: true, timeoutMs: 60000 },
+  });
+  expect(command(["wait-for", "--until-event", "--after", '{"child":"rev"}'])).toEqual({
+    method: "wait_for",
+    params: { untilEvent: true, after: { child: "rev" } },
+  });
+  for (const args of [
+    ["--until-event", "--until-event"],
+    ["--timeout", "60"],
+    ["--until-event", "--timeout", "-1"],
+    ["--until-event", "--timeout", "2147484"],
+    ["--until-event", "--timeout", "1", "--timeout-ms", "1"],
+  ])
+    expect(() => command(["wait-for", "child", ...args])).toThrow("invalid_request");
 });
