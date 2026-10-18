@@ -24,13 +24,14 @@ import { parseAgentPlugin } from "../../../src/shared/agent-manifest";
 import { configProvider } from "../../../src/main/agents/providers/config";
 import { replaceConfigProviders } from "../../../src/main/agents/providers/registry";
 import type { PreviewRecord } from "../../../src/shared/previews";
-import type { ForgeWorktree } from "../../../src/main/control/forge.d";
+import type { ForgeProviderFactory, ForgeWorktree } from "../../../src/main/control/forge.d";
 const forgeMock = vi.hoisted(() => ({
   open: vi.fn<
     (
       directory: string,
       inspect: (tree: ForgeWorktree, orchestrator?: boolean) => Promise<string | undefined>,
       changed: () => void,
+      provider?: ForgeProviderFactory,
     ) => Promise<unknown>
   >(),
 }));
@@ -676,9 +677,12 @@ test("loads worktree state from userData before creating a window", async () => 
       }),
   );
   await start(false);
-  expect(mock.openWorktrees).toHaveBeenCalledWith("/test/user-data", undefined, [
-    join("/test/user-data", ".foom", "config"),
-  ]);
+  expect(mock.openWorktrees).toHaveBeenCalledWith(
+    "/test/user-data",
+    undefined,
+    [join("/test/user-data", ".foom", "config")],
+    expect.any(Function),
+  );
   expect(mock.construct).not.toHaveBeenCalled();
   finish?.();
   await vi.waitFor(() => {
@@ -2273,4 +2277,22 @@ test("pass notifications use current execution evidence rather than stale verdic
   } finally {
     get.mockRestore();
   }
+});
+
+test("wires the forge catalog and shares the legacy selector between tracking and adoption", async () => {
+  await start();
+  const provider = forgeMock.open.mock.calls[0]?.[3];
+  expect(provider).toEqual(expect.any(Function));
+  expect(mock.openWorktrees).toHaveBeenCalledWith(
+    "/test/user-data",
+    undefined,
+    [join("/test/user-data", ".foom", "config")],
+    provider,
+  );
+  await expect(provider?.("https://github.com/o/r")).resolves.toHaveProperty("batch");
+  await expect(provider?.("https://unassigned.example/o/r")).resolves.toBeUndefined();
+  const deps = mock.config.deps;
+  if (!deps?.applyForges) throw new Error("Missing forge catalog wiring");
+  deps.applyForges([]);
+  await expect(provider?.("https://github.com/o/r")).resolves.toHaveProperty("batch");
 });

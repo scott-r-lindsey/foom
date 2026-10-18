@@ -1,3 +1,5 @@
+import { ForgeRuntime } from "./control/forge-runtime";
+import { loginPath } from "./agents/agents";
 import { runForge } from "./control/forge";
 import { setupOffers } from "./agents/setup-offers";
 import { replaceConfigProviders, providerRevision } from "./agents/providers/registry";
@@ -82,6 +84,10 @@ const ownsProfile = app.requestSingleInstanceLock();
 
 export let worktrees: WorktreeService;
 let settings: SettingsStore;
+const forgeRuntime = new ForgeRuntime(
+  () => settings.get(),
+  async () => (await loginPath()).path,
+);
 let environment: EnvironmentStore;
 let themes: ThemeLibrary;
 let config: ConfigService;
@@ -89,6 +95,7 @@ let configRoot: string;
 let disposeThemes = () => {};
 /** A validated config file changed: every window re-applies, including interface size. */
 function configApplied(previous: Settings) {
+  forgeRuntime.configure();
   for (const entry of windows.values()) entry.configChanged(previous);
 }
 function configStatusChanged() {
@@ -477,8 +484,12 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       () => {
         workspace.refresh();
       },
+      forgeRuntime.provider,
     ).catch(() => undefined);
     if (forge) {
+      forgeRuntime.onInvalidate = () => {
+        forge.invalidate();
+      };
       powerMonitor.on("suspend", () => {
         forge.pause("sleep", true);
       });
@@ -740,6 +751,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       },
     },
     apply: (next) => {
+      forgeRuntime.configure();
       workspace.configure(next);
       applyThemeSettings(next);
       updateBackground();
@@ -944,6 +956,7 @@ async function performQuit() {
       throw error;
     }
     // Terminals have stopped: revoke every hook credential and stop listening.
+    await forgeRuntime.close();
     await workspace.dispose();
     await terminals.dispose();
     try {
@@ -999,7 +1012,12 @@ if (!ownsProfile) {
     .whenReady()
     .then(async () => {
       configRoot = path.join(app.getPath("home"), ".foom", "config");
-      worktrees = await WorktreeService.open(app.getPath("userData"), undefined, [configRoot]);
+      worktrees = await WorktreeService.open(
+        app.getPath("userData"),
+        undefined,
+        [configRoot],
+        forgeRuntime.provider,
+      );
       settings = await SettingsStore.open(app.getPath("userData"));
       environment = await EnvironmentStore.open(
         app.getPath("userData"),
@@ -1026,6 +1044,9 @@ if (!ownsProfile) {
         themeBaseline: {
           get: (file) => settings.themeDigest(file),
           set: (file, value) => settings.setThemeDigest(file, value),
+        },
+        applyForges: (plugins) => {
+          forgeRuntime.replace(plugins);
         },
         applyPlugins: (providers) => {
           const before = providerRevision();
