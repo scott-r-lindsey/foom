@@ -25,8 +25,17 @@ export interface CleanupOwnerDependencies {
   inventory: (repository: string) => Promise<readonly Worktree[]>;
   known: (repository: string) => void;
   withRepository: <T>(repository: string, work: () => Promise<T>) => Promise<T>;
-  withRepositoryRemoval: (repository: string, work: () => Promise<void>) => Promise<void>;
-  acquireWorktree: (repository: string, branch: string | null) => void;
+  /** Validate before reserving, with the release kept synchronous after the last await. */
+  reserveRepositoryRemoval: (repository: string, validate: () => void) => () => void;
+  withWorktreeRemoval: (
+    repository: string,
+    worktree: string,
+    branch: string | null,
+    confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
+    revalidate?: () => void | Promise<void>,
+    retainBranchLock?: boolean,
+    autoApprove?: () => Promise<boolean>,
+  ) => Promise<boolean>;
   releaseWorktree: (repository: string, branch: string | null) => void;
   terminals: () => readonly WorkspaceTerminal[];
   running: (id: string) => boolean;
@@ -65,19 +74,21 @@ export class CleanupOwner {
   }
 
   async removeRepository(repository: string, confirm?: () => Promise<boolean>): Promise<void> {
-    return this.deps.withRepositoryRemoval(repository, async () => {
-      const checkSessions = () => {
-        if (this.deps.terminals().some((entry) => entry.repository === repository))
-          throw new Error("Close this repository's sessions first");
-      };
-      checkSessions();
+    const checkSessions = () => {
+      if (this.deps.terminals().some((entry) => entry.repository === repository))
+        throw new Error("Close this repository's sessions first");
+    };
+    const release = this.deps.reserveRepositoryRemoval(repository, checkSessions);
+    try {
       if (confirm && !(await confirm())) return;
       checkSessions();
       await this.deps.worktrees.removeRepository(repository);
       this.cleanupRuns.delete(repository);
       this.mergeEligibility.delete(repository);
       this.deps.refresh();
-    });
+    } finally {
+      release();
+    }
   }
 
   async removeOwnedTree(
@@ -96,7 +107,7 @@ export class CleanupOwner {
         throw new Error("Worktree has changed");
       revalidate();
     };
-    const removed = await this.removeTree(
+    const removed = await this.deps.withWorktreeRemoval(
       repository,
       worktree,
       tree.branch,
@@ -154,7 +165,7 @@ export class CleanupOwner {
     confirm: (branch: string, changes: string) => Promise<boolean>,
   ): Promise<boolean> {
     this.requireIdleWorktree(worktree);
-    return this.removeTree(
+    return this.deps.withWorktreeRemoval(
       repository,
       worktree,
       branch,
@@ -168,78 +179,70 @@ export class CleanupOwner {
     );
   }
 
-  private async removeTree(
+  /** Called with the shared branch reservation held by Workspace. */
+  async removeReservedTree(
     repository: string,
     worktree: string,
     branch: string | null,
     confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
     revalidate?: () => void | Promise<void>,
-    retainBranchLock = false,
     autoApprove?: () => Promise<boolean>,
   ): Promise<boolean> {
     const entry = { repository, worktree, branch };
-    this.deps.acquireWorktree(repository, branch);
-    let removed = false;
-    try {
-      const identity = await this.deps.worktrees.removalIdentity(entry.repository, entry.worktree);
-      let changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
-      const automatic = changes === "" && (await autoApprove?.()) === true;
-      const accepted = automatic
-        ? await confirm(entry.branch ?? entry.worktree, changes, true)
-        : await confirm(entry.branch ?? entry.worktree, changes);
-      if (!accepted) return false;
-      await revalidate?.();
-      if (
-        !automatic &&
-        (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
-      )
-        throw new Error("Worktree changes have changed. Review them and try again.");
-      const entries = this.deps.terminals().filter((item) => item.worktree === entry.worktree);
-      for (const item of entries) {
-        if (item.dormant) continue;
-        await this.deps.stop(item.id);
-        await this.deps.exited(item.id, -1);
-      }
-      await revalidate?.();
-      if (
-        !automatic &&
-        (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
-      )
-        throw new Error("Worktree changes have changed. Review them and try again.");
-      // Automatic approval awaits another policy check below. Ordinary confirmation
-      // has no intervening work before the final revalidation, so do it only once.
-      if (automatic) await revalidate?.();
-      if (automatic && !(await autoApprove?.())) {
-        changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
-        if (!(await confirm(entry.branch ?? entry.worktree, changes))) return false;
-        await revalidate?.();
-        if (
-          (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !==
-          changes
-        )
-          throw new Error("Worktree changes have changed. Review them and try again.");
-      }
-      await revalidate?.();
-      const release = await this.deps.prepareWorktreeRemoval?.(entry.worktree);
-      try {
-        await this.deps.worktrees.removeWorktree(
-          entry.repository,
-          entry.worktree,
-          changes.length > 0,
-          identity,
-        );
-      } finally {
-        release?.();
-      }
-      for (const item of entries) {
-        if (!item.dormant) await this.deps.kill(item.id);
-        this.deps.removed(item.id);
-      }
-      removed = true;
-      return true;
-    } finally {
-      if (!retainBranchLock || !removed) this.deps.releaseWorktree(repository, branch);
+    const identity = await this.deps.worktrees.removalIdentity(entry.repository, entry.worktree);
+    let changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
+    const automatic = changes === "" && (await autoApprove?.()) === true;
+    const accepted = automatic
+      ? await confirm(entry.branch ?? entry.worktree, changes, true)
+      : await confirm(entry.branch ?? entry.worktree, changes);
+    if (!accepted) return false;
+    await revalidate?.();
+    if (
+      !automatic &&
+      (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
+    )
+      throw new Error("Worktree changes have changed. Review them and try again.");
+    const entries = this.deps.terminals().filter((item) => item.worktree === entry.worktree);
+    for (const item of entries) {
+      if (item.dormant) continue;
+      await this.deps.stop(item.id);
+      await this.deps.exited(item.id, -1);
     }
+    await revalidate?.();
+    if (
+      !automatic &&
+      (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
+    )
+      throw new Error("Worktree changes have changed. Review them and try again.");
+    // Automatic approval awaits another policy check below. Ordinary confirmation
+    // has no intervening work before the final revalidation, so do it only once.
+    if (automatic) await revalidate?.();
+    if (automatic && !(await autoApprove?.())) {
+      changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
+      if (!(await confirm(entry.branch ?? entry.worktree, changes))) return false;
+      await revalidate?.();
+      if (
+        (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
+      )
+        throw new Error("Worktree changes have changed. Review them and try again.");
+    }
+    await revalidate?.();
+    const release = await this.deps.prepareWorktreeRemoval?.(entry.worktree);
+    try {
+      await this.deps.worktrees.removeWorktree(
+        entry.repository,
+        entry.worktree,
+        changes.length > 0,
+        identity,
+      );
+    } finally {
+      release?.();
+    }
+    for (const item of entries) {
+      if (!item.dormant) await this.deps.kill(item.id);
+      this.deps.removed(item.id);
+    }
+    return true;
   }
 
   private sessionSkip(worktree: string): CleanupReason | undefined {
@@ -344,7 +347,7 @@ export class CleanupOwner {
             if (!(await this.deps.worktrees.mergedCommit(repository, current, base)))
               throw new KeptWorktree("not merged");
           };
-          await this.removeTree(
+          await this.deps.withWorktreeRemoval(
             repository,
             tree.path,
             tree.branch,

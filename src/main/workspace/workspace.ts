@@ -378,12 +378,9 @@ export class Workspace {
         this.known(repository);
       },
       withRepository: (repository, work) => this.withRepository(repository, work),
-      withRepositoryRemoval: (repository, work) => this.withRepositoryRemoval(repository, work),
-      acquireWorktree: (repository, branch) => {
-        const key = `${repository}\0${branch ?? ""}`;
-        if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
-        this.busyWorktrees.add(key);
-      },
+      reserveRepositoryRemoval: (repository, validate) =>
+        this.reserveRepositoryRemoval(repository, validate),
+      withWorktreeRemoval: (...args) => this.removeTree(...args),
       releaseWorktree: (repository, branch) => {
         this.busyWorktrees.delete(`${repository}\0${branch ?? ""}`);
       },
@@ -644,20 +641,16 @@ export class Workspace {
     return this.cleanup.removeRepository(repository, confirm);
   }
 
-  private async withRepositoryRemoval(
-    repository: string,
-    work: () => Promise<void>,
-  ): Promise<void> {
+  private reserveRepositoryRemoval(repository: string, validate: () => void): () => void {
     if (this.closed) throw new Error("Workspace is closed");
     this.known(repository);
     if (this.removingRepositories.has(repository) || this.repositoryOperations.has(repository))
       throw new Error("Repository is busy. Try again when its current operation finishes.");
+    validate();
     this.removingRepositories.add(repository);
-    try {
-      await work();
-    } finally {
+    return () => {
       this.removingRepositories.delete(repository);
-    }
+    };
   }
 
   async worktrees(repository: string): Promise<readonly Worktree[]> {
@@ -1017,6 +1010,35 @@ export class Workspace {
     const entry = this.launched.get(id);
     if (!entry) throw new Error("Unknown worktree terminal");
     return this.cleanup.removeIdleTree(entry.repository, entry.worktree, entry.branch, confirm);
+  }
+
+  /** Shared launch/removal reservation; cleanup owns the removal sequence. */
+  private async removeTree(
+    repository: string,
+    worktree: string,
+    branch: string | null,
+    confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
+    revalidate?: () => void | Promise<void>,
+    retainBranchLock = false,
+    autoApprove?: () => Promise<boolean>,
+  ): Promise<boolean> {
+    const key = `${repository}\0${branch ?? ""}`;
+    if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+    this.busyWorktrees.add(key);
+    let removed = false;
+    try {
+      removed = await this.cleanup.removeReservedTree(
+        repository,
+        worktree,
+        branch,
+        confirm,
+        revalidate,
+        autoApprove,
+      );
+      return removed;
+    } finally {
+      if (!retainBranchLock || !removed) this.busyWorktrees.delete(key);
+    }
   }
 
   private homeFacts: ReturnType<typeof homeShellFacts> | undefined;

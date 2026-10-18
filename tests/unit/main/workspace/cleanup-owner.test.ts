@@ -36,6 +36,10 @@ function fixture() {
   let closed = false;
   let time = 1000;
   const locks = new Set<string>();
+  let repositoryReserved = false;
+  const releaseRepository = vi.fn(() => {
+    repositoryReserved = false;
+  });
   const events: string[] = [];
   const worktrees = {
     changes: vi.fn<CleanupOwnerDependencies["worktrees"]["changes"]>(() => Promise.resolve("")),
@@ -58,17 +62,49 @@ function fixture() {
     ),
     canAutoRemove: vi.fn(() => Promise.resolve(true)),
   };
+  const acquireWorktree = vi.fn((_repository: string, branch: string | null) => {
+    const key = branch ?? "";
+    if (locks.has(key)) throw new Error("This worktree is busy");
+    locks.add(key);
+  });
   const deps = {
     worktrees,
     inventory: vi.fn(() => Promise.resolve(trees)),
     known: vi.fn(),
     withRepository: <T>(_repository: string, work: () => Promise<T>) => work(),
-    withRepositoryRemoval: vi.fn(async (_repository: string, work: () => Promise<void>) => work()),
-    acquireWorktree: vi.fn((_repository: string, branch: string | null) => {
-      const key = branch ?? "";
-      if (locks.has(key)) throw new Error("This worktree is busy");
-      locks.add(key);
+    reserveRepositoryRemoval: vi.fn((_repository: string, validate: () => void) => {
+      if (repositoryReserved) throw new Error("Repository is busy");
+      validate();
+      repositoryReserved = true;
+      return releaseRepository;
     }),
+    withWorktreeRemoval: async (
+      ...[
+        repository,
+        worktree,
+        branch,
+        confirm,
+        revalidate,
+        retainBranchLock,
+        autoApprove,
+      ]: Parameters<CleanupOwnerDependencies["withWorktreeRemoval"]>
+    ): Promise<boolean> => {
+      acquireWorktree(repository, branch);
+      let removed = false;
+      try {
+        removed = await owner.removeReservedTree(
+          repository,
+          worktree,
+          branch,
+          confirm,
+          revalidate,
+          autoApprove,
+        );
+        return removed;
+      } finally {
+        if (!retainBranchLock || !removed) deps.releaseWorktree(repository, branch);
+      }
+    },
     releaseWorktree: vi.fn((_repository: string, branch: string | null) => {
       locks.delete(branch ?? "");
     }),
@@ -128,6 +164,8 @@ function fixture() {
   };
   return {
     owner,
+    acquireWorktree,
+    releaseRepository,
     deps,
     worktrees,
     locks,
@@ -208,7 +246,7 @@ it("checks running/restoring sessions before confirmation and dirty status again
   await expect(f.owner.removeIdleTree(repository, tree().path, "feature", accept)).rejects.toThrow(
     "running",
   );
-  expect(f.deps.acquireWorktree).not.toHaveBeenCalled();
+  expect(f.acquireWorktree).not.toHaveBeenCalled();
   f.deps.running.mockReturnValue(false);
   f.deps.stop.mockImplementationOnce(() => {
     f.worktrees.changes.mockResolvedValue("new file");
@@ -563,3 +601,23 @@ it.each(["preparation", "approval"] as const)(
     expect(f.locks.size).toBe(0);
   },
 );
+
+it("holds repository reservation during confirmation and releases it after cancellation or failed persistence", async () => {
+  const f = fixture();
+  const answer = Promise.withResolvers<boolean>();
+  const confirm = vi.fn(() => answer.promise);
+  const first = f.owner.removeRepository(repository, confirm);
+  await vi.waitFor(() => {
+    expect(confirm).toHaveBeenCalledOnce();
+  });
+  await expect(f.owner.removeRepository(repository)).rejects.toThrow("busy");
+  expect(f.releaseRepository).not.toHaveBeenCalled();
+  answer.resolve(false);
+  await first;
+  expect(f.releaseRepository).toHaveBeenCalledOnce();
+  f.worktrees.removeRepository.mockRejectedValueOnce(new Error("storage"));
+  await expect(f.owner.removeRepository(repository)).rejects.toThrow("storage");
+  expect(f.releaseRepository).toHaveBeenCalledTimes(2);
+  await f.owner.removeRepository(repository);
+  expect(f.releaseRepository).toHaveBeenCalledTimes(3);
+});
