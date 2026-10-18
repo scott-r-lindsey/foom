@@ -22,6 +22,9 @@ export interface Settings {
   autoRemoveMergedWorktrees: boolean;
   /** Unset until the first GitHub CLI login probe. Profile only. */
   showPullRequests?: boolean;
+  /** Profile-only forge preferences; consumed by a future provider migration. */
+  forges: Readonly<Record<string, boolean>>;
+  forgeHosts: Readonly<Record<string, string>>;
   agents: AgentValues<boolean>;
   agentArguments: AgentValues<readonly string[]>;
   /** Main-owned acknowledgement; renderer save requests may not set this. */

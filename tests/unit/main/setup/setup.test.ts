@@ -287,3 +287,33 @@ test("refresh re-applies stored settings after a config file change", () => {
   setup.refresh();
   expect(apply).toHaveBeenCalledExactlyOnceWith(DEFAULT_SETTINGS);
 });
+
+test("host assignments require enabled catalog entries; disabling and absent-provider preferences remain saved", async () => {
+  deps.forgeIds = () => ["github", "custom"];
+  const setup = new Setup(deps);
+  await expect(setup.save({ forgeHosts: { "git.example.org": "missing" } })).rejects.toThrow(
+    "enabled forge",
+  );
+  await expect(setup.save({ forgeHosts: { "git.example.org": "custom" } })).rejects.toThrow(
+    "enabled forge",
+  );
+  await setup.save({
+    forges: { github: true, custom: true },
+    forgeHosts: { "github.com": "github", "git.example.org": "custom" },
+  });
+  await setup.save({ forges: { github: true, custom: false } });
+  deps.forgeIds = () => ["github"];
+  await setup.save({ forgeHosts: { ...settings.forgeHosts, "another.example.org": "github" } });
+  expect(settings.forgeHosts["git.example.org"]).toBe("custom");
+  await expect(
+    setup.save({ forgeHosts: { ...settings.forgeHosts, "new.example.org": "custom" } }),
+  ).rejects.toThrow("enabled forge");
+  await setup.save({ forgeHosts: { "github.com": "github" } });
+  expect(settings.forgeHosts).toEqual({ "github.com": "github" });
+});
+
+test("host assignment defaults validate bundled GitHub without a custom catalog", async () => {
+  const setup = new Setup(deps);
+  await setup.save({ forgeHosts: { "git.example.org": "github" } });
+  expect(settings.forgeHosts).toEqual({ "git.example.org": "github" });
+});

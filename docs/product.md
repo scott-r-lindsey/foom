@@ -655,7 +655,7 @@ settings continue to govern its other data access.
 
 Forge manifests are being introduced in stages (#521). The first stage loads and validates
 manifest data and tests a shared interpreter without changing the active provider
-or Settings. A second stage adds offline dynamic-batch interpretation and parity
+or polling. A second stage adds offline dynamic-batch interpretation and parity
 for board counts and required-check conclusions; runtime enablement remains pending. When integration activates forge selection, the disclosure will read:
 “Foom uses your selected forge CLI and its existing login to read PR or merge request
 and CI metadata. It sends repository/project, branch and PR/MR identifiers in
@@ -765,6 +765,14 @@ Selecting a terminal in the sidebar also leaves Settings; terminals keep running
 General offers **Show pull requests and checks**, defaulting to on when the GitHub CLI is installed and logged in on first use. The disclosure reads: “Foom uses your GitHub CLI to send repository and branch names to GitHub. It sends no terminal content.” Turning it off stops non-orchestrator polling. Foom stores no tokens and makes no forge writes.
 
 General offers **Restore sessions on launch**, on by default. Turning it on through agent-edited config requires Allow because it also permits restoring orchestrator control. General also offers **Auto-remove merged worktrees**, off by default and applying to all repositories.
+
+Forges shows bundled and config manifests in the same card layout, with an On/Off
+switch, badge, source and host assignments. Valid config manifests load without
+approval; there is no Duplicate action. Copies start off with no hosts. Settings
+saves exact lowercase DNS hostnames against an enabled forge; manifests cannot
+assign hosts. GitHub defaults to `github.com`. Disabling preserves assignments.
+These profile preferences are preparatory: the existing GitHub provider still polls,
+and cards show declared executables with status “Not checked” until runtime integration.
 
 Worktrees offers Foom’s folder or a location next to each repository, with an example
 destination. Changes apply to future creation; existing worktrees stay where they are.

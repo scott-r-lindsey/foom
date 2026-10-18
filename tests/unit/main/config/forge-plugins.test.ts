@@ -72,6 +72,10 @@ it("loads through the shared bounded scanner, binds exact bytes, reloads edits a
   expect((await f.service.refresh()).rejected).toEqual([]);
   const initial = first(f.catalog());
   expect(initial.manifest.id).toBe("custom");
+  expect(f.service.status().forgePlugins).toEqual([
+    { id: "github", name: "GitHub", badge: "GH", executables: ["gh"] },
+    { id: "custom", name: "GitHub", badge: "GH", executables: ["gh"], file: "forges/custom.json" },
+  ]);
   expect(initial.digest).toMatch(/^[a-f0-9]{64}$/u);
   await expect(initial.validate()).resolves.toBeUndefined();
   await f.service.refresh();
@@ -84,6 +88,7 @@ it("loads through the shared bounded scanner, binds exact bytes, reloads edits a
   await rm(f.file);
   await f.service.refresh();
   expect(f.catalog()).toEqual([]);
+  expect(f.service.status().forgePlugins).toHaveLength(1);
   await expect(edited.validate()).rejects.toThrow("changed");
   await writeFile(f.file, source + " ");
   await f.service.refresh();
@@ -103,6 +108,9 @@ it("rejects malformed, oversized, wrong-kind/filename and reserved IDs without p
     const status = await f.service.refresh();
     expect((await validateConfig(f.root)).code).toBe(1);
     expect(f.catalog()).toEqual([]);
+    const rejectedForge = status.forgePlugins?.find((entry) => entry.id === "custom");
+    expect(rejectedForge?.file).toBe("forges/custom.json");
+    expect(typeof rejectedForge?.reason).toBe("string");
     expect(status.rejected.some(({ file }) => file === "forges/custom.json")).toBe(true);
   }
   await writeFile(join(f.root, "agents", "custom.json"), source);

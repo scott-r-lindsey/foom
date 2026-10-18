@@ -644,6 +644,8 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     "autoRemoveMergedWorktrees",
     "codeFolder",
     "codexNotifierAcknowledged",
+    "forgeHosts",
+    "forges",
     "setupComplete",
     "showPullRequests",
     "unreadChildMinutes",
@@ -651,6 +653,8 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   ]);
   const effective = (await page.evaluate(() => window.desktop.setupState())).settings;
   assert.deepEqual(effective, {
+    forges: { github: true },
+    forgeHosts: { "github.com": "github" },
     codexNotifierAcknowledged: false,
     agyPluginOfferAnswered: false,
     setupComplete: true,
@@ -2334,4 +2338,87 @@ test("terminal font picker updates open shells and config shells and refits thei
   await page.keyboard.press("Escape");
   for (const rows of await page.locator(".xterm-rows").all())
     await expect(rows).toHaveCSS("font-family", '"Hack Nerd Font Mono", "Geist Mono", monospace');
+});
+
+test("Settings forge cards persist user host assignments without activating providers", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-forge-cards-"));
+  removeAfterApps(context, root);
+  const home = path.join(root, "home");
+  const userData = path.join(root, "profile");
+  const folder = path.join(home, ".foom", "config", "forges");
+  await mkdir(folder, { recursive: true });
+  const manifest = JSON.parse(
+    await readFile(path.join(__dirname, "../../src/shared/bundled-forges/github.json"), "utf8"),
+  );
+  await writeFile(
+    path.join(folder, "custom.json"),
+    JSON.stringify({ ...manifest, id: "custom", name: "Custom forge" }),
+  );
+  await writeFile(path.join(folder, "broken.json"), "{}");
+  const app = await launchApp(context, {
+    fixture: "empty-board",
+    home,
+    args: [`--user-data-dir=${userData}`],
+  });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Forges", exact: true }).click();
+  const github = page.getByRole("region", { name: "GitHub", exact: true });
+  const custom = page.getByRole("region", { name: "Custom forge", exact: true });
+  await expect(github.getByRole("switch")).toBeChecked();
+  await expect(github).toContainText("github.com");
+  await expect(custom.getByRole("switch")).not.toBeChecked();
+  await expect(custom.getByRole("textbox")).toBeDisabled();
+  await expect(
+    page.getByRole("region", { name: "broken", exact: true }).getByRole("switch"),
+  ).toBeDisabled();
+  await expect(page.getByRole("button", { name: /Duplicate|Approve/ })).toHaveCount(0);
+  await assertAccessible(page);
+  await custom.getByRole("switch").click();
+  await expect(custom.getByRole("switch")).toBeChecked();
+  await expect(custom.getByRole("textbox")).toBeEnabled();
+  await custom.getByRole("textbox").fill("https://bad.example.org");
+  await custom.getByRole("button", { name: "Assign host" }).click();
+  await expect(page.getByRole("alert")).toContainText("lowercase DNS hostname");
+  await custom.getByRole("textbox").fill("git.example.org");
+  await custom.getByRole("button", { name: "Assign host" }).click();
+  await expect(custom.getByRole("button", { name: "Remove git.example.org" })).toBeVisible();
+  await custom.getByRole("switch").click();
+  await expect(custom.getByRole("switch")).not.toBeChecked();
+  await expect(custom.getByRole("textbox")).toBeDisabled();
+  await expect(custom).toContainText("git.example.org");
+  const rejected = await page.evaluate(() =>
+    window.desktop.saveSetup({ forgeHosts: { "new.example.org": "custom" } }).then(
+      () => "saved",
+      (error) => String(error),
+    ),
+  );
+  assert.match(rejected, /enabled forge/);
+  const before = await page.evaluate(() => window.desktop.setupState());
+  assert.equal(before.settings.forgeHosts["github.com"], "github");
+  assert.equal(before.settings.forgeHosts["git.example.org"], "custom");
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+  const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
+  assert.deepEqual(saved.settings.forges, { github: true, custom: false });
+  assert.deepEqual(saved.settings.forgeHosts, {
+    "github.com": "github",
+    "git.example.org": "custom",
+  });
+  const restarted = await launchApp(context, {
+    fixture: "empty-board",
+    home,
+    args: [`--user-data-dir=${userData}`],
+  });
+  const restored = await boardPage(restarted);
+  await openSettingsScreen(restored);
+  await restored.getByRole("button", { name: "Forges", exact: true }).click();
+  const restoredCustom = restored.getByRole("region", { name: "Custom forge", exact: true });
+  await expect(restoredCustom.getByRole("switch")).not.toBeChecked();
+  await expect(restoredCustom).toContainText("git.example.org");
+  await restoredCustom.getByRole("button", { name: "Remove git.example.org" }).click();
+  await expect(restoredCustom.getByRole("button", { name: "Remove git.example.org" })).toHaveCount(
+    0,
+  );
 });
