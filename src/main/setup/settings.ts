@@ -1,3 +1,4 @@
+import { parseForgeEnablement, parseForgeHosts } from "./forge-settings";
 import { DEFAULT_TERMINAL_FONT } from "../../shared/terminal-fonts";
 import {
   EMPTY_AGENT_ARGUMENTS,
@@ -31,6 +32,8 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   concurrentChildren: 4,
   unreadChildMinutes: 5,
   autoRemoveMergedWorktrees: false,
+  forges: Object.freeze({ github: true }),
+  forgeHosts: Object.freeze({ "github.com": "github" }),
   agents: Object.freeze({ claude: true, codex: true, agy: true }),
   agentArguments: EMPTY_AGENT_ARGUMENTS,
   agentBypassAcknowledged: Object.freeze({ claude: false, codex: false, agy: false }),
@@ -103,6 +106,8 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
       entry <= 1440
     )
       patch.unreadChildMinutes = entry;
+    else if (key === "forges") patch.forges = parseForgeEnablement(entry);
+    else if (key === "forgeHosts") patch.forgeHosts = parseForgeHosts(entry);
     else if (key === "agentArguments") patch.agentArguments = parseAgentDefaults(entry);
     else if (isConfigSetting(key)) Object.assign(patch, parseConfigSettings({ [key]: entry }));
     else if (

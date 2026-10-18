@@ -698,6 +698,10 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
   );
   const setup = new Setup({
     themes: () => themes.snapshot(),
+    forgeIds: () =>
+      (config.status().forgePlugins ?? [])
+        .filter((entry) => !entry.reason)
+        .map((entry) => entry.id),
     store: {
       get: () => ({ ...settings.get(), interfaceScale: scale }),
       update: async (patch) => {

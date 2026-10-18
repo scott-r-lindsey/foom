@@ -24,7 +24,16 @@ export interface ConfigAgent {
   state: "rejected";
   reason?: string | undefined;
 }
+export interface ConfigForge {
+  id: string;
+  name: string;
+  badge: string;
+  executables: readonly string[];
+  file?: string;
+  reason?: string;
+}
 export interface ConfigStatus {
+  forgePlugins?: readonly ConfigForge[];
   agentPlugins?: readonly ConfigAgent[];
   folder: string;
   /** False when the folder is unusable. */

@@ -11,13 +11,13 @@ The existing config scanner also loads and watches `forges/<id>.json` with
 contained 64 KiB reads, per-kind 50-file caps and byte-bound validation callbacks.
 Loading only builds a catalog; it does not enable or probe a forge.
 Offline tests run the existing provider and new interpreter side by side before
-removing the old provider. This stage does **not** replace the running GitHub provider. Settings/host assignments,
-CLI resolution/auth/cancellation, optional display metadata, persistence migration
+removing the old provider. This stage does **not** replace the running GitHub provider. CLI resolution/auth/cancellation, optional display metadata, persistence migration
 and the active-provider switch remain for the integration stage. A second stage
 adds optional `batchStatus` query composition and interpretation with offline
 old/new parity tests. Runtime selection and the #516 scheduler still use the old
 provider; no new CLI is enabled by this stage. GitLab #522
-still requires authenticated public-project evidence.
+still requires authenticated public-project evidence. The Settings stage adds forge cards
+and user-controlled host assignments; these preferences remain inactive for polling.
 
 A forge is a second manifest **kind** in the [existing plugin system](agent-plugins.md),
 not another plugin architecture. Built-ins are bundled JSON. A valid config copy
@@ -42,7 +42,7 @@ bytes, directories, IDs and semantics remain unchanged. The shared
 loader dispatches on `(kind, version)` before kind-specific validation. Unknown
 kinds/versions are invalid, never interpreted as agents. No automatic rewriting.
 
-Proposed config location: `forges/<id>.json`, using the same contained-directory,
+Config location: `forges/<id>.json`, using the same contained-directory,
 64 KiB descriptor-bounded reads, file watcher and validation as `agents/`; a valid
 file loads with no approval step, like agents (#539). Each kind has a 50-file
 catalog cap and its own ID namespace; registry keys include kind. Bundled IDs are
@@ -50,9 +50,21 @@ reserved within their kind. No trust store or consent IPC.
 
 Settings uses the existing card component in a **Forges** group: name, badge,
 source, detected executable/version, host assignments, available status,
-and on/off. There is no Duplicate action (removed for agents in #538); a hand-made
+and on/off. Settings now displays the validated catalog and saves profile-only
+`forges` (ID → boolean) and `forgeHosts` (hostname → ID) maps. GitHub starts on with
+`github.com → github`; config copies start off without hosts. New or changed host
+assignments require a loaded, enabled forge. Disabling or losing a manifest preserves
+its assignments for later restoration; it does not transfer them to another forge.
+Hostnames must be exact lowercase ASCII DNS names, bounded to 253 characters; URL,
+port, wildcard, IP, trailing-dot and unsafe-key spellings are rejected in main.
+These preferences cannot be set in config `settings.json` or manifests. The
+renderer only displays and submits them through sender-validated setup IPC.
+This Settings stage does not switch the provider or run discovery/auth probes;
+cards show declared executable names and “Not checked” until lifecycle integration.
+There is no Duplicate action (removed for agents in #538); a hand-made
 config copy of a built-in starts with no enablement, host assignments or
-cached observations. Disabling a card preserves settings but stops probes and polls. This is a behavior
+cached observations. After runtime activation, disabling a card preserves settings
+but stops probes and polls. This is a behavior
 specification, not approval of a new visual layout.
 
 No executable resolution/probing/auth check occurs for disabled or invalid

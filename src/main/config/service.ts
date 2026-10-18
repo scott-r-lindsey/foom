@@ -1,3 +1,4 @@
+import { githubManifest } from "../control/forge-manifests";
 import type { LoadedForgeManifest } from "./plugins";
 import { parsePluginManifest } from "../../shared/plugin-parser";
 import { AgentManifestError } from "../../shared/agent-manifest";
@@ -746,6 +747,37 @@ export class ConfigService {
       .map(([file, { reason }]) => ({ file, reason }))
       .sort((a, b) => a.file.localeCompare(b.file));
     return {
+      forgePlugins: [
+        {
+          id: githubManifest.id,
+          name: githubManifest.name,
+          badge: githubManifest.badge,
+          executables: githubManifest.executables,
+        },
+        ...[...this.loadedPlugins].flatMap(([file, entry]) =>
+          entry.kind === "forge"
+            ? [
+                {
+                  id: entry.forge.manifest.id,
+                  name: entry.forge.manifest.name,
+                  badge: entry.forge.manifest.badge,
+                  executables: entry.forge.manifest.executables,
+                  file,
+                },
+              ]
+            : [],
+        ),
+        ...rejected
+          .filter(({ file }) => file.startsWith("forges/"))
+          .map(({ file, reason }) => ({
+            id: file.slice(7, -5),
+            name: file.slice(7, -5),
+            badge: "?",
+            executables: [],
+            file,
+            reason,
+          })),
+      ],
       agentPlugins: rejected
         .filter(({ file }) => file.startsWith("agents/"))
         .map(({ file, reason }) => ({

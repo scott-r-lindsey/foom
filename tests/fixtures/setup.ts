@@ -17,6 +17,8 @@ export function setupState(
       concurrentChildren: 4,
       unreadChildMinutes: 5,
       autoRemoveMergedWorktrees: false,
+      forges: { github: true },
+      forgeHosts: { "github.com": "github" },
       agents: { claude: true, codex: true, agy: true },
       agentArguments: { claude: [], codex: [], agy: [] },
       agentBypassAcknowledged: { claude: false, codex: false, agy: false },

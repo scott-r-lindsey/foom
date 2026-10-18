@@ -509,8 +509,9 @@ recorded public `gh` captures and derived fixtures. It maps identity and checks,
 refuses forks and mismatched repositories in Foom code, and always refreshes the
 head/state after checks. Main-supplied default-branch policy cannot be overridden
 by a manifest table. The shared kind loader grants no execution authority; host
-routing, auth lifecycle, bounded large-request scheduling and persistence migration
-remain integration work. The optional manifest batch plan now reproduces dynamic
+routing at runtime, auth lifecycle, bounded large-request scheduling and persistence migration
+remain integration work. Settings now saves user-controlled forge enablement and
+host assignments, without changing this running provider or scheduler. The optional manifest batch plan now reproduces dynamic
 numeric bindings, next-tick discovery and separate all/required check reductions
 in offline parity tests. It composes GraphQL ASTs with branch variables, never
 interpolated branch syntax, and leaves the active #516 scheduler unchanged. See [the implementation boundary](forge-plugins.md).

@@ -912,8 +912,13 @@ validation, a build-locked GitHub manifest and a transport-injected interpreter.
 The current GitHub provider remains active while side-by-side fixture tests prove
 parity. The new interpreter receives argv-array transport from main; it cannot
 resolve or spawn a CLI itself. Fork/same-repository decisions and trusted
-default-branch refusal remain TypeScript policy. Settings/host routing, executable
-auth/lifecycle, large-request scheduling within manifest bounds and persistence
+default-branch refusal remain TypeScript policy. Settings now exposes forge cards
+through the main-owned config status catalog, including fixed rejection reasons.
+Profile-only `forges` and `forgeHosts` maps use the settings store atomic writes
+and runtime parser. New host assignments require an enabled catalog entry; stale
+assignments remain unavailable without fallback. Setup IPC checks the owning app
+top frame, and host syntax is validated only in main. These preferences do not
+change active polling. Executable auth/lifecycle, large-request scheduling within manifest bounds and persistence
 remain integration work. The interpreter now supports declarative dynamic batch
 AST composition and check-count reduction with old/new offline parity tests;
 activation remains gated on the remaining lifecycle and scheduling integration.
