@@ -1,17 +1,16 @@
-import { OrchestrationMark } from "./orchestration-mark";
-import { PullRequestMark } from "./pull-request";
+import { SidebarRepositorySection } from "./sidebar-repository-section";
+import { SidebarSessionRow } from "./sidebar-session-row";
+import { SidebarPreviewRow } from "./sidebar-preview-row";
+import { SidebarWorktreeSection } from "./sidebar-worktree-section";
 import type { PreviewSummary } from "../../shared/workspace";
-import { ResumeField } from "./resume-field-view";
+import { SidebarPanel } from "./sidebar-panel";
 import { PanelIntent } from "./panel-intent";
-import { PanelFacts, PanelTitle } from "./panel-facts";
 import type { PanelSubject } from "./panel-facts";
 import { AgentBadge } from "./agent-badge";
 import { PanelMark } from "./panel-glyphs";
-import { BranchField } from "./branch-field-view";
 import type { ConfigStatus } from "../../shared/foom-config";
 import { AppMenu } from "./app-menu";
 import {
-  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -19,7 +18,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { RefObject, ReactNode, CSSProperties } from "react";
+import type { RefObject, ReactNode } from "react";
 import type { BoardSource, LaunchOptions } from "./board-source.d";
 import type { BoardRow } from "./board.d";
 import type { SidebarLocation, SidebarPreferences } from "./sidebar.d";
@@ -37,12 +36,7 @@ import {
   rowWorktree,
   sidebarParent,
 } from "./sidebar-model";
-import { lightState, movingLight } from "./light-activity";
-import { light, waitTime } from "./board";
-import { RowMenu } from "./row-menu";
 import type { RowAction } from "./row-menu";
-import { Highlight } from "./text-highlight";
-import { SessionName } from "./session-name";
 import { renameSession } from "./sidebar-preferences";
 import type { SidebarCommand } from "../../shared/workspace";
 import type { AgentId } from "../../shared/agents";
@@ -549,15 +543,6 @@ export function Sidebar({
       );
     });
   const session = (row: BoardRow, docked = false) => {
-    const mark =
-      row.orchestration?.role === "orchestrator"
-        ? "tx"
-        : row.orchestration?.role === "child" && !row.orchestration.takenOver
-          ? parentOf(row)
-            ? "rx"
-            : "orphan"
-          : undefined;
-    const robot = mark ? <OrchestrationMark kind={mark} related={related(row)} /> : null;
     const name = sessionName(row, preferences);
     const identity = sessionIdentity(row, source.shellName?.());
     const exited =
@@ -652,221 +637,47 @@ export function Sidebar({
           },
         ];
     return (
-      <Fragment key={row.kind === "shell" && !row.managed ? "local-shell" : row.id}>
-        <div
-          {...rowEvents(row.id)}
-          onPointerEnter={(event) => {
-            rowEvents(row.id).onPointerEnter(event);
-            setHoveredSession(row.orchestration ? row.id : undefined);
-          }}
-          onPointerLeave={() => {
-            rowEvents(row.id).onPointerLeave();
-            setHoveredSession(undefined);
-          }}
-          onFocusCapture={() => {
-            setFocusedSession(row.orchestration ? row.id : undefined);
-          }}
-          onBlurCapture={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget)) setFocusedSession(undefined);
-          }}
-          className="board-entry session-entry"
-          data-related={related(row)}
-          role="none"
-          data-selected={selected === row.id}
-        >
-          <div
-            role={docked ? "button" : "treeitem"}
-            aria-selected={docked ? undefined : selected === row.id}
-            className="board-row"
-            title={
-              row.orchestration?.role === "child"
-                ? `Child of ${parentOf(row) ? sessionName(parentOf(row) ?? row, preferences) : row.orchestration.parentId}${row.orchestration.takenOver ? " · Taken over" : ""}`
-                : undefined
-            }
-            draggable
-            data-drag-session={row.id}
-            data-nav
-            data-kind={row.kind}
-            data-state={lightState(row)}
-            data-exited={Boolean(row.exited)}
-            tabIndex={docked || row.id === selected ? 0 : -1}
-            aria-label={`${compact ? `${row.home ? "~" : row.config ? "Foom config" : row.repository} · ` : ""}${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.orchestration?.role === "child" ? ` · Child of ${parentOf(row) ? sessionName(parentOf(row) ?? row, preferences) : row.orchestration.parentId}` : ""}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.handoff ? ` · Handoff ${row.handoff.status}` : ""}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
-            ref={(element) => {
-              if (element) buttons.current.set(row.id, element);
-              else buttons.current.delete(row.id);
-            }}
-            onFocus={(event) => {
-              if (event.target === event.currentTarget) {
-                focus(row.id);
-              }
-            }}
-            onClick={() => {
-              open(row);
-            }}
-            onKeyDown={(event) => {
-              if (
-                event.target === event.currentTarget &&
-                (event.key === "Enter" || event.key === " ")
-              ) {
-                event.preventDefault();
-                open(row);
-              }
-            }}
-          >
-            <span
-              className="board-light"
-              data-light-state={lightState(row)}
-              data-moving={movingLight(row)}
-              data-exited={Boolean(row.exited)}
-              style={{ "--light-opacity": light(row).opacity } as CSSProperties}
-              aria-hidden="true"
-            />
-            <span className="session-lines">
-              <span className="visually-hidden board-branch">{row.branch}</span>
-              {row.orchestration?.role === "orchestrator" && (
-                <span className="session-orchestration">
-                  {row.orchestration.active
-                    ? "Orchestrator"
-                    : row.exited
-                      ? "Exited orchestrator"
-                      : "Revoked orchestrator"}
-                </span>
-              )}
-              <span className="session-top">
-                {!compact && (
-                  <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
-                )}
-                {row.handoff && (
-                  <span
-                    className="session-handoff"
-                    data-status={row.handoff.status}
-                    title={`Handoff #${String(row.handoff.seq)} (${row.handoff.status})`}
-                  >
-                    <span aria-hidden="true">
-                      {row.handoff.status === "done"
-                        ? "✓"
-                        : row.handoff.status === "failed"
-                          ? "■"
-                          : "⊘"}
-                    </span>{" "}
-                    {row.handoff.status}
-                  </span>
-                )}
-                {row.bypass && (
-                  <span className="session-bypass" title="Launched with a bypass argument">
-                    <span aria-hidden="true">◇</span> Bypass
-                  </span>
-                )}
-                {otherViews?.has(row.id) && (
-                  <span
-                    className="tile-number"
-                    aria-label="Shown in another window"
-                    title="Shown in another window"
-                  >
-                    ▣
-                  </span>
-                )}
-                {tileNumbers?.has(row.id) && (
-                  <span
-                    className="tile-number"
-                    data-focused={tileNumbers.get(row.id)?.focused}
-                    aria-label={`Tile ${String(tileNumbers.get(row.id)?.number)}`}
-                  >
-                    {tileNumbers.get(row.id)?.number}
-                  </span>
-                )}
-                <SessionName
-                  name={name}
-                  filter={filter}
-                  open={() => {
-                    open(row);
-                  }}
-                  save={(value) => {
-                    save(renameSession(preferences, row.id, value));
-                  }}
-                />
-                {(row.exited || row.foregroundProgram) && (
-                  <span className="session-program">
-                    {row.exited ? "exited" : row.foregroundProgram}
-                  </span>
-                )}
-                {movingLight(row) && (
-                  <svg
-                    className="activity-trace"
-                    data-light-state={lightState(row)}
-                    viewBox="0 0 34 12"
-                    aria-hidden="true"
-                  >
-                    <path d="" />
-                  </svg>
-                )}
-                {!compact && robot}
-                {row.state === "needs_input" && (
-                  <span className="board-wait">{waitTime(row, now)}</span>
-                )}
-              </span>
-              {row.worktreeRemoved && (
-                <span className="worktree-removed">
-                  <span aria-hidden="true">⊘</span> Worktree removed
-                </span>
-              )}
-              {row.kind !== "shell" && (
-                <span className="board-reason" title={row.reason}>
-                  <Highlight text={row.reason} filter={filter} />
-                </span>
-              )}
-              <span className="visually-hidden board-state">{light(row).label}</span>
-            </span>
-            {compact && robot}
-            {!docked && actions(row.id, `${name} in ${row.branch}`, items)}
-          </div>
-          {docked && actions(row.id, `${name} in ${row.branch}`, items)}
-        </div>
-      </Fragment>
+      <SidebarSessionRow
+        key={row.kind === "shell" && !row.managed ? "local-shell" : row.id}
+        row={row}
+        name={name}
+        identity={identity}
+        parentName={parentOf(row) ? sessionName(parentOf(row) ?? row, preferences) : undefined}
+        related={related(row)}
+        compact={compact}
+        docked={docked}
+        now={now}
+        filter={filter}
+        tile={tileNumbers?.get(row.id)}
+        otherView={otherViews?.has(row.id) ?? false}
+        selected={selected}
+        events={rowEvents(row.id)}
+        actions={actions(row.id, `${name} in ${row.branch}`, items)}
+        register={(id, element) => {
+          if (element) buttons.current.set(id, element);
+          else buttons.current.delete(id);
+        }}
+        focus={focus}
+        open={open}
+        rename={(value) => {
+          save(renameSession(preferences, row.id, value));
+        }}
+        onHover={setHoveredSession}
+        onFocusSession={setFocusedSession}
+      />
     );
   };
-  const roll = (row: BoardRow | undefined) =>
-    row && (
-      <span className="rollup" role="img" data-state={row.state} aria-label={light(row).label}>
-        <span className="board-light" aria-hidden="true" />
-      </span>
-    );
   const previewRow = (preview: PreviewSummary) => (
-    <div
+    <SidebarPreviewRow
       key={preview.id}
-      role="treeitem"
-      aria-label={`${preview.kind === "markdown" ? "Markdown" : "HTML"} preview: ${preview.relativePath}${preview.openedBy ? `, opened by ${previewOpener(preview, rows, preferences)}` : ""}${tileNumbers?.has(preview.id) ? "" : ", not shown"}`}
-    >
-      <button
-        type="button"
-        data-nav
-        className="tree-row preview-row"
-        data-child={Boolean(preview.openedBy)}
-        onClick={() => openPreview?.(preview.id)}
-      >
-        <svg className="preview-glyph" aria-hidden="true" viewBox="0 0 16 16">
-          <path d="M4 1.5h5l3 3v10H4z M9 1.5v3h3 M6 8h4 M6 10.5h4" />
-        </svg>
-        <span className="tree-label">
-          <Highlight text={preview.relativePath} filter={filter} />
-          {preview.openedBy && (
-            <span className="preview-row-opener">
-              opened by {previewOpener(preview, rows, preferences)}
-            </span>
-          )}
-        </span>
-        {tileNumbers?.has(preview.id) && (
-          <span
-            className="tile-number"
-            data-focused={tileNumbers.get(preview.id)?.focused}
-            aria-label={`Tile ${String(tileNumbers.get(preview.id)?.number)}`}
-          >
-            {tileNumbers.get(preview.id)?.number}
-          </span>
-        )}
-      </button>
-    </div>
+      preview={preview}
+      opener={previewOpener(preview, rows, preferences)}
+      tile={tileNumbers?.get(preview.id)}
+      filter={filter}
+      open={(id) => openPreview?.(id)}
+    />
   );
+  const panel = menu ? subjects.get(menu.id) : undefined;
   const matchingPreviews = tree.flatMap((repo) =>
     repo.worktrees.flatMap((worktree) => worktree.previews),
   );
@@ -1061,347 +872,232 @@ export function Sidebar({
                 const cleanup = repo.repository.cleanup;
                 const deleting = cleanup && cleanup.phase !== "finished";
                 return (
-                  <div key={rid}>
-                    {index > 0 && tree[index - 1]?.section !== repo.section && (
-                      <hr className="tree-separator" aria-hidden="true" />
-                    )}
-                    <div
-                      role="treeitem"
-                      aria-expanded={repo.expanded}
-                      aria-label={repo.repository.name}
-                    >
-                      <div {...rowEvents(rid)} className="tree-row repository-row">
-                        <button
-                          type="button"
-                          className="tree-chevron"
-                          aria-label={`${repo.expanded ? "Collapse" : "Expand"} ${repo.repository.name}`}
-                          onClick={() => {
-                            toggle(rid, repo.expanded);
-                          }}
-                        >
-                          {repo.expanded ? "▾" : "▸"}
-                        </button>
-                        <button
-                          type="button"
-                          data-nav
-                          ref={(element) => {
-                            if (element) anchorsRef.current.set(rid, element);
-                            else anchorsRef.current.delete(rid);
-                          }}
-                          className="tree-name"
-                          aria-haspopup="dialog"
-                          aria-expanded={menu?.id === rid}
-                          onClick={(event) => {
-                            togglePanel(rid, event.currentTarget);
-                          }}
-                        >
-                          <span className="tree-label">
-                            <Highlight text={repo.repository.name} filter={filter} />
-                          </span>
-                          {repo.pinned && <span aria-label="Pinned">⌖</span>}
-                        </button>
-                        {deleting && (
-                          <span className="cleanup-tag">
-                            deleting {cleanup.done}/{cleanup.total}
-                          </span>
-                        )}
-                        {cleanup?.phase === "finished" && (
-                          <span role="status" className="cleanup-tag">
-                            Cleanup finished: {cleanup.done}/{cleanup.total}
-                          </span>
-                        )}
-                        {!repo.expanded && (
-                          <>
-                            {roll(repo.rollup)}
-                            <span className="worktree-count">
-                              {repo.repository.worktrees.filter((tree) => !tree.removed).length}
-                            </span>
-                          </>
-                        )}
-                        {actions(rid, repo.repository.name, [
-                          ...(source.worktrees
-                            ? [
-                                {
-                                  label: "New worktree",
-                                  glyph: "branch" as const,
-                                  expanded: Boolean(menu?.field && menu.id === rid),
-                                  run: () => {
-                                    if (menu) intent.pin(rid, menu.anchor, true);
-                                  },
-                                },
-                              ]
-                            : []),
-                          null,
+                  <SidebarRepositorySection
+                    key={rid}
+                    repo={repo}
+                    separator={index > 0 && tree[index - 1]?.section !== repo.section}
+                    filter={filter}
+                    empty={!filter.trim() && repo.worktrees.length === 0}
+                    panelOpen={menu?.id === rid}
+                    events={rowEvents(rid)}
+                    register={(element) => {
+                      if (element) anchorsRef.current.set(rid, element);
+                      else anchorsRef.current.delete(rid);
+                    }}
+                    toggle={() => {
+                      toggle(rid, repo.expanded);
+                    }}
+                    openPanel={(anchor) => {
+                      togglePanel(rid, anchor);
+                    }}
+                    actions={actions(rid, repo.repository.name, [
+                      ...(source.worktrees
+                        ? [
+                            {
+                              label: "New worktree",
+                              glyph: "branch" as const,
+                              expanded: Boolean(menu?.field && menu.id === rid),
+                              run: () => {
+                                if (menu) intent.pin(rid, menu.anchor, true);
+                              },
+                            },
+                          ]
+                        : []),
+                      null,
 
-                          {
-                            label: repo.pinned ? "Unpin" : "Pin to top",
-                            glyph: "pin" as const,
-                            run: () => {
-                              save({
-                                ...preferences,
-                                pins: repo.pinned
-                                  ? preferences.pins.filter((path) => path !== repo.repository.path)
-                                  : [...preferences.pins, repo.repository.path],
-                              });
+                      {
+                        label: repo.pinned ? "Unpin" : "Pin to top",
+                        glyph: "pin" as const,
+                        run: () => {
+                          save({
+                            ...preferences,
+                            pins: repo.pinned
+                              ? preferences.pins.filter((path) => path !== repo.repository.path)
+                              : [...preferences.pins, repo.repository.path],
+                          });
+                        },
+                      },
+                      {
+                        label: "Remove from Foom…",
+                        hint: "keeps files",
+                        glyph: "unlist" as const,
+                        run: () => {
+                          return command({
+                            kind: "remove-repository",
+                            repository: repo.repository.path,
+                          });
+                        },
+                      },
+                      ...(repo.repository.canDeleteMerged || cleanup
+                        ? [
+                            null,
+                            {
+                              label: deleting
+                                ? "Deleting merged worktrees"
+                                : cleanup
+                                  ? "Cleanup results"
+                                  : "Delete merged worktrees…",
+                              glyph: "trash" as const,
+                              hint: deleting
+                                ? `${String(cleanup.done)}/${String(cleanup.total)}`
+                                : String(repo.repository.mergedCount ?? ""),
+                              run: () =>
+                                command({
+                                  kind: "delete-merged-worktrees",
+                                  repository: repo.repository.path,
+                                }),
                             },
-                          },
-                          {
-                            label: "Remove from Foom…",
-                            hint: "keeps files",
-                            glyph: "unlist" as const,
-                            run: () => {
-                              return command({
-                                kind: "remove-repository",
-                                repository: repo.repository.path,
-                              });
+                          ]
+                        : []),
+                      ...(repo.repository.mergedError
+                        ? [
+                            null,
+                            {
+                              label: repo.repository.mergedError,
+                              disabled: true,
+                              run: () => undefined,
                             },
-                          },
-                          ...(repo.repository.canDeleteMerged || cleanup
-                            ? [
-                                null,
-                                {
-                                  label: deleting
-                                    ? "Deleting merged worktrees"
-                                    : cleanup
-                                      ? "Cleanup results"
-                                      : "Delete merged worktrees…",
-                                  glyph: "trash" as const,
-                                  hint: deleting
-                                    ? `${String(cleanup.done)}/${String(cleanup.total)}`
-                                    : String(repo.repository.mergedCount ?? ""),
-                                  run: () =>
-                                    command({
-                                      kind: "delete-merged-worktrees",
-                                      repository: repo.repository.path,
-                                    }),
-                                },
-                              ]
-                            : []),
-                          ...(repo.repository.mergedError
-                            ? [
-                                null,
-                                {
-                                  label: repo.repository.mergedError,
-                                  disabled: true,
-                                  run: () => undefined,
-                                },
-                              ]
-                            : []),
-                        ])}
-                      </div>
-                      {repo.expanded && (
-                        <div role="group">
-                          {!filter.trim() && repo.worktrees.length === 0 && (
-                            <p className="tree-empty">Nothing here yet</p>
-                          )}
-                          {repo.worktrees.map(({ tree: worktree, expanded, rollup, sessions }) => {
-                            const wid = worktreeKey(worktree.path);
-                            const cleanupItem = cleanup?.items.find(
-                              (item) =>
-                                item.path === worktree.path &&
-                                (item.state !== "removed" || worktree.removed),
-                            );
-                            const cleanupKey = `${cleanup?.id ?? ""}:${worktree.path}`;
-                            const branch =
-                              worktree.branch ?? `⏣ ${worktree.head?.slice(0, 7) ?? "Unknown"}`;
-                            const main = worktree.path === repo.repository.path;
-                            const name = main ? "Main checkout" : branch;
-                            const target = {
-                              repository: repo.repository.path,
-                              worktree: worktree.path,
-                            };
-                            return (
-                              <div
-                                key={wid}
-                                data-cleanup={cleanupItem?.state}
-                                aria-hidden={cleanupItem?.state === "removed" ? true : undefined}
-                                role="treeitem"
-                                aria-expanded={expanded}
-                                aria-label={name}
-                              >
-                                <div
-                                  {...rowEvents(wid)}
-                                  data-cleanup={cleanupItem?.state}
-                                  onFocus={() => {
-                                    if (cleanupItem?.state === "kept") dismissCleanup(cleanupKey);
-                                  }}
-                                  className={`tree-row worktree-row${arrival === worktree.path ? " arriving" : ""}`}
-                                  onPointerEnter={(event) => {
-                                    rowEvents(wid).onPointerEnter(event);
-                                    if (cleanupItem?.state === "kept") dismissCleanup(cleanupKey);
-                                    if (arrival === worktree.path) settle(worktree.path, 600);
-                                  }}
-                                >
-                                  <button
-                                    type="button"
-                                    className="tree-chevron"
-                                    aria-label={`${expanded ? "Collapse" : "Expand"} ${name}`}
-                                    onClick={() => {
-                                      toggle(wid, expanded);
-                                    }}
-                                  >
-                                    {expanded ? "▾" : "▸"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    data-nav
-                                    ref={(element) => {
-                                      if (element) anchorsRef.current.set(wid, element);
-                                      else anchorsRef.current.delete(wid);
-                                    }}
-                                    onBlur={() => {
-                                      if (arrival === worktree.path) settle(worktree.path, 0);
-                                    }}
-                                    className="tree-name"
-                                    aria-label={name}
-                                    aria-haspopup="dialog"
-                                    aria-expanded={menu?.id === wid}
-                                    onClick={(event) => {
-                                      togglePanel(wid, event.currentTarget);
-                                    }}
-                                  >
-                                    <svg
-                                      role="img"
-                                      aria-label={main ? "Main checkout" : "Worktree"}
-                                      width="12"
-                                      height="12"
-                                      viewBox="0 0 12 12"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="1.2"
-                                    >
-                                      {main ? (
-                                        <path d="M1.5 3h3.2l1 1.2h4.8v5.3h-9z" />
-                                      ) : (
-                                        <>
-                                          <circle cx="3" cy="2.5" r="1.3" />
-                                          <circle cx="3" cy="9.5" r="1.3" />
-                                          <circle cx="9" cy="4" r="1.3" />
-                                          <path d="M3 3.8v4.4M9 5.3c0 2-3 1.7-5.6 3.3" />
-                                        </>
-                                      )}
-                                    </svg>
-                                    <span className={main ? "tree-checkout-label" : "tree-label"}>
-                                      {main && (
-                                        <span>
-                                          <Highlight text="Main checkout" filter={filter} />
-                                        </span>
-                                      )}
-                                      <span
-                                        className={
-                                          main ? "tree-label tree-checkout-branch" : undefined
-                                        }
-                                      >
-                                        <Highlight text={branch} filter={filter} />
-                                      </span>
-                                    </span>
-                                  </button>
-                                  {worktree.pullRequest && (
-                                    <PullRequestMark
-                                      pr={worktree.pullRequest}
-                                      open={() =>
-                                        command({
-                                          kind: "open-pull-request",
-                                          repository: repo.repository.path,
-                                          worktree: worktree.path,
-                                        })
-                                      }
-                                    />
-                                  )}
-                                  {cleanupItem &&
-                                    !(
-                                      cleanupItem.state === "kept" &&
-                                      dismissedCleanup.has(cleanupKey)
-                                    ) && (
-                                      <span className="cleanup-tag">
-                                        {cleanupItem.reason ?? cleanupItem.state}
-                                      </span>
-                                    )}
-                                  {worktree.removed && (
-                                    <span className="worktree-removed">
-                                      <span aria-hidden="true">⊘</span> Worktree removed
-                                    </span>
-                                  )}
-                                  {!expanded && roll(rollup)}
-                                  {!worktree.removed &&
-                                    actions(wid, name, [
-                                      ...launchers(target),
-                                      {
-                                        label: "Resume conversation…",
-                                        expanded: menu?.id === wid && fieldOpen,
-                                        run: () => {
-                                          const anchor = anchorsRef.current.get(wid);
-                                          if (anchor) openField(wid, anchor);
+                          ]
+                        : []),
+                    ])}
+                  >
+                    {repo.expanded && (
+                      <>
+                        {" "}
+                        {repo.worktrees.map(({ tree: worktree, expanded, rollup, sessions }) => {
+                          const wid = worktreeKey(worktree.path);
+                          const cleanupItem = cleanup?.items.find(
+                            (item) =>
+                              item.path === worktree.path &&
+                              (item.state !== "removed" || worktree.removed),
+                          );
+                          const cleanupKey = `${cleanup?.id ?? ""}:${worktree.path}`;
+                          const branch =
+                            worktree.branch ?? `⏣ ${worktree.head?.slice(0, 7) ?? "Unknown"}`;
+                          const main = worktree.path === repo.repository.path;
+                          const name = main ? "Main checkout" : branch;
+                          const target = {
+                            repository: repo.repository.path,
+                            worktree: worktree.path,
+                          };
+                          return (
+                            <SidebarWorktreeSection
+                              key={wid}
+                              worktree={worktree}
+                              name={name}
+                              branch={branch}
+                              main={main}
+                              expanded={expanded}
+                              rollup={rollup}
+                              cleanupItem={cleanupItem}
+                              cleanupDismissed={dismissedCleanup.has(cleanupKey)}
+                              arriving={arrival === worktree.path}
+                              filter={filter}
+                              panelOpen={menu?.id === wid}
+                              events={rowEvents(wid)}
+                              register={(element) => {
+                                if (element) anchorsRef.current.set(wid, element);
+                                else anchorsRef.current.delete(wid);
+                              }}
+                              toggle={() => {
+                                toggle(wid, expanded);
+                              }}
+                              openPanel={(anchor) => {
+                                togglePanel(wid, anchor);
+                              }}
+                              openPullRequest={() =>
+                                command({
+                                  kind: "open-pull-request",
+                                  repository: repo.repository.path,
+                                  worktree: worktree.path,
+                                })
+                              }
+                              dismissCleanup={() => {
+                                dismissCleanup(cleanupKey);
+                              }}
+                              settle={(delay) => {
+                                settle(worktree.path, delay);
+                              }}
+                              actions={
+                                !worktree.removed &&
+                                actions(wid, name, [
+                                  ...launchers(target),
+                                  {
+                                    label: "Resume conversation…",
+                                    expanded: menu?.id === wid && fieldOpen,
+                                    run: () => {
+                                      const anchor = anchorsRef.current.get(wid);
+                                      if (anchor) openField(wid, anchor);
+                                    },
+                                  },
+                                  ...(source.previews && !worktree.bare
+                                    ? [
+                                        {
+                                          label: "Preview file…",
+                                          run: () => pickPreview?.(worktree.path),
                                         },
-                                      },
-                                      ...(source.previews && !worktree.bare
-                                        ? [
-                                            {
-                                              label: "Preview file…",
-                                              run: () => pickPreview?.(worktree.path),
-                                            },
-                                          ]
-                                        : []),
-                                      ...(!main && !worktree.bare
-                                        ? [
-                                            null,
-                                            {
-                                              label: "Delete worktree…",
-                                              disabled: rows.some(
-                                                (session) =>
-                                                  rowRepository(session) === target.repository &&
-                                                  rowWorktree(session) === target.worktree &&
-                                                  !session.exited,
-                                              ),
-                                              glyph: "trash" as const,
-                                              run: () => {
-                                                return command({
-                                                  kind: "remove-worktree",
-                                                  ...target,
-                                                });
-                                              },
-                                            },
-                                          ]
-                                        : []),
-                                    ])}
-                                </div>
-                                {expanded && (
-                                  <div role="group">
-                                    {sessions.length
-                                      ? sessions.map((row) => (
-                                          <div key={row.id}>
-                                            {session(row)}
-                                            {matchingPreviews
-                                              .filter(
-                                                (preview) =>
-                                                  preview.openedBy?.terminalId === row.id,
-                                              )
-                                              .map(previewRow)}
-                                          </div>
-                                        ))
-                                      : !filter.trim() &&
-                                        !matchingPreviews.some(
-                                          (preview) => preview.worktree === worktree.path,
-                                        ) && <p className="tree-empty">Nothing here yet</p>}
-                                    {matchingPreviews
-                                      .filter(
-                                        (preview) =>
-                                          !sessions.some(
-                                            (row) => row.id === preview.openedBy?.terminalId,
-                                          ) &&
-                                          preview.worktree === worktree.path &&
-                                          preview.repository === repo.repository.path,
-                                      )
-                                      .map(previewRow)}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                                      ]
+                                    : []),
+                                  ...(!main && !worktree.bare
+                                    ? [
+                                        null,
+                                        {
+                                          label: "Delete worktree…",
+                                          disabled: rows.some(
+                                            (session) =>
+                                              rowRepository(session) === target.repository &&
+                                              rowWorktree(session) === target.worktree &&
+                                              !session.exited,
+                                          ),
+                                          glyph: "trash" as const,
+                                          run: () => {
+                                            return command({
+                                              kind: "remove-worktree",
+                                              ...target,
+                                            });
+                                          },
+                                        },
+                                      ]
+                                    : []),
+                                ])
+                              }
+                            >
+                              {expanded && (
+                                <>
+                                  {" "}
+                                  {sessions.length
+                                    ? sessions.map((row) => (
+                                        <div key={row.id}>
+                                          {session(row)}
+                                          {matchingPreviews
+                                            .filter(
+                                              (preview) => preview.openedBy?.terminalId === row.id,
+                                            )
+                                            .map(previewRow)}
+                                        </div>
+                                      ))
+                                    : !filter.trim() &&
+                                      !matchingPreviews.some(
+                                        (preview) => preview.worktree === worktree.path,
+                                      ) && <p className="tree-empty">Nothing here yet</p>}
+                                  {matchingPreviews
+                                    .filter(
+                                      (preview) =>
+                                        !sessions.some(
+                                          (row) => row.id === preview.openedBy?.terminalId,
+                                        ) &&
+                                        preview.worktree === worktree.path &&
+                                        preview.repository === repo.repository.path,
+                                    )
+                                    .map(previewRow)}
+                                </>
+                              )}
+                            </SidebarWorktreeSection>
+                          );
+                        })}{" "}
+                      </>
+                    )}
+                  </SidebarRepositorySection>
                 );
               })}
         </div>
@@ -1449,105 +1145,34 @@ export function Sidebar({
           </button>
         </div>
       </footer>
-      {menu && subjects.has(menu.id) && !inactive && (
-        <RowMenu
-          panel={{
-            title:
-              subjects.get(menu.id)?.subject.kind === "session" ? (
-                <PanelTitle
-                  name={subjects.get(menu.id)?.name ?? "Session"}
-                  save={(value) => {
-                    save(renameSession(preferences, menu.id, value));
-                  }}
-                />
-              ) : (
-                subjects.get(menu.id)?.name
-              ),
-            kind: subjects.get(menu.id)?.kind ?? "",
-            mark: subjects.get(menu.id)?.mark ?? "",
-            facts: (() => {
-              const subject = subjects.get(menu.id)?.subject;
-              const facts = subject ? (
-                <PanelFacts key={menu.id} subject={subject} source={source} options={options} />
-              ) : null;
-              if (fieldOpen && subject?.kind === "worktree")
-                return (
-                  <div className="panel-side" data-field>
-                    {facts}
-                    <ResumeField
-                      identities={options?.agents ?? []}
-                      patterns={(options?.agents ?? [])
-                        .filter((agent) => agent.path && options?.enabled[agent.id] !== false)
-                        .flatMap((agent) =>
-                          (agent.resumePaste ?? []).map((pattern) => ({
-                            ...pattern,
-                            agent: agent.id,
-                          })),
-                        )}
-                      confirmations={source.confirmations}
-                      key={menu.id}
-                      agents={(options?.agents ?? [])
-                        .filter(
-                          (agent) =>
-                            agent.path &&
-                            options?.enabled[agent.id] !== false &&
-                            agent.resume !== false,
-                        )
-                        .map((agent) => agent.id)}
-                      back={() => {
-                        intent.pin(menu.id, menu.anchor);
-                      }}
-                      done={intent.close}
-                      launch={async (agent, id) => {
-                        await command({
-                          kind: "resume-id",
-                          checkout: {
-                            repository: subject.repository.path,
-                            worktree: subject.tree.path,
-                          },
-                          agent,
-                          id,
-                        });
-                      }}
-                    />
-                  </div>
-                );
-              return fieldOpen && subject?.kind === "repository" && source.worktrees ? (
-                <div className="panel-side" data-field>
-                  {facts}
-                  <BranchField
-                    key={menu.id}
-                    repository={subject.repository.path}
-                    source={source.worktrees}
-                    back={() => {
-                      intent.pin(menu.id, menu.anchor);
-                    }}
-                    created={(worktree) => {
-                      arrive(subject.repository.path, worktree.path);
-                    }}
-                  />
-                </div>
-              ) : (
-                facts
-              );
-            })(),
-            pinned: menu.pinned,
-            enter: () => {
-              intent.hold();
-            },
-            leave: () => {
-              intent.leave();
-            },
-            pin: () => {
-              if (!menu.pinned) intent.pin(menu.id, menu.anchor);
-            },
-          }}
-          label={`${subjects.get(menu.id)?.name ?? "Row"} details and commands`}
-          confirmations={source.confirmations}
-          bottomAligned={menu.id === "config"}
-          anchor={menu.anchor}
+      {menu && panel && !inactive && (
+        <SidebarPanel
+          menu={menu}
+          subject={panel.subject}
+          name={panel.name}
+          kind={panel.kind}
+          mark={panel.mark}
+          source={source}
+          options={options}
           actions={currentActions.get(menu.id) ?? []}
+          rename={(value) => {
+            save(renameSession(preferences, menu.id, value));
+          }}
+          command={command}
+          created={arrive}
+          back={() => {
+            intent.pin(menu.id, menu.anchor);
+          }}
           close={closeMenu}
+          enter={() => {
+            intent.hold();
+          }}
+          leave={() => {
+            intent.leave();
+          }}
+          pin={() => {
+            intent.pin(menu.id, menu.anchor);
+          }}
         />
       )}
     </aside>
