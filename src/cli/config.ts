@@ -1,10 +1,12 @@
+import { agentCapabilities } from "../shared/agent-capabilities";
+import type { AgentCapabilityReport } from "../shared/agent-capability-report";
 import { parsePluginManifest } from "../shared/plugin-parser";
 import type { ConfigDirectory } from "./types";
 import { soundDuration } from "./sound-duration";
 import { constants } from "node:fs";
 import { lstat, open, opendir, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { validateConfigJson } from "../shared/config-files";
+import { configJson, validateConfigJson } from "../shared/config-files";
 import { SOUND_KINDS, validSoundFile } from "../shared/sounds";
 import {
   matchesSoundHeader,
@@ -87,7 +89,8 @@ async function read(path: string, max: number, parent: ConfigDirectory): Promise
 async function validateFile(
   path: string,
   parent: ConfigDirectory,
-  kind?: FolderKind,
+  kind: FolderKind | undefined,
+  agents: AgentCapabilityReport[],
 ): Promise<readonly ThemeDiagnostic[]> {
   if (kind && soundKind(kind)) {
     if (!validSoundFile(basename(path))) fail("unsafe-file");
@@ -117,10 +120,11 @@ async function validateFile(
         ? kind
         : undefined,
     );
-    if (kind === "agent" || kind === "forge") {
+    if (kind === "agent" || kind === "forge" || configJson(text)["kind"] === "agent") {
       const loaded = parsePluginManifest(text);
       const identifier = loaded.kind === "agent" ? loaded.plugin.model.id : loaded.plugin.id;
       if (basename(path) !== `${identifier}.json`) fail("invalid-value");
+      if (loaded.kind === "agent") agents.push(agentCapabilities(loaded.plugin));
     }
     return diagnostics;
   }
@@ -129,8 +133,9 @@ async function validateFile(
 /** Offline, read-only: only the explicitly supplied file/tree is ever inspected. */
 export async function validateConfig(
   path: string,
-): Promise<{ problems: ThemeDiagnostic[]; code: number }> {
+): Promise<{ problems: ThemeDiagnostic[]; agents?: AgentCapabilityReport[]; code: number }> {
   const problems: ThemeDiagnostic[] = [];
+  const agents: AgentCapabilityReport[] = [];
   const status = { ioError: false };
   const report = (file: string, error: unknown) => {
     if (!(error instanceof ThemeValidationError)) status.ioError = true;
@@ -148,7 +153,7 @@ export async function validateConfig(
     kind?: FolderKind,
   ) => {
     try {
-      const warnings = await validateFile(file, parent, kind);
+      const warnings = await validateFile(file, parent, kind, agents);
       problems.push(...warnings.map((warning) => ({ ...warning, file: label })));
     } catch (error) {
       report(label, error);
@@ -243,6 +248,7 @@ export async function validateConfig(
   problems.sort((a, b) => a.file.localeCompare(b.file) || a.path.localeCompare(b.path));
   return {
     problems,
+    ...(agents.length ? { agents: agents.sort((a, b) => a.id.localeCompare(b.id)) } : {}),
     code: status.ioError ? 2 : problems.some((problem) => problem.severity !== "warning") ? 1 : 0,
   };
 }

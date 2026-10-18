@@ -162,52 +162,61 @@ export function AgentsStep({
                   <div className="agent-setting">
                     <span className="agent-label">Attention</span>
                     <div className="agent-inline">
-                      {supportsHooks ? (
-                        <div className="agent-signals" aria-label={`${name} attention`}>
-                          {([true, false] as const).map((enabled) => (
-                            <button
-                              key={String(enabled)}
-                              type="button"
-                              aria-pressed={(state.settings.agentHooks?.[id] !== false) === enabled}
-                              onClick={() => {
-                                save({
-                                  agentHooks: { ...state.settings.agentHooks, [id]: enabled },
-                                });
-                              }}
-                            >
-                              {enabled ? "Hooks" : "Screen rules"}
-                            </button>
-                          ))}
-                        </div>
+                      {agent?.attentionSignal === false ? (
+                        <span>No attention signal</span>
                       ) : (
-                        <span>Screen rules</span>
-                      )}
-                      {supportsHooks && how !== "hooks" && (
-                        <span>
-                          {how === "notify"
-                            ? "Notify + screen rules active"
-                            : "Screen rules active"}
-                          {!state.settings.hooks ? " · hooks off" : ""}
-                        </span>
-                      )}
-                      {agent?.hookState && (
                         <>
-                          <span
-                            className={
-                              agent.hookState === "not-reviewed" || agent.hookState === "outdated"
-                                ? "agent-needs"
-                                : undefined
-                            }
-                          >
-                            {agent.hookState === "trusted"
-                              ? "Trusted · observed working"
-                              : agent.hookState === "not-reviewed"
-                                ? "Trust review pending"
-                                : agent.hookState === "outdated"
-                                  ? "Outdated · review needed"
-                                  : "Declined · Notify fallback"}
-                          </span>
-                          <code>{agent.healthInstructions}</code>
+                          {supportsHooks ? (
+                            <div className="agent-signals" aria-label={`${name} attention`}>
+                              {([true, false] as const).map((enabled) => (
+                                <button
+                                  key={String(enabled)}
+                                  type="button"
+                                  aria-pressed={
+                                    (state.settings.agentHooks?.[id] !== false) === enabled
+                                  }
+                                  onClick={() => {
+                                    save({
+                                      agentHooks: { ...state.settings.agentHooks, [id]: enabled },
+                                    });
+                                  }}
+                                >
+                                  {enabled ? "Hooks" : "Screen rules"}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <span>Screen rules</span>
+                          )}
+                          {supportsHooks && how !== "hooks" && (
+                            <span>
+                              {how === "notify"
+                                ? "Notify + screen rules active"
+                                : "Screen rules active"}
+                              {!state.settings.hooks ? " · hooks off" : ""}
+                            </span>
+                          )}
+                          {agent?.hookState && (
+                            <>
+                              <span
+                                className={
+                                  agent.hookState === "not-reviewed" ||
+                                  agent.hookState === "outdated"
+                                    ? "agent-needs"
+                                    : undefined
+                                }
+                              >
+                                {agent.hookState === "trusted"
+                                  ? "Trusted · observed working"
+                                  : agent.hookState === "not-reviewed"
+                                    ? "Trust review pending"
+                                    : agent.hookState === "outdated"
+                                      ? "Outdated · review needed"
+                                      : "Declined · Notify fallback"}
+                              </span>
+                              <code>{agent.healthInstructions}</code>
+                            </>
+                          )}
                         </>
                       )}
                       {installed &&

@@ -163,7 +163,7 @@ test("validates sound filenames, headers, size and shared duration boundaries of
 test("execute bypasses inherited credentials, pairing and profile discovery and preserves JSON/text parity", async () => {
   const root = await fixture();
   const file = await put(root, "input.json", '{"kind":"settings","agentBypassAcknowledged":{}}');
-  const out = vi.fn();
+  const out = vi.fn<(text: string) => void>();
   const error = vi.fn();
   const io = {
     out,
@@ -180,7 +180,7 @@ test("execute bypasses inherited credentials, pairing and profile discovery and 
   };
   expect(await execute(["config", "validate", file, "--json"], "1", io, env, "/foom")).toBe(1);
   expect(out).toHaveBeenLastCalledWith(
-    '[{"file":"input.json","path":"$.agentBypassAcknowledged","reason":"unknown-key"}]\n',
+    '{"problems":[{"file":"input.json","path":"$.agentBypassAcknowledged","reason":"unknown-key"}],"agents":[]}\n',
   );
   expect(await execute(["config", "validate", file], "1", io, env, "/foom")).toBe(1);
   expect(out).toHaveBeenLastCalledWith('"input.json": $.agentBypassAcknowledged: unknown-key\n');
@@ -197,7 +197,7 @@ test("execute bypasses inherited credentials, pairing and profile discovery and 
     expect(await execute(args, "1", io, env, "/foom")).toBe(2);
   await writeFile(file, '{"kind":"settings"}');
   expect(await execute(["config", "validate", file, "--json"], "1", io, env, "/foom")).toBe(0);
-  expect(out).toHaveBeenLastCalledWith("[]\n");
+  expect(out).toHaveBeenLastCalledWith('{"problems":[],"agents":[]}\n');
   expect(await execute(["config", "validate", join(root, "absent")], "1", io, env, "/foom")).toBe(
     2,
   );
@@ -246,7 +246,7 @@ test("theme warnings print with fixed severity and exit successfully", async () 
     reason: "reserved-color",
     severity: "warning",
   });
-  const out = vi.fn();
+  const out = vi.fn<(text: string) => void>();
   const io = {
     out,
     error: vi.fn(),
@@ -293,7 +293,7 @@ test("offline validation accepts literal defaults and reports fixed per-line res
     ],
   });
   expect(JSON.stringify(result)).not.toContain("not echoed");
-  const out = vi.fn();
+  const out = vi.fn<(text: string) => void>();
   await execute(
     ["config", "validate", file],
     "1",
@@ -312,8 +312,16 @@ test("validates agent manifests offline and reports malformed or mismatched plug
   await mkdir(agents);
   const file = join(agents, `${manifest.id}.json`);
   await writeFile(file, JSON.stringify(manifest));
-  expect(await validateConfig(folder)).toEqual({ problems: [], code: 0 });
-  expect(await validateConfig(agents)).toEqual({ problems: [], code: 0 });
+  expect(await validateConfig(folder)).toMatchObject({
+    problems: [],
+    code: 0,
+    agents: [{ id: manifest.id }],
+  });
+  expect(await validateConfig(agents)).toMatchObject({
+    problems: [],
+    code: 0,
+    agents: [{ id: manifest.id }],
+  });
   await writeFile(file, JSON.stringify({ ...manifest, capabilities: ["codex-hooks"] }));
   expect(await validateConfig(agents)).toMatchObject({
     code: 1,
@@ -333,7 +341,11 @@ test("validates v2 agents offline and reports parser reasons without probing", a
   const draft = await import("../../fixtures/agent-plugins-v2/claude.json");
   const file = join(agents, "offline-agent.json");
   await writeFile(file, JSON.stringify({ ...draft.default, id: "offline-agent" }));
-  expect(await validateConfig(agents)).toEqual({ problems: [], code: 0 });
+  expect(await validateConfig(agents)).toMatchObject({
+    problems: [],
+    code: 0,
+    agents: [{ id: "offline-agent" }],
+  });
   await writeFile(
     file,
     JSON.stringify({
@@ -354,4 +366,40 @@ test("validates v2 agents offline and reports parser reasons without probing", a
   ]);
   await writeFile(file, JSON.stringify({ ...draft.default, id: "different-id" }));
   expect((await validateConfig(agents)).problems[0]?.reason).toBe("invalid-value");
+});
+
+test("CLI emits sanitized capabilities and non-failing warnings in text and JSON", async () => {
+  const root = await fixture();
+  const { default: base } = await import("../../fixtures/agent-plugin-v2.json");
+  const file = await put(
+    root,
+    `${base.id}.json`,
+    JSON.stringify({
+      ...base,
+      attention: { minimumEngineVersion: 1, rules: [] },
+      conversation: { resumePin: "first-event", restoreControl: false },
+    }),
+  );
+  const out = vi.fn<(text: string) => void>();
+  const io = { out, error: vi.fn(), input: (async function* () {})() };
+  expect(await execute(["config", "validate", file, "--json"], "1", io, {}, "/foom")).toBe(0);
+  expect(JSON.parse(out.mock.calls[0]?.[0] ?? "")).toMatchObject({
+    problems: [],
+    agents: [
+      {
+        id: base.id,
+        attention: { rules: 0 },
+        resume: "paste only",
+        warnings: [
+          "No attention signal",
+          "Resume declared with no ID source; paste a conversation ID",
+        ],
+      },
+    ],
+  });
+  out.mockClear();
+  expect(await execute(["config", "validate", file], "1", io, {}, "/foom")).toBe(0);
+  expect(out).toHaveBeenCalledWith(expect.stringContaining("Attention: none"));
+  expect(out).toHaveBeenCalledWith(expect.stringContaining("Warning: No attention signal"));
+  expect(JSON.stringify(out.mock.calls)).not.toContain("FIXTURE_BYPASS");
 });
