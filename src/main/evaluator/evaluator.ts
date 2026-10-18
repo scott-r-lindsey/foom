@@ -62,7 +62,7 @@ export function evaluateRules(input: EvaluationInput): Verdict {
     return detected.id.startsWith("provider_") ||
       agentProviders()
         .find((provider) => provider.id === input.agent)
-        ?.model?.execution.providerRules.includes(detected.id)
+        ?.model.execution.providerRules.includes(detected.id)
       ? { ...blocked, attentionKind: "provider" }
       : blocked;
   }

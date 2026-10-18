@@ -44,7 +44,6 @@ function required<T>(value: T | undefined): T {
 }
 function model(data: unknown = fixture): AgentManifestV2 {
   const parsed = parseAgentManifest(JSON.stringify(data));
-  if (parsed.version !== 2) throw Error("v2 fixture required");
   return parsed.model;
 }
 const request: AgentLaunch = {
@@ -73,7 +72,7 @@ async function launch(
 ) {
   const provider = v2Provider(m, () => Promise.resolve());
   const install = provider.discover("/fake/fixture-v2", version, help);
-  const prepared = await provider.prepareLaunch?.(
+  const prepared = await provider.prepareLaunch(
     install,
     { ...request, ...changes },
     defaults,
@@ -81,7 +80,7 @@ async function launch(
     config,
     true,
   );
-  if (!prepared) throw Error("Missing preparation");
+
   cleanup.push(() => {
     prepared.dispose();
   });
@@ -419,17 +418,10 @@ it("recovers only invalid provider defaults and keeps immutable validated launch
   ).toEqual({ claude: ["--model", "safe"], codex: [], agy: [], [m.id]: [], other: ["--ordinary"] });
   required(m.launch.arguments).arguments.push("--yolo");
   const installation = provider.discover("/fake/fixture-v2", "fixture 1.2.3", "--prompt");
-  const prepared = await provider.prepareLaunch?.(
-    installation,
-    request,
-    [],
-    undefined,
-    false,
-    false,
-  );
-  expect(prepared?.args).not.toContain("--yolo");
-  prepared?.dispose();
-  expect(Object.isFrozen(provider.model?.launch)).toBe(true);
+  const prepared = await provider.prepareLaunch(installation, request, [], undefined, false, false);
+  expect(prepared.args).not.toContain("--yolo");
+  prepared.dispose();
+  expect(Object.isFrozen(provider.model.launch)).toBe(true);
 });
 
 it("guidance merge emits its declared canonical flag and preserves literal prompt text", async () => {
@@ -559,9 +551,9 @@ it("derives setup facts after status enrichment and re-probes before launch", as
     const enriched = await provider.enrich(initial, new AgyPlugin());
     expect(enriched.mcp).toBe(true);
     expect(provider.setupFacts?.("/missing", {})).toHaveProperty("pluginReady", false);
-    const prepared = await provider.prepareLaunch?.(enriched, request, [], control, false, true);
-    expect(prepared?.mcp).toBe(true);
-    prepared?.dispose();
+    const prepared = await provider.prepareLaunch(enriched, request, [], control, false, true);
+    expect(prepared.mcp).toBe(true);
+    prepared.dispose();
     expect(status).toHaveBeenCalledTimes(2);
     await provider.enrich({ ...initial, path: null }, new AgyPlugin());
   } finally {

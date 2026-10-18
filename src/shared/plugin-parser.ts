@@ -2,7 +2,7 @@ import { parseAgentManifest } from "./agent-plugin-parser";
 import { parseForgeManifest } from "./forge-manifest";
 import { fail } from "./agent-manifest-values";
 
-/** Dispatch before kind-specific parsing; preserve the original agent v1 JSON semantics. */
+/** Dispatch before kind-specific parsing; validate agent and forge versions independently. */
 export function parsePluginManifest(source: string, origin: "bundled" | "config" = "config") {
   if (new TextEncoder().encode(source).length > 65536) fail("$", "too-large");
   let value: unknown;

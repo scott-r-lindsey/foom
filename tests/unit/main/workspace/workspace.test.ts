@@ -7,8 +7,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pluginFixture from "../../../fixtures/agent-plugin.json";
-import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
-import { configProvider } from "../../../../src/main/agents/providers/config";
 import {
   agentProvider,
   replaceConfigProviders,
@@ -536,7 +534,7 @@ function held<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 /** Prepares and binds a Claude launch to t1, returning its hook key. */
 async function bound(agent: AgentId = "claude"): Promise<string> {
   const hooks = await prepare?.(agent);
-  for (const channel of agentProvider(agent).model?.hooks?.channels ?? [])
+  for (const channel of agentProvider(agent).model.hooks?.channels ?? [])
     hooks?.v2?.channels.set(channel.id, channel);
   hooks?.bind?.("t1");
   return receiver.register.mock.calls.at(-1)?.[0] ?? "";
@@ -2476,7 +2474,7 @@ async function codexWorkspace() {
   });
   const hooks = await prepare?.("codex");
   if (!hooks) throw new Error("Missing hook binding");
-  await agentProvider("codex").prepareLaunch?.(
+  await agentProvider("codex").prepareLaunch(
     agentProvider("codex").discover("/bin/codex", "codex-cli 0.161.0", "-c --no-alt-screen"),
     { agent: "codex", repository: repo.path, worktree: tree.path, cols: 80, rows: 24 },
     [],
@@ -2558,7 +2556,7 @@ test.each([true, false])(
   "previously trusted Codex hooks fall back when review is %s",
   async (review) => {
     const model = agentProvider("codex").model;
-    if (!model) throw new Error("Missing bundled model");
+
     const health = await installedHealth(model, deps.agentPluginDirectory);
     health.set("trusted");
     const { workspace, hooks } = await codexWorkspace();
@@ -3765,8 +3763,8 @@ test("provider stalls recover on a working title while the provider line remains
 });
 
 test("an unavailable config plugin still protects its recorded conversation from merged cleanup", async () => {
-  const manifest = parseAgentPlugin(JSON.stringify(pluginFixture));
-  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
+  const manifest = parseAgentManifest(JSON.stringify(pluginFixture)).model;
+  replaceConfigProviders([v2Provider(manifest, () => Promise.resolve())]);
   const workspace = await launched(manifest.id);
   try {
     await workspace.hook({
@@ -3813,7 +3811,7 @@ test("v2 workspace treats startup as metadata, suppresses duplicate completion a
   deps.agentPluginDirectory = profile;
   const workspace = await launched(model.id);
   const hooks = await prepare?.(model.id);
-  if (!hooks?.v2 || !provider.prepareLaunch) throw Error("Missing hooks");
+  if (!hooks?.v2) throw Error("Missing hooks");
   const installation = provider.discover("/fixture", "codex-cli 0.161.0", "-c");
   const prepared = await provider.prepareLaunch(
     installation,

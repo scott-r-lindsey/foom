@@ -3231,30 +3231,27 @@ process.exit(1);
   });
 }
 
-for (const version of [1, 2])
-  test(version === 1
-    ? "a manifest-only fixture agent loads from the config folder, reloads edits and is withdrawn when invalid"
-    : "a manifest-only v2 fixture agent loads from the config folder, reloads edits and is withdrawn when invalid", {
-    timeout: deadline(60_000),
-  }, async (context) => {
-    const { chmod, copyFile } = require("node:fs/promises");
-    const root = await mkdtemp(path.join(tmpdir(), "foom-manifest-agent-"));
-    removeAfterApps(context, root);
-    const bin = path.join(root, "bin");
-    const home = path.join(root, "home");
-    const repo = path.join(root, "repo");
-    const output = path.join(root, "argv.json");
-    const script = path.join(root, "fixture.js");
-    await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
-    const executable = path.join(
-      bin,
-      process.platform === "win32" ? "foom-test-agent.exe" : "foom-test-agent",
-    );
-    await copyFile(process.execPath, executable);
-    await chmod(executable, 0o755);
-    await writeFile(
-      script,
-      `require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify(process.argv.slice(2)));
+test("a manifest-only v2 fixture agent loads from the config folder, reloads edits and is withdrawn when invalid", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const { chmod, copyFile } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-manifest-agent-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  const repo = path.join(root, "repo");
+  const output = path.join(root, "argv.json");
+  const script = path.join(root, "fixture.js");
+  await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
+  const executable = path.join(
+    bin,
+    process.platform === "win32" ? "foom-test-agent.exe" : "foom-test-agent",
+  );
+  await copyFile(process.execPath, executable);
+  await chmod(executable, 0o755);
+  await writeFile(
+    script,
+    `require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify(process.argv.slice(2)));
 process.stdin.on('data', async () => {
   if (!process.env.FOOM_TOKEN) return;
   const payload = { session_id: 'fixture-hook-conversation', hook_event_name: 'PermissionRequest' };
@@ -3262,238 +3259,226 @@ process.stdin.on('data', async () => {
   request.end(JSON.stringify(payload));
 });
 process.stdin.resume();`,
-    );
-    isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
-    isolatedGit(
-      [
-        "-c",
-        "user.name=Foom",
-        "-c",
-        "user.email=foom@example.com",
-        "commit",
-        "-q",
-        "--allow-empty",
-        "-m",
-        "init",
+  );
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  const app = await launchApp(context, {
+    fixture: "agent",
+    env: { HOME: home, PATH: bin, TEST_ARGV: output, FIXTURE_BYPASS: "private-bypass-value" },
+  });
+  const page = await boardPage(app);
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  const repository = await page.evaluate(() => window.desktop.addRepository());
+  assert.ok(repository);
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  const file = path.join(home, ".foom/config/agents/foom-test-agent.json");
+  const v2 = JSON.parse(
+    await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8"),
+  );
+  const manifest = {
+    ...v2,
+    id: "foom-test-agent",
+    name: "Fixture agent",
+    badge: "FT",
+    executables: ["foom-test-agent"],
+    discovery: { facts: [] },
+    launch: {
+      ...v2.launch,
+      order: [
+        "arguments",
+        "resume",
+        "defaults",
+        "display",
+        "guidance",
+        "mcp",
+        "hooks",
+        "tools",
+        "prompt",
       ],
-      { cwd: repo },
-    );
-    const app = await launchApp(context, {
-      fixture: "agent",
-      env: { HOME: home, PATH: bin, TEST_ARGV: output, FIXTURE_BYPASS: "private-bypass-value" },
-    });
-    const page = await boardPage(app);
-    await app.evaluate(({ dialog }, repo) => {
-      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
-    }, repo);
-    const repository = await page.evaluate(() => window.desktop.addRepository());
-    assert.ok(repository);
-    await openSettingsScreen(page);
-    await page
-      .getByRole("navigation", { name: "Settings sections" })
-      .getByRole("button", { name: "Agents", exact: true })
-      .click();
-    const file = path.join(home, ".foom/config/agents/foom-test-agent.json");
-    const legacy = {
-      kind: "agent",
-      version: 1,
-      id: "foom-test-agent",
-      name: "Fixture agent",
-      badge: "FT",
-      executables: ["foom-test-agent"],
-      launch: {
-        arguments: [script, "$(literal)", "--yolo"],
-        prompt: ["--prompt", "{prompt}"],
-        resume: ["--resume", "{conversationId}"],
+      arguments: { arguments: [script, "$(literal)", "--yolo"] },
+      display: undefined,
+      prompt: { arguments: ["--prompt", "{prompt}"] },
+      mcp: {
+        arguments: ["--mcp", "{file:config/mcp.json}"],
+        when: { all: [{ field: "control", op: "eq", value: true }] },
       },
-      bypassArguments: ["--yolo"],
-      attention: { minimumEngineVersion: 1, rules: [] },
-    };
-    const v2 = JSON.parse(
-      await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8"),
-    );
-    const manifest =
-      version === 1
-        ? legacy
-        : {
-            ...v2,
-            id: legacy.id,
-            name: legacy.name,
-            badge: legacy.badge,
-            executables: legacy.executables,
-            discovery: { facts: [] },
-            launch: {
-              ...v2.launch,
-              order: [
-                "arguments",
-                "resume",
-                "defaults",
-                "display",
-                "guidance",
-                "mcp",
-                "hooks",
-                "tools",
-                "prompt",
-              ],
-              arguments: { arguments: legacy.launch.arguments },
-              display: undefined,
-              prompt: { arguments: ["--prompt", "{prompt}"] },
-              mcp: {
-                arguments: ["--mcp", "{file:config/mcp.json}"],
-                when: { all: [{ field: "control", op: "eq", value: true }] },
-              },
-            },
-            execution: { ...v2.execution, completionChannels: ["lifecycle"] },
-            hooks: {
-              channels: [
-                {
-                  id: "lifecycle",
-                  when: { all: [{ field: "hooksEnabled", op: "eq", value: true }] },
-                  observer: {
-                    transport: "stdin",
-                    placement: "launch",
-                    version: 1,
-                    response: "silent",
-                    delivery: "foreground",
-                    timeoutMs: 3000,
-                  },
-                  arguments: ["--settings", "{hookFile:hooks.json}"],
-                  mapping: {
-                    session: { source: "payload", path: ["session_id"] },
-                    event: { source: "payload", path: ["hook_event_name"] },
-                    cases: [
-                      {
-                        id: "PermissionRequest",
-                        event: "PermissionRequest",
-                        action: "needs_input",
-                      },
-                      { id: "Stop", event: "Stop", action: "classify" },
-                    ],
-                  },
-                },
-              ],
-            },
-            files: [
+    },
+    execution: { ...v2.execution, completionChannels: ["lifecycle"] },
+    hooks: {
+      channels: [
+        {
+          id: "lifecycle",
+          when: { all: [{ field: "hooksEnabled", op: "eq", value: true }] },
+          observer: {
+            transport: "stdin",
+            placement: "launch",
+            version: 1,
+            response: "silent",
+            delivery: "foreground",
+            timeoutMs: 3000,
+          },
+          arguments: ["--settings", "{hookFile:hooks.json}"],
+          mapping: {
+            session: { source: "payload", path: ["session_id"] },
+            event: { source: "payload", path: ["hook_event_name"] },
+            cases: [
               {
-                name: "hooks.json",
-                scope: "launch",
-                format: "json",
-                content:
-                  '{"hooks":{"PermissionRequest":[{"type":"command","command":{observerCommand:lifecycle:json}}]}}',
-                when: { all: [{ field: "hooksEnabled", op: "eq", value: true }] },
+                id: "PermissionRequest",
+                event: "PermissionRequest",
+                action: "needs_input",
               },
-              ...v2.files.map((file) => ({
-                ...file,
-                when: { all: [{ field: "control", op: "eq", value: true }] },
-              })),
+              { id: "Stop", event: "Stop", action: "classify" },
             ],
-            conversation: { resumePin: "requested-on-paste", restoreControl: false },
-            resumePaste: [{ command: legacy.id, selector: "--resume" }],
-          };
-    const launch = () =>
-      page.evaluate(
-        (repository) =>
-          window.desktop.sidebarCommand({
-            kind: "launch",
-            repository,
-            worktree: repository,
-            run: "foom-test-agent",
-          }),
-        repository.path,
-      );
-    require("../../build/shared/agent-plugin-parser.js").parseAgentManifest(
-      JSON.stringify(manifest),
-    );
-    await writeFile(file, JSON.stringify(manifest));
-    const card = page
-      .locator(".agent-card")
-      .filter({ has: page.getByRole("heading", { name: "Fixture agent", exact: true }) });
-    await expect(card).toContainText("agents/foom-test-agent.json");
-    await expect(card.getByRole("button", { name: "Review…", exact: true })).toHaveCount(0);
-    await expect
-      .poll(async () =>
-        (await page.evaluate(() => window.desktop.scanAgents(true))).agents.some(
-          (agent) => agent.id === "foom-test-agent" && agent.path !== null,
-        ),
-      )
-      .toBe(true);
-    await expect(card.getByLabel("Fixture agent default arguments")).toBeVisible();
-    await expect(card.getByLabel("New Fixture agent variable name")).toBeVisible();
-    await expect(
-      card.getByText(version === 2 ? "Hooks" : "Screen rules", { exact: true }),
-    ).toBeVisible();
-    await assertAccessible(page);
-    await page.screenshot({ path: path.join(__dirname, "../../test-results/agents-settings.png") });
-    if (version === 2) {
-      await page.evaluate((repository) => {
-        window.v2Launch = window.desktop.sidebarCommand({
+          },
+        },
+      ],
+    },
+    files: [
+      {
+        name: "hooks.json",
+        scope: "launch",
+        format: "json",
+        content:
+          '{"hooks":{"PermissionRequest":[{"type":"command","command":{observerCommand:lifecycle:json}}]}}',
+        when: { all: [{ field: "hooksEnabled", op: "eq", value: true }] },
+      },
+      ...v2.files.map((file) => ({
+        ...file,
+        when: { all: [{ field: "control", op: "eq", value: true }] },
+      })),
+    ],
+    conversation: { resumePin: "requested-on-paste", restoreControl: false },
+    resumePaste: [{ command: "foom-test-agent", selector: "--resume" }],
+  };
+  const launch = () =>
+    page.evaluate(
+      (repository) =>
+        window.desktop.sidebarCommand({
           kind: "launch",
           repository,
           worktree: repository,
           run: "foom-test-agent",
-        });
-      }, repository.path);
-      const disclosure = await confirmationPage(app);
-      await expect(
-        disclosure.getByRole("heading", { name: "Launch Fixture agent with bypass?" }),
-      ).toBeVisible();
-      await expect(disclosure.getByRole("alertdialog")).toContainText(
-        "FIXTURE_BYPASS: present-nonempty",
-      );
-      await expect(disclosure.getByRole("alertdialog")).not.toContainText("private-bypass-value");
-      await disclosure.getByRole("button", { name: "Launch with bypass", exact: true }).click();
-      await page.evaluate(() => window.v2Launch);
-    } else await launch();
-    await expect
-      .poll(async () => {
-        try {
-          const args = JSON.parse(await readFile(output, "utf8"));
-          return version === 1 ? args : args.slice(0, 2);
-        } catch {
-          return null;
-        }
-      })
-      .toEqual(["$(literal)", "--yolo"]);
-    if (version === 2) {
-      const args = JSON.parse(await readFile(output, "utf8"));
-      assert.ok(args.includes("--mcp"));
-      assert.equal(
-        args.filter((arg) =>
-          /^mcp__foom_.*__(open_preview|list_previews|close_preview)$/u.test(arg),
-        ).length,
-        3,
-      );
-      const mcp = args[args.indexOf("--mcp") + 1];
-      assert.ok((await readFile(mcp, "utf8")).includes("Bearer ${FOOM_CONTROL_TOKEN}"));
-      assert.ok(args.at(-1).includes("Foom provides a workspace CLI"));
-    }
-    const snapshot = await page.evaluate(() => window.desktop.workspace());
-    const launched = snapshot.terminals.find((entry) => entry.agent === "foom-test-agent");
-    assert.equal(launched.bypass, true);
-    assert.equal(launched.providerOrigin, "config");
-    if (version === 2) {
-      const args = JSON.parse(await readFile(output, "utf8"));
-      const hooks = JSON.parse(await readFile(args[args.indexOf("--settings") + 1], "utf8"));
-      assert.ok(hooks.hooks.PermissionRequest[0].command.includes("observer"));
-      await page.evaluate((id) => window.desktop.input(id, "hooks\r"), launched.id);
-      await expect
-        .poll(
-          async () =>
-            (await page.evaluate(() => window.desktop.workspace())).terminals.find(
-              (entry) => entry.id === launched.id,
-            )?.conversationId,
-        )
-        .toBe("fixture-hook-conversation");
-    }
-
-    await writeFile(file, JSON.stringify({ ...manifest, name: "Edited fixture" }));
+        }),
+      repository.path,
+    );
+  require("../../build/shared/agent-plugin-parser.js").parseAgentManifest(JSON.stringify(manifest));
+  await writeFile(file, JSON.stringify(manifest));
+  const card = page
+    .locator(".agent-card")
+    .filter({ has: page.getByRole("heading", { name: "Fixture agent", exact: true }) });
+  await expect(card).toContainText("agents/foom-test-agent.json");
+  await expect(card.getByRole("button", { name: "Review…", exact: true })).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.scanAgents(true))).agents.some(
+        (agent) => agent.id === "foom-test-agent" && agent.path !== null,
+      ),
+    )
+    .toBe(true);
+  await expect(card.getByLabel("Fixture agent default arguments")).toBeVisible();
+  await expect(card.getByLabel("New Fixture agent variable name")).toBeVisible();
+  await expect(card.getByText("Hooks", { exact: true })).toBeVisible();
+  await assertAccessible(page);
+  await page.screenshot({ path: path.join(__dirname, "../../test-results/agents-settings.png") });
+  {
+    await page.evaluate((repository) => {
+      window.v2Launch = window.desktop.sidebarCommand({
+        kind: "launch",
+        repository,
+        worktree: repository,
+        run: "foom-test-agent",
+      });
+    }, repository.path);
+    const disclosure = await confirmationPage(app);
     await expect(
-      page.locator(".agent-card").getByRole("heading", { name: "Edited fixture", exact: true }),
+      disclosure.getByRole("heading", { name: "Launch Fixture agent with bypass?" }),
     ).toBeVisible();
-    await writeFile(file, "{}");
-    await expect(page.getByText("Rejected · launch blocked", { exact: true })).toBeVisible();
-    await assert.rejects(launch(), /Invalid sidebar command/);
-  });
+    await expect(disclosure.getByRole("alertdialog")).toContainText(
+      "FIXTURE_BYPASS: present-nonempty",
+    );
+    await expect(disclosure.getByRole("alertdialog")).not.toContainText("private-bypass-value");
+    await disclosure.getByRole("button", { name: "Launch with bypass", exact: true }).click();
+    await page.evaluate(() => window.v2Launch);
+  }
+  await expect
+    .poll(async () => {
+      try {
+        const args = JSON.parse(await readFile(output, "utf8"));
+        return args.slice(0, 2);
+      } catch {
+        return null;
+      }
+    })
+    .toEqual(["$(literal)", "--yolo"]);
+  {
+    const args = JSON.parse(await readFile(output, "utf8"));
+    assert.ok(args.includes("--mcp"));
+    assert.equal(
+      args.filter((arg) => /^mcp__foom_.*__(open_preview|list_previews|close_preview)$/u.test(arg))
+        .length,
+      3,
+    );
+    const mcp = args[args.indexOf("--mcp") + 1];
+    assert.ok((await readFile(mcp, "utf8")).includes("Bearer ${FOOM_CONTROL_TOKEN}"));
+    assert.ok(args.at(-1).includes("Foom provides a workspace CLI"));
+  }
+  const snapshot = await page.evaluate(() => window.desktop.workspace());
+  const launched = snapshot.terminals.find((entry) => entry.agent === "foom-test-agent");
+  assert.equal(launched.bypass, true);
+  assert.equal(launched.providerOrigin, "config");
+  {
+    const args = JSON.parse(await readFile(output, "utf8"));
+    const hooks = JSON.parse(await readFile(args[args.indexOf("--settings") + 1], "utf8"));
+    assert.ok(hooks.hooks.PermissionRequest[0].command.includes("observer"));
+    await page.evaluate((id) => window.desktop.input(id, "hooks\r"), launched.id);
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+            (entry) => entry.id === launched.id,
+          )?.conversationId,
+      )
+      .toBe("fixture-hook-conversation");
+  }
+
+  await writeFile(file, JSON.stringify({ ...manifest, name: "Edited fixture" }));
+  await expect(
+    page.locator(".agent-card").getByRole("heading", { name: "Edited fixture", exact: true }),
+  ).toBeVisible();
+  await writeFile(file, JSON.stringify({ ...manifest, version: 1 }));
+  await expect(
+    page.getByText(
+      "$.version: Agent manifest version 1 is no longer supported; use version 2 (see README.md)",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  assert.ok(
+    (await page.evaluate(() => window.desktop.workspace())).terminals.some(
+      (entry) => entry.id === launched.id,
+    ),
+  );
+  await expect(page.getByText("Rejected · launch blocked", { exact: true })).toBeVisible();
+  await assert.rejects(launch(), /Invalid sidebar command/);
+});
 
 test("v2 plugin setup confirms fixed actions and refuses unknown, malformed and linked metadata", {
   timeout: deadline(60_000),

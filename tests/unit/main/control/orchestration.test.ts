@@ -1,6 +1,6 @@
 import pluginFixture from "../../../fixtures/agent-plugin.json";
-import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
-import { configProvider } from "../../../../src/main/agents/providers/config";
+import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
+import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import { ControlError } from "../../../../src/node-common/control-validation";
 import type { PullRequest } from "../../../../src/main/control/forge.d";
@@ -1062,8 +1062,8 @@ describe("close exited children", () => {
 });
 
 it("launches a validated manifest provider through the ordinary child authorization path", async () => {
-  const manifest = parseAgentPlugin(JSON.stringify(pluginFixture));
-  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
+  const manifest = parseAgentManifest(JSON.stringify(pluginFixture)).model;
+  replaceConfigProviders([v2Provider(manifest, () => Promise.resolve())]);
   try {
     const h = harness();
     const tree = await h.mutate("create_worktree", { branch: "fixture-plugin" });

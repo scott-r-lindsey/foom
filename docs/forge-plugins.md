@@ -39,7 +39,7 @@ constructed fixtures, and describes validation without live CLIs.
 Dependency status: #520 is approved and #516 is merged. Both prerequisites for
 #521 are satisfied.
 
-Versioning is per kind: `kind: "forge", version: 1`; existing `agent` v1 and v2
+Versioning is per kind: `kind: "forge", version: 1`; `agent` accepts only version 2. Forge
 bytes, directories, IDs and semantics remain unchanged. The shared
 loader dispatches on `(kind, version)` before kind-specific validation. Unknown
 kinds/versions are invalid, never interpreted as agents. No automatic rewriting.

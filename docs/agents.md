@@ -470,8 +470,8 @@ until recorded evidence or a verified structured signal is available.
 ## Agent providers and config-authored plugins (#407)
 
 The [agent plugin format v2](agent-plugins.md) is implemented for config and
-bundled providers. The v1 compatibility example below remains supported; use the
-v2 specification for channels, setup, files and other extended capabilities.
+bundled providers. Version 2 is the only supported agent manifest format; see the
+specification for launch blocks, channels, setup and files.
 
 Main uses one `AgentProvider` interface for discovery, executable names, resume,
 MCP attachment, hook selection and launch argv. Claude Code, Codex and Antigravity
@@ -484,38 +484,9 @@ copies do not inherit profile consents or observed hook health.
 Add a UTF-8 JSON manifest to `~/.foom/config/agents/<id>.json`. This is data,
 never JavaScript loaded into Foom. The file is at most 64 KiB and its lowercase
 ID (1–40 letters, digits or hyphens, beginning with a letter) must match the
-filename. `claude`, `codex`, `agy`, `shell`, `all`, `constructor` and `prototype` are reserved. For example:
-
-```json
-{
-  "kind": "agent",
-  "version": 1,
-  "id": "example-agent",
-  "name": "Example Agent",
-  "badge": "EX",
-  "executables": ["example-agent"],
-  "discovery": { "hooksHelp": ["--observer"], "mcpHelp": [] },
-  "launch": {
-    "arguments": [],
-    "prompt": ["--prompt", "{prompt}"],
-    "resume": ["--resume", "{conversationId}"],
-    "hooks": ["--observer", "{hookArgv}"],
-    "mcp": [],
-    "allowedTools": []
-  },
-  "bypassArguments": ["--yolo"],
-  "attention": {
-    "minimumEngineVersion": 1,
-    "rules": [],
-    "hook": {
-      "transport": "argv",
-      "sessionField": "session",
-      "eventField": "event",
-      "events": { "started": "working", "finished": "classify", "approval": "needs_input" }
-    }
-  }
-}
-```
+filename. `claude`, `codex`, `agy`, `shell`, `all`, `constructor` and `prototype` are reserved. See the
+[v2 specification](agent-plugins.md) and `tests/fixtures/agent-plugin.json` for
+validated manifest examples.
 
 A valid plugin appears in discovery and checkout launchers as soon as Foom reads it;
 there is no approval step (#539). Agents already run as the user, so a manifest
@@ -528,32 +499,17 @@ cannot launch. Removing a file removes that provider.
 
 Executable names are basenames, not paths or shell programs combined with arguments.
 Foom resolves them on its controlled login PATH and performs only fixed `--version`
-and `--help` probes. `hooksHelp` and `mcpHelp` list literal help text
-required for the respective attachment; missing/failed probes disable attachment.
-Foom never downloads manifests or executes discovery scripts. Windows shell
-wrappers (`.cmd`, `.bat`, `.ps1`) are refused, as with built-in discovery.
+and `--help` probes. Discovery facts require complete option tokens, with optional
+version floors; missing/failed probes disable the declared attachment. Foom never
+downloads manifests or executes discovery scripts. Windows shell wrappers
+(`.cmd`, `.bat`, `.ps1`) are refused, as with built-in discovery.
 
-Each launch field is an argv array, with at most 64 nonempty entries of 1–4096
-characters and no controls. Arguments, spaces, quotes and shell punctuation remain
-literal. Optional fields default to empty arrays. Fixed substitutions are allowed
-only in their matching field: `{prompt}` in `prompt`, `{conversationId}` in
-`resume`, `{hookCommand}`/`{hookArgv}` in `hooks`, and
-`{mcpUrl}`/`{mcpName}`/`{allowedTools}` in `mcp`. JSON braces remain literal.
-Values are substituted once, never recursively interpreted. A positional prompt
-must be placed after the CLI's option terminator in its template if that CLI needs
-one. Child prompts keep the orchestrator provenance line. Resume IDs use the
-existing conversation validator. Tokens stay in the launch environment, unavailable
-to templates. The MCP URL is Foom's validated loopback endpoint; allowed tools may
-pre-approve only `open_preview`, `list_previews` and `close_preview`, never authority.
-
-`attention.hook` selects one fixed Foom observer: stdin or the CLI's last JSON argv
-entry. `hookCommand` is the quoted fixed adapter invocation and `hookArgv` is its
-JSON argument array. No script is supplied by a manifest. Extractors read only
-named top-level fields, validate/pin the conversation ID and map at most 16 bounded
-literal event names to `ready`, `working`, `needs_input`, `classify` or `failed`.
-Unknown events do nothing; malformed identities are refused. Prompt/tool/transcript
-fields are discarded. `classify` requests local evaluation, never unconditional
-success. Credentials, receiver limits and revocation are the same as built-ins.
+Launch fields are structured blocks containing literal argv arrays. Fixed
+substitutions are validated per field and expanded once. Hook channels select
+Foom-generated observers and map bounded payload fields to lifecycle signals;
+unknown events are inert. See the v2 specification for the complete schema.
+Tokens stay in the launch environment. All execution and payload validation
+boundaries apply equally to config and bundled providers.
 
 Detection rules use the existing states, regions, priorities, matchers and exclusions:
 `working`, `blocked`, `idle`, `unknown`; `title`, `bottom`, `after_horizontal_rule`;

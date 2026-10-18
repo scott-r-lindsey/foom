@@ -61,13 +61,11 @@ export class HookReceiver {
     const sessionId = randomUUID();
     const token = randomBytes(32).toString("hex");
     const provider = v2 ? undefined : agentProvider(agent);
-    const mapping = provider?.manifest?.attention.hook;
     const model = provider?.model;
     this.sessions.set(sessionId, {
       terminalId,
       agent,
       digest: digest(token),
-      ...(mapping ? { mapping } : {}),
       ...(model ? { model } : {}),
       ...(v2 ? { channels: v2.channels, v2State: v2.state } : {}),
     });

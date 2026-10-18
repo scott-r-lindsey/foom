@@ -252,9 +252,8 @@ valid changes live. It is plain files: Foom keeps no history of it.
 
 ## Agent plugins
 
-- Put declarative version 1 or version 2 manifests in \`agents/<id>.json\`. Foom never fetches plugins or loads scripts from them.
+- Put declarative version 2 manifests in \`agents/<id>.json\`. Foom never fetches plugins or loads scripts from them.
 - Version 2 supports generic launch, discovery, resume, prompt/guidance, MCP and attention data; hooks, health and setup declarations stay unavailable until their engines ship.
-- A minimal version 1 manifest is \`{ "kind": "agent", "version": 1, "id": "example-agent", "name": "Example Agent", "badge": "EX", "executables": ["example-agent"], "launch": { "arguments": [], "prompt": ["--prompt", "{prompt}"], "resume": ["--resume", "{conversationId}"] }, "bypassArguments": ["--yolo"], "attention": { "minimumEngineVersion": 1, "rules": [] } }\`.
 - IDs match filenames and cannot be claude, codex, agy or shell. Executables are names on PATH, not paths or shell command strings. Every argv entry is literal. Unknown keys and unsafe detection regexes are rejected.
 - A valid manifest loads as soon as Foom reads it; an edit reloads it. An invalid file is rejected whole and cannot launch. Running sessions keep their original launch bindings.
 - Forge v1 manifests in \`forges/<id>.json\` are validated and watched as a separate catalog. Loading grants no CLI execution or host assignment; Settings → Forges controls profile-only enablement and host assignments. Runtime provider migration is still pending.
@@ -316,6 +315,7 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  */
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   "README.md": [
+    "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
     "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
     "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
@@ -328,6 +328,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
   ],
   "AGENTS.md": [
+    "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
     "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
     "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
@@ -340,6 +341,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
   ],
   "CLAUDE.md": [
+    "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
     "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
     "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",

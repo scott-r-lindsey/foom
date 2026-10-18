@@ -20,8 +20,8 @@ vi.mock("../../../src/main/agents/setup-offers", () => ({
   },
 }));
 import pluginFixture from "../../fixtures/agent-plugin.json";
-import { parseAgentPlugin } from "../../../src/shared/agent-manifest";
-import { configProvider } from "../../../src/main/agents/providers/config";
+import { parseAgentManifest } from "../../../src/shared/agent-plugin-parser";
+import { v2Provider } from "../../../src/main/agents/providers/v2";
 import { replaceConfigProviders } from "../../../src/main/agents/providers/registry";
 import type { PreviewRecord } from "../../../src/shared/previews";
 import type { ForgeWorktree } from "../../../src/main/control/forge.d";
@@ -2068,7 +2068,7 @@ test("config plugins refresh changed registries and report discovery failure", a
   await start();
   const deps = mock.config.deps;
   if (!deps?.applyPlugins) throw Error("Missing plugin capabilities");
-  const provider = configProvider(parseAgentPlugin(JSON.stringify(pluginFixture)), () =>
+  const provider = v2Provider(parseAgentManifest(JSON.stringify(pluginFixture)).model, () =>
     Promise.resolve(),
   );
   deps.applyPlugins([provider]);
@@ -2094,7 +2094,7 @@ test("config plugins refresh changed registries and report discovery failure", a
 test("config plugins load before the first workspace exists without starting discovery from the config callback", async () => {
   const warn = vi.spyOn(console, "error").mockImplementation(() => undefined);
   mock.config.initialize.mockImplementationOnce(() => {
-    const provider = configProvider(parseAgentPlugin(JSON.stringify(pluginFixture)), () =>
+    const provider = v2Provider(parseAgentManifest(JSON.stringify(pluginFixture)).model, () =>
       Promise.resolve(),
     );
     mock.config.deps?.applyPlugins?.([provider]);

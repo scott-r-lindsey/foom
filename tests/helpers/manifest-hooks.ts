@@ -1,7 +1,7 @@
 import type { HookReceiver } from "../../src/main/agents/hook-receiver";
 import { agentProvider } from "../../src/main/agents/providers/registry";
 export function manifestHooks(receiver: HookReceiver, terminal: string, id: string) {
-  const channels = agentProvider(id).model?.hooks?.channels ?? [];
+  const channels = agentProvider(id).model.hooks?.channels ?? [];
   const launch = receiver.register(terminal, id, {
     channels: new Map(channels.map((channel) => [channel.id, channel])),
     state: {},
