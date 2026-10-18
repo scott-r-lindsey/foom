@@ -1974,6 +1974,13 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
     const childId = launched.body.result.resultId;
     if (phase === "unread") {
       const parentBoard = parentRow.locator(":scope > .board-row");
+      // Launch replies before the renderer handles the background placement.
+      // Consume that arrival before selecting the initially hidden parent, or
+      // the child can add a column after selection and make split-right add a third.
+      const childTile = page.locator(".terminal-tile").filter({
+        has: page.locator(".tile-location", { hasText: "child-one" }),
+      });
+      await expect(childTile).toBeVisible();
       await app.evaluate(({ BrowserWindow }) => {
         BrowserWindow.getAllWindows()
           .find((window) => window.webContents.getURL() === "app://bundle/index.html")
@@ -1985,6 +1992,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
           async () => (await page.evaluate(() => window.desktop.windows.audio.state())).focusedId,
         )
         .toBe(parentId);
+      await expect(childTile).toHaveCount(0);
       await openSettingsScreen(page);
       await page.getByRole("button", { name: "General", exact: true }).click();
       const reminder = page.getByRole("spinbutton", {
