@@ -1,3 +1,4 @@
+import { TERMINAL_ENVIRONMENT } from "../../shared/terminal-environment";
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, lstat, mkdtemp, rm, stat } from "node:fs/promises";
@@ -112,12 +113,13 @@ export async function prepareProbe(
   env: Record<string, string>,
 ): Promise<{ spec: TerminalSpec; conversationId?: string; dispose(): void }> {
   await provider.validate?.();
-  if (bypassEnvironment(provider.model, env).length)
+  const launchEnvironment = { ...env, ...TERMINAL_ENVIRONMENT };
+  if (bypassEnvironment(provider.model, launchEnvironment).length)
     throw Error("Probe bypass environment refused");
-  const command = await executable(provider, env);
+  const command = await executable(provider, launchEnvironment);
   const read = async (flag: string) => {
     try {
-      return (await execute(command, [flag], { ...options, cwd, env })).stdout;
+      return (await execute(command, [flag], { ...options, cwd, env: launchEnvironment })).stdout;
     } catch {
       return "";
     }
@@ -153,7 +155,7 @@ export async function prepareProbe(
         cwd,
         cols: 80,
         rows: 24,
-        env,
+        env: launchEnvironment,
         replaceEnvironment: true,
       },
       ...(prepared.conversationId === undefined ? {} : { conversationId: prepared.conversationId }),

@@ -2212,7 +2212,9 @@ The fixed login-shell environment query has bounded output and a deadline. The
 probe's inspected environment strips Foom/Electron/parent-agent variables and
 inherited Git overrides. `replaceEnvironment` is a main-only terminal spec option:
 the utility host passes the complete supplied environment instead of merging its
-own inherited environment back into it. Renderer requests cannot select this
+own inherited environment back into it. Shared fixed PTY metadata (`TERM`,
+`COLORTERM`, `TERM_PROGRAM`) is included in main’s bypass inspection and used by
+the host from the same constants. Renderer requests cannot select this
 option. The scratch repository is not a filesystem, account or network sandbox;
 Enter at approval prompts is deliberately permitted. Agent output, screens,
 manifest content and model responses remain untrusted data.

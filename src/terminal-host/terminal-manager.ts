@@ -1,3 +1,4 @@
+import { TERMINAL_ENVIRONMENT } from "../shared/terminal-environment";
 import { ForegroundProgram } from "./foreground-program";
 import { cleanTitle, parseProgress } from "../shared/agent-evidence";
 import type { AgentEvidence } from "../shared/agent-detection";
@@ -75,9 +76,7 @@ export class TerminalManager {
         env: {
           ...env,
           ...spec.env,
-          TERM: "xterm-256color",
-          COLORTERM: "truecolor",
-          TERM_PROGRAM: "Foom",
+          ...TERMINAL_ENVIRONMENT,
         },
       });
     } catch (error) {

@@ -119,6 +119,24 @@ test.skipIf(process.platform === "win32")(
       { action: "start", agent: "copilot", manifest: path },
       root,
     );
+    const metadataBypass = {
+      ...provider,
+      model: {
+        ...provider.model,
+        bypassEnvironment: [
+          {
+            name: "TERM_PROGRAM",
+            match: "present-nonempty" as const,
+            values: undefined,
+            caseInsensitive: false,
+            trim: false,
+          },
+        ],
+      },
+    };
+    await expect(
+      prepareProbe(metadataBypass, { action: "start", agent: "copilot" }, root, { PATH: root }),
+    ).rejects.toThrow("bypass environment refused");
     const prepare = vi.spyOn(provider, "prepareLaunch");
     const prepared = await prepareProbe(provider, { action: "start", agent: "copilot" }, root, {
       PATH: root,
@@ -127,7 +145,7 @@ test.skipIf(process.platform === "win32")(
     expect(prepared.spec).toMatchObject({
       cwd: root,
       replaceEnvironment: true,
-      env: { PATH: root },
+      env: { PATH: root, TERM: "xterm-256color", COLORTERM: "truecolor", TERM_PROGRAM: "Foom" },
       command,
     });
     prepared.dispose();
