@@ -1,6 +1,6 @@
 import { open } from "node:fs/promises";
 import { join } from "node:path";
-import { atomicPrivate, privateDirectory, verifyPrivate } from "../control/private-files";
+import { atomicPrivate, privateDirectory, verifyPrivate } from "../../node-common/private-files";
 
 /** Profile-only answers are independent of manifest approval and config git. */
 export class SetupOffers {

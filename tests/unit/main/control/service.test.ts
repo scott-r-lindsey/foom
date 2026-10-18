@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import { ControlService } from "../../../../src/main/control/service";
 import { Operations } from "../../../../src/main/control/operations";
-import { ControlError, identifier, object } from "../../../../src/main/control/validation";
+import { ControlError, identifier, object } from "../../../../src/node-common/control-validation";
 import type { StoredOperation } from "../../../../src/main/control/types";
 
 const repo = join(tmpdir(), "repo");

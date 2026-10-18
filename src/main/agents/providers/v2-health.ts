@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
 import type { HookSignal } from "../../../shared/hooks";
 import type { HookHealthState } from "../../../shared/agents";
-import { atomicPrivate, verifyLegacyProfileFile } from "../../control/private-files";
+import { atomicPrivate, verifyLegacyProfileFile } from "../../../node-common/private-files";
 
 const owners = new Map<string, { latest: number; writes: Promise<void> }>();
 

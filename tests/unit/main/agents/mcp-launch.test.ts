@@ -6,7 +6,7 @@ import fixture from "../../../fixtures/agent-plugin.json";
 import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
 import { configProvider } from "../../../../src/main/agents/providers/config";
 import { expect, it } from "vitest";
-import { prepareMcpLaunch, supportsMcp } from "../../../../src/main/agents/mcp-launch";
+import { prepareMcpLaunch, supportsMcp } from "../../../../src/main/agents/providers/mcp-launch";
 it("requires the shared launch context for bundled MCP", async () => {
   await expect(prepareMcpLaunch("codex", "http://127.0.0.1:1234/control/v1")).rejects.toThrow(
     "launch context",

@@ -8,7 +8,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { hookAdapter } from "../hook-adapters";
+import { hookAdapter } from "./hook-adapters";
 import type { AgentHooks } from "../../../shared/agents";
 import type { HookAgent, HookLaunch } from "../../../shared/hooks";
 

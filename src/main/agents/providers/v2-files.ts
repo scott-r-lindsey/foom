@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { open, lstat } from "node:fs/promises";
-import { createPrivateFile, verifyPrivate } from "../../control/private-files";
+import { createPrivateFile, verifyPrivate } from "../../../node-common/private-files";
 export async function writeOwnedFile(target: string, content: string): Promise<void> {
   const handle = await createPrivateFile(target);
   try {

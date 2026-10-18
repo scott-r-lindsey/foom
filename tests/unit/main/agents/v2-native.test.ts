@@ -212,7 +212,7 @@ it("migrates exact legacy installed-observer health into protected storage on th
     "../../../../src/main/agents/providers/installed-observers"
   );
   const { agentProvider } = await import("../../../../src/main/agents/providers/registry");
-  const { verifyPrivate } = await import("../../../../src/main/control/private-files");
+  const { verifyPrivate } = await import("../../../../src/node-common/private-files");
   const { userInfo } = await import("node:os");
   const { codexHookArguments, codexObserverCommand } = await import(
     "../../../helpers/legacy-codex"

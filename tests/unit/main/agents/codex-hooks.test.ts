@@ -1,5 +1,5 @@
 import { nativeDeadline } from "../../../helpers/native-test-policy";
-import { privateDirectory } from "../../../../src/main/control/private-files";
+import { privateDirectory } from "../../../../src/node-common/private-files";
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";

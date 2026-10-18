@@ -20,7 +20,7 @@ import {
   installedHealth,
   installedObserverPath,
 } from "../../../../src/main/agents/providers/installed-observers";
-import { prepareHookLaunch } from "../../../../src/main/agents/hook-launch";
+import { prepareHookLaunch } from "../../../../src/main/agents/providers/hook-launch";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { codexHookArguments, codexObserverCommand } from "../../../helpers/legacy-codex";
