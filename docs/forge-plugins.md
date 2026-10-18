@@ -6,7 +6,7 @@ shared engine and convert GitHub; #522 would ship GitLab after its evidence gate
 There are no new permissions for agents, no forge writes, and no merge automation.
 
 A forge is a second manifest **kind** in the [existing plugin system](agent-plugins.md),
-not another plugin architecture. Built-ins are bundled JSON. An approved config copy
+not another plugin architecture. Built-ins are bundled JSON. A valid config copy
 can express every built-in behavior, including fallback queries. Main owns process
 execution, ownership decisions and polling; manifests describe CLI syntax and data.
 

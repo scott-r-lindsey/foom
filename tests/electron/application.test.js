@@ -219,6 +219,7 @@ test("bundled brand fonts and both system themes render in Electron", {
     assert.deepEqual(rendered.fonts, [true, true, true, true]);
     assert.match(rendered.bodyFont, /Geist/);
     assert.match(rendered.displayFont, /Archivo Black/);
+    await expect(page.getByRole("button", { name: "Foom menu" })).toHaveText("foom");
     assert.match(rendered.terminalFont, /^"Hack Nerd Font Mono", "Geist Mono"/);
     assert.equal(rendered.background, background);
     assert.match(rendered.csp, /font-src 'self';/);

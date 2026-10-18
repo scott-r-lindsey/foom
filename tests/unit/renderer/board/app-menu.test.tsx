@@ -89,6 +89,7 @@ test("wordmark opens a menu below it, skips disabled actions and restores keyboa
   const f = fixture();
   const view = render(<AppMenu api={f.api} development />);
   const button = screen.getByRole("button", { name: "Foom menu" });
+  expect(button.textContent).toBe("foom");
   fireEvent.click(button);
   const menu = await screen.findByRole("menu", { name: "Foom" });
   expect(button.getAttribute("aria-expanded")).toBe("true");
