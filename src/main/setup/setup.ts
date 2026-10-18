@@ -17,6 +17,8 @@ import type { WorktreeService } from "../workspace/worktrees";
 
 export interface SetupDependencies {
   themes?: () => ThemeCatalog;
+  /** IDs from the validated main-owned catalog, never manifest host declarations. */
+  forgeIds?: () => readonly string[];
   store: Pick<SettingsStore, "get" | "update">;
   worktreeRoot: string;
   /** Pushes hook and agent settings into the running services. */
@@ -72,6 +74,15 @@ export class Setup {
     if (patch.colorMode !== undefined && patch.interfaceTheme === undefined)
       patch.interfaceTheme = "follow";
     const before = this.deps.store.get();
+    if (patch.forgeHosts) {
+      const enabled = patch.forges ?? before.forges;
+      const ids = this.deps.forgeIds?.() ?? ["github"];
+      for (const [host, id] of Object.entries(patch.forgeHosts)) {
+        if (before.forgeHosts[host] === id) continue;
+        if (!ids.includes(id) || enabled[id] !== true)
+          throw new Error("Choose an enabled forge for each host.");
+      }
+    }
     if (patch.agentArguments) {
       const acknowledged = { ...before.agentBypassAcknowledged };
       for (const [agent, args] of Object.entries(patch.agentArguments)) {

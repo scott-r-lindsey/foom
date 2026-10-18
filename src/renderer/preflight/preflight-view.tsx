@@ -1,3 +1,4 @@
+import { ForgesSettings } from "./forges-settings";
 import { TerminalFontPicker } from "./terminal-font-picker";
 import { message } from "./message";
 import { EnvironmentSettings } from "./environment-settings";
@@ -29,6 +30,7 @@ import type { SetupSource } from "./setup-source.d";
 const SETTINGS_SECTIONS = [
   { step: 11, label: "General" },
   { step: 1, label: "Agents" },
+  { step: 12, label: "Forges" },
   { step: 10, label: "Environment" },
   { step: 2, label: "Repositories" },
   { step: 3, label: "Worktrees" },
@@ -462,6 +464,17 @@ export function Preflight({
         <ConfigControls config={source.config} />
       </>
     );
+  } else if (step === 12) {
+    content = (
+      <ForgesSettings
+        headingRef={headingRef}
+        settings={state.settings}
+        source={source}
+        save={async (patch) => {
+          receiveState(await source.save(patch));
+        }}
+      />
+    );
   } else if (step === 11) {
     content = (
       <>
@@ -615,7 +628,8 @@ export function Preflight({
           <h2>Settings</h2>
           {SETTINGS_SECTIONS.filter(
             (entry) =>
-              (entry.step !== 9 || source.config) && (entry.step !== 10 || source.environment),
+              ((entry.step !== 9 && entry.step !== 12) || source.config) &&
+              (entry.step !== 10 || source.environment),
           ).map((entry) => (
             <button
               key={entry.step}
