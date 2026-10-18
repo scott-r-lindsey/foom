@@ -19,13 +19,18 @@ requires a config copy of a built-in to carry every behavior. Bundled and config
 manifests use exactly the same engine. There are no privileged manifest capability
 names, agent-ID switches, executable modules, or automatic manifest downloads.
 
-## Proposed forge kind (#520)
+## Forge kind (#520 / #521)
 
-[Forge manifests](forge-plugins.md) proposes `kind: "forge"` in this same plugin
-system, sharing loading and Settings cards.
-It includes a JSON Schema draft, full GitHub/GitLab examples and a public/constructed
-fixture spike. **Proposed, not decided:** existing agent v1/v2 manifests do not
-change; user approval is required before #521 implementation.
+[Forge manifests](forge-plugins.md) adds `kind: "forge", version: 1` to the same
+plugin system. `shared/plugin-parser.ts` dispatches before kind-specific validation;
+agent v1/v2 parsing and semantics stay unchanged. The config scanner now uses this dispatcher for `agents/` and `forges/`, rejects
+wrong-kind files and applies its existing contained-directory, bounded-read and
+watcher rules to both. Each kind has its own 50-file cap and ID namespace.
+
+The first #521 stage implements offline forge validation, a build-locked GitHub
+manifest and a transport-injected interpreter with parity tests. It grants no CLI,
+host assignment or enablement capability. Settings cards and active-provider migration remain for the integration stage. The current
+no-approval/no-Duplicate agent workflow also applies to that future forge wiring.
 
 ## Behavior inventory and representation
 

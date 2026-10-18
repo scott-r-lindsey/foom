@@ -1,4 +1,5 @@
-import { parseAgentManifest } from "../../shared/agent-plugin-parser";
+import type { LoadedForgeManifest } from "./plugins";
+import { parsePluginManifest } from "../../shared/plugin-parser";
 import { AgentManifestError } from "../../shared/agent-manifest";
 import type { AgentPluginManifest } from "../../shared/agent-plugin";
 import type { AgentManifestV2 } from "../../shared/agent-manifest-v2";
@@ -46,6 +47,8 @@ export interface ConfigServiceDependencies {
     set(file: string, value: string | null): Promise<void>;
   };
   applyPlugins?(providers: readonly AgentProvider[]): void;
+  /** Catalog only: loading grants no enablement, executable or host authority. */
+  applyForges?(plugins: readonly LoadedForgeManifest[]): void;
   confirmArguments?(content: DialogContent): Promise<boolean>;
   acknowledgeBypass?(agents: readonly ("claude" | "codex" | "agy")[]): Promise<void>;
   onStatus?(status: ConfigStatus): void;
@@ -55,6 +58,11 @@ export interface ConfigServiceDependencies {
   platform?: NodeJS.Platform;
   rename?: typeof rename;
 }
+
+type LoadedPlugin = { text: string } & (
+  | { kind: "agent"; provider: AgentProvider }
+  | { kind: "forge"; forge: LoadedForgeManifest }
+);
 
 interface Applied {
   text: string;
@@ -161,7 +169,7 @@ function createConfigProvider(
 export class ConfigService {
   private applied: Applied = DEFAULTS;
   private pending: Pending | null = null;
-  private loadedPlugins = new Map<string, { text: string; provider: AgentProvider }>();
+  private loadedPlugins = new Map<string, LoadedPlugin>();
   private appliedThemes = new Map<string, { text: string; parsed: ParsedThemeFile }>();
   private heldThemes = new Map<string, { text: string; previous: string | null }>();
   /** Each rejected file: the digest of the bytes rejected and a fixed reason. */
@@ -279,6 +287,7 @@ export class ConfigService {
       THEME_FOLDERS["terminal-theme"],
       "schemas",
       "agents",
+      "forges",
       ...SOUND_KINDS.map((kind) => `sounds/${kind}`),
     ])
       await mkdir(this.path(folder), { recursive: true });
@@ -385,14 +394,15 @@ export class ConfigService {
 
   private startWatching(): void {
     this.watchFolder("", (file) => {
-      const replaced = [...Object.values(THEME_FOLDERS), "agents"].find(
+      const replaced = [...Object.values(THEME_FOLDERS), "agents", "forges"].find(
         (folder) => folder === file,
       );
       // A theme folder that was removed and recreated needs a new subscription.
       if (replaced) this.watchFolder(replaced);
       return file === null || file === SETTINGS_FILE || replaced !== undefined;
     });
-    for (const folder of [...Object.values(THEME_FOLDERS), "agents"]) this.watchFolder(folder);
+    for (const folder of [...Object.values(THEME_FOLDERS), "agents", "forges"])
+      this.watchFolder(folder);
   }
 
   private watchFolder(folder: string, relevant: (file: string | null) => boolean = () => true) {
@@ -448,24 +458,39 @@ export class ConfigService {
   }
 
   private async pluginPaths(): Promise<string[]> {
-    if (!(await this.contained("agents"))) return [];
-    const names = await readdir(this.path("agents")).catch(() => []);
-    return names
-      .filter((name) => /^[a-z][a-z0-9-]{0,39}\.json$/u.test(name))
-      .sort()
-      .slice(0, 50)
-      .map((name) => `agents/${name}`);
+    const paths: string[] = [];
+    for (const folder of ["agents", "forges"]) {
+      if (!(await this.contained(folder))) continue;
+      const names = await readdir(this.path(folder)).catch(() => []);
+      paths.push(
+        ...names
+          .filter((name) => /^[a-z][a-z0-9-]{0,39}\.json$/u.test(name))
+          .sort()
+          .slice(0, 50)
+          .map((name) => `${folder}/${name}`),
+      );
+    }
+    return paths;
   }
 
   /** A valid manifest loads as read; an edit reloads it and an invalid file is rejected whole. */
   private async scanPlugins(): Promise<void> {
+    const eligible = new Set(await this.pluginPaths());
     const paths = new Set([
-      ...(await this.pluginPaths()),
+      ...eligible,
       ...this.loadedPlugins.keys(),
-      ...[...this.rejected.keys()].filter((file) => file.startsWith("agents/")),
+      ...[...this.rejected.keys()].filter(
+        (file) => file.startsWith("agents/") || file.startsWith("forges/"),
+      ),
     ]);
     const active: AgentProvider[] = [];
+    const forges: LoadedForgeManifest[] = [];
     for (const file of paths) {
+      if (!eligible.has(file)) {
+        this.loadedPlugins.delete(file);
+        this.rejected.delete(file);
+        continue;
+      }
       let bytes: Buffer | null;
       try {
         bytes = await this.read(file);
@@ -480,12 +505,14 @@ export class ConfigService {
         continue;
       }
       let text: string;
-      let manifest: AgentPluginManifest | AgentManifestV2;
+      let loaded: ReturnType<typeof parsePluginManifest>;
       try {
         text = decode(bytes);
-        const parsed = parseAgentManifest(text);
-        manifest = parsed.version === 2 ? parsed.model : parsed.manifest;
-        if (file !== `agents/${manifest.id}.json`)
+        loaded = parsePluginManifest(text);
+        const folder = loaded.kind === "agent" ? "agents" : "forges";
+        if (!file.startsWith(`${folder}/`)) throw new AgentManifestError("$", "invalid-kind");
+        const identifier = loaded.kind === "agent" ? loaded.plugin.model.id : loaded.plugin.id;
+        if (file !== `${folder}/${identifier}.json`)
           throw new AgentManifestError("$.id", "filename-mismatch");
       } catch (error) {
         this.loadedPlugins.delete(file);
@@ -499,18 +526,35 @@ export class ConfigService {
       this.rejected.delete(file);
       const hash = digest(bytes);
       const previous = this.loadedPlugins.get(file);
-      // A launch binds the definition it was offered; an edit waits for the next scan.
-      const provider =
-        previous?.text === text
-          ? previous.provider
-          : createConfigProvider(manifest, async () => {
-              const current = await this.read(file);
-              if (!current || digest(current) !== hash)
-                throw new Error("Agent plugin changed. Try again.");
-            });
-      this.loadedPlugins.set(file, { text, provider });
-      active.push(provider);
+      // A launch/sample binds the bytes it was offered; edits wait for the next scan.
+      const validate = async () => {
+        const current = await this.read(file);
+        if (
+          this.closed ||
+          this.loadedPlugins.get(file) !== entry ||
+          !current ||
+          digest(current) !== hash
+        )
+          throw new Error("Agent or forge plugin changed. Try again.");
+      };
+      let entry: LoadedPlugin;
+      if (previous?.text === text) entry = previous;
+      else if (loaded.kind === "agent")
+        entry = {
+          kind: "agent",
+          text,
+          provider: createConfigProvider(
+            loaded.plugin.version === 2 ? loaded.plugin.model : loaded.plugin.manifest,
+            validate,
+          ),
+        };
+      else
+        entry = { kind: "forge", text, forge: { manifest: loaded.plugin, digest: hash, validate } };
+      this.loadedPlugins.set(file, entry);
+      if (entry.kind === "agent") active.push(entry.provider);
+      else forges.push(entry.forge);
     }
+    this.deps.applyForges?.(forges);
     this.deps.applyPlugins?.(active);
     const defaults = this.applied.values.agentArguments;
     if (defaults) {

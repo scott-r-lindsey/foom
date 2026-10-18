@@ -491,6 +491,15 @@ reported capacity line and upstream render snapshots are in
 
 ## Child PR and required checks (#340)
 
+The first #521 forge-manifest stage keeps the running provider and #516 scheduler
+unchanged. A new transport-injected interpreter is tested against the old path with
+recorded public `gh` captures and derived fixtures. It maps identity and checks,
+refuses forks and mismatched repositories in Foom code, and always refreshes the
+head/state after checks. Main-supplied default-branch policy cannot be overridden
+by a manifest table. The shared kind loader grants no execution authority; host
+routing, auth lifecycle, dynamic batch interpretation and persistence migration
+remain integration work. See [the implementation boundary](forge-plugins.md).
+
 Main tracks branches in every registered repository’s board checkouts and in orchestrator-owned worktrees, choosing a read-only
 forge provider from the repository's origin URL (or its sole remote). GitHub on
 `github.com` is supported first, through the user's existing `gh` login. Unknown

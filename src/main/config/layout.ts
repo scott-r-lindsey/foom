@@ -256,6 +256,7 @@ valid changes live. It is plain files: Foom keeps no history of it.
 - A minimal version 1 manifest is \`{ "kind": "agent", "version": 1, "id": "example-agent", "name": "Example Agent", "badge": "EX", "executables": ["example-agent"], "launch": { "arguments": [], "prompt": ["--prompt", "{prompt}"], "resume": ["--resume", "{conversationId}"] }, "bypassArguments": ["--yolo"], "attention": { "minimumEngineVersion": 1, "rules": [] } }\`.
 - IDs match filenames and cannot be claude, codex, agy or shell. Executables are names on PATH, not paths or shell command strings. Every argv entry is literal. Unknown keys and unsafe detection regexes are rejected.
 - A valid manifest loads as soon as Foom reads it; an edit reloads it. An invalid file is rejected whole and cannot launch. Running sessions keep their original launch bindings.
+- Forge v1 manifests in \`forges/<id>.json\` are validated and watched as a separate catalog. Loading grants no CLI execution or host assignment; Settings and runtime migration are still pending.
 - Run \`foom config validate\` after editing a manifest. To remove a plugin, remove its manifest.
 
 ## Not in this folder

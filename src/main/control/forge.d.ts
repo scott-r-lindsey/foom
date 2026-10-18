@@ -31,3 +31,21 @@ export interface ForgeWorktree {
   identity: string;
   branch: string;
 }
+
+export interface ForgeResponse {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+/** Main supplies bounded execFile-style execution; the interpreter never spawns. */
+export type ForgeTransport = (argv: readonly string[]) => Promise<ForgeResponse>;
+export interface ForgeRemote {
+  host: string;
+  project: string;
+}
+export interface ForgeBindings extends ForgeRemote {
+  branch?: string;
+  number?: number;
+  nodeId?: string;
+  query?: string;
+}

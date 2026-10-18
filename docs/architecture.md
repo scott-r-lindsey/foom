@@ -862,12 +862,15 @@ branch and review state remain.
 
 ### Forge observations
 
-**Proposed, not decided (#520):** [forge manifests](forge-plugins.md) would add
-`kind: "forge"` to the existing plugin loader and Settings
-card system. GitHub and GitLab would use the same data engine, with user-owned
-host assignments, fixed argv and bounded JSON mapping. Fork/default-branch policy,
-head verification and polling remain in main. The spec and spike change no runtime
-behavior; user approval is required before #521 starts.
+[Forge manifests](forge-plugins.md) are approved as a second plugin kind. The first
+#521 stage adds the shared `(kind, version)` dispatch path, strict offline forge
+validation, a build-locked GitHub manifest and a transport-injected interpreter.
+The current GitHub provider remains active while side-by-side fixture tests prove
+parity. The new interpreter receives argv-array transport from main; it cannot
+resolve or spawn a CLI itself. Fork/same-repository decisions and trusted
+default-branch refusal remain TypeScript policy. Settings/host routing, executable
+auth/lifecycle, dynamic batch migration and persistence remain integration work.
+#516's adaptive cadence and dynamic check-count batches are unchanged.
 
 Foom also reads PR and check status for board checkouts and orchestrator-owned child
 worktrees through a main-owned forge provider. GitHub is supported through your
