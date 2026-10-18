@@ -49,9 +49,12 @@ it("rejects unsupported and malformed versions with fixed errors", () => {
 });
 
 it.each([1, 0, 3, 99, "2", null, undefined])(
-  "rejects agent version %s whole with the migration diagnostic",
+  "rejects agent version %s whole with a fixed diagnostic",
   (version) => {
-    const reason = "Agent manifest version 1 is no longer supported; use version 2 (see README.md)";
+    const reason =
+      version === 1
+        ? "Agent manifest version 1 is no longer supported; use version 2 (see README.md)"
+        : "Agent manifest version must be 2 (see README.md)";
     for (const value of [
       { kind: "agent", version },
       { ...claude, version, launch: "invalid", legacy: true },

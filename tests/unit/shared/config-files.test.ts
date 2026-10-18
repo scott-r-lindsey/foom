@@ -184,7 +184,10 @@ test("offline validation uses the same agent manifest gate and reports stable pa
     expect(() => validateConfigJson(JSON.stringify({ ...manifest, version }), "agent")).toThrow(
       expect.objectContaining({
         path: "$.version",
-        detail: "Agent manifest version 1 is no longer supported; use version 2 (see README.md)",
+        detail:
+          version === 1
+            ? "Agent manifest version 1 is no longer supported; use version 2 (see README.md)"
+            : "Agent manifest version must be 2 (see README.md)",
       }),
     );
   expect(() =>

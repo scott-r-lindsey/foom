@@ -2108,8 +2108,9 @@ still requires persisted human orchestration provenance and matching repository
 identity, an installed, valid provider and supported per-launch MCP.
 
 `shared/agent-plugin-parser.ts` validates the [version 2 format](agent-plugins.md)
-from `unknown`, rejecting unsupported versions with the fixed migration diagnostic
-`Agent manifest version 1 is no longer supported; use version 2 (see README.md)`
+from `unknown`, rejecting version 1 with the fixed migration diagnostic
+`Agent manifest version 1 is no longer supported; use version 2 (see README.md)`,
+any other version with `Agent manifest version must be 2 (see README.md)`,
 and unknown keys at every object boundary, including capability,
 script, environment and network-reference fields. Manifest rules use the shared
 `boundedRegex` implementation used by built-in rules. Manifest argv uses fixed,

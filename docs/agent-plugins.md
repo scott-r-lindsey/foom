@@ -476,7 +476,7 @@ The v2 engine is implemented; older agent manifest formats are unsupported. The 
 
 | Input/state | Required migration |
 | --- | --- |
-| Agent manifest versions | Only version 2 is accepted. Every other version rejects the file whole with `Agent manifest version 1 is no longer supported; use version 2 (see README.md)` |
+| Agent manifest versions | Only version 2 is accepted. Version 1 rejects the file whole with `Agent manifest version 1 is no longer supported; use version 2 (see README.md)`; any other version with `Agent manifest version must be 2 (see README.md)` |
 | Bundled defaults/consents | Same IDs/enable switches/default argv/session IDs. Profile acknowledgements map to equivalent disclosure identity only if content/effect unchanged; otherwise ask again. Never import trust from agent stores |
 | Codex health | Transfer only identical definition fingerprint; stable observer command/timeout must remain identical for unchanged observer. Changed generated definition invalidates Foom health and lets Codex request review |
 | agy plugin | Recognize current foomObserverVersion 2, do not reinstall; newer version supported as today, older offers update, disabled needs enable; unknown foom refuses mutation |

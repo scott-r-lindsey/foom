@@ -24,7 +24,9 @@ export function parseAgentManifest(
   if (version !== 2)
     throw new AgentManifestError(
       "$.version",
-      "Agent manifest version 1 is no longer supported; use version 2 (see README.md)",
+      version === 1
+        ? "Agent manifest version 1 is no longer supported; use version 2 (see README.md)"
+        : "Agent manifest version must be 2 (see README.md)",
     );
   const model = v2(manifestJson(source), "$");
   if (

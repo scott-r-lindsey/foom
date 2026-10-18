@@ -209,7 +209,9 @@ it.each([1, 3, "2", null])(
       id: manifest.id,
       state: "rejected",
       reason:
-        "$.version: Agent manifest version 1 is no longer supported; use version 2 (see README.md)",
+        version === 1
+          ? "$.version: Agent manifest version 1 is no longer supported; use version 2 (see README.md)"
+          : "$.version: Agent manifest version must be 2 (see README.md)",
     });
     await expect(loaded.validate?.()).rejects.toThrow("changed");
   },
