@@ -7,7 +7,7 @@ import { locationId, metadataName, SessionMetadata } from "./metadata";
 import { basename } from "node:path";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import { isAbsolute } from "node:path";
-import { ControlError, exact, identifier, object } from "./validation";
+import { ControlError, exact, identifier, object } from "../../node-common/control-validation";
 import type { ControlLaunch, Principal, Role } from "./types";
 import type { Operations } from "./operations";
 import { ORCHESTRATION_METHODS } from "./orchestration";

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { command } from "../../../../src/cli/commands";
-import { object } from "../../../../src/main/control/validation";
+import { object } from "../../../../src/node-common/control-validation";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";

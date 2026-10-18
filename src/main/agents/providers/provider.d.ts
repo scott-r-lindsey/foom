@@ -2,7 +2,7 @@ import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
 import type { ControlLaunch } from "../../control/types";
 import type { AgentPluginManifest } from "../../../shared/agent-plugin";
 import type { AgentHooks, AgentId, AgentInstallation, AgentLaunch } from "../../../shared/agents";
-import type { prepareMcpLaunch } from "../mcp-launch";
+import type { prepareMcpLaunch } from "./mcp-launch";
 export interface PreparedLaunch {
   args: string[];
   mcp: boolean;

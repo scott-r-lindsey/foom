@@ -1,5 +1,5 @@
 import type { PreviewBackend } from "../control/previews";
-import { ControlError } from "../control/validation";
+import { ControlError } from "../../node-common/control-validation";
 import type { PreviewHost } from "./host";
 import type { PreviewPlacement } from "./placement";
 

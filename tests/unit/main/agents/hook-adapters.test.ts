@@ -6,7 +6,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { hookAdapter } from "../../../../src/main/agents/hook-adapters";
+import { hookAdapter } from "../../../../src/main/agents/providers/hook-adapters";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
 import type { HookSignal } from "../../../../src/shared/hooks";
 import { UNREACHABLE_PROXY } from "../../../helpers/unreachable-proxy";

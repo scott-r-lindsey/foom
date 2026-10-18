@@ -11,7 +11,7 @@ import { userInfo } from "node:os";
 import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
 import type { AgentHooks } from "../../../shared/agents";
 import type { HookExecutor, HookRegistrar } from "./hook-launch";
-import { privateDirectory } from "../../control/private-files";
+import { privateDirectory } from "../../../node-common/private-files";
 import { observerAssets, observerInvocation, observerVersion } from "./v2-observers";
 import type { V2Binding } from "../../../shared/v2-hooks";
 

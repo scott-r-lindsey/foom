@@ -6,7 +6,7 @@ function mergeAllowedTools(args: readonly string[]): string[] {
   return [...collected.args, merge.output, ...new Set(collected.values)];
 }
 import { expect, it } from "vitest";
-import { CLI_GUIDANCE } from "../../../../src/main/agents/cli-launch";
+import { CLI_GUIDANCE } from "../../../../src/main/agents/providers/cli-launch";
 import agy from "../../../../src/shared/bundled-agents/agy.json";
 function cliGuidance(args: readonly string[]) {
   const collected = collectMerge(
@@ -20,7 +20,7 @@ function cliGuidance(args: readonly string[]) {
     [...collected.values, CLI_GUIDANCE].join("\n\n"),
   ];
 }
-import * as cliLaunch from "../../../../src/main/agents/cli-launch";
+import * as cliLaunch from "../../../../src/main/agents/providers/cli-launch";
 it("composes Antigravity initial prompt data without invoking a shell or changing MCP", () => {
   expect(cliGuidance([])).toEqual([
     "--prompt-interactive",

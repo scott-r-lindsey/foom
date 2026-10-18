@@ -17,7 +17,7 @@ import { prepareTail } from "../evaluator/terminal-tail";
 import { locationId, metadataName, SessionMetadata } from "./metadata";
 import type { Operations } from "./operations";
 import type { Operation, Principal } from "./types";
-import { ControlError, exact, identifier } from "./validation";
+import { ControlError, exact, identifier } from "../../node-common/control-validation";
 
 /** Orchestrator-created worktrees that no child has used yet. */
 export const WORKTREE_LIMIT = 4;

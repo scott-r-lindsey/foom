@@ -1,4 +1,4 @@
-import { privateDirectory } from "../../control/private-files";
+import { privateDirectory } from "../../../node-common/private-files";
 import { join, sep } from "node:path";
 import { tmpdir, userInfo } from "node:os";
 import type { AgentManifestV2, ManifestChannel } from "../../../shared/agent-manifest-v2";

@@ -5,7 +5,11 @@ import type { AgentManifestV2 } from "../../shared/agent-manifest-v2";
 import { manifestJson } from "../../shared/agent-manifest-json";
 import { record } from "./setup-metadata";
 import { dataContainer } from "../../shared/agent-manifest-container";
-import { createPrivateFile, privateDirectory, verifyPrivate } from "../control/private-files";
+import {
+  createPrivateFile,
+  privateDirectory,
+  verifyPrivate,
+} from "../../node-common/private-files";
 import { observerAssets, observerInvocation, observerVersion } from "./providers/v2-observers";
 import { readOwnedFile } from "./providers/v2-files";
 import { expandV2, selected, type Facts } from "./providers/v2-values";

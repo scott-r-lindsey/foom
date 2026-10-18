@@ -8,7 +8,7 @@ import {
   providerRevision,
 } from "./providers/registry";
 import { AgyPlugin } from "./agy-plugin";
-import type { prepareMcpLaunch } from "./mcp-launch";
+import type { prepareMcpLaunch } from "./providers/mcp-launch";
 import type { ControlLaunch } from "../control/types";
 import { parseAgentArguments } from "./default-arguments";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";

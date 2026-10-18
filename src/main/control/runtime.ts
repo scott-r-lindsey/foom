@@ -7,7 +7,7 @@ import { ControlService } from "./service";
 import { ControlHttp } from "./http";
 import { Operations } from "./operations";
 import { ControlStore } from "./store";
-import { atomicPrivate, privateDirectory } from "./private-files";
+import { atomicPrivate, privateDirectory } from "../../node-common/private-files";
 import type { Orchestration } from "./orchestration";
 import type { ControlLaunch, PairingOptions, Role } from "./types";
 

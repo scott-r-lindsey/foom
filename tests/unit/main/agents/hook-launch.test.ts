@@ -9,7 +9,7 @@ import { mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { prepareHookLaunch } from "../../../../src/main/agents/hook-launch";
+import { prepareHookLaunch } from "../../../../src/main/agents/providers/hook-launch";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
 import type { HookSignal } from "../../../../src/shared/hooks";
 
