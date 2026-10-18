@@ -555,7 +555,11 @@ async function launchCheckoutShell(app, page) {
 
 async function restartShellFromSidebar(page) {
   await expect(page.getByRole("button", { name: "Restart shell", exact: true })).toHaveCount(0);
-  await page.locator(".board-row .row-actions").click();
+  const row = page.locator(".board-row[data-kind='shell']");
+  // Sending `exit` only queues PTY input. Wait for the sidebar to consume the
+  // exit event before opening its panel, whose actions depend on row.exited.
+  await expect(row).toHaveAttribute("data-exited", "true");
+  await row.locator(".row-actions").click();
   await page.getByRole("menuitem", { name: "Restart shell", exact: true }).click();
 }
 
