@@ -674,6 +674,17 @@ export class Workspace {
   private currentState(id: string): TerminalState | null {
     const terminal = this.terminals.get(id);
     const state = terminal?.state;
+    const current = waitingState(
+      id,
+      terminal?.hook?.action === "needs_input" && state
+        ? { ...state, attentionKind: "permission" }
+        : (state ?? null),
+      terminal?.execution?.snapshot(),
+      this.orchestration.waitingOn(id),
+    );
+    // The orchestrator's own attention (a permission prompt, a question) keeps its
+    // reason and verdict; the unread reminder only raises otherwise-quiet states.
+    if (current?.state === "needs_input") return current;
     const unreadAt = this.orchestration.unreadChildren.overdue(id);
     if (unreadAt !== undefined)
       return {
@@ -687,14 +698,7 @@ export class Workspace {
         timestamp: unreadAt,
         attentionKind: "unknown",
       };
-    return waitingState(
-      id,
-      terminal?.hook?.action === "needs_input" && state
-        ? { ...state, attentionKind: "permission" }
-        : (state ?? null),
-      terminal?.execution?.snapshot(),
-      this.orchestration.waitingOn(id),
-    );
+    return current;
   }
 
   snapshot(): WorkspaceSnapshot {

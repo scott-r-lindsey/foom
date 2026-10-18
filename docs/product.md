@@ -606,6 +606,8 @@ for that child acknowledges its pending events. A validated child-specific
 `wait_for` acknowledges existing events when it starts and events it returns. Listing sessions,
 reading terminal output and other agents' reads do not. Focusing the orchestrator
 acknowledges all its pending child events without changing evaluator attention.
+The orchestrator's own Needs you (a permission prompt or a question) keeps its
+reason and verdict; the reminder only raises an otherwise quiet orchestrator.
 Takeover, close, parent exit or revocation ends the reminder for those children.
 Reminders are transient and restart with new observations after an app restart.
 
