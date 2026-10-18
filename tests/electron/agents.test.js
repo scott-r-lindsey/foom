@@ -2247,6 +2247,12 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       const childEntry = childRow.locator("..");
       const parentEntry = parentSession.locator("..");
       await expect(childRow).toHaveCount(1);
+      await childRow.click();
+      const worker = page.locator(".tile-title").getByRole("img", { name: "Worker" });
+      await expect(worker).toBeVisible();
+      await expect(worker.locator("title")).toHaveText(
+        "Child of " + (await parentSession.locator(".session-name").innerText()),
+      );
       const childMark = childRow.locator('.session-robot-mark[data-kind="rx"]');
       const parentMark = parentSession.locator('.session-robot-mark[data-kind="tx"]');
       await expect(childMark).toHaveAttribute("aria-hidden", "true");
@@ -2627,7 +2633,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       });
       assert.equal(liveLaunch.body.result.status, "succeeded");
       const liveId = liveLaunch.body.result.resultId;
-      await expect(page.locator('.session-robot-mark[data-kind="rx"]')).toHaveCount(1);
+      await expect(page.locator('.board-row .session-robot-mark[data-kind="rx"]')).toHaveCount(1);
 
       if (!cliOnly) {
         let previous = (await call(parent.controlToken, "session_state", { id: liveId })).body
@@ -2705,7 +2711,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       );
       assert.equal(liveChild.exited, false);
       await expect(page.getByText("Revoked orchestrator", { exact: true })).toBeVisible();
-      await expect(page.locator('.session-robot-mark[data-kind="rx"]')).toHaveCount(1);
+      await expect(page.locator('.board-row .session-robot-mark[data-kind="rx"]')).toHaveCount(1);
       const logged = await page.evaluate(() =>
         window.desktop.actionLog({
           search: "",
@@ -2733,7 +2739,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       );
       assert.equal(after.orchestration.active, false);
       await expect(page.getByText("Exited orchestrator", { exact: true })).toBeVisible();
-      await expect(page.locator('.session-robot-mark[data-kind="rx"]')).toHaveCount(1);
+      await expect(page.locator('.board-row .session-robot-mark[data-kind="rx"]')).toHaveCount(1);
       await assert.rejects(
         page.evaluate((id) => window.desktop.sidebarCommand({ kind: "close", id }), parentId),
         /Close the orchestrator/u,
