@@ -3787,3 +3787,74 @@ test("board pull requests show running failed and passed checks through fixture 
   await expect(page.getByText("1 passed · 0 failed · 0 running", { exact: true })).toBeVisible();
   await assertAccessible(page);
 });
+
+test("missing agent cards recover on Settings entry and manifest reload without toggling", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const { chmod, copyFile } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-missing-agent-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  await Promise.all([bin, home].map((directory) => mkdir(directory)));
+  const app = await launchApp(context, { fixture: "agent", env: { HOME: home, PATH: bin } });
+  const page = await boardPage(app);
+  const openAgents = async () => {
+    await openSettingsScreen(page);
+    await page
+      .getByRole("navigation", { name: "Settings sections" })
+      .getByRole("button", { name: "Agents", exact: true })
+      .click();
+  };
+  await openAgents();
+  const file = path.join(home, ".foom/config/agents/late-agent.json");
+  const manifest = {
+    ...JSON.parse(await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8")),
+    kind: "agent",
+    version: 2,
+    id: "late-agent",
+    name: "Late agent",
+    badge: "LA",
+    executables: ["late-agent"],
+    attention: { minimumEngineVersion: 1, rules: [] },
+    execution: { completion: "attached", completionChannels: [] },
+  };
+  await writeFile(file, JSON.stringify(manifest));
+  const card = page.locator("#agent-card-late-agent");
+  await expect(card.getByText("Not found", { exact: true })).toBeVisible();
+  await expect(card.getByRole("switch")).not.toBeChecked();
+  await expect(card.getByRole("switch")).toBeDisabled();
+  const executable = path.join(bin, process.platform === "win32" ? "late-agent.exe" : "late-agent");
+  const install = async () => {
+    await copyFile(process.execPath, executable);
+    await chmod(executable, 0o755);
+  };
+  await page.keyboard.press("Escape");
+  await install();
+  await openAgents();
+  await expect(card.getByRole("switch")).toBeEnabled();
+  await expect(card.getByRole("switch")).toBeChecked();
+  assert.equal(
+    (await page.evaluate(() => window.desktop.setupState())).settings.agents["late-agent"],
+    undefined,
+  );
+  await rm(executable);
+  await writeFile(file, JSON.stringify({ ...manifest, name: "Late agent missing" }));
+  await expect(card.getByText("Not found", { exact: true })).toBeVisible();
+  await expect(card.getByRole("switch")).toBeDisabled();
+  await install();
+  await writeFile(file, JSON.stringify({ ...manifest, name: "Late agent restored" }));
+  await expect(card.getByRole("switch")).toBeEnabled();
+  await expect(card.getByRole("switch")).toBeChecked();
+  await card.getByRole("switch").uncheck();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.setupState())).settings.agents["late-agent"],
+    )
+    .toBe(false);
+  await page.keyboard.press("Escape");
+  await openAgents();
+  await expect(card.getByRole("switch")).toBeEnabled();
+  await expect(card.getByRole("switch")).not.toBeChecked();
+});

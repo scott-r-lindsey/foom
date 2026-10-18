@@ -779,8 +779,11 @@ destination. Changes apply to future creation; existing worktrees stay where the
 
 Agents and Repositories use the same controls as preflight. Agents shows one central-column card per provider, including config
 plugins, and plugins rejected by validation. A missing installation is one
-line. Every card has an On/Off switch. Off removes the agent from launch menus
-and discovery probes while retaining its defaults, environment and attention preferences.
+line with a disabled Off switch and “Not found”; its saved preference is retained.
+Opening Agents or loading or reloading a manifest refreshes discovery. Once the
+executable is found, the switch follows the saved preference. Every installed
+agent has an On/Off switch. Off removes the agent from launch menus
+and CLI discovery probes while retaining its defaults, environment and attention preferences.
 To customize a built-in agent, copy its bundled manifest into the config folder's
 `agents/` folder with a new ID and name (see [agent plugins](agent-plugins.md#customizing-a-built-in-agent)).
 Settings offers no action for it. Like any valid config plugin, the copy loads as

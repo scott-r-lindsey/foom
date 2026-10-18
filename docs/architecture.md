@@ -2166,5 +2166,7 @@ and the global hooks switch takes precedence. Preferences apply on future launch
 including notifier disclosure gating. Default arguments save on blur through the
 existing main-owned bypass disclosure and acknowledgement.
 
-Disabled agents remain configurable but skip CLI discovery
-and setup probes; enablement changes invalidate workspace discovery caches.
+Disabled agents remain configurable: discovery resolves their executable on PATH
+without running CLI discovery or setup probes. Agents cards refresh discovery on
+entry and config changes, keeping missing switches Off without saving a preference.
+Enablement changes invalidate workspace discovery caches.

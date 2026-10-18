@@ -1392,9 +1392,9 @@ it("does not let a renderer acknowledgement approve revised, context-selected bu
 it("disabled agents retain card identity but run no discovery or setup probes, and enabling probes again", async () => {
   const scan = await service.scan({ claude: false, codex: false, agy: false });
   expect(scan.agents.map((agent) => [agent.id, agent.path, agent.reason])).toEqual([
-    ["claude", null, "Turned off"],
-    ["codex", null, "Turned off"],
-    ["agy", null, "Turned off"],
+    ["claude", join(root, process.platform === "win32" ? "claude.exe" : "claude"), "Turned off"],
+    ["codex", join(root, process.platform === "win32" ? "codex.exe" : "codex"), "Turned off"],
+    ["agy", join(root, process.platform === "win32" ? "agy.exe" : "agy"), "Turned off"],
   ]);
   expect(scan.agents[0]?.name).toBe("Claude Code");
   expect(execFile).not.toHaveBeenCalledWith(

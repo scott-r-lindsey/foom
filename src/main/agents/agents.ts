@@ -72,7 +72,7 @@ async function findExecutable(id: string, path: string): Promise<string | null> 
   return null;
 }
 
-async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
+async function detect(id: AgentId, path: string, probeEnabled = true): Promise<AgentInstallation> {
   const provider = agentProvider(id);
   await provider.validate?.();
   let executable: string | null = null;
@@ -82,6 +82,8 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
   }
   if (!executable)
     return { id, path: null, version: null, hooks: false, reason: "Not found on PATH." };
+  if (!probeEnabled)
+    return { id, path: executable, version: null, hooks: false, reason: "Turned off" };
   const options = { ...probeOptions, cwd: homedir(), env: { ...process.env, PATH: path } };
   const probe = async (flag: "--version" | "--help"): Promise<string> => {
     await provider.validate?.();
@@ -143,13 +145,7 @@ export class AgentService {
     const agents = await Promise.all(
       agentProviders().map(async (provider) =>
         (enabled[provider.id] === false
-          ? Promise.resolve<AgentInstallation>({
-              id: provider.id,
-              path: null,
-              version: null,
-              hooks: false,
-              reason: "Turned off",
-            } satisfies AgentInstallation)
+          ? detect(provider.id, resolved.path, false)
           : provider.enrich(await detect(provider.id, resolved.path), this.agyPlugin)
         ).then((agent) => ({
           ...agent,
