@@ -29,7 +29,7 @@ The light carries two separate signals.
 | Waiting | Neutral hourglass | Idle orchestrator waiting on children |
 
 - Done and Failed dim once the user has looked at them.
-- Agent Needs you clears when supported evidence shows execution resumed, or when the user dismisses attention. Typing and terminal output alone do not prove resumed execution. Shell attention retains reply/output behavior. Opening a terminal never clears attention.
+- Agent Needs you clears when supported evidence shows execution resumed, or when the user dismisses attention. Typing and terminal output alone do not prove resumed execution. Shell attention retains reply/output behavior. Opening a terminal never clears evaluator attention.
 - Failed uses a square light, so the state never depends on color alone.
 - A solid light means the process is running. Exited sessions have a hollow ring (square outline for Failed), green after Done, magenta after Failed and muted otherwise. Their name and badge dim, a muted `exited` follows the name, and the accessible name includes Exited.
 - Every verdict carries a one-line reason and the signal that produced it, for example `Wants to edit src/main/main.ts · pattern: (y/n)`.
@@ -585,6 +585,18 @@ The launch prompt asks them to report before stopping, including after CI fails.
 The optional links are HTTPS URLs. Each summary is bounded to 8 KiB; at most ten
 links and twenty reports per child are retained. New reports are limited to one
 per ten seconds; replaying the same request returns its original result.
+
+If a child handoff, exit or idle turn without a handoff, required-check change,
+or PR merge or close goes unread for five minutes, the orchestrator shows Needs
+you in its sidebar row and tile, with the steady halo and fixed reason **Child
+report unread**. Settings → General offers **Unread child reminder (minutes; 0
+turns off)**, an integer from 0–1440 (default 5). The oldest pending event starts
+the timer; later events do not postpone it. A successful `read_handoff`, `wait_for`
+or `session_state` for that child acknowledges its pending events. Listing sessions,
+reading terminal output and other agents' reads do not. Focusing the orchestrator
+acknowledges all its pending child events without changing evaluator attention.
+Takeover, close, parent exit or revocation ends the reminder for those children.
+Reminders are transient and restart with new observations after an app restart.
 
 The parent pulls a report with `read_handoff` or `foom read-handoff ID [--seq N]`.
 That MCP tool is listed only to orchestrators; the CLI remains available after

@@ -90,6 +90,7 @@ export function createAppSource(): BoardSource {
     const saved = snapshotStates.get(id);
     const live = current(event) ? event : undefined;
     const snapshot = current(saved) ? saved : undefined;
+    if (snapshot?.signal === "orchestration:unread") return snapshot;
     // A refreshed projection can clear Waiting without a new verdict. Preserve
     // event precedence for distinct verdicts that happen within the same millisecond.
     const sameVerdict =
@@ -111,16 +112,18 @@ export function createAppSource(): BoardSource {
     if (!execution) return row;
     const currentVerdict = currentState(row.id) !== undefined;
     const state =
-      execution.phase === "working"
-        ? "working"
-        : execution.phase === "blocked"
-          ? currentVerdict
-            ? row.state
-            : "needs_input"
-          : (execution.phase === "starting" || execution.phase === "idle") &&
-              (!currentVerdict || row.state === "working")
-            ? "quiet_ok"
-            : row.state;
+      currentState(row.id)?.signal === "orchestration:unread"
+        ? "needs_input"
+        : execution.phase === "working"
+          ? "working"
+          : execution.phase === "blocked"
+            ? currentVerdict
+              ? row.state
+              : "needs_input"
+            : (execution.phase === "starting" || execution.phase === "idle") &&
+                (!currentVerdict || row.state === "working")
+              ? "quiet_ok"
+              : row.state;
     return {
       ...row,
       execution,

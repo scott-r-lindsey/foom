@@ -1102,6 +1102,30 @@ describe("child handoff ownership and waits", () => {
       });
     return { h, child, actor, grant, report };
   }
+  it.each(["read_handoff", "session_state", "wait_for"])(
+    "acknowledges child events through %s, excluding sessions and tail",
+    async (method) => {
+      const { h, child, actor, report } = await setup();
+      await report();
+      h.orchestration.syncChildEvents();
+      h.advance(300000);
+      expect(h.orchestration.childEvents.overdue("parent")).toBeDefined();
+      await h.call("sessions");
+      await h.service.call(actor, {
+        version: 1,
+        instanceId: h.service.instanceId,
+        method: "session_state",
+        params: { id: child.id },
+      });
+      h.orchestration.childRead(h.actor, "foreign");
+      await h.call("tail", { id: child.id });
+      expect(h.orchestration.childEvents.overdue("parent")).toBeDefined();
+      await h.call(method, method === "wait_for" ? { ids: [child.id] } : { id: child.id });
+      expect(h.orchestration.childEvents.overdue("parent")).toBeUndefined();
+      h.orchestration.childEvents.dispose();
+    },
+  );
+
   it("counts running children and unread reports, clearing only the latest read", async () => {
     const { h, child, report } = await setup();
     expect(h.orchestration.waitingOn("missing")).toBe(0);

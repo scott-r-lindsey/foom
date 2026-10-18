@@ -43,7 +43,12 @@ export class ControlService {
     readonly operations: Operations,
     source: () => readonly WorkspaceTerminal[] = () => [],
     private readonly orchestration?: Pick<Orchestration, "call"> &
-      Partial<Pick<Orchestration, "childLimit" | "pullRequest" | "canHandoff" | "handoffMetadata">>,
+      Partial<
+        Pick<
+          Orchestration,
+          "childLimit" | "pullRequest" | "canHandoff" | "handoffMetadata" | "childRead"
+        >
+      >,
     private readonly connectionChanged: (
       id: string,
       state: McpConnection | undefined,
@@ -238,6 +243,8 @@ export class ControlService {
       case "session_state": {
         const result = this.metadata.read(actor, request["method"], params);
         this.assertActive(actor);
+        if (request["method"] === "session_state")
+          this.orchestration?.childRead?.(actor, identifier(params["id"]));
         return result;
       }
       case "operation_status":

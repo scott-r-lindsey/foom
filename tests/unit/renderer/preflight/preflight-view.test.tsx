@@ -622,6 +622,16 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ concurrentChildren: 2 });
   });
+  const reminder = screen.getByRole("spinbutton", {
+    name: "Unread child reminder (minutes; 0 turns off)",
+  });
+  expect(reminder).toHaveProperty("value", "5");
+  for (const value of ["", "-1", "1441", "1.5"]) fireEvent.change(reminder, { target: { value } });
+  expect(source.save).not.toHaveBeenCalledWith({ unreadChildMinutes: -1 });
+  fireEvent.change(reminder, { target: { value: "0" } });
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ unreadChildMinutes: 0 });
+  });
   fireEvent.click(restore);
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ restoreSessions: false });

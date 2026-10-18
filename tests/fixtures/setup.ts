@@ -15,6 +15,7 @@ export function setupState(
       hooks: true,
       restoreSessions: true,
       concurrentChildren: 4,
+      unreadChildMinutes: 5,
       autoRemoveMergedWorktrees: false,
       agents: { claude: true, codex: true, agy: true },
       agentArguments: { claude: [], codex: [], agy: [] },

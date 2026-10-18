@@ -799,7 +799,14 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       scale,
     }),
   });
-  const disposeAudio = audio.attach(window, ipc, (id) => views.owner(id) === window.id);
+  const disposeAudio = audio.attach(
+    window,
+    ipc,
+    (id) => views.owner(id) === window.id,
+    (id) => {
+      workspace.focusOrchestrator(id);
+    },
+  );
   const disposeViews = attachWindowViews(window, ipc, views, {
     knows: (id) => terminals.owns(id) || workspace.ownsSession(id),
     find: (id) => windows.get(id)?.window,

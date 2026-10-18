@@ -29,6 +29,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   hooks: true,
   restoreSessions: true,
   concurrentChildren: 4,
+  unreadChildMinutes: 5,
   autoRemoveMergedWorktrees: false,
   agents: Object.freeze({ claude: true, codex: true, agy: true }),
   agentArguments: EMPTY_AGENT_ARGUMENTS,
@@ -94,6 +95,14 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
       patch.agentHooks = Object.fromEntries(
         Object.entries(entry).map(([id, enabled]) => [id, enabled === true]),
       );
+    else if (
+      key === "unreadChildMinutes" &&
+      typeof entry === "number" &&
+      Number.isInteger(entry) &&
+      entry >= 0 &&
+      entry <= 1440
+    )
+      patch.unreadChildMinutes = entry;
     else if (key === "agentArguments") patch.agentArguments = parseAgentDefaults(entry);
     else if (isConfigSetting(key)) Object.assign(patch, parseConfigSettings({ [key]: entry }));
     else if (
