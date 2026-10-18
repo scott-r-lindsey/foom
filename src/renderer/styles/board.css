@@ -1866,6 +1866,7 @@
   width: 7px;
   z-index: 3;
   cursor: col-resize;
+  outline: none;
   touch-action: none;
 }
 .sidebar-resize::after {
