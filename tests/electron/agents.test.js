@@ -1773,11 +1773,10 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         status: result.code === 0 ? 200 : result.code === 3 ? 403 : 400,
         body: JSON.parse(result.stdout || result.stderr),
       };
-      // The CLI's five-second transport deadline can expire while a mutation is
-      // still running (for example, waiting for durable operation storage). Its
-      // unavailable envelope can describe an accepted operation. Reconcile it
-      // as the control protocol requires; never repeat the mutation.
-      if (result.code === 4 && response.body.error === "unavailable" && params.idempotencyKey) {
+      // A lost mutation response is explicitly ambiguous. Reconcile the same key
+      // without repeating the mutation, within the existing command budget.
+      if (result.code === 6 && response.body.error === "unknown_outcome" && params.idempotencyKey) {
+        assert.equal(response.body.idempotencyKey, params.idempotencyKey);
         const lookup = () =>
           directCall(token, "operation_status", { idempotencyKey: params.idempotencyKey });
         const accepted = await lookup();
@@ -1920,26 +1919,21 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       ).body,
       tree.body,
     );
-    // Deterministically exercise the observed timeout: hold launch persistence
-    // until the fixture publishes the CLI's unavailable response. No sleep or
-    // extra deadline; completion still comes from main's operation history.
-    const delayedLaunch = cliOnly && phase === "children";
-    if (delayedLaunch) {
-      await app.evaluate(({ app }) => {
-        const require = process
-          .getBuiltinModule("module")
-          .createRequire(app.getAppPath() + "/package.json");
-        const { ControlStore } = require(app.getAppPath() + "/build/main/control/store.js");
-        const persist = ControlStore.prototype.persist;
-        const gate = new Promise((resolve) => {
-          globalThis.releaseLaunchPersistence = resolve;
-        });
-        ControlStore.prototype.persist = async function (record) {
-          if (record.operation.action === "launch" && record.operation.status === "running") {
-            ControlStore.prototype.persist = persist;
-            await gate;
+    // Drop one completed launch response to exercise ambiguous delivery without
+    // waiting for the full CLI timeout. Operation history must recover success.
+    const lostLaunchResponse = cliOnly && phase === "children";
+    if (lostLaunchResponse) {
+      await app.evaluate(() => {
+        const { ServerResponse } = process.getBuiltinModule("http");
+        const end = ServerResponse.prototype.end;
+        ServerResponse.prototype.end = function (...args) {
+          const body = typeof args[0] === "string" ? JSON.parse(args[0]) : undefined;
+          if (body?.result?.action === "launch" && body.result.status === "succeeded") {
+            ServerResponse.prototype.end = end;
+            this.destroy();
+            return this;
           }
-          return persist.call(this, record);
+          return end.apply(this, args);
         };
       });
     }
@@ -1949,28 +1943,18 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       agent: "claude",
       prompt: "Summarize the README",
     });
-    if (delayedLaunch) {
-      try {
-        const file = `${credentials}.response-${requestId}`;
-        await expect.poll(() => existsSync(file), { timeout: deadline(40000) }).toBe(true);
-        const timedOut = JSON.parse(await readFile(file, "utf8"));
-        assert.equal(timedOut.code, 4);
-        assert.deepEqual(JSON.parse(timedOut.stderr), { error: "unavailable" });
-        const accepted = await directCall(parent.controlToken, "operation_status", {
-          idempotencyKey: "launch-1",
-        });
-        assert.equal(accepted.status, 200);
-        assert.equal(accepted.body.result.status, "running");
-        assert.equal(existsSync(`${credentials}.child-one`), false);
-      } finally {
-        await app.evaluate(() => globalThis.releaseLaunchPersistence());
-        // Settle the in-flight read before fixture cleanup, including assertion failures.
-        await launching.catch(() => undefined);
-      }
-    }
     const launched = await launching;
     assert.equal(launched.status, 200, JSON.stringify(launched.body));
     assert.equal(launched.body.result.status, "succeeded", JSON.stringify(launched.body));
+    if (lostLaunchResponse) {
+      const file = `${credentials}.response-${requestId}`;
+      const lost = JSON.parse(await readFile(file, "utf8"));
+      assert.equal(lost.code, 6);
+      assert.deepEqual(JSON.parse(lost.stderr), {
+        error: "unknown_outcome",
+        idempotencyKey: "launch-1",
+      });
+    }
     const childId = launched.body.result.resultId;
     if (phase === "unread") {
       const parentBoard = parentRow.locator(":scope > .board-row");

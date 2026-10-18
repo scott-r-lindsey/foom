@@ -155,21 +155,47 @@ function serverError(value: unknown): ControlError {
   return new ControlError(codes.find((code) => code === value) ?? "unavailable");
 }
 
-export async function call(connection: Connection, command: Command): Promise<unknown> {
-  const value = object(
-    await exchange(
-      connection.endpoint,
-      { version: 1, instanceId: connection.instanceId, ...command },
-      connection.token,
-      undefined,
-      command.method === "wait_for" ? (command.params["untilEvent"] ? 0 : 35000) : 5000,
-    ),
-  );
-  exact(value, ["result", "error"]);
-  if (typeof value["error"] === "string") {
-    throw serverError(value["error"]);
+/** A mutation may have reached main; never present a transport failure as a refusal. */
+export class UnknownOutcome extends Error {
+  constructor(readonly idempotencyKey: string) {
+    super("unknown_outcome");
   }
-  if (!("result" in value)) throw new ControlError("invalid_request");
+}
+
+export async function call(connection: Connection, command: Command): Promise<unknown> {
+  const mutation = [
+    "create_worktree",
+    "launch",
+    "stop",
+    "close",
+    "remove_worktree",
+    "reply",
+  ].includes(command.method);
+  let value: Record<string, unknown>;
+  try {
+    value = object(
+      await exchange(
+        connection.endpoint,
+        { version: 1, instanceId: connection.instanceId, ...command },
+        connection.token,
+        undefined,
+        mutation
+          ? 60000
+          : command.method === "wait_for"
+            ? command.params["untilEvent"]
+              ? 0
+              : 35000
+            : 5000,
+      ),
+    );
+    exact(value, ["result", "error"]);
+    if (!("result" in value) && typeof value["error"] !== "string")
+      throw new ControlError("invalid_request");
+  } catch (error) {
+    if (mutation) throw new UnknownOutcome(identifier(command.params["idempotencyKey"]));
+    throw error;
+  }
+  if (typeof value["error"] === "string") throw serverError(value["error"]);
   return value["result"];
 }
 
