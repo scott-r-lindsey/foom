@@ -103,3 +103,17 @@ it("composes ASTs without any text substitution and rejects invalid numeric synt
     ]),
   ).toThrow();
 });
+
+it("bounds individual and combined query text in UTF-8 bytes rather than code units", () => {
+  const comment = "\n#" + "é".repeat(6000);
+  expect(() =>
+    parsePlan({
+      query: plan.query + comment,
+      discovery: plan.discovery + comment,
+      bound: plan.bound + comment,
+    }),
+  ).toThrow("too-large");
+  expect(() => {
+    validateForgeBatchQueries(plan.query + "\n#" + "é".repeat(9000), plan.discovery, plan.bound);
+  }).toThrow("unsafe-query");
+});

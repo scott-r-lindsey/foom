@@ -357,15 +357,14 @@ export function parseForgeManifest(
   const primary = plan(checks["primary"], at);
   const fallback = optional(plan)(checks["fallback"], at);
   const batchStatus = optional(batchPlan)(operations["batchStatus"], at);
-  if (
-    (primary.query?.length ?? 0) +
-      (fallback?.query?.length ?? 0) +
-      (batchStatus
-        ? batchStatus.query.length + batchStatus.discovery.length + batchStatus.bound.length
-        : 0) >
-    32768
-  )
-    fail(at, "too-large");
+  const queryText = [
+    primary.query ?? "",
+    fallback?.query ?? "",
+    batchStatus?.query ?? "",
+    batchStatus?.discovery ?? "",
+    batchStatus?.bound ?? "",
+  ].join("");
+  if (new TextEncoder().encode(queryText).length > 32768) fail(at, "too-large");
   return freeze({
     kind: literal("forge")(data["kind"], at),
     version: literal(1)(data["version"], at),

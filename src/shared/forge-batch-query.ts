@@ -3,7 +3,7 @@ import type { FieldNode, OperationDefinitionNode } from "graphql/language";
 import { fail } from "./agent-manifest-values";
 
 function operation(source: string, variables: Readonly<Record<string, string>>) {
-  if (source.length > 16384) fail("$.batchStatus", "too-large");
+  if (new TextEncoder().encode(source).length > 16384) fail("$.batchStatus", "too-large");
   const document = parse(source, { maxTokens: 4096 });
   const node = document.definitions[0];
   if (
