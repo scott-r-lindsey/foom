@@ -555,7 +555,11 @@ async function launchCheckoutShell(app, page) {
 
 async function restartShellFromSidebar(page) {
   await expect(page.getByRole("button", { name: "Restart shell", exact: true })).toHaveCount(0);
-  await page.locator(".board-row .row-actions").click();
+  const row = page.locator(".board-row[data-kind='shell']");
+  // Sending `exit` only queues PTY input. Wait for the sidebar to consume the
+  // exit event before opening its panel, whose actions depend on row.exited.
+  await expect(row).toHaveAttribute("data-exited", "true");
+  await row.locator(".row-actions").click();
   await page.getByRole("menuitem", { name: "Restart shell", exact: true }).click();
 }
 
@@ -905,13 +909,21 @@ async function tabTo(page, name, accessibleName = name) {
 
 // A verified-MCP Claude Code stand-in: records its control environment and argv per checkout.
 const FAKE_ORCHESTRATED_CLAUDE = `#!/usr/bin/env node
-const { readFileSync, writeFileSync } = require("node:fs");
+const { readFileSync, writeFileSync, renameSync } = require("node:fs");
 const path = require("node:path");
+// The final filename is a completion marker for readers in the test process.
+// Creating it directly exposes an empty/partial record before writeFileSync returns.
+const record = (suffix, value) => {
+  const file = process.env.TEST_FAKE_CREDENTIALS + "." + suffix;
+  const temporary = file + "." + process.pid + ".tmp";
+  writeFileSync(temporary, value);
+  renameSync(temporary, file);
+};
 const args = process.argv.slice(2);
 if (args[0] === "--version") { console.log("2.1.296 (Claude Code)"); process.exit(0); }
 if (args[0] === "--help") { console.log("  --settings <file-or-json>  Load settings\\n  --mcp-config <configs...>  Load MCP servers"); process.exit(0); }
 const config = args.includes("--mcp-config") ? JSON.parse(readFileSync(args[args.indexOf("--mcp-config") + 1], "utf8")) : null;
-writeFileSync(process.env.TEST_FAKE_CREDENTIALS + "." + path.basename(process.cwd()), JSON.stringify({
+record(path.basename(process.cwd()), JSON.stringify({
   controlUrl: process.env.FOOM_CONTROL_URL, controlToken: process.env.FOOM_CONTROL_TOKEN,
   instanceId: process.env.FOOM_CONTROL_INSTANCE, mcp: config, args, cliPath: process.env.PATH,
 }));
@@ -925,7 +937,7 @@ process.stdin.on("data", (key) => {
   if (isChild) {
     input += key.toString();
     if (input.includes("\\r")) {
-      writeFileSync(process.env.TEST_FAKE_CREDENTIALS + ".reply-" + path.basename(process.cwd()), input);
+      record("reply-" + path.basename(process.cwd()), input);
       process.stdout.write("FOOM_REPLY_RECEIVED\\r\\n");
       input = "";
     }
@@ -937,7 +949,7 @@ process.stdin.on("data", (key) => {
   const request = JSON.parse(input.slice(0, newline));
   input = input.slice(newline + 1);
   require("node:child_process").execFile("foom", request.args, { timeout: 40000 }, (error, stdout, stderr) => {
-    writeFileSync(process.env.TEST_FAKE_CREDENTIALS + ".response-" + request.id, JSON.stringify({ code: error?.code ?? 0, stdout, stderr }));
+    record("response-" + request.id, JSON.stringify({ code: error?.code ?? 0, stdout, stderr }));
   });
 });
 `;

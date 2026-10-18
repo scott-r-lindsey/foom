@@ -273,6 +273,7 @@ it("ordinary, child and human credentials cannot use any CLI orchestration comma
         ["remove-worktree", "tree", "--idempotency-key", "key"],
         ["tail", "child"],
         ["wait-for", "child"],
+        ["wait-for", "--until-event"],
         ["operation-status", "--idempotency-key", "key"],
       ]) {
         let error = "";

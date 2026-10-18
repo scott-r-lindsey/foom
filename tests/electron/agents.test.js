@@ -1750,6 +1750,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         text: JSON.stringify({ id, args }) + "\n",
       });
       const file = `${credentials}.response-${id}`;
+      // The fixture renames a fully written response into place after the CLI exits.
       await expect.poll(() => existsSync(file), { timeout: deadline(40000) }).toBe(true);
       const result = JSON.parse(await readFile(file, "utf8"));
       return {
@@ -1889,6 +1890,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       agent: "claude",
       prompt: "Summarize the README",
     });
+    assert.equal(launched.status, 200, JSON.stringify(launched.body));
     assert.equal(launched.body.result.status, "succeeded", JSON.stringify(launched.body));
     const childId = launched.body.result.resultId;
     if (phase === "unread") {
@@ -2038,13 +2040,6 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       await writeFile(file, summary);
       const state = (await call(parent.controlToken, "session_state", { id: childId })).body.result;
       const waitDeadline = Date.now() + deadline(30000);
-      const waitFrom = (revision) =>
-        call(parent.controlToken, "wait_for", {
-          ids: [childId],
-          after: { [childId]: revision },
-          timeoutMs: Math.min(30000, Math.max(0, waitDeadline - Date.now())),
-        });
-      const waiting = waitFrom(state.revision);
       const execFile = require("node:util").promisify(require("node:child_process").execFile);
       const cli = async (credential, args) => {
         const { stdout } = await execFile("foom", [...args, "--json"], {
@@ -2058,6 +2053,20 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         });
         return JSON.parse(stdout).result;
       };
+      const waitFrom = async (revision) => ({
+        body: {
+          result: await cli(parent, [
+            "wait-for",
+            childId,
+            "--until-event",
+            "--after",
+            JSON.stringify({ [childId]: revision }),
+            "--timeout",
+            "30",
+          ]),
+        },
+      });
+      const waiting = waitFrom(state.revision);
       const report = await cli(child, [
         "handoff",
         "--status",

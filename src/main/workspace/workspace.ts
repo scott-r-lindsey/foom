@@ -739,6 +739,7 @@ export class Workspace {
   refresh(): void {
     if (this.closed) return;
     this.orchestration.syncUnreadChildEvents();
+    this.orchestration.childEvents.publish();
     this.deps.watcher?.sync(this.deps.worktrees.listRepositories());
     this.deps.onChange?.();
   }
@@ -2321,6 +2322,7 @@ export class Workspace {
       inputRevision: terminal.inputVersion ?? 0,
       timestamp: this.now(),
     };
+    this.orchestration.childEvents.publish();
     this.deps.onState(this.currentState(id) ?? terminal.state);
   }
 
@@ -2746,7 +2748,7 @@ export class Workspace {
     this.cleanupRuns.clear();
     this.mergeEligibility.clear();
     this.executionListeners.clear();
-    this.orchestration.unreadChildren.dispose();
+    this.orchestration.disposeUnreadChildren();
     this.deps.watcher?.dispose();
     for (const id of this.terminals.keys()) this.deps.verdicts.forget(id);
     this.agents.dispose();

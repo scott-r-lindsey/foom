@@ -1,4 +1,5 @@
 import { UnreadChildEvents } from "./unread-child-events";
+import { ChildEvents } from "./child-events";
 import { Handoffs } from "./handoffs";
 import type { Handoff } from "../../shared/handoff";
 import { readHandoffRequest } from "../../node-common/handoff";
@@ -159,6 +160,31 @@ function bounded(lines: readonly string[]): { lines: string[]; truncated: boolea
   return { lines: result, truncated };
 }
 
+interface SessionEventFacts {
+  id: string;
+  state: string;
+  reason: string;
+  handoff?: { seq: number; status: string };
+  pullRequest?: { number: number; state: string; requiredChecks: string };
+}
+
+/** Long-wait cursor: lifecycle, handoff and PR facts, never output or input counters. */
+function eventCursor(row: SessionEventFacts): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        row.state,
+        row.reason,
+        row.handoff?.seq ?? 0,
+        row.handoff?.status ?? null,
+        row.pullRequest?.number ?? null,
+        row.pullRequest?.state ?? null,
+        row.pullRequest?.requiredChecks ?? null,
+      ]),
+    )
+    .digest("hex");
+}
+
 function publicOperation(operation: Operation): Operation {
   const { operationId, action, targetId, resultId, status, createdAt, updatedAt, reason } =
     operation;
@@ -172,11 +198,13 @@ function publicOperation(operation: Operation): Operation {
 export class Orchestration {
   readonly handoffs = new Handoffs();
   readonly unreadChildren: UnreadChildEvents;
+  readonly childEvents = new ChildEvents();
   private readonly slots = new Map<string, Parent>();
   private readonly parents = new Map<string, Parent>();
   private readonly early = new Set<string>();
   private readonly metadata: SessionMetadata;
   private readonly replies: ReviewedReplies;
+  private readonly offUnread: () => void;
 
   constructor(
     private readonly host: OrchestrationHost,
@@ -184,8 +212,11 @@ export class Orchestration {
     readonly childLimit: () => number = () => 4,
   ) {
     this.unreadChildren = new UnreadChildEvents(() => {
-      host.changed();
+      this.changed();
     }, now);
+    this.offUnread = this.childEvents.subscribe(() => {
+      this.syncUnreadChildEvents();
+    });
     this.replies = new ReviewedReplies(
       host,
       now,
@@ -197,6 +228,11 @@ export class Orchestration {
       (row) => this.pullRequest(row),
       (row) => this.handoffMetadata(row),
     );
+  }
+
+  disposeUnreadChildren(): void {
+    this.offUnread();
+    this.unreadChildren.dispose();
   }
 
   syncUnreadChildEvents(): void {
@@ -229,7 +265,12 @@ export class Orchestration {
     const parent = this.parent(actor);
     if (!this.own(parent, id)) return;
     this.syncUnreadChildEvents();
-    if (this.unreadChildren.read(actor.terminalId, id)) this.host.changed();
+    if (this.unreadChildren.read(actor.terminalId, id)) this.changed();
+  }
+
+  private changed(): void {
+    this.childEvents.publish();
+    this.host.changed();
   }
 
   pullRequest(row: WorkspaceTerminal) {
@@ -291,7 +332,7 @@ export class Orchestration {
         }
         this.parents.set(terminalId, parent);
         if (this.early.delete(terminalId)) this.retire(parent);
-        this.host.changed();
+        this.changed();
       },
       release: () => {
         if (this.slots.get(repository) === parent && parent.terminalId === null)
@@ -342,7 +383,7 @@ export class Orchestration {
       parent.worktrees.set(key, { ...tree, path: saved.path, state: saved.state });
       this.host.forge?.track({ repository: parent.repository, path: saved.path, ...tree });
     }
-    this.host.changed();
+    this.changed();
   }
 
   /** Reserve restored children before launches, so they count against the live limit. */
@@ -377,7 +418,7 @@ export class Orchestration {
       takenOver: false,
       tailAt: 0,
     });
-    this.host.changed();
+    this.changed();
     return true;
   }
 
@@ -395,6 +436,7 @@ export class Orchestration {
 
   /** Exit revokes the parent's authority; children keep running under human control. */
   exited(id: string): void {
+    this.childEvents.publish();
     this.replies.invalidate(id);
     const parent = this.parents.get(id);
     if (parent) {
@@ -404,12 +446,13 @@ export class Orchestration {
     const child = this.child(id);
     if (child) {
       child.exited = true;
-      this.host.changed();
+      this.changed();
     } else if (this.launching()) this.early.add(id);
   }
 
   /** The session left the board. A parent's history goes with its row. */
   removed(id: string): void {
+    this.childEvents.publish();
     this.handoffs.remove(id);
     this.replies.forget(id);
     const parent = this.parents.get(id);
@@ -422,6 +465,7 @@ export class Orchestration {
 
   /** A human relaunch under the same ID (resume, new conversation) is never the orchestrator's. */
   relaunched(id: string): void {
+    this.childEvents.publish();
     this.replies.forget(id);
     for (const parent of this.parents.values()) parent.children.delete(id);
   }
@@ -436,6 +480,7 @@ export class Orchestration {
   }
 
   takeOver(id: string): void {
+    this.childEvents.publish();
     this.replies.invalidate(id);
     for (const parent of this.parents.values()) {
       const child = parent.children.get(id);
@@ -449,7 +494,7 @@ export class Orchestration {
         status: "succeeded",
         at: this.now(),
       });
-      this.host.changed();
+      this.changed();
       return;
     }
     throw new Error("This session has no orchestrator");
@@ -490,6 +535,7 @@ export class Orchestration {
     params: Record<string, unknown>,
     operations: Operations,
     active: () => void = () => {},
+    signal?: AbortSignal,
   ): Promise<unknown> {
     if (method === "handoff") {
       return this.handoffs.record(
@@ -504,7 +550,7 @@ export class Orchestration {
         },
         async () => {
           await this.host.saveHandoffs?.();
-          this.host.changed();
+          this.changed();
         },
         this.now,
       );
@@ -522,7 +568,7 @@ export class Orchestration {
         if (!report) throw new ControlError("not_found");
         child.readHandoff = Math.max(child.readHandoff ?? 0, report.seq);
         this.childRead(actor, id);
-        this.host.changed();
+        this.changed();
         return {
           ...report,
           links: [...report.links],
@@ -565,7 +611,7 @@ export class Orchestration {
       case "tail":
         return this.tail(actor, params);
       case "wait_for":
-        return this.waitFor(actor, params);
+        return this.waitFor(actor, params, active, signal);
       default:
         throw new ControlError("forbidden");
     }
@@ -695,7 +741,7 @@ export class Orchestration {
         takenOver: false,
         tailAt: 0,
       });
-      this.host.changed();
+      this.changed();
       this.host.place?.(id, actor.terminalId);
       return await this.finish(actor, parent, operations, operation, label, "succeeded", id);
     } catch (error) {
@@ -877,7 +923,7 @@ export class Orchestration {
           });
       } finally {
         parent.aborts.delete(abort);
-        this.host.changed();
+        this.changed();
       }
     })();
     return publicOperation(operation);
@@ -917,9 +963,20 @@ export class Orchestration {
     };
   }
 
-  private async waitFor(actor: Principal, params: Record<string, unknown>): Promise<unknown> {
-    exact(params, ["ids", "after", "timeoutMs"]);
-    const ids = params["ids"];
+  private async waitFor(
+    actor: Principal,
+    params: Record<string, unknown>,
+    active: () => void,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    exact(params, ["ids", "after", "timeoutMs", "untilEvent"]);
+    const untilEvent = params["untilEvent"] === true;
+    if (params["untilEvent"] !== undefined && !untilEvent)
+      throw new ControlError("invalid_request");
+    const ids =
+      params["ids"] === undefined && untilEvent
+        ? [...this.parent(actor).children.keys()].filter((id) => this.own(this.parent(actor), id))
+        : params["ids"];
     if (!Array.isArray(ids) || ids.length < 1 || ids.length > this.childLimit())
       throw new ControlError("invalid_request");
     const targets = ids.map(identifier);
@@ -934,6 +991,7 @@ export class Orchestration {
         after[id] = identifier(revision);
       }
     }
+    if (untilEvent) return this.waitUntilEvent(actor, targets, after, params, active, signal);
     const timeout = params["timeoutMs"] ?? 0;
     if (typeof timeout !== "number" || !Number.isInteger(timeout) || timeout < 0 || timeout > 30000)
       throw new ControlError("invalid_request");
@@ -958,6 +1016,76 @@ export class Orchestration {
       }
       await new Promise((resolve) => setTimeout(resolve, Math.min(250, remaining)));
     }
+  }
+
+  private waitUntilEvent(
+    actor: Principal,
+    targets: string[],
+    after: Record<string, string>,
+    params: Record<string, unknown>,
+    active: () => void,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const timeout = params["timeoutMs"];
+    if (
+      timeout !== undefined &&
+      (typeof timeout !== "number" ||
+        !Number.isInteger(timeout) ||
+        timeout < 0 ||
+        timeout > 2147483647)
+    )
+      throw new ControlError("invalid_request");
+    const deadline = typeof timeout === "number" ? Date.now() + timeout : undefined;
+    // The session revision also moves with terminal output, so a working child would
+    // end every wait. Long waits compare only the facts an orchestrator acts on.
+    const read = () => {
+      active();
+      const parent = this.parent(actor);
+      if (targets.some((id) => !this.own(parent, id))) throw new ControlError("not_found");
+      return targets.map((id) => {
+        const row = this.metadata.read(actor, "session_state", { id }) as SessionEventFacts & {
+          revision: string;
+        };
+        return { ...row, event: eventCursor(row) };
+      });
+    };
+    const initial = read();
+    for (const id of targets) this.childRead(actor, id);
+    // A still-current session revision means nothing changed yet; adopt its cursor.
+    for (const row of initial)
+      if (params["after"] === undefined || after[row.id] === row.revision)
+        after[row.id] = row.event;
+    return new Promise((resolve, reject) => {
+      let unsubscribe = () => {};
+      const cleanup = () => {
+        unsubscribe();
+        signal?.removeEventListener("abort", abort);
+      };
+      const abort = () => {
+        cleanup();
+        reject(new ControlError("unavailable"));
+      };
+      const check = () => {
+        try {
+          const sessions = read();
+          const changed = sessions
+            .filter((row) => after[row.id] !== row.event)
+            .map((row) => row.id);
+          if (changed.length || (deadline !== undefined && Date.now() >= deadline)) {
+            cleanup();
+            for (const id of targets) this.childRead(actor, id);
+            resolve({ sessions, changed, timedOut: changed.length === 0 });
+          }
+        } catch (error) {
+          cleanup();
+          reject(error instanceof Error ? error : new ControlError("unavailable"));
+        }
+      };
+      unsubscribe = this.childEvents.subscribe(check, deadline);
+      signal?.addEventListener("abort", abort, { once: true });
+      if (signal?.aborted) abort();
+      else check();
+    });
   }
 
   private parent(actor: Principal): Parent {
@@ -1005,7 +1133,7 @@ export class Orchestration {
     parent.active = false;
     if (this.slots.get(parent.repository) === parent) this.slots.delete(parent.repository);
     for (const abort of parent.aborts) abort.abort();
-    this.host.changed();
+    this.changed();
   }
 
   private label(id: string): string {
@@ -1028,7 +1156,7 @@ export class Orchestration {
     if (index >= 0) parent.history.splice(index, 1);
     parent.history.push(entry);
     if (parent.history.length > HISTORY) parent.history.splice(0, parent.history.length - HISTORY);
-    this.host.changed();
+    this.changed();
   }
 
   private async finish(

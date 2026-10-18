@@ -393,6 +393,12 @@ it("advertises only current capabilities with CLI fallbacks accepted by the real
   const expected = examples.map((args) => ({
     name: command(args).method,
     cli: `foom ${String(args[0])}`,
+    ...(args[0] === "wait-for"
+      ? {
+          longWait:
+            "foom wait-for [ID...] --until-event [--after JSON_ID_TO_EVENT] [--timeout SECONDS]",
+        }
+      : {}),
   }));
   expect(identity["tools"]).toEqual(expected);
   expect(identity["capabilities"]).toEqual(expected.map((tool) => tool.name));
@@ -401,3 +407,89 @@ it("advertises only current capabilities with CLI fallbacks accepted by the real
   expect(revoked["tools"]).toEqual(expected.slice(0, 6));
   expect(revoked["capabilities"]).toEqual(expected.slice(0, 6).map((tool) => tool.name));
 });
+
+it("keeps a blocking CLI request open beyond normal transport deadlines and wakes with metadata", async () => {
+  const { call } = await import("../../../../src/cli/client");
+  const parent = client(tokens.orchestrator);
+  await parent.init();
+  const created = await parent.tool("create_worktree", { idempotencyKey: "a", branch: "b" });
+  await parent.tool("launch", {
+    idempotencyKey: "c",
+    worktreeId: created.structuredContent?.["resultId"],
+    agent: "claude",
+  });
+  const subscribe = vi.spyOn(orchestration.childEvents, "subscribe");
+  const pending = call(
+    { endpoint: http.endpoint, instanceId: service.instanceId, token: tokens.orchestrator },
+    command(["wait-for", "--until-event"]),
+  );
+  await vi.waitFor(() => {
+    expect(subscribe).toHaveBeenCalledTimes(1);
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5600));
+  const child = rows[0];
+  if (!child) throw new Error("missing child");
+  child.exited = true;
+  orchestration.childEvents.publish();
+  expect(await pending).toMatchObject({
+    changed: ["child"],
+    timedOut: false,
+    sessions: [{ state: "exited" }],
+  });
+  const refused = await parent.tool("wait_for", { ids: ["child"], untilEvent: true });
+  expect(refused.isError).toBe(true);
+}, 15000);
+
+it.each(["disconnect", "revoke"])(
+  "cleans up an HTTP blocking subscription on %s",
+  async (action) => {
+    const parent = client(tokens.orchestrator);
+    await parent.init();
+    const created = await parent.tool("create_worktree", { idempotencyKey: "a", branch: "b" });
+    await parent.tool("launch", {
+      idempotencyKey: "c",
+      worktreeId: created.structuredContent?.["resultId"],
+      agent: "claude",
+    });
+    const subscribe = orchestration.childEvents.subscribe.bind(orchestration.childEvents);
+    const off = vi.fn();
+    const registered = vi
+      .spyOn(orchestration.childEvents, "subscribe")
+      .mockImplementation((listener, deadline) => {
+        const dispose = subscribe(listener, deadline);
+        return () => {
+          off();
+          dispose();
+        };
+      });
+    const abort = new AbortController();
+    const pending = fetch(http.endpoint, {
+      method: "POST",
+      signal: abort.signal,
+      headers: {
+        Authorization: `Bearer ${tokens.orchestrator}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        version: 1,
+        instanceId: service.instanceId,
+        method: "wait_for",
+        params: { untilEvent: true },
+      }),
+    });
+    const outcome = pending.catch(() => undefined);
+    await vi.waitFor(() => {
+      expect(registered).toHaveBeenCalledTimes(1);
+    });
+    if (action === "disconnect") abort.abort();
+    else service.setRole("parent", "agent");
+    const response = await outcome;
+    if (action === "revoke") {
+      expect(response?.status).toBe(401);
+      expect(await response?.json()).toEqual({ error: "unauthorized" });
+    }
+    await vi.waitFor(() => {
+      expect(off).toHaveBeenCalledTimes(1);
+    });
+  },
+);
