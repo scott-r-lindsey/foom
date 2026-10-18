@@ -918,7 +918,17 @@ cancelled and indeterminate outcomes; lookup never replays a mutation. Retain
 records and deduplication mappings for the grant's lifetime, refusing new mutations
 at the storage limit. Parent exit cancels pending actions
 but leaves children visible and running for human control. A replacement parent
-does not inherit them. Metadata-only `wait_for` is bounded to 30 seconds. CLI access
+does not inherit them. Metadata-only MCP `wait_for` is bounded to 30 seconds.
+The CLI's `wait-for --until-event` form uses the same ownership and revision
+checks, waiting without a transport deadline until a watched child changes.
+`Orchestration.childEvents` is a shared, main-only invalidation stream reusable by
+other child-event consumers; workspace execution, state, output/input, forge and
+orchestration lifecycle changes publish coalesced notifications. Consumers compare
+metadata revisions, so unrelated notifications do not end waits. Each waiter holds
+one subscription and a disconnect listener, with one shared optional deadline
+scheduler across all subscribers. Disconnect, revocation and shutdown release
+subscriptions; role changes recheck the exact principal and return an error.
+CLI access
 outside Foom-launched agents requires explicit, expiring in-app pairing; private
 discovery files contain endpoint metadata, never a reusable human credential.
 Same-OS-user processes are not isolated by these bearer capabilities or worktrees.

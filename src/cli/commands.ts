@@ -4,7 +4,7 @@ import { ControlError, identifier, object } from "../node-common/control-validat
 import type { Command } from "./types";
 
 export function command(args: readonly string[]): Command {
-  if (args.length > 16 || args.some((arg) => Buffer.byteLength(arg) > 16384))
+  if (args.length > 48 || args.some((arg) => Buffer.byteLength(arg) > 16384))
     throw new ControlError("invalid_request");
   const [name, ...words] = args;
   if (name === "read-handoff") {
@@ -93,6 +93,12 @@ function orchestration(name: string | undefined, words: string[]): Command {
       words.shift();
     }
   }
+  if (name === "wait-for" && words.includes("--until-event")) {
+    if (words.filter((word) => word === "--until-event").length !== 1)
+      throw new ControlError("invalid_request");
+    words.splice(words.indexOf("--until-event"), 1);
+    params["untilEvent"] = true;
+  }
   const flags = new Map<string, string>();
   for (let i = 0; i < words.length; i += 2) {
     const flag = words[i];
@@ -152,10 +158,23 @@ function orchestration(name: string | undefined, words: string[]): Command {
     }
     case "wait-for": {
       const ids = positional.map(identifier);
-      if (ids.length < 1 || ids.length > 4 || new Set(ids).size !== ids.length)
+      if (
+        (ids.length < 1 && !params["untilEvent"]) ||
+        ids.length > 16 ||
+        new Set(ids).size !== ids.length
+      )
         throw new ControlError("invalid_request");
-      params["ids"] = ids;
-      if (flags.has("--timeout-ms")) params["timeoutMs"] = integer(take("--timeout-ms"), 30000);
+      if (ids.length) params["ids"] = ids;
+      if (flags.has("--timeout")) {
+        if (!params["untilEvent"] || flags.has("--timeout-ms"))
+          throw new ControlError("invalid_request");
+        params["timeoutMs"] = integer(take("--timeout"), 2147483) * 1000;
+      }
+      if (flags.has("--timeout-ms"))
+        params["timeoutMs"] = integer(
+          take("--timeout-ms"),
+          params["untilEvent"] ? 2147483647 : 30000,
+        );
       const cursor = take("--after");
       if (cursor !== undefined) {
         let after: Record<string, unknown>;
@@ -165,7 +184,7 @@ function orchestration(name: string | undefined, words: string[]): Command {
           throw new ControlError("invalid_request");
         }
         for (const [id, revision] of Object.entries(after)) {
-          if (!ids.includes(id)) throw new ControlError("invalid_request");
+          if (ids.length && !ids.includes(id)) throw new ControlError("invalid_request");
           identifier(revision);
         }
         params["after"] = after;

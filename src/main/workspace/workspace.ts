@@ -715,6 +715,7 @@ export class Workspace {
 
   refresh(): void {
     if (this.closed) return;
+    this.orchestration.childEvents.publish();
     this.deps.watcher?.sync(this.deps.worktrees.listRepositories());
     this.deps.onChange?.();
   }
@@ -2297,6 +2298,7 @@ export class Workspace {
       inputRevision: terminal.inputVersion ?? 0,
       timestamp: this.now(),
     };
+    this.orchestration.childEvents.publish();
     this.deps.onState(this.currentState(id) ?? terminal.state);
   }
 

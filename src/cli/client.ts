@@ -121,13 +121,16 @@ export function exchange(
         });
       },
     );
-    const timer = setTimeout(
-      () => {
-        reject(new ControlError("unavailable"));
-        req.destroy();
-      },
-      onLine ? 65000 : timeoutMs,
-    );
+    const timer =
+      timeoutMs === 0
+        ? undefined
+        : setTimeout(
+            () => {
+              reject(new ControlError("unavailable"));
+              req.destroy();
+            },
+            onLine ? 65000 : timeoutMs,
+          );
     req.on("close", () => {
       clearTimeout(timer);
     });
@@ -159,7 +162,7 @@ export async function call(connection: Connection, command: Command): Promise<un
       { version: 1, instanceId: connection.instanceId, ...command },
       connection.token,
       undefined,
-      command.method === "wait_for" ? 35000 : 5000,
+      command.method === "wait_for" ? (command.params["untilEvent"] ? 0 : 35000) : 5000,
     ),
   );
   exact(value, ["result", "error"]);
