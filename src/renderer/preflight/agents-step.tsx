@@ -162,7 +162,9 @@ export function AgentsStep({
                   <div className="agent-setting">
                     <span className="agent-label">Attention</span>
                     <div className="agent-inline">
-                      {supportsHooks ? (
+                      {agent?.attentionSignal === false ? (
+                        <span>No attention signal</span>
+                      ) : supportsHooks ? (
                         <div className="agent-signals" aria-label={`${name} attention`}>
                           {([true, false] as const).map((enabled) => (
                             <button

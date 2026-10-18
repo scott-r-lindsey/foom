@@ -274,3 +274,17 @@ test.each(["claude", "custom"])(
     expect(f.save).not.toHaveBeenCalled();
   },
 );
+
+test("missing attention replaces the signal control with neutral terse text", () => {
+  const f = fixture();
+  render(
+    <AgentsStep
+      {...f.props}
+      report={report({ ...installation("claude"), hooks: false, attentionSignal: false })}
+    />,
+  );
+  const card = screen.getByRole("region", { name: "Claude Code" });
+  expect(within(card).getByText("No attention signal").className).toBe("");
+  expect(within(card).queryByText("Screen rules")).toBeNull();
+  expect(within(card).queryByRole("button", { name: "Hooks" })).toBeNull();
+});
