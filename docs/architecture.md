@@ -912,11 +912,17 @@ validation, a build-locked GitHub manifest and a transport-injected interpreter.
 The current GitHub provider remains active while side-by-side fixture tests prove
 parity. The new interpreter receives argv-array transport from main; it cannot
 resolve or spawn a CLI itself. Fork/same-repository decisions and trusted
-default-branch refusal remain TypeScript policy. Settings/host routing, executable
-auth/lifecycle, large-request scheduling within manifest bounds and persistence
-remain integration work. The interpreter now supports declarative dynamic batch
+default-branch refusal remain TypeScript policy. The inactive `ForgeLifecycle`
+service now supplies native executable resolution, disposable neutral working
+directories, bounded execution and process-tree cancellation, auth gating, narrowed
+result caching and explicit invalidation. It revalidates registry membership, exact
+manifest bytes, executable identity and the main-owned worktree context before
+execution and publication, including cached reads. CLI diagnostics never escape
+this boundary; consumers receive only fixed execution states and mapped metadata.
+Settings/host routing, large-request scheduling within manifest bounds and
+persistence remain integration work. The interpreter now supports declarative dynamic batch
 AST composition and check-count reduction with old/new offline parity tests;
-activation remains gated on the remaining lifecycle and scheduling integration.
+activation remains gated on the remaining scheduling and runtime integration.
 #516's adaptive cadence and dynamic check-count batches are unchanged.
 
 Foom also reads PR and check status for board checkouts and orchestrator-owned child

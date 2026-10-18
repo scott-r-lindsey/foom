@@ -165,6 +165,9 @@
         "headSha": {
           "$ref": "#/$defs/path"
         },
+        "mergeCommit": {
+          "$ref": "#/$defs/path"
+        },
         "state": {
           "$ref": "#/$defs/path"
         },
