@@ -678,3 +678,15 @@ test("pull request privacy preference is boolean, profile-only and survives rest
   await store.update({ showPullRequests: true });
   expect((await SettingsStore.open(root)).get().showPullRequests).toBe(true);
 });
+
+test("unread child minutes validates bounded integers and persists only in the profile", async () => {
+  expect(DEFAULT_SETTINGS.unreadChildMinutes).toBe(5);
+  for (const unreadChildMinutes of [0, 1, 5, 1440])
+    expect(parseSettingsPatch({ unreadChildMinutes })).toEqual({ unreadChildMinutes });
+  for (const unreadChildMinutes of [-1, 1441, 0.5, "5", null, true, NaN, Infinity, {}, []])
+    expect(() => parseSettingsPatch({ unreadChildMinutes })).toThrow();
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  await store.update({ unreadChildMinutes: 0 });
+  expect((await SettingsStore.open(dir)).get().unreadChildMinutes).toBe(0);
+});

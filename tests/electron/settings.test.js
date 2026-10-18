@@ -646,6 +646,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     "codexNotifierAcknowledged",
     "setupComplete",
     "showPullRequests",
+    "unreadChildMinutes",
     "worktreeLocation",
   ]);
   const effective = (await page.evaluate(() => window.desktop.setupState())).settings;
@@ -656,6 +657,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     hooks: true,
     restoreSessions: true,
     concurrentChildren: 4,
+    unreadChildMinutes: 5,
     autoRemoveMergedWorktrees: false,
     showPullRequests: false,
     agents: { claude: true, codex: true, agy: true },

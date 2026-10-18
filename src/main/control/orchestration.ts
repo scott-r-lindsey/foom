@@ -1,3 +1,4 @@
+import { UnreadChildEvents } from "./unread-child-events";
 import { Handoffs } from "./handoffs";
 import type { Handoff } from "../../shared/handoff";
 import { readHandoffRequest } from "../../node-common/handoff";
@@ -170,6 +171,7 @@ function publicOperation(operation: Operation): Operation {
  */
 export class Orchestration {
   readonly handoffs = new Handoffs();
+  readonly unreadChildren: UnreadChildEvents;
   private readonly slots = new Map<string, Parent>();
   private readonly parents = new Map<string, Parent>();
   private readonly early = new Set<string>();
@@ -181,6 +183,9 @@ export class Orchestration {
     private readonly now: () => number = Date.now,
     readonly childLimit: () => number = () => 4,
   ) {
+    this.unreadChildren = new UnreadChildEvents(() => {
+      host.changed();
+    }, now);
     this.replies = new ReviewedReplies(
       host,
       now,
@@ -192,6 +197,39 @@ export class Orchestration {
       (row) => this.pullRequest(row),
       (row) => this.handoffMetadata(row),
     );
+  }
+
+  syncUnreadChildEvents(): void {
+    const rows = this.host.terminals();
+    this.unreadChildren.sync(
+      [...this.parents].flatMap(([parentId, parent]) =>
+        parent.active
+          ? [...parent.children].flatMap(([id, child]) => {
+              const row = rows.find((entry) => entry.id === id);
+              return child.takenOver || !row
+                ? []
+                : [
+                    {
+                      id,
+                      parentId,
+                      execution: row.execution,
+                      exited: child.exited,
+                      handoff: this.handoffMetadata(row),
+                      pullRequest: this.pullRequest(row),
+                    },
+                  ];
+            })
+          : [],
+      ),
+    );
+  }
+
+  childRead(actor: Principal, id: string): void {
+    if (actor.role !== "orchestrator") return;
+    const parent = this.parent(actor);
+    if (!this.own(parent, id)) return;
+    this.syncUnreadChildEvents();
+    if (this.unreadChildren.read(actor.terminalId, id)) this.host.changed();
   }
 
   pullRequest(row: WorkspaceTerminal) {
@@ -483,6 +521,7 @@ export class Orchestration {
             : this.handoffs.entries(id).find((entry) => entry.seq === seq);
         if (!report) throw new ControlError("not_found");
         child.readHandoff = Math.max(child.readHandoff ?? 0, report.seq);
+        this.childRead(actor, id);
         this.host.changed();
         return {
           ...report,
@@ -908,8 +947,10 @@ export class Orchestration {
       );
       const changed = sessions.filter((row) => after[row.id] !== row.revision).map((row) => row.id);
       const remaining = deadline - this.now();
-      if (changed.length > 0 || remaining <= 0)
+      if (changed.length > 0 || remaining <= 0) {
+        for (const id of targets) this.childRead(actor, id);
         return { sessions, changed, timedOut: changed.length === 0 };
+      }
       await new Promise((resolve) => setTimeout(resolve, Math.min(250, remaining)));
     }
   }
