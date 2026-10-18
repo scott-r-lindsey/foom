@@ -4,7 +4,8 @@ import { promisify } from "node:util";
 import type { ForgeProvider, PullRequest } from "./forge.d";
 
 const execute = promisify(execFile);
-const FIELDS = "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository";
+const FIELDS =
+  "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository,mergeCommit";
 export type ForgeRunner = (args: readonly string[]) => Promise<string>;
 
 /** Fail closed without surfacing CLI diagnostics (which can contain credentials). */
@@ -102,6 +103,9 @@ export function pullRequest(value: unknown): PullRequest | undefined {
   return {
     number: data["number"],
     headSha: data["headSha"],
+    ...(typeof data["mergeCommit"] === "string" && /^[a-f0-9]{40,64}$/u.test(data["mergeCommit"])
+      ? { mergeCommit: data["mergeCommit"] }
+      : {}),
     state: data["state"],
     requiredChecks: data["requiredChecks"],
   };
@@ -232,6 +236,7 @@ export function forgeProvider(
         const candidate = pullRequest({
           number: data["number"],
           headSha: data["headRefOid"],
+          mergeCommit: record(data["mergeCommit"])?.["oid"],
           state: data["state"],
           requiredChecks: "none",
         });
@@ -257,7 +262,8 @@ export function forgeProvider(
           head["headRefOid"] !== candidate.headSha ||
           head["headRefName"] !== branch ||
           head["number"] !== candidate.number ||
-          head["state"] !== candidate.state
+          head["state"] !== candidate.state ||
+          record(head["mergeCommit"])?.["oid"] !== record(data["mergeCommit"])?.["oid"]
         )
           return undefined;
         return { ...candidate, requiredChecks: conclusion };

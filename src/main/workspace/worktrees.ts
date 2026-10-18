@@ -1,5 +1,5 @@
 import { UncertainEffect } from "../control/orchestration";
-import { forgeBranch, forgeProvider } from "../control/forge";
+import { forgeBranch, forgeProvider, pullRequest } from "../control/forge";
 import { ControlError } from "../../node-common/control-validation";
 import { fetchAdvertisedDefault } from "./fetch-default";
 import type { GitPanelFacts } from "../../shared/panel";
@@ -833,7 +833,7 @@ export class WorktreeService {
     }
   }
 
-  /** Strict ancestry only, deliberately excluding squash/content-equivalent merges. */
+  /** Ancestry or a PR merge verified against the freshly fetched default. */
   async canAutoRemove(repository: string, path: string, identity: string): Promise<boolean> {
     try {
       await this.checkRemovalIdentity(repository, path, identity);
@@ -842,21 +842,25 @@ export class WorktreeService {
       await this.validateBranch(repository, branch);
       const head = (await git(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
       if (!/^[a-f0-9]{40,64}$/u.test(head) || !/^[a-f0-9]{40,64}$/u.test(base)) return false;
-      // No upstream is normal for a new branch. All its commits must still be
-      // reachable from fetched remote refs. With an upstream, require zero ahead.
-      const upstream = (
-        await git(path, ["for-each-ref", "--format=%(upstream)", `refs/heads/${branch}`])
-      ).trim();
-      const unpushed = (
-        await git(
-          path,
-          upstream
-            ? ["rev-list", "--count", "HEAD", "--not", upstream.trim(), "--"]
-            : ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"],
-        )
-      ).trim();
-      if (unpushed !== "0") return false;
-      await git(path, ["merge-base", "--is-ancestor", head, base]);
+      if (this.fetchFacts.get(repository)?.branch === branch) return false;
+      const tree = (await this.listWorktrees(repository)).find((item) => item.path === path);
+      if (!tree || tree.head !== head || tree.branch !== branch) return false;
+      if (!(await this.verifiedPrMerge(repository, tree, base))) {
+        // Preserve the no-unpushed-commits guard for the ancestry-only path.
+        const upstream = (
+          await git(path, ["for-each-ref", "--format=%(upstream)", `refs/heads/${branch}`])
+        ).trim();
+        const unpushed = (
+          await git(
+            path,
+            upstream
+              ? ["rev-list", "--count", "HEAD", "--not", upstream, "--"]
+              : ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"],
+          )
+        ).trim();
+        if (unpushed !== "0") return false;
+        await git(path, ["merge-base", "--is-ancestor", head, base]);
+      }
       if ((await this.changes(repository, path, identity)) !== "") return false;
       return (
         (await git(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim() === head &&
@@ -869,18 +873,47 @@ export class WorktreeService {
   }
 
   async mergedCommit(repository: string, tree: Worktree, base: string): Promise<boolean> {
-    if (!tree.branch || !tree.head) return false;
+    if (!tree.branch || !tree.head || this.fetchFacts.get(repository)?.branch === tree.branch)
+      return false;
     await this.validateBranch(repository, tree.branch);
     if (!/^[a-f0-9]{40,64}$/u.test(base) || !/^[a-f0-9]{40,64}$/u.test(tree.head))
       throw new Error("Invalid commit ID");
     const defaultTree = (await git(repository, ["rev-parse", `${base}^{tree}`])).trim();
     try {
-      return (
+      if (
         (await git(repository, ["merge-tree", "--write-tree", base, tree.head])).trim() ===
         defaultTree
+      )
+        return true;
+    } catch {
+      // A content conflict does not rule out an earlier PR merge.
+    }
+    return this.verifiedPrMerge(repository, tree, base);
+  }
+
+  /** Forge output is only a hint; never pass its unchecked values to Git. */
+  private async verifiedPrMerge(
+    repository: string,
+    tree: Worktree,
+    base: string,
+  ): Promise<boolean> {
+    try {
+      if (!tree.branch || !tree.head || this.fetchFacts.get(repository)?.branch === tree.branch)
+        return false;
+      const remote = await this.forgeRemote(repository);
+      const pr = pullRequest(
+        await (remote === undefined
+          ? undefined
+          : this.provider(remote)?.lookup(tree.branch, undefined, "all")),
+      );
+      if (pr?.state !== "MERGED" || pr.headSha !== tree.head || !pr.mergeCommit) return false;
+      await git(repository, ["merge-base", "--is-ancestor", pr.mergeCommit, base]);
+      return (
+        (await git(tree.path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim() === tree.head &&
+        (await this.changes(repository, tree.path)) === ""
       );
     } catch {
-      // Conflicts, unrelated histories and unsupported Git versions never authorize deletion.
+      // Missing objects, malformed/hostile forge hints and unavailable providers fail closed.
       return false;
     }
   }

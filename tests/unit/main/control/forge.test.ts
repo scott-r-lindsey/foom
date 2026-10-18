@@ -121,7 +121,7 @@ it("uses fixed read-only argv and verifies the head after required checks", asyn
       "--limit",
       "2",
       "--json",
-      "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository",
+      "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository,mergeCommit",
     ],
     ["pr", "checks", "340", "--repo", "github.com/o/r", "--required", "--json", "bucket"],
     [
@@ -131,7 +131,7 @@ it("uses fixed read-only argv and verifies the head after required checks", asyn
       "--repo",
       "github.com/o/r",
       "--json",
-      "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository",
+      "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository,mergeCommit",
     ],
   ]);
   runner.mockClear();
@@ -645,4 +645,36 @@ it("reports none for a verified GraphQL head with a null rollup, keeping missing
     ...pr,
     requiredChecks: "none",
   });
+});
+
+it("maps and validates optional merge commits without granting malformed hints", async () => {
+  const mergeCommit = "b".repeat(40);
+  expect(pullRequest({ ...pr, mergeCommit })).toEqual({ ...pr, mergeCommit });
+  for (const value of ["--help", "bad", null, 42])
+    expect(pullRequest({ ...pr, mergeCommit: value })).toEqual(pr);
+  const runner = vi.fn((args: readonly string[]) =>
+    Promise.resolve(
+      JSON.stringify(
+        args[1] === "checks"
+          ? []
+          : args[1] === "list"
+            ? [{ ...raw, state: "MERGED", mergeCommit: { oid: mergeCommit } }]
+            : { ...raw, state: "MERGED", mergeCommit: { oid: mergeCommit } },
+      ),
+    ),
+  );
+  expect(
+    await forgeProvider("git@github.com:o/r.git", runner)?.lookup("child-one", undefined, "all"),
+  ).toEqual({ ...pr, state: "MERGED", requiredChecks: "none", mergeCommit });
+  runner
+    .mockImplementationOnce(() =>
+      Promise.resolve(JSON.stringify([{ ...raw, mergeCommit: { oid: mergeCommit } }])),
+    )
+    .mockImplementationOnce(() => Promise.resolve("[]"))
+    .mockImplementationOnce(() =>
+      Promise.resolve(JSON.stringify({ ...raw, mergeCommit: { oid: "c".repeat(40) } })),
+    );
+  expect(
+    await forgeProvider("git@github.com:o/r.git", runner)?.lookup("child-one"),
+  ).toBeUndefined();
 });

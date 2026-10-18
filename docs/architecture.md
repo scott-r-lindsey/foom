@@ -593,8 +593,15 @@ default-ref fetch. Either failed network operation refuses cleanup.
 Merged cleanup uses the same removal sequence with an additional main-owned
 revalidation callback. Candidate path, filesystem identity, branch and commit
 are captured before the trusted dialog. Both revalidation passes check Git membership and captured identity,
-session eligibility, clean status and `merge-tree` containment against a freshly
-fetched default commit. A failed post-confirmation fetch prevents every removal.
+session eligibility, clean status and either `merge-tree` containment against a freshly
+fetched default commit or a locally verified PR merge. The latter uses the existing
+forge lookup for a same-repository MERGED PR, requires its head SHA to equal the
+worktree HEAD exactly, validates the optional `PullRequest.mergeCommit` ID, and runs
+`git merge-base --is-ancestor <mergeCommit> <fetched-default>`. Forge hints alone
+never authorize removal; missing objects, mismatched heads and failed checks refuse.
+Every removal rechecks this evidence. Automatic removal uses this verified PR path
+alongside its existing ancestry/no-unpushed-commits path, preserving clean status,
+identity, session and authority guards. A failed post-confirmation fetch prevents every removal.
 Main owns one `CleanupRun` per repository. While it is pending, inventory does not
 start background eligibility scans. Before deletion begins, cleanup drains all
 existing scans, including superseded scans whose results will be discarded, so

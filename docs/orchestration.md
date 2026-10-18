@@ -1035,8 +1035,12 @@ ancestor of the freshly fetched default branch (`git merge-base --is-ancestor`).
 Main checks under the removal lock and rechecks immediately before deletion,
 including actor authority, checkout identity and the current setting. Any failed
 or indeterminate Git check, including fetch failure, falls back to the trusted
-dialog. Main checkouts and another actor's worktrees remain forbidden. This is
-local Git ancestry only: squash and rewritten rebase merges still prompt. Branches
+dialog. Main checkouts and another actor's worktrees remain forbidden. Automatic removal
+also permits a same-repository MERGED PR whose reported head exactly matches the
+local HEAD and whose validated merge commit is locally verified as an ancestor of
+the freshly fetched default. This path permits squash and rewritten rebase merges
+without head ancestry or a surviving upstream ref; clean status remains mandatory.
+Forge data is only a hint, and the PR evidence is rechecked before deletion. Branches
 are retained. Automatic completions use the same `operation_status` and action-log
 outcomes as reviewed removals. Main records a running intent before the final
 check; losing eligibility returns it to pending confirmation. Parent revocation

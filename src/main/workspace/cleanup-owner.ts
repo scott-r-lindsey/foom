@@ -344,6 +344,8 @@ export class CleanupOwner {
             if (reason) throw new KeptWorktree(reason);
             if (await this.deps.worktrees.changes(repository, tree.path, identity))
               throw new KeptWorktree("uncommitted changes");
+            // Re-read forge hints and local evidence; the displayed plan alone
+            // never authorizes a later deletion.
             if (!(await this.deps.worktrees.mergedCommit(repository, current, base)))
               throw new KeptWorktree("not merged");
           };

@@ -228,7 +228,12 @@ when at least one linked worktree is eligible, regardless of which tool created 
 (`origin`, or the sole remote) and resolves its advertised default branch. A
 branch is merged when `git merge-tree --write-tree <default> <branch>` produces
 the default branch's tree: merging it would change nothing. This works for merge,
-squash and rebase merges without GitHub access. A failed fetch refuses cleanup;
+squash and rebase merges without GitHub access. Alternatively, a same-repository
+PR reported MERGED qualifies only when its reported head exactly matches the local
+worktree HEAD and its validated merge commit is locally verified as an ancestor of
+the fetched default with `git merge-base --is-ancestor`. Forge data is only a hint;
+missing or malformed evidence never qualifies. This also recognizes squash and
+rebase merges after the default branch changes the same lines. A failed fetch refuses cleanup;
 Foom never falls back to a stale default branch. Local inventory returns immediately;
 background cleanup eligibility is cached for up to one minute and published when
 ready. A plan less than one minute old fills the dialog immediately without fetching.
@@ -688,7 +693,10 @@ items are declined. Dirty approvals explicitly say Discard changes and remove.
 Each approved removal rechecks independently; a recheck failure preserves that worktree
 and does not stop the others. A single pending removal keeps its ordinary dialog.
 Settings → General offers **Auto-remove merged worktrees**, allowing an orchestrator to auto-remove its own clean, fully merged
-worktrees with no running sessions across all repositories; this option is off by default. The app menu’s
+worktrees with no running sessions across all repositories. In addition to the
+existing ancestry and no-unpushed-commits check, the same locally verified PR rule
+above qualifies squash and rebase merges. Both paths require a clean worktree and
+are rescanned and rechecked immediately before deletion; this option is off by default. The app menu’s
 **Action log** opens searchable local history with actor/parent,
 repository/worktree, action, target/result IDs, outcomes and redacted reply proposals.
 Search and Action/Outcome filters apply to retained history, with 100 events per page.

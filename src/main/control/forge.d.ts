@@ -2,6 +2,7 @@ import type { BoardPullRequest } from "../../shared/forge";
 export interface PullRequest {
   number: number;
   headSha: string;
+  mergeCommit?: string;
   state: "OPEN" | "CLOSED" | "MERGED";
   requiredChecks: "pending" | "success" | "failure" | "none" | "unknown";
 }
