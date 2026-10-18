@@ -151,7 +151,7 @@ export function adaptV1(manifest: AgentPluginManifest): AgentManifestV2 {
   return model;
 }
 
-/** Offline only. No approval, discovery, preparation, setup or launch capabilities. */
+/** Offline only. No discovery, preparation, setup or launch capabilities. */
 export function parseAgentManifest(
   source: string,
   origin: "config" | "bundled" = "config",

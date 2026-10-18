@@ -42,12 +42,13 @@ afterEach(async () => {
   replaceConfigProviders([]);
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
-it("discovers approved capabilities, constructs literal argv, resumes, and flags manifest-declared bypass arguments", async () => {
+it("discovers validated manifest capabilities, constructs literal argv, resumes, and flags manifest-declared bypass arguments", async () => {
   const provider = configProvider(manifest, () => Promise.resolve());
   const installation = provider.discover("/fixture/agent", "1.0", "--observer --mcp");
   expect(installation).toMatchObject({
     name: manifest.name,
     mark: manifest.badge,
+    reason: "Config-authored agent; validated launch manifest.",
     hooks: true,
     mcp: true,
   });

@@ -2,7 +2,7 @@ import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicPrivate, privateDirectory, verifyPrivate } from "../../node-common/private-files";
 
-/** Profile-only answers are independent of manifest approval and config git. */
+/** Profile-only answers are independent of config manifests and config git. */
 export class SetupOffers {
   private readonly answers = new Set<string>();
   private directory: string | undefined;
