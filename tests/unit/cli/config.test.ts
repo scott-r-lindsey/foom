@@ -304,7 +304,7 @@ test("offline validation accepts literal defaults and reports fixed per-line res
   expect(out).toHaveBeenLastCalledWith(expect.stringContaining("Codex, line 3:"));
 });
 
-test("validates agent manifests offline without approval and reports malformed or mismatched plugin files", async () => {
+test("validates agent manifests offline and reports malformed or mismatched plugin files", async () => {
   const { default: manifest } = await import("../../fixtures/agent-plugin.json");
   const folder = await mkdtemp(join(tmpdir(), "foom-plugin-validation-"));
   roots.push(folder);
@@ -326,7 +326,7 @@ test("validates agent manifests offline without approval and reports malformed o
   });
 });
 
-test("validates v2 agents offline and reports parser reasons without probing or approving", async () => {
+test("validates v2 agents offline and reports parser reasons without probing", async () => {
   const root = await fixture();
   const agents = join(root, "agents");
   await mkdir(agents);

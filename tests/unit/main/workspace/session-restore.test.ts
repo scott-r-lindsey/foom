@@ -115,7 +115,7 @@ test("v2 restore capability requires the persisted human grant and verified inst
     hooks: false,
     mcp: true,
     restoreControl: true,
-    reason: "Approved",
+    reason: "Validated manifest",
   };
   expect(restoreAuthority(parent, "identity", installation, true)).toBe(true);
   expect(restoreAuthority(parent, "different", installation, true)).toBe(false);

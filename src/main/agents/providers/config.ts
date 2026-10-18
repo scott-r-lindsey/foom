@@ -6,7 +6,7 @@ import { expandArguments } from "../../../shared/agent-manifest";
 import { conversationId } from "../../../shared/conversation";
 import { CHILD_PROMPT, CONFIG_PROMPT } from "./cli-launch";
 
-/** Only the approved manifest supplies argv. Template values are never re-parsed as templates. */
+/** Only the validated manifest supplies argv. Template values are never re-parsed as templates. */
 export function configProvider(
   manifest: AgentPluginManifest,
   validate: () => Promise<void>,
@@ -39,7 +39,7 @@ export function configProvider(
       mcp:
         Boolean(manifest.launch.mcp.length) &&
         manifest.discovery.mcpHelp.every((flag) => help.includes(flag)),
-      reason: "Config-authored agent; approved launch manifest.",
+      reason: "Config-authored agent; validated launch manifest.",
     }),
     enrich: (installation) =>
       Promise.resolve({

@@ -18,7 +18,7 @@ import {
   selected,
 } from "./v2-values";
 
-/** Immutable approved data; probes/facts and temporary files never reach board renderers. */
+/** Immutable validated manifest data; probes/facts and temporary files never reach board renderers. */
 export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>): AgentProvider {
   const model = structuredClone(input);
   const freeze = (value: unknown): void => {
