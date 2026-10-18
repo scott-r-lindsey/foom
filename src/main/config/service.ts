@@ -275,6 +275,7 @@ export class ConfigService {
       THEME_FOLDERS.theme,
       THEME_FOLDERS["terminal-theme"],
       "schemas",
+      "examples",
       "agents",
       "forges",
       ...SOUND_KINDS.map((kind) => `sounds/${kind}`),
