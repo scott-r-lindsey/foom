@@ -4,7 +4,8 @@ import {
   LightHistory,
   lightState,
   movingLight,
-  outputLevel,
+  shellOutputLevel,
+  agentOutputLevel,
   smoothLevel,
   subscribeLights,
 } from "../../../../src/renderer/board/light-activity";
@@ -18,11 +19,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 test("log level exposes trickles, saturates builds, and attacks faster than it releases", () => {
-  expect(outputLevel(-2)).toBe(0);
-  expect(outputLevel(0)).toBe(0);
-  expect(outputLevel(200)).toBeCloseTo(0.388);
-  expect(outputLevel(4000)).toBe(1);
-  expect(outputLevel(8000)).toBe(1);
+  expect(shellOutputLevel(-2)).toBe(0);
+  expect(shellOutputLevel(0)).toBe(0);
+  expect(shellOutputLevel(200)).toBeCloseTo(0.388);
+  expect(shellOutputLevel(4000)).toBe(1);
+  expect(shellOutputLevel(8000)).toBe(1);
   expect(smoothLevel(0, 1, 120)).toBeCloseTo(1 - Math.exp(-1));
   expect(smoothLevel(1, 0, 700)).toBeCloseTo(Math.exp(-1));
 });
@@ -136,4 +137,45 @@ test("a hidden row retains the final zero before remount, but not across relaunc
   vi.advanceTimersByTime(50);
   stop();
   expect(vi.getTimerCount()).toBe(0);
+});
+
+test.each([agentOutputLevel, shellOutputLevel])(
+  "measured working rates retain headroom on each scale",
+  (level) => {
+    expect(level(0)).toBe(0);
+    expect(level(500)).toBeCloseTo(0.564);
+    expect(level(1400)).toBeCloseTo(0.776);
+    expect(level(2000)).toBeCloseTo(0.852);
+    expect(level(4000)).toBe(1);
+  },
+);
+
+test.each([false, true])(
+  "trace retains short peaks between glow target updates (reduced=%s)",
+  (reduced) => {
+    const history = new LightHistory();
+    history.step(0, 0, 0, reduced, "agent");
+    history.step(4000, 100, 100, reduced, "agent");
+    history.step(0, 200, 100, reduced, "agent");
+    const at = reduced ? 1000 : 250;
+    const peak = history.step(0, at, at - 200, reduced, "agent");
+    expect(peak?.path).toBe("M" + (34 - (at * 34) / 8000).toFixed(1) + " 11.0 L34.0 1.0");
+    expect(peak?.level).toBe(0);
+    expect(history.step(0, at * 2, at, reduced, "agent")?.path).toMatch(/L34\.0 11\.0$/);
+  },
+);
+
+test("reduced trace uses four discrete peak heights independently of glow brightness", () => {
+  const history = new LightHistory();
+  history.step(0, 0, 0, true, "agent");
+  for (const [now, rate, y] of [
+    [1000, 40, "11.0"],
+    [2000, 200, "7.7"],
+    [3000, 500, "4.3"],
+    [4000, 4000, "1.0"],
+  ] as const) {
+    expect(history.step(rate, now, 1000, true, "agent")?.path).toMatch(
+      new RegExp(`L34\\.0 ${y.replace(".", "\\.")}$`),
+    );
+  }
 });

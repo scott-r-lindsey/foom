@@ -1,4 +1,4 @@
-import { movingLight, outputLevel } from "./light-activity";
+import { movingLight, agentOutputLevel, shellOutputLevel } from "./light-activity";
 import type { BoardRow, BoardState } from "./board.d";
 
 const labels: Record<BoardState, string> = {
@@ -11,7 +11,9 @@ const labels: Record<BoardState, string> = {
 };
 export function light(row: BoardRow): { label: string; opacity: number } {
   let opacity = 1;
-  if (movingLight(row)) opacity = 0.5 + 0.5 * outputLevel(row.rate);
+  if (movingLight(row))
+    opacity =
+      0.5 + 0.5 * (row.kind === "agent" ? agentOutputLevel(row.rate) : shellOutputLevel(row.rate));
   if (row.state === "quiet_ok" || ((row.state === "done" || row.state === "failed") && row.seen))
     opacity = 0.4;
   if (row.kind === "shell") opacity = 1;

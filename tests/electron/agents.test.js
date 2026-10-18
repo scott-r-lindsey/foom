@@ -265,7 +265,11 @@ test("launches an agent in a managed worktree and routes its attention signals",
         .evaluate((element) => Number(element.style.getPropertyValue("--activity"))),
     )
     .toBeGreaterThan(0.9);
+  await expect
+    .poll(() => agentRow.locator(".activity-trace path").getAttribute("d"))
+    .toContain("L");
   await expect(agentRow).toHaveAttribute("data-state", "needs_input");
+  await expect(agentRow.locator(".activity-trace")).toHaveCount(0);
   // Typing records feedback; the agent hook establishes the permission request.
   await page.keyboard.type("y");
   await expect
