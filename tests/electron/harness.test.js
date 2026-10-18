@@ -4,12 +4,69 @@ const path = require("node:path");
 const { mkdtemp, realpath } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const {
+  FAKE_ORCHESTRATED_CLAUDE,
   installQuitAcknowledgement,
   launchApp,
   boardPage,
   removeAfterApps,
   fixtureCleanup,
 } = require("./harness.js");
+
+test("orchestrated fixture filenames signal complete credentials and console responses", async (context) => {
+  const fs = require("node:fs");
+  const { runInNewContext } = require("node:vm");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-fixture-records-"));
+  removeAfterApps(context, root);
+  const credentials = path.join(root, "credentials");
+  const checkout = path.basename(root);
+  const files = [`${credentials}.${checkout}`, `${credentials}.response-1`];
+  let writes = 0;
+  let onInput;
+  runInNewContext(FAKE_ORCHESTRATED_CLAUDE, {
+    require: (name) => {
+      if (name === "node:child_process")
+        return {
+          execFile: (_file, _args, _options, callback) => callback(null, '{"result":{}}', ""),
+        };
+      if (name !== "node:fs") return require(name);
+      return {
+        ...fs,
+        writeFileSync: (file, value) => {
+          // Pause at the actual cross-process race boundary: opening with "w"
+          // creates an observable empty file before any JSON bytes are written.
+          const descriptor = fs.openSync(file, "w");
+          try {
+            assert.equal(fs.existsSync(files[writes++]), false, "An unfinished record is visible");
+            fs.writeFileSync(descriptor, value);
+          } finally {
+            fs.closeSync(descriptor);
+          }
+        },
+      };
+    },
+    process: {
+      argv: ["node", "fixture"],
+      pid: process.pid,
+      env: { TEST_FAKE_CREDENTIALS: credentials },
+      cwd: () => root,
+      stdout: { write() {} },
+      stdin: {
+        setRawMode() {},
+        on: (_event, listener) => {
+          onInput = listener;
+        },
+      },
+    },
+  });
+  assert.deepEqual(JSON.parse(fs.readFileSync(files[0], "utf8")).args, []);
+  onInput(Buffer.from(`${JSON.stringify({ id: 1, args: ["launch"] })}\n`));
+  assert.deepEqual(JSON.parse(fs.readFileSync(files[1], "utf8")), {
+    code: 0,
+    stdout: '{"result":{}}',
+    stderr: "",
+  });
+  assert.equal(writes, 2);
+});
 
 // Exercise the synchronous inspector-call boundary without depending on a slow
 // CI runner: final quit must not run until the caller has regained control.

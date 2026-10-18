@@ -1743,6 +1743,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         text: JSON.stringify({ id, args }) + "\n",
       });
       const file = `${credentials}.response-${id}`;
+      // The fixture renames a fully written response into place after the CLI exits.
       await expect.poll(() => existsSync(file), { timeout: deadline(40000) }).toBe(true);
       const result = JSON.parse(await readFile(file, "utf8"));
       return {
@@ -1882,6 +1883,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       agent: "claude",
       prompt: "Summarize the README",
     });
+    assert.equal(launched.status, 200, JSON.stringify(launched.body));
     assert.equal(launched.body.result.status, "succeeded", JSON.stringify(launched.body));
     const childId = launched.body.result.resultId;
     if (phase === "waiting") {
