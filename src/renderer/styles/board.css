@@ -1522,6 +1522,9 @@
   border-radius: 50%;
   background: var(--attention);
 }
+.config-dock .panel-chip[data-tone="failed"] {
+  background: var(--surface);
+}
 .config-gear[data-tone="failed"]::after {
   background: var(--failed);
   border-radius: 1px;
