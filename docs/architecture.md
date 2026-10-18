@@ -696,8 +696,13 @@ and marks running operations indeterminate. Audit failure refuses the reservatio
 
 Separate audit files rotate before 10 MiB, retain at most five files and prune
 files older than 30 days on startup and writes; clearing them preserves live operation records.
-Recovery preserves known outcomes and records interrupted operations as
-indeterminate, then retires old-generation deduplication files. It never restores
+Terminal operation snapshots are removed after their outcome audit entry is synced;
+in-memory deduplication remains until quit. Before publishing the listener or granting
+fresh credentials, recovery validates all snapshots, silently removes settled snapshots,
+and records only pending-confirmation and running operations as indeterminate. Recovery
+appends share one write and sync (split only at the 10 MiB rotation boundary), then
+all snapshots are removed. Invalid or unreadable snapshots and audit failures refuse
+startup and retain snapshots for reconciliation. It never restores
 authority or replays actions. Mutation handlers, trusted dialog wiring, visibility
 and takeover must ship together in later issues.
 

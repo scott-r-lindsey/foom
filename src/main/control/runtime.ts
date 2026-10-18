@@ -30,6 +30,7 @@ export class ControlRuntime {
   ): Promise<ControlRuntime> {
     const directory = await privateDirectory(userData);
     const store = new ControlStore(directory, auditChanged);
+    // Recovery is batched and completes before any request or fresh grant can observe the store.
     await store.recover();
     const operations = new Operations(
       (record) => store.persist(record),
