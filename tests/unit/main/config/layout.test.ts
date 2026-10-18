@@ -23,6 +23,12 @@ test("agent schema is generated from the parser's fields, enums and bounds", () 
     ),
   ).not.toEqual(generated);
   expect(agentSchema(parser.replace('"badge",', '"newField", "badge",'))).not.toEqual(generated);
+  expect(
+    agentSchema(parser.replace('["posix", "win32"]', '["posix", "win32", "newPlatform"]')),
+  ).not.toEqual(generated);
+  expect(agentSchema(parser.replace('v === "observed-health"', 'v === "new-health"'))).not.toEqual(
+    generated,
+  );
 });
 
 test("the strict JSON starter validates after only its identity changes", () => {

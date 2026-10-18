@@ -55,6 +55,17 @@ export function agentSchema(source = readFileSync(filename, "utf8")): Schema {
   }
   function parser(node: ts.Expression): Schema {
     if (ts.isIdentifier(node)) return named(node.text);
+    if (ts.isConditionalExpression(node)) {
+      const condition = node.condition;
+      const matchingLiteral =
+        ts.isBinaryExpression(condition) &&
+        condition.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+        ts.isStringLiteral(condition.right) &&
+        node.whenTrue.getText(tree) === "v"
+          ? { const: condition.right.text }
+          : parser(node.whenTrue);
+      return { anyOf: [matchingLiteral, parser(node.whenFalse)] };
+    }
     if (ts.isCallExpression(node)) {
       // A curried parser is applied to (value, path).
       if (ts.isCallExpression(node.expression)) return parser(node.expression);
@@ -135,27 +146,43 @@ export function agentSchema(source = readFileSync(filename, "utf8")): Schema {
     const declaration = required(declarations.get(name));
     let definition: Schema;
     const unions: Record<string, () => Schema> = {
-      selectorKey: () => ({ anyOf: [{ type: "integer", minimum: 0, maximum: 63 }, text(64)] }),
-      field: () => ({ anyOf: [text(64), named("selector")] }),
-      testValue: () => ({ anyOf: [primitive, { type: "array", maxItems: 16, items: primitive }] }),
-      abi: () => ({
-        anyOf: [
-          named("abiInteger"),
-          {
-            type: "object",
-            additionalProperties: false,
-            required: ["posix", "win32"],
-            properties: { posix: named("abiInteger"), win32: named("abiInteger") },
-          },
-        ],
-      }),
+      testValue: () => {
+        const result = ts.isFunctionDeclaration(declaration)
+          ? declaration.body?.statements.find(ts.isReturnStatement)?.expression
+          : undefined;
+        if (!result || !ts.isConditionalExpression(result))
+          throw new Error("Expected test-value union");
+        const list = parser(result.whenTrue);
+        // JSON Schema already defaults minItems to zero; retain the shipped bytes.
+        if (list["minItems"] === 0) delete list["minItems"];
+        return { anyOf: [parser(result.whenFalse), list] };
+      },
+      abi: () => {
+        if (!ts.isFunctionDeclaration(declaration) || !declaration.body)
+          throw new Error("Expected ABI parser");
+        const statements = declaration.body.statements;
+        const guard = statements.find(ts.isIfStatement)?.thenStatement;
+        const scalar = guard && ts.isReturnStatement(guard) ? guard.expression : undefined;
+        const binding = statements
+          .filter(ts.isVariableStatement)
+          .flatMap((statement) => [...statement.declarationList.declarations])[0]?.initializer;
+        const result = statements.find(ts.isReturnStatement)?.expression;
+        if (
+          !scalar ||
+          !binding ||
+          !ts.isCallExpression(binding) ||
+          !result ||
+          !ts.isObjectLiteralExpression(result)
+        )
+          throw new Error("Expected ABI union");
+        return { anyOf: [parser(scalar), object(binding, result)] };
+      },
       aliases: () => ({
         type: "object",
         maxProperties: 8,
         propertyNames: text(128),
         additionalProperties: primitive,
       }),
-      statusProbe: () => ({ anyOf: [{ const: "observed-health" }, named("argv")] }),
       argumentMatcher: () => {
         const calls: ts.CallExpression[] = [];
         const results: ts.ObjectLiteralExpression[] = [];
