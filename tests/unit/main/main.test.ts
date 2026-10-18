@@ -1,7 +1,19 @@
+import type * as ForgeRuntimeModule from "../../../src/main/control/forge-runtime";
 import type { WorkspaceTerminal } from "../../../src/shared/workspace";
 import type * as ForgeModule from "../../../src/main/control/forge";
 import { DEFAULT_SETTINGS } from "../../../src/main/setup/settings";
 import { runForge } from "../../../src/main/control/forge";
+const forgeRuntimeMode = vi.hoisted(() => ({ manifest: false }));
+vi.mock("../../../src/main/control/forge-runtime", async (original) => {
+  const actual = await original<typeof ForgeRuntimeModule>();
+  return {
+    ForgeRuntime: class extends actual.ForgeRuntime {
+      constructor(...args: ConstructorParameters<typeof actual.ForgeRuntime>) {
+        super(args[0], args[1], forgeRuntimeMode.manifest ? "manifest" : args[2], args[3]);
+      }
+    },
+  };
+});
 const forgeUi = vi.hoisted(() => ({
   supported: true,
   rows: undefined as WorkspaceTerminal[] | undefined,
@@ -611,6 +623,7 @@ vi.mock("electron", () => ({
 }));
 
 beforeEach(() => {
+  forgeRuntimeMode.manifest = false;
   vi.resetModules();
   vi.clearAllMocks();
   mock.instances.length = 0;
@@ -642,6 +655,7 @@ beforeEach(() => {
     read: vi.fn(),
     close: vi.fn(),
     pause: vi.fn(),
+    invalidate: vi.fn(),
   });
   mock.openWorktrees.mockResolvedValue({
     worktreeRoot: "/home/.foom/worktrees",
@@ -2295,4 +2309,40 @@ test("wires the forge catalog and shares the legacy selector between tracking an
   if (!deps?.applyForges) throw new Error("Missing forge catalog wiring");
   deps.applyForges([]);
   await expect(provider?.("https://github.com/o/r")).resolves.toHaveProperty("batch");
+});
+
+test("manifest composition uses live profile choices, discovered PATH and tracker invalidation", async () => {
+  forgeRuntimeMode.manifest = true;
+  let current = { ...DEFAULT_SETTINGS };
+  const get = vi.spyOn(mock.settingsStore, "get").mockImplementation(() => current);
+  const agents = await import("../../../src/main/agents/agents");
+  const discover = vi
+    .spyOn(agents, "loginPath")
+    .mockResolvedValue({ path: "/fixture/discovered/bin", warning: null });
+  try {
+    await start();
+    const provider = forgeMock.open.mock.calls[0]?.[3];
+    const tracker = mock.workspace.deps?.forge;
+    const setup = mock.setup.deps;
+    if (!provider || !tracker || !setup) throw new Error("Missing forge composition");
+    const invalidate = vi.spyOn(tracker, "invalidate");
+    const context = () =>
+      Promise.resolve({ identity: "registered-fixture", validate: () => Promise.resolve() });
+    expect(await provider("https://github.com/o/r", context)).toHaveProperty("batch");
+    expect(discover).toHaveBeenCalledOnce();
+    current = { ...current, forges: { github: false } };
+    setup.apply(current);
+    expect(invalidate).toHaveBeenCalledOnce();
+    expect(await provider("https://github.com/o/r", context)).toBeUndefined();
+    expect(discover).toHaveBeenCalledOnce();
+    current = { ...current, forges: { github: true }, forgeHosts: { "self.example": "github" } };
+    setup.apply(current);
+    expect(invalidate).toHaveBeenCalledTimes(2);
+    expect(await provider("https://github.com/o/r", context)).toBeUndefined();
+    expect(await provider("https://self.example/o/r", context)).toHaveProperty("batch");
+    expect(discover).toHaveBeenCalledTimes(2);
+  } finally {
+    get.mockRestore();
+    discover.mockRestore();
+  }
 });
