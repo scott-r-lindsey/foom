@@ -607,30 +607,46 @@ it.each(["unreadable", "invalid JSON", "invalid terminal actor"])(
   },
 );
 
-// Exercise the batching boundary without thousands of native Windows ACL subprocesses.
-it.skipIf(process.platform === "win32")(
-  "rotates oversized recovery batches at 10 MiB",
-  async () => {
-    const count = 2600;
-    for (let index = 0; index < count; index++)
-      await writeFile(
-        join(directory, `operation-${randomUUID()}.json`),
-        JSON.stringify({
-          ...record,
-          operation: { ...record.operation, proposal: "safe text ".repeat(800) },
-        }),
-        { mode: 0o600 },
-      );
-    await new ControlStore(directory).recover();
-    expect(await readdir(directory)).toEqual(["actions-0.jsonl", "actions-1.jsonl"]);
-    let lines = 0;
-    for (const name of await readdir(directory)) {
-      expect((await lstat(join(directory, name))).size).toBeLessThanOrEqual(10 * 1024 * 1024);
-      lines += (await readFile(join(directory, name), "utf8")).trim().split("\n").length;
-    }
-    expect(lines).toBe(count);
-  },
-);
+it("keeps the production audit rotation boundary at exactly 10 MiB", async () => {
+  const store = new ControlStore(directory);
+  const current = join(directory, "actions-0.jsonl");
+  await store.persist(record);
+  const entryBytes = (await lstat(current)).size;
+  await truncate(current, 10 * 1024 * 1024 - entryBytes);
+  await store.persist(record);
+  expect((await lstat(current)).size).toBe(10 * 1024 * 1024);
+  expect(await readdir(directory)).not.toContain("actions-1.jsonl");
+  await store.persist(record);
+  expect((await lstat(join(directory, "actions-1.jsonl"))).size).toBe(10 * 1024 * 1024);
+  expect((await lstat(current)).size).toBe(entryBytes);
+});
+
+it("splits recovery batches at the injected rotation boundary", async () => {
+  const rotationBytes = 4096;
+  const ids = Array.from({ length: 5 }, () => randomUUID());
+  for (const operationId of ids)
+    await atomicPrivate(directory, `operation-${operationId}.json`, {
+      ...record,
+      operation: { ...record.operation, proposal: "safe text ".repeat(80) },
+    });
+  const { writes, syncs } = observeAuditIo();
+  const store = new ControlStore(directory, undefined, rotationBytes);
+  await store.recover();
+  expect(writes).toHaveBeenCalledTimes(2);
+  expect(syncs).toHaveBeenCalledTimes(2);
+  expect(await readdir(directory)).toEqual(["actions-0.jsonl", "actions-1.jsonl"]);
+  const counts: number[] = [];
+  for (const name of await readdir(directory)) {
+    expect((await lstat(join(directory, name))).size).toBeLessThanOrEqual(rotationBytes);
+    counts.push((await readFile(join(directory, name), "utf8")).trim().split("\n").length);
+  }
+  expect(counts).toEqual([2, 3]);
+  const page = await store.read({ search: "", action: "", status: "", offset: 0 });
+  expect(page.total).toBe(ids.length);
+  expect(page.entries.map((entry) => entry.operationId).sort()).toEqual(ids.sort());
+  for (const entry of page.entries)
+    expect(entry).toMatchObject({ status: "indeterminate", reason: "recovery" });
+});
 
 it("keeps completed-operation deduplication in memory after removing its snapshot", async () => {
   const store = new ControlStore(directory);
