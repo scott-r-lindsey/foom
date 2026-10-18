@@ -6,8 +6,8 @@ import { prepareTail } from "../evaluator/terminal-tail";
 import { constants } from "node:fs";
 import { lstat, open, readdir, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { atomicPrivate, createPrivateFile, verifyPrivate } from "./private-files";
-import { ControlError, object, exact } from "./validation";
+import { atomicPrivate, createPrivateFile, verifyPrivate } from "../../node-common/private-files";
+import { ControlError, object, exact } from "../../node-common/control-validation";
 import type { Principal, StoredOperation } from "./types";
 
 /** Durable deduplication state and independently rotated, clearable action history. */

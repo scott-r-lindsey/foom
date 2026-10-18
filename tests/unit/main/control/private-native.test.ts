@@ -2,13 +2,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ControlRuntime } from "../../../../src/main/control/runtime";
-import { verifyPrivate } from "../../../../src/main/control/private-files";
+import { verifyPrivate } from "../../../../src/node-common/private-files";
 import { afterEach, expect, test, vi } from "vitest";
 import {
   atomicPrivate,
   privateDirectory,
   readDiscovery,
-} from "../../../../src/main/control/private-files";
+} from "../../../../src/node-common/private-files";
 
 let root: string | undefined;
 afterEach(async () => {

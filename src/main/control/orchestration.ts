@@ -18,7 +18,7 @@ import { prepareTail } from "../evaluator/terminal-tail";
 import { locationId, metadataName, SessionMetadata } from "./metadata";
 import type { Operations } from "./operations";
 import type { Operation, Principal } from "./types";
-import { ControlError, exact, identifier } from "./validation";
+import { ControlError, exact, identifier } from "../../node-common/control-validation";
 
 /** Orchestrator-created worktrees that no child has used yet. */
 export const WORKTREE_LIMIT = 4;
@@ -937,6 +937,11 @@ export class Orchestration {
     const timeout = params["timeoutMs"] ?? 0;
     if (typeof timeout !== "number" || !Number.isInteger(timeout) || timeout < 0 || timeout > 30000)
       throw new ControlError("invalid_request");
+    const initial = this.parent(actor);
+    if (targets.some((id) => !this.own(initial, id))) throw new ControlError("not_found");
+    // Calling a validated child-specific wait acknowledges what is already pending,
+    // even when its cursor asks us to keep waiting for the next event.
+    for (const id of targets) this.childRead(actor, id);
     const deadline = this.now() + timeout;
     for (;;) {
       const parent = this.parent(actor);

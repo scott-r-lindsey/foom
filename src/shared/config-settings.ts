@@ -1,6 +1,6 @@
 import { validAgentId } from "./providers/catalog";
 import { isTerminalFont } from "./terminal-fonts";
-import { parseAgentDefaults } from "./agent-arguments";
+import { parseAgentDefaults } from "./providers/arguments";
 import type { ConfigSettings, ConfigSetting } from "./config";
 import { parseInterfaceTheme } from "./interface-themes";
 import { parseTerminalThemeChoice } from "./terminal-themes";

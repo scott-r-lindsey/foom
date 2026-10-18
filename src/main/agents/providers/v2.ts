@@ -7,7 +7,11 @@ import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
 import type { AgentProvider, PreparedLaunch } from "./provider";
 import { conversationId } from "../../../shared/conversation";
 import { dataContainer } from "../../../shared/agent-manifest-container";
-import { privateDirectory, createPrivateFile, verifyPrivate } from "../../control/private-files";
+import {
+  privateDirectory,
+  createPrivateFile,
+  verifyPrivate,
+} from "../../../node-common/private-files";
 import { CHILD_PROMPT, CONFIG_PROMPT, CLI_GUIDANCE } from "./cli-launch";
 import {
   boundedArguments,

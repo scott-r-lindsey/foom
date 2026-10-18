@@ -65,7 +65,7 @@ export async function startControl({ readOnly = true, board = new Board({ landin
   await build({
     stdin: {
       contents:
-        'export { ControlMcp } from "./src/main/control/mcp"; export { ControlService } from "./src/main/control/service"; export { ControlHttp } from "./src/main/control/http"; export { Operations } from "./src/main/control/operations"; export { ControlError } from "./src/main/control/validation"; export { prepareMcpLaunch } from "./src/main/agents/mcp-launch";',
+        'export { ControlMcp } from "./src/main/control/mcp"; export { ControlService } from "./src/main/control/service"; export { ControlHttp } from "./src/main/control/http"; export { Operations } from "./src/main/control/operations"; export { ControlError } from "./src/node-common/control-validation"; export { prepareMcpLaunch } from "./src/main/agents/providers/mcp-launch";',
       resolveDir: repo,
     },
     bundle: true,

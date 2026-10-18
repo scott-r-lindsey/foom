@@ -13,11 +13,11 @@ import {
 import { hasBypassArgument } from "../../../../src/main/agents/default-arguments";
 import { reduceEvent } from "../../../../src/main/agents/providers/hook-events";
 import type { HookSession } from "../../../../src/main/agents/providers/hook-events";
-import { prepareHookLaunch } from "../../../../src/main/agents/hook-launch";
+import { prepareHookLaunch } from "../../../../src/main/agents/providers/hook-launch";
 import { detectAgent } from "../../../../src/main/evaluator/agent-rules";
 import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
 import type { AgentHooks, AgentLaunch } from "../../../../src/shared/agents";
-import { CONFIG_PROMPT } from "../../../../src/main/agents/cli-launch";
+import { CONFIG_PROMPT } from "../../../../src/main/agents/providers/cli-launch";
 import { resumeArguments } from "../../../../src/main/agents/conversation";
 import { agentChoices, readyAgents } from "../../../../src/renderer/preflight/preflight";
 import { setupState } from "../../../fixtures/setup";

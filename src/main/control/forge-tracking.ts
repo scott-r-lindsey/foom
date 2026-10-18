@@ -1,7 +1,7 @@
 import type { BoardPullRequest } from "../../shared/forge";
 import { lstat, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import { atomicPrivate, privateDirectory, verifyPrivate } from "./private-files";
+import { atomicPrivate, privateDirectory, verifyPrivate } from "../../node-common/private-files";
 import { forgeBranch, forgeProvider, pullRequest } from "./forge";
 import type { ForgeProvider, ForgeWorktree, PullRequest } from "./forge.d";
 

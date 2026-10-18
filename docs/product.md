@@ -598,8 +598,9 @@ or PR merge or close goes unread for five minutes, the orchestrator shows Needs
 you in its sidebar row and tile, with the steady halo and fixed reason **Child
 report unread**. Settings → General offers **Unread child reminder (minutes; 0
 turns off)**, an integer from 0–1440 (default 5). The oldest pending event starts
-the timer; later events do not postpone it. A successful `read_handoff`, `wait_for`
-or `session_state` for that child acknowledges its pending events. Listing sessions,
+the timer; later events do not postpone it. A successful `read_handoff` or `session_state`
+for that child acknowledges its pending events. A validated child-specific
+`wait_for` acknowledges existing events when it starts and events it returns. Listing sessions,
 reading terminal output and other agents' reads do not. Focusing the orchestrator
 acknowledges all its pending child events without changing evaluator attention.
 Takeover, close, parent exit or revocation ends the reminder for those children.

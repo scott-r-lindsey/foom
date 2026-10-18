@@ -7,7 +7,7 @@ import { ControlService } from "../../../../src/main/control/service";
 import { Operations } from "../../../../src/main/control/operations";
 import { PREVIEW_METHODS, PreviewBroker } from "../../../../src/main/control/previews";
 import type { Principal, Role } from "../../../../src/main/control/types";
-import { ControlError, identifier, object } from "../../../../src/main/control/validation";
+import { ControlError, identifier, object } from "../../../../src/node-common/control-validation";
 let root: string;
 let service: ControlService;
 let http: ControlHttp;

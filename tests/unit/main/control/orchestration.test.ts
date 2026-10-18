@@ -2,7 +2,7 @@ import pluginFixture from "../../../fixtures/agent-plugin.json";
 import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
 import { configProvider } from "../../../../src/main/agents/providers/config";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
-import { ControlError } from "../../../../src/main/control/validation";
+import { ControlError } from "../../../../src/node-common/control-validation";
 import type { PullRequest } from "../../../../src/main/control/forge.d";
 import type { DialogContent } from "../../../../src/shared/confirmation";
 import { join } from "node:path";
@@ -1125,6 +1125,27 @@ describe("child handoff ownership and waits", () => {
       h.orchestration.unreadChildren.dispose();
     },
   );
+
+  it("acknowledges an existing event when a validated wait starts, before it returns", async () => {
+    const { h, child, report } = await setup();
+    await report();
+    h.orchestration.syncUnreadChildEvents();
+    h.advance(300000);
+    const listed = (await h.call("sessions")) as { sessions: { id: string; revision: string }[] };
+    const revision = listed.sessions.find((row) => row.id === child.id)?.revision;
+    expect(h.orchestration.unreadChildren.overdue("parent")).toBeDefined();
+    await expect(h.call("wait_for", { ids: [child.id, "foreign"] })).rejects.toThrow("not_found");
+    expect(h.orchestration.unreadChildren.overdue("parent")).toBeDefined();
+    const waiting = h.call("wait_for", {
+      ids: [child.id],
+      after: { [child.id]: revision },
+      timeoutMs: 1000,
+    });
+    expect(h.orchestration.unreadChildren.overdue("parent")).toBeUndefined();
+    h.exit(child.id);
+    await expect(waiting).resolves.toMatchObject({ changed: [child.id], timedOut: false });
+    h.orchestration.unreadChildren.dispose();
+  });
 
   it("counts running children and unread reports, clearing only the latest read", async () => {
     const { h, child, report } = await setup();

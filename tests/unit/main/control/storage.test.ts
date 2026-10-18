@@ -25,7 +25,7 @@ import {
   privateDirectory,
   readDiscovery,
   verifyPrivate,
-} from "../../../../src/main/control/private-files";
+} from "../../../../src/node-common/private-files";
 import { ControlRuntime } from "../../../../src/main/control/runtime";
 import { ControlStore } from "../../../../src/main/control/store";
 import type { StoredOperation } from "../../../../src/main/control/types";

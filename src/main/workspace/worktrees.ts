@@ -1,6 +1,6 @@
 import { UncertainEffect } from "../control/orchestration";
 import { forgeBranch, forgeProvider } from "../control/forge";
-import { ControlError } from "../control/validation";
+import { ControlError } from "../../node-common/control-validation";
 import { fetchAdvertisedDefault } from "./fetch-default";
 import type { GitPanelFacts } from "../../shared/panel";
 import { inventoryWatchPaths } from "./inventory-watch";

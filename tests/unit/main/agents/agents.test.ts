@@ -10,7 +10,7 @@ import pluginFixture from "../../../fixtures/agent-plugin.json";
 import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
 import { configProvider } from "../../../../src/main/agents/providers/config";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
-import { CONFIG_PROMPT } from "../../../../src/main/agents/cli-launch";
+import { CONFIG_PROMPT } from "../../../../src/main/agents/providers/cli-launch";
 import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
 import { ChildProcess, execFile } from "node:child_process";
 import { statSync } from "node:fs";
@@ -20,10 +20,10 @@ import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as Fs from "node:fs/promises";
 import type * as Os from "node:os";
-import type * as McpLaunch from "../../../../src/main/agents/mcp-launch";
-import { prepareMcpLaunch } from "../../../../src/main/agents/mcp-launch";
+import type * as McpLaunch from "../../../../src/main/agents/providers/mcp-launch";
+import { prepareMcpLaunch } from "../../../../src/main/agents/providers/mcp-launch";
 import { AgentService, loginPath } from "../../../../src/main/agents/agents";
-import { CLI_GUIDANCE } from "../../../../src/main/agents/cli-launch";
+import { CLI_GUIDANCE } from "../../../../src/main/agents/providers/cli-launch";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 import type { AgentHooks, AgentLaunch } from "../../../../src/shared/agents";
 
@@ -41,7 +41,7 @@ vi.mock("node:child_process", async (original) => {
   });
   return { ...actual, execFile: mocked };
 });
-vi.mock("../../../../src/main/agents/mcp-launch", async (original) => ({
+vi.mock("../../../../src/main/agents/providers/mcp-launch", async (original) => ({
   ...(await original<typeof McpLaunch>()),
   prepareMcpLaunch: vi.fn(),
 }));
