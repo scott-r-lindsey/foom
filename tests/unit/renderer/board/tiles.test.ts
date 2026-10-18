@@ -464,6 +464,69 @@ test.each(["horizontal", "vertical"] as const)(
     expect(evenSplitRun(layout, "a")).toBe(layout);
   },
 );
+test.each(["horizontal", "vertical"] as const)(
+  "evening a %s run weights a nested row block by its widest row",
+  (axis) => {
+    const other = axis === "horizontal" ? "vertical" : "horizontal";
+    const row = (id: string, count: number): TileNode => {
+      let tree = leaf(`${id}-1`);
+      for (let i = 2; i <= count; i++)
+        tree = branch(
+          `${id}-split-${String(i)}`,
+          axis,
+          tree,
+          leaf(`${id}-${String(i)}`),
+          (i - 1) / i,
+        );
+      return tree;
+    };
+    for (const [top, bottom] of [
+      [3, 3],
+      [1, 3],
+      [3, 1],
+    ] as const) {
+      const block = branch("block", other, row("top", top), row("bottom", bottom), 0.7);
+      const single = branch("single", other, leaf("c4-top"), leaf("c4-bottom"), 0.4);
+      const layout: TileLayout = {
+        tree: branch(
+          "root",
+          axis,
+          branch("inner", axis, block, single, 0.758),
+          leaf("agent"),
+          0.715,
+        ),
+        focused: "agent",
+        maximized: null,
+      };
+      for (const target of ["root", "inner"]) {
+        const next = evenSplitRun(layout, target);
+        expect(next.tree).toMatchObject({
+          ratio: 4 / 5,
+          first: { ratio: 3 / 4, first: block, second: single },
+        });
+        for (const { tile, rect } of rectangles(next.tree).tiles) {
+          const size = axis === "horizontal" ? rect.width : rect.height;
+          const count = tile.id.startsWith("top-")
+            ? top
+            : tile.id.startsWith("bottom-")
+              ? bottom
+              : 3;
+          expect(size).toBeCloseTo(60 / count);
+        }
+        expect(evenSplitRun(next, target)).toEqual(next);
+      }
+      const tidied = tidyTiles(layout);
+      expect(tidied.tree).toMatchObject({
+        ratio: 4 / 5,
+        first: { ratio: 3 / 4, first: { ratio: 0.5 }, second: { ratio: 0.5 } },
+      });
+      expect(leaves(tidied.tree)).toEqual(leaves(layout.tree));
+      expect(tidyTiles(tidied)).toEqual(tidied);
+      for (const { split } of rectangles(tidied.tree).gutters)
+        expect(evenSplitRun(tidied, split.id)).toEqual(tidied);
+    }
+  },
+);
 test("long runs use equal shares beyond 15–85 percent and persist them", () => {
   let tree = leaf("0");
   for (let i = 1; i < 10; i++) tree = branch(`s${String(i)}`, "horizontal", tree, leaf(String(i)));

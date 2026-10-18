@@ -469,13 +469,16 @@ A human close sticks: the same agent reopening the same file gets only a sidebar
 row. Showing that row follows the same placement as a human open.
 
 Double-click a gutter, or press Enter while it is focused, to give every member
-of its run an equal share. A run follows consecutive splits on the same axis;
-perpendicular subtrees and their nested ratios stay unchanged. Equal shares of
-runs longer than two members can exceed the usual ratio limits.
+of its run a share proportional to its column count along the run's axis (rows
+for a vertical run). Same-axis splits add their sides' counts; perpendicular
+splits use the larger side's count; a tile counts as one. A run follows consecutive
+splits on the same axis; perpendicular subtrees keep their nested ratios. Thus a
+three-column row block beside two single columns receives 3/5 of the width, and
+each single column receives 1/5. Evened ratios can exceed the usual ratio limits.
 
 **Tidy tiles** removes every empty space, collapses single-child splits and evens
-every run. Tile order, content assignments, focus and surviving leaf identities
-stay unchanged. An all-empty layout keeps one empty space. Tidy restores any
+every run using the same column or row weights. Tile order, content assignments,
+focus and surviving leaf identities stay unchanged. An all-empty layout keeps one empty space. Tidy restores any
 maximized tile first and uses the existing tile resize motion (immediate with
 reduced motion). It applies only to the focused window, from View → Tidy tiles or its shortcut.
 
