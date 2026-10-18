@@ -936,33 +936,11 @@ export class Workspace {
         }
         if ((await this.deps.worktrees.launchIdentity(request.repository, tree.path)) !== identity)
           throw new Error("Worktree has changed. Select it and try again.");
-        const windows = process.platform === "win32";
-        const environment = this.shellEnvironment();
-        const id = await this.deps.terminals.create({
-          command: windows ? "powershell.exe" : process.env["SHELL"] || "/bin/bash",
-          args: windows ? ["-NoLogo"] : ["-l"],
-          shellIntegration: true,
-          env: environment.env,
-          cwd: tree.path,
-          cols: 80,
-          rows: 24,
-        });
-        this.launched.set(id, {
-          id,
-          startedAt: this.now(),
-          kind: "shell",
-          agent: "shell",
-          ...(environment.names.length ? { environment: environment.names } : {}),
+        return await this.startShell({
           repository: request.repository,
           worktree: tree.path,
           branch: tree.branch,
-          attention: "evaluator",
-          state: null,
         });
-        this.executionOwner.ensure(id);
-        this.persist();
-        this.refresh();
-        return id;
       } finally {
         this.busyWorktrees.delete(key);
       }
@@ -1032,17 +1010,21 @@ export class Workspace {
       : { launchVersion: (this.launched.get(id)?.launchVersion ?? 0) + 1 };
   }
 
-  private async startHomeShell(restoreId?: string): Promise<void> {
-    const windows = process.platform === "win32";
-    const environment = this.shellEnvironment();
+  /** Shared shell launch path; callers validate their location before spawning. */
+  private async startShell(
+    location: Pick<WorkspaceTerminal, "repository" | "worktree" | "branch" | "home" | "config">,
+    restoreId?: string,
+    pathFirst?: string,
+  ): Promise<string> {
+    const environment = this.shellEnvironment(pathFirst);
     if (restoreId !== undefined) this.executionOwner.reset(restoreId);
     const id = await this.deps.terminals.create({
       ...(restoreId === undefined ? {} : { id: restoreId }),
       command: shellPath(),
-      args: windows ? ["-NoLogo"] : ["-l"],
+      args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
       shellIntegration: true,
       env: environment.env,
-      cwd: homeDirectory,
+      cwd: location.worktree,
       cols: 80,
       rows: 24,
     });
@@ -1051,11 +1033,8 @@ export class Workspace {
       id,
       kind: "shell",
       agent: "shell",
-      home: true,
+      ...location,
       ...(environment.names.length ? { environment: environment.names } : {}),
-      repository: homeDirectory,
-      worktree: homeDirectory,
-      branch: null,
       attention: "evaluator",
       state: null,
       startedAt: this.now(),
@@ -1063,14 +1042,17 @@ export class Workspace {
     this.executionOwner.ensure(id);
     this.persist();
     this.refresh();
+    return id;
   }
 
-  private configStarting = false;
+  private async startHomeShell(restoreId?: string): Promise<void> {
+    await this.startShell(
+      { home: true, repository: homeDirectory, worktree: homeDirectory, branch: null },
+      restoreId,
+    );
+  }
 
-  /**
-   * One config session at a time: while one runs, a second launch starts nothing and the
-   * renderer focuses the running session. No worktree is created.
-   */
+  /** Config sessions have no worktree or repository grants. */
   private async startConfig(
     run: AgentId,
     confirm: ConfirmWorkspace,
@@ -1078,128 +1060,95 @@ export class Workspace {
   ): Promise<void> {
     const config = this.deps.config;
     if (!config) throw new Error("Foom config is unavailable");
-    const running = [...this.launched.values()].some(
-      (entry) =>
-        entry.config && !entry.dormant && this.executionOwner.view(entry.id).exitCode === undefined,
-    );
-    if (running || this.configStarting) return;
-    this.configStarting = true;
+    await config.check();
+    if (run === "shell") {
+      await this.startShell(
+        { config: true, repository: config.root, worktree: config.root, branch: null },
+        replacement?.id,
+        config.cliDirectory,
+      );
+      return;
+    }
+    if (this.enabled[run] === false) throw new Error("This agent is turned off in preflight");
+    const scan = await this.scanAgents(false);
+    if (
+      builtinAgent(run)?.hookHealth &&
+      this.hooksEnabled &&
+      this.agentHooks[run] !== false &&
+      !this.acknowledged &&
+      scan.agents.some(
+        (agent) => agent.id === run && agent.hooks && agent.notifierReplacement === true,
+      )
+    ) {
+      if (!(await confirm({ kind: "notifier" }))) return;
+      await this.deps.acknowledgeNotifier();
+      this.acknowledged = true;
+    }
+    if (replacement) {
+      const old = this.launched.get(replacement.id);
+      if (!old || this.executionOwner.view(old.id).exitCode === undefined)
+        throw new Error("Session is no longer exited");
+      await this.queues.get(old.id);
+      if (!old.dormant) await this.deps.terminals.kill(old.id);
+      old.dormant = true;
+      this.executionOwner.reset(old.id);
+      this.deps.verdicts.forget(old.id);
+    }
+    const defaultArguments = this.defaultArguments[run] ?? [];
+    let result: AgentLaunched;
     try {
-      await config.check();
-      if (run === "shell") {
-        const environment = this.shellEnvironment(config.cliDirectory);
-        if (replacement) this.executionOwner.reset(replacement.id);
-        const id = await this.deps.terminals.create({
-          ...(replacement ? { id: replacement.id } : {}),
-          command: shellPath(),
-          args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
-          shellIntegration: true,
-          cwd: config.root,
-          cols: 80,
-          rows: 24,
-          env: environment.env,
-        });
-        this.launched.set(id, {
-          ...this.replacementVersion(replacement?.id),
-          id,
-          kind: "shell",
-          agent: "shell",
-          config: true,
-          ...(environment.names.length ? { environment: environment.names } : {}),
-          repository: config.root,
-          worktree: config.root,
-          branch: null,
-          attention: "evaluator",
-          state: null,
-          startedAt: this.now(),
-        });
-        this.executionOwner.ensure(id);
-        this.persist();
-        this.refresh();
-        return;
-      }
-      if (this.enabled[run] === false) throw new Error("This agent is turned off in preflight");
-      const scan = await this.scanAgents(false);
-      if (
-        builtinAgent(run)?.hookHealth &&
-        this.hooksEnabled &&
-        this.agentHooks[run] !== false &&
-        !this.acknowledged &&
-        scan.agents.some(
-          (agent) => agent.id === run && agent.hooks && agent.notifierReplacement === true,
-        )
-      ) {
-        if (!(await confirm({ kind: "notifier" }))) return;
-        await this.deps.acknowledgeNotifier();
-        this.acknowledged = true;
-      }
-      if (replacement) {
-        const old = this.launched.get(replacement.id);
-        if (!old || this.executionOwner.view(old.id).exitCode === undefined)
-          throw new Error("Session is no longer exited");
-        await this.queues.get(old.id);
-        if (!old.dormant) await this.deps.terminals.kill(old.id);
-        old.dormant = true;
-        this.executionOwner.reset(old.id);
-        this.deps.verdicts.forget(old.id);
-      }
-      const defaultArguments = this.defaultArguments[run] ?? [];
-      let result: AgentLaunched;
-      try {
-        result = await this.agents.launch({
-          agent: run,
-          repository: config.root,
-          worktree: config.root,
-          cols: 80,
-          rows: 24,
-          defaultArguments,
-          configCli: config.cliDirectory,
-          acknowledgeNotifierReplacement: this.acknowledged,
-          ...(this.deps.environment ? { environment: this.deps.environment(run) } : {}),
-          ...(replacement
-            ? {
-                terminalId: replacement.id,
-                ...(replacement.conversationId === undefined
-                  ? {}
-                  : { conversationId: replacement.conversationId }),
-              }
-            : {}),
-        });
-      } catch (error) {
-        if (replacement) this.executionOwner.markExited(replacement.id, -1);
-        this.deps.onChange?.();
-        throw error;
-      }
-      const launchVersion = replacement
-        ? (this.launched.get(replacement.id)?.launchVersion ?? 0) + 1
-        : undefined;
-      this.launched.set(result.id, {
-        ...(launchVersion === undefined ? {} : { launchVersion }),
-        id: result.id,
-        ...(result.providerOrigin ? { providerOrigin: result.providerOrigin } : {}),
-        startedAt: this.now(),
-        launchFlags: [...defaultArguments],
-        ...(result.environment?.length ? { environment: [...result.environment] } : {}),
-        kind: "agent",
+      result = await this.agents.launch({
         agent: run,
-        config: true,
         repository: config.root,
         worktree: config.root,
-        branch: null,
-        attention: result.attention,
-        ...(replacement?.conversationId === undefined
-          ? {}
-          : { conversationId: replacement.conversationId }),
-        ...(result.conversationId ? { conversationId: result.conversationId } : {}),
-        bypass: result.bypass ?? hasBypassArgument(run, defaultArguments),
-        state: null,
+        cols: 80,
+        rows: 24,
+        defaultArguments,
+        configCli: config.cliDirectory,
+        sharedCheckout: true,
+        acknowledgeNotifierReplacement: this.acknowledged,
+        ...(this.deps.environment ? { environment: this.deps.environment(run) } : {}),
+        ...(replacement
+          ? {
+              terminalId: replacement.id,
+              ...(replacement.conversationId === undefined
+                ? {}
+                : { conversationId: replacement.conversationId }),
+            }
+          : {}),
       });
-      this.executionOwner.launched(result.id);
-      this.persist();
-      this.refresh();
-    } finally {
-      this.configStarting = false;
+    } catch (error) {
+      if (replacement) this.executionOwner.markExited(replacement.id, -1);
+      this.deps.onChange?.();
+      throw error;
     }
+    const launchVersion = replacement
+      ? (this.launched.get(replacement.id)?.launchVersion ?? 0) + 1
+      : undefined;
+    this.launched.set(result.id, {
+      ...(launchVersion === undefined ? {} : { launchVersion }),
+      id: result.id,
+      ...(result.providerOrigin ? { providerOrigin: result.providerOrigin } : {}),
+      startedAt: this.now(),
+      launchFlags: [...defaultArguments],
+      ...(result.environment?.length ? { environment: [...result.environment] } : {}),
+      kind: "agent",
+      agent: run,
+      config: true,
+      repository: config.root,
+      worktree: config.root,
+      branch: null,
+      attention: result.attention,
+      ...(replacement?.conversationId === undefined
+        ? {}
+        : { conversationId: replacement.conversationId }),
+      ...(result.conversationId ? { conversationId: result.conversationId } : {}),
+      bypass: result.bypass ?? hasBypassArgument(run, defaultArguments),
+      state: null,
+    });
+    this.executionOwner.launched(result.id);
+    this.persist();
+    this.refresh();
   }
 
   async sidebarInventory(): Promise<SidebarInventory> {
@@ -1539,36 +1488,10 @@ export class Workspace {
         } else {
           if ((await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity)
             throw new Error("Worktree has changed. Select it and try again.");
-          const windows = process.platform === "win32";
-          const environment = this.shellEnvironment();
-          if (replacement) this.executionOwner.reset(replacement.id);
-          const id = await this.deps.terminals.create({
-            ...(replacement ? { id: replacement.id } : {}),
-            command: windows ? "powershell.exe" : process.env["SHELL"] || "/bin/bash",
-            args: windows ? ["-NoLogo"] : ["-l"],
-            shellIntegration: true,
-            env: environment.env,
-            cwd: worktree,
-            cols: 80,
-            rows: 24,
-          });
-          this.launched.set(id, {
-            ...this.replacementVersion(replacement?.id),
-            id,
-            startedAt: this.now(),
-            kind: "shell",
-            agent: "shell",
-            ...(environment.names.length ? { environment: environment.names } : {}),
-            repository,
-            worktree,
-            branch: tree.branch,
-            attention: "evaluator",
-            state: null,
-          });
-          this.executionOwner.ensure(id);
-          this.persist();
-          this.refresh();
-          return id;
+          return await this.startShell(
+            { repository, worktree, branch: tree.branch },
+            replacement?.id,
+          );
         }
       } finally {
         this.busyWorktrees.delete(key);

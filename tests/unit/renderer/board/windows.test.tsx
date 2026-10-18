@@ -242,7 +242,7 @@ test("terminal state updates do not reconcile an unchanged view layout", async (
   expect(f.windows.sync).not.toHaveBeenCalled();
 });
 
-test("a config menu route focuses its visible tile without disturbing a full layout", async () => {
+test("a cancelled config menu launch preserves the full layout and focus", async () => {
   const f = fixture();
   const a = f.rows[0],
     b = f.rows[1];
@@ -276,7 +276,7 @@ test("a config menu route focuses its visible tile without disturbing a full lay
   });
   const saved = loadLayout(localStorage, `${TILE_STORAGE}.test-window`);
   expect(saved.tree).toEqual(layout.tree);
-  expect(saved.focused).toBe(leaves(layout.tree)[0]?.id);
+  expect(saved.focused).toBe(layout.focused);
 });
 
 test("sidebar collapse saves per window with tile changes and survives remount", async () => {

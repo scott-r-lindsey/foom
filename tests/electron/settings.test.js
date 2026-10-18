@@ -18,6 +18,7 @@ const {
   openSettingsScreen,
   quitAndWait,
   removeAfterApps,
+  stopSession,
   tabTo,
 } = require("./harness.js");
 
@@ -1915,7 +1916,7 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
   await expect(page.getByText(/Evaluator|Run check|API key/)).toHaveCount(0);
 });
 
-test("Settings agent menu launches config and focuses its existing window", {
+test("Settings agent menu launches a new config session in each window", {
   timeout: deadline(60_000),
 }, async (context) => {
   const { chmod, copyFile } = require("node:fs/promises");
@@ -2002,14 +2003,24 @@ test("Settings agent menu launches config and focuses its existing window", {
       item.click();
     });
   } else await second.evaluate(() => window.desktop.appMenu.execute("via-claude"));
-  await expect.poll(() => first.evaluate(() => document.hasFocus())).toBe(true);
+  await expect(second.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
   assert.equal(
     (await first.evaluate(() => window.desktop.workspace())).terminals.filter(
       (session) => session.config,
     ).length,
-    1,
+    2,
   );
-  await expect(second.locator(".terminal-tile[data-empty=false]")).toHaveCount(0);
+  const configIds = (await second.evaluate(() => window.desktop.workspace())).terminals
+    .filter((session) => session.config)
+    .map((session) => session.id);
+  assert.equal(new Set(configIds).size, 2);
+  for (const configId of configIds) {
+    await expect
+      .poll(() =>
+        second.evaluate(async (id) => (await window.desktop.tail(id, 40)).join(""), configId),
+      )
+      .toMatch(/CONFIG_MENU_READY \["Read AGENTS\.md, then greet the user/);
+  }
   await first.evaluate(() =>
     window.desktop.saveSetup({ agents: { claude: false, codex: false, agy: false } }),
   );
@@ -2017,6 +2028,11 @@ test("Settings agent menu launches config and focuses its existing window", {
     second.evaluate(() => window.desktop.appMenu.execute("via-claude")),
     /Unavailable app command/,
   );
+  // Stop both agents through their owning boards before the shared app teardown.
+  await stopSession(first, id);
+  const secondId = configIds.find((configId) => configId !== id);
+  assert.ok(secondId);
+  await stopSession(second, secondId);
 });
 
 test("version 2 themes scope portaled colors, shape and warnings and hold attention edits", {
@@ -2084,7 +2100,7 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   assert.equal(await readFile(file, "utf8"), original);
 });
 
-test("footer config gear opens Settings and launches a docked Shell", async (context) => {
+test("footer config gear opens Settings and launches two independent docked Shells", async (context) => {
   const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   const gear = page.locator(".config-gear");
@@ -2095,12 +2111,30 @@ test("footer config gear opens Settings and launches a docked Shell", async (con
   await expect(gear).toHaveAttribute("aria-expanded", "true");
   await expect(panel.getByRole("menuitem").first()).toContainText("Settings");
   await panel.getByRole("menuitem", { name: /^Shell/ }).click();
-  const session = dock.locator(".board-row");
+  const session = dock.locator(".board-row").first();
   await expect(session).toBeVisible();
   await session.press("Enter");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await gear.click();
-  await expect(panel.getByRole("menuitem", { name: /^Shell/ })).toContainText("running");
+  await expect(panel.getByRole("menuitem", { name: /^Shell/ })).not.toContainText("running");
+  await panel.getByRole("menuitem", { name: /^Shell/ }).click();
+  await expect(dock.locator(".board-row")).toHaveCount(2);
+  await expect(page.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
+  const shells = (await page.evaluate(() => window.desktop.workspace())).terminals.filter(
+    (row) => row.config,
+  );
+  assert.equal(shells.length, 2);
+  assert.notEqual(shells[0].id, shells[1].id);
+  for (const shell of shells) {
+    assert.equal(shell.kind, "shell");
+    assert.equal(shell.worktree, shells[0].worktree);
+    await expect
+      .poll(() =>
+        page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), shell.id),
+      )
+      .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
+  }
+  await gear.click();
   await panel.getByRole("menuitem", { name: /^Settings/ }).click();
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   await assertAccessible(page);

@@ -163,13 +163,12 @@ keeps only the gear. The gear opens a
 pinned panel to the right, bottom-aligned and pointing at the gear. **Settings**
 is its first command, with its shortcut; ⌘, on macOS, Ctrl+Shift+, on
 Windows/Linux and the app menu still open Settings directly. Then come the agent launchers and Shell (run in the config
-folder), **Open Foom config settings** and **Open folder**. A launcher for the
-running session says “running”; launching again focuses it.
+folder), **Open Foom config settings** and **Open folder**. Each launcher action starts a new session.
 
 A dock above the footer bar appears only while a config change is held, files
 are rejected or a config session exists. Its small gear and **Foom config** name
 open the same panel, beside **Needs you** and **N rejected** chips as applicable.
-The session row beneath it focuses its tile and retains the normal light, ring
+Each session row beneath it focuses its tile and retains the normal light, ring
 and panel behavior, including after exit. The tree has no config row or group;
 repositories follow the home shell directly. Filtering the tree leaves the dock
 reachable. In the rail the dock hides; config sessions join the compact session list. The gear repeats held changes with an amber dot, otherwise
@@ -177,8 +176,7 @@ rejections with a magenta square dot; its accessible name includes these statuse
 Held config changes count in “N need you” and the app badge.
 
 The panel shows the folder path (copyable), Approval with **Needs you**, Rejected
-and Sessions. Only one
-config session runs at a time. No worktree is created, and the session's `PATH`
+and Sessions. Multiple config sessions can run at a time. No worktree is created, and the session's `PATH`
 includes the bundled `foom` CLI.
 
 Session panels show location, discovered agent version, state and reason,
@@ -288,7 +286,7 @@ menu is the same everywhere and lists app-wide commands, the sidebar toggle and 
   Settings is open. A new config session starts with a fixed greeting describing
   what it can change and asking what the user wants; resuming a conversation adds
   no greeting. Antigravity releases without interactive prompt support open
-  without the greeting. An existing config session is focused in its owning window.
+  without the greeting. Each launch opens a new config session in the current window.
 - **View › Collapse sidebar / Expand sidebar**, plus **Tidy tiles**, which removes empty spaces and evens every run in the focused window
 - **Size − 100% +**, one row that steps the interface size and stays open
 - Action log (#157), Keyboard shortcuts, About Foom, Third-party licenses

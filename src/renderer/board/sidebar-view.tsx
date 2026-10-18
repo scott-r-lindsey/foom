@@ -506,12 +506,6 @@ export function Sidebar({
     ...launcherActions(options, source.shellName?.()).map((action) => ({
       ...action,
       label: action.run === "shell" ? action.label : `Via ${action.label}`,
-      ...(configRows.some(
-        (row) =>
-          !row.exited && (action.run === "shell" ? row.kind === "shell" : row.agent === action.run),
-      )
-        ? { hint: "running" }
-        : {}),
       run: () => command({ kind: "config-launch", run: action.run }),
     })),
     null,
