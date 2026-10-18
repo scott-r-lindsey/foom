@@ -307,7 +307,7 @@ export class AgentService {
         base: baseEnvironment,
         path: scan.path,
         pathFirst: config ?? control?.env["FOOM_CLI_DIRECTORY"],
-        foom: { ...control?.env, ...binding?.env },
+        foom: { ...control?.env, ...binding?.env, ...request.configEnvironment },
       });
       const finalEnvironment = { ...baseEnvironment, ...environment.env };
       // The host inherits OS names such as ProgramFiles(x86) itself. IPC accepts

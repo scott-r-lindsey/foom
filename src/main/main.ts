@@ -1,3 +1,4 @@
+import { ProbeNotices } from "./agents/probe-notices";
 import { runForge } from "./control/forge";
 import { setupOffers } from "./agents/setup-offers";
 import { replaceConfigProviders, providerRevision } from "./agents/providers/registry";
@@ -531,6 +532,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
         notice.show();
       };
     }
+    const probeNotices = new ProbeNotices(app.getPath("userData"));
     workspace = new Workspace({
       openExternal: (url) => shell.openExternal(url),
       pluginStagingRoot: app.getPath("userData"),
@@ -555,6 +557,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       // Local rules classify each terminal; the log stores verdict metadata only.
       verdicts: new VerdictLog(app.getPath("userData")),
       config: {
+        probeNotice: probeNotices.first.bind(probeNotices),
         root: configRoot,
         cliDirectory: path.join(__dirname, "../console").replace("app.asar", "app.asar.unpacked"),
         check: async () => {

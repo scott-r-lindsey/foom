@@ -28,6 +28,8 @@ export function hostRequest(value: unknown): value is HostRequest {
       return (
         (value["dark"] === undefined || typeof value["dark"] === "boolean") &&
         record(spec) &&
+        (spec["replaceEnvironment"] === undefined ||
+          typeof spec["replaceEnvironment"] === "boolean") &&
         (spec["shellIntegration"] === undefined || typeof spec["shellIntegration"] === "boolean") &&
         text(spec["command"]) &&
         text(spec["cwd"]) &&
@@ -53,6 +55,7 @@ export function hostRequest(value: unknown): value is HostRequest {
       return typeof value["dark"] === "boolean";
     case "attach":
       return text(value["view"]);
+    case "screen":
     case "shutdown":
     case "detach":
     case "stop":
@@ -104,6 +107,8 @@ export function hostResponse(value: unknown): value is HostResponse {
     case "result":
       return (
         integer(value["request"], 1, Number.MAX_SAFE_INTEGER) &&
+        (value["title"] === undefined ||
+          (typeof value["title"] === "string" && value["title"].length <= 4096)) &&
         Array.isArray(value["lines"]) &&
         value["lines"].length <= 10000 &&
         value["lines"].every((line: unknown) => typeof line === "string")

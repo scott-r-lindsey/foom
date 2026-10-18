@@ -56,7 +56,8 @@ Production packages use ASAR and hardened Electron fuses and include compiled
 application files, package metadata and production dependencies. Native node-pty
 binaries and spawn helpers are unpacked. Windows uses node-pty's bundled ConPTY
 DLL; RunAsNode stays disabled. Main owns secrets and uses Electron `safeStorage`;
-Foom sends no terminal content to a model or network service. See [secrets](#secrets)
+Foom sends no terminal content to a model or network service except screens of
+config-owned agent probes requested by their owning config session (#591). See [secrets](#secrets)
 and [control-plane privacy](orchestration.md#output-privacy-and-visibility).
 
 ## Source layout
@@ -1325,7 +1326,8 @@ value in existing schemas for compatibility.
 ## Secrets
 
 Use Electron `safeStorage` for any secret Foom stores; never store plaintext or expose
-secrets to the renderer. Foom sends no terminal content to models or network services.
+secrets to the renderer. Terminal content stays local except the explicit
+config-owned probe screen capability described below.
 On profile load, `SettingsStore` drops legacy `inference` and `inferenceTimeoutMs`
 fields and atomically saves the migrated settings. It deletes the three fixed
 `inference-{anthropic,openai,google}.key` ciphertext files and strictly UUID-named
@@ -2173,3 +2175,56 @@ Disabled agents remain configurable: discovery resolves their executable on PATH
 without running CLI discovery or setup probes. Agents cards refresh discovery on
 entry and config changes, keeping missing switches Off without saving a preference.
 Enablement changes invalidate workspace discovery caches.
+
+
+## Config-owned probe capability (#591)
+
+Main issues a fresh 256-bit `FOOM_CONFIG_TOKEN` and loopback `FOOM_CONFIG_URL` per
+config launch, including shells and resumed sessions. These are independent of
+repository control tokens. They are delivered only in that process's environment,
+never via renderer IPC, profile persistence, discovery files, pairing or MCP.
+The bundled CLI validates commands before sending bounded JSON to `/probe/v1`.
+The separate main listener requires a bearer credential, loopback peer, exact Host,
+POST, JSON and no Origin. Main validates the payload again, rejects unknown keys,
+and accepts only named control keys, bounded prompt text (LF and TAB allowed), validated
+agent/conversation IDs, and finite positive wait durations of at most 600 seconds.
+
+`AgentProbes` reserves one slot per credential before asynchronous preparation.
+Its random 256-bit probe ID resolves only within that credential's slot, never
+through the general terminal inventory. Foreign, unknown and stopped IDs produce
+the same `not_found` refusal. Every read rechecks ownership after awaiting the
+terminal host. Exit revokes the config credential and stops its probe. The hard
+10-minute timer covers preparation as well as interactive use; failed preparation,
+stop, exit and quit release processes, launch files and scratch repositories.
+Probes use the regular terminal host's process teardown and process audit.
+
+Main creates the scratch directory and runs Git with fixed argument arrays,
+all inherited `GIT_*` variables removed, global/system config disabled, and an
+empty init template directory. Agent discovery and launches also use argument
+arrays. A supplied manifest is descriptor-bounded to 64 KiB, rejects final links
+and nonregular files, uses the strict v2 parser and must name the requested agent.
+It is captured immutably for that probe and never installed in the registry.
+The launch uses no user defaults, control/MCP grant or hook attachment. Known
+manifest bypass arguments and environment conditions are refused before PTY
+creation. Hooks and MCP verification are reserved for #593.
+
+The fixed login-shell environment query has bounded output and a deadline. The
+probe's inspected environment strips Foom/Electron/parent-agent variables and
+inherited Git overrides. `replaceEnvironment` is a main-only terminal spec option:
+the utility host passes the complete supplied environment instead of merging its
+own inherited environment back into it. Renderer requests cannot select this
+option. The scratch repository is not a filesystem, account or network sandbox;
+Enter at approval prompts is deliberately permitted. Agent output, screens,
+manifest content and model responses remain untrusted data.
+
+A validated host `screen` request carries a terminal ID. The utility process flushes
+its headless parser and reads exactly the active viewport at `baseY`, including
+alternate screens, plus the bounded OSC title. It does not return scrollback.
+Only main's probe broker exposes this result to the config CLI. The renderer keeps
+its existing typed terminal capabilities and attachment ordering.
+
+Probe rows live under Foom config with a text Probe mark and the usual Stop/input
+controls. A profile-only list of agent IDs records the terse first-probe credit
+note; it contains no terminal content or credential. Session persistence excludes
+probe rows. Captures and test rules (#592), verification (#593), and the guide
+workflow (#594) are deliberately outside this change.

@@ -13,6 +13,8 @@ export interface BoardRow {
   home?: boolean;
   /** Runs in the Foom config folder and nests under the Foom config row. */
   config?: boolean;
+  probe?: boolean;
+  probeNote?: boolean;
   startedAt?: number | undefined;
   exitCode?: number | undefined;
   launchFlags?: readonly string[] | undefined;

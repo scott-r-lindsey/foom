@@ -145,3 +145,16 @@ test("validates shell lifecycle opt-in and bounded event data", () => {
   ])
     expect(hostResponse({ id: "t1", type: "shell-state", state })).toBe(false);
 });
+
+test("probe screen and complete environment messages validate at the utility boundary", () => {
+  expect(hostRequest({ type: "screen", id: "probe", request: 1 })).toBe(true);
+  expect(
+    hostResponse({ type: "result", id: "probe", request: 1, lines: ["visible"], title: "title" }),
+  ).toBe(true);
+  expect(hostResponse({ type: "result", id: "probe", request: 1, lines: [], title: 5 })).toBe(
+    false,
+  );
+  expect(
+    hostResponse({ type: "result", id: "probe", request: 1, lines: [], title: "x".repeat(4097) }),
+  ).toBe(false);
+});

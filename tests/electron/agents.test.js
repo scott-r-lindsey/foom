@@ -3834,3 +3834,177 @@ test("missing agent cards recover on Settings entry and manifest reload without 
   await expect(card.getByRole("switch")).toBeEnabled();
   await expect(card.getByRole("switch")).not.toBeChecked();
 });
+
+test("config probe CLI drives only scratch fixture screens and the user can interrupt its tile", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const { chmod, copyFile } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-config-probe-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  await Promise.all([bin, home].map((directory) => mkdir(directory)));
+  const executable = path.join(
+    bin,
+    process.platform === "win32" ? "foom-probe-fixture.exe" : "foom-probe-fixture",
+  );
+  await copyFile(process.execPath, executable);
+  await chmod(executable, 0o755);
+  const script = path.join(root, "agent.cjs");
+  const details = path.join(root, "launch.json");
+  const result = path.join(root, "driver.json");
+  const driver = path.join(root, "driver.cjs");
+  await writeFile(
+    script,
+    `
+const fs = require('node:fs');
+fs.writeFileSync(${JSON.stringify(details)}, JSON.stringify({cwd:process.cwd(),env:Object.keys(process.env).filter(key => /^FOOM_/i.test(key)),args:process.argv.slice(2)}));
+process.stdout.write(Array.from({length:40},(_,i) => 'SCROLLBACK_SECRET_'+i+'\\r\\n').join(''));
+process.stdout.write('\\x1b[?1049h\\x1b[2J\\x1b[H\\x1b]0;Fixture probe title\\x07Approve fixture? (y/n)');
+process.stdin.on('data', data => {process.stdout.write('\\r\\nRECEIVED:'+data.toString().trim());});
+process.stdin.resume();
+`,
+  );
+  const v2 = JSON.parse(
+    await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8"),
+  );
+  const manifest = {
+    ...v2,
+    id: "foom-probe-fixture",
+    name: "Probe fixture",
+    badge: "PF",
+    executables: ["foom-probe-fixture"],
+    discovery: { facts: [] },
+    launch: {
+      order: [
+        "arguments",
+        "resume",
+        "defaults",
+        "display",
+        "guidance",
+        "hooks",
+        "mcp",
+        "tools",
+        "prompt",
+      ],
+      arguments: { arguments: [script] },
+    },
+    files: [],
+    reservedArguments: [],
+    bypassArguments: [],
+    bypassEnvironment: [],
+    conversation: { resumePin: "requested-on-paste", restoreControl: false },
+    resumePaste: [],
+    attention: { minimumEngineVersion: 1, rules: [] },
+  };
+  delete manifest.hooks;
+  delete manifest.setup;
+  delete manifest.health;
+  const draft = path.join(root, "draft.json");
+  await writeFile(draft, JSON.stringify(manifest));
+  await writeFile(
+    driver,
+    `
+const fs=require('node:fs'); const {execFileSync}=require('node:child_process');
+const cli=process.platform==='win32'?'foom.exe':'foom';
+const call=(...args) => JSON.parse(execFileSync(cli,['agent','probe',...args],{encoding:'utf8',env:process.env})).result;
+const probe=call('start','foom-probe-fixture','--manifest',${JSON.stringify(draft)}).probe;
+fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe}));
+console.log('DRIVER_READY');
+require('node:readline').createInterface({input:process.stdin}).on('line', line => {
+  try {
+    if(line==='screen') {
+      call('wait',probe,'--quiet','0.1');
+      const before=call('screen',probe); const state=call('state',probe);
+      call('send',probe,'yes'); call('keys',probe,'tab'); call('wait',probe,'--quiet','0.1');
+      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe,before,state,after:call('screen',probe)}));
+      console.log('SCREEN_READY');
+    }
+  } catch(error) {fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({error:error.message}));console.error(error.message);}
+});
+`,
+  );
+  const app = await launchApp(context, {
+    fixture: "running-shell",
+    shell: "hidden",
+    home,
+    env: { HOME: home, PATH: bin },
+  });
+  const page = await boardPage(app);
+  await page.evaluate(() => window.desktop.sidebarCommand({ kind: "config-launch", run: "shell" }));
+  const configId = await page.evaluate(
+    async () => (await window.desktop.workspace()).terminals.find((row) => row.config).id,
+  );
+  await page.evaluate(
+    ({ id, driver }) => window.desktop.input(id, `node ${JSON.stringify(driver)}\r`),
+    { id: configId, driver },
+  );
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.workspace())).terminals.filter((row) => row.probe)
+          .length,
+    )
+    .toBe(1);
+  const probeRow = page.locator(".config-dock .board-row").filter({ hasText: "Probe" });
+  await expect(probeRow).toBeVisible();
+  await expect(page.getByRole("note")).toBeVisible();
+  await expect(page.getByRole("note")).toHaveText(
+    "Runs the real CLI on your account. May use credits.",
+  );
+  await page.screenshot({ path: "test-results/config-probe.png", animations: "disabled" });
+  await expect(page.locator(".tile-name").filter({ hasText: "Probe" })).toBeVisible();
+  await expect
+    .poll(async () =>
+      (await page.evaluate((id) => window.desktop.tail(id, 24), configId)).join("\n"),
+    )
+    .toContain("DRIVER_READY");
+  await page.evaluate((id) => window.desktop.input(id, "screen\r"), configId);
+  await expect
+    .poll(async () => {
+      try {
+        const value = JSON.parse(await readFile(result, "utf8"));
+        return value.after?.lines.join("\n") ?? value.error ?? "waiting for driver";
+      } catch {
+        return "";
+      }
+    })
+    .toContain("RECEIVED:yes");
+  const record = JSON.parse(await readFile(result, "utf8"));
+  assert.equal(record.before.title, "Fixture probe title");
+  assert.ok(!record.before.lines.join("\n").includes("SCROLLBACK_SECRET"));
+  assert.equal(record.state.state, "needs_input");
+  const launch = JSON.parse(await readFile(details, "utf8"));
+  assert.notEqual(launch.cwd, home);
+  assert.notEqual(launch.cwd, path.join(home, ".foom/config"));
+  assert.deepEqual(launch.env, []);
+  assert.deepEqual(launch.args, []);
+  await page
+    .getByRole("button", {
+      name: "Actions for foom-probe-fixture · Probe in Foom config",
+      exact: true,
+    })
+    .click();
+  await page.getByRole("menuitem", { name: "Stop foom-probe-fixture", exact: true }).click();
+  const confirmStop = page.getByRole("menuitem", { name: "Click again to stop", exact: true });
+  await expect(confirmStop).toBeVisible();
+  // The existing Stop confirmation requires at least 300 ms between clicks.
+  await page.waitForTimeout(310);
+  await confirmStop.click();
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.workspace())).terminals.some((row) => row.probe),
+    )
+    .toBe(false);
+  await expect
+    .poll(async () => {
+      try {
+        await require("node:fs/promises").access(launch.cwd);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .toBe(false);
+  await assertAccessible(page);
+});

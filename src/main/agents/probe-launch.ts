@@ -1,0 +1,168 @@
+import { execFile } from "node:child_process";
+import { constants } from "node:fs";
+import { access, lstat, mkdtemp, rm, stat } from "node:fs/promises";
+import { homedir, tmpdir, userInfo } from "node:os";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { promisify } from "node:util";
+import { parseAgentManifest } from "../../shared/agent-plugin-parser";
+import type { TerminalSpec } from "../../shared/desktop";
+import { agentProvider } from "./providers/registry";
+import { v2Provider } from "./providers/v2";
+import { readOwnedFile } from "./providers/v2-files";
+import { bypassEnvironment, matchesArguments } from "./providers/v2-values";
+import { inheritedEnvironment } from "../setup/environment";
+import type { ProbeRequest } from "../../node-common/agent-probe";
+import type { AgentProvider } from "./providers/provider";
+
+const execute = promisify(execFile);
+const options = { encoding: "utf8", timeout: 5000, maxBuffer: 256 * 1024 } as const;
+/** Fixed program, no caller text. Do not run agents through a login shell. */
+export async function probeEnvironment(
+  run: (
+    file: string,
+    args: readonly string[],
+    options: { encoding: "utf8"; timeout: number; maxBuffer: number; cwd: string },
+  ) => Promise<{ stdout: string }> = execute,
+  platform: NodeJS.Platform = process.platform,
+  source: NodeJS.ProcessEnv = process.env,
+): Promise<Record<string, string>> {
+  const scrub = (env: NodeJS.ProcessEnv) =>
+    Object.fromEntries(
+      Object.entries(inheritedEnvironment(env)).filter(
+        ([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/u.test(name) && !/^GIT_/iu.test(name),
+      ),
+    );
+  if (platform === "win32") return scrub(source);
+  const shell = userInfo().shell;
+  if (!shell || !isAbsolute(shell)) throw Error("Login shell unavailable");
+  const { stdout } = await run(shell, ["-ilc", "printf '\\000FOOM_PROBE_ENV\\000'; env -0"], {
+    ...options,
+    cwd: homedir(),
+  });
+  const env: Record<string, string> = {};
+  for (const entry of (stdout.split("\0FOOM_PROBE_ENV\0")[1] ?? "").split("\0")) {
+    const equal = entry.indexOf("=");
+    const name = entry.slice(0, equal);
+    if (equal > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/u.test(name)) env[name] = entry.slice(equal + 1);
+  }
+  if (!env["PATH"]) throw Error("Login shell environment unavailable");
+  return scrub(env);
+}
+export function isolatedGitEnvironment(
+  env: NodeJS.ProcessEnv,
+  windows = process.platform === "win32",
+): NodeJS.ProcessEnv {
+  return {
+    ...Object.fromEntries(
+      Object.entries(env).filter(([name]) => !name.toUpperCase().startsWith("GIT_")),
+    ),
+    GIT_CONFIG_GLOBAL: windows ? "NUL" : "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+  };
+}
+export async function scratchRepository(): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), "foom-agent-probe-"));
+  try {
+    await execute("git", ["-c", "init.templateDir=", "init", "--quiet", "--", directory], {
+      ...options,
+      cwd: directory,
+      env: isolatedGitEnvironment(process.env),
+    });
+    return directory;
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
+async function executable(provider: AgentProvider, env: Record<string, string>): Promise<string> {
+  const path = env["PATH"] ?? env["Path"] ?? "";
+  for (const directory of path.split(delimiter)) {
+    if (!isAbsolute(directory)) continue;
+    for (const name of provider.executableNames)
+      for (const suffix of process.platform === "win32" ? [".exe", ".com", ""] : [""]) {
+        const file = join(directory, name + suffix);
+        try {
+          await access(file, constants.X_OK);
+          if ((await stat(file)).isFile()) return file;
+        } catch {
+          /* Continue searching explicit PATH entries. */
+        }
+      }
+  }
+  throw Error("Agent executable unavailable");
+}
+export async function probeProvider(
+  request: Extract<ProbeRequest, { action: "start" }>,
+  configRoot: string,
+): Promise<AgentProvider> {
+  if (!request.manifest) return agentProvider(request.agent);
+  const path = resolve(configRoot, request.manifest);
+  const text = await readOwnedFile(path, 65536, async (file) => {
+    if (!(await lstat(file)).isFile()) throw Error("Unsafe manifest");
+  });
+  const parsed = parseAgentManifest(text);
+  if (parsed.model.id !== request.agent) throw Error("Manifest agent mismatch");
+  // Captured immutable manifest, never registered as an installed provider.
+  return v2Provider(parsed.model, () => Promise.resolve());
+}
+export async function prepareProbe(
+  provider: AgentProvider,
+  request: Extract<ProbeRequest, { action: "start" }>,
+  cwd: string,
+  env: Record<string, string>,
+): Promise<{ spec: TerminalSpec; conversationId?: string; dispose(): void }> {
+  await provider.validate?.();
+  if (bypassEnvironment(provider.model, env).length)
+    throw Error("Probe bypass environment refused");
+  const command = await executable(provider, env);
+  const read = async (flag: string) => {
+    try {
+      return (await execute(command, [flag], { ...options, cwd, env })).stdout;
+    } catch {
+      return "";
+    }
+  };
+  const installation = provider.discover(
+    command,
+    (await read("--version")).trim(),
+    await read("--help"),
+  );
+  const prepared = await provider.prepareLaunch(
+    installation,
+    {
+      agent: request.agent,
+      repository: cwd,
+      worktree: cwd,
+      cols: 80,
+      rows: 24,
+      ...(request.resume === undefined ? {} : { conversationId: request.resume }),
+    },
+    [],
+    undefined,
+    false,
+    false,
+  );
+  try {
+    if (matchesArguments(provider.model.bypassArguments, prepared.args) || prepared.mcp)
+      throw Error("Probe bypass arguments refused");
+    await provider.validate?.();
+    return {
+      spec: {
+        command,
+        args: prepared.args,
+        cwd,
+        cols: 80,
+        rows: 24,
+        env,
+        replaceEnvironment: true,
+      },
+      ...(prepared.conversationId === undefined ? {} : { conversationId: prepared.conversationId }),
+      dispose: () => {
+        prepared.dispose();
+      },
+    };
+  } catch (error) {
+    prepared.dispose();
+    throw error;
+  }
+}

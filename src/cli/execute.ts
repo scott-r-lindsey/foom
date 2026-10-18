@@ -1,7 +1,9 @@
+import { probeCommand } from "../node-common/agent-probe";
+import { exchange } from "./client";
 import { handoffCommand } from "./handoff";
 import { validateConfig } from "./config";
 import { dirname } from "node:path";
-import { ControlError } from "../node-common/control-validation";
+import { object, exact, ControlError } from "../node-common/control-validation";
 import { command } from "./commands";
 import { call, inherited, pair, profilePath, UnknownOutcome } from "./client";
 import { installCli } from "./install";
@@ -55,6 +57,40 @@ export async function execute(
             `${JSON.stringify(problem.file)}: ${problem.path}: ${problem.severity === "warning" ? "warning: " : ""}${problem.reason}${problem.detail ? `: ${problem.detail}` : ""}`,
           );
       return result.code;
+    }
+    if (words[0] === "agent" && words[1] === "probe") {
+      const request = probeCommand(words.slice(2));
+      const token = env["FOOM_CONFIG_TOKEN"];
+      const url = env["FOOM_CONFIG_URL"];
+      if (!token || !/^[a-f0-9]{64}$/u.test(token) || !url) throw new ControlError("unauthorized");
+      const target = new URL(url);
+      if (
+        target.href !== url ||
+        target.protocol !== "http:" ||
+        target.hostname !== "127.0.0.1" ||
+        !target.port ||
+        target.pathname !== "/probe/v1" ||
+        target.username ||
+        target.password ||
+        target.search ||
+        target.hash
+      )
+        throw new ControlError("unauthorized");
+      const result = await exchange(url, request, token, undefined, 615000);
+      const response = object(result);
+      exact(response, ["result", "error"]);
+      if (typeof response["error"] === "string")
+        throw new ControlError(
+          response["error"] === "not_found"
+            ? "not_found"
+            : response["error"] === "unauthorized"
+              ? "unauthorized"
+              : response["error"] === "conflict"
+                ? "conflict"
+                : "unavailable",
+        );
+      output(result);
+      return 0;
     }
     const connection = inherited(env);
     if (words[0] === "--install-cli" || words[0] === "--uninstall-cli") {

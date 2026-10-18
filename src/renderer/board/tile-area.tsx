@@ -378,6 +378,11 @@ function Tile({
       )}
       {row && (
         <>
+          {row.probeNote && (
+            <p className="probe-note" role="note">
+              Runs the real CLI on your account. May use credits.
+            </p>
+          )}
           {row.state === "needs_input" && (
             <div className="tile-attention">
               <span title={row.reason}>{row.reason}</span>

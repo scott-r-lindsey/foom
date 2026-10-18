@@ -49,6 +49,7 @@ port.on("message", (event: { data: unknown }) => {
   const { id, request } = message;
   void (async () => {
     let lines: string[] = [];
+    let title: string | undefined;
     if (message.type === "shutdown") {
       await manager.shutdown();
       owned.clear();
@@ -86,12 +87,18 @@ port.on("message", (event: { data: unknown }) => {
         case "acknowledge":
           manager.acknowledge(id, message.token, message.count);
           break;
+        case "screen": {
+          const screen = await manager.screen(id);
+          lines = screen.lines;
+          title = screen.title;
+          break;
+        }
         case "tail":
           lines = await manager.tail(id, message.lines);
           break;
       }
     }
-    send({ type: "result", id, request, lines });
+    send({ type: "result", id, request, lines, ...(title === undefined ? {} : { title }) });
   })().catch(() => {
     send({ type: "error", id, request });
   });

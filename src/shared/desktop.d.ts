@@ -23,6 +23,8 @@ export interface TerminalSpec {
   id?: string;
   /** Main opts interactive shells into invocation-scoped lifecycle integration. */
   shellIntegration?: boolean;
+  /** Main-only probes supply a complete, inspected login environment. */
+  replaceEnvironment?: boolean;
   command: string;
   args: readonly string[];
   cwd: string;

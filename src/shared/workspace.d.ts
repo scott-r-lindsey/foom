@@ -63,6 +63,9 @@ export interface WorkspaceTerminal {
   home?: boolean;
   /** Runs in the Foom config folder; `repository` and `worktree` are that folder. */
   config?: boolean;
+  /** Transient probe; excluded from saved sessions. */
+  probe?: boolean;
+  probeNote?: boolean;
   startedAt?: number;
   exitCode?: number | undefined;
   launchFlags?: readonly string[];

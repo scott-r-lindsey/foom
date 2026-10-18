@@ -216,6 +216,8 @@ export function createAppSource(): BoardSource {
               `⏣ ${checkout?.head?.slice(0, 7) ?? "Unknown"}`),
         home: entry.home === true,
         config: entry.config === true,
+        probe: entry.probe === true,
+        probeNote: entry.probeNote === true,
         startedAt: entry.startedAt,
         exitCode: entry.exitCode,
         foregroundProgram: entry.foregroundProgram ?? "",

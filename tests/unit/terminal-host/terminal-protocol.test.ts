@@ -149,3 +149,61 @@ test.skipIf(process.platform !== "linux")(
     }
   },
 );
+
+test.each([false, true])(
+  "probe screens exclude scrollback with alternate screen=%s",
+  async (alternate) => {
+    const exited = vi.fn();
+    const manager = new TerminalManager(exited);
+    const content =
+      Array.from({ length: 30 }, (_, i) => `SCROLLBACK_${String(i)}\r\n`).join("") +
+      (alternate ? "\x1b[?1049h\x1b[2J\x1b[H" : "") +
+      "VISIBLE\x1b]0;Probe title\x07";
+    const id = manager.create({
+      command: process.execPath,
+      args: ["-e", `process.stdout.write(${JSON.stringify(content)})`],
+      cwd: process.cwd(),
+      cols: 40,
+      rows: 3,
+    });
+    try {
+      await vi.waitFor(() => {
+        expect(exited).toHaveBeenCalledWith(id, 0);
+      });
+      const screen = await manager.screen(id);
+      expect(screen.lines).toHaveLength(3);
+      expect(screen.lines.join("\n")).toContain("VISIBLE");
+      expect(screen.lines.join("\n")).not.toContain("SCROLLBACK_0");
+      expect(screen.title).toBe("Probe title");
+      if (alternate) expect(screen.lines.join("\n")).not.toContain("SCROLLBACK_");
+    } finally {
+      manager.dispose();
+    }
+  },
+);
+test("probe environment completely replaces inherited host variables", async () => {
+  vi.stubEnv("PROBE_UNINSPECTED", "host-value");
+  const exited = vi.fn();
+  const manager = new TerminalManager(exited);
+  const id = manager.create({
+    command: process.execPath,
+    args: [
+      "-e",
+      'console.log(process.env.PROBE_VISIBLE, process.env.PROBE_UNINSPECTED ?? "ABSENT")',
+    ],
+    cwd: process.cwd(),
+    cols: 80,
+    rows: 24,
+    replaceEnvironment: true,
+    env: { PROBE_VISIBLE: "visible" },
+  });
+  try {
+    await vi.waitFor(() => {
+      expect(exited).toHaveBeenCalledWith(id, 0);
+    });
+    expect((await manager.screen(id)).lines.join("\n")).toContain("visible ABSENT");
+  } finally {
+    manager.dispose();
+    vi.unstubAllEnvs();
+  }
+});

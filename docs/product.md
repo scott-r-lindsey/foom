@@ -998,3 +998,40 @@ result until execution starts. Other shells use output patterns and process exit
 The quiet debounce preserves the current state; there is no separate Checking state. Agent Working follows
 lifecycle evidence, never silence or output volume. A supported turn-end signal
 stops Working immediately; classification determines the result.
+
+## Config agent probe terminals (#591)
+
+A config session can start and drive one probe at a time with its own bundled
+`foom agent probe` CLI capability. A probe runs an installed agent, or a validated
+v2 manifest supplied with `--manifest`, in a fresh temporary Git repository made
+by Foom. It never uses a managed repository or worktree. User default arguments
+are not applied, and known bypass arguments and environment variables are refused.
+The probe receives the login-shell environment without Foom credentials or MCP
+grants. This is a working-directory boundary, not an OS sandbox: the real CLI
+runs on the user's account, can access files and network as that account, and may
+use credits. Enter is allowed, including at approval prompts.
+
+The probe appears under Foom config, marked **Probe**, with normal terminal input
+and Stop. The first probe of each agent ID has a terse, one-time inline note:
+“Runs the real CLI on your account. May use credits.” No dialog is shown.
+Probes are never restored. They stop after ten minutes, when their owning config
+session exits, or when Foom quits; Foom removes the scratch repository after the
+process stops.
+
+Foom sends no terminal content to models or network services, with one exception:
+a config session can request the current visible screen and OSC title of a probe
+it started. That output enters the config agent's context and may go to its model
+provider. No scrollback is exposed. Other sessions, including other config
+sessions' probes, remain unreadable through this capability. Probe IDs are random
+and bound to the calling config session's private credential.
+
+The CLI provides `start <agent> [--manifest <path>] [--resume <conversationId>]`,
+`send <probe> <text>` (text followed by Enter),
+`keys <probe> <esc|ctrl-c|enter|up|down|tab>`,
+`wait <probe> --quiet <seconds>` or `--timeout <seconds>`, `screen <probe>`,
+`state <probe>`, and `stop <probe>`, below `foom agent probe`. Screen and state
+results are JSON. Quiet waits reset on output; timeout waits wait the requested
+elapsed time. Both are bounded by the probe's remaining lifetime.
+
+Captures, rule-test authoring, hook/MCP verification and guide automation are
+separate follow-on work (#592–#594).
