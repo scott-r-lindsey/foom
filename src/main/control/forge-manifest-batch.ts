@@ -71,6 +71,9 @@ function parseManifestBatch(
     const pr = pullRequest({
       number: forgeValue(row, manifest.mapping.number),
       headSha: forgeValue(row, manifest.mapping.headSha),
+      mergeCommit: manifest.mapping.mergeCommit
+        ? forgeValue(row, manifest.mapping.mergeCommit)
+        : undefined,
       state:
         typeof rawState === "string" && Object.hasOwn(manifest.mapping.states, rawState)
           ? manifest.mapping.states[rawState]

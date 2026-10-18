@@ -72,8 +72,13 @@ it("composes the same dynamic query/argv for mixed discovery and bound PRs", asy
   const { forge, run } = provider(value);
   const old = vi.fn((_argv: readonly string[]) => Promise.resolve(JSON.stringify(value)));
   expect(await forge.batch?.(selected)).toEqual(await batchForge("o/r", selected, old));
+  // The lifecycle stage adds mergeCommit; the legacy batch has no merge field.
   const canonical = (argv: readonly string[]) =>
-    argv.map((arg) => (arg.startsWith("query=") ? `query=${print(parse(arg.slice(6)))}` : arg));
+    argv.map((arg) =>
+      arg.startsWith("query=")
+        ? `query=${print(parse(arg.slice(6).replace(/mergeCommit\s*\{\s*oid\s*\}/gu, "")))}`
+        : arg,
+    );
   expect(canonical(run.mock.calls[0]?.[0] ?? [])).toEqual(canonical(old.mock.calls[0]?.[0] ?? []));
   expect(run).toHaveBeenCalledTimes(1);
   expect((await forge.batch?.(selected))?.get("feature")?.requiredChecks).toBe("unknown");
@@ -323,4 +328,15 @@ it("keeps branch punctuation as a raw variable value instead of GraphQL syntax",
   const query = argv.find((arg) => arg.startsWith("query="))?.slice(6) ?? "";
   expect(query).not.toContain(branch);
   expect(() => parse(query)).not.toThrow();
+});
+
+it("maps only hex merge commits from the declared batch output path", async () => {
+  for (const oid of ["b".repeat(40), "c".repeat(64), "invalid", null]) {
+    const { forge } = provider(response(row({ state: "MERGED", mergeCommit: { oid } })));
+    const pr = (await forge.batch?.(matches))?.get("feature");
+    expect(pr).toBeDefined();
+    expect(pr?.mergeCommit).toBe(
+      typeof oid === "string" && /^[a-f0-9]{40,64}$/u.test(oid) ? oid : undefined,
+    );
+  }
 });

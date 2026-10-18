@@ -102,6 +102,7 @@ export interface ForgeManifest {
     number: ForgePath;
     branch: ForgePath;
     headSha: ForgePath;
+    mergeCommit: ForgePath | undefined;
     state: ForgePath;
     states: Readonly<Record<string, ForgeState>>;
     title: ForgePath | undefined;

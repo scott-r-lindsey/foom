@@ -334,7 +334,7 @@ export function parseForgeManifest(
     data["mapping"],
     at,
     ["number", "branch", "headSha", "state", "states", "projects"],
-    ["title", "webUrl"],
+    ["title", "webUrl", "mergeCommit"],
   );
   const checks = object(data["checks"], at, ["meaning", "primary"], ["fallback"]);
   const env =
@@ -407,6 +407,7 @@ export function parseForgeManifest(
       number: pathValue(mapping["number"], at),
       branch: pathValue(mapping["branch"], at),
       headSha: pathValue(mapping["headSha"], at),
+      mergeCommit: optional(pathValue)(mapping["mergeCommit"], at),
       state: pathValue(mapping["state"], at),
       states: table(mapping["states"], at, enumeration("OPEN", "CLOSED", "MERGED")),
       title: optional(pathValue)(mapping["title"], at),

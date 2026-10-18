@@ -65,7 +65,7 @@
           "--limit",
           "2",
           "--json",
-          "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository"
+          "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository,mergeCommit"
         ],
         "jsonExitCodes": [0, 1, 8]
       },
@@ -101,7 +101,7 @@
           "--limit",
           "2",
           "--json",
-          "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository"
+          "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository,mergeCommit"
         ],
         "jsonExitCodes": [0, 1, 8]
       }
@@ -164,7 +164,7 @@
           ]
         },
         "--json",
-        "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository"
+        "number,headRefOid,headRefName,state,headRepositoryOwner,isCrossRepository,mergeCommit"
       ],
       "jsonExitCodes": [0]
     },
@@ -247,8 +247,8 @@
         "jsonExitCodes": [0]
       },
       "query": "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { defaultBranchRef { name } ...FoomBatch } }",
-      "discovery": "query($branch: String!) { pullRequests(headRefName: $branch, states: OPEN, first: 2) { pageInfo { hasNextPage } nodes { number title headRefName headRefOid state isCrossRepository headRepository { nameWithOwner } commits(last: 1) { nodes { commit { oid statusCheckRollup { contexts(first: 100) {\n pageInfo { hasNextPage } nodes { __typename\n ... on CheckRun {  status conclusion }\n ... on StatusContext {  state }\n } } } } } } } } }",
-      "bound": "query($number: Int!) { pullRequest(number: $number) { number title headRefName headRefOid state isCrossRepository headRepository { nameWithOwner } commits(last: 1) { nodes { commit { oid statusCheckRollup { contexts(first: 100) {\n pageInfo { hasNextPage } nodes { __typename\n ... on CheckRun { isRequired(pullRequestNumber: $number) status conclusion }\n ... on StatusContext { isRequired(pullRequestNumber: $number) state }\n } } } } } } } }",
+      "discovery": "query($branch: String!) { pullRequests(headRefName: $branch, states: OPEN, first: 2) { pageInfo { hasNextPage } nodes { number title headRefName headRefOid state mergeCommit { oid } isCrossRepository headRepository { nameWithOwner } commits(last: 1) { nodes { commit { oid statusCheckRollup { contexts(first: 100) {\n pageInfo { hasNextPage } nodes { __typename\n ... on CheckRun {  status conclusion }\n ... on StatusContext {  state }\n } } } } } } } } }",
+      "bound": "query($number: Int!) { pullRequest(number: $number) { number title headRefName headRefOid state mergeCommit { oid } isCrossRepository headRepository { nameWithOwner } commits(last: 1) { nodes { commit { oid statusCheckRollup { contexts(first: 100) {\n pageInfo { hasNextPage } nodes { __typename\n ... on CheckRun { isRequired(pullRequestNumber: $number) status conclusion }\n ... on StatusContext { isRequired(pullRequestNumber: $number) state }\n } } } } } } } }",
       "repository": ["data", "repository"],
       "defaultBranch": ["defaultBranchRef", "name"],
       "nodes": ["nodes"],
@@ -356,6 +356,7 @@
     "number": ["number"],
     "branch": ["headRefName"],
     "headSha": ["headRefOid"],
+    "mergeCommit": ["mergeCommit", "oid"],
     "state": ["state"],
     "states": {
       "OPEN": "OPEN",

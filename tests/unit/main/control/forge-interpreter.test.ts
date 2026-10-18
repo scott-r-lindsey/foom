@@ -74,10 +74,7 @@ it("runs both paths over recorded public gh captures before removing the old pro
   const newRun = vi.fn(() => Promise.resolve({ code: 0, stdout, stderr: "" }));
   expect(await forgeProvider("https://github.com/cli/cli", oldRun)?.lookup(branch)).toBeUndefined();
   expect(await provider(newRun).lookup(branch)).toBeUndefined();
-  // #579 adds only this optional field to the legacy query; #521 maps it separately.
-  expect(newRun.mock.calls).toEqual(
-    oldRun.mock.calls.map(([args]) => [args.map((arg) => arg.replace(",mergeCommit", ""))]),
-  );
+  expect(newRun.mock.calls).toEqual(oldRun.mock.calls);
   const capture: unknown = JSON.parse(
     await readFile("spikes/forge-manifests/fixtures/gh-rollup-public.json", "utf8"),
   );
@@ -141,10 +138,7 @@ it("preserves old/new argv and observations for derived same-repository fixtures
     const old = await forgeProvider("https://github.com/cli/cli", oldRun)?.lookup(branch);
     const newRun = vi.fn(async (args: readonly string[]) => run(args));
     expect(await provider(newRun).lookup(branch)).toEqual(old);
-    // #579 adds only this optional field to the legacy query; #521 maps it separately.
-    expect(newRun.mock.calls).toEqual(
-      oldRun.mock.calls.map(([args]) => [args.map((arg) => arg.replace(",mergeCommit", ""))]),
-    );
+    expect(newRun.mock.calls).toEqual(oldRun.mock.calls);
   }
 });
 
@@ -500,4 +494,45 @@ it("reduces object pipelines, number guards, ambiguous variants and row guards c
       14700,
     ),
   ).toBe("unknown");
+});
+
+it("maps and hex-validates mergeCommit with legacy lookup parity and refuses concurrent changes", async () => {
+  for (const oid of [
+    "b".repeat(40),
+    "c".repeat(64),
+    "bad",
+    "B".repeat(40),
+    "a".repeat(39),
+    null,
+    undefined,
+  ]) {
+    const data = { ...row, state: "MERGED", mergeCommit: oid === undefined ? undefined : { oid } };
+    const run: ForgeTransport = async (args) =>
+      reply(args[1] === "checks" ? [] : args[1] === "list" ? [data] : data);
+    const current = await forgeProvider(
+      "https://github.com/cli/cli",
+      async (args) => (await run(args)).stdout,
+    )?.lookup("feature", row.number, "all");
+    expect(await provider(run).lookup("feature", row.number, "all")).toEqual(current);
+    if (typeof oid === "string" && /^[a-f0-9]{40,64}$/u.test(oid))
+      expect(current?.mergeCommit).toBe(oid);
+    else expect(current?.mergeCommit).toBeUndefined();
+  }
+  for (const legacy of [false, true]) {
+    let reads = 0;
+    const run: ForgeTransport = async (args) =>
+      reply(
+        args[1] === "checks"
+          ? []
+          : {
+              ...row,
+              state: "MERGED",
+              mergeCommit: { oid: (++reads === 1 ? "a" : "b").repeat(40) },
+            },
+      );
+    const p = legacy
+      ? forgeProvider("https://github.com/cli/cli", async (args) => (await run(args)).stdout)
+      : provider(run);
+    expect(await p?.lookup("feature", row.number, "all")).toBeUndefined();
+  }
 });

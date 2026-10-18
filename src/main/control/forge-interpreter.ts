@@ -95,6 +95,9 @@ export function manifestForgeProvider(
         const candidate = pullRequest({
           number: found.number,
           headSha: forgeValue(row, manifest.mapping.headSha),
+          mergeCommit: manifest.mapping.mergeCommit
+            ? forgeValue(row, manifest.mapping.mergeCommit)
+            : undefined,
           state: found.state,
           requiredChecks: "unknown",
         });
@@ -122,7 +125,10 @@ export function manifestForgeProvider(
           verified.branch !== branch ||
           verified.number !== candidate.number ||
           verified.state !== candidate.state ||
-          forgeValue(refreshed, manifest.mapping.headSha) !== candidate.headSha
+          forgeValue(refreshed, manifest.mapping.headSha) !== candidate.headSha ||
+          (manifest.mapping.mergeCommit !== undefined &&
+            forgeValue(refreshed, manifest.mapping.mergeCommit) !==
+              forgeValue(row, manifest.mapping.mergeCommit))
         )
           return undefined;
         return { ...candidate, requiredChecks };

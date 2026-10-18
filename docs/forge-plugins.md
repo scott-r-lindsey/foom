@@ -11,8 +11,10 @@ The existing config scanner also loads and watches `forges/<id>.json` with
 contained 64 KiB reads, per-kind 50-file caps and byte-bound validation callbacks.
 Loading only builds a catalog; it does not enable or probe a forge.
 Offline tests run the existing provider and new interpreter side by side before
-removing the old provider. This stage does **not** replace the running GitHub provider. CLI resolution/auth/cancellation, optional display metadata, persistence migration
-and the active-provider switch remain for the integration stage. A second stage
+removing the old provider. This stage does **not** replace the running GitHub provider. Runtime wiring of
+Settings/host assignments and the lifecycle, optional display metadata, persistence migration
+and the active-provider switch remain for the integration stage. The lifecycle
+stage below adds execution without activating it in the running app. A second stage
 adds optional `batchStatus` query composition and interpretation with offline
 old/new parity tests. Runtime selection and the #516 scheduler still use the old
 provider; no new CLI is enabled by this stage. GitLab #522
@@ -303,6 +305,53 @@ back to per-PR requests. No executable or network calls occur in parity tests.
 Recorded public identity/rollup fields are replayed in explicitly derived batch
 envelopes; constructed contexts cover optional failures, unknowns and partial pages.
 
+## Execution lifecycle (inactive integration boundary)
+
+`ForgeLifecycle` accepts only main-selected `LoadedForgeManifest` entries from its
+explicit registry. Config entries use the loader's exact-byte validation callback;
+bundled entries use the build-locked manifest/digest. Registry replacement,
+explicit refresh/invalidation and shutdown clear caches and abort pending samples.
+Host assignments, remote/branch changes and worktree removal must invalidate the
+service when runtime integration lands. The caller supplies a main-owned worktree
+identity and a validation callback that reinspects registration, canonical identity,
+remote and branch; neither is an IPC capability exposed to the renderer.
+
+Executable discovery uses the agent policy: validated basenames, absolute PATH
+components only, executable regular files, canonical paths, and native `.exe`/`.com`
+files on Windows. No implicit cwd lookup or shell wrapper fallback. Main supplies
+the discovered login PATH; this service never invokes a login shell. Each uncached
+sample uses a fresh disposable temporary directory, execFile-style argument arrays
+(`spawn` with `shell: false`), manifest allowlisted environment overrides, a maximum
+10-second sample deadline and 256 KiB combined stdout/stderr cap. AbortSignal,
+invalidation, shutdown, timeout and output overflow terminate the POSIX process
+group or use fixed system `taskkill.exe /T /F` arguments on Windows. Completion
+waits for process close and tree cleanup before removing the temporary directory.
+
+Auth preflight is exit-0 gated per manifest digest, selected host and executable
+identity, with the manifest's fixed negative markers scanned case-insensitively.
+Nonzero auth, unauthenticated/forbidden diagnostics and transport failures expose
+only fixed states (`unauthenticated`, `unavailable`, `cancelled`, `timeout`), never
+raw stdout/stderr, Error causes or credentials. Raw output is transient input to
+the interpreter, never logged, persisted or published. Successful status metadata
+still passes the existing mapping and Foom-owned identity/ownership rules.
+
+Only successful narrowed results are cached (default 20 seconds, configurable up
+to 120 seconds, bounded to 1000 entries per operation). Cache keys include manifest
+ID/digest, host/project, executable filesystem identity, main-owned worktree
+identity, default branch and complete operation inputs including bound numbers.
+Auth caching is independent of result caching. Cache reads and every command
+revalidate registry membership, exact bytes and worktree context; executable
+identity is reinspected before spawning and publication. The same checks run after
+the interpreter finishes, so a mid-run byte edit, registry replacement, executable
+replacement or revoked worktree cannot publish or cache its result. Failures clear
+cached results/auth; invalidation retires the generation even if an operation has
+already completed transport. This is filesystem revalidation, not protection
+against a malicious local process racing individual filesystem operations.
+
+The legacy `gh` provider remains active. Fixture tests exercise this boundary
+without invoking real forge CLIs or network services. Scheduling, runtime wiring,
+optional display enrichment and persistence remain separate #521 stages.
+
 ## JSON mapping and check reduction
 
 A path is an array of <=12 literal keys or integer indexes 0–999; `[]` is the root.
@@ -316,6 +365,7 @@ the sole bounded array iteration. Mapping never retains arbitrary response field
 | --- | --- |
 | `number` | Positive safe integer (GitLab `iid`, not global `id`) |
 | `branch`, `headSha` | Existing branch validator; exactly 40 lowercase hex SHA characters |
+| `mergeCommit?` | Optional literal selector; retain only 40–64 lowercase hex characters, matching the legacy provider; final single-PR refresh must report the same raw value |
 | `state`, `states` | Exact, case-sensitive table lookup to OPEN/CLOSED/MERGED |
 | `title?` | String <=1024 code units before sanitizing; strip Cc/Cf/Co/Cs and U+2028/U+2029; render inert text, no Markdown/HTML |
 | `webUrl?` | <=4096; no hidden/control characters, credentials or port override; HTTPS and exact selected hostname only; revalidate in main at external-link open |

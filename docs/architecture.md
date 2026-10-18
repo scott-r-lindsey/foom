@@ -918,10 +918,17 @@ Profile-only `forges` and `forgeHosts` maps use the settings store atomic writes
 and runtime parser. New host assignments require an enabled catalog entry; stale
 assignments remain unavailable without fallback. Setup IPC checks the owning app
 top frame, and host syntax is validated only in main. These preferences do not
-change active polling. Executable auth/lifecycle, large-request scheduling within manifest bounds and persistence
-remain integration work. The interpreter now supports declarative dynamic batch
+change active polling. The inactive `ForgeLifecycle`
+service now supplies native executable resolution, disposable neutral working
+directories, bounded execution and process-tree cancellation, auth gating, narrowed
+result caching and explicit invalidation. It revalidates registry membership, exact
+manifest bytes, executable identity and the main-owned worktree context before
+execution and publication, including cached reads. CLI diagnostics never escape
+this boundary; consumers receive only fixed execution states and mapped metadata.
+Runtime wiring of settings and lifecycle, large-request scheduling within manifest
+bounds and persistence remain integration work. The interpreter now supports declarative dynamic batch
 AST composition and check-count reduction with old/new offline parity tests;
-activation remains gated on the remaining lifecycle and scheduling integration.
+activation remains gated on the remaining scheduling and runtime integration.
 #516's adaptive cadence and dynamic check-count batches are unchanged.
 
 Foom also reads PR and check status for board checkouts and orchestrator-owned child
