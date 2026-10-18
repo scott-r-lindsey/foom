@@ -1,6 +1,7 @@
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
 import { git as execute } from "../../../helpers/git.js";
+import { nativeDeadline } from "../../../helpers/native-test-policy";
 import {
   mkdir,
   mkdtemp,
@@ -18,6 +19,19 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 
+// Real Git startup and filesystem IO are slower on Windows (run 39076862694).
+vi.setConfig({ testTimeout: nativeDeadline(5000), hookTimeout: nativeDeadline(10_000) });
+
+// Vitest timeouts do not cancel async callbacks. Keep the entire operation alive
+// through teardown, including any Git commands it starts after the timeout.
+let fixtureWork: Promise<void> | undefined;
+function usingFixture(work: () => Promise<void>): () => Promise<void> {
+  return () => {
+    fixtureWork = work();
+    return fixtureWork;
+  };
+}
+
 let temporary: string;
 let repo: string;
 let root: string;
@@ -26,26 +40,30 @@ async function git(...args: string[]): Promise<string> {
   const { stdout } = await execute(args, { cwd: repo });
   return stdout;
 }
-beforeEach(async () => {
-  temporary = await realpath(await mkdtemp(join(tmpdir(), "foom-worktrees-")));
-  repo = join(temporary, "repo with spaces");
-  root = join(temporary, "root");
-  await mkdir(repo);
-  await git("init", "-b", "main");
-  await git(
-    "-c",
-    "user.name=Test",
-    "-c",
-    "user.email=test@example.com",
-    "commit",
-    "--allow-empty",
-    "-m",
-    "Initial",
-  );
-  service = new WorktreeService(root);
-  await service.addRepository(repo);
-});
+beforeEach(
+  usingFixture(async () => {
+    temporary = await realpath(await mkdtemp(join(tmpdir(), "foom-worktrees-")));
+    repo = join(temporary, "repo with spaces");
+    root = join(temporary, "root");
+    await mkdir(repo);
+    await git("init", "-b", "main");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "Initial",
+    );
+    service = new WorktreeService(root);
+    await service.addRepository(repo);
+  }),
+);
 afterEach(async () => {
+  await Promise.allSettled(fixtureWork ? [fixtureWork] : []);
+  fixtureWork = undefined;
   vi.unstubAllEnvs();
   await rm(temporary, { recursive: true, force: true });
 });
@@ -795,25 +813,31 @@ it("validates main, external and detached launch locations without acquiring own
   await expect(service.launchIdentity(repo, temporary)).rejects.toThrow("missing");
 });
 
-it("derives watch directories from common Git metadata, including linked and packed repositories", async () => {
-  const common = join(repo, ".git");
-  expect(await service.watchPaths(repo)).toEqual([
-    common,
-    join(common, "refs"),
-    join(common, "refs", "heads"),
-  ]);
-  await git("branch", "topic/nested/feature");
-  const linked = join(temporary, "linked");
-  await git("worktree", "add", linked, "topic/nested/feature");
-  await service.addRepository(linked);
-  const paths = await service.watchPaths(linked);
-  expect(paths).toEqual(await service.watchPaths(repo));
-  expect(paths).toContain(join(common, "refs", "heads", "topic", "nested"));
-  expect(paths).toContain(join(common, "worktrees", "linked"));
-  await git("pack-refs", "--all", "--prune");
-  expect(await service.watchPaths(repo)).toContain(common);
-  await expect(service.watchPaths(temporary)).rejects.toThrow("has not been added");
-});
+// Four setup Git processes (init, commit, two registration probes), then nine
+// here: four watchPaths probes, branch/worktree/pack-refs, and two linked probes.
+// A Linux exec trace also sees three Git children (maintenance, symbolic-ref, reset).
+it(
+  "derives watch directories from common Git metadata, including linked and packed repositories",
+  usingFixture(async () => {
+    const common = join(repo, ".git");
+    expect(await service.watchPaths(repo)).toEqual([
+      common,
+      join(common, "refs"),
+      join(common, "refs", "heads"),
+    ]);
+    await git("branch", "topic/nested/feature");
+    const linked = join(temporary, "linked");
+    await git("worktree", "add", linked, "topic/nested/feature");
+    await service.addRepository(linked);
+    const paths = await service.watchPaths(linked);
+    expect(paths).toEqual(await service.watchPaths(repo));
+    expect(paths).toContain(join(common, "refs", "heads", "topic", "nested"));
+    expect(paths).toContain(join(common, "worktrees", "linked"));
+    await git("pack-refs", "--all", "--prune");
+    expect(await service.watchPaths(repo)).toContain(common);
+    await expect(service.watchPaths(temporary)).rejects.toThrow("has not been added");
+  }),
+);
 
 describe("merged worktree containment", () => {
   beforeEach(async () => {
