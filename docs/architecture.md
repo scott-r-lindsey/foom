@@ -568,9 +568,9 @@ cached plans, live cleanup runs and their inventory progress/tombstones behind
 forgetting, idle/owned worktree removal, automatic-removal policy and revalidation,
 terminal stop/exit/removal callbacks and checkout-resource release. It receives
 capabilities, never the Workspace object. `Workspace` keeps the shared repository
-and branch launch/removal locks, terminal queues, cancellation and execution/verdict
-state; the owner acquires/releases those locks through callbacks. Successful merged
-removals hold the shared branch locks until the checked-ref transaction finishes.
+and branch launch/removal locks, terminal queues and cancellation; the cleanup owner
+acquires/releases those locks through callbacks. Execution and verdict state live in
+`ExecutionOwner`. Successful merged removals hold the shared branch locks until the checked-ref transaction finishes.
 Session restoration and persistence remain in `SessionOwner`. Workspace preserves
 shutdown order: after PTYs stop, it marks itself closed and aborts launches, then
 asks cleanup to stop scheduling and drain active runs before releasing watchers,
@@ -1186,8 +1186,9 @@ saves and quit preparation, and queries restore markers for inventory and launch
 removal guards. The owner restores handoff history, re-grants parent authority and
 restores child relationships through the orchestration capabilities. Its launch
 adapter calls Workspace's existing home, config and checkout launch paths; launch/
-removal locks, terminal queues, cancellation and execution/verdict state remain in
-Workspace. No owner receives the Workspace object or owns PTYs or terminal views.
+removal locks, terminal queues and cancellation remain in Workspace. Execution and
+verdict state belong to `ExecutionOwner`. No owner receives the Workspace object
+or owns PTYs or terminal views.
 Quit preparation waits for restoration, freezes and flushes the running records
 before PTYs stop; failed preparation or cancelled quit re-enables persistence.
 Workspace still releases agents and control/hook services after terminals stop,
@@ -1219,11 +1220,34 @@ stored ID, never caller-provided clipboard text. Shutdown drains pending writes.
 States: `needs_input`, `done`, `failed`, `quiet_ok`, `working`.
 
 **Today:** `src/main/evaluator/evaluator.ts` supplies the pure main-process `evaluateRules` classifier,
-and `src/main/evaluator/verdict-log.ts` supplies `VerdictLog`. `Workspace` runs them for every terminal
+and `src/main/evaluator/verdict-log.ts` supplies `VerdictLog`. `ExecutionOwner` runs them for every terminal
 the app owns, including shells: on quiet, on a hook signal, and on exit. Each
 evaluation reads the last 40 host lines and runs in order per terminal, so a slow one
 can't overwrite a newer verdict; a failure is logged and the next one still runs. The
 result goes out on `terminal:state` and into the verdict log.
+
+`src/main/workspace/execution-owner.ts` owns each invocation's execution machine,
+completion/interruption evidence, hook health runtime, shell facts, output/input
+revisions, evaluation generation, current verdict, feedback deduplication and
+attention dismissal digest. Its narrow typed dependencies supply terminal launch
+facts, host tails, verdict storage, orchestration notifications and presentation,
+clock and lifecycle callbacks; it never receives Workspace. Workspace routes
+validated per-launch hook capabilities and persists conversation IDs, and delegates
+execution, evidence, input, feedback and exit classification to the owner.
+
+Workspace retains the per-terminal promise queues across invocation replacement.
+The owner captures generation/output revisions when scheduling and the input
+revision when evaluation begins, then checks those plus invocation identity and
+closure after asynchronous classification and verdict storage. Replies, output, lifecycle transitions, replacement, removal and
+shutdown therefore reject stale evidence. Resume drains the queue before resetting
+the invocation; a fresh execution machine advances launch identity even when the ID
+is reused. Exit still releases agent/orchestration resources before queued final
+classification and persistence. Child-event publications and unread-child reminder
+projection continue through the same orchestration capabilities. After PTYs stop,
+Workspace closes and aborts launches, drains cleanup, clears execution subscriptions,
+disposes unread reminders/watchers, forgets verdicts, releases agents and closes forge,
+control and hook services before draining session writes. PTYs and headless screens
+remain in the utility-process host; hidden terminals keep running.
 
 A permission hook (`needs_input`) stays in force across later quiet evaluations.
 For agents, typing records reply feedback but does not establish resumed execution;
@@ -1259,7 +1283,7 @@ never tails, agent payloads, or keystrokes. The integration must handle write er
 without blocking terminal operation. One service instance owns the file; feedback
 can address only verdicts issued by that instance, and historical records remain
 available on disk across restart. Only the latest committed verdict per terminal
-accepts feedback; superseded and removed terminals’ entries are released. Workspace
+accepts feedback; superseded and removed terminals’ entries are released. ExecutionOwner
 keeps the current verdict and ID when classification repeats its state and signal,
 while failed writes remain retryable. No automatic
 inference of ignored actions or log retention policy is implemented yet. The reusable fixture suite in
@@ -1486,7 +1510,7 @@ attention and fixed `provider_unavailable` control metadata; see
 Action Required titles, so a resumed turn wins over a still-visible provider line.
 Working and blocked rules produce fixed reasons and `rules:<agent>:<rule-id>` signals.
 Idle evidence has low confidence and continues through generic rules,
-never directly to Done. Workspace execution promotes an ambiguous result to Done
+never directly to Done. ExecutionOwner promotes an ambiguous result to Done
 only after a recorded working-to-idle transition; Claude with hooks additionally
 requires Stop, so title-only interrupts stay neutral. Initial readiness stays neutral. All rules run locally; no terminal content is sent to a model.
 
