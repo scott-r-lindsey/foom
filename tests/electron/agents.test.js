@@ -1729,6 +1729,14 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
   let requestId = 0;
   let parentId;
   let elevated = false;
+  const directCall = async (token, method, params = {}) => {
+    const response = await fetch(parent.controlUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
+    });
+    return { status: response.status, body: await response.json() };
+  };
   const call = async (token, method, params = {}) => {
     if (cliOnly && elevated && token === parent.controlToken && method !== "whoami") {
       const args = [method.replaceAll("_", "-")];
@@ -1754,20 +1762,44 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         text: JSON.stringify({ id, args }) + "\n",
       });
       const file = `${credentials}.response-${id}`;
+      // One existing command budget covers transport and operation completion;
+      // observing a CLI timeout must not start another full wait window.
+      const expires = Date.now() + deadline(40000);
+      const remaining = () => Math.max(1, expires - Date.now());
       // The fixture renames a fully written response into place after the CLI exits.
-      await expect.poll(() => existsSync(file), { timeout: deadline(40000) }).toBe(true);
+      await expect.poll(() => existsSync(file), { timeout: remaining() }).toBe(true);
       const result = JSON.parse(await readFile(file, "utf8"));
-      return {
+      const response = {
         status: result.code === 0 ? 200 : result.code === 3 ? 403 : 400,
         body: JSON.parse(result.stdout || result.stderr),
       };
+      // The CLI's five-second transport deadline can expire while a mutation is
+      // still running (for example, waiting for durable operation storage). Its
+      // unavailable envelope can describe an accepted operation. Reconcile it
+      // as the control protocol requires; never repeat the mutation.
+      if (result.code === 4 && response.body.error === "unavailable" && params.idempotencyKey) {
+        const lookup = () =>
+          directCall(token, "operation_status", { idempotencyKey: params.idempotencyKey });
+        const accepted = await lookup();
+        if (accepted.status !== 200) return response;
+        if (accepted.body.result.status === "running") {
+          await expect
+            .poll(
+              async () => {
+                const workspace = await page.evaluate(() => window.desktop.workspace());
+                const role = workspace.terminals.find((row) => row.id === parentId)?.orchestration;
+                return role?.history?.find((entry) => entry.id === accepted.body.result.operationId)
+                  ?.status;
+              },
+              { timeout: remaining() },
+            )
+            .toMatch(/^(pending_confirmation|succeeded|failed|declined|cancelled|indeterminate)$/);
+        }
+        return lookup();
+      }
+      return response;
     }
-    const response = await fetch(parent.controlUrl, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
-    });
-    return { status: response.status, body: await response.json() };
+    return directCall(token, method, params);
   };
   const ordinary = await call(parent.controlToken, "whoami");
   assert.equal(ordinary.body.result.role, "agent");
@@ -1888,12 +1920,55 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       ).body,
       tree.body,
     );
-    const launched = await call(parent.controlToken, "launch", {
+    // Deterministically exercise the observed timeout: hold launch persistence
+    // until the fixture publishes the CLI's unavailable response. No sleep or
+    // extra deadline; completion still comes from main's operation history.
+    const delayedLaunch = cliOnly && phase === "children";
+    if (delayedLaunch) {
+      await app.evaluate(({ app }) => {
+        const require = process
+          .getBuiltinModule("module")
+          .createRequire(app.getAppPath() + "/package.json");
+        const { ControlStore } = require(app.getAppPath() + "/build/main/control/store.js");
+        const persist = ControlStore.prototype.persist;
+        const gate = new Promise((resolve) => {
+          globalThis.releaseLaunchPersistence = resolve;
+        });
+        ControlStore.prototype.persist = async function (record) {
+          if (record.operation.action === "launch" && record.operation.status === "running") {
+            ControlStore.prototype.persist = persist;
+            await gate;
+          }
+          return persist.call(this, record);
+        };
+      });
+    }
+    const launching = call(parent.controlToken, "launch", {
       idempotencyKey: "launch-1",
       worktreeId: tree.body.result.resultId,
       agent: "claude",
       prompt: "Summarize the README",
     });
+    if (delayedLaunch) {
+      try {
+        const file = `${credentials}.response-${requestId}`;
+        await expect.poll(() => existsSync(file), { timeout: deadline(40000) }).toBe(true);
+        const timedOut = JSON.parse(await readFile(file, "utf8"));
+        assert.equal(timedOut.code, 4);
+        assert.deepEqual(JSON.parse(timedOut.stderr), { error: "unavailable" });
+        const accepted = await directCall(parent.controlToken, "operation_status", {
+          idempotencyKey: "launch-1",
+        });
+        assert.equal(accepted.status, 200);
+        assert.equal(accepted.body.result.status, "running");
+        assert.equal(existsSync(`${credentials}.child-one`), false);
+      } finally {
+        await app.evaluate(() => globalThis.releaseLaunchPersistence());
+        // Settle the in-flight read before fixture cleanup, including assertion failures.
+        await launching.catch(() => undefined);
+      }
+    }
+    const launched = await launching;
     assert.equal(launched.status, 200, JSON.stringify(launched.body));
     assert.equal(launched.body.result.status, "succeeded", JSON.stringify(launched.body));
     const childId = launched.body.result.resultId;
