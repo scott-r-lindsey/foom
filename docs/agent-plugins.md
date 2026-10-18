@@ -90,7 +90,11 @@ reject unknown keys, duplicate JSON member names, unsafe keys (`__proto__`,
 Arrays are ordered; IDs are unique within their scope. Missing optional arrays default to
 []; arrays explicitly required in these tables must be present, including empty
 protection lists. Missing optional objects disable their feature. No implicit agent defaults.
-A future executable JSON Schema must agree with these tables and the runtime parser.
+The config folder ships `schemas/agent.schema.json`, generated from the wire parser
+by `tests/helpers/agent-schema.ts` (see its regeneration command). A unit test checks
+field, enum and bound agreement. Run `foom config validate` for cross-field and
+security checks beyond JSON Schema. `examples/agent.json` is a generic starter;
+`examples/agent.md` carries field notes because manifests require strict JSON.
 
 | Primitive | Definition |
 | --- | --- |

@@ -17,8 +17,16 @@ import type { ThemeDiagnostic } from "../shared/theme-file";
 import { ThemeValidationError, validThemeFile } from "../shared/theme-validation";
 
 import type { ConfigFolderKind as FolderKind } from "../shared/config";
-/** Foom-owned entries in the config root: its repository, docs and schemas. */
-const FOOM_OWNED = [".git", ".gitignore", "README.md", "AGENTS.md", "CLAUDE.md", "schemas"];
+/** Foom-owned entries in the config root: its repository, docs, schemas and examples. */
+const FOOM_OWNED = [
+  ".git",
+  ".gitignore",
+  "README.md",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "schemas",
+  "examples",
+];
 const fail = (reason: ThemeDiagnostic["reason"]): never => {
   throw new ThemeValidationError("$", reason);
 };

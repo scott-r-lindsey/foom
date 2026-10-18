@@ -1,3 +1,5 @@
+import agentSchema from "../../shared/agent-plugin.schema.json";
+import agentExample from "../../shared/agent-plugin.example.json";
 import {
   interfaceAreas,
   interfaceStates,
@@ -223,6 +225,38 @@ const terminalThemeSchema = schema("foom:terminal-theme", {
   },
 });
 
+const agentNotes = `# Agent starter
+
+Copy agent.json to ../agents/<id>.json. Change id, name and executables; those are
+independent of the sample flags. JSON comments and extra keys are rejected.
+
+- discovery.version: exact prefix/suffix around a three-part version. Adjust or remove.
+- discovery.facts: helpTokens match whole options. enabled:false is a hard gate;
+  leave hookVerified false until the attachment and payload have been tested.
+- launch.order: all nine stages, once each. Every arguments item is literal argv.
+- launch.prompt/resume: {prompt} and {conversationId} expand only in their stages.
+- conversation.newId: {newId} is a fresh UUID for new launches, never resumes.
+  Remove newId if the CLI cannot accept a caller-supplied session ID.
+- conversation.restoreControl: false until per-launch MCP restoration is verified.
+- reservedArguments: block user defaults from replacing Foom-owned attachments.
+- bypassArguments/bypassEnvironment: describe every permission bypass; do not enable
+  one by default. Validation does not authorize a bypass launch.
+- attention.rules: synthetic screen examples, not measurements. Replace match text;
+  blocked outranks working. comment records evidence; not excludes false matches.
+- hooks.channels: off by hookVerified. Replace --observer and payload selectors
+  with the CLI's per-launch interface. Never write global agent configuration.
+  The observer is Foom-owned; manifests contain data, never executable scripts.
+- execution: lifecycle stop ends a turn; completionChannels refers to that channel.
+  With hooks disabled, screen rules still apply. Do not claim reliable completion
+  from screen silence.
+- resumePaste: empty until a verified command/selector spelling is known.
+
+Use ../schemas/agent.schema.json for editor help. Run foom config validate after
+editing: it also checks references, templates, regex safety and combinations that
+JSON Schema cannot express. Hook health review and setup are optional; omit them
+until there is a verified per-launch integration to describe.
+`;
+
 const guide = `# Foom config
 
 You are running inside Foom, the user's terminal workspace for coding agents, in its
@@ -238,7 +272,7 @@ valid changes live. It is plain files: Foom keeps no history of it.
   \`colorMode\`, \`panelColor\`, \`interfaceTheme\`, \`terminalTheme\`, \`interfaceScale\`,
   \`terminalFontSize\`, \`terminalFont\` (a family name, default Hack Nerd Font Mono), \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\`, \`restoreSessions\` and \`concurrentChildren\` (integer 1–16, default 4), and \`recentRepositoryDays\` (integer 1–365, default 30). Any other key rejects the file.
   Consent records, paths and secrets are not configurable here.
-  \`agentArguments\` names all three agents: \`{ "claude": [], "codex": [], "agy": [] }\`.
+  \`agentArguments\` requires the three bundled agents and accepts plugin IDs: \`{ "claude": [], "codex": [], "agy": [] }\`.
   Each list is literal argv, one string per argument, with no shell parsing.
   Every change to these lists waits for the user's Allow, including removal or harmless flags.
   Default launch arguments affect new, resumed and restored sessions; running sessions keep theirs.
@@ -248,16 +282,32 @@ valid changes live. It is plain files: Foom keeps no history of it.
   \`{ "kind": "terminal-theme", "name", "background", "foreground", "cursor", "ansi" }\`.
   Select one with \`"terminalTheme": "user:<filename>.json"\`.
 - \`sounds/{working,done,needs-you,refusal}/\`: recordings.
-- \`schemas/\`: JSON Schemas for the three JSON formats.
+- \`schemas/\`: JSON Schemas for settings, interface themes, terminal themes and v2 agents.
+- \`examples/agent.json\`: v2 starter; field notes in \`examples/agent.md\`.
 
 ## Agent plugins
 
 - Put declarative version 2 manifests in \`agents/<id>.json\`. Foom never fetches plugins or loads scripts from them.
-- Version 2 supports generic launch, discovery, resume, prompt/guidance, MCP and attention data; hooks, health and setup declarations stay unavailable until their engines ship.
+- Version 2 supports launch, discovery, resume, prompt/guidance, MCP, screen rules, hooks, health review and setup. Hook health and setup controls are in Settings → Agents.
 - IDs match filenames and cannot be claude, codex, agy or shell. Executables are names on PATH, not paths or shell command strings. Every argv entry is literal. Unknown keys and unsafe detection regexes are rejected.
 - A valid manifest loads as soon as Foom reads it; an edit reloads it. An invalid file is rejected whole and cannot launch. Running sessions keep their original launch bindings.
-- Forge v1 manifests in \`forges/<id>.json\` are validated and watched as a separate catalog. Loading grants no CLI execution or host assignment; Settings → Forges controls profile-only enablement and host assignments. Runtime provider migration is still pending.
+- Forge v1 manifests in \`forges/<id>.json\` are validated and watched as a separate catalog. Loading grants no CLI execution or host assignment; Settings → Forges controls profile-only enablement and host assignments. Enable a provider and assign hosts there before use.
 - Run \`foom config validate\` after editing a manifest. To remove a plugin, remove its manifest.
+
+## Adding an agent
+
+Copy \`examples/agent.json\` to \`agents/<id>.json\`; change id, name and executables.
+It is strict JSON: use the field notes, not JSON comments or extra keys.
+The example flags and screen text are placeholders; replace them with CLI evidence.
+
+1. Confirm the executable is on PATH (\`command -v <executable>\`, or \`where.exe <executable>\` on Windows); read its \`--version\` and \`--help\`.
+2. Choose prompt, resume and new-session-ID flags. Match discovery help tokens and version grammar to the CLI. Remove unsupported features.
+3. Look for per-launch hook and MCP options. Never edit global config. Keep verification facts disabled until tested; help text alone does not verify integration.
+4. List bypass flags and environment predicates. Reserve arguments that could replace Foom's prompt, resume, hooks or MCP attachments. Launch defaults belong in settings.agentArguments, keyed by agent ID; every edit requires Allow.
+5. Write bounded screen rules from observed output. Higher priority wins; blocked rules must outrank working hints. Status needs a reason, not just color.
+6. Run \`foom config validate\` and fix what it reports. Check capabilities and unavailable reasons in the report when provided; validate again after each edit.
+
+Config sessions use the login-shell PATH, with the bundled foom CLI directory first.
 
 ## Not in this folder
 
@@ -288,7 +338,7 @@ These are set in Foom's Settings window, not here. Tell the user exactly what to
 - A file edit that newly makes needs-you hard to distinguish in the active theme,
   or selects such a theme, waits for approval. Hue-only warnings do not wait.
   Sizes and turning sounds on apply without approval.
-- Foom owns this guide, AGENTS.md, CLAUDE.md, .gitignore and schemas/. It refreshes
+- Foom owns this guide, AGENTS.md, CLAUDE.md, .gitignore, schemas/ and examples/. It refreshes
   them on upgrade unless you have edited them.
 `;
 
@@ -303,6 +353,9 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
     "!/sounds/*/.gitkeep",
     "",
   ].join("\n"),
+  "schemas/agent.schema.json": `${JSON.stringify(agentSchema, null, 2)}\n`,
+  "examples/agent.json": `${JSON.stringify(agentExample, null, 2)}\n`,
+  "examples/agent.md": agentNotes,
   "schemas/settings.schema.json": settingsSchema,
   "schemas/theme.schema.json": themeSchema,
   "schemas/terminal-theme.schema.json": terminalThemeSchema,
@@ -326,6 +379,11 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
     "da0c1cc124400b4e6f204fb6b29b181aec5ef76f1edc336bd7cb9ce6a6a252e4",
     "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
+    "4939c3737e00693de9857f15412567ec4a66178cd951ab7b8df48c97e2610452",
+    "3134cd8539221c7e49902ad099538c00cf4eaa7e03499d6afa9dc95b064cf674",
+    "e070eca3fd7b64e758b707b0cd2769acf71ad67134ee2d727551782dbd3cfb37",
+    "2a2c38113235a0639b9ef3d8e1ac5941f23ca341f5620467d1d3252be018d37b",
+    "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
   ],
   "AGENTS.md": [
     "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
@@ -339,6 +397,11 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
     "da0c1cc124400b4e6f204fb6b29b181aec5ef76f1edc336bd7cb9ce6a6a252e4",
     "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
+    "4939c3737e00693de9857f15412567ec4a66178cd951ab7b8df48c97e2610452",
+    "3134cd8539221c7e49902ad099538c00cf4eaa7e03499d6afa9dc95b064cf674",
+    "e070eca3fd7b64e758b707b0cd2769acf71ad67134ee2d727551782dbd3cfb37",
+    "2a2c38113235a0639b9ef3d8e1ac5941f23ca341f5620467d1d3252be018d37b",
+    "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
   ],
   "CLAUDE.md": [
     "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
@@ -352,6 +415,11 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
     "da0c1cc124400b4e6f204fb6b29b181aec5ef76f1edc336bd7cb9ce6a6a252e4",
     "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
+    "4939c3737e00693de9857f15412567ec4a66178cd951ab7b8df48c97e2610452",
+    "3134cd8539221c7e49902ad099538c00cf4eaa7e03499d6afa9dc95b064cf674",
+    "e070eca3fd7b64e758b707b0cd2769acf71ad67134ee2d727551782dbd3cfb37",
+    "2a2c38113235a0639b9ef3d8e1ac5941f23ca341f5620467d1d3252be018d37b",
+    "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
   ],
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [

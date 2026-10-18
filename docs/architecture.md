@@ -1763,11 +1763,16 @@ sandboxed preload adds no runtime imports and CSP remains unchanged.
 userData: API keys, worktree ownership, the repository list and
 consent records stay in the profile. The folder holds `settings.json`, `themes/`,
 `terminal-themes/`, `sounds/{working,done,needs-you,refusal}/`, and Foom-owned
-`README.md`, `AGENTS.md`, `CLAUDE.md`, `.gitignore` and `schemas/` (JSON Schemas for
-settings and both theme formats, generated from the shared validators). Foom writes
+`README.md`, `AGENTS.md`, `CLAUDE.md`, `.gitignore`, `examples/` (a strict JSON v2
+agent starter with field notes) and `schemas/` (settings, both theme formats and
+v2 agents, derived from shared validators). Config shells use the discovered
+login-shell PATH, as agent launches do; the bundled config CLI directory stays
+ahead of user Environment entries and that PATH. Foom writes
 its files at first launch and replaces one on upgrade only when it is missing or
 byte-identical to a version Foom shipped earlier (`OWNED_HISTORY`), so user edits
-survive. The folder is plain files (#540): Foom never creates, reads or writes a
+survive. Guide edits append the new digest to `tests/fixtures/config/guide-digests.json`
+and retain every earlier digest in all three guide entries in `OWNED_HISTORY`;
+the layout unit test enforces this. The folder is plain files (#540): Foom never creates, reads or writes a
 `.git` there, and leaves an existing one untouched. `.gitignore` excludes recordings
 under `sounds/` and keeps `.gitkeep` files, for users who keep the folder in their
 own repository. `WorktreeService` refuses to register a
