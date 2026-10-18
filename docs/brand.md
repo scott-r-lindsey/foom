@@ -113,7 +113,7 @@ Hack Nerd Font Mono bundles only Regular and Bold from Nerd Fonts. Installed Hac
 
 ## Mark
 
-The wordmark is "foom", with the middle "o" drawn as the black hole. The app icon is the black hole with the curve passing it. Production needs a vector master and platform icon sets (`.icns`, `.ico`, PNG sizes).
+The in-app wordmark is plain text "foom" in Archivo Black, with no black-hole substitution. The app icon is the black hole with the curve passing it. Production needs a vector master and platform icon sets (`.icns`, `.ico`, PNG sizes).
 
 For third-party agent identities, see the [agent-mark research](agent-marks.md):
 recommended sidebar fallbacks, official asset sources, permission conditions and
