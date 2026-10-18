@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ForgeTracking, forgeDelay } from "../../../../src/main/control/forge-tracking";
-import { privateDirectory, atomicPrivate } from "../../../../src/main/control/private-files";
+import { privateDirectory, atomicPrivate } from "../../../../src/node-common/private-files";
 import type { PullRequest } from "../../../../src/main/control/forge.d";
 import { SessionMetadata } from "../../../../src/main/control/metadata";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";

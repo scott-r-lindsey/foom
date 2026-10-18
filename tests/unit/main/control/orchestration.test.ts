@@ -2,7 +2,7 @@ import pluginFixture from "../../../fixtures/agent-plugin.json";
 import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
 import { configProvider } from "../../../../src/main/agents/providers/config";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
-import { ControlError } from "../../../../src/main/control/validation";
+import { ControlError } from "../../../../src/node-common/control-validation";
 import type { PullRequest } from "../../../../src/main/control/forge.d";
 import type { DialogContent } from "../../../../src/shared/confirmation";
 import { join } from "node:path";

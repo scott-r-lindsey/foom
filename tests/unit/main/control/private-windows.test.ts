@@ -8,7 +8,7 @@ import {
   atomicPrivate,
   readDiscovery,
   verifyLegacyProfileFile,
-} from "../../../../src/main/control/private-files";
+} from "../../../../src/node-common/private-files";
 
 const run = vi.hoisted(() => vi.fn(() => Promise.resolve({ stdout: "", stderr: "" })));
 vi.mock("node:child_process", async (original) => {

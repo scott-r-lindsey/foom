@@ -7,9 +7,13 @@ import data from "../../../../src/shared/bundled-agents/agy.json";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
-import { prepareHookLaunch } from "../../../../src/main/agents/hook-launch";
+import { prepareHookLaunch } from "../../../../src/main/agents/providers/hook-launch";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
-import { CHILD_PROMPT, CLI_GUIDANCE, CONFIG_PROMPT } from "../../../../src/main/agents/cli-launch";
+import {
+  CHILD_PROMPT,
+  CLI_GUIDANCE,
+  CONFIG_PROMPT,
+} from "../../../../src/main/agents/providers/cli-launch";
 import type { AgentHooks } from "../../../../src/shared/agents";
 import type { PreparedLaunch } from "../../../../src/main/agents/providers/provider";
 import type { HookSignal } from "../../../../src/shared/hooks";

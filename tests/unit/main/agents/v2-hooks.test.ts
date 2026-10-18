@@ -26,7 +26,7 @@ import {
   observerVersion,
 } from "../../../../src/main/agents/providers/v2-observers";
 import { prepareV2Hooks } from "../../../../src/main/agents/providers/v2-hook-launch";
-import { privateDirectory } from "../../../../src/main/control/private-files";
+import { privateDirectory } from "../../../../src/node-common/private-files";
 import type { AgentManifestV2, ManifestChannel } from "../../../../src/shared/agent-manifest-v2";
 import type { HookLaunch, HookSignal } from "../../../../src/shared/hooks";
 import type { V2HookState } from "../../../../src/shared/v2-hooks";

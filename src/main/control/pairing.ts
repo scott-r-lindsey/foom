@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ControlService } from "./service";
-import { ControlError, exact, object } from "./validation";
+import { ControlError, exact, object } from "../../node-common/control-validation";
 
 import type { PairingOptions } from "./types";
 

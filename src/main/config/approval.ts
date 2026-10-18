@@ -1,4 +1,4 @@
-import { hasBypassArgument } from "../../shared/agent-arguments";
+import { hasBypassArgument } from "../../shared/providers/arguments";
 import type { AgentId } from "../../shared/agents";
 import type { DialogContent } from "../../shared/confirmation";
 import type { ConfigSetting, ConfigSettings } from "../../shared/config";

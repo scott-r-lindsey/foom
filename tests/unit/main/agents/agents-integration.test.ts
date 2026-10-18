@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
-import { hookAdapter } from "../../../../src/main/agents/hook-adapters";
+import { hookAdapter } from "../../../../src/main/agents/providers/hook-adapters";
 import type { HookSignal } from "../../../../src/shared/hooks";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";

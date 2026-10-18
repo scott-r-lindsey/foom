@@ -1,7 +1,7 @@
 import { AgentManifestError } from "./agent-manifest";
 import { parseAgentManifest } from "./agent-plugin-parser";
 import { migrateSoundSettings } from "./sounds";
-import { AgentArgumentsError } from "./agent-arguments";
+import { AgentArgumentsError } from "./providers/arguments";
 import { parseConfigSettings, CONFIG_SETTINGS } from "./config-settings";
 import type { ConfigSettings } from "./config";
 import { parseThemeFile } from "./theme-files";

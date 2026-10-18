@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Handoff, HandoffMetadata } from "../../shared/handoff";
 import { handoffRequest } from "../../node-common/handoff";
-import { ControlError } from "./validation";
+import { ControlError } from "../../node-common/control-validation";
 import type { Principal } from "./types";
 
 /** Pull-only child reports, independent of execution and terminal input. */

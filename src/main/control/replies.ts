@@ -5,7 +5,7 @@ import { prepareTail } from "../evaluator/terminal-tail";
 import { metadataName, SessionMetadata } from "./metadata";
 import type { Operations } from "./operations";
 import type { Operation, Principal } from "./types";
-import { ControlError, exact, identifier, object } from "./validation";
+import { ControlError, exact, identifier, object } from "../../node-common/control-validation";
 
 export interface ReplyHost {
   terminals(): readonly WorkspaceTerminal[];

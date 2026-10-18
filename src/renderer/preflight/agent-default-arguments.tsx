@@ -1,4 +1,4 @@
-import { hasBypassArgument } from "../../shared/agent-arguments";
+import { hasBypassArgument } from "../../shared/providers/arguments";
 import { useState } from "react";
 import type { AgentId } from "../../shared/agents";
 import { message } from "./message";

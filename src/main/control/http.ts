@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ControlService } from "./service";
 import type { Principal } from "./types";
-import { ControlError } from "./validation";
+import { ControlError } from "../../node-common/control-validation";
 
 /** Transport limits only; roles, methods and target policy live in ControlService. */
 export class ControlHttp {
