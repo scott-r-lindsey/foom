@@ -27,7 +27,9 @@ async function confirmationDesktop(app, name, footer) {
   const evidence = await app.evaluate(
     async ({ BrowserWindow, desktopCapturer, screen }, footer) => {
       const dialog = BrowserWindow.getAllWindows().find(
-        (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+        (window) =>
+          window.webContents.getURL() === "app://confirmation/confirmation.html" &&
+          window.isVisible(),
       );
       const bounds = dialog.getContentBounds();
       const display = screen.getDisplayMatching(bounds);
@@ -344,6 +346,152 @@ test("trusted dialog presentation failure releases the board and allows a new re
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
 });
+
+for (const loss of ["off-screen", "silent-hide"]) {
+  test(`two boards recover a ${loss} trusted dialog from blocked board input without approval`, {
+    skip: process.platform !== "linux",
+    timeout: deadline(45_000),
+  }, async (context) => {
+    const app = await launchApp(context, { fixture: "running-shell" });
+    const first = await boardPage(app);
+    await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
+    let board;
+    await expect
+      .poll(() => {
+        board = app
+          .windows()
+          .find((page) => page !== first && page.url() === "app://bundle/index.html");
+        return Boolean(board);
+      })
+      .toBe(true);
+    await expect(board.locator(".board-home")).toBeVisible();
+    await app.evaluate(({ app }) => app.quit());
+    let dialog;
+    await expect
+      .poll(async () => {
+        for (const page of app.windows()) {
+          if (
+            page.url() === "app://confirmation/confirmation.html" &&
+            (await page.getByRole("alertdialog").count())
+          ) {
+            dialog = page;
+            return true;
+          }
+        }
+        return false;
+      })
+      .toBe(true);
+    // Quit belongs to the focused second board, not the first board's preloaded child.
+    await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+    await board.evaluate(() => {
+      globalThis.blockedBoardEvents = 0;
+      document.addEventListener("mousedown", () => globalThis.blockedBoardEvents++);
+      document.addEventListener("keydown", () => globalThis.blockedBoardEvents++);
+    });
+    const lost = await app.evaluate(({ BrowserWindow }, loss) => {
+      const dialog = BrowserWindow.getAllWindows().find(
+        (window) =>
+          window.webContents.getURL() === "app://confirmation/confirmation.html" &&
+          window.isVisible(),
+      );
+      globalThis.lostDialogId = dialog.id;
+      const parent = dialog.getParentWindow();
+      if (loss === "off-screen") {
+        dialog.setBounds({ ...dialog.getBounds(), x: -10000 });
+      } else {
+        // Model a WM unmap with no Electron hide notification. Do not fake the
+        // native visibility/focus getters; recovery must map the real window.
+        const emit = dialog.emit;
+        dialog.emit = function (event, ...args) {
+          if (event === "hide") return true;
+          return emit.call(this, event, ...args);
+        };
+        dialog.once("show", () => {
+          dialog.emit = emit;
+        });
+        dialog.hide();
+      }
+      return {
+        focused: dialog.isFocused(),
+        visible: dialog.isVisible(),
+        bounds: dialog.getBounds(),
+        enabled: parent.isEnabled(),
+      };
+    }, loss);
+    if (process.platform === "linux") assert.equal(lost.enabled, true);
+    if (loss === "off-screen") {
+      assert.equal(lost.focused, true, "Native key focus alone must not prove reachability");
+      assert.equal(lost.visible, true);
+      assert.ok(lost.bounds.x < 0);
+    }
+    // Send to the blocked board surface. The native guard consumes the click
+    // and must show/position/raise the child, not merely focus a hidden window.
+    await app.evaluate(({ BrowserWindow }) => {
+      const parent = BrowserWindow.fromId(globalThis.lostDialogId).getParentWindow();
+      parent.webContents.sendInputEvent({
+        type: "mouseDown",
+        x: 12,
+        y: 12,
+        button: "left",
+        clickCount: 1,
+      });
+      parent.webContents.sendInputEvent({
+        type: "mouseUp",
+        x: 12,
+        y: 12,
+        button: "left",
+        clickCount: 1,
+      });
+    });
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow, screen }) => {
+          const child = BrowserWindow.fromId(globalThis.lostDialogId);
+          const bounds = child.getBounds();
+          const work = screen.getDisplayMatching(bounds).workArea;
+          return (
+            child.isVisible() &&
+            child.isFocused() &&
+            bounds.x >= work.x &&
+            bounds.y >= work.y &&
+            bounds.x + bounds.width <= work.x + work.width &&
+            bounds.y + bounds.height <= work.y + work.height
+          );
+        }),
+      )
+      .toBe(true);
+    await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+    assert.equal(await board.evaluate(() => globalThis.blockedBoardEvents), 0);
+    assert.equal(app.process().exitCode, null);
+    assert.equal(
+      await first.evaluate(async () => (await window.desktop.workspace()).terminals[0].exited),
+      false,
+    );
+    const commit = await dialog
+      .getByRole("button", { name: "Stop all and quit", exact: true })
+      .boundingBox();
+    await expect
+      .poll(async () =>
+        dialogAboveBoard(
+          await confirmationDesktop(app, loss, {
+            x: Math.floor(commit.x + 4),
+            y: Math.floor(commit.y + commit.height / 2 - 2),
+            width: 4,
+            height: 4,
+          }),
+        ),
+      )
+      .toBe(true);
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+    assert.equal(app.process().exitCode, null);
+    // The generic teardown chooses the first preloaded child. Quit explicitly
+    // through this second board's child, after proving cancellation kept it alive.
+    await app.evaluate(({ app }) => app.quit());
+    await expect(dialog.getByRole("button", { name: "Stop all and quit" })).toBeVisible();
+    await quitAndWait(app, () => dialog.getByRole("button", { name: "Stop all and quit" }).click());
+  });
+}
 
 // Exercise the real app/PTY lifecycle; control only the native dialog response so
 // these checks run on all three desktop platforms without OS-specific UI drivers.

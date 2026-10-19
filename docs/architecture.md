@@ -485,13 +485,18 @@ its raised card, with a native shadow and platform rounding where supported (squ
 corners on Linux). The board draws a cosmetic translucent scrim in the top layer, covering any open
 board form, from the boolean-only
 `confirmation:scrim` notification. Hiding or failing to draw it grants nothing.
-Native `modal` is false to avoid macOS sheet presentation. On Windows and Linux,
-main disables the parent. On macOS, Electron's `setEnabled(false)` attaches a
+Native `modal` is false to avoid macOS sheet presentation; Linux explicitly uses
+the native `dialog` window type for transient stacking. On Windows main disables
+the parent. Linux leaves it enabled so clicks can recover an unavailable child;
+a disabled parent swallows those clicks without a focus event. On macOS,
+Electron's `setEnabled(false)` attaches a
 translucent sheet above even a focused child (#353), so main instead temporarily
-makes the board nonfocusable and blocks its mouse and keyboard events before
-renderer dispatch. The keyboard guard also prevents board shortcuts. Main
-redirects parent focus to the child; each dismissal restores the original native
-focusability or enabled state and removes the input guards. The page uses a ResizeObserver to report
+makes the board nonfocusable. On every platform main consumes board mouse and
+keyboard events before renderer dispatch, including board shortcuts. A mouse-down
+or key-down on the blocked board re-presents the child (show, bounds, raise and
+focus), as does parent focus. Recovery never forwards the original input to the
+dialog or board. Each dismissal restores the original native focusability or
+enabled state and removes the input guards. The page uses a ResizeObserver to report
 natural card dimensions in CSS pixels via `confirmation:size`. Main accepts only
 finite positive sizes from the trusted main frame at the exact confirmation URL,
 while a request is pending. It multiplies by the board zoom, clamps to the parent's
@@ -511,10 +516,20 @@ that cannot acquire native key focus gets one reorder attempt and a second
 one-second check; failure cancels without approving, clears the scrim and releases
 board input. Windows/Linux also require native visibility. On macOS, current key
 focus takes precedence over occlusion reporting, which can disagree with the
-visible child during reuse. Hiding, minimizing or destroying the child, or hiding/minimizing its
-board, also cancels after checking current native visibility/minimization, so a
-late Cocoa hide notification cannot dismiss a newly visible reused request.
-Checks and listeners are removed on dismissal and disposal.
+visible child during reuse (#353). All platforms read back native bounds and
+require the entire measured card within the parent's display work area, within
+2 DIP of the requested position and size. Focus and visibility alone can describe
+an off-screen mapped child and are insufficient. A successful check schedules
+another in five seconds to detect silent losses. Resume, unlock, display removal
+or metric changes, and parent show/restore re-present and check the dialog too.
+Reentrant focus events cannot extend the final recovery deadline. Native
+presentation exceptions decline immediately. Every positive answer, including
+cleanup actions and removal subsets, must pass the same focus, visibility and
+geometry checks at IPC receipt; recovery itself never grants approval.
+Hiding, minimizing or destroying the child, or hiding/minimizing its board, also
+cancels after checking current native visibility/minimization, so a late Cocoa
+hide notification cannot dismiss a newly visible reused request. Timers and
+listeners are removed on dismissal and disposal.
 These focus checks are a recovery safety net; the Electron regression observes
 composed desktop pixels, since macOS can report native focus through an overlay.
 Theme and Interface scale updates reach the dialog while pending; parent move,
