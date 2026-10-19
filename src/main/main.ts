@@ -89,8 +89,29 @@ let config: ConfigService;
 let configRoot: string;
 let disposeThemes = () => {};
 /** A validated config file changed: every window re-applies, including interface size. */
-function configApplied(previous: Settings) {
-  for (const entry of windows.values()) entry.configChanged(previous);
+function configApplied() {
+  const next = settings.get();
+  if (initialized) workspace.configure(next);
+  for (const entry of windows.values()) entry.applySettings(next);
+  publishSettings();
+}
+/** Each setup owns its scan state; persisted choices are shared. */
+function publishSettings() {
+  queueMicrotask(() => {
+    for (const entry of windows.values()) {
+      entry.updateBackground();
+      void entry.setup
+        .state()
+        .then((state) => {
+          if (!entry.window.webContents.isDestroyed())
+            entry.window.webContents.send("setup:changed", state);
+          void entry.appMenu.refreshAgents();
+        })
+        .catch((error: unknown) => {
+          console.error("Unable to refresh settings:", error);
+        });
+    }
+  });
 }
 function configStatusChanged() {
   const status = config.status();
@@ -185,7 +206,7 @@ const windows = new Map<
     workspaceIpc: ReturnType<typeof attachWorkspace>;
     setup: Setup;
     updateBackground(): void;
-    configChanged(previous: Settings): void;
+    applySettings(next: Settings): void;
     appMenu: ReturnType<typeof attachAppMenu>;
   }
 >();
@@ -297,7 +318,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     : undefined;
   const windowId = placement?.id ?? randomUUID();
   // Use most of the display while respecting the saved interface scale minimum.
-  let scale = placement?.scale ?? settings.get().interfaceScale;
+  const scale = settings.get().interfaceScale;
   const area = placement
     ? screen.getDisplayMatching(placement.bounds).workArea
     : screen.getPrimaryDisplay().workArea;
@@ -699,21 +720,21 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     (bounds) => screen.getDisplayMatching(bounds).workArea,
     scale,
   );
+  const applySettings = (next: Settings) => {
+    updateBackground();
+    // Each window remembers its own 100% size and only the origin has an anchor.
+    windowScale.apply(next.interfaceScale);
+    window.webContents.setZoomFactor(next.interfaceScale / 100);
+    previewHost.refresh();
+    confirmations.refresh();
+  };
   const setup = new Setup({
     themes: () => themes.snapshot(),
     forgeIds: () =>
       (config.status().forgePlugins ?? [])
         .filter((entry) => !entry.reason)
         .map((entry) => entry.id),
-    store: {
-      get: () => ({ ...settings.get(), interfaceScale: scale }),
-      update: async (patch) => {
-        const { interfaceScale, ...shared } = patch;
-        const next = await settings.update(shared);
-        if (interfaceScale !== undefined) scale = interfaceScale;
-        return { ...next, interfaceScale: scale };
-      },
-    },
+    store: settings,
     confirmBypass: async (agent, args) => {
       return confirmations.request({
         title: `Save bypass defaults for ${builtinAgent(agent)?.name ?? agent}?`,
@@ -745,28 +766,10 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     apply: (next) => {
       workspace.configure(next);
       applyThemeSettings(next);
-      updateBackground();
-      // Resize first: the page then zooms into a window that already fits it.
-      windowScale.apply(next.interfaceScale);
-      window.webContents.setZoomFactor(next.interfaceScale / 100);
-      previewHost.refresh();
-      confirmations.refresh();
-      // Each setup owns its scan state; persisted choices are shared.
-      queueMicrotask(() => {
-        for (const entry of windows.values()) {
-          entry.updateBackground();
-          void entry.setup
-            .state()
-            .then((state) => {
-              if (!entry.window.webContents.isDestroyed())
-                entry.window.webContents.send("setup:changed", state);
-              void entry.appMenu.refreshAgents();
-            })
-            .catch((error: unknown) => {
-              console.error("Unable to refresh settings:", error);
-            });
-        }
-      });
+      // Resize before zooming, including windows other than the requesting one.
+      applySettings(next);
+      for (const entry of windows.values()) if (entry.window !== window) entry.applySettings(next);
+      publishSettings();
     },
   });
   // A click on + or − grows the window from the pointer, so the button stays under it.
@@ -792,18 +795,13 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
     workspaceIpc,
     setup,
     updateBackground,
-    configChanged: (previous) => {
-      if (settings.get().interfaceScale !== previous.interfaceScale)
-        scale = settings.get().interfaceScale;
-      setup.refresh();
-    },
+    applySettings,
     appMenu,
     placement: () => ({
       id: windowId,
       display: screen.getDisplayMatching(window.getNormalBounds()).id,
       bounds: window.getNormalBounds(),
       maximized: window.isMaximized(),
-      scale,
     }),
   });
   const disposeAudio = audio.attach(
@@ -1004,6 +1002,9 @@ if (!ownsProfile) {
       configRoot = path.join(app.getPath("home"), ".foom", "config");
       worktrees = await WorktreeService.open(app.getPath("userData"), undefined, [configRoot]);
       settings = await SettingsStore.open(app.getPath("userData"));
+      const placements = await loadPlacements(app.getPath("userData"));
+      const legacy = settings.legacyConfig();
+      const migratedScale = legacy?.interfaceScale ?? placements[0]?.scale;
       environment = await EnvironmentStore.open(
         app.getPath("userData"),
         safeStorageCipher(safeStorage),
@@ -1013,10 +1014,9 @@ if (!ownsProfile) {
         root: configRoot,
         defaults: configPart(DEFAULT_SETTINGS),
         apply: (values) => {
-          const previous = settings.get();
           settings.setConfig(values);
           applyThemeSettings();
-          configApplied(previous);
+          configApplied();
         },
         baseline: {
           get: () => settings.configDigest(),
@@ -1061,12 +1061,16 @@ if (!ownsProfile) {
         themes.dispose();
       };
       try {
-        const values = await config.initialize(settings.legacyConfig());
+        const values = await config.initialize(legacy);
         await settings.attachConfig(
           (patch) => config.write(patch),
           values,
           settings.configDigest(),
         );
+        // Existing shared choices win. Otherwise adopt the first legacy window once,
+        // through the shared writer, before any window can paint at a different size.
+        if (values.interfaceScale === undefined && migratedScale !== undefined)
+          await settings.update({ interfaceScale: migratedScale });
       } catch (error) {
         // Settings stay in the profile until the folder is usable.
         console.error("Foom config is unavailable:", error);
@@ -1107,7 +1111,6 @@ if (!ownsProfile) {
       });
       session.defaultSession.setPermissionCheckHandler(() => false);
 
-      const placements = await loadPlacements(app.getPath("userData"));
       if (placements.length)
         for (const placement of placements) await createWindow(undefined, placement);
       else await createWindow(await loadWindowSize(app.getPath("userData")));

@@ -13,6 +13,7 @@ import type { ControlLaunch } from "../control/types";
 import { parseAgentArguments } from "./default-arguments";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import { execFile } from "node:child_process";
+import { readLoginShell } from "../login-shell";
 import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
@@ -39,7 +40,7 @@ export async function loginPath(): Promise<{ path: string; warning: string | nul
   try {
     const shell = userInfo().shell;
     if (!shell || !isAbsolute(shell)) throw new Error("No login shell");
-    const { stdout } = await execute(
+    const { stdout } = await readLoginShell(
       shell,
       ["-ilc", 'printf "\\000FOOM_PATH\\000%s\\000" "$PATH"'],
       {

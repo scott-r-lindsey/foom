@@ -1973,6 +1973,51 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   assert.ok(git("branch", "--list", "dirty").includes("dirty"));
 });
 
+test("sidebar preferences sync between windows without losing independent edits", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const first = await boardPage(app);
+  await expect(first.locator(".board-row")).toHaveCount(1);
+  await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  let second;
+  await expect
+    .poll(() => {
+      second = app
+        .windows()
+        .find((page) => page !== first && page.url() === "app://bundle/index.html");
+      return Boolean(second);
+    })
+    .toBe(true);
+  await expect(second.locator(".board-row")).toHaveCount(1);
+  await first.getByRole("button", { name: "Actions for shell-fixture", exact: true }).click();
+  await first.getByRole("menuitem", { name: "Pin to top", exact: true }).click();
+  await expect(second.getByLabel("Pinned", { exact: true })).toBeVisible();
+  await second.locator(".board-row .session-name").dblclick();
+  await second.getByRole("textbox", { name: "Session name", exact: true }).fill("Shared helper");
+  await second.getByRole("textbox", { name: "Session name", exact: true }).press("Enter");
+  await expect(first.locator(".board-row")).toContainText("Shared helper");
+  for (const page of [first, second]) {
+    await expect(page.getByLabel("Pinned", { exact: true })).toBeVisible();
+    await expect(page.locator(".board-row")).toContainText("Shared helper");
+  }
+  await first.getByRole("button", { name: "Collapse shell-fixture", exact: true }).click();
+  await expect(
+    second.getByRole("button", { name: "Expand shell-fixture", exact: true }),
+  ).toBeVisible();
+  await second.getByRole("button", { name: "Expand shell-fixture", exact: true }).click();
+  await expect(first.locator(".board-row")).toContainText("Shared helper");
+  // Tile layouts remain independent while metadata is shared.
+  await first.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await expect(first.locator(".terminal-tile")).toHaveCount(2);
+  await expect(second.locator(".terminal-tile")).toHaveCount(1);
+  await second.reload();
+  await expect(second.getByLabel("Pinned", { exact: true })).toBeVisible();
+  await expect(second.locator(".board-row")).toContainText("Shared helper");
+  await second.evaluate(() => window.desktop.appMenu.execute("close-window"));
+  await expect.poll(() => second.isClosed()).toBe(true);
+});
+
 test("multiple windows share sessions, keep views exclusive and retain terminals on close", {
   timeout: deadline(60000),
 }, async (context) => {
@@ -2059,7 +2104,11 @@ test("multiple windows restore independent layouts, bounds and interface size", 
 }, async (context) => {
   const profile = await mkdtemp(path.join(tmpdir(), "foom-window-restore-"));
   removeAfterApps(context, profile);
-  const options = { args: [`--user-data-dir=${profile}`], fixture: "empty-board" };
+  const options = {
+    args: [`--user-data-dir=${profile}`],
+    home: path.join(profile, "home"),
+    fixture: "empty-board",
+  };
   const app = await launchApp(context, options);
   const first = await boardPage(app);
   await expect(first.getByRole("button", { name: "Foom config", exact: true })).toBeVisible();
@@ -2085,7 +2134,7 @@ test("multiple windows restore independent layouts, bounds and interface size", 
   await second.evaluate(() => window.desktop.saveSetup({ interfaceScale: 90 }));
   assert.equal(
     (await first.evaluate(() => window.desktop.setupState())).settings.interfaceScale,
-    110,
+    90,
   );
   const firstId = await first.evaluate(() => window.desktop.windows.id);
   const secondId = await second.evaluate(() => window.desktop.windows.id);
@@ -2095,8 +2144,8 @@ test("multiple windows restore independent layouts, bounds and interface size", 
   const placements = JSON.parse(await readFile(path.join(profile, "windows.json"), "utf8"));
   assert.equal(placements.length, 2);
   assert.deepEqual(
-    placements.map((item) => item.scale),
-    [110, 90],
+    placements.map((item) => "scale" in item),
+    [false, false],
   );
   const restored = await launchApp(context, { ...options, fixture: "restored" });
   await expect
@@ -2112,7 +2161,7 @@ test("multiple windows restore independent layouts, bounds and interface size", 
     await expect(page.locator(".terminal-tile")).toHaveCount(id === firstId ? 2 : 3);
     assert.equal(
       (await page.evaluate(() => window.desktop.setupState())).settings.interfaceScale,
-      id === firstId ? 110 : 90,
+      90,
     );
     await assertAccessible(page);
   }
