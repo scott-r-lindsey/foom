@@ -53,6 +53,8 @@ import type { WorktreeService } from "./worktrees";
 
 type Agents = Pick<AgentService, "scan" | "launch" | "release" | "dispose" | "setHooksEnabled">;
 export interface WorkspaceDependencies {
+  /** Main-owned clock budget; tests may inject a shorter probe reminder. */
+  probeWaitingMs?: number;
   pluginStagingRoot?: string;
   worktrees: Pick<
     WorktreeService,
@@ -147,6 +149,7 @@ export class Workspace {
   readonly orchestration: Orchestration;
   private readonly agents: Agents;
   private probes: AgentProbes | undefined;
+  private readonly probeIds = new Set<string>();
   private probeHttp: Promise<ProbeHttp> | undefined;
   private readonly configTokens = new Map<string, string>();
   private readonly sessions: SessionOwner;
@@ -375,10 +378,14 @@ export class Workspace {
       waitingOn: (id) => this.orchestration.waitingOn(id),
       unreadAt: (id) => this.orchestration.unreadChildren.overdue(id),
       onExecution: (event) => {
+        if (event.to === "working") {
+          const token = this.configTokens.get(event.terminalId);
+          if (token) this.probes?.dismiss(token);
+        }
         deps.onExecution?.(event);
       },
       onState: (state) => {
-        deps.onState(state);
+        deps.onState(this.probeState(state.id, state) ?? state);
       },
       now: this.now,
     });
@@ -548,6 +555,24 @@ export class Workspace {
     this.refresh();
   }
 
+  private probeState(id: string, state: TerminalState | null): TerminalState | null {
+    if (state?.state === "needs_input") return state;
+    const token = this.configTokens.get(id);
+    const at = token ? this.probes?.waitingAt(token) : undefined;
+    return at === undefined
+      ? state
+      : {
+          id,
+          execution: this.executionOwner.view(id).execution,
+          verdictId: null,
+          state: "needs_input",
+          reason: "Probe waiting",
+          signal: "probe:waiting",
+          confidence: 1,
+          timestamp: at,
+          attentionKind: "unknown",
+        };
+  }
   snapshot(): WorkspaceSnapshot {
     return {
       repositories: this.deps.worktrees.listRepositories(),
@@ -558,7 +583,7 @@ export class Workspace {
           ...(view.execution ? { execution: view.execution } : {}),
           ...(view.exitCode !== undefined ? { exitCode: view.exitCode } : {}),
           foregroundProgram: view.exitCode === undefined ? (view.foregroundProgram ?? "") : "",
-          state: this.executionOwner.currentState(entry.id),
+          state: this.probeState(entry.id, this.executionOwner.currentState(entry.id)),
           outputRevision: view.outputRevision,
           inputRevision: view.inputRevision,
           exited:
@@ -1080,7 +1105,18 @@ export class Workspace {
     if (!config || this.closed) throw new Error("Foom config unavailable");
     this.probes ??= new AgentProbes(
       {
-        create: (spec) => this.deps.terminals.create(spec),
+        waitingChanged: () => {
+          this.refresh();
+        },
+        create: async (spec) => {
+          if (spec.id) this.probeIds.add(spec.id);
+          try {
+            return await this.deps.terminals.create(spec);
+          } catch (error) {
+            if (spec.id) this.probeIds.delete(spec.id);
+            throw error;
+          }
+        },
         stop: (id) => this.deps.terminals.stop(id),
         kill: (id) => this.deps.terminals.kill(id),
         reply: async (id, data) => {
@@ -1098,8 +1134,10 @@ export class Workspace {
           if (this.closed) throw new Error("Foom config unavailable");
           if (this.executionOwner.view(id).exitCode !== undefined)
             throw new Error("Probe exited during startup");
+          const parent = [...this.configTokens].find(([, token]) => token === owner)?.[0];
           this.launched.set(id, {
             id,
+            ...(parent ? { probeOwner: parent } : {}),
             kind: "agent",
             agent,
             config: true,
@@ -1115,7 +1153,6 @@ export class Workspace {
           });
           this.executionOwner.launched(id);
           this.refresh();
-          const parent = [...this.configTokens].find(([, token]) => token === owner)?.[0];
           if (parent) this.deps.placeChild?.(id, parent);
         },
         removed: (id) => {
@@ -1123,6 +1160,10 @@ export class Workspace {
         },
       },
       config.root,
+      undefined,
+      undefined,
+      this.deps.probeWaitingMs,
+      this.now,
     );
     this.probeHttp ??= ProbeHttp.listen(this.probes).catch((error: unknown) => {
       this.probeHttp = undefined;
@@ -1787,9 +1828,13 @@ export class Workspace {
     this.executionOwner.output(id);
   }
   evidence(id: string, evidence: AgentEvidence, initial = false): Promise<void> {
+    if (this.probeIds.has(id) || this.launched.get(id)?.probe)
+      return this.probes?.quiet(id) ?? Promise.resolve();
     return this.executionOwner.evidence(id, evidence, initial);
   }
   quiet(id: string): Promise<void> {
+    if (this.probeIds.has(id) || this.launched.get(id)?.probe)
+      return this.probes?.quiet(id) ?? Promise.resolve();
     return this.executionOwner.quiet(id);
   }
 
@@ -1820,6 +1865,7 @@ export class Workspace {
   }
 
   removed(id: string): void {
+    this.probeIds.delete(id);
     this.revokeConfig(id);
     void this.probes?.exited(id).catch(() => undefined);
     this.agents.release(id);
@@ -1832,9 +1878,20 @@ export class Workspace {
   }
 
   input(id: string): void {
+    this.probes?.input(id);
     this.executionOwner.input(id);
   }
   feedback(id: string, verdictId: string | null, action: VerdictAction): Promise<void> {
+    const token = this.configTokens.get(id);
+    if (
+      token &&
+      verdictId === null &&
+      this.probes?.waitingAt(token) !== undefined &&
+      this.executionOwner.currentState(id)?.state !== "needs_input"
+    ) {
+      if (action !== "ignored") this.probes.dismiss(token);
+      return Promise.resolve();
+    }
     return this.executionOwner.feedback(id, verdictId, action);
   }
 

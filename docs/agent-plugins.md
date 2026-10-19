@@ -167,13 +167,22 @@ Allowed placeholders, with no recursion or environment interpolation by Foom:
 | --- | --- |
 | {prompt}, {conversationId} | prompt/resume argv respectively; prompt includes main-owned child provenance or config/guidance text, ID validated |
 | {newId} | conversation.newId argv only; generated UUID, new launches only |
-| {hookDir}, {hookFile:NAME} | channel attachment argv only; owned launch directory/file |
+| {hookDir}, {hookFile:NAME} | hooks.channels[].arguments only; whole owned launch directory/file path. Nested NAME is allowed; declare scope "launch" files |
 | {pluginDir} | setup action argv only; owned persistent plugin staging directory |
-| {file:NAME} | MCP argv only; owned launch file |
+| {file:NAME} | launch.mcp.arguments only; owned launch file. For hooks use {hookFile:NAME} or {hookDir} |
 | {observerCommand:CHANNEL:json}, {observerCommand:CHANNEL:toml} | File content or channel attachment; engine quotes the entire fixed command for JSON/TOML |
 | {observerArgv:CHANNEL:json} | JSON array value, File or channel attachment |
 | {mcpName}, {mcpUrl}, {tool} | MCP file/argv; tool only toolPermissions arguments; JSON/TOML string positions require :json/:toml suffix |
 | {observerVersion:CHANNEL} | Plugin JSON numeric metadata slot |
+
+Known placeholders in the wrong location report `placeholder-not-allowed-here`
+with the allowed placeholders for that location. Path arithmetic such as
+`{file:plugin.json}/..` or `{hookDir}/sub` reports `placeholder-path-arithmetic`,
+even if the placeholder also belongs to another location. Use `{hookDir}` directly
+for a generated plugin directory, or declare a nested launch file and refer to its
+whole `{hookFile:NAME}`. Prefixes such as `@{file:mcp.json}` remain supported.
+Unknown or malformed names still report `unknown-placeholder`. These diagnostics
+carry the exact argument/content path; `foom config validate` includes their detail.
 
 A CHANNEL reference may append `.EVENT` to pass that one declared event as a fixed observer argv entry;
 command suffixes and header event names must match `[A-Za-z][A-Za-z0-9_-]{0,63}`; this is how an agy handler sets the event header. EVENT must match a mapping event, never payload text.

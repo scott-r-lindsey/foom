@@ -1145,55 +1145,59 @@ test("main waiting presentation clears on equal-timestamp snapshots and real att
   off?.();
 });
 
-test("unread child attention overrides working until main clears the reminder", async () => {
-  const execution: ExecutionTransition = {
-    terminalId: "a",
-    launch: 1,
-    revision: 2,
-    turn: 1,
-    phase: "working",
-    from: "idle",
-    to: "working",
-    source: "hook",
-    at: 10,
-  };
-  const state: TerminalState = { ...verdict("a", 100), execution, state: "working" };
-  mock.workspace.mockResolvedValue({
-    repositories: [],
-    terminals: [{ ...agent("a", state), execution }],
-  });
-  const source = createAppSource();
-  const off = source.connect?.();
-  await settle();
-  mock.state?.(state);
-  mock.workspace.mockResolvedValue({
-    repositories: [],
-    terminals: [
-      {
-        ...agent("a", {
-          ...state,
-          timestamp: 10,
-          state: "needs_input",
-          verdictId: null,
-          signal: "orchestration:unread",
-          reason: "Child report unread",
-        }),
-        execution,
-      },
-    ],
-  });
-  mock.changed?.();
-  await settle();
-  expect(source.getSnapshot()[0]).toMatchObject({
-    state: "needs_input",
-    reason: "Child report unread · orchestration:unread",
-  });
-  mock.workspace.mockResolvedValue({
-    repositories: [],
-    terminals: [{ ...agent("a", state), execution }],
-  });
-  mock.changed?.();
-  await settle();
-  expect(source.getSnapshot()[0]?.state).toBe("working");
-  off?.();
-});
+test.each(["orchestration:unread", "probe:waiting"])(
+  "%s attention overrides working until main clears the reminder",
+  async (signal) => {
+    const execution: ExecutionTransition = {
+      terminalId: "a",
+      launch: 1,
+      revision: 2,
+      turn: 1,
+      phase: "working",
+      from: "idle",
+      to: "working",
+      source: "hook",
+      at: 10,
+    };
+    const state: TerminalState = { ...verdict("a", 100), execution, state: "working" };
+    mock.workspace.mockResolvedValue({
+      repositories: [],
+      terminals: [{ ...agent("a", state), execution }],
+    });
+    const source = createAppSource();
+    const off = source.connect?.();
+    await settle();
+    mock.state?.(state);
+    mock.workspace.mockResolvedValue({
+      repositories: [],
+      terminals: [
+        {
+          ...agent("a", {
+            ...state,
+            timestamp: 10,
+            state: "needs_input",
+            verdictId: null,
+            signal,
+            reason: signal === "probe:waiting" ? "Probe waiting" : "Child report unread",
+          }),
+          execution,
+        },
+      ],
+    });
+    mock.changed?.();
+    await settle();
+    expect(source.getSnapshot()[0]).toMatchObject({
+      state: "needs_input",
+      reason:
+        signal === "probe:waiting" ? "Probe waiting" : "Child report unread · orchestration:unread",
+    });
+    mock.workspace.mockResolvedValue({
+      repositories: [],
+      terminals: [{ ...agent("a", state), execution }],
+    });
+    mock.changed?.();
+    await settle();
+    expect(source.getSnapshot()[0]?.state).toBe("working");
+    off?.();
+  },
+);

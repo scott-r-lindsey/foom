@@ -262,3 +262,46 @@ test("expiry can address a host ID while its create acknowledgement is pending",
   await closing;
   expect(f.backend.kill).toHaveBeenCalledWith("reserved-host");
 });
+
+test("stale screens after probe input, output or revocation cannot raise driver attention", async () => {
+  const f = await fixture();
+  try {
+    await f.start();
+    f.probes.input("terminal");
+    vi.useFakeTimers();
+    for (const change of [
+      () => {
+        f.probes.input("terminal");
+      },
+      () => {
+        f.probes.output("terminal");
+      },
+    ]) {
+      const read = Promise.withResolvers<{ lines: string[]; title: string }>();
+      f.backend.screen.mockReturnValueOnce(read.promise);
+      const work = f.probes.quiet("terminal");
+      change();
+      read.resolve({ lines: ["Continue? (y/n)"], title: "probe" });
+      await work;
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(f.probes.waitingAt(f.token)).toBeUndefined();
+    }
+    await f.probes.quiet("missing");
+    await f.probes.quiet("terminal");
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(f.probes.waitingAt(f.token)).toBeDefined();
+    f.backend.screen.mockResolvedValueOnce({ lines: ["Working"], title: "working" });
+    await f.probes.quiet("terminal");
+    expect(f.probes.waitingAt(f.token)).toBeUndefined();
+    const read = Promise.withResolvers<{ lines: string[]; title: string }>();
+    f.backend.screen.mockReturnValueOnce(read.promise);
+    const work = f.probes.quiet("terminal");
+    await f.probes.revoke(f.token);
+    read.resolve({ lines: ["Continue? (y/n)"], title: "probe" });
+    await work;
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(f.probes.waitingAt(f.token)).toBeUndefined();
+  } finally {
+    await f.probes.close();
+  }
+});

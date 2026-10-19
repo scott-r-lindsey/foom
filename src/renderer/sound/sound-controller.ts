@@ -28,7 +28,7 @@ export function createSoundController(
     { state: BoardRow["state"]; since: number; next: number; key: string }
   >();
   const updateRows = () => {
-    const rows = source.getSnapshot().filter((row) => row.kind !== "shell");
+    const rows = source.getSnapshot().filter((row) => row.kind !== "shell" && !row.probe);
     const ids = new Set(rows.map((row) => row.id));
     for (const id of verdicts.keys())
       if (!ids.has(id)) {

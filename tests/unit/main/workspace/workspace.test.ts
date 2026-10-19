@@ -4132,12 +4132,51 @@ test("config credentials create visible transient probes and revoke them on owne
       id: "probe-terminal",
       config: true,
       probeNote: true,
+      probeOwner: "owner",
       conversationId: "probe-conversation",
     });
     expect(deps.placeChild).toHaveBeenCalledWith("probe-terminal", "owner");
     await exchange(url, { action: "send", probe, text: "yes" }, token);
     expect(reply).toHaveBeenCalledWith("probe-terminal", "yes\r");
     await exchange(url, { action: "screen", probe }, token);
+    workspace.input("probe-terminal");
+    vi.useFakeTimers();
+    await workspace.quiet("probe-terminal");
+    await workspace.evidence("probe-terminal", { title: "probe", progress: null });
+    await vi.advanceTimersByTimeAsync(59999);
+    expect(
+      workspace.snapshot().terminals.find((row) => row.id === "owner")?.state?.reason,
+    ).not.toBe("Probe waiting");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(workspace.snapshot().terminals.find((row) => row.id === "owner")?.state).toMatchObject({
+      reason: "Probe waiting",
+      signal: "probe:waiting",
+      state: "needs_input",
+    });
+    expect(workspace.snapshot().terminals.find((row) => row.probe)?.state?.state).not.toBe(
+      "needs_input",
+    );
+    await workspace.feedback("owner", null, "ignored");
+    expect(workspace.snapshot().terminals.find((row) => row.id === "owner")?.state?.reason).toBe(
+      "Probe waiting",
+    );
+    await workspace.feedback("owner", null, "dismissed");
+    expect(
+      workspace.snapshot().terminals.find((row) => row.id === "owner")?.state?.reason,
+    ).not.toBe("Probe waiting");
+    await workspace.quiet("probe-terminal");
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(
+      workspace.snapshot().terminals.find((row) => row.id === "owner")?.state?.reason,
+    ).not.toBe("Probe waiting");
+    workspace.input("probe-terminal");
+    await workspace.quiet("probe-terminal");
+    await vi.advanceTimersByTimeAsync(60000);
+    workspace.input("probe-terminal");
+    expect(
+      workspace.snapshot().terminals.find((row) => row.id === "owner")?.state?.reason,
+    ).not.toBe("Probe waiting");
+    vi.useRealTimers();
     await workspace.exited("owner", 0);
     await vi.waitFor(() => {
       expect(workspace.snapshot().terminals.some((row) => row.probe)).toBe(false);
@@ -4150,6 +4189,7 @@ test("config credentials create visible transient probes and revoke them on owne
         expect.arrayContaining([expect.objectContaining({ probe: true })]),
       );
   } finally {
+    vi.useRealTimers();
     await workspace.dispose();
     await rm(scratch, { recursive: true, force: true });
   }

@@ -14,6 +14,8 @@ export interface BoardRow {
   /** Runs in the Foom config folder and nests under the Foom config row. */
   config?: boolean;
   probe?: boolean;
+  /** Public identity of the config session driving this transient probe. */
+  probeOwner?: string;
   probeNote?: boolean;
   startedAt?: number | undefined;
   exitCode?: number | undefined;

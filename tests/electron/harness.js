@@ -656,6 +656,13 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
               "const userInfo = os.userInfo;",
               `os.userInfo = (...args) => ({ ...userInfo(...args), shell: ${JSON.stringify(isolated.SHELL)} });`,
             ]),
+        ...(options.probeWaitingMs === undefined
+          ? []
+          : [
+              `const workspaceModule = require(${JSON.stringify(path.join(entry, "build/main/workspace/workspace.js"))});`,
+              `const ProductionWorkspace = workspaceModule.Workspace;`,
+              `workspaceModule.Workspace = class extends ProductionWorkspace { constructor(deps) { super({ ...deps, probeWaitingMs: ${JSON.stringify(options.probeWaitingMs)} }); } };`,
+            ]),
         `app.setPath("home", ${JSON.stringify(options.home)});`,
         `app.setAppPath(${JSON.stringify(entry)});`,
         `require(${JSON.stringify(path.join(entry, "build/main/main.js"))});`,

@@ -195,3 +195,23 @@ test("offline validation uses the same agent manifest gate and reports stable pa
   ).toThrow(expect.objectContaining({ path: "$", reason: "invalid-value", detail: "unknown-key" }));
   expect(() => validateConfigJson(JSON.stringify(manifest), "settings")).toThrow();
 });
+
+test("config validation retains actionable hook placeholder diagnostics", async () => {
+  const { default: copilot } = await import("../../fixtures/agent-plugins-v2/copilot.json");
+  const draft = structuredClone(copilot);
+  const channel = draft.hooks.channels[0];
+  if (!channel) throw Error("Missing fixture channel");
+  channel.arguments = ["--plugin-dir", "{file:plugin.json}/.."];
+  try {
+    validateConfigJson(JSON.stringify(draft), "agent");
+    throw Error("Expected rejection");
+  } catch (error) {
+    expect(error).toMatchObject({
+      path: "$.hooks.channels[0].arguments[1]",
+      reason: "invalid-value",
+    });
+    expect(error).toHaveProperty("detail", expect.stringContaining("placeholder-path-arithmetic"));
+    expect(error).toHaveProperty("detail", expect.stringContaining("{hookDir}"));
+    expect(error).toHaveProperty("detail", expect.stringContaining("{hookFile:NAME}"));
+  }
+});

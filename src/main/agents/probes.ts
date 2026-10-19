@@ -1,3 +1,4 @@
+import { ProbeAttention, PROBE_WAITING_MS } from "./probe-attention";
 import { randomBytes, randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import type { ProbeRequest } from "../../node-common/agent-probe";
@@ -19,9 +20,11 @@ type Probe = {
   stopping?: Promise<void>;
   cleaning?: Promise<void>;
   output: number;
+  revision: number;
   changed: Set<() => void>;
 };
 export interface ProbeBackend {
+  waitingChanged?(): void;
   create(spec: TerminalSpec): Promise<string>;
   stop(id: string): Promise<void>;
   kill(id: string): Promise<void>;
@@ -41,6 +44,7 @@ export interface ProbeBackend {
 export class AgentProbes {
   private readonly sessions = new Map<string, Probe | null>();
   private readonly work = new Set<Promise<unknown>>();
+  private readonly attention: ProbeAttention;
   constructor(
     private readonly backend: ProbeBackend,
     private readonly root: string,
@@ -51,7 +55,47 @@ export class AgentProbes {
       prepare: prepareProbe,
     },
     private readonly limitMs = 600000,
-  ) {}
+    waitingMs = PROBE_WAITING_MS,
+    now = Date.now,
+  ) {
+    this.attention = new ProbeAttention(() => backend.waitingChanged?.(), waitingMs, now);
+  }
+  waitingAt(owner: string): number | undefined {
+    return this.attention.waitingAt(owner);
+  }
+  dismiss(owner: string): void {
+    this.attention.dismiss(owner);
+  }
+  input(id: string): void {
+    for (const probe of this.sessions.values())
+      if (probe?.terminal === id) {
+        probe.revision++;
+        this.attention.input(id);
+      }
+  }
+  async quiet(id: string): Promise<void> {
+    for (const [owner, probe] of this.sessions)
+      if (probe?.terminal === id && !probe.stopping) {
+        const revision = probe.revision;
+        const current = () =>
+          this.sessions.get(owner) === probe && !probe.stopping && probe.revision === revision;
+        const screen = await this.backend.screen(id);
+        if (!current()) return;
+        const verdict = evaluateRules(
+          {
+            terminalId: id,
+            agent: probe.provider?.id ?? "",
+            evidence: { title: screen.title, progress: null },
+            tail: screen.lines,
+          },
+          probe.provider?.model.attention.rules.map(({ lines, ...rule }) => ({
+            ...rule,
+            ...(lines === undefined ? {} : { lines }),
+          })),
+        );
+        this.attention.observe(id, verdict.state === "needs_input");
+      }
+  }
   grant(): string {
     const token = randomBytes(32).toString("hex");
     this.sessions.set(token, null);
@@ -95,6 +139,7 @@ export class AgentProbes {
           request.action === "send" ? `${request.text}\r` : PROBE_KEYS[request.key],
         );
         this.owned(token, probe);
+        this.input(id);
         return { sent: true };
       case "wait":
         await this.wait(token, probe, request);
@@ -134,6 +179,7 @@ export class AgentProbes {
     const probe: Probe = {
       id: randomBytes(32).toString("hex"),
       output: Date.now(),
+      revision: 0,
       changed: new Set(),
     };
     this.sessions.set(token, probe);
@@ -168,6 +214,8 @@ export class AgentProbes {
         this.owned(token, probe);
       });
       this.owned(token, probe);
+      this.attention.add(id, token);
+      void this.quiet(id).catch(() => undefined);
       return { probe: probe.id };
     } catch (error) {
       await this.cleanup(probe);
@@ -179,6 +227,7 @@ export class AgentProbes {
     for (const probe of this.sessions.values())
       if (probe?.terminal === id) {
         probe.output = Date.now();
+        probe.revision++;
         for (const changed of probe.changed) changed();
       }
   }
@@ -244,6 +293,7 @@ export class AgentProbes {
   private async release(probe: Probe): Promise<void> {
     clearTimeout(probe.timer);
     if (probe.terminal) {
+      this.attention.remove(probe.terminal);
       await this.backend.stop(probe.terminal);
       await this.backend.kill(probe.terminal);
       this.backend.removed(probe.terminal);

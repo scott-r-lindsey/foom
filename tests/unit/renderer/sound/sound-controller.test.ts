@@ -339,3 +339,16 @@ test("master gain and mute apply to working, verdict and refusal audio", async (
   expect(f.sink.alert).not.toHaveBeenCalled();
   f.dispose();
 });
+
+test("probe prompts never chime; their config driver's reminder can", async () => {
+  const f = await fixture(Promise.resolve(setupState()), [
+    { ...row("probe"), probe: true, state: "needs_input" },
+    { ...row("driver"), state: "quiet_ok" },
+  ]);
+  vi.advanceTimersByTime(REPEAT_MS * 2);
+  expect(f.sink.alert).not.toHaveBeenCalled();
+  f.source.update("driver", { state: "needs_input", reason: "Probe waiting" });
+  vi.advanceTimersByTime(1100);
+  expect(f.sink.alert).toHaveBeenCalledWith("needs-you", expect.any(Number));
+  f.dispose();
+});

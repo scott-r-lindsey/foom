@@ -125,6 +125,7 @@ function Tile({
   const elementRef = useRef<HTMLElement>(null);
   const rowId = row?.id;
   const parent = row ? sidebarParent(row, rows) : undefined;
+  const driver = rows.find((entry) => entry.id === row?.probeOwner);
   const occupied = Boolean(row || preview);
   const name = row ? sessionName(row, preferences) : (preview?.relativePath ?? "");
   useEffect(
@@ -272,11 +273,16 @@ function Tile({
                   title={`Child of ${parent ? sessionName(parent, preferences) : row.orchestration.parentId}${row.orchestration.takenOver ? " · Taken over" : ""}`}
                 />
               )}
-              <span className="tile-location" title={`${row.repository} › ${row.branch}`}>
-                {row.repository} › {row.branch}
+              <span
+                className={row.probe ? "tile-location probe-driver" : "tile-location"}
+                title={`${row.repository} › ${row.branch}`}
+              >
+                {row.probe
+                  ? `Probe · ${driver ? sessionName(driver, preferences) : "Config session"}`
+                  : `${row.repository} › ${row.branch}`}
               </span>
               <span className="tile-name" title={sessionIdentity(row, source.shellName?.())}>
-                {sessionName(row, preferences)}
+                {sessionName(row.probe ? { ...row, probe: false } : row, preferences)}
               </span>
               {(row.exited || row.foregroundProgram) && (
                 <span className="session-program">
@@ -383,7 +389,7 @@ function Tile({
               Runs the real CLI on your account. May use credits.
             </p>
           )}
-          {row.state === "needs_input" && (
+          {!row.probe && row.state === "needs_input" && (
             <div className="tile-attention">
               <span title={row.reason}>{row.reason}</span>
               <button

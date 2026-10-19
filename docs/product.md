@@ -1012,8 +1012,17 @@ grants. This is a working-directory boundary, not an OS sandbox: the real CLI
 runs on the user's account, can access files and network as that account, and may
 use credits. Enter is allowed, including at approval prompts.
 
-The probe appears under Foom config, marked **Probe**, with normal terminal input
-and Stop. The first probe of each agent ID has a terse, one-time inline note:
+The probe appears under Foom config with normal terminal input and Stop. Its tile
+header quietly names its driver: **Probe · <config session name>**, following the
+session's editable name. The probe's own prompts never show Needs you or Not
+attention and never chime. The config agent answers its probe's prompts.
+If the probe stays blocked without input for about 60 seconds, its config session
+shows **Probe waiting**. An existing question or permission prompt on that session
+keeps its own reason. Probe input, resumed progress, Stop or dismissal clears the
+reminder; dismissal settles the current blocked episode. The person can still type
+into or Stop the probe. Before each probe, the config agent explains its plan,
+that it answers trust/approval prompts itself, and that the person can Stop it;
+afterward it summarizes the result. The first probe of each agent ID has a terse, one-time inline note:
 “Runs the real CLI on your account. May use credits.” No dialog is shown.
 Probes are never restored. They stop after ten minutes, when their owning config
 session exits, or when Foom quits; Foom removes the scratch repository after the

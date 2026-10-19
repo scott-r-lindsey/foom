@@ -2260,7 +2260,24 @@ Only main's probe broker exposes this result to the config CLI. The renderer kee
 its existing typed terminal capabilities and attachment ordering.
 
 Probe rows live under Foom config with a text Probe mark and the usual Stop/input
-controls. A profile-only list of agent IDs records the terse first-probe credit
+controls. Main publishes only the driver's terminal ID as `probeOwner`; the
+renderer resolves its current editable session name for a quiet **Probe · driver**
+header label. Probe screen/title evidence bypasses normal terminal attention
+publication; prompt classification remains available to the owning config CLI.
+The sound controller excludes probe rows.
+
+`ProbeAttention` uses the named `PROBE_WAITING_MS` (60 seconds), an injected clock
+and cancellable timers. A continuously blocked screen starts one budget; repeated
+output/classification cannot postpone it. Input resets the budget; resumed screen
+progress and Stop cancel it. Stale screen reads after input/output/revocation are
+ignored. Expiry projects a fixed `Probe waiting` reminder onto the owning config
+session, preserving its own real question/permission attention. This is main-owned
+presentation, not an evaluator verdict or execution transition. Dismissal (or a
+fresh driver working transition) settles that blocked episode until probe input or
+resumed progress. No probe prompt becomes a human permission request. The renderer
+honors this projection across execution events and drops it when main clears it.
+The fixture harness may inject a shorter delay; no config setting or renderer IPC
+can change it. A profile-only list of agent IDs records the terse first-probe credit
 note; it contains no terminal content or credential. Session persistence excludes
 probe rows. Captures and test rules (#592), verification (#593), and the guide
 workflow (#594) are deliberately outside this change.

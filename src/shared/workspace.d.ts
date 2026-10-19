@@ -65,6 +65,8 @@ export interface WorkspaceTerminal {
   config?: boolean;
   /** Transient probe; excluded from saved sessions. */
   probe?: boolean;
+  /** Public identity of the config session driving this transient probe. */
+  probeOwner?: string;
   probeNote?: boolean;
   startedAt?: number;
   exitCode?: number | undefined;

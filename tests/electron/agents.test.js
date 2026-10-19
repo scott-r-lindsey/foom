@@ -3847,6 +3847,7 @@ test("config probe CLI drives only scratch fixture screens and the user can inte
   const executable = path.join(bin, process.platform === "win32" ? "copilot.exe" : "copilot");
   await copyFile(process.execPath, executable);
   await chmod(executable, 0o755);
+  const attachment = path.join(root, "attachment.json");
   const script = path.join(root, "agent.cjs");
   const details = path.join(root, "launch.json");
   const result = path.join(root, "driver.json");
@@ -3855,12 +3856,25 @@ test("config probe CLI drives only scratch fixture screens and the user can inte
     script,
     `
 const fs = require('node:fs');
+const path = require('node:path');
+const pluginIndex=process.argv.indexOf('--plugin-dir');
+if(pluginIndex!==-1) {
+  const directory=process.argv[pluginIndex+1];
+  const plugin=JSON.parse(fs.readFileSync(path.join(directory,'plugin.json'),'utf8'));
+  const hooks=JSON.parse(fs.readFileSync(path.join(directory,'hooks/hooks.json'),'utf8'));
+  const command=hooks.hooks.Stop[0].command;
+  if(plugin.name!=='foom-observer' || typeof command!=='string' || command.includes('{observer') || !fs.existsSync(path.join(directory,'lifecycle',process.platform==='win32'?'observer.ps1':'observer.sh'))) throw Error('Invalid generated plugin attachment');
+  fs.writeFileSync(${JSON.stringify(attachment)},JSON.stringify({directory,generatedCommand:true,nestedFile:true}));
+  process.stdout.write('HOOKS_ATTACHED\\r\\n');
+}
 fs.writeFileSync(${JSON.stringify(details)}, JSON.stringify({cwd:process.cwd(),env:Object.keys(process.env).filter(key => /^FOOM_/i.test(key)),args:process.argv.slice(2)}));
 process.stdout.write(Array.from({length:40},(_,i) => 'SCROLLBACK_SECRET_'+i+'\\r\\n').join(''));
-process.stdout.write('\\x1b[?1049h\\x1b[2J\\x1b[H\\x1b]0;Fixture probe title\\x07Approve fixture? (y/n)');
+process.stdout.write('\\x1b[?1049h\\x1b[2J\\x1b[H\\x1b]0;Fixture probe title\\x07Trust this folder? (y/n)');
+let trusted=false;
 process.stdin.setRawMode(true);
 process.stdin.on('data', data => {
   const value=data.toString();
+  if(!trusted && value.includes('\\r')) { trusted=true; process.stdout.write('\\x1b[2J\\x1b[HFixture ready'); return; }
   if(value.includes('\\t')) process.stdout.write('\\r\\nKEY:TAB');
   const text=value.split('\\t').join('').trim();
   if(text) process.stdout.write('\\r\\nRECEIVED:'+text);
@@ -3904,30 +3918,47 @@ process.stdin.resume();
   delete manifest.hooks;
   delete manifest.setup;
   delete manifest.health;
-  const draft = path.join(root, "draft.json");
+  const draft = path.join(root, "draft", "copilot.json");
   await writeFile(
     driver,
     `
 const fs=require('node:fs'); const {execFileSync}=require('node:child_process');
 const cli=process.platform==='win32'?'foom.exe':'foom';
 const call=(...args) => JSON.parse(execFileSync(cli,['agent','probe',...args],{encoding:'utf8',env:process.env})).result;
-fs.writeFileSync(${JSON.stringify(draft)},JSON.stringify(${JSON.stringify(manifest)}));
+// This deterministic fixture agent receives the shipped guide/starter, not a prepared target manifest.
+const guide=fs.readFileSync('AGENTS.md','utf8');
+const blocks=[...guide.matchAll(/\`\`\`json\\n([\\s\\S]*?)\\n\`\`\`/g)].map(match=>JSON.parse(match[1]));
+const pluginArguments=blocks.find(block=>Array.isArray(block) && block[0]==='--plugin-dir');
+const files=blocks.find(block=>Array.isArray(block) && block[0]?.scope==='launch');
+if(!pluginArguments || !files || !guide.includes('answer the probe') || !guide.includes('Stop')) throw Error('Guide lacks probe/plugin instructions');
+const target=JSON.parse(fs.readFileSync('examples/agent.json','utf8'));
+Object.assign(target,{id:'copilot',name:'GitHub Copilot',badge:'CP',executables:['copilot'],launch:{order:target.launch.order,arguments:{arguments:[${JSON.stringify(script)}]}},conversation:{resumePin:'requested-on-paste',restoreControl:false},attention:{minimumEngineVersion:1,rules:[]},resumePaste:[]});
+const channel=target.hooks.channels[0]; channel.arguments=pluginArguments; channel.observer.transport='stdin'; channel.when={all:[{field:'hooksEnabled',op:'eq',value:true}]};
+target.files=files.map(file=>({...file,when:channel.when}));
+target.reservedArguments.push({flag:'--plugin-dir',forms:['exact','equals','separate']});
+fs.mkdirSync(require('node:path').dirname(${JSON.stringify(draft)}),{recursive:true});
+fs.writeFileSync(${JSON.stringify(draft)},JSON.stringify(target));
+execFileSync(cli,['config','validate',${JSON.stringify(draft)}],{encoding:'utf8',env:process.env});
 const probe=call('start','copilot','--manifest',${JSON.stringify(draft)}).probe;
-fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe}));
+fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1}));
 console.log('DRIVER_READY');
 require('node:readline').createInterface({input:process.stdin}).on('line', line => {
   try {
-    if(line==='screen') {
+    if(line==='enter') {
+      call('keys',probe,'enter'); console.log('TRUST_ANSWERED');
+    } else if(line==='screen') {
       call('wait',probe,'--quiet','0.1');
       const before=call('screen',probe); const state=call('state',probe);
       call('send',probe,'yes'); call('keys',probe,'tab'); call('wait',probe,'--quiet','0.1');
-      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe,before,state,after:call('screen',probe)}));
+      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1,before,state,after:call('screen',probe)}));
       console.log('SCREEN_READY');
+    } else if(line==='install') {
+      fs.copyFileSync(${JSON.stringify(draft)},require('node:path').join(process.cwd(),'agents/copilot.json')); console.log('MANIFEST_INSTALLED');
     } else if(line==='restart') {
       const second=call('start','copilot','--manifest',${JSON.stringify(draft)}).probe;
       let screen;
       const deadline=Date.now()+${deadline(5000)};
-      do { call('wait',second,'--quiet','0.1'); screen=call('screen',second); } while(!screen.lines.join('\\n').includes('Approve fixture?') && Date.now()<deadline);
+      do { call('wait',second,'--quiet','0.1'); screen=call('screen',second); } while(!screen.lines.join('\\n').includes('Trust this folder?') && Date.now()<deadline);
       const launch=JSON.parse(fs.readFileSync(${JSON.stringify(details)},'utf8'));
       const stopped=call('stop',second);
       const previous=JSON.parse(fs.readFileSync(${JSON.stringify(result)},'utf8'));
@@ -3958,6 +3989,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
     fixture: "running-shell",
     shell: "hidden",
     home,
+    probeWaitingMs: deadline(1000),
     env: { HOME: home, PATH: bin },
   });
   const page = await boardPage(app);
@@ -3985,8 +4017,34 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   await expect(page.getByRole("note")).toHaveText(
     "Runs the real CLI on your account. May use credits.",
   );
+  await expect(page.locator(".probe-driver")).toHaveText("Probe · config-driver");
+  const probeTile = page.locator(".terminal-tile").filter({ has: page.locator(".probe-driver") });
+  await expect(probeTile.locator(".tile-attention")).toHaveCount(0);
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.id === configId,
+        )?.state?.reason,
+    )
+    .toBe("Probe waiting");
+  await expect(probeTile.locator(".tile-attention")).toHaveCount(0);
+  assert.notEqual(
+    (await page.evaluate(() => window.desktop.workspace())).terminals.find((row) => row.probe)
+      ?.state?.state,
+    "needs_input",
+  );
   await page.screenshot({ path: "test-results/config-probe.png", animations: "disabled" });
-  await expect(page.locator(".tile-name").filter({ hasText: "Probe" })).toBeVisible();
+  await page.evaluate((id) => window.desktop.input(id, "enter\r"), configId);
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.id === configId,
+        )?.state?.reason ?? "",
+    )
+    .not.toBe("Probe waiting");
+  await expect(page.locator(".tile-name").filter({ hasText: "copilot" })).toBeVisible();
   await expect
     .poll(async () =>
       (await page.evaluate((id) => window.desktop.tail(id, 24), configId)).join("\n"),
@@ -4007,9 +4065,10 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
     .poll(async () => JSON.parse(await readFile(result, "utf8")).after?.lines.join("\n") ?? "")
     .toContain("KEY:TAB");
   const record = JSON.parse(await readFile(result, "utf8"));
+  assert.equal(record.validationPasses, 1);
   assert.equal(record.before.title, "Fixture probe title");
   assert.ok(!record.before.lines.join("\n").includes("SCROLLBACK_SECRET"));
-  assert.equal(record.state.state, "needs_input");
+  assert.equal(record.state.state, "working");
   const launch = JSON.parse(await readFile(details, "utf8"));
   assert.notEqual(launch.cwd, home);
   assert.notEqual(launch.cwd, path.join(home, ".foom/config"));
@@ -4049,7 +4108,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   const second = JSON.parse(await readFile(result, "utf8")).second;
   assert.notEqual(second.probe, record.probe);
   assert.notEqual(second.launch.cwd, launch.cwd);
-  assert.ok(second.screen.lines.join("\n").includes("Approve fixture?"));
+  assert.ok(second.screen.lines.join("\n").includes("Trust this folder?"));
   await expect(page.getByRole("note")).toHaveCount(0);
   await expect
     .poll(async () =>
@@ -4057,5 +4116,29 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
     )
     .toBe(false);
   await assert.rejects(require("node:fs/promises").access(second.launch.cwd), { code: "ENOENT" });
+  await page.evaluate((id) => window.desktop.input(id, "install\r"), configId);
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.scanAgents(true))).agents.find(
+          (agent) => agent.id === "copilot",
+        )?.hooks,
+    )
+    .toBe(true);
+  await page.evaluate(() =>
+    window.desktop.sidebarCommand({ kind: "config-launch", run: "copilot" }),
+  );
+  await expect
+    .poll(async () => {
+      try {
+        return JSON.parse(await readFile(attachment, "utf8"));
+      } catch {
+        return null;
+      }
+    })
+    .toMatchObject({ generatedCommand: true, nestedFile: true });
+  const attached = JSON.parse(await readFile(attachment, "utf8"));
+  assert.ok(path.isAbsolute(attached.directory));
+  assert.notEqual(attached.directory, launch.cwd);
   await assertAccessible(page);
 });

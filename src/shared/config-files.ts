@@ -74,7 +74,11 @@ export function validateConfigJson(
       parsePluginManifest(text);
     } catch (error) {
       if (error instanceof AgentManifestError)
-        throw new ThemeValidationError(error.path, "invalid-value", error.reason);
+        throw new ThemeValidationError(
+          error.path,
+          "invalid-value",
+          [error.reason, error.detail].filter(Boolean).join(": "),
+        );
       throw error;
     }
   } else if (kind === "settings") parseSettingsFile(text);
