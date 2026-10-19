@@ -164,7 +164,7 @@ the existing folder-removal action and is unavailable while a session runs there
 
 The sidebar footer holds a compact −/value/+ zoom stepper, an always-visible
 master volume slider with a speaker mute button, and the **Foom config** gear.
-Zoom uses the same interface scale as Settings and the app menu; clicking its
+Zoom is one app-wide setting shared by every window, Settings and the app menu; clicking its
 value resets to 100%. The speaker shape shows muted (also at zero), low or high
 volume. Moving the slider unmutes; releasing it plays a short sample. The rail
 keeps only the gear. The gear opens a
@@ -759,7 +759,7 @@ Short steps center vertically. Content changes
 re-center over 180 milliseconds (immediately with reduced motion). Back, Continue and
 Launch stay in a footer at the bottom of the window, outside the scrolling content.
 
-The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–300%, so a presenter can zoom Foom alone without changing OS scaling; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. Launch opens the board. The board starts empty. A repository’s **New worktree** action creates a Git worktree for the branch, or focuses the checkout that already has it regardless of which tool created it, and launches nothing; checkout panels launch sessions. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–300%, so a presenter can zoom Foom alone without changing OS scaling; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Interface size applies immediately to all windows, their confirmations and previews. Each window grows and shrinks from its own remembered 100% size; only the window where you changed zoom follows the pointer. Terminal font size is separate and lives in Settings → Terminal. Launch opens the board. The board starts empty. A repository’s **New worktree** action creates a Git worktree for the branch, or focuses the checkout that already has it regardless of which tool created it, and launches nothing; checkout panels launch sessions. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
 
 ## Settings
 
