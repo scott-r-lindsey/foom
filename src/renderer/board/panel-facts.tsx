@@ -95,7 +95,9 @@ function OrchestrationFacts({ view, source }: { view: OrchestrationView; source:
     return (
       <Fact label="Orchestrator">
         {parent ? `${parent.repository} › ${parent.branch}` : "Closed"}{" "}
-        <Sub>{view.takenOver ? "· You took over" : "· Can stop and read this session"}</Sub>
+        <Sub>
+          {view.takenOver ? "· You took over" : "· Can send input, stop and read this session"}
+        </Sub>
       </Fact>
     );
   }

@@ -48,7 +48,8 @@ These render fixtures verify known CLI states without spending provider quota or
 changing user configuration. They do not establish installed-version or platform
 coverage. The Electron stand-in explicitly simulates these states.
 
-Provider rules are human-only and inspect bounded bottom regions. Their priority
+Provider rules classify attention and inspect bounded bottom regions. They do not
+grant input authority; #629 permits the owning orchestrator to answer provider prompts. Their priority
 is 1000: below the working spinner (1050) and Action Required title (1100), above
 plain-title idle classification (100). An active title wins even if the complete
 old provider screen remains visible. Permission hooks and process exit still win.

@@ -35,9 +35,9 @@ export const bundledProviders: readonly AgentProvider[] = [
   bundledProvider(
     codex,
     "codex",
-    "254c14d9219be5bcde6a87481c90e45f15a7de09d77153f47cd887fb670bc73e",
-    // Equivalent legacy profile disclosure; revisions require an explicit consent review.
-    "254c14d9219be5bcde6a87481c90e45f15a7de09d77153f47cd887fb670bc73e",
+    "13f1e43fd5ceba42efbbb6f4e3e1e388e5ec6058caf726c6f5b085c51974a1dd",
+    // Equivalent legacy profile disclosure; #629 changes comments only, not hook policy.
+    "13f1e43fd5ceba42efbbb6f4e3e1e388e5ec6058caf726c6f5b085c51974a1dd",
   ),
   bundledProvider(agy, "agy", "55686741f8b5f2b47df50f2fe429b6c6b01a319f0c46c41f28e35ce2be7094b7"),
 ];
