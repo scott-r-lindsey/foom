@@ -77,6 +77,9 @@ port.on("message", (event: { data: unknown }) => {
           manager.kill(id);
           owned.delete(id);
           break;
+        case "child-input":
+          manager.childInput(id, message.input);
+          break;
         case "write":
           manager.write(id, message.data);
           break;

@@ -1,3 +1,4 @@
+import type { ChildInput } from "../../../../src/shared/child-input";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { beforeEach, expect, it, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
@@ -1159,7 +1160,7 @@ it("binds re-granted authority to the saved identity across asynchronous launch 
   await workspace.dispose();
 });
 
-it("reviews a child's fresh question, tracks input/output revisions and exposes an explicit human reset", async () => {
+it("sends child input through the workspace path and tracks input/output revisions", async () => {
   const workspace = new Workspace(deps);
   await orchestrate(workspace);
   const actor = principal();
@@ -1195,7 +1196,7 @@ it("reviews a child's fresh question, tracks input/output revisions and exposes 
     }),
   );
   tail.mockResolvedValue(["Which file should I change?"]);
-  const reply = vi.fn(async (_id: string, _data: string) => {});
+  const reply = vi.fn(async (_id: string, _data: ChildInput) => {});
   deps.terminals.reply = reply;
   await workspace.quiet("child");
   const { SessionMetadata } = await import("../../../../src/main/control/metadata");
@@ -1208,12 +1209,10 @@ it("reviews a child's fresh question, tracks input/output revisions and exposes 
   expect(question.attentionKind).toBe("question");
   const proposed = (await workspace.orchestration.call(
     actor,
-    "reply",
+    "prompt",
     {
       idempotencyKey: "c",
       id: "child",
-      revision: question.revision,
-      verdictId: question.verdictId,
       text: "src/app.ts",
     },
     operations,
@@ -1223,18 +1222,11 @@ it("reviews a child's fresh question, tracks input/output revisions and exposes 
       "succeeded",
     );
   });
-  expect(reply).toHaveBeenCalledExactlyOnceWith("child", "src/app.ts\r");
+  expect(reply).toHaveBeenCalledExactlyOnceWith("child", { kind: "prompt", text: "src/app.ts" });
   expect(workspace.snapshot().terminals.find((row) => row.id === "child")?.inputRevision).toBe(1);
   workspace.output("child");
   expect(workspace.snapshot().terminals.find((row) => row.id === "child")?.outputRevision).toBe(1);
-  await workspace.sidebarCommand({ kind: "reset-replies", id: "child" }, confirm);
-  await expect(
-    workspace.sidebarCommand({ kind: "reset-replies", id: "parent" }, confirm),
-  ).rejects.toThrow("no orchestrator");
   await workspace.sidebarCommand({ kind: "take-over", id: "child" }, confirm);
-  await expect(
-    workspace.sidebarCommand({ kind: "reset-replies", id: "child" }, confirm),
-  ).rejects.toThrow("no orchestrator");
 });
 
 it("exposes durable history and clearing and refuses authority changes when intent cannot persist", async () => {

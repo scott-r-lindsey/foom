@@ -169,7 +169,8 @@ export async function call(connection: Connection, command: Command): Promise<un
     "stop",
     "close",
     "remove_worktree",
-    "reply",
+    "prompt",
+    "send_keys",
   ].includes(command.method);
   let value: Record<string, unknown>;
   try {

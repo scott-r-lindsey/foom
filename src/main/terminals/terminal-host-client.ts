@@ -1,3 +1,4 @@
+import type { ChildInput } from "../../shared/child-input";
 import type { TerminalThemeChoice } from "../../shared/terminal-theme";
 import { parseTerminalThemeChoice, resolveTerminalTheme } from "../../shared/terminal-themes";
 import { randomUUID } from "node:crypto";
@@ -261,8 +262,8 @@ export class TerminalHostClient {
   write(id: string, data: string): void {
     this.notify({ type: "write", id, data });
   }
-  async reply(id: string, data: string): Promise<void> {
-    await this.request({ type: "write", id, data });
+  async reply(id: string, input: ChildInput): Promise<void> {
+    await this.request({ type: "child-input", id, input });
   }
   resize(id: string, cols: number, rows: number): void {
     this.notify({ type: "resize", id, cols, rows });

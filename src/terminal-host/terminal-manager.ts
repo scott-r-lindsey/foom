@@ -1,3 +1,4 @@
+import { childInputBytes, type ChildInput } from "../shared/child-input";
 import { ForegroundProgram } from "./foreground-program";
 import { cleanTitle, parseProgress } from "../shared/agent-evidence";
 import type { AgentEvidence } from "../shared/agent-detection";
@@ -234,6 +235,13 @@ export class TerminalManager {
     session.paused = blocked;
     if (blocked) session.pty.pause();
     else session.pty.resume();
+  }
+
+  childInput(id: string, input: ChildInput): void {
+    const session = this.get(id);
+    const data = childInputBytes(input, session.screen.modes.bracketedPasteMode);
+    if (!this.nativeAvailable(session)) throw new Error("Terminal unavailable");
+    this.write(id, data);
   }
 
   write(id: string, data: string): void {

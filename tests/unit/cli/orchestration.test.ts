@@ -75,20 +75,21 @@ it.each([
   expect(() => command(args)).toThrow("invalid_request");
 });
 
-it("parses reviewed replies and rejects control characters, slash commands and missing revision", () => {
-  const args = ["reply", "child", "--revision", "rev", "--verdict-id", "verdict", ...key, "--text"];
-  expect(command([...args, "answer"])).toEqual({
-    method: "reply",
-    params: {
-      id: "child",
-      revision: "rev",
-      verdictId: "verdict",
-      idempotencyKey: "retry-1",
-      text: "answer",
-    },
+it("parses prompts and keys with bounded validated input", () => {
+  expect(command(["prompt", "child", ...key, "--text", "line\nline"])).toEqual({
+    method: "prompt",
+    params: { id: "child", idempotencyKey: "retry-1", text: "line\nline" },
   });
-  for (const text of ["line\nline", "/approve", "yes\r", "\u2028", "é".repeat(2049)])
-    expect(() => command([...args, text])).toThrow("invalid_request");
+  expect(command(["send-keys", "child", ...key, "--keys", "down,y,enter"])).toEqual({
+    method: "send_keys",
+    params: { id: "child", idempotencyKey: "retry-1", keys: ["down", "y", "enter"] },
+  });
+  for (const text of ["", "yes\r", "\u2028", "é".repeat(8193)])
+    expect(() => command(["prompt", "child", ...key, "--text", text])).toThrow("invalid_request");
+  for (const keys of ["", "enter,bad", "Y", "enter,", Array(65).fill("y").join(",")])
+    expect(() => command(["send-keys", "child", ...key, "--keys", keys])).toThrow(
+      "invalid_request",
+    );
   expect(() => command(["reply", "child", ...key, "--text", "answer"])).toThrow("invalid_request");
 });
 

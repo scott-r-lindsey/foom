@@ -604,11 +604,6 @@ export function Sidebar({
           ...(row.orchestration?.role === "child" && !row.orchestration.takenOver
             ? [
                 {
-                  label: "Reset reviewed replies",
-                  glyph: "resume" as const,
-                  run: () => command({ kind: "reset-replies", id: row.id }),
-                },
-                {
                   label: "Take over",
                   glyph: "resume" as const,
                   run: () => command({ kind: "take-over", id: row.id }),

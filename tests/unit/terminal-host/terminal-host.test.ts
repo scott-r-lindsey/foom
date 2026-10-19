@@ -11,6 +11,7 @@ const mock = vi.hoisted(() => {
     stop: vi.fn(),
     kill: vi.fn(),
     write: vi.fn(),
+    childInput: vi.fn(),
     resize: vi.fn(),
     setTheme: vi.fn(),
     acknowledge: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("../../../src/terminal-host/terminal-manager", () => ({
     stop = mock.stop;
     kill = mock.kill;
     write = mock.write;
+    childInput = mock.childInput;
     resize = mock.resize;
     setTheme = mock.setTheme;
     acknowledge = mock.acknowledge;
@@ -196,4 +198,19 @@ test("forwards parsed title and progress evidence with the terminal ID", () => {
   const evidence = { title: "codex", progress: null };
   mock.events.onEvidence?.("t", evidence);
   expect(port.postMessage).toHaveBeenCalledWith({ type: "evidence", id: "t", evidence });
+});
+
+test("dispatches only valid logical child input to owned terminals", async () => {
+  await message({ type: "create", id: "child", request: 1, spec });
+  const input = { kind: "keys", keys: ["y", "enter"] };
+  await message({ type: "child-input", id: "child", request: 2, input });
+  expect(mock.childInput).toHaveBeenCalledExactlyOnceWith("child", input);
+  await message({
+    type: "child-input",
+    id: "child",
+    request: 3,
+    input: { kind: "keys", keys: ["y", "bad"] },
+  });
+  await message({ type: "child-input", id: "unknown", request: 4, input });
+  expect(mock.childInput).toHaveBeenCalledTimes(1);
 });

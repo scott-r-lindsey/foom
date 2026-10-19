@@ -316,7 +316,14 @@ function auditEntry(value: unknown): ActionLogEntry {
   };
   const timestamp = text(data["timestamp"]);
   if (!Number.isFinite(Date.parse(timestamp))) throw new ControlError("unavailable");
+  const inputHash = data["inputHash"];
+  if (
+    inputHash !== undefined &&
+    (typeof inputHash !== "string" || !/^[a-f0-9]{64}$/u.test(inputHash))
+  )
+    throw new ControlError("unavailable");
   return {
+    ...(typeof inputHash === "string" ? { inputHash } : {}),
     operationId: identity(data["operationId"]),
     timestamp,
     actorId: identity(actor["terminalId"] ?? data["actorId"], "unknown"),

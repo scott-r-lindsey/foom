@@ -1,3 +1,4 @@
+import { isChildInput } from "../shared/child-input";
 import { readHandoffRequest } from "../node-common/handoff";
 import { validAgentId } from "../shared/providers/catalog";
 import { ControlError, identifier, object } from "../node-common/control-validation";
@@ -112,7 +113,15 @@ function orchestration(name: string | undefined, words: string[]): Command {
     return value;
   };
   if (
-    ["create-worktree", "launch", "stop", "close", "remove-worktree", "reply"].includes(name ?? "")
+    [
+      "create-worktree",
+      "launch",
+      "stop",
+      "close",
+      "remove-worktree",
+      "prompt",
+      "send-keys",
+    ].includes(name ?? "")
   )
     params["idempotencyKey"] = identifier(take("--idempotency-key"));
   switch (name) {
@@ -137,14 +146,18 @@ function orchestration(name: string | undefined, words: string[]): Command {
       if (prompt !== undefined) params["prompt"] = text(prompt, 16384);
       break;
     }
-    case "reply": {
+    case "prompt": {
       params["id"] = identifier(positional[0]);
-      params["revision"] = identifier(take("--revision"));
-      params["verdictId"] = identifier(take("--verdict-id"));
-      const reply = text(take("--text"), 4096);
-      if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(reply) || reply.trimStart().startsWith("/"))
-        throw new ControlError("invalid_request");
-      params["text"] = reply;
+      const input = { kind: "prompt", text: take("--text") };
+      if (!isChildInput(input)) throw new ControlError("invalid_request");
+      params["text"] = input.text;
+      break;
+    }
+    case "send-keys": {
+      params["id"] = identifier(positional[0]);
+      const input = { kind: "keys", keys: take("--keys")?.split(",") };
+      if (!isChildInput(input)) throw new ControlError("invalid_request");
+      params["keys"] = input.keys;
       break;
     }
     case "close":

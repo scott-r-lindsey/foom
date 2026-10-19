@@ -71,7 +71,7 @@ execution/health integration. The v2 fixture is `tests/fixtures/agent-plugin.jso
 | Children use no user defaults; fixed provenance prefix; Claude/Codex -- prompt last, agy interactive prompt; CLI guidance covers later human role change | Prompt policy, guidance fact | Validate <=16 KiB prompt; role grants, child limits, fresh credentials and PATH stay in main |
 | Claude MCP merges variadic/comma-separated allowedTools/allowed-tools including equals forms, preserving separators inside parentheses; every tool on Foom’s own per-launch server pre-approved | `toolPermissions` merge grammar and names | Deduplicate without widening roles; deny/managed policy still wins; no grants without MCP |
 | Restore orchestrator currently verified only for Claude/Codex; agy false | `conversation.restoreControl` | Human-origin persisted role + repo identity checks; ordinary resume separate; manifest fact never grants a role |
-| Rules, provider stalls, readiness/completion distinction | `attention.rules`, `execution` | Exit/hook/blocker precedence, local classification, no automatic reply; provider attention remains human-only |
+| Rules, provider stalls, readiness/completion distinction | `attention.rules`, `execution` | Exit/hook/blocker precedence, local classification, classification never writes input; a granted owning orchestrator may answer provider prompts (#629) |
 
 ## Evidence baseline
 
@@ -321,7 +321,8 @@ neutral. Process exit wins; failed Stop stays failure; explicit permission survi
 until progress or the existing reply+fresh-title+cleared-screen test. agy fully idle
 Stop can recover an overtaken working report. Generic state/turn reconciliation
 keeps the existing behavior; no rule receives terminal input capability.
-`providerRules` mark human-only provider_unavailable provenance, never safe replies.
+`providerRules` mark provider_unavailable provenance. They classify attention without
+authorizing input; the granted owning orchestrator may answer provider prompts (#629).
 
 Health tracks observed event case IDs. Only startup + prompt + completion in a
 valid execution turn establishes trusted-observed health. Startup on the health channel is consumed as metadata without changing execution readiness (current Codex behavior); ready on an ordinary channel sets idle. Review examines the raw last 20 physical lines case-sensitively in the Codex draft, separate from attention rules so it cannot mask a working title. Persist a definition
@@ -1013,7 +1014,7 @@ launch surfaces and conservative environment disclosure. Open questions follow.
         "lines": 6,
         "match": {"contains": ["Selected model is at capacity"]},
         "reason": "Provider unavailable",
-        "comment": "Working and Action Required titles win over stale provider screens. Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
+        "comment": "Working and Action Required titles win over stale provider screens. Provider attention is classification evidence; input authority follows orchestrator ownership (#629). Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
       },
       {
         "id": "provider_rate_limit",
@@ -1023,7 +1024,7 @@ launch surfaces and conservative environment disclosure. Open questions follow.
         "lines": 1,
         "match": {"regex": ["^■ rate limit exceeded:"]},
         "reason": "Provider rate limit",
-        "comment": "Working and Action Required titles win over stale provider screens. Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
+        "comment": "Working and Action Required titles win over stale provider screens. Provider attention is classification evidence; input authority follows orchestrator ownership (#629). Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
       },
       {
         "id": "provider_model_switch",
@@ -1033,7 +1034,7 @@ launch surfaces and conservative environment disclosure. Open questions follow.
         "lines": 12,
         "match": {"contains": ["Approaching rate limits", "Switch to ", "Keep current model", "enter select · esc back"]},
         "reason": "Model switch requested",
-        "comment": "Working and Action Required titles win over stale provider screens. Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
+        "comment": "Working and Action Required titles win over stale provider screens. Provider attention is classification evidence; input authority follows orchestrator ownership (#629). Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
       },
       {
         "id": "provider_usage_limit",
@@ -1045,7 +1046,7 @@ launch surfaces and conservative environment disclosure. Open questions follow.
           "contains": ["Usage limit reached", "Request a limit increase from your owner", "enter select · esc back"]
         },
         "reason": "Provider usage limit",
-        "comment": "Working and Action Required titles win over stale provider screens. Provider attention is human-only. Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
+        "comment": "Working and Action Required titles win over stale provider screens. Provider attention is classification evidence; input authority follows orchestrator ownership (#629). Recorded evidence and limitations: tests/fixtures/agent-detection/README.md."
       },
       {
         "id": "osc_title_blocked",

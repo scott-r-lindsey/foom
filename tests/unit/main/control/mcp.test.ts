@@ -95,7 +95,8 @@ it("authenticates initialization, listing, calls, reconnects and deletion", asyn
   for (const name of [
     "tail",
     "launch",
-    "reply",
+    "prompt",
+    "send_keys",
     "stop",
     "close",
     "create_worktree",

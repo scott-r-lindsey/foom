@@ -100,7 +100,7 @@ test("brokers capabilities, snapshots, tails and exits over a validated transpor
     operation();
     child.reply();
   }
-  const reviewed = client.reply(id, "answer\r");
+  const reviewed = client.reply(id, { kind: "prompt", text: "answer" });
   child.reply();
   await reviewed;
   const tail = client.tail(id, 2);

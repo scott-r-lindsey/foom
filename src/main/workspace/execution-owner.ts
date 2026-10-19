@@ -49,7 +49,6 @@ export interface ExecutionOwnerDependencies {
   refresh: () => void;
   recheck: (id: string) => void;
   exited: (id: string) => void;
-  invalidateReply: (id: string) => void;
   publishChildEvents: () => void;
   waitingOn: (id: string) => number;
   unreadAt: (id: string) => number | undefined;
@@ -208,7 +207,6 @@ export class ExecutionOwner {
             : (phase === "idle" || phase === "starting") && state.state === "working"
               ? "quiet_ok"
               : state.state;
-    this.deps.invalidateReply(id);
     terminal.state = {
       id,
       ...state,
@@ -404,7 +402,6 @@ export class ExecutionOwner {
   output(id: string): void {
     const terminal = this.track(id);
     terminal.outputVersion += 1;
-    this.deps.invalidateReply(id);
     if (
       terminal.execution !== undefined ||
       this.deps.terminal(id)?.kind === "agent" ||
@@ -576,7 +573,6 @@ export class ExecutionOwner {
     const terminal = this.terminals.get(id);
     if (!terminal) return;
     terminal.inputVersion = (terminal.inputVersion ?? 0) + 1;
-    this.deps.invalidateReply(id);
     if (terminal.hook?.action === "needs_input") {
       terminal.permissionReply = true;
     }
@@ -601,7 +597,6 @@ export class ExecutionOwner {
   async feedback(id: string, verdictId: string | null, action: VerdictAction): Promise<void> {
     const terminal = this.terminals.get(id);
     if (!terminal) throw new Error("Unknown terminal");
-    this.deps.invalidateReply(id);
     const current = () => terminal.state !== null && terminal.state.verdictId === verdictId;
     if (verdictId !== null) {
       const previousAction = terminal.actionVerdict;

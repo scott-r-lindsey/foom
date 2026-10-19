@@ -1,3 +1,4 @@
+import { isChildInput } from "./child-input";
 import { foregroundName } from "./foreground-name";
 import { isAgentEvidence } from "./agent-evidence";
 import { isTerminalTheme } from "./terminal-themes.js";
@@ -58,6 +59,8 @@ export function hostRequest(value: unknown): value is HostRequest {
     case "stop":
     case "kill":
       return true;
+    case "child-input":
+      return isChildInput(value["input"]);
     case "write":
       return typeof value["data"] === "string" && value["data"].length <= 65536;
     case "resize":

@@ -825,7 +825,7 @@ list; a test requires every registered tool to be classified and included.
 User default allow rules are merged and deduplicated, including the `--allowed-tools`
 alias, equals forms and variadic/comma-separated lists. Managed policy and deny
 rules still win. Orchestration tools remain refused server-side until the human
-grants the role. `remove_worktree` and `reply` still need human confirmation in
+grants the role. `remove_worktree` still needs human confirmation in
 Foom (apart from the existing opt-in merged-clean removal policy). No other MCP
 server or non-Foom tool is granted; no global config is edited. Launches
 without MCP retain their default arguments unchanged. See the
@@ -892,8 +892,8 @@ existing effects (worktree creation, agent launch, stop, close, host tail, remov
 the service delegates `create_worktree`, `launch`, `stop`, `close`, `remove_worktree`,
 `tail` and `wait_for` to it through an asynchronous `call`. MCP lists these tools
 and `operation_status` to every agent but runs them only for an orchestrator
-principal. `reply` (#156) creates a single-use proposal for human review; it never
-exposes general terminal input or unattended delivery. See [the implementation record](orchestration.md#orchestrators-and-children-155).
+principal. `prompt` and `send_keys` (#629) deliver bounded input to owned children
+without per-message human review, replacing the reviewed `reply` flow (#156). See [the implementation record](orchestration.md#orchestrators-and-children-155).
 
 A running agent session's menu offers **Make orchestrator…**, and **Revoke
 orchestrator** on the active one (#303). There is no orchestrator launch. Main checks
@@ -976,8 +976,8 @@ checks the live parent and child ownership before and after asynchronous audit w
 the service also rechecks the exact launch principal. Shared Node validators serve
 MCP/main and the console's bounded file/stdin reader. `read_handoff` uses existing
 owned-child checks; report sequence/status participate in session revisions and
-`wait_for`. The initial full cursor used for reviewed replies includes this metadata;
-its terminal-only freshness gate remains unchanged.
+`wait_for`. Child input (#629) does not require a question revision or freshness
+gate; authorization comes from the live role and exact child ownership.
 
 Reports persist with the child session record (twenty maximum; aggregate session
 storage capped at 32 MiB). The renderer receives the latest report as inert text,
@@ -1000,7 +1000,7 @@ execution or activity subscriptions.
 
 The app menu's Action log opens a searchable, paginated view of actor/parent,
 repository/worktree, operation and target/result IDs, action, outcome, fixed reason,
-and redacted reply proposals. Reads and clears are board-only validated IPC routes;
+and hashed child input. Reads and clears are board-only validated IPC routes;
 components use the source interface. The log refreshes on main's audit notifications.
 Only allowlisted redacted metadata crosses IPC. Initial prompts, raw request payloads,
 terminal tails, credentials and deduplication fingerprints never enter the audit UI.
@@ -1031,7 +1031,7 @@ fresh read-only tokens. Exit, failed launch and shutdown revoke grants.
 
 Ordinary agents can use `sessions`, `session_state` and `whoami` for their
 repository, without terminal contents. Only a main-granted orchestrator principal
-can use `create_worktree`, `launch`, `tail`, `reply`, `stop`, `remove_worktree`,
+can use `create_worktree`, `launch`, `tail`, `prompt`, `send_keys`, `stop`, `remove_worktree`,
 `wait_for` and `operation_status`; listing a tool grants nothing.
 Enforce authorization in the service for every call. Making a session the
 orchestrator reserves one slot per repository atomically; reserve child slots up to the current General setting
@@ -1077,19 +1077,28 @@ No files, diffs, transcripts, keystrokes or raw hook payloads are read for the A
 Printed content may include them; the product privacy wording describes the new
 path to the orchestrator's model provider and redaction's limits.
 
-The reply gate adds question/permission/credential/unknown attention provenance;
-`needs_input` or confidence alone is insufficient. Current PTY adapters only permit
-human-reviewed proposals for question verdicts. Permission, credential and unknown
-states reject proposals. Automatic delivery remains disabled until an adapter can
-prove question-specific routing; no combination of absent hooks, text patterns and
-a main-process write lock proves that a PTY is not displaying a new approval prompt.
-Proposals bind to the live principal, actor generation, child, verdict and output/input revisions;
-output, input, permission signals, exit and takeover invalidate them. Delivery is
-single-use, bounded and rate-limited, never automatically retried after ambiguity.
-The human can suspend replies immediately. Agent approval policies stay intact.
+Child input (#629) is authorized by the current orchestrator role, live principal
+and generation, repository and exact child ownership. Unknown, foreign and taken-over
+IDs return the same not_found result. Recheck authority after durable intent and
+immediately before delivery. Exited or starting processes return conflict; idle,
+done, working and attention states all permit input, including permission,
+credential and provider prompts. No question-specific atomic routing guarantee is
+required: the orchestrator is authorized to answer those prompts.
+
+`prompt` accepts up to 16 KiB UTF-8 text, rejecting control characters except newline
+and tab; `send_keys` validates all 1–64 logical keys against a fixed allowlist before
+any bytes are written. Main uses the existing workspace input/reply path, carrying
+a typed logical payload through terminal IPC and the host client. Both main and
+the utility host validate IDs and payloads. The host uses its headless xterm's
+bracketed-paste mode to wrap prompt text and appends one submit, or encodes the
+validated keys in order, then uses the existing terminal write path. No renderer
+attachment is required. Persist only hashed input in the orchestration audit;
+never text or keys. Ambiguous delivery is indeterminate, never automatically retried.
+Takeover, revocation and parent exit end access. Agent launch policies and worktree
+removal confirmation are unchanged.
 
 A separate bounded private action log records actor, target, operation and outcome,
-with redacted reply proposals but no tails, credentials or initial prompts. Persist
+with hashes of child input but no input text, tails, credentials or initial prompts. Persist
 intent before automated mutations; audit failure refuses automation while human
 terminal control remains available. Ship basic action visibility and takeover with
 mutations, then nest children under their orchestrator in the board source and add
@@ -1554,9 +1563,9 @@ Only fixed-width atoms, classes, anchors and approved escapes are accepted. A fi
 millisecond evaluation budget supplements those bounds; it is not presented as a
 way to interrupt a running JavaScript regex. No matcher can type into a terminal.
 
-Codex provider capacity/rate-limit/model-switch rules produce human-only `provider`
+Codex provider capacity/rate-limit/model-switch rules produce `provider`
 attention and fixed `provider_unavailable` control metadata; see
-[the adapter limits](orchestration.md#provider-stalls-339). They cannot authorize replies. Codex provider history rules sit below working and
+[the adapter limits](orchestration.md#provider-stalls-339). They classify attention; child input authority comes from the orchestrator grant and ownership. Codex provider history rules sit below working and
 Action Required titles, so a resumed turn wins over a still-visible provider line.
 Working and blocked rules produce fixed reasons and `rules:<agent>:<rule-id>` signals.
 Idle evidence has low confidence and continues through generic rules,

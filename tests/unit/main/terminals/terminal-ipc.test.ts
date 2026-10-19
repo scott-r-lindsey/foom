@@ -1,3 +1,4 @@
+import type { ChildInput } from "../../../../src/shared/child-input";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { Terminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -46,8 +47,8 @@ vi.mock("../../../../src/main/terminals/terminal-host-client", async () => {
       write(id: string, data: string) {
         this.manager.write(id, data);
       }
-      async reply(id: string, data: string) {
-        this.manager.write(id, data);
+      async reply(id: string, data: ChildInput) {
+        this.manager.childInput(id, data);
         await Promise.resolve();
       }
       resize(id: string, cols: number, rows: number) {
@@ -1312,9 +1313,30 @@ test("ConPTY ignores queued native operations after kill while preserving final 
   }
 });
 
-test("the main-only reviewed reply capability checks terminal ownership and writes one submitted line", async () => {
+test("the main-only child input capability checks terminal ownership and submits text", async () => {
   const id = await create();
-  await expect(terminalControl.reply("unknown", "answer\r")).rejects.toThrow("Unknown terminal");
-  await terminalControl.reply(id, "answer\r");
+  await expect(
+    terminalControl.reply("unknown", { kind: "prompt", text: "answer" }),
+  ).rejects.toThrow("Unknown terminal");
+  await terminalControl.reply(id, { kind: "prompt", text: "answer" });
   expect(ptys[0]?.write).toHaveBeenCalledWith("answer\r");
+});
+
+test("child input uses host paste mode, validates before writing, and refuses exited terminals", async () => {
+  const id = manager.create(spec);
+  output("\x1b[?2004h");
+  await manager.tail(id, 1);
+  manager.childInput(id, { kind: "prompt", text: "line\nline" });
+  expect(pty().write).toHaveBeenLastCalledWith("\x1b[200~line\rline\x1b[201~\r");
+  manager.childInput(id, { kind: "keys", keys: ["y", "enter"] });
+  expect(pty().write).toHaveBeenLastCalledWith("y\r");
+  const count = pty().write.mock.calls.length;
+  expect(() => {
+    manager.childInput(id, { kind: "prompt", text: "\x1b" });
+  }).toThrow("Invalid child input");
+  expect(pty().write).toHaveBeenCalledTimes(count);
+  pty().emitExit();
+  expect(() => {
+    manager.childInput(id, { kind: "keys", keys: ["enter"] });
+  }).toThrow("Terminal unavailable");
 });

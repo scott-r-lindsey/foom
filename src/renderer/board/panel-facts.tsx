@@ -75,6 +75,8 @@ const actionNames: Record<OrchestrationEntry["action"], string> = {
   remove_worktree: "Remove worktree",
   take_over: "You took over",
   reply: "Reviewed reply",
+  prompt: "Prompt",
+  send_keys: "Send keys",
 };
 const statusNames: Record<OrchestrationEntry["status"], string> = {
   pending_confirmation: "awaiting your confirmation",

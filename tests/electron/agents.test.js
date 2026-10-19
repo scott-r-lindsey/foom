@@ -197,7 +197,8 @@ test("launches an agent in a managed worktree and routes its attention signals",
       "remove_worktree",
       "tail",
       "wait_for",
-      "reply",
+      "prompt",
+      "send_keys",
       "operation_status",
     ],
   );
@@ -1685,6 +1686,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       HOME: home,
       PATH: bin,
       TEST_FAKE_CREDENTIALS: credentials,
+      TEST_CHILD_INPUT: phase === "children" ? "1" : "0",
     },
   });
   const page = await boardPage(app);
@@ -1745,6 +1747,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         ["revision", "--revision"],
         ["verdictId", "--verdict-id"],
         ["text", "--text"],
+        ["keys", "--keys"],
       ])
         if (params[key] !== undefined) args.push(flag, String(params[key]));
       if (params.after) args.push("--after", JSON.stringify(params.after));
@@ -2243,45 +2246,47 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       assert.equal(await connection(childId), "connecting");
       await connect(child);
       await expect.poll(() => connection(childId)).toBe("connected");
-      // Question replies require review over the real MCP/CLI and PTY boundaries.
+      // An idle fixture accepts a follow-up, then permission keys, without a review window.
+      await expect
+        .poll(
+          async () =>
+            (await call(parent.controlToken, "session_state", { id: childId })).body.result.state,
+        )
+        .toBe("quiet_ok");
+      const followup = { id: childId, idempotencyKey: "prompt-1", text: "src/app.ts" };
+      const sent = await call(parent.controlToken, "prompt", followup);
+      assert.equal(sent.body.result.status, "succeeded");
+      await expect.poll(() => existsSync(`${credentials}.reply-child-one`)).toBe(true);
+      assert.equal(
+        await readFile(`${credentials}.reply-child-one`, "utf8"),
+        "\x1b[200~src/app.ts\x1b[201~\r",
+      );
+      assert.equal(
+        (await call(parent.controlToken, "prompt", followup)).body.result.status,
+        "succeeded",
+      );
       await expect
         .poll(
           async () =>
             (await call(parent.controlToken, "session_state", { id: childId })).body.result
               .attentionKind,
         )
-        .toBe("question");
-      const question = (await call(parent.controlToken, "session_state", { id: childId })).body
-        .result;
-      const proposal = {
+        .toBe("permission");
+      const keys = await call(parent.controlToken, "send_keys", {
         id: childId,
-        revision: question.revision,
-        verdictId: question.verdictId,
-        idempotencyKey: "reply-1",
-        text: "src/app.ts",
-      };
-      const proposed = await call(parent.controlToken, "reply", proposal);
-      assert.equal(proposed.body.result.status, "pending_confirmation");
-      const replyReview = await confirmationPage(app);
-      await expect(replyReview.getByRole("heading", { name: "Reply to child-one?" })).toBeVisible();
-      await expect(replyReview.getByLabel("Current child context")).toContainText(
-        "Which file should I change?",
-      );
-      await expect(replyReview.getByLabel("Exact proposed reply")).toHaveText("src/app.ts");
-      assert.equal(existsSync(`${credentials}.reply-child-one`), false);
-      await replyReview.getByRole("button", { name: "Send reply" }).click();
-      await expect.poll(() => existsSync(`${credentials}.reply-child-one`)).toBe(true);
-      assert.equal(await readFile(`${credentials}.reply-child-one`, "utf8"), "src/app.ts\r");
-      await expect
-        .poll(
-          async () =>
-            (await call(parent.controlToken, "operation_status", { idempotencyKey: "reply-1" }))
-              .body.result.status,
-        )
-        .toBe("succeeded");
+        idempotencyKey: "keys-1",
+        keys: ["y", "enter"],
+      });
+      assert.equal(keys.body.result.status, "succeeded");
+      await expect.poll(() => existsSync(`${credentials}.reply-child-one-2`)).toBe(true);
+      assert.equal(await readFile(`${credentials}.reply-child-one-2`, "utf8"), "y\r");
       assert.equal(
-        (await call(parent.controlToken, "reply", proposal)).body.result.status,
-        "succeeded",
+        await app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows().some(
+            (window) => window.isVisible() && window.webContents.getURL().includes("confirmation"),
+          ),
+        ),
+        false,
       );
       // No grandchildren: a child's credential cannot reach orchestration.
       assert.equal(
@@ -2739,15 +2744,12 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
                 ).body.result.sessions[0];
           assert.equal(observed.reason, "provider_unavailable");
           assert.equal(observed.attentionKind, "provider");
-          const rejected = await call(parent.controlToken, "reply", {
+          const answered = await call(parent.controlToken, "send_keys", {
             id: liveId,
-            revision: stalled.revision,
-            verdictId: stalled.verdictId,
-            idempotencyKey: `provider-reply-${key.codePointAt(0)}`,
-            text: "Switch model",
+            keys: ["esc"],
+            idempotencyKey: `provider-keys-${key.codePointAt(0)}`,
           });
-          assert.equal(rejected.status, 400);
-          assert.equal(rejected.body.error, "conflict");
+          assert.equal(answered.body.result.status, "succeeded");
           await expect(
             page.getByRole("treeitem", { name: new RegExp(`Needs you.*${label}`) }),
           ).toBeVisible();

@@ -315,7 +315,6 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
     { kind: "new-conversation", id: "t1" },
     { kind: "copy-session-id", id: "restored" },
     { kind: "take-over", id: "t1" },
-    { kind: "reset-replies", id: "t1" },
     { kind: "make-orchestrator", id: "t1" },
     { kind: "revoke-orchestrator", id: "t1" },
   ]) {

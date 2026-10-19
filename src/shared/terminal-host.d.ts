@@ -1,3 +1,4 @@
+import type { ChildInput } from "./child-input";
 import type { AgentEvidence } from "./agent-detection";
 import type { TerminalTheme } from "./terminal-theme";
 import type { TerminalActivity, TerminalSpec, ShellState } from "./desktop";
@@ -10,6 +11,7 @@ export type HostRequest = RequestBase &
     | { type: "attach"; view: string }
     | { type: "detach" | "kill" | "stop" | "shutdown" }
     | { type: "write"; data: string }
+    | { type: "child-input"; input: ChildInput }
     | { type: "resize"; cols: number; rows: number }
     | { type: "acknowledge"; token: string; count: number }
     | { type: "tail"; lines: number }

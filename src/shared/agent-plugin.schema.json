@@ -504,7 +504,8 @@
               "read_handoff",
               "create_worktree",
               "launch",
-              "reply",
+              "prompt",
+              "send_keys",
               "stop",
               "close",
               "remove_worktree",
@@ -513,7 +514,7 @@
               "operation_status"
             ]
           },
-          "maxItems": 17,
+          "maxItems": 18,
           "minItems": 0
         },
         "format": {

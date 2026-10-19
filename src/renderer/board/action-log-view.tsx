@@ -122,6 +122,8 @@ export function ActionLog({
               "close",
               "remove_worktree",
               "reply",
+              "prompt",
+              "send_keys",
               "handoff",
               "take_over",
               "make_orchestrator",
@@ -206,7 +208,7 @@ export function ActionLog({
                 "Action",
                 "Target / result",
                 "Outcome",
-                "Redacted reply proposal",
+                "Input hash / historical reply",
               ].map((label) => (
                 <th key={label} scope="col">
                   {label}
@@ -253,7 +255,7 @@ export function ActionLog({
                 <td>
                   {entry.status.replaceAll("_", " ")} · {entry.reason}
                 </td>
-                <td>{entry.proposal ?? "—"}</td>
+                <td>{entry.inputHash ?? entry.proposal ?? "—"}</td>
               </tr>
             ))}
           </tbody>

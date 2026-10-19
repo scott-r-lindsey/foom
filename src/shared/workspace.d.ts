@@ -84,6 +84,8 @@ export interface OrchestrationEntry {
     | "stop"
     | "close"
     | "remove_worktree"
+    | "prompt"
+    | "send_keys"
     | "reply"
     | "take_over";
   label: string;
@@ -211,7 +213,6 @@ export type SidebarCommand =
   | { kind: "copy-session-id"; id: string }
   | { kind: "make-orchestrator"; id: string }
   | { kind: "revoke-orchestrator"; id: string }
-  | { kind: "reset-replies"; id: string }
   | { kind: "take-over"; id: string };
 
 /** Main-owned display facts. An opaque ID grants no filesystem capability. */

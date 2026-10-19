@@ -1,3 +1,4 @@
+import { isChildInput, type ChildInput } from "../../shared/child-input";
 import type { AgentEvidence } from "../../shared/agent-detection";
 import { app, ipcMain } from "electron";
 import type { BrowserWindow, WebContents, IpcMainEvent, IpcMainInvokeEvent, Event } from "electron";
@@ -26,7 +27,7 @@ export interface TerminalControl
   kill(id: string): Promise<void>;
   tail(id: string, lines: number): Promise<string[]>;
   owns(id: string): boolean;
-  reply(id: string, data: string): Promise<void>;
+  reply(id: string, data: ChildInput): Promise<void>;
 }
 
 /** The app window owns capabilities for multiple independent main-owned sessions. */
@@ -325,8 +326,9 @@ export function attachTerminal(
     },
     stop: (id: string) => manager.stop(id),
     tail: (id: string, lines: number) => manager.tail(id, lines),
-    reply: async (id: string, data: string) => {
+    reply: async (id: string, data: ChildInput) => {
       if (!owned.has(id)) throw new Error("Unknown terminal");
+      if (!isChildInput(data)) throw new Error("Invalid child input");
       await manager.reply(id, data);
     },
     owns: (id: string) => owned.has(id),

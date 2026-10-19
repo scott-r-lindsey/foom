@@ -109,7 +109,7 @@ No other MCP server or non-Foom tool is added; no global config is edited.
 
 Managed policy and deny rules still win. The grant only removes Claude's per-call
 prompt: orchestration tools are refused server-side until the human grants the
-role. `remove_worktree` and `reply` still need human confirmation in Foom, subject
+role. `remove_worktree` still needs human confirmation in Foom, subject
 to the existing explicit opt-in merged-clean removal policy. Child handoffs retain
 their live-parent checks. See the [launch disclosure](orchestration.md#claude-code).
 Codex needs no corresponding grant. Codex 0.162.1 has only `on-request` and `never`;

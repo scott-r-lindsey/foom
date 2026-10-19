@@ -599,12 +599,12 @@ on Foom’s own random per-launch server, merging your default allow rules. This
 covers previews, session metadata, child handoffs and orchestration; other MCP
 servers and non-Foom tools receive no added grant. Managed policy and deny rules
 still win. Orchestration calls are refused server-side until you grant the role.
-`remove_worktree` and `reply` still need human confirmation in Foom; the existing
+`remove_worktree` still needs human confirmation in Foom; the existing
 explicit Auto-remove merged worktrees setting remains the removal exception.
 The grant applies only to that launch and never edits global agent configuration.
 
 The packaged `foom` console can inspect session metadata and, for sessions you
-made orchestrator, create worktrees, launch and stop children, request worktree
+made orchestrator, create worktrees, launch, prompt, send keys to and stop children, request worktree
 removal, and read bounded tails or handoffs, or wait for child state. Every agent and child gets
 the CLI on its process-local PATH, including when MCP is unavailable. Antigravity
 orchestrates through the CLI alone. Agents launched by Foom
@@ -688,10 +688,16 @@ Polling pauses during sleep and screen lock, rechecks on agent idle/exit, and st
 on shutdown.
 See [the data, persistence and polling contract](orchestration.md#child-pr-and-required-checks-340).
 
-Permission and credential prompts always stay with you. With the current agent
-interfaces, proposed answers to prose questions also require review in Foom;
-unattended replies need a verified question-specific routing mechanism first.
-Take over cancels pending replies. Worktree removal asks you and rechecks its
+A granted orchestrator can send text plus submit (`prompt`) and validated logical
+keys (`send_keys`) to its own children without per-message human approval, including
+permission, credential and provider prompts. Input is available while idle, done
+(after a handoff) or working; an exited process cannot receive it. Only its own
+non-taken-over children in its repository are eligible. Take over, revocation and
+parent exit end this access. Text is bounded to 16 KiB UTF-8 and keys to 64 per
+send; every key is validated before any bytes are written. Prompt submission
+honors the child's bracketed paste mode. The previous reviewed `reply` flow is
+replaced. These capabilities do not isolate processes running as the same OS user.
+Worktree removal asks you and rechecks its
 identity and changed files. Several pending removals from the same orchestrator
 share one trusted dialog with each worktree path, branch, clean/dirty state and
 changed files, plus PR number and OPEN/CLOSED/MERGED state when already available
@@ -705,7 +711,7 @@ existing ancestry and no-unpushed-commits check, the same locally verified PR ru
 above qualifies squash and rebase merges. Both paths require a clean worktree and
 are rescanned and rechecked immediately before deletion; this option is off by default. The app menu’s
 **Action log** opens searchable local history with actor/parent,
-repository/worktree, action, target/result IDs, outcomes and redacted reply proposals.
+repository/worktree, action, target/result IDs, outcomes and hashes of child input, never its text.
 Search and Action/Outcome filters apply to retained history, with 100 events per page.
 Pending confirmation, refused operations and indeterminate delivery are explicit.
 **Clear history…** asks for a second click and preserves live operation deduplication.
@@ -717,7 +723,7 @@ focusing a child highlights its parent. Exited and revoked parents retain their 
 closing an exited parent. Children with an unavailable parent remain in their own
 checkout. Take over is shown on the child’s panel.
 A local action log records who acted, targets and
-outcomes, plus redacted reply proposals; it omits terminal tails, credentials and
+outcomes and hashes of child input; it omits terminal tails, credentials and
 initial prompts. It retains at most 30 days and five 10 MiB files and can be cleared.
 
 ### Child board placement and close (#377)

@@ -1,3 +1,4 @@
+import type { ChildInput } from "../../shared/child-input";
 import { ExecutionOwner } from "./execution-owner";
 import { observerHealth } from "../agents/providers/installed-observers";
 import { flushV2Health } from "../agents/providers/v2-health";
@@ -79,7 +80,7 @@ export interface WorkspaceDependencies {
     kill(id: string): Promise<void>;
     stop(id: string): Promise<void>;
     tail(id: string, lines: number): Promise<string[]>;
-    reply?(id: string, data: string): Promise<void>;
+    reply?(id: string, data: ChildInput): Promise<void>;
   };
   verdicts: {
     classify(input: EvaluationInput): Promise<VerdictRecord>;
@@ -356,9 +357,6 @@ export class Workspace {
       },
       exited: () => {
         this.persist();
-      },
-      invalidateReply: (id) => {
-        this.orchestration.invalidateReply(id);
       },
       publishChildEvents: () => {
         this.orchestration.childEvents.publish();
@@ -1234,13 +1232,6 @@ export class Workspace {
       await this.deps.copyText?.(command.worktree);
       return;
     }
-    if (command.kind === "reset-replies") {
-      const view = this.orchestration.view(command.id);
-      if (view?.role !== "child" || view.takenOver)
-        throw new Error("This session has no orchestrator");
-      this.orchestration.resetReplies(command.id);
-      return;
-    }
     if (command.kind === "take-over") {
       const operationId = randomUUID();
       await this.auditHuman("take_over", command.id, command.id, "running", operationId);
@@ -1702,7 +1693,6 @@ export class Workspace {
   hook(signal: HookSignal): Promise<void> {
     const id = this.hookKeys.get(signal.terminalId);
     if (!id) return Promise.resolve();
-    this.orchestration.invalidateReply(id);
     const entry = this.launched.get(id);
     if (
       entry &&
