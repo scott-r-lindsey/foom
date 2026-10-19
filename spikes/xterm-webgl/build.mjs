@@ -33,6 +33,18 @@ for (const renderer of ["dom", "webgl"])
                 throw new Error(`Controller changed: ${needle}`);
               contents = contents.replace(needle, value);
             };
+            // Avoid stacking the historical prototype on the shipped policy.
+            replace(
+              `  const renderer = createWebglRenderer(terminal, () => {
+    // DOM and WebGL round cell widths differently; refit without reattaching or
+    // resetting either screen when acceleration becomes unavailable.
+    fontResizePending = true;
+    resize();
+  });`,
+              "",
+            );
+            replace("    renderer.visible(visible);", "");
+            replace("    renderer.dispose();", "");
             replace(
               "  const isDisposed = () => disposed;",
               "  const isDisposed = () => disposed;\n  const evaluation = track(terminal, container, () => activeId, fit);",

@@ -1396,29 +1396,38 @@ fixture uses the DOM renderer and retains sandboxing. Measurements are machine-
 and workload-specific; record the report and interpretation in the PR rather
 than treating frame timings as portable pass/fail thresholds.
 
-### WebGL evaluation (#620)
+### WebGL renderer (#620)
 
-Visible terminals retain xterm 6.0.0's DOM renderer. The isolated
-[WebGL spike](../spikes/xterm-webgl/README.md) evaluates matching
-`@xterm/addon-webgl` 0.19.0 without changing production source or dependencies.
-The initial Xvfb run could not create WebGL2 contexts and measured DOM fallback;
-those archived reports are not a renderer performance comparison.
+Visible terminal controllers load matching `@xterm/addon-webgl` 0.19.0 after xterm
+6.0.0 opens and before the visible grid is fitted/attached. Each mounted shell
+still owns one xterm. A page-local budget permits at most 12 visible WebGL addons;
+overflow uses DOM and can claim a free slot on a later attachment. Hidden views
+dispose their addon; unmount also disposes xterm and subscriptions. Initialization
+failure or the addon's context-loss notification permanently selects DOM for that
+controller. Recovery preserves the xterm, scrollback, PTY and attachment token;
+it never resets or reattaches. The controller refits and resizes the same view
+because DOM/WebGL cell-width rounding differs. Parser and view backpressure are
+unchanged and independent of GPU resources.
 
-A follow-up uses fixture-only SwiftShader switches under Xvfb to validate actual
-addon WebGL2 contexts, forced/context-cap loss and DOM recovery, scrollback and
-attachment order, visible-only resource allocation and unmount disposal. The
-observed browser cap was 16: an experimental budget of 12 verified WebGL contexts
-left six DOM fallbacks with 18 occupied tiles. Hidden views dispose addons while
-retaining their xterms; each removed controller disposes its terminal once. No
-sandbox, CSP or asset-allowlist changes are needed: the existing renderer bundle
-contains shader strings and creates in-memory glyph atlases, with no added URLs.
+The [evaluation and raw reports](../spikes/xterm-webgl/README.md) include functional
+SwiftShader assertions, a 16-context exhaustion probe and 18 occupied tiles with
+12 actual WebGL2 contexts and six DOM fallbacks. Six saved visual pairs cover
+palettes, selection, cursor, fonts, font sizes and interface zoom. Logical content
+and colors match; rasterization and fitted columns differ, particularly at small
+font sizes. No sandbox, CSP or asset-allowlist changes are needed: the existing
+renderer bundle contains GLSL strings and creates in-memory glyph atlases, with
+no new protocol URLs, worker, WASM, eval or network assets.
 
-Six saved DOM/WebGL visual pairs cover themes, selection, cursor, fonts, font size
-and interface zoom. Logical content and colors match, but cell widths and glyph
-rasterization differ; WebGL fits more columns, especially at small font sizes.
-SwiftShader validates functionality only. Hardware performance validation uses a
-separately authorized, bounded inactive-window fixture session; enabling WebGL
-still requires a clear hardware win and attention to the observed font geometry.
+The one authorized inactive-window hardware session used an NVIDIA RTX 3060,
+driver 580.178.04, with no added GPU switches. For four/nine streaming tiles over
+eight seconds, WebGL reduced renderer task time from 2.325/2.693 s to 0.943/1.706 s
+(59%/37%), layout CPU by 97%/95% and paint CPU by 93%/89%. rAF p95 remained near
+16.7 ms, with no long tasks in either mode and isolated 33 ms WebGL intervals.
+Combined board/GPU working sets were about 60/20 MiB lower. These measurements
+justify enabling WebGL for CPU headroom; they do not establish presentation/input
+latency or marginal GPU memory. Reports include dimensions, normalized grids,
+GPU/driver information and memory attribution limits. SwiftShader timings are
+never performance evidence; the initial failed-context reports measured only DOM.
 
 ## Recorded sounds
 

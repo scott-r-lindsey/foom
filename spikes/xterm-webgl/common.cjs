@@ -4,7 +4,14 @@ const Module = require("node:module");
 const { expect } = require("../../tests/electron/test-policy.js");
 
 function harness(desktop) {
-  if (!desktop) return require("../../tests/electron/harness.js");
+  if (!desktop) {
+    const original = require("../../tests/electron/harness.js");
+    return {
+      ...original,
+      launchApp: (context, options) =>
+        original.launchApp(context, { ...options, renderer: "hardware" }),
+    };
+  }
   // In-memory fixture-only variant. Preserve isolation/guards/cleanup/audit; replace
   // focus-dependent readiness and inject an inactive-window policy before main.
   const file = require.resolve("../../tests/electron/harness.js");
@@ -23,6 +30,16 @@ function harness(desktop) {
     return page;
   }\n` +
     source.slice(end);
+  const statusNeedle = 'page.locator(".tile-status")';
+  if (source.split(statusNeedle).length !== 3) throw new Error("Review fixture status selectors");
+  source = source.replaceAll(
+    statusNeedle,
+    'page.locator(".terminal-tile[data-empty=false] .tile-status").first()',
+  );
+  source = source.replaceAll(
+    'page.locator(".xterm-helper-textarea")',
+    'page.locator(".terminal-tile[data-empty=false] .xterm-helper-textarea")',
+  );
   const needle = `'const { app } = require("electron");',`;
   if (source.split(needle).length !== 2) throw new Error("Review changed fixture bootstrap");
   const bootstrap = `require(${JSON.stringify(path.resolve("spikes/xterm-webgl/inactive.cjs"))}).install(require('electron')); const { app } = require('electron');`;
@@ -44,7 +61,12 @@ function harness(desktop) {
   mod.filename = file;
   mod.paths = Module._nodeModulePaths(path.dirname(file));
   mod._compile(source, file);
-  return mod.exports;
+  const original = mod.exports;
+  return {
+    ...original,
+    launchApp: (context, options) =>
+      original.launchApp(context, { ...options, renderer: "hardware" }),
+  };
 }
 const gpuInfo = async (app) =>
   app.evaluate(async ({ app }) => {
@@ -57,6 +79,7 @@ const gpuInfo = async (app) =>
     return { features: app.getGPUFeatureStatus(), info };
   });
 async function routeBundle(page, renderer) {
+  await page.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
   await page.route("**/renderer.js", (route) =>
     route.fulfill({
       path: path.resolve(`test-results/620-${renderer}-renderer.js`),

@@ -1,0 +1,8 @@
+{
+  "startedAt": 1792452289000,
+  "finishedAt": 1792452450889,
+  "durationMs": 161889,
+  "hardwareAvailable": true,
+  "recoveredStartupError": "Initial fixture startup failed before GPU preflight because the display created multiple blank tiles; corrected under Xvfb within the same ten-minute window",
+  "addedGpuSwitches": []
+}

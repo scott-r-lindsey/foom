@@ -1,11 +1,9 @@
 # xterm WebGL evaluation (#620)
 
-Research only, 2026-10-19, Linux x64. **Retain the DOM renderer; defer WebGL.**
-The initial Xvfb run could not create a context. The follow-up below validates
-real WebGL2 functionality with fixture-only SwiftShader; hardware performance
-validation is a separate, explicitly authorized session. No application source,
-production dependency, security policy or packaged asset changes are included.
-No renderer change ships without a clear hardware performance win.
+Research only, 2026-10-19, Linux x64. **Enable WebGL for visible tiles, with a bounded DOM fallback.**
+The matching addon showed a clear renderer CPU win on a real NVIDIA GPU, after
+functional validation with SwiftShader. The application now uses the tested
+visible-context budget and DOM recovery policy; no security settings are weakened.
 
 ## Method and reproduction
 
@@ -23,8 +21,8 @@ node spikes/xterm-webgl/build.mjs
 
 ```
 
-The root lockfile is unchanged. The spike pins addon-webgl 0.19.0 in its own
-lockfile. Its published package identifies upstream commit
+Production and spike dependencies both pin addon-webgl 0.19.0; both lockfiles
+record its integrity. Its published package identifies upstream commit
 `f447274f430fd22513f6adbf9862d19524471c04`, matching the xterm 6.0.0 release.
 Both audits found no known vulnerabilities.
 
@@ -33,8 +31,10 @@ transform of the imperative shell controller. `instrument.ts` tracks public xter
 objects and attachment boundaries in both modes, limits WebGL to 12 visible
 controllers, disposes it when hidden/unmounted, and permanently falls back to DOM
 on context loss for that controller. It preserves the existing attach/drain/reset/
-fit/snapshot path and uses the public addon manager for disposal. This is a research
-prototype; nothing imports it into production. Both published packages identify
+fit/snapshot path and uses the public addon manager for disposal. This instrumented prototype is retained for reproduction. The shipped policy
+lives in `src/renderer/terminal/webgl-renderer.ts`; the comparison transform strips
+that policy before adding its own, so it never stacks two addons. Production also
+refits the DOM grid on fallback, accounting for different cell-width rounding. Both published packages identify
 upstream commit `f447274f430fd22513f6adbf9862d19524471c04`.
 
 ## Follow-up functional validation
@@ -126,6 +126,59 @@ and process working sets. rAF intervals are not presentation latency; paint CPU 
 not GPU raster time. Memory includes shared board overhead and is not marginal
 GPU allocation per tile. These qualifications also apply to the archived reports.
 
+## Hardware results and shipping decision
+
+The authorized session used the inherited `DISPLAY=:0.0` and no added GPU
+switches. WebGL2 identified **ANGLE / NVIDIA GeForce RTX 3060 / OpenGL 4.5.0**,
+NVIDIA driver **580.178.04**. Every addon in both WebGL cases had its own live
+hardware WebGL2 context. GPU compositing and WebGL were enabled. All recorded board
+windows were visible and **unfocused**, with sandboxing retained.
+
+The initial fixture launch failed before GPU preflight because the larger display
+created multiple blank tiles. It cleaned up; its selectors were corrected and
+validated on a 3840×2160 Xvfb display, then the same bounded measurement window
+continued without changing GPU flags. `hardware-session.json` records the full
+161,889 ms window (2m42s), including that recovery; there was only one GPU preflight
+and one successful set of four cases. All cases passed, with no surviving fixture
+descendants. No further visible-desktop sessions are authorized by this task.
+
+| Renderer | Tiles | Task ms | Script ms | Layout ms | Style ms | Paint ms | rAF p95 ms | Long tasks | Board RSS MiB/tile | GPU RSS MiB/tile | Heap MiB/tile |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| dom | 4 | 2325 | 802 | 318 | 298 | 240 | 16.8 | 0 | 91.3 | 66.7 | 11.93 |
+| dom | 9 | 2693 | 1043 | 284 | 342 | 234 | 16.7 | 0 | 48.7 | 30.1 | 7.04 |
+| webgl | 4 | 943 | 484 | 8 | 63 | 16 | 16.7 | 0 | 75.9 | 67.1 | 6.85 |
+| webgl | 9 | 1706 | 945 | 14 | 97 | 27 | 16.8 | 0 | 44.1 | 32.5 | 6.38 |
+
+The board viewport was 2304×1254 at scale 1 in all cases; normalized terminal grids
+were 40×18 (four tiles) and 20×6 (nine). Over each eight-second sample, renderer task
+time fell **59.4%** (four tiles) and **36.6%** (nine). Layout CPU fell 97.4%/95.2%
+and paint CPU 93.3%/88.6%. rAF p95 stayed near 16.7 ms and both renderers had zero
+long tasks; WebGL had isolated 33 ms frame intervals. This is a CPU-headroom win,
+not evidence of improved presentation or input latency.
+
+Streaming board RSS was 61.6/41.6 MiB lower with WebGL; GPU-process RSS was
+1.6/21.5 MiB higher. Combined board+GPU RSS was about 60.0/20.1 MiB lower. Per-tile
+values above amortize shared process overhead; they are point-in-time samples
+without forced GC and do not isolate GPU allocations. The four cases were one
+sequential session on a shared host, not a statistical multi-machine benchmark.
+The consistent, large task/layout/paint reductions justify enabling the addon.
+
+Ship the 12-visible-view budget with permanent DOM fallback after initialization
+failure or context loss for that mounted controller. Overflow stays on DOM until
+another attachment can claim an available slot. Hiding disposes its addon; removing
+a view also disposes its xterm. Never recreate the terminal or reset/reattach it
+just to recover GL. On fallback, refit and resize the same attachment to account
+for DOM's different cell width. The pinned addon can first attempt its own context
+restoration; its public loss notification selects DOM if restoration fails.
+
+Production unit tests cover lazy activation, initialization/constructor failures,
+loss, budget release and idempotent disposal, plus controller fallback refitting
+without reset/reattach. Dedicated real-app Electron tests request fixture-only
+SwiftShader and verify loss/scrollback/attachment continuity and 18-tile resource
+allocation. Existing DOM-specific pixel/cursor tests and packaged smoke explicitly
+exercise the unavailable-GPU fallback; their fixture flags never affect shipped
+launches. Full runtime validation accompanies this production change.
+
 ## Initial observations (superseded evaluation)
 
 These four reports were produced by commit `7c564fd`; use that revision to
@@ -156,5 +209,4 @@ small differences between runs are not evidence about renderer performance.
 The initial initialization-failure path continued streaming and completed each PTY
 flood. These initial reports are retained for provenance; the missing functional
 checks are now covered by the SwiftShader follow-up above. They still provide no
-hardware performance evidence. The final decision will use the authorized
-hardware-session result, never the SwiftShader timings.
+hardware performance evidence. The shipping decision above uses the hardware session, never SwiftShader timings.
