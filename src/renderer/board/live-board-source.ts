@@ -502,7 +502,6 @@ export function createAppSource(): BoardSource {
           agents: scan.agents,
           enabled: setup.settings.agents,
           hooks: setup.settings.hooks,
-          acknowledged: setup.settings.codexNotifierAcknowledged,
         };
       },
       addRepository: () => window.desktop.addRepository(),

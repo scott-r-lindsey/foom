@@ -9,7 +9,6 @@ export function setupState(
 ): SetupState {
   return {
     settings: {
-      codexNotifierAcknowledged: false,
       agyPluginOfferAnswered: false,
       setupComplete: false,
       hooks: true,

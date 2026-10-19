@@ -124,14 +124,12 @@ export interface LaunchRequest {
   worktree: string;
   cols: number;
   rows: number;
-  acknowledgeNotifierReplacement?: boolean;
 }
 
 export interface StartWorktreeRequest {
   repository: string;
   branch: string;
   run: AgentId;
-  acknowledgeNotifierReplacement: boolean;
 }
 
 export interface WorkspaceApi {
@@ -189,7 +187,7 @@ export type SidebarCommand =
   | { kind: "open-handoff-link"; id: string; seq: number; index: number }
   | { kind: "home-shell" }
   | { kind: "copy-home-path" }
-  | { kind: "config-launch"; run: AgentId; origin?: "menu" }
+  | { kind: "config-launch"; run: AgentId }
   | { kind: "copy-config-path" }
   | { kind: "open-pull-request"; repository: string; worktree: string }
   | { kind: "copy-worktree-path"; repository: string; worktree: string }

@@ -191,12 +191,10 @@ it.skipIf(process.platform === "win32")("does not import health through a symlin
   expect((await installedHealth(model, profile)).get()).toBe("not-reviewed");
 });
 
-it("keeps consent bound to the reviewed build revision and never lends it to config copies", async () => {
-  expect(provider.legacyChannelConsent).toBe(true);
+it("keeps integrity and identity checks without a bundled Codex disclosure", async () => {
+  expect(model.hooks?.channels.every((channel) => channel.disclosure === undefined)).toBe(true);
   const changed = { ...data, name: "Revised Codex" };
-  expect(
-    bundledProvider(changed, "codex", digest(changed), digest(data)).legacyChannelConsent,
-  ).toBe(false);
+  expect(bundledProvider(changed, "codex", digest(changed)).origin).toBe("bundled");
   expect(() => bundledProvider(changed, "codex", digest(data))).toThrow("integrity");
   expect(() => bundledProvider(data, "wrong", digest(data))).toThrow("identity");
   expect(() => parseAgentManifest(JSON.stringify(data))).toThrow("reserved-id");
@@ -205,7 +203,6 @@ it("keeps consent bound to the reviewed build revision and never lends it to con
     () => Promise.resolve(),
   );
   expect(copy.origin).toBe("config");
-  expect(copy.legacyChannelConsent).toBeUndefined();
   expect(copy.model.hooks).toEqual(model.hooks);
   expect(copy.model.setup).toEqual(model.setup);
   expect(copy.model.bypassArguments).toEqual(model.bypassArguments);

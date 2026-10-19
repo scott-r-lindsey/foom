@@ -46,7 +46,6 @@ const load = () =>
     ],
     enabled: { claude: true, codex: true, agy: false },
     hooks: true,
-    acknowledged: true,
   });
 function setup(mainCheckout = false) {
   const original = sampleRows(0)[0];
@@ -1106,7 +1105,6 @@ test("sessions offer Make and Revoke orchestrator; children offer Take over and 
           ],
           enabled: { claude: true, codex: false, agy: true },
           hooks: true,
-          acknowledged: true,
         }),
       addRepository: () => Promise.resolve(null),
       branches: () =>

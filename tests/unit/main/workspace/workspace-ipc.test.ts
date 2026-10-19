@@ -162,7 +162,6 @@ test("launch requests are validated and copied field by field", async () => {
     worktree: "/trees/app/x",
     cols: 80,
     rows: 24,
-    acknowledgeNotifierReplacement: true,
     command: "/bin/evil",
     args: ["--danger"],
   };
@@ -174,12 +173,10 @@ test("launch requests are validated and copied field by field", async () => {
       worktree: "/trees/app/x",
       cols: 80,
       rows: 24,
-      acknowledgeNotifierReplacement: true,
     },
     expect.any(Function),
   );
   const plain: Record<string, unknown> = { ...request };
-  delete plain["acknowledgeNotifierReplacement"];
   await invoke("agents:launch", [plain]);
   expect(workspace.launch.mock.lastCall?.[0]).not.toHaveProperty("acknowledgeNotifierReplacement");
   for (const bad of [
@@ -192,7 +189,6 @@ test("launch requests are validated and copied field by field", async () => {
     { ...plain, cols: 1 },
     { ...plain, rows: 301 },
     { ...plain, cols: 80.5 },
-    { ...plain, acknowledgeNotifierReplacement: "yes" },
   ])
     expect(() => invoke("agents:launch", [bad])).toThrow("Invalid launch request");
 });
@@ -258,7 +254,6 @@ test("launch accepts names only and rejects malformed or injected payloads", asy
     repository: "/repos/app",
     branch: "feature",
     run: "shell",
-    acknowledgeNotifierReplacement: false,
   };
   await invoke("workspace:start", [{ ...request, command: "/bad", cwd: "/bad" }]);
   expect(workspace.startWorktree).toHaveBeenCalledWith(request, expect.any(Function));
@@ -269,7 +264,6 @@ test("launch accepts names only and rejects malformed or injected payloads", asy
     { ...request, repository: "" },
     { ...request, branch: "" },
     { ...request, run: "sh" },
-    { ...request, acknowledgeNotifierReplacement: 1 },
   ])
     expect(() => invoke("workspace:start", [bad])).toThrow("Invalid worktree launch");
 });
@@ -372,7 +366,6 @@ test.each([
   ["remove", "Click again to remove"],
   ["stop", "Click again to stop"],
   ["shared-agent", "Click again for multiple agents here"],
-  ["notifier", "Click again to replace notifier"],
 ] as const)("typed %s requests select their exact consequence", async (kind, label) => {
   Object.assign(workspace, {
     sidebarCommand: (_command: unknown, confirm: ConfirmWorkspace) => confirm({ kind }),
@@ -519,44 +512,13 @@ test("config sidebar commands accept only a run kind, never a path", async () =>
   ]);
 });
 
-test.each([false, true])(
-  "menu config launches retain notifier disclosure (accepted %s)",
-  async (accepted) => {
-    requestDialog.mockResolvedValue(accepted);
-    const command = vi.fn(async (_value: unknown, confirm: ConfirmWorkspace) => {
-      expect(await confirm({ kind: "notifier" })).toBe(accepted);
-    });
-    Object.assign(workspace, { sidebarCommand: command });
-    await invoke("workspace:sidebar-command", [
-      { kind: "config-launch", run: "codex", origin: "menu" },
-    ]);
-    expect(requestDialog).toHaveBeenCalledWith({
-      title: "Replace Codex notifier for this launch?",
-      glyph: "bell",
-      subject: "This launch only",
-      quiet: "Your global Codex configuration is unchanged.",
-      detail: expect.stringContaining("for this invocation") as unknown,
-      accept: "Replace notifier and launch",
-    });
-    expect(contents.send).not.toHaveBeenCalledWith("confirmation:armed", expect.anything());
-  },
-);
-
-test.each(["destroyed", "navigated"])(
-  "menu disclosure is refused after its board is %s",
-  async (state) => {
-    const command = vi.fn(async (_value: unknown, confirm: ConfirmWorkspace) => {
-      if (state === "destroyed") contents.isDestroyed.mockReturnValue(true);
-      else frame.url = "https://elsewhere.test";
-      expect(await confirm({ kind: "notifier" })).toBe(false);
-    });
-    Object.assign(workspace, { sidebarCommand: command });
-    await invoke("workspace:sidebar-command", [
-      { kind: "config-launch", run: "codex", origin: "menu" },
-    ]);
-    expect(requestDialog).not.toHaveBeenCalled();
-  },
-);
+test("menu config launches dispatch without a notifier dialog", async () => {
+  const command = vi.fn(async () => {});
+  Object.assign(workspace, { sidebarCommand: command });
+  await invoke("workspace:sidebar-command", [{ kind: "config-launch", run: "codex" }]);
+  expect(command).toHaveBeenCalledOnce();
+  expect(requestDialog).not.toHaveBeenCalled();
+});
 
 test("resume-id validates the exact payload and does not confuse conversation IDs with terminal IDs", async () => {
   const command = vi.fn(async () => {});

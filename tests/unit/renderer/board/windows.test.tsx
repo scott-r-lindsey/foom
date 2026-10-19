@@ -272,7 +272,6 @@ test("a cancelled config menu launch preserves the full layout and focus", async
   expect(source.sidebarCommand).toHaveBeenCalledWith({
     kind: "config-launch",
     run: "claude",
-    origin: "menu",
   });
   const saved = loadLayout(localStorage, `${TILE_STORAGE}.test-window`);
   expect(saved.tree).toEqual(layout.tree);

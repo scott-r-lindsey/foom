@@ -35,14 +35,12 @@ function action(value: unknown): value is VerdictAction {
 function launchRequest(value: unknown): LaunchRequest {
   if (!record(value)) throw new Error("Invalid launch request");
   const { agent: id, repository, worktree, cols, rows } = value;
-  const acknowledge = value["acknowledgeNotifierReplacement"];
   if (
     !agent(id) ||
     !text(repository) ||
     !text(worktree) ||
     !dimension(cols, 500) ||
-    !dimension(rows, 300) ||
-    (acknowledge !== undefined && typeof acknowledge !== "boolean")
+    !dimension(rows, 300)
   )
     throw new Error("Invalid launch request");
   // Copy known fields only; nothing else in the payload reaches the launcher.
@@ -52,7 +50,6 @@ function launchRequest(value: unknown): LaunchRequest {
     worktree,
     cols,
     rows,
-    ...(acknowledge === undefined ? {} : { acknowledgeNotifierReplacement: acknowledge }),
   };
 }
 
@@ -100,14 +97,12 @@ function sidebarCommand(value: unknown): SidebarCommand {
   }
   if (kind === "config-launch") {
     const run = value["run"];
-    const origin = value["origin"];
     if (
-      Object.keys(value).some((key) => !["kind", "run", "origin"].includes(key)) ||
-      (origin !== undefined && origin !== "menu") ||
+      Object.keys(value).some((key) => !["kind", "run"].includes(key)) ||
       (run !== "shell" && !agent(run))
     )
       throw new Error("Invalid config launch");
-    return { kind, run, ...(origin === "menu" ? { origin } : {}) };
+    return { kind, run };
   }
   if (
     kind === "stop" ||
@@ -212,7 +207,6 @@ export function attachWorkspace(
     remove: "Click again to remove",
     stop: "Click again to stop",
     "shared-agent": "Click again for multiple agents here",
-    notifier: "Click again to replace notifier",
   } satisfies Record<
     Exclude<
       Parameters<ConfirmWorkspace>[0]["kind"],
@@ -289,8 +283,7 @@ export function attachWorkspace(
           !record(request) ||
           !text(request["repository"]) ||
           !text(request["branch"], 255) ||
-          !(request["run"] === "shell" || agent(request["run"])) ||
-          typeof request["acknowledgeNotifierReplacement"] !== "boolean"
+          !(request["run"] === "shell" || agent(request["run"]))
         )
           throw new Error("Invalid worktree launch");
         return workspace.startWorktree(
@@ -298,7 +291,6 @@ export function attachWorkspace(
             repository: request["repository"],
             branch: request["branch"],
             run: request["run"],
-            acknowledgeNotifierReplacement: request["acknowledgeNotifierReplacement"],
           },
           confirmation(JSON.stringify(request)),
         );
@@ -392,26 +384,7 @@ export function attachWorkspace(
           });
         }
         const confirm = confirmation(JSON.stringify(command));
-        return workspace.sidebarCommand(command, (request) => {
-          if (
-            command.kind === "config-launch" &&
-            command.origin === "menu" &&
-            request.kind === "notifier"
-          ) {
-            if (contents.isDestroyed() || contents.mainFrame.url !== APP_URL)
-              return Promise.resolve(false);
-            return requestDialog({
-              title: "Replace Codex notifier for this launch?",
-              glyph: "bell",
-              subject: "This launch only",
-              detail:
-                "Foom replaces Codex’s notify command for this invocation so it can report when Codex finishes.",
-              quiet: "Your global Codex configuration is unchanged.",
-              accept: "Replace notifier and launch",
-            });
-          }
-          return confirm(request);
-        });
+        return workspace.sidebarCommand(command, confirm);
       },
     ],
     [

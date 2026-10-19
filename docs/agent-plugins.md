@@ -52,7 +52,7 @@ execution/health integration. The v2 fixture is `tests/fixtures/agent-plugin.jso
 | agy --prompt-interactive help gate | `guidance` fact, prompt and guidance policy | Refuse child prompt when unsupported; ordinary launch still works |
 | Claude inline --settings JSON: UserPromptSubmit, PreToolUse, Stop, PermissionRequest, Notification | `hooks.channels`, `files`, attachment argv | Write equivalent private settings JSON, pass --settings file (documented file-or-JSON interface); no global settings writes |
 | Codex six -c hooks.Event definitions with timeout=3, stable installed command and environment-only credentials | Stable observer placement and six attachment pairs | Keep definition stable across launches; credentials, temp files and ports excluded from trust fingerprint |
-| Codex notify is JSON argv, last argument carries JSON | `notify` channel, attachment block | Fixed argv observer; requires notifier disclosure and acknowledgement while selected |
+| Codex notify is JSON argv, last argument carries JSON | `notify` channel, attachment block | Fixed argv observer; attaches per launch without warning or confirmation |
 | Codex replaces notifier until startup + prompt + Stop observed; establishing launch retains notify; duplicates after Stop do not reclassify same turn | `health`, completion groups, `when` predicates | Per-turn deduplication, launch snapshot, latest-launch health writes, private persistence; no startup-idle timer |
 | Codex /hooks review and trusted/declined/not-reviewed/outdated health | Instruction setup action; observed-health requirements and review rules | Never type /hooks, bypass trust, read/write trust DB or infer trust from time; changed definitions invalidate observation |
 | agy opt-in plugin install/update/uninstall/enable, serialized 5 s/64 KiB commands | Plugin files, setup status and fixed actions | Trusted disclosure, state/identity recheck, CLI-owned mutations only; no direct ~/.gemini writes |
@@ -159,7 +159,7 @@ engine after substitution and layering; this parser never expands launch data.
 | File | `{name,scope,format,content,when?}`; scope launch or plugin; format json or toml; content multiline template; must parse after typed expansion |
 | Channel | `{id,when,observer,arguments,mapping,disclosure?}` |
 | observer | `{transport,placement,version,response,delivery,timeoutMs,sequence?,basename?,commandArguments?}`; transport stdin or argv-last; placement launch, stable or plugin; version 1–100000 integer or `{posix,win32}` integers for existing platform ABIs; response silent or empty-json-first; delivery foreground or detached; timeoutMs 1000–3000; sequence boolean default false; basename [A-Za-z][A-Za-z0-9_-]* <=40 default observer; commandArguments <=8 literal event/label tokens [A-Za-z][A-Za-z0-9_-]* <=64, never executable code |
-| disclosure | `{id,text,acknowledgement:"profile"}`; ID and Text; bundled channels require main-recorded acknowledgement; config plugins load without one (#539); never renderer boolean consent |
+| disclosure | `{id,text,acknowledgement:"profile"}`; ID and Text; bundled channels with disclosures are refused without a consent mechanism; config plugins load without one (#539); never renderer boolean consent |
 
 Allowed placeholders, with no recursion or environment interpolation by Foom:
 
@@ -433,7 +433,7 @@ keeps an agent inside its worktree is the agent's own sandbox or permission prom
 Secrets and tokens never appear in templates, argv, files, renderer, logs or consent
 records. Agent hook command definitions use fixed observer paths only. Observer
 output cannot approve a tool. A channel's `disclosure` text is no longer shown at
-load; notifier replacement remains per launch.
+load. Bundled Codex declares no disclosure and attaches notify per launch without confirmation.
 
 ### Customizing a built-in agent
 
@@ -443,8 +443,7 @@ Copy a bundled manifest from `src/shared/bundled-agents/` into the config folder
 protections. Foom offers no Settings action for this; #424's **Duplicate as plugin**
 was removed in #538.
 
-A copy gains no trust: no profile digest, Codex legacy notifier acknowledgement,
-bundled observer provenance, hook observation, per-agent defaults or environment
+A copy gains no trust: no profile digest, bundled observer provenance, hook observation, per-agent defaults or environment
 secrets carry over. Normal config validation precedes discovery and launch; an
 edit reloads it.
 Codex copies use private config observer paths and their own health observations.
@@ -530,8 +529,7 @@ environment lists and argument-bypass acknowledgements keep the `claude` key.
 Bundled argument bypass retains the existing Settings/config-change acknowledgement
 flow; environment bypass still requires launch confirmation, and unattended child
 bypass always fails. Conversions may reuse an acknowledgement only for an
-identical disclosure/effect. They must explicitly preserve notifier/setup/health
-consent; bundled build trust never substitutes for those decisions.
+identical disclosure/effect. They must explicitly preserve setup consent and health observations; bundled build trust never substitutes for those decisions.
 
 Claude compatibility details:
 
@@ -589,17 +587,16 @@ Codex compatibility details (#435):
   malformed data grants no trust. Newer launches alone own writes.
   The generic observed-health engine preserves startup metadata, review text,
   per-turn prompt/Stop observation, late-turn fallback and completion deduplication.
-- The existing `codexNotifierAcknowledged` setting is retained. A separate
-  build-owned consent digest permits its use only for this reviewed equivalent
-  disclosure/effect; changing a manifest lock does not silently migrate consent.
-  Config copies never inherit that legacy acknowledgement or bundled health. Enablement, defaults, environment scopes,
+- Bundled Codex attaches notify per launch without warning or confirmation (#633).
+  Stored `codexNotifierAcknowledged` values are tolerated and ignored. The generic
+  v2 channel `disclosure` mechanism remains available to user manifests.
+  Config copies never inherit bundled health. Enablement, defaults, environment scopes,
   argument bypass acknowledgement and dormant conversation IDs keep the same keys.
 - Private notify paths now use the generic launch directory. Generated observers
   add a launch-bound channel header and bound input; their timeout, silent
   observe-only behavior and environment-only credentials are unchanged. Reduced
   diagnostics use `plugin:codex:<case-id>` with channel/turn metadata. Tests that
-  post directly now identify their channel. Internal IPC acknowledgement and
-  observed-health fields use generic names; their confirmation flow is unchanged.
+  post directly now identify their channel. Observed-health fields use generic names; notifier acknowledgement plumbing is removed.
   The shipped manifest keeps the existing inline `/hooks in Codex` hint; the
   fixture retains the optional instruction action to exercise that generic surface.
   Reserved-argument errors retain the original agent and argument line with
@@ -1204,11 +1201,6 @@ launch surfaces and conservative environment disclosure. Open questions follow.
           "timeoutMs": 3000
         },
         "arguments": ["-c", "notify={observerArgv:notify:json}"],
-        "disclosure": {
-          "id": "notifier-replacement",
-          "text": "Foom replaces your Codex notifier for this launch. Disable hooks to preserve it while lifecycle hooks are unavailable.",
-          "acknowledgement": "profile"
-        },
         "mapping": {
           "session": {"source": "payload", "path": ["thread-id"]},
           "event": {"source": "payload", "path": ["type"]},

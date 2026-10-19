@@ -1051,11 +1051,9 @@ test("routes terminal events, hook signals and state through the workspace", asy
     onExecution(event: unknown): void;
     onState(state: unknown): void;
     onChange(): void;
-    acknowledgeNotifier(): Promise<void>;
     acknowledgeAgyPluginOffer(): Promise<void>;
   };
   expect(deps.environment("claude")).toEqual([[], []]);
-  await deps.acknowledgeNotifier();
   await deps.acknowledgeAgyPluginOffer();
   deps.onChange();
   expect(mock.ipc.sendChanged).toHaveBeenCalledOnce();

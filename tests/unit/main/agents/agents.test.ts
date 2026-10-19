@@ -313,18 +313,13 @@ describe("launch", () => {
     await service.launch(request);
     expect(bind).toHaveBeenCalledExactlyOnceWith("terminal-id");
   });
-  it("requires disclosure before replacing a Codex notifier", async () => {
-    await expect(service.launch({ ...request, agent: "codex" })).rejects.toThrow(
-      "replaces your Codex notifier",
-    );
-    expect(cleanup).toHaveBeenCalledOnce();
-    expect(create).not.toHaveBeenCalled();
-    await service.launch({ ...request, agent: "codex", acknowledgeNotifierReplacement: true });
+  it("attaches the Codex notifier on the first launch without consent", async () => {
+    await service.launch({ ...request, agent: "codex" });
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ args: ["-c", `notify=${JSON.stringify(binding.observerArgv)}`] }),
     );
     service.dispose();
-    expect(cleanup).toHaveBeenCalledTimes(2);
+    expect(cleanup).toHaveBeenCalledOnce();
   });
   it("disables all attachment with the setting and never hooks Antigravity", async () => {
     service.setHooksEnabled(false);
@@ -489,7 +484,6 @@ it("prepends literal defaults to Foom's inline and hook flags", async () => {
     ...request,
     agent: "codex",
     defaultArguments: defaults,
-    acknowledgeNotifierReplacement: true,
   });
   expect(create.mock.calls[0]?.[0].args).toEqual([
     ...defaults,
@@ -531,7 +525,6 @@ describe("conversation resume", () => {
         agent,
         terminalId: "original",
         conversationId: "conversation-123",
-        acknowledgeNotifierReplacement: true,
       });
       const spec = create.mock.calls[0]?.[0];
       expect(spec?.id).toBe("original");
@@ -743,7 +736,6 @@ it.each([
         agent,
         control: { parentId: "parent" },
         ...(prompt === undefined ? {} : { prompt }),
-        acknowledgeNotifierReplacement: true,
       });
       const args = create.mock.calls.at(-1)?.[0].args;
       expect(args).toEqual(
@@ -834,7 +826,6 @@ it.each([true, false])(
       await service.launch({
         ...request,
         agent: "codex",
-        acknowledgeNotifierReplacement: !trusted,
       });
       const args = create.mock.calls[0]?.[0].args ?? [];
       expect(args.filter((arg) => arg.startsWith("hooks."))).toHaveLength(6);
@@ -857,8 +848,9 @@ it.each([true, false])(
 
 it("does not suppress the notifier when lifecycle hooks cannot be attached", async () => {
   prepare.mockResolvedValueOnce(binding);
-  await expect(service.launch({ ...request, agent: "codex" })).rejects.toThrow(
-    "replaces your Codex notifier",
+  await service.launch({ ...request, agent: "codex" });
+  expect(create.mock.calls[0]?.[0].args).toContain(
+    `notify=${JSON.stringify(binding.observerArgv)}`,
   );
 });
 
@@ -991,7 +983,6 @@ it.each(["claude", "codex", "agy"] as const)(
                 "-i=third",
               ]
             : ["--model", "test"],
-        acknowledgeNotifierReplacement: true,
       });
       const args = create.mock.calls.at(-1)?.[0].args ?? [];
       expect(args).toContain("--model");
@@ -1145,7 +1136,6 @@ it("per-agent screen rules suppress only that agent's hooks and retain the globa
       await service.launch({
         ...request,
         agent: "codex",
-        acknowledgeNotifierReplacement: true,
       })
     ).attention,
   ).toBe("hooks");
@@ -1370,14 +1360,21 @@ it("v2 preserves successful discovery data when only the independent version pro
   service.release(result.id);
 });
 
-it("does not let a renderer acknowledgement approve revised, context-selected bundled disclosures", async () => {
+it("rejects context-selected bundled disclosures without a consent mechanism", async () => {
   const data = structuredClone(codexManifest);
   data.id = "codex-revised";
   const notify = data.hooks.channels.find((channel) => channel.id === "notify");
   if (!notify) throw new Error("Missing notify channel");
+  Object.assign(notify, {
+    disclosure: {
+      id: "replacement",
+      text: "Channel replacement disclosure",
+      acknowledgement: "profile",
+    },
+  });
   notify.when.all.push({ field: "control", op: "eq", value: true });
   const digest = createHash("sha256").update(JSON.stringify(data)).digest("hex");
-  replaceConfigProviders([bundledProvider(data, data.id, digest, "old-consent")]);
+  replaceConfigProviders([bundledProvider(data, data.id, digest)]);
   const dispose = vi.fn();
   service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, () =>
     Promise.resolve({
@@ -1386,9 +1383,9 @@ it("does not let a renderer acknowledgement approve revised, context-selected bu
       dispose,
     }),
   );
-  await expect(
-    service.launch({ ...request, agent: data.id, acknowledgeNotifierReplacement: true }),
-  ).rejects.toThrow("replaces your Codex notifier");
+  await expect(service.launch({ ...request, agent: data.id })).rejects.toThrow(
+    "Channel replacement disclosure",
+  );
   expect(create).not.toHaveBeenCalled();
   expect(dispose).toHaveBeenCalledOnce();
   expect(cleanup).toHaveBeenCalledOnce();
