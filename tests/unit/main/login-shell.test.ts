@@ -77,7 +77,7 @@ it.skipIf(process.platform === "win32")(
     const pids = new Set<number>([terminal.pid]);
     let stopped = "";
     try {
-      const deadline = Date.now() + 10000;
+      const deadline = Date.now() + 4000;
       while (!state.exited && Date.now() < deadline) {
         const { stdout } = await run("/bin/ps", ["-axo", "pid=,ppid=,pgid=,stat="], {
           env: options.env,
