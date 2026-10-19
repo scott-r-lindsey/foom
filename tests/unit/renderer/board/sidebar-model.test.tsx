@@ -169,9 +169,13 @@ test("preferences persist, reject malformed disk data, deduplicate pins and rest
   expect(sessionName(row("one", "/a"), renameSession(value, "one", "  "))).toBe("Claude Code");
   expect(renameSession(value, "one", "a".repeat(121)).names["one"]).toHaveLength(120);
   for (const raw of ["broken", "[]", "{}"])
-    expect(readPreferences({ getItem: () => raw })).toEqual(emptyPreferences());
+    expect(readPreferences({ getItem: () => raw, length: 0, key: () => null })).toEqual(
+      emptyPreferences(),
+    );
   expect(
     readPreferences({
+      length: 0,
+      key: () => null,
       getItem: () => {
         throw Error("denied");
       },
@@ -179,6 +183,8 @@ test("preferences persist, reject malformed disk data, deduplicate pins and rest
   ).toEqual(emptyPreferences());
   expect(
     readPreferences({
+      length: 0,
+      key: () => null,
       getItem: () =>
         JSON.stringify({
           pins: ["/a", "/a", 4],

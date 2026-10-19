@@ -30,7 +30,7 @@ import { createSoundController } from "../sound/sound-controller";
 import { createAudioSink } from "../sound/web-audio";
 import { SidebarControls } from "./sidebar-controls";
 import { Sidebar } from "./sidebar-view";
-import { readPreferences, writePreferences, renameSession } from "./sidebar-preferences";
+import { createPreferencesStore, renameSession } from "./sidebar-preferences";
 import type { SidebarCommand } from "../../shared/workspace";
 import type { LaunchOptions } from "./board-source.d";
 import { repositoryKey, worktreeKey, rowRepository, rowWorktree } from "./sidebar-model";
@@ -337,7 +337,11 @@ export function Board({
     },
     [changeLayout, source],
   );
-  const [preferences, setPreferences] = useState(() => readPreferences(localStorage));
+  const [preferencesStore] = useState(() => createPreferencesStore(localStorage, window));
+  const preferences = useSyncExternalStore(
+    preferencesStore.subscribe,
+    preferencesStore.getSnapshot,
+  );
   const revealRef = useRef<(row: BoardRow) => void>(undefined);
   const newWorktreeRef = useRef<(repository?: string) => boolean>(undefined);
   const [options, setOptions] = useState<LaunchOptions>();
@@ -355,8 +359,7 @@ export function Board({
   }, [source, inactive, settingsOpen]);
   const save = (next: typeof preferences) => {
     try {
-      writePreferences(localStorage, next);
-      setPreferences(next);
+      preferencesStore.save(preferences, next);
     } catch {
       setRemoveError("Unable to save sidebar preferences.");
     }
