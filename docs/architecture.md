@@ -2073,7 +2073,10 @@ fallback input window. Uncover shows loaded visible children without granting fo
 and retains the cache. Overlapping overlay reasons keep the cover active until all
 finish; tile drag coverage begins before a drop target exists. Closing cancels
 capture/deadline timers; late results cannot resurrect released views. Renderer
-subscriptions, observers and animation work are disposed on unmount.
+subscriptions, observers and animation work are disposed on unmount. Composition
+ignores terminal/xterm repaint mutations and detached nodes; remaining board
+mutations and snapshot positioning share one animation-frame update with tile
+animation following. Mutation callbacks never scan layout.
 
 ### Terminal font selection (#363)
 
