@@ -702,7 +702,11 @@ test("trusted quit dialog isolates answers, passes axe in every theme and surviv
       if (process.platform === "darwin") {
         if (!parent.isEnabled() || parent.isFocusable())
           throw Error("macOS board must block focus without attaching a disabling sheet");
-      } else if (parent.isEnabled()) throw Error("Parent must be disabled during confirmation");
+      } else if (process.platform === "win32") {
+        if (parent.isEnabled()) throw Error("Windows parent must be disabled during confirmation");
+      } else if (!parent.isEnabled()) {
+        throw Error("Linux parent must receive blocked input for dialog recovery");
+      }
       const bounds = parent.getBounds();
       parent.setBounds({
         ...bounds,
