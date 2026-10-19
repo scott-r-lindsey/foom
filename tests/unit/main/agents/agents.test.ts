@@ -27,6 +27,11 @@ import { CLI_GUIDANCE } from "../../../../src/main/agents/providers/cli-launch";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 import type { AgentHooks, AgentLaunch } from "../../../../src/shared/agents";
 
+vi.mock("../../../../src/main/login-shell", async () => {
+  const { promisify } = await import("node:util");
+  const { execFile } = await import("node:child_process");
+  return { readLoginShell: promisify(execFile) };
+});
 vi.mock("node:child_process", async (original) => {
   const actual = await original<{ execFile: typeof execFile; ChildProcess: typeof ChildProcess }>();
   const mocked = vi.fn();
