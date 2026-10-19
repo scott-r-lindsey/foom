@@ -2,8 +2,11 @@
 
 Checked **2026-10-13, Linux, Node 24.17.0**. Research only; no application adapter
 or authorization change. Feeds the open tier proposal [#343](https://github.com/scott-r-lindsey/foom/issues/343).
-The recommendation in [orchestration.md](../../docs/orchestration.md#proposed-child-follow-up-channel-336)
-is **proposed, not decided**. The existing Reply gate still applies.
+The recommendation in [the earlier follow-up research](../../docs/research/child-follow-up.md)
+was **proposed, not decided** at the time of this spike. The historical Reply gate
+and follow-up restrictions are superseded by #629: a granted orchestrator may
+send prompts and keys to its own children without per-message human approval.
+See the current [child input policy](../../docs/orchestration.md#child-input-629).
 
 ## Reproduce
 
