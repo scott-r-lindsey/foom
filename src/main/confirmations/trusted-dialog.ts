@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { app, BrowserWindow, ipcMain, screen } from "electron";
-import type { Session, IpcMainEvent, Event, WebContents } from "electron";
+import { app, BrowserWindow, ipcMain, powerMonitor, screen } from "electron";
+import type {
+  Session,
+  IpcMainEvent,
+  Event,
+  Input,
+  MouseInputEvent,
+  Rectangle,
+  WebContents,
+} from "electron";
 import type { DialogContent, DialogRequest } from "../../shared/confirmation";
 import type { InterfaceTheme } from "../../shared/interface-theme";
 
@@ -32,6 +40,7 @@ export class TrustedDialog {
   private parentFocusable = true;
   private reachability: NodeJS.Timeout | undefined;
   private presenting = false;
+  private bounds: Rectangle | undefined;
   constructor(
     private readonly parent: BrowserWindow,
     private readonly session: Session,
@@ -54,6 +63,11 @@ export class TrustedDialog {
       id !== this.pending.id
     )
       return;
+    // A trusted renderer/ID alone is not evidence that the person can see consent.
+    if (accepted !== false && !this.isReachable()) {
+      this.finish(false);
+      return;
+    }
     if (this.removalFeed) {
       if (accepted === false) {
         this.finish(false);
@@ -129,6 +143,9 @@ export class TrustedDialog {
       height: 240,
       parent: this.parent,
       modal: false,
+      // Nonmodal is essential on macOS (#353). Linux still needs the native
+      // dialog window type for transient stacking with multiple board windows.
+      ...(this.platform === "linux" ? { type: "dialog" as const } : {}),
       frame: false,
       transparent: false,
       backgroundColor: this.theme().colors.surface,
@@ -216,6 +233,7 @@ export class TrustedDialog {
         ...(removalFeed ? removalContent(removalFeed.current()) : {}),
       };
       this.size = undefined;
+      this.bounds = undefined;
       const answer = new Promise<boolean>((resolve) => {
         this.pending = { id, request, resolve, activate };
       });
@@ -248,18 +266,25 @@ export class TrustedDialog {
         // creating that sheet; keep native keyboard focus in the trusted child.
         this.parentFocusable = this.parent.isFocusable();
         this.parent.setFocusable(false);
-      } else {
+      } else if (this.platform === "win32") {
         this.parent.setEnabled(false);
       }
       this.parentContents.prependListener("before-input-event", this.blockParentInput);
-      this.parentContents.on("before-mouse-event", this.blockParentInput);
+      // Linux must stay enabled: disabled native parents swallow the clicks
+      // needed to recover an invisible child. Both guards still consume input.
+      this.parentContents.prependListener("before-mouse-event", this.blockParentInput);
       this.parent.on("hide", this.parentUnavailable);
       this.parent.on("minimize", this.parentUnavailable);
       this.parent.on("move", this.syncBounds);
       this.parent.on("resize", this.syncBounds);
       this.parent.on("maximize", this.syncBounds);
       this.parent.on("unmaximize", this.syncBounds);
-      this.parent.on("restore", this.syncBounds);
+      this.parent.on("restore", this.restoreDialog);
+      this.parent.on("show", this.restoreDialog);
+      powerMonitor.on("resume", this.restoreDialog);
+      powerMonitor.on("unlock-screen", this.restoreDialog);
+      screen.on("display-metrics-changed", this.restoreDialog);
+      screen.on("display-removed", this.restoreDialog);
       this.parent.on("focus", this.restoreDialog);
       this.parentContents.send("confirmation:scrim", true);
       this.refresh();
@@ -301,10 +326,12 @@ export class TrustedDialog {
       top,
       Math.min(Math.round(parent.y + (parent.height - height) / 2), bottom - height),
     );
-    this.window.setBounds({ x, y, width, height });
+    this.bounds = { x, y, width, height };
+    this.window.setBounds(this.bounds);
   };
-  private readonly blockParentInput = (event: Event) => {
+  private readonly blockParentInput = (event: Event, input: Input | MouseInputEvent) => {
     event.preventDefault();
+    if (input.type === "mouseDown" || input.type === "keyDown") this.restoreDialog();
   };
   private readonly childUnavailable = () => {
     if (this.presenting || !this.size) return;
@@ -324,7 +351,7 @@ export class TrustedDialog {
   };
   private present(): void {
     const window = this.window;
-    if (!window || !this.pending) return;
+    if (!window || !this.pending || !this.size || this.presenting) return;
     this.presenting = true;
     try {
       window.setParentWindow(this.parent);
@@ -337,37 +364,55 @@ export class TrustedDialog {
       this.syncBounds();
       window.moveTop();
       this.focusDialog();
+    } catch {
+      this.finish(false);
     } finally {
       this.presenting = false;
     }
   }
-  /** Bound a failed show/focus or a page that never supplies a valid size. */
-  private watchReachability(reordered = false): void {
+  /** Native visibility/focus can both be true for an off-screen mapped child. */
+  private isReachable(): boolean {
+    const window = this.window;
+    const expected = this.bounds;
+    if (!window || !this.size || !expected || this.presenting) return false;
+    if (
+      !window.isFocused() ||
+      window.isMinimized() ||
+      (this.platform !== "darwin" && !window.isVisible())
+    )
+      return false;
+    // Read back actual native geometry: setBounds may have been refused. Require
+    // the complete measured card, on the parent's display, not a visible sliver.
+    const actual = window.getBounds();
+    const work = screen.getDisplayMatching(this.parent.getContentBounds()).workArea;
+    return (
+      actual.width > 0 &&
+      actual.height > 0 &&
+      actual.x >= work.x &&
+      actual.y >= work.y &&
+      actual.x + actual.width <= work.x + work.width &&
+      actual.y + actual.height <= work.y + work.height &&
+      Math.abs(actual.x - expected.x) <= 2 &&
+      Math.abs(actual.y - expected.y) <= 2 &&
+      Math.abs(actual.width - expected.width) <= 2 &&
+      Math.abs(actual.height - expected.height) <= 2
+    );
+  }
+  /** Bound presentation failure and keep checking after the initial show. */
+  private watchReachability(reordered = false, delay = 1000): void {
     if (this.reachability || !this.pending) return;
     this.reachability = setTimeout(() => {
       this.reachability = undefined;
-      const window = this.window;
-      if (!window || !this.size) {
-        this.finish(false);
-      } else if (
-        !window.isFocused() ||
-        window.isMinimized() ||
-        (this.platform !== "darwin" && !window.isVisible())
-      ) {
-        // macOS visibility includes occlusion reporting, which can disagree
-        // with a currently key child. Key focus is the native reachability
-        // signal there; desktop pixels remain the regression oracle.
-        // A retry that still cannot acquire native focus must never strand the
-        // board behind its scrim. Cancellation cannot grant any permission.
+      if (!this.window || !this.size) this.finish(false);
+      else if (!this.isReachable()) {
         if (reordered) this.finish(false);
         else {
-          // Arm the final check first: native focus events during show must
-          // not replace it with another initial attempt.
+          // Arm the final check before native show/focus events can reenter.
           this.watchReachability(true);
           this.present();
         }
-      }
-    }, 1000);
+      } else this.watchReachability(false, 5000);
+    }, delay);
     this.reachability.unref();
   }
   private readonly focusDialog = () => {
@@ -378,7 +423,7 @@ export class TrustedDialog {
     }
   };
   private readonly restoreDialog = () => {
-    this.focusDialog();
+    this.present();
     this.watchReachability();
   };
   private finish(accepted: boolean): void {
@@ -402,12 +447,17 @@ export class TrustedDialog {
     this.parent.removeListener("resize", this.syncBounds);
     this.parent.removeListener("maximize", this.syncBounds);
     this.parent.removeListener("unmaximize", this.syncBounds);
-    this.parent.removeListener("restore", this.syncBounds);
+    this.parent.removeListener("restore", this.restoreDialog);
+    this.parent.removeListener("show", this.restoreDialog);
+    powerMonitor.removeListener("resume", this.restoreDialog);
+    powerMonitor.removeListener("unlock-screen", this.restoreDialog);
+    screen.removeListener("display-metrics-changed", this.restoreDialog);
+    screen.removeListener("display-removed", this.restoreDialog);
     this.parent.removeListener("focus", this.restoreDialog);
     if (!this.parent.isDestroyed()) {
       this.parentContents.send("confirmation:scrim", false);
       if (this.platform === "darwin") this.parent.setFocusable(this.parentFocusable);
-      else this.parent.setEnabled(this.parentEnabled);
+      else if (this.platform === "win32") this.parent.setEnabled(this.parentEnabled);
       this.parent.focus();
     }
     // Leave Electron's native IPC/close callback before resuming shutdown work.
