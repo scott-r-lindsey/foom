@@ -87,12 +87,12 @@ function assertConfigValidation(executable, scratch) {
       assert.equal(result.status, code, result.stderr);
       assert.equal(result.stderr, "");
       if (json)
-        assert.deepEqual(
-          JSON.parse(result.stdout),
-          code
+        assert.deepEqual(JSON.parse(result.stdout), {
+          problems: code
             ? [{ file: "broken.json", path: "$.agentBypassAcknowledged", reason: "unknown-key" }]
             : [],
-        );
+          agents: [],
+        });
       else if (code)
         assert.match(result.stdout, /broken.json.*\$\.agentBypassAcknowledged.*unknown-key/);
     }
@@ -108,7 +108,13 @@ function assertConfigValidation(executable, scratch) {
     windowsHide: true,
   });
   assert.equal(validV2.status, 0, validV2.stderr);
-  assert.deepEqual(JSON.parse(validV2.stdout), []);
+  const report = JSON.parse(validV2.stdout);
+  assert.deepEqual(report.problems, []);
+  assert.equal(report.agents.length, 1);
+  assert.equal(report.agents[0].id, "offline-codex");
+  assert.equal(report.agents[0].resume, "hook-reported session");
+  assert.equal(report.agents[0].completion, "observed");
+  assert.ok(!validV2.stdout.includes("notify"));
   writeFileSync(
     v2,
     JSON.stringify({
@@ -124,14 +130,17 @@ function assertConfigValidation(executable, scratch) {
     windowsHide: true,
   });
   assert.equal(invalidV2.status, 1, invalidV2.stderr);
-  assert.deepEqual(JSON.parse(invalidV2.stdout), [
-    {
-      file: "offline-codex.json",
-      path: "$.launch.order",
-      reason: "invalid-value",
-      detail: "duplicate-id",
-    },
-  ]);
+  assert.deepEqual(JSON.parse(invalidV2.stdout), {
+    agents: [],
+    problems: [
+      {
+        file: "offline-codex.json",
+        path: "$.launch.order",
+        reason: "invalid-value",
+        detail: "duplicate-id",
+      },
+    ],
+  });
   const sounds = join(directory, "done");
   mkdirSync(sounds, { recursive: true });
   const recording = join(sounds, "tone.flac");
@@ -154,10 +163,10 @@ function assertConfigValidation(executable, scratch) {
       windowsHide: true,
     });
     assert.equal(result.status, code, result.stderr);
-    assert.deepEqual(
-      JSON.parse(result.stdout),
-      code ? [{ file: "attack.wav", path: "$", reason: "invalid-value" }] : [],
-    );
+    assert.deepEqual(JSON.parse(result.stdout), {
+      problems: code ? [{ file: "attack.wav", path: "$", reason: "invalid-value" }] : [],
+      agents: [],
+    });
   }
   return { valid, broken };
 }

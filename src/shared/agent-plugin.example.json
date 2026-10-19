@@ -1,0 +1,211 @@
+{
+  "kind": "agent",
+  "version": 2,
+  "id": "example-agent",
+  "name": "Example agent",
+  "badge": "EX",
+  "executables": ["example-agent"],
+  "discovery": {
+    "version": {
+      "prefix": "",
+      "suffixes": ["", "\n"]
+    },
+    "facts": [
+      {
+        "id": "promptSupport",
+        "helpTokens": ["--prompt"]
+      },
+      {
+        "id": "hookSurface",
+        "helpTokens": ["--observer"]
+      },
+      {
+        "id": "hookVerified",
+        "enabled": false,
+        "when": {
+          "all": [
+            {
+              "field": "hookSurface",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "launch": {
+    "order": [
+      "defaults",
+      "arguments",
+      "resume",
+      "display",
+      "guidance",
+      "hooks",
+      "mcp",
+      "tools",
+      "prompt"
+    ],
+    "arguments": {
+      "arguments": []
+    },
+    "prompt": {
+      "arguments": ["--prompt", "{prompt}"],
+      "requires": "promptSupport"
+    },
+    "resume": {
+      "arguments": ["--resume", "{conversationId}"]
+    }
+  },
+  "bypassArguments": [
+    {
+      "flag": "--skip-permissions",
+      "forms": ["exact"]
+    }
+  ],
+  "attention": {
+    "minimumEngineVersion": 1,
+    "rules": [
+      {
+        "id": "working",
+        "state": "working",
+        "priority": 100,
+        "region": "title",
+        "match": {
+          "contains": ["Working (esc to cancel)"]
+        },
+        "reason": "Agent is working",
+        "comment": "Synthetic example: replace with observed working text."
+      },
+      {
+        "id": "permission",
+        "state": "blocked",
+        "priority": 200,
+        "region": "bottom",
+        "lines": 2,
+        "match": {
+          "contains": ["Allow this action?"]
+        },
+        "not": [
+          {
+            "contains": ["approved"]
+          }
+        ],
+        "reason": "Agent requests permission",
+        "comment": "Synthetic example: replace with observed approval prompt."
+      }
+    ]
+  },
+  "reservedArguments": [
+    {
+      "flag": "--prompt",
+      "forms": ["exact", "equals", "separate"]
+    },
+    {
+      "flag": "--resume",
+      "forms": ["exact", "equals", "separate"]
+    },
+    {
+      "flag": "--session-id",
+      "forms": ["exact", "equals", "separate"]
+    },
+    {
+      "flag": "--observer",
+      "forms": ["exact", "equals", "separate"]
+    },
+    {
+      "flag": "--mcp",
+      "forms": ["exact", "equals", "separate"]
+    }
+  ],
+  "bypassEnvironment": [
+    {
+      "name": "EXAMPLE_SKIP_PERMISSIONS",
+      "match": "values",
+      "values": ["1", "true"],
+      "caseInsensitive": true,
+      "trim": true
+    }
+  ],
+  "resumePaste": [],
+  "conversation": {
+    "resumePin": "first-event",
+    "restoreControl": false,
+    "newId": {
+      "format": "uuid",
+      "arguments": ["--session-id", "{newId}"]
+    }
+  },
+  "execution": {
+    "completion": "observed",
+    "completionChannels": ["lifecycle"]
+  },
+  "hooks": {
+    "channels": [
+      {
+        "id": "lifecycle",
+        "when": {
+          "all": [
+            {
+              "field": "hooksEnabled",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "hookVerified",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        },
+        "observer": {
+          "transport": "argv-last",
+          "placement": "launch",
+          "version": 1,
+          "response": "silent",
+          "delivery": "foreground",
+          "timeoutMs": 3000
+        },
+        "arguments": ["--observer", "{observerArgv:lifecycle:json}"],
+        "mapping": {
+          "session": {
+            "source": "payload",
+            "path": ["session"]
+          },
+          "event": {
+            "source": "payload",
+            "path": ["event"]
+          },
+          "cases": [
+            {
+              "id": "start",
+              "event": "start",
+              "action": "working"
+            },
+            {
+              "id": "stop",
+              "event": "stop",
+              "action": "classify",
+              "endsTurn": true
+            },
+            {
+              "id": "permission",
+              "event": "permission",
+              "action": "needs_input"
+            },
+            {
+              "id": "ready",
+              "event": "ready",
+              "action": "ready"
+            },
+            {
+              "id": "failed",
+              "event": "failed",
+              "action": "failed"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

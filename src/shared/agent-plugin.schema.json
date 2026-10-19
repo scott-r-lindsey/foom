@@ -1,0 +1,1490 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "foom:agent",
+  "title": "Foom agent v2",
+  "description": "Generated from agent-manifest-schema.ts. Run foom config validate for cross-field, template and security checks.",
+  "$ref": "#/$defs/v2",
+  "$defs": {
+    "v2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "version",
+        "id",
+        "name",
+        "badge",
+        "executables",
+        "discovery",
+        "launch",
+        "reservedArguments",
+        "bypassArguments",
+        "bypassEnvironment",
+        "conversation",
+        "resumePaste",
+        "attention",
+        "execution"
+      ],
+      "properties": {
+        "kind": {
+          "const": "agent"
+        },
+        "version": {
+          "const": 2
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "badge": {
+          "$ref": "#/$defs/badge"
+        },
+        "executables": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+            "not": {
+              "pattern": "\\.[cC][mM][dD]$|\\.[bB][aA][tT]$|\\.[pP][sS]1$"
+            }
+          },
+          "maxItems": 8,
+          "minItems": 1
+        },
+        "discovery": {
+          "$ref": "#/$defs/discovery"
+        },
+        "launch": {
+          "$ref": "#/$defs/launch"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file"
+          },
+          "maxItems": 16,
+          "minItems": 0
+        },
+        "hooks": {
+          "$ref": "#/$defs/hooks"
+        },
+        "reservedArguments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/argumentMatcher"
+          },
+          "maxItems": 64,
+          "minItems": 0
+        },
+        "bypassArguments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/argumentMatcher"
+          },
+          "maxItems": 64,
+          "minItems": 0
+        },
+        "bypassEnvironment": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/environment"
+          },
+          "maxItems": 16,
+          "minItems": 0
+        },
+        "conversation": {
+          "$ref": "#/$defs/conversation"
+        },
+        "resumePaste": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/paste"
+          },
+          "maxItems": 8,
+          "minItems": 0
+        },
+        "attention": {
+          "$ref": "#/$defs/attention"
+        },
+        "execution": {
+          "$ref": "#/$defs/execution"
+        },
+        "health": {
+          "$ref": "#/$defs/health"
+        },
+        "setup": {
+          "$ref": "#/$defs/setup"
+        }
+      }
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+    },
+    "badge": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4,
+      "pattern": "^[A-Z0-9]{1,4}$"
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["facts"],
+      "properties": {
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "facts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/fact"
+          },
+          "maxItems": 16,
+          "minItems": 0
+        }
+      }
+    },
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prefix", "suffixes"],
+      "properties": {
+        "prefix": {
+          "$ref": "#/$defs/versionPrefix"
+        },
+        "suffixes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "maxItems": 4,
+          "minItems": 1
+        },
+        "minimum": {
+          "$ref": "#/$defs/minimum"
+        }
+      }
+    },
+    "versionPrefix": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 4096,
+      "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+    },
+    "minimum": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "maxItems": 3,
+      "minItems": 3
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "minimum": {
+          "$ref": "#/$defs/minimum"
+        },
+        "helpTokens": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shortText"
+          },
+          "maxItems": 8,
+          "minItems": 0
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
+        }
+      }
+    },
+    "shortText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "all": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/test"
+          },
+          "maxItems": 16,
+          "minItems": 0
+        },
+        "any": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/test"
+          },
+          "maxItems": 16,
+          "minItems": 0
+        }
+      }
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "op"],
+      "properties": {
+        "field": {
+          "$ref": "#/$defs/field"
+        },
+        "op": {
+          "enum": ["eq", "in", "exists", "absent", "lt", "gte"]
+        },
+        "value": {
+          "$ref": "#/$defs/testValue"
+        }
+      }
+    },
+    "field": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+        },
+        {
+          "$ref": "#/$defs/selector"
+        }
+      ]
+    },
+    "selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "path"],
+      "properties": {
+        "source": {
+          "enum": ["payload", "header", "probe", "metadata", "facts"]
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/selectorKey"
+          },
+          "maxItems": 8,
+          "minItems": 1
+        }
+      }
+    },
+    "selectorKey": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 63
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+        }
+      ]
+    },
+    "testValue": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096,
+                "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "launch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order"],
+      "properties": {
+        "order": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "resume",
+              "defaults",
+              "arguments",
+              "display",
+              "guidance",
+              "mcp",
+              "hooks",
+              "tools",
+              "prompt"
+            ]
+          },
+          "maxItems": 9,
+          "minItems": 9
+        },
+        "arguments": {
+          "$ref": "#/$defs/block"
+        },
+        "display": {
+          "$ref": "#/$defs/block"
+        },
+        "resume": {
+          "$ref": "#/$defs/block"
+        },
+        "prompt": {
+          "$ref": "#/$defs/prompt"
+        },
+        "guidance": {
+          "$ref": "#/$defs/guidance"
+        },
+        "mcp": {
+          "$ref": "#/$defs/block"
+        },
+        "toolPermissions": {
+          "$ref": "#/$defs/tools"
+        }
+      }
+    },
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["arguments"],
+      "properties": {
+        "arguments": {
+          "$ref": "#/$defs/argv"
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
+        }
+      }
+    },
+    "argv": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096,
+        "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+      },
+      "maxItems": 64,
+      "minItems": 0
+    },
+    "prompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["arguments"],
+      "properties": {
+        "arguments": {
+          "$ref": "#/$defs/argv"
+        },
+        "requires": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        }
+      }
+    },
+    "guidance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["when"],
+      "properties": {
+        "when": {
+          "$ref": "#/$defs/condition"
+        },
+        "merge": {
+          "$ref": "#/$defs/merge"
+        }
+      }
+    },
+    "merge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flags", "output", "separators"],
+      "properties": {
+        "flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^--?[A-Za-z][A-Za-z0-9-]*$"
+          },
+          "maxItems": 8,
+          "minItems": 1
+        },
+        "output": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^--?[A-Za-z][A-Za-z0-9-]*$"
+        },
+        "separators": {
+          "enum": ["whitespace", "whitespace-comma", "whitespace-comma-parentheses"]
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["names", "format", "arguments"],
+      "properties": {
+        "names": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "whoami",
+              "sessions",
+              "session_state",
+              "open_preview",
+              "list_previews",
+              "close_preview",
+              "handoff",
+              "read_handoff",
+              "create_worktree",
+              "launch",
+              "reply",
+              "stop",
+              "close",
+              "remove_worktree",
+              "tail",
+              "wait_for",
+              "operation_status"
+            ]
+          },
+          "maxItems": 17,
+          "minItems": 0
+        },
+        "format": {
+          "enum": ["mcp-double-underscore", "server-parentheses"]
+        },
+        "arguments": {
+          "$ref": "#/$defs/argv"
+        },
+        "merge": {
+          "$ref": "#/$defs/merge"
+        }
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "scope", "format", "content"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$",
+          "description": "Safe relative file; foom config validate checks components and device names."
+        },
+        "scope": {
+          "enum": ["launch", "plugin"]
+        },
+        "format": {
+          "enum": ["json", "toml"]
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 16384
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
+        }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channels"],
+      "properties": {
+        "channels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/channel"
+          },
+          "maxItems": 8,
+          "minItems": 1
+        }
+      }
+    },
+    "channel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "when", "observer", "arguments", "mapping"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
+        },
+        "observer": {
+          "$ref": "#/$defs/observer"
+        },
+        "arguments": {
+          "$ref": "#/$defs/argv"
+        },
+        "mapping": {
+          "$ref": "#/$defs/mapping"
+        },
+        "disclosure": {
+          "$ref": "#/$defs/disclosure"
+        }
+      }
+    },
+    "observer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transport", "placement", "version", "response", "delivery", "timeoutMs"],
+      "properties": {
+        "protocol": {
+          "const": "ordered-v2"
+        },
+        "transport": {
+          "enum": ["stdin", "argv-last"]
+        },
+        "placement": {
+          "enum": ["launch", "stable", "plugin"]
+        },
+        "version": {
+          "$ref": "#/$defs/abi"
+        },
+        "response": {
+          "enum": ["silent", "empty-json-first"]
+        },
+        "delivery": {
+          "enum": ["foreground", "detached"]
+        },
+        "timeoutMs": {
+          "$ref": "#/$defs/timeout"
+        },
+        "sequence": {
+          "type": "boolean"
+        },
+        "basename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        },
+        "commandArguments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/eventToken"
+          },
+          "maxItems": 8,
+          "minItems": 0
+        }
+      }
+    },
+    "abi": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/abiInteger"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["posix", "win32"],
+          "properties": {
+            "posix": {
+              "$ref": "#/$defs/abiInteger"
+            },
+            "win32": {
+              "$ref": "#/$defs/abiInteger"
+            }
+          }
+        }
+      ]
+    },
+    "abiInteger": {
+      "type": "integer",
+      "maximum": 100000,
+      "minimum": 1
+    },
+    "timeout": {
+      "type": "integer",
+      "maximum": 3000,
+      "minimum": 1000
+    },
+    "eventToken": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+    },
+    "mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session", "event", "cases"],
+      "properties": {
+        "session": {
+          "$ref": "#/$defs/selector"
+        },
+        "event": {
+          "$ref": "#/$defs/selector"
+        },
+        "sequence": {
+          "$ref": "#/$defs/selector"
+        },
+        "dedupe": {
+          "$ref": "#/$defs/selector"
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/eventCase"
+          },
+          "maxItems": 32,
+          "minItems": 1
+        }
+      }
+    },
+    "eventCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "event", "action"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        },
+        "event": {
+          "$ref": "#/$defs/eventText"
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
+        },
+        "require": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/requirement"
+          },
+          "maxItems": 16,
+          "minItems": 0
+        },
+        "action": {
+          "enum": ["ready", "working", "needs_input", "classify", "failed"]
+        },
+        "facts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/extractor"
+          },
+          "maxItems": 8,
+          "minItems": 0
+        },
+        "endsTurn": {
+          "type": "boolean"
+        },
+        "recoverTurn": {
+          "type": "boolean"
+        }
+      }
+    },
+    "eventText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "type"],
+      "properties": {
+        "field": {
+          "$ref": "#/$defs/selector"
+        },
+        "type": {
+          "enum": ["string", "boolean", "identifier", "conversation", "integer"]
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096,
+                "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maxItems": 16,
+          "minItems": 0
+        }
+      }
+    },
+    "extractor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "field"],
+      "properties": {
+        "name": {
+          "enum": ["terminationReason", "fullyIdle"]
+        },
+        "field": {
+          "$ref": "#/$defs/selector"
+        },
+        "aliases": {
+          "$ref": "#/$defs/aliases"
+        }
+      }
+    },
+    "aliases": {
+      "type": "object",
+      "maxProperties": 8,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "disclosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text", "acknowledgement"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+        },
+        "acknowledgement": {
+          "const": "profile"
+        }
+      }
+    },
+    "argumentMatcher": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["flag", "forms"],
+          "properties": {
+            "flag": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^--?[A-Za-z][A-Za-z0-9-]*$"
+            },
+            "forms": {
+              "type": "array",
+              "items": {
+                "enum": ["exact", "equals", "separate", "attached-short"]
+              },
+              "maxItems": 4,
+              "minItems": 1
+            },
+            "value": {
+              "$ref": "#/$defs/shortText"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["word"],
+          "properties": {
+            "word": {
+              "$ref": "#/$defs/eventText"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["prefix"],
+          "properties": {
+            "prefix": {
+              "$ref": "#/$defs/eventText"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["override"],
+          "properties": {
+            "override": {
+              "$ref": "#/$defs/override"
+            }
+          }
+        }
+      ]
+    },
+    "override": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flags", "keys"],
+      "properties": {
+        "flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^--?[A-Za-z][A-Za-z0-9-]*$"
+          },
+          "maxItems": 8,
+          "minItems": 1
+        },
+        "keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/keySegment"
+          },
+          "maxItems": 8,
+          "minItems": 1
+        },
+        "value": {
+          "$ref": "#/$defs/shortText"
+        }
+      }
+    },
+    "keySegment": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "match"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/envName"
+        },
+        "match": {
+          "enum": ["present-nonempty", "values"]
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shortText"
+          },
+          "maxItems": 16,
+          "minItems": 0
+        },
+        "caseInsensitive": {
+          "type": "boolean"
+        },
+        "trim": {
+          "type": "boolean"
+        }
+      }
+    },
+    "envName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "conversation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resumePin", "restoreControl"],
+      "properties": {
+        "newId": {
+          "$ref": "#/$defs/newId"
+        },
+        "resumePin": {
+          "enum": ["first-event", "requested-on-paste"]
+        },
+        "restoreControl": {
+          "type": "boolean"
+        }
+      }
+    },
+    "newId": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "arguments"],
+      "properties": {
+        "format": {
+          "const": "uuid"
+        },
+        "arguments": {
+          "$ref": "#/$defs/argv"
+        }
+      }
+    },
+    "paste": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "selector"],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+          "not": {
+            "pattern": "\\.[cC][mM][dD]$|\\.[bB][aA][tT]$|\\.[pP][sS]1$"
+          }
+        },
+        "selector": {
+          "$ref": "#/$defs/pasteSelector"
+        }
+      }
+    },
+    "pasteSelector": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "attention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimumEngineVersion", "rules"],
+      "properties": {
+        "minimumEngineVersion": {
+          "const": 1
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/rule"
+          },
+          "maxItems": 64,
+          "minItems": 0
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "state", "priority", "region", "match", "reason"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ruleId"
+        },
+        "state": {
+          "enum": ["working", "blocked", "idle", "unknown"]
+        },
+        "priority": {
+          "$ref": "#/$defs/priority"
+        },
+        "region": {
+          "enum": ["title", "bottom", "after_horizontal_rule"]
+        },
+        "match": {
+          "$ref": "#/$defs/detectionMatcher"
+        },
+        "reason": {
+          "$ref": "#/$defs/shortText"
+        },
+        "lines": {
+          "$ref": "#/$defs/lines"
+        },
+        "not": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/detectionMatcher"
+          },
+          "maxItems": 8,
+          "minItems": 0
+        },
+        "comment": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    },
+    "ruleId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "priority": {
+      "type": "integer",
+      "maximum": 2000,
+      "minimum": 0
+    },
+    "detectionMatcher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "contains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shortText"
+          },
+          "maxItems": 8,
+          "minItems": 0
+        },
+        "regex": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shortText"
+          },
+          "maxItems": 8,
+          "minItems": 0
+        }
+      }
+    },
+    "lines": {
+      "type": "integer",
+      "maximum": 40,
+      "minimum": 1
+    },
+    "comment": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "license", "modified"],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/comment"
+        },
+        "license": {
+          "$ref": "#/$defs/comment"
+        },
+        "modified": {
+          "$ref": "#/$defs/comment"
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["completion", "completionChannels"],
+      "properties": {
+        "completion": {
+          "enum": ["attached", "observed"]
+        },
+        "completionChannels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "maxItems": 8,
+          "minItems": 0
+        },
+        "providerRules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ruleId"
+          },
+          "maxItems": 16,
+          "minItems": 0
+        }
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "channel",
+        "requiredEvents",
+        "completionEvent",
+        "promptEvent",
+        "review",
+        "instructions"
+      ],
+      "properties": {
+        "channel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "requiredEvents": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "maxItems": 16,
+          "minItems": 0
+        },
+        "completionEvent": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        },
+        "promptEvent": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        },
+        "review": {
+          "$ref": "#/$defs/review"
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contains", "lines", "caseSensitive"],
+      "properties": {
+        "contains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/shortText"
+          },
+          "maxItems": 8,
+          "minItems": 1
+        },
+        "lines": {
+          "$ref": "#/$defs/lines"
+        },
+        "caseSensitive": {
+          "type": "boolean"
+        }
+      }
+    },
+    "setup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "actions"],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action"
+          },
+          "maxItems": 8,
+          "minItems": 0
+        },
+        "offer": {
+          "$ref": "#/$defs/offer"
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cases", "default"],
+      "properties": {
+        "probe": {
+          "$ref": "#/$defs/probe"
+        },
+        "metadata": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/metadata"
+          },
+          "maxItems": 4,
+          "minItems": 0
+        },
+        "ownership": {
+          "$ref": "#/$defs/ownership"
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/statusCase"
+          },
+          "maxItems": 16,
+          "minItems": 0
+        },
+        "default": {
+          "const": "unavailable"
+        }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["arguments", "format"],
+      "properties": {
+        "arguments": {
+          "$ref": "#/$defs/argv"
+        },
+        "format": {
+          "const": "json"
+        },
+        "empty": {
+          "$ref": "#/$defs/emptyProbe"
+        }
+      }
+    },
+    "emptyProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "value"],
+      "properties": {
+        "text": {
+          "$ref": "#/$defs/shortText"
+        },
+        "value": {}
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "optional"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "path": {
+          "$ref": "#/$defs/homeRelative"
+        },
+        "optional": {
+          "type": "boolean"
+        }
+      }
+    },
+    "homeRelative": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$",
+      "description": "Safe relative file; foom config validate checks components and device names."
+    },
+    "ownership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["directory", "manifest", "require", "versionField", "currentVersion"],
+      "properties": {
+        "directory": {
+          "$ref": "#/$defs/homeRelative"
+        },
+        "manifest": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "require": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/requirement"
+          },
+          "maxItems": 16,
+          "minItems": 0
+        },
+        "versionField": {
+          "$ref": "#/$defs/selector"
+        },
+        "unfingerprintedVersion": {
+          "$ref": "#/$defs/abiInteger"
+        },
+        "currentVersion": {
+          "$ref": "#/$defs/abiInteger"
+        },
+        "disabledField": {
+          "$ref": "#/$defs/selector"
+        },
+        "enabledField": {
+          "$ref": "#/$defs/selector"
+        }
+      }
+    },
+    "statusCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["when", "state"],
+      "properties": {
+        "when": {
+          "$ref": "#/$defs/condition"
+        },
+        "state": {
+          "enum": ["not-installed", "installed", "outdated", "disabled", "unavailable"]
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "kind", "when", "disclosure", "statusProbe"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "label": {
+          "$ref": "#/$defs/name"
+        },
+        "kind": {
+          "enum": ["command", "instructions"]
+        },
+        "arguments": {
+          "$ref": "#/$defs/argv"
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
+        },
+        "disclosure": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+        },
+        "statusProbe": {
+          "$ref": "#/$defs/statusProbe"
+        }
+      }
+    },
+    "statusProbe": {
+      "anyOf": [
+        {
+          "const": "observed-health"
+        },
+        {
+          "$ref": "#/$defs/argv"
+        }
+      ]
+    },
+    "offer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unansweredLabel"],
+      "properties": {
+        "unansweredLabel": {
+          "$ref": "#/$defs/offerLabel"
+        }
+      }
+    },
+    "offerLabel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+    }
+  }
+}

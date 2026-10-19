@@ -159,7 +159,10 @@ test("unedited docs refresh and edited docs are left alone", async () => {
   const f = await fixture();
   await f.service.initialize();
   await f.service.dispose();
-  await f.write("README.md", "my notes");
+  const oldGuide = await readFile("tests/fixtures/config/guide-2026-10-14.md", "utf8");
+  await f.write("README.md", oldGuide);
+  await f.write("AGENTS.md", oldGuide);
+  await f.write("CLAUDE.md", `${oldGuide}\nmy notes`);
   const again = new ConfigService({
     root: f.folder,
     defaults: configPart(DEFAULT_SETTINGS),
@@ -170,7 +173,9 @@ test("unedited docs refresh and edited docs are left alone", async () => {
   });
   services.push(again);
   await again.initialize();
-  expect(await f.read("README.md")).toBe("my notes");
+  expect(await f.read("README.md")).toBe(OWNED_FILES["README.md"]);
+  expect(await f.read("AGENTS.md")).toBe(OWNED_FILES["AGENTS.md"]);
+  expect(await f.read("CLAUDE.md")).toBe(`${oldGuide}\nmy notes`);
 });
 
 test("ordinary changes apply live; invalid files are rejected whole", async () => {

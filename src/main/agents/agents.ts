@@ -1,3 +1,4 @@
+import { agentCapabilities } from "../../shared/agent-capabilities";
 import type { DialogContent } from "../../shared/confirmation";
 import type { PreparedLaunch } from "./providers/provider";
 import { matchesArguments, bypassEnvironment } from "./providers/v2-values";
@@ -153,6 +154,9 @@ export class AgentService {
           mark: provider.mark,
           command: provider.executableNames[0] ?? provider.id,
           resume: Boolean(provider.model.launch.resume),
+          attentionSignal: !agentCapabilities({
+            model: provider.model,
+          }).warnings.includes("No attention signal"),
           ...(provider.origin === "bundled" ? {} : { source: `agents/${provider.id}.json` }),
           resumePaste: provider.model.resumePaste,
           restoreControl: agent.restoreControl ?? provider.model.conversation.restoreControl,

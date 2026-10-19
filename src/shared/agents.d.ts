@@ -14,6 +14,7 @@ export interface AgentInstallation {
   readonly path: string | null;
   readonly version: string | null;
   readonly hooks: boolean;
+  readonly attentionSignal?: boolean;
   readonly resume?: boolean;
   readonly resumePaste?: readonly { command: string; selector: string }[];
   readonly restoreControl?: boolean;

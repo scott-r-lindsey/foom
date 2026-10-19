@@ -27,9 +27,9 @@ import { Orchestration, UncertainEffect } from "../control/orchestration";
 import type { ConfirmWorkspace, DialogContent } from "../../shared/confirmation";
 import { EMPTY_AGENT_ARGUMENTS, hasBypassArgument } from "../agents/default-arguments";
 import type { AgentEvidence } from "../../shared/agent-detection";
-import { basename, delimiter } from "node:path";
+import { basename } from "node:path";
 import type { SidebarCommand, SidebarInventory } from "../../shared/workspace";
-import { AgentService } from "../agents/agents";
+import { AgentService, loginPath } from "../agents/agents";
 import { AGENTS } from "../agents/agent-list";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import type { EnvironmentVariable } from "../../shared/environment";
@@ -1001,12 +1001,12 @@ export class Workspace {
   }
 
   /** Shells get the All sessions layer only; `pathFirst` stays ahead of its PATH entries. */
-  private shellEnvironment(pathFirst?: string): { env: Record<string, string>; names: string[] } {
-    const layers = this.deps.environment?.("shell");
-    if (layers) return buildLaunchEnvironment({ layers, base: inheritedEnvironment(), pathFirst });
-    return pathFirst
-      ? { env: { PATH: `${pathFirst}${delimiter}${process.env["PATH"] ?? ""}` }, names: [] }
-      : { env: {}, names: [] };
+  private async shellEnvironment(
+    pathFirst?: string,
+  ): Promise<{ env: Record<string, string>; names: string[] }> {
+    const layers = this.deps.environment?.("shell") ?? [];
+    const path = pathFirst === undefined ? undefined : (await loginPath()).path;
+    return buildLaunchEnvironment({ layers, base: inheritedEnvironment(), pathFirst, path });
   }
 
   /**
@@ -1026,7 +1026,7 @@ export class Workspace {
     pathFirst?: string,
     configEnvironment?: Readonly<Record<string, string>>,
   ): Promise<string> {
-    const environment = this.shellEnvironment(pathFirst);
+    const environment = await this.shellEnvironment(pathFirst);
     if (restoreId !== undefined) this.executionOwner.reset(restoreId);
     const id = await this.deps.terminals.create({
       ...(restoreId === undefined ? {} : { id: restoreId }),

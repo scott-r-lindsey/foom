@@ -1,3 +1,4 @@
+import * as agentDiscovery from "../../../../src/main/agents/agents";
 import { flushV2Health } from "../../../../src/main/agents/providers/v2-health";
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
@@ -78,6 +79,7 @@ const commit = vi.fn<(record: VerdictRecord) => Promise<void>>();
 const startReceiver = vi.fn(() => Promise.resolve(receiver));
 
 beforeEach(async () => {
+  vi.spyOn(agentDiscovery, "loginPath").mockResolvedValue({ path: "/login/bin", warning: null });
   agentProvider("codex").discover("/bin/codex", "codex-cli 0.161.0", "-c --no-alt-screen");
   states = [];
   evaluated = [];
@@ -3230,7 +3232,7 @@ test("config sessions run in the config folder with the bundled CLI", async () =
       cwd: "/home/.foom/config",
       shellIntegration: true,
       env: expect.objectContaining({
-        PATH: expect.stringMatching(/^\/app\/console[:;]/) as unknown,
+        PATH: expect.stringMatching(/^\/app\/console[:;]\/login\/bin$/) as unknown,
         FOOM_CONFIG_TOKEN: expect.stringMatching(/^[a-f0-9]{64}$/u) as unknown,
         FOOM_CONFIG_URL: expect.stringMatching(/^http:\/\/127\.0\.0\.1:/u) as unknown,
       }) as unknown,
@@ -3382,7 +3384,7 @@ test("config sessions get Environment layers with the bundled CLI first on PATH"
   await workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, no);
   const env = create.mock.calls.at(-1)?.[0].env ?? {};
   const pathKey = Object.keys(env).find((name) => name.toUpperCase() === "PATH") ?? "PATH";
-  expect(env[pathKey]).toMatch(/^\/app\/console[:;]\/opt\/bin[:;]/);
+  expect(env[pathKey]).toMatch(/^\/app\/console[:;]\/opt\/bin[:;]\/login\/bin$/);
   expect(workspace.snapshot().terminals[0]).toMatchObject({ config: true, environment: ["PATH"] });
   await workspace.exited("t1", 0);
   await workspace.sidebarCommand({ kind: "config-launch", run: "codex" }, no);
