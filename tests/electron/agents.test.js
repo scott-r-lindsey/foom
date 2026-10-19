@@ -4117,14 +4117,20 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
     .toBe(false);
   await assert.rejects(require("node:fs/promises").access(second.launch.cwd), { code: "ENOENT" });
   await page.evaluate((id) => window.desktop.input(id, "install\r"), configId);
+  // Let the watcher publish the installed provider before discovery scans it.
   await expect
-    .poll(
-      async () =>
-        (await page.evaluate(() => window.desktop.scanAgents(true))).agents.find(
-          (agent) => agent.id === "copilot",
-        )?.hooks,
+    .poll(() =>
+      app.evaluate(({ app }) => {
+        const load = process
+          .getBuiltinModule("node:module")
+          .createRequire(app.getAppPath() + "/package.json");
+        const { knownAgentId } = load("./build/main/agents/providers/registry.js");
+        return knownAgentId("copilot");
+      }),
     )
     .toBe(true);
+  const installed = await page.evaluate(() => window.desktop.scanAgents(true));
+  assert.equal(installed.agents.find((agent) => agent.id === "copilot")?.hooks, true);
   await page.evaluate(() =>
     window.desktop.sidebarCommand({ kind: "config-launch", run: "copilot" }),
   );
