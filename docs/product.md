@@ -467,8 +467,9 @@ Maximize/Restore and Close. The tile menu offers Allow network… when off, and 
 A preview has no running process to hide. Replacement closes previews that no longer fit. Split, Grow, drag, Tidy and focus
 shortcuts treat previews as occupied tiles. Opening or reloading a preview never
 moves focus; a click or explicit focus command does. While panels, trusted
-confirmation scrims, drag previews or maximize/restore motion cover previews,
-they show a frozen image of the page beneath the board UI and resume afterwards.
+confirmation scrims or drag previews cover previews, they show a frozen image
+of the page beneath the board UI and resume afterwards. During maximize/restore
+motion, live previews follow the tile bounds without a cover.
 Previews do not intercept board drags. Foom shortcuts remain available when a
 preview has keyboard focus.
 

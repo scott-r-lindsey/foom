@@ -82,7 +82,7 @@ export function attachPreviewComposition(api: PreviewApi): () => void {
   };
   const off = api.onSnapshots((snapshots) => {
     draw(snapshots);
-    position();
+    schedule();
   });
   const position = () => {
     for (const [id, image] of images) {
@@ -135,20 +135,29 @@ export function attachPreviewComposition(api: PreviewApi): () => void {
     }
     position();
     // Follow real animation completion, including cancellation/reduced motion.
-    if (moving && !frame)
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        update();
-      });
+    if (moving) schedule();
+  };
+  const schedule = () => {
+    if (disposed || frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      update();
+    });
   };
   const observer = new MutationObserver((records) => {
+    // Terminal paints and our own canvas styles cannot change board stacking.
+    // Only inspect ancestry here: selectors/layout scans belong in the frame.
     if (
-      records.some(
-        (record) =>
-          !(record.target instanceof Element) || !record.target.matches(".preview-snapshot"),
-      )
+      records.some((record) => {
+        const target = record.target;
+        return (
+          target instanceof Element &&
+          target.isConnected &&
+          !target.closest(".tile-terminal, .xterm, .preview-snapshot")
+        );
+      })
     )
-      update();
+      schedule();
   });
   observer.observe(document.body, {
     subtree: true,
