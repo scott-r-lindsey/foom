@@ -8,7 +8,8 @@ export interface WindowPlacement {
   display: number;
   bounds: { x: number; y: number; width: number; height: number };
   maximized: boolean;
-  scale: number;
+  /** Accepted only for migration from old windows.json files. Never written. */
+  scale?: number;
 }
 export interface DisplayArea {
   id: number;
@@ -31,11 +32,7 @@ export function parsePlacements(value: unknown): WindowPlacement[] {
       !Number.isSafeInteger(item.display) ||
       !("maximized" in item) ||
       typeof item.maximized !== "boolean" ||
-      !("scale" in item) ||
-      typeof item.scale !== "number" ||
-      !Number.isInteger(item.scale) ||
-      item.scale < Math.min(...SCALES) ||
-      item.scale > Math.max(...SCALES) ||
+      ("scale" in item && (typeof item.scale !== "number" || !SCALES.includes(item.scale))) ||
       !("bounds" in item)
     )
       return [];
@@ -70,7 +67,7 @@ export function parsePlacements(value: unknown): WindowPlacement[] {
         id: item.id,
         display: item.display,
         maximized: item.maximized,
-        scale: item.scale,
+        ...("scale" in item && typeof item.scale === "number" ? { scale: item.scale } : {}),
         bounds: { x, y, width, height },
       },
     ];
@@ -115,7 +112,11 @@ export async function savePlacements(
   const file = join(userData, "windows.json");
   const temporary = `${file}.${randomUUID()}.tmp`;
   try {
-    await writeFile(temporary, JSON.stringify(placements), { flag: "wx", mode: 0o600 });
+    await writeFile(
+      temporary,
+      JSON.stringify(placements.map(({ scale: _legacyScale, ...placement }) => placement)),
+      { flag: "wx", mode: 0o600 },
+    );
     await rename(temporary, file);
   } finally {
     await rm(temporary, { force: true });

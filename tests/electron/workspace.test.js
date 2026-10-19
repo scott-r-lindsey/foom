@@ -2104,7 +2104,11 @@ test("multiple windows restore independent layouts, bounds and interface size", 
 }, async (context) => {
   const profile = await mkdtemp(path.join(tmpdir(), "foom-window-restore-"));
   removeAfterApps(context, profile);
-  const options = { args: [`--user-data-dir=${profile}`], fixture: "empty-board" };
+  const options = {
+    args: [`--user-data-dir=${profile}`],
+    home: path.join(profile, "home"),
+    fixture: "empty-board",
+  };
   const app = await launchApp(context, options);
   const first = await boardPage(app);
   await expect(first.getByRole("button", { name: "Foom config", exact: true })).toBeVisible();
@@ -2130,7 +2134,7 @@ test("multiple windows restore independent layouts, bounds and interface size", 
   await second.evaluate(() => window.desktop.saveSetup({ interfaceScale: 90 }));
   assert.equal(
     (await first.evaluate(() => window.desktop.setupState())).settings.interfaceScale,
-    110,
+    90,
   );
   const firstId = await first.evaluate(() => window.desktop.windows.id);
   const secondId = await second.evaluate(() => window.desktop.windows.id);
@@ -2140,8 +2144,8 @@ test("multiple windows restore independent layouts, bounds and interface size", 
   const placements = JSON.parse(await readFile(path.join(profile, "windows.json"), "utf8"));
   assert.equal(placements.length, 2);
   assert.deepEqual(
-    placements.map((item) => item.scale),
-    [110, 90],
+    placements.map((item) => "scale" in item),
+    [false, false],
   );
   const restored = await launchApp(context, { ...options, fixture: "restored" });
   await expect
@@ -2157,7 +2161,7 @@ test("multiple windows restore independent layouts, bounds and interface size", 
     await expect(page.locator(".terminal-tile")).toHaveCount(id === firstId ? 2 : 3);
     assert.equal(
       (await page.evaluate(() => window.desktop.setupState())).settings.interfaceScale,
-      id === firstId ? 110 : 90,
+      90,
     );
     await assertAccessible(page);
   }

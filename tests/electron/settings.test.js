@@ -2453,3 +2453,46 @@ test("Settings forge cards persist user host assignments without activating prov
     0,
   );
 });
+
+test("interface zoom follows the shared setting in every window", async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const first = await boardPage(app);
+  await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(() => app.windows().filter((page) => page.url() === "app://bundle/index.html").length)
+    .toBe(2);
+  const second = app
+    .windows()
+    .find((page) => page !== first && page.url() === "app://bundle/index.html");
+  const zoomButton = (page, scale) =>
+    page.getByRole("button", {
+      name: scale === 100 ? "Zoom 100%" : `Zoom ${scale}%, reset to 100%`,
+      exact: true,
+    });
+  await expect(zoomButton(second, 100)).toBeVisible();
+  await first.getByRole("button", { name: "Zoom in", exact: true }).click();
+  const assertScale = async (scale) => {
+    for (const page of [first, second]) {
+      await expect(zoomButton(page, scale)).toBeVisible();
+      await expect
+        .poll(() =>
+          page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceScale),
+        )
+        .toBe(scale);
+    }
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()
+            .filter((window) => window.webContents.getURL() === "app://bundle/index.html")
+            .map((window) => window.webContents.getZoomFactor()),
+        ),
+      )
+      .toEqual([scale / 100, scale / 100]);
+  };
+  await assertScale(110);
+  await second.evaluate(() => window.desktop.appMenu.execute("zoom-in"));
+  await assertScale(120);
+  await zoomButton(first, 120).click();
+  await assertScale(100);
+});
