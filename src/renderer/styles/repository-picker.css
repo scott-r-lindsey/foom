@@ -164,3 +164,21 @@
     flex-wrap: wrap;
   }
 }
+
+:is(.preflight, .settings-view) input.recent-days-input[type="number"] {
+  width: 3.5em;
+  padding: 2px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  text-align: center;
+  appearance: textfield;
+}
+.recent-days-input::-webkit-inner-spin-button,
+.recent-days-input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}

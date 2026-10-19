@@ -117,7 +117,7 @@ The `foom/process-boundaries` ESLint rule checks static imports, re-exports, lit
 
 Import implementations and their types directly from their owning modules; do not
 add migration-only `export *` forwarding files. Provider launch helpers live in
-`main/agents/providers/{cli-launch,hook-launch,hook-adapters,mcp-launch}.ts`;
+`main/agents/providers/{cli-launch,hook-launch,v2-observers,mcp-launch}.ts`;
 private-file helpers and control validation live in
 `node-common/{private-files,control-validation}.ts`; browser-safe argument helpers
 live in `shared/providers/arguments.ts`. Source, tests and mocks use these same
@@ -246,7 +246,7 @@ persistent action log. Neither history includes page contents. Showing a row use
 human tile placement. Tile arrivals are local view state with accent tint and an
 edge, cleared by hover or focus, with reduced motion disabling the flare.
 
-**Today:** The board uses React 19 with TSX and reads one typed source through `useSyncExternalStore`. Each stable tile mounts one imperative terminal controller through the source adapter and disposes xterm and subscriptions on unmount. Terminal attachment and measurement remain in the controller to preserve attachment ordering. Board focus and pane selection are independent view state; hovering or focusing a row does not fetch terminal output or select a terminal. The source also supplies path-identified repositories and their complete Git worktree inventory, including empty worktrees and the main checkout, plus validated main-process navigation commands. `sidebar-model.ts` computes stable pin/active/idle sections, filtering, hidden attention counts and roll-ups. `sidebar-view.tsx` renders the tree (or compact session rail by window choice, forced below 720px). Repository and checkout name clicks do not change the terminal pane. Sidebar focus does not attach a terminal; only the board's presentation callback requests that from the tile controller. Open row panels derive actions from current source data so delayed eligibility updates are visible without reopening. `row-menu.tsx` portals panels to the document body, positions them from the row’s viewport rectangle, and owns keyboard navigation and dismissal. `sidebar-preferences.ts` validates versioned localStorage metadata for pins, expansion and terminal-ID names; this metadata grants no process or filesystem capabilities. Session restoration follows the [saved-conversation contract](#saved-conversations): eligible running sessions launch fresh PTYs when enabled; screens and scrollback are never persisted. Activity batches feed a disposable DOM-only light controller with logarithmic rate mapping, 120 ms attack and 700 ms release. It holds rate targets for at least one third of a second, writes brightness, scale and halo styles, and samples bounded eight-second SVG traces at 4 Hz in sidebar rows. Trace history independently retains the maximum mapped rate observed during each sample window, bypassing the glow target hold and attack/release envelope. A peak is reset only after sampling, including one-second reduced-motion windows. Reduced motion renders four brightness steps and trace samples at 1 Hz without scaling. Latest activity rates are cached independently of mounted histories, including final zero batches while rows are hidden. New subscribers receive cached rates so remounting cannot revive stale snapshot activity. Closed, exited and nonmoving sessions discard history; unmount removes subscriptions and timers. A separate clock updates wait labels without React commits. Activity goes directly from IPC to light styles without changing the React row snapshot.
+**Today:** The board uses React 19 with TSX and reads one typed source through `useSyncExternalStore`. Each stable tile mounts one imperative terminal controller through the source adapter and disposes xterm and subscriptions on unmount. Terminal attachment and measurement remain in the controller to preserve attachment ordering. Board focus and pane selection are independent view state; hovering or focusing a row does not fetch terminal output or select a terminal. The source also supplies path-identified repositories and their complete Git worktree inventory, including empty worktrees and the main checkout, plus validated main-process navigation commands. `sidebar-model.ts` computes stable pin/active/idle sections, filtering, hidden attention counts and roll-ups. `sidebar-view.tsx` renders the tree (or compact session rail by window choice, forced below 720px). Repository and checkout name clicks do not change the terminal pane. Sidebar focus does not attach a terminal; only the board's presentation callback requests that from the tile controller. Open row panels derive actions from current source data so delayed eligibility updates are visible without reopening. `row-menu.tsx` portals panels to the document body, positions them from the row’s viewport rectangle, and owns keyboard navigation and dismissal. `sidebar-preferences.ts` validates versioned localStorage metadata for pins, expansion and terminal-ID names; this metadata grants no process or filesystem capabilities. Each pin, expansion choice and name is written independently under `foom.sidebar.v2.` keys; only fields changed from the rendered snapshot are saved, so stale windows cannot overwrite unrelated edits. The v1 snapshot remains a read-only fallback, with explicit false/null tombstones for resets. A disposable external store observes storage events and rereads current validated metadata (rather than replaying potentially stale event values), feeding React through `useSyncExternalStore`. Tile layout and sidebar collapse/width remain per-window. Session restoration follows the [saved-conversation contract](#saved-conversations): eligible running sessions launch fresh PTYs when enabled; screens and scrollback are never persisted. Activity batches feed a disposable DOM-only light controller with logarithmic rate mapping, 120 ms attack and 700 ms release. It holds rate targets for at least one third of a second, writes brightness, scale and halo styles, and samples bounded eight-second SVG traces at 4 Hz in sidebar rows. Trace history independently retains the maximum mapped rate observed during each sample window, bypassing the glow target hold and attack/release envelope. A peak is reset only after sampling, including one-second reduced-motion windows. Reduced motion renders four brightness steps and trace samples at 1 Hz without scaling. Latest activity rates are cached independently of mounted histories, including final zero batches while rows are hidden. New subscribers receive cached rates so remounting cannot revive stale snapshot activity. Closed, exited and nonmoving sessions discard history; unmount removes subscriptions and timers. A separate clock updates wait labels without React commits. Activity goes directly from IPC to light styles without changing the React row snapshot.
 
 `agentOutputLevel` and `shellOutputLevel` are separately tested entry points using
 `min(1, ln(1 + max(0, rate)/40) / ln(101))`: 0 B/s → 0, 200 B/s → 0.39,
@@ -292,12 +292,12 @@ attached stream. Host generations continue to reject delayed output acknowledgem
 
 `window-placement.ts` validates and atomically persists the window set in private
 `windows.json`. Each record has a stable random ID, display ID, normal bounds,
-maximized flag and interface scale. Restore clamps geometry to a connected display,
+and maximized flag. Legacy interface scales are read only for migration. Restore clamps geometry to a connected display,
 falling back to the primary. The preload receives only its window ID and optional
 pop-out terminal ID as main-generated arguments; it receives no profile paths.
-Each window uses its ID to namespace validated localStorage tile metadata, including the sidebar collapse choice. New windows start expanded; the narrow rail override and temporary overlay do not change that choice. The
+Each window uses its ID to namespace validated localStorage tile metadata, including the sidebar collapse choice and expanded width. New windows start expanded at 300px; the narrow rail override and temporary overlay do not change that choice. The
 legacy size file remains a fallback for the first window. Global settings retain
-one writer; window-specific wrappers keep interface scale separate. Setup scans and confirmations stay local to their requesting window. Classification uses the shared local rules.
+one writer, including one app-wide interface scale. Every window applies the shared scale with its own remembered 100% size; only the requesting window uses the pointer anchor. The shared setting wins on migration, falling back to the first saved window’s scale. Setup scans and confirmations stay local to their requesting window. Classification uses the shared local rules.
 
 `window-audio.ts` elects one board to play app sounds. Validated view IDs describe
 focus; main combines them with native focus and publishes suppression to the audio
@@ -485,13 +485,18 @@ its raised card, with a native shadow and platform rounding where supported (squ
 corners on Linux). The board draws a cosmetic translucent scrim in the top layer, covering any open
 board form, from the boolean-only
 `confirmation:scrim` notification. Hiding or failing to draw it grants nothing.
-Native `modal` is false to avoid macOS sheet presentation. On Windows and Linux,
-main disables the parent. On macOS, Electron's `setEnabled(false)` attaches a
+Native `modal` is false to avoid macOS sheet presentation; Linux explicitly uses
+the native `dialog` window type for transient stacking. On Windows main disables
+the parent. Linux leaves it enabled so clicks can recover an unavailable child;
+a disabled parent swallows those clicks without a focus event. On macOS,
+Electron's `setEnabled(false)` attaches a
 translucent sheet above even a focused child (#353), so main instead temporarily
-makes the board nonfocusable and blocks its mouse and keyboard events before
-renderer dispatch. The keyboard guard also prevents board shortcuts. Main
-redirects parent focus to the child; each dismissal restores the original native
-focusability or enabled state and removes the input guards. The page uses a ResizeObserver to report
+makes the board nonfocusable. On every platform main consumes board mouse and
+keyboard events before renderer dispatch, including board shortcuts. A mouse-down
+or key-down on the blocked board re-presents the child (show, bounds, raise and
+focus), as does parent focus. Recovery never forwards the original input to the
+dialog or board. Each dismissal restores the original native focusability or
+enabled state and removes the input guards. The page uses a ResizeObserver to report
 natural card dimensions in CSS pixels via `confirmation:size`. Main accepts only
 finite positive sizes from the trusted main frame at the exact confirmation URL,
 while a request is pending. It multiplies by the board zoom, clamps to the parent's
@@ -511,10 +516,20 @@ that cannot acquire native key focus gets one reorder attempt and a second
 one-second check; failure cancels without approving, clears the scrim and releases
 board input. Windows/Linux also require native visibility. On macOS, current key
 focus takes precedence over occlusion reporting, which can disagree with the
-visible child during reuse. Hiding, minimizing or destroying the child, or hiding/minimizing its
-board, also cancels after checking current native visibility/minimization, so a
-late Cocoa hide notification cannot dismiss a newly visible reused request.
-Checks and listeners are removed on dismissal and disposal.
+visible child during reuse (#353). All platforms read back native bounds and
+require the entire measured card within the parent's display work area, within
+2 DIP of the requested position and size. Focus and visibility alone can describe
+an off-screen mapped child and are insufficient. A successful check schedules
+another in five seconds to detect silent losses. Resume, unlock, display removal
+or metric changes, and parent show/restore re-present and check the dialog too.
+Reentrant focus events cannot extend the final recovery deadline. Native
+presentation exceptions decline immediately. Every positive answer, including
+cleanup actions and removal subsets, must pass the same focus, visibility and
+geometry checks at IPC receipt; recovery itself never grants approval.
+Hiding, minimizing or destroying the child, or hiding/minimizing its board, also
+cancels after checking current native visibility/minimization, so a late Cocoa
+hide notification cannot dismiss a newly visible reused request. Timers and
+listeners are removed on dismissal and disposal.
 These focus checks are a recovery safety net; the Electron regression observes
 composed desktop pixels, since macOS can report native focus through an overlay.
 Theme and Interface scale updates reach the dialog while pending; parent move,
@@ -636,14 +651,21 @@ Git commands have a 30-second process deadline.
 ## Agent discovery and launch
 
 The [agent plugin format v2](agent-plugins.md) parser (#430) supports offline
-validation and a normalized v1 compatibility model. #431 adds the generic launch
+validation. #431 adds the generic launch
 engine for v2 config plugins: fixed discovery, conditional ordered argv,
 private MCP data files, prompts and preview grants, argument and environment
-bypass, resume and attention rules. Hooks/health and setup are implemented by #432/#433. Claude (#434), Codex (#435) and Antigravity (#436) use the same v2 engine through bundled build-locked manifests; v1 retains its compatibility adapter.
+bypass, resume and attention rules. Hooks/health and setup are implemented by #432/#433. Claude (#434), Codex (#435) and Antigravity (#436) use the same v2 engine through bundled build-locked manifests.
 
 **Today:** `src/main/agents/agents.ts` provides a main-only `AgentService`, following the worktree service's integration boundary. `scan()` resolves PATH with the account's login shell (`-ilc`, a fixed printf program with NUL delimiters), then probes each resolved executable with bounded `--version` and `--help` calls. It retains full version strings. Shell failures report a warning and use inherited PATH; Windows uses inherited PATH and native executables. Relative and empty PATH components are ignored. Windows batch/PowerShell wrappers are not executed through a command shell; installations exposing only those wrappers currently need a native executable on PATH.
 
 Stable Claude Code releases at or above 2.1.284 and Codex releases at or above 0.155.1 enable hooks only when help includes the complete `--settings` or `-c` flag respectively. There is no maximum version. Unparseable versions, prerelease/custom suffixes, missing flags, failed probes, disabled hooks, and an unavailable receiver use output evaluation. Calling `scan()` again replaces discovery results. Codex receives `--no-alt-screen` only when its help lists the complete flag, independently of hook support or the hooks setting. Inline output stays in normal scrollback for wheel scrolling and evaluator tails; a failed or unsupported probe leaves launch arguments unchanged. Launch uses a resolved executable and argument array through a terminal creation capability (including the asynchronous utility-host client), with the resolved PATH added to its scrubbed environment. All launch paths authorize any valid selected checkout in the registered repository, including external and detached worktrees. Main captures the canonical checkout identity before confirmations or agent scanning; the agent service revalidates it after hook preparation, immediately before spawning. Shells revalidate immediately before spawning too. Validation checks current Git membership and common Git directory, rejects redirected, bare, locked and prunable worktrees, and detects replacement during confirmation. The identity is a main-only launch capability; IPC never copies it from renderer requests. All checkouts permit multiple sessions. Sidebar, New worktree and legacy agent launch paths use a main-owned confirmation before launching an agent alongside any running agent in that checkout. Shells and exited agents do not trigger the warning. Cancellation creates no session. Main grants the shared-launch capability only after checking for active agents under the launch lock; renderer-supplied flags cannot bypass confirmation. Launch and removal locks cover confirmation and spawning. Repository registration is reserved before any asynchronous launch or worktree creation, including legacy launch IPC. Repository removal in both the sidebar and Settings refuses pending operations and tracked sessions; its exclusive guard spans confirmation and deregistration and blocks new launches until it settles. Each session retains independent hooks and verdicts.
+
+Login-shell reads share `src/main/login-shell.ts`: stdin is ignored and Unix
+reads start in a detached session, without Foom's controlling terminal (#626).
+Both PATH discovery and environment import retain their five-second deadline and
+256 KiB limits per output stream. Timeout, excess output and shell exit kill the
+Unix process group, including background descendants holding output pipes open.
+Windows readers continue to use the inherited environment without a login shell.
 
 ### Launch environment (#215)
 
@@ -1108,6 +1130,7 @@ in the profile. Validation alone grants no approval.
 | `hooks` | Boolean |
 | `restoreSessions` | Boolean, default `true`; enabling through the file requires Allow |
 | `concurrentChildren` | Integer 1–16, default 4 |
+| `recentRepositoryDays` | Integer 1–365, default 30 |
 
 `shared/config-settings.ts` supplies the same value validation to main's settings
 patch parser and the file parser; theme files use `shared/theme-files.ts` directly.
@@ -1130,7 +1153,7 @@ is null, false or otherwise harmless in isolation.
 
 `src/main/setup/setup.ts` applies the settings to the running app at startup and on each save, and coordinates repository scanning. Legacy inference fields are discarded only when loading a profile; IPC patches still reject them.
 
-Appearance lives in Settings and the preflight rail through the same `AppearanceControls` component and applies at once. `colorMode` (system, light or dark) sets `nativeTheme.themeSource` for Eclipse; fixed interface themes supply their own base. Main applies the source before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and terminals using Follow interface all follow it; changing the resolved terminal palette resets colors a program set in the terminal; fixed terminal themes ignore interface changes. `interfaceScale` (80–150% in steps of 10, then 175, 200, 250 and 300%, matching Chromium's zoom steps; `SCALES` in `src/shared/config-settings.ts` is the one list) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/main/window/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. On first launch, the window uses 60% of the primary display’s usable width and height. After a successful quit, main saves every window's normal bounds, display, maximized state and interface scale in `windows.json` in user data and restores them on connected displays, clamped to the current work area and minimum. The legacy `window-size.json` remains a fallback for the first window. Missing or invalid saved geometry uses the first-launch size. The minimum size (900 × 640 at 100%) scales too. The scaled minimum is capped to the work area, so a large size on a small or OS-scaled display can leave less CSS space than the 100% minimum; the layout compacts instead of refusing the zoom: the page never scrolls sideways, the compact sidebar wraps its tile layouts, Settings scrolls as a whole on a short window, and dialogs (the shortcut sheet, which is portaled so the compact sidebar cannot hide it, and the trusted confirmation, which measures its natural size in fractional pixels so a capped window settles) scroll within themselves. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+0 elsewhere, because plain Ctrl+− is readline's undo. A shortcut saves the new scale and sends `setup:changed` so preflight's controls follow. `terminalFontSize` is a separate validated integer setting (10–32 CSS pixels, default 14). Each mounted terminal controller reads it before its initial attachment, subscribes to `setup:changed`, and updates xterm options. Visible attachments refit and send an ID-scoped resize; hidden views use the new size on their next attachment. Disposal removes the subscription.
+Appearance lives in Settings and the preflight rail through the same `AppearanceControls` component and applies at once. `colorMode` (system, light or dark) sets `nativeTheme.themeSource` for Eclipse; fixed interface themes supply their own base. Main applies the source before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and terminals using Follow interface all follow it; changing the resolved terminal palette resets colors a program set in the terminal; fixed terminal themes ignore interface changes. `interfaceScale` (80–150% in steps of 10, then 175, 200, 250 and 300%, matching Chromium's zoom steps; `SCALES` in `src/shared/config-settings.ts` is the one list) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/main/window/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. On first launch, the window uses 60% of the primary display’s usable width and height. After a successful quit, main saves every window's normal bounds, display and maximized state in `windows.json` in user data and restores them on connected displays, clamped to the current work area and minimum. The legacy `window-size.json` remains a fallback for the first window. Missing or invalid saved geometry uses the first-launch size. The minimum size (900 × 640 at 100%) scales too. The scaled minimum is capped to the work area, so a large size on a small or OS-scaled display can leave less CSS space than the 100% minimum; the layout compacts instead of refusing the zoom: the page never scrolls sideways, the compact sidebar wraps its tile layouts, Settings scrolls as a whole on a short window, and dialogs (the shortcut sheet, which is portaled so the compact sidebar cannot hide it, and the trusted confirmation, which measures its natural size in fractional pixels so a capped window settles) scroll within themselves. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+0 elsewhere, because plain Ctrl+− is readline's undo. All zoom controls save the shared scale and broadcast `setup:changed` to every window, so sidebar, Settings and preflight controls follow. Trusted dialogs and previews refresh immediately in every window. `terminalFontSize` is a separate validated integer setting (10–32 CSS pixels, default 14). Each mounted terminal controller reads it before its initial attachment, subscribes to `setup:changed`, and updates xterm options. Visible attachments refit and send an ID-scoped resize; hidden views use the new size on their next attachment. Disposal removes the subscription.
 
 Interface colors are independently stored as `interfaceTheme`: `follow` (default),
 a built-in ID, a `user:<filename>` ID, or a version 1 portable object with `name`, `base` and `colors`.
@@ -1170,16 +1193,16 @@ restores sidebar row focus after the terminal has reattached; selecting a sideba
 terminal closes Settings. The shared setup coordinator renders the same Agents,
 Repositories and Appearance controls in both paths, with guided navigation only in
 preflight: Welcome → Agents (T-2) → Repositories (T-1) → Go / no-go (T-0). Worktree
-location controls live only in Settings. The existing `worktreeLocation` schema and
+location controls live only in Settings → General. The existing `worktreeLocation` schema and
 root default are unchanged; completing or replaying setup never resets a saved choice.
-Settings adds Terminal font and size, interface Themes and
+Settings adds Terminal font and size, Themes with both interface and terminal palettes (shipped choices followed by a divider and user choices), and
 Sound controls. Successful `setup:save` calls publish `setup:changed` to keep live
 consumers synchronized. Repository selection changes save immediately in Settings,
 with controls disabled during the write and refused selections restored to the
 registered repositories. Scans in Settings start from existing registrations;
 preflight continues to suggest recent repositories and save when leaving the step.
 
-Repositories come from the user's code folder (one, saved as `codeFolder`). Main offers common folders under home (`~/code`, `~/src`, `~/projects` and similar) that hold repositories, each with a count from a quick scan (the same walk, stopped at 5,000 folders), or shows the native picker; then `src/main/setup/code-scan.ts` walks the folder breadth first with live progress: at most three levels and 20,000 folders (reporting when it stopped early), never following symbolic links, skipping hidden folders, `node_modules`, `Library`, `AppData`, `Applications` and Foom's worktree folder, stopping at each repository, and skipping `.git` files (linked worktrees and submodules). Last activity comes from the modification times of `.git/logs/HEAD`, `.git/index` and `.git/HEAD`, without running git; activity in the last 30 days preselects a repository, as does already being added. The renderer may add or remove only paths from main's latest scan; leaving the step applies the selection, and a refusal (for example a repository with Foom-made worktrees) keeps the user on the step with the reason. `pnpm run start:fresh` runs the app with a throwaway profile to test first run.
+Repositories come from the user's code folder (one, saved as `codeFolder`). Main offers common folders under home (`~/code`, `~/src`, `~/projects` and similar) that hold repositories, each with a count from a quick scan (the same walk, stopped at 5,000 folders), or shows the native picker; then `src/main/setup/code-scan.ts` walks the folder breadth first with live progress: at most three levels and 20,000 folders (reporting when it stopped early), never following symbolic links, skipping hidden folders, `node_modules`, `Library`, `AppData`, `Applications` and Foom's worktree folder, stopping at each repository, and skipping `.git` files (linked worktrees and submodules). Last activity comes from the modification times of `.git/logs/HEAD`, `.git/index` and `.git/HEAD`, without running git; activity within `recentRepositoryDays` (default 30, integer 1–365) preselects a repository, as does already being added. The Repositories day count is editable inline by typing or wheel, clamped to 1–365. The renderer reclassifies the retained timestamps without rescanning and preserves all selections. The renderer may add or remove only paths from main's latest scan; leaving the step applies the selection, and a refusal (for example a repository with Foom-made worktrees) keeps the user on the step with the reason. `pnpm run start:fresh` runs the app with a throwaway profile to test first run.
 
 ## Agent signals
 
@@ -1197,7 +1220,7 @@ Requests POST JSON to `/hooks`, with `X-Foom-Session` and `Authorization` contai
 
 The first supported event pins the agent session/thread ID for that launch. Subsequent events must match; Codex also requires a turn ID. Only `{ terminalId, action, signal, conversationId }` escapes the receiver. The validated conversation ID is saved locally by Workspace and is not forwarded into evaluation. PermissionRequest and `permission_prompt` produce `needs_input`; Stop, `idle_prompt`, and Codex `agent-turn-complete` produce `classify`. No event directly sets Done. Agent text, paths, tool inputs, and Codex `input-messages` are discarded, never logged, executed, or forwarded to the evaluator. Classification still uses only the redacted terminal tail.
 
-The hook command cannot run Node from the packaged app because the RunAsNode fuse is disabled. `src/main/agents/providers/hook-adapters.ts` supplies distinct observer scripts for Claude stdin and Codex's final JSON argument: POSIX `sh` plus `curl`, and Windows PowerShell plus `Invoke-WebRequest`. The launcher writes the returned source to a private launch directory, invokes POSIX files with `sh` or Windows files with `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, supplies the launch environment, and removes the files afterward. On Windows it first runs the generated script in probe mode; a missing interpreter or enforced policy that blocks the script rejects launch with an error and cleans up the script. The execution policy applies only to that PowerShell invocation; user and machine settings are unchanged. Codex's configured notify argument array must end at the script's configured arguments so the CLI can append its JSON argument. Payloads remain data throughout; scripts emit no output or approval decisions, have a three-second HTTP timeout, and exit successfully even when the receiver is unavailable. Per-launch settings and notify attachment, tool availability checks, and notifier-replacement disclosure belong to #12.
+The hook command cannot run Node from the packaged app because the RunAsNode fuse is disabled. `src/main/agents/providers/v2-observers.ts` generates observer scripts from each manifest channel for stdin or the CLI's final JSON argument: POSIX `sh` plus `curl`, and Windows PowerShell plus `Invoke-WebRequest`. The launcher writes the returned source to a private launch directory, invokes POSIX files with `sh` or Windows files with `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, supplies the launch environment, and removes the files afterward. On Windows it first runs the generated script in probe mode; a missing interpreter or enforced policy that blocks the script rejects launch with an error and cleans up the script. The execution policy applies only to that PowerShell invocation; user and machine settings are unchanged. Codex's configured notify argument array must end at the script's configured arguments so the CLI can append its JSON argument. Payloads remain data throughout; scripts emit no output or approval decisions, have a three-second HTTP timeout, and exit successfully even when the receiver is unavailable. Per-launch settings and notify attachment, tool availability checks, and notifier-replacement disclosure belong to #12.
 
 ## Saved conversations
 
@@ -1470,8 +1493,8 @@ the board reports config-launch availability separately from tile availability,
 so Settings can stay open while choosing an agent. Preflight disables these routes. Availability refreshes on menu reads, execution, window
 focus and settings updates. The preload accepts only the three fixed route IDs.
 The board dispatches the existing `config-launch` command with `origin: "menu"`,
-awaits the source's refreshed inventory, and opens the running config session
-through normal cross-window selection. This optional, validated origin changes
+awaits the source's refreshed inventory, and opens the newly created config session
+through normal session selection. This optional, validated origin changes
 only notifier confirmation presentation: main uses a trusted disclosure dialog
 for menu launches and keeps click-again for sidebar launches. It grants no consent
 and cannot change the executable, directory or launch policy.
@@ -1773,11 +1796,16 @@ sandboxed preload adds no runtime imports and CSP remains unchanged.
 userData: API keys, worktree ownership, the repository list and
 consent records stay in the profile. The folder holds `settings.json`, `themes/`,
 `terminal-themes/`, `sounds/{working,done,needs-you,refusal}/`, and Foom-owned
-`README.md`, `AGENTS.md`, `CLAUDE.md`, `.gitignore` and `schemas/` (JSON Schemas for
-settings and both theme formats, generated from the shared validators). Foom writes
+`README.md`, `AGENTS.md`, `CLAUDE.md`, `.gitignore`, `examples/` (a strict JSON v2
+agent starter with field notes) and `schemas/` (settings, both theme formats and
+v2 agents, derived from shared validators). Config shells use the discovered
+login-shell PATH, as agent launches do; the bundled config CLI directory stays
+ahead of user Environment entries and that PATH. Foom writes
 its files at first launch and replaces one on upgrade only when it is missing or
 byte-identical to a version Foom shipped earlier (`OWNED_HISTORY`), so user edits
-survive. The folder is plain files (#540): Foom never creates, reads or writes a
+survive. Guide edits append the new digest to `tests/fixtures/config/guide-digests.json`
+and retain every earlier digest in all three guide entries in `OWNED_HISTORY`;
+the layout unit test enforces this. The folder is plain files (#540): Foom never creates, reads or writes a
 `.git` there, and leaves an existing one untouched. `.gitignore` excludes recordings
 under `sounds/` and keeps `.gitkeep` files, for users who keep the folder in their
 own repository. `WorktreeService` refuses to register a
@@ -1852,10 +1880,11 @@ never installed. A new agent config session receives a fixed, main-only greeting
 that asks what the user wants to change; resuming a conversation adds no greeting.
 Antigravity receives it only when interactive prompts are supported, preserving
 any user default prompts. `config-launch` carries no prompt.
-One config session runs at a time; a second launch starts
-nothing and the renderer focuses the running session. Session records keep a
-validated `config` flag (folder path equal to itself, no branch) and restore only
-for the current folder. Sidebar commands
+Every config launcher action starts a new session, including while another launch
+is starting or a session is running. Concurrent writes use the config service’s
+validated, serialized writer. Resume targets only the selected conversation.
+Session records keep a validated `config` flag (folder path equal to itself, no
+branch) and restore every session for the current folder. Sidebar commands
 `config-launch` (a run kind and optional menu origin) and `copy-config-path`
 carry no paths.
 `config:status`, `config:decide` (`allow` or `keep` with the held change's digest)
@@ -2077,7 +2106,10 @@ fallback input window. Uncover shows loaded visible children without granting fo
 and retains the cache. Overlapping overlay reasons keep the cover active until all
 finish; tile drag coverage begins before a drop target exists. Closing cancels
 capture/deadline timers; late results cannot resurrect released views. Renderer
-subscriptions, observers and animation work are disposed on unmount.
+subscriptions, observers and animation work are disposed on unmount. Composition
+ignores terminal/xterm repaint mutations and detached nodes; remaining board
+mutations and snapshot positioning share one animation-frame update with tile
+animation following. Mutation callbacks never scan layout.
 
 ### Terminal font selection (#363)
 
@@ -2117,8 +2149,11 @@ remain unchanged. v2 config plugins may declare restore capability, but a grant
 still requires persisted human orchestration provenance and matching repository
 identity, an installed, valid provider and supported per-launch MCP.
 
-`shared/agent-manifest.ts` validates the [version 1 format](agents.md#agent-providers-and-config-authored-plugins-407)
-from `unknown`, rejecting unknown keys at every object boundary, including capability,
+`shared/agent-plugin-parser.ts` validates the [version 2 format](agent-plugins.md)
+from `unknown`, rejecting version 1 with the fixed migration diagnostic
+`Agent manifest version 1 is no longer supported; use version 2 (see README.md)`,
+any other version with `Agent manifest version must be 2 (see README.md)`,
+and unknown keys at every object boundary, including capability,
 script, environment and network-reference fields. Manifest rules use the shared
 `boundedRegex` implementation used by built-in rules. Manifest argv uses fixed,
 field-specific substitutions and argument arrays; expanded values are never parsed
@@ -2175,5 +2210,7 @@ and the global hooks switch takes precedence. Preferences apply on future launch
 including notifier disclosure gating. Default arguments save on blur through the
 existing main-owned bypass disclosure and acknowledgement.
 
-Disabled agents remain configurable but skip CLI discovery
-and setup probes; enablement changes invalidate workspace discovery caches.
+Disabled agents remain configurable: discovery resolves their executable on PATH
+without running CLI discovery or setup probes. Agents cards refresh discovery on
+entry and config changes, keeping missing switches Off without saving a preference.
+Enablement changes invalidate workspace discovery caches.

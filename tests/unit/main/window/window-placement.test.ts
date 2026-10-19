@@ -58,7 +58,7 @@ test("validates persisted windows independently and rejects duplicate identities
     id: [null, "", "a".repeat(65), "../path", 2],
     display: [null, "2", 1.5, Infinity],
     maximized: [null, 1],
-    scale: [null, "100", 80.5, 79, 301],
+    scale: [null, "100", 80.5, 79, 301, 125],
     bounds: [null, "bounds", {}],
   };
   for (const [field, invalids] of Object.entries(fields)) {
@@ -67,7 +67,7 @@ test("validates persisted windows independently and rejects duplicate identities
     const missing: Record<string, unknown> = Object.fromEntries(
       Object.entries(saved).filter(([key]) => key !== field),
     );
-    expect(parsePlacements([missing])).toEqual([]);
+    expect(parsePlacements([missing])).toEqual(field === "scale" ? [missing] : []);
   }
   for (const value of [null, 3, "window"]) expect(parsePlacements([value])).toEqual([]);
   for (const field of ["x", "y", "width", "height"]) {
@@ -89,8 +89,16 @@ test("persists windows atomically and fails closed for missing, corrupt and over
   const dir = join(root, "profile");
   expect(await loadPlacements(dir)).toEqual([]);
   await savePlacements(dir, [saved]);
+  const placement = {
+    id: saved.id,
+    display: saved.display,
+    bounds: saved.bounds,
+    maximized: saved.maximized,
+  };
+  expect(await loadPlacements(dir)).toEqual([placement]);
+  expect(JSON.parse(await readFile(join(dir, "windows.json"), "utf8"))).toEqual([placement]);
+  await writeFile(join(dir, "windows.json"), JSON.stringify([saved]));
   expect(await loadPlacements(dir)).toEqual([saved]);
-  expect(JSON.parse(await readFile(join(dir, "windows.json"), "utf8"))).toEqual([saved]);
   await writeFile(join(dir, "windows.json"), "{");
   expect(await loadPlacements(dir)).toEqual([]);
   await writeFile(join(dir, "windows.json"), " ".repeat(32769));

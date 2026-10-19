@@ -1,3 +1,4 @@
+import { RecentDaysInput } from "./recent-days-input";
 import type { Repository } from "../../shared/worktrees";
 import type { StepHeading } from "./preflight-step.d";
 import type { SetupSource } from "./setup-source.d";
@@ -13,8 +14,12 @@ export function RepositoriesStep({
   scanCode,
   setCode,
   immediate = false,
+  recentDays,
+  onRecentDays,
 }: StepHeading & {
   immediate?: boolean;
+  recentDays: number;
+  onRecentDays: (days: number) => void;
   source: SetupSource;
   code: CodeSelection | undefined;
   repositories: readonly Repository[];
@@ -30,11 +35,24 @@ export function RepositoriesStep({
       </h2>
       <p className="preflight-intro">
         Foom looks for Git repositories there.{" "}
-        {immediate
-          ? "Added repositories start checked. Changes to the selection apply immediately."
-          : "Ones you've worked in over the last 30 days start checked."}
+        {immediate ? (
+          "Added repositories start checked. Changes to the selection apply immediately."
+        ) : (
+          <>
+            Ones you've worked in over the last{" "}
+            <RecentDaysInput value={recentDays} onChange={onRecentDays} /> days start checked.
+          </>
+        )}
+        {immediate && (
+          <>
+            {" "}
+            Recent · last <RecentDaysInput value={recentDays} onChange={onRecentDays} /> days.
+          </>
+        )}
       </p>
       <RepositoryPicker
+        recentDays={recentDays}
+        onRecentDays={onRecentDays}
         source={source}
         selection={code}
         added={repositories}

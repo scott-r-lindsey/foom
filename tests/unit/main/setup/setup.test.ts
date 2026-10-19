@@ -317,3 +317,16 @@ test("host assignment defaults validate bundled GitHub without a custom catalog"
   await setup.save({ forgeHosts: { "git.example.org": "github" } });
   expect(settings.forgeHosts).toEqual({ "git.example.org": "github" });
 });
+
+test("new scans classify activity using the configured recent repository days", async () => {
+  settings = { ...DEFAULT_SETTINGS, recentRepositoryDays: 100 };
+  pick.mockResolvedValue("/code");
+  const setup = new Setup(deps);
+  const result = await setup.scanCode(null, () => {});
+  expect(result?.repositories.find((repo) => repo.name === "old")?.recent).toBe(true);
+  await setup.save({ recentRepositoryDays: 1 });
+  pick.mockResolvedValue("/code");
+  const narrower = await setup.scanCode(null, () => {});
+  expect(narrower?.repositories.find((repo) => repo.name === "busy")?.recent).toBe(false);
+  expect(narrower?.repositories.find((repo) => repo.name === "busy")?.added).toBe(true);
+});

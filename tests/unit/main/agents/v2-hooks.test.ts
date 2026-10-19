@@ -251,7 +251,7 @@ it("writes launch hook settings without MCP; revokes and cleans up after exit an
     binding.dispose();
   });
   const install = provider.discover("/fixture", "2.1.293 (Claude Code)", "--settings --mcp-config");
-  if (!provider.prepareLaunch) throw Error("Missing launch preparation");
+
   const prepared = await provider.prepareLaunch(
     install,
     { agent: m.id, repository: "/r", worktree: "/r", cols: 80, rows: 24 },
@@ -522,7 +522,7 @@ it("pins pasted and assigned IDs while manual resume permits a new first event",
     cleanup.push(() => {
       binding.dispose();
     });
-    if (!provider.prepareLaunch) throw Error("Missing preparation");
+
     const prepared = await provider.prepareLaunch(
       install,
       {

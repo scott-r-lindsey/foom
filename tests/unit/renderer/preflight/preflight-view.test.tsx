@@ -581,17 +581,16 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
     expect(source.apply).toHaveBeenCalledWith(["/home/me/code/app"]);
   });
   await waitFor(() => {
-    expect(button("Worktrees")).toHaveProperty("disabled", false);
+    expect(button("General")).toHaveProperty("disabled", false);
   });
-  fireEvent.click(button("Worktrees"));
+  fireEvent.click(button("General"));
   fireEvent.click(screen.getByLabelText(/Put them next to/));
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ worktreeLocation: "adjacent" });
   });
-  expect(screen.getByRole("heading", { name: "Worktrees" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "General" })).toBeTruthy();
   fireEvent.click(button("Appearance"));
-  fireEvent.click(button("Open themes folder"));
-  expect(source.openThemesFolder).toHaveBeenCalledWith("theme");
+  expect(screen.queryByRole("group", { name: "Interface themes" })).toBeNull();
   fireEvent.click(screen.getByLabelText("Dark"));
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ colorMode: "dark" });
@@ -601,16 +600,28 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
     expect(source.save).toHaveBeenCalledWith({ interfaceScale: 110 });
   });
   fireEvent.click(button("Terminal"));
-  fireEvent.click(button("Open themes folder"));
-  expect(source.openThemesFolder).toHaveBeenCalledWith("terminal-theme");
+  expect(screen.queryByRole("group", { name: "Terminal colors" })).toBeNull();
   fireEvent.change(screen.getByLabelText("Terminal font size"), { target: { value: "18" } });
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ terminalFontSize: 18 });
   });
-  expect(screen.getByText(/Hack Nerd Font Mono ·/).style.fontSize).toBe("18px");
   fireEvent.click(button("Themes"));
-  fireEvent.click(button("Open themes folder"));
+  expect(screen.getByText(/Hack Nerd Font Mono ·/).style.fontSize).toBe("18px");
+  fireEvent.click(
+    within(
+      screen.getByRole("group", { name: "Interface themes" }).parentElement ?? document.body,
+    ).getByRole("button", { name: "Open themes folder" }),
+  );
+  expect(source.openThemesFolder).toHaveBeenCalledWith("theme");
+  fireEvent.click(
+    within(
+      screen.getByRole("group", { name: "Terminal colors" }).parentElement ?? document.body,
+    ).getByRole("button", { name: "Open themes folder" }),
+  );
+  expect(source.openThemesFolder).toHaveBeenCalledWith("terminal-theme");
   expect(screen.getByRole("group", { name: "Interface themes" })).toBeTruthy();
+  expect(screen.getByRole("group", { name: "Terminal colors" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Worktrees" })).toBeNull();
   fireEvent.click(button("General"));
   const restore = screen.getByRole("checkbox", { name: "Restore sessions on launch" });
   expect(restore).toHaveProperty("checked", true);
@@ -699,6 +710,8 @@ test("Settings rolls back refused repository changes and prevents leaving during
 test("repository controls explain immediate selection when used outside guided setup", async () => {
   render(
     <RepositoriesStep
+      recentDays={30}
+      onRecentDays={vi.fn()}
       headingRef={{ current: null }}
       source={fake(setupState())}
       code={undefined}
@@ -923,7 +936,7 @@ test.each(["root", "adjacent"] as const)(
         settingsMode
       />,
     );
-    fireEvent.click(button("Worktrees"));
+    fireEvent.click(button("General"));
     expect(
       screen.getByRole("radio", {
         name: worktreeLocation === "root" ? /Keep worktrees/ : /Put them next to/,
@@ -942,3 +955,25 @@ test.each(["root", "adjacent"] as const)(
     expect(screen.getByText("/code/app-feat/search")).toBeTruthy();
   },
 );
+
+test("editing recent days in first run saves without rescanning or clearing selected repositories", async () => {
+  const initial = setupState();
+  const source = fake(initial);
+  render(<Preflight source={source} initial={initial} onLaunched={vi.fn()} />);
+  fireEvent.click(button("Start preflight"));
+  await screen.findByText("3 agents ready");
+  fireEvent.click(button("Continue"));
+  fireEvent.click(await screen.findByRole("button", { name: /code.*2 repositories/ }));
+  await screen.findByText("1 of 2 selected");
+  const recent = screen.getByRole("region", { name: "Recent · last 30 days" });
+  fireEvent.change(within(recent).getByRole("spinbutton"), { target: { value: "100" } });
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ recentRepositoryDays: 100 });
+  });
+  expect(
+    within(screen.getByRole("region", { name: "Recent · last 100 days" })).getAllByRole("checkbox"),
+  ).toHaveLength(2);
+  expect(screen.getByRole("checkbox", { name: "app" })).toHaveProperty("checked", true);
+  expect(screen.getByRole("checkbox", { name: "old" })).toHaveProperty("checked", false);
+  expect(source.scan).toHaveBeenCalledTimes(1);
+});

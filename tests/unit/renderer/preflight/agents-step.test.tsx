@@ -103,7 +103,7 @@ test("rejected config plugins block launch and show their reason without any app
   await waitFor(() => {
     expect(screen.queryByRole("region", { name: "Fixture" })).toBeNull();
   });
-  expect(f.scan).toHaveBeenCalledWith(false);
+  expect(f.scan).toHaveBeenCalledWith(true);
   act(() =>
     f.update({
       ...pending,
@@ -236,4 +236,66 @@ test("setup controls request main's fixed action and refresh status, with failur
   change.mockRejectedValueOnce(Error("Setup changed"));
   fireEvent.click(button);
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Setup changed");
+});
+
+test.each(["claude", "custom"])(
+  "missing %s stays off without saving its preference and follows it after discovery",
+  (id) => {
+    const f = fixture();
+    const agent = { ...installation("claude"), id, name: "Test agent", path: null, version: null };
+    const props = { ...f.props, source: undefined, report: report(agent) };
+    const view = render(<AgentsStep {...props} />);
+    const card = screen.getByRole("region", {
+      name: id === "claude" ? "Claude Code" : "Test agent",
+    });
+    expect(within(card).getByRole("switch")).toHaveProperty("checked", false);
+    expect(within(card).getByRole("switch")).toHaveProperty("disabled", true);
+    expect(within(card).getByText("Off")).toBeTruthy();
+    expect(within(card).getByText("Not found")).toBeTruthy();
+    expect(f.save).not.toHaveBeenCalled();
+    expect(f.scan).toHaveBeenCalledWith(true);
+    const installed = report({ ...agent, path: "/fixture/agent" });
+    view.rerender(<AgentsStep {...props} report={installed} />);
+    expect(within(card).getByRole("switch")).toHaveProperty("checked", true);
+    expect(within(card).getByRole("switch")).toHaveProperty("disabled", false);
+    const state = {
+      ...props.state,
+      settings: {
+        ...props.state.settings,
+        agents: { ...props.state.settings.agents, [id]: false },
+      },
+    };
+    view.rerender(<AgentsStep {...props} state={state} />);
+    expect(within(card).getByText("Not found")).toBeTruthy();
+    expect(within(card).getByRole("switch")).toHaveProperty("disabled", true);
+    view.rerender(<AgentsStep {...props} state={state} report={installed} />);
+    expect(within(card).getByRole("switch")).toHaveProperty("checked", false);
+    expect(within(card).getByRole("switch")).toHaveProperty("disabled", false);
+    expect(f.save).not.toHaveBeenCalled();
+  },
+);
+
+test("missing attention replaces the signal control with neutral terse text", () => {
+  const f = fixture();
+  f.source.changeAgentSetup = vi.fn(() => Promise.resolve(report()));
+  render(
+    <AgentsStep
+      {...f.props}
+      report={report({
+        ...installation("claude"),
+        hooks: false,
+        attentionSignal: false,
+        setup: { state: "not-installed", actions: [{ id: "install", label: "Install" }] },
+        hookState: "not-reviewed",
+      })}
+    />,
+  );
+  const card = screen.getByRole("region", { name: "Claude Code" });
+  const signal = within(card).getByText("No attention signal");
+  expect(signal.className).toBe("");
+  expect(within(card).queryByText("Screen rules")).toBeNull();
+  expect(within(card).queryByText("Trust review pending")).toBeNull();
+  expect(within(card).queryByRole("button", { name: "Hooks" })).toBeNull();
+  // Setup can still add the signal, so its actions stay available.
+  expect(within(card).getByRole("button", { name: "Install" })).toBeTruthy();
 });

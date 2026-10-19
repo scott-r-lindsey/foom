@@ -1,6 +1,5 @@
 import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
 import type { ControlLaunch } from "../../control/types";
-import type { AgentPluginManifest } from "../../../shared/agent-plugin";
 import type { AgentHooks, AgentId, AgentInstallation, AgentLaunch } from "../../../shared/agents";
 import type { prepareMcpLaunch } from "./mcp-launch";
 export interface PreparedLaunch {
@@ -14,12 +13,12 @@ export interface PreparedLaunch {
 export interface AgentProvider {
   readonly legacyChannelConsent?: boolean;
   readonly origin?: "bundled" | "config";
-  readonly model?: AgentManifestV2;
+  readonly model: AgentManifestV2;
   setupFacts?(
     path: string,
     engine: Readonly<Record<string, unknown>>,
   ): Readonly<Record<string, unknown>>;
-  prepareLaunch?(
+  prepareLaunch(
     installation: AgentInstallation,
     request: AgentLaunch,
     defaults: readonly string[],
@@ -31,7 +30,6 @@ export interface AgentProvider {
   readonly id: AgentId;
   readonly name: string;
   readonly mark: string;
-  readonly manifest?: AgentPluginManifest;
   validate?(): Promise<void>;
   resume(id: unknown): string[];
   prepareMcp(endpoint: string): ReturnType<typeof prepareMcpLaunch>;

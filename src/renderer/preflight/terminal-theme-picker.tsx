@@ -5,7 +5,7 @@ import {
 } from "../../shared/terminal-fonts";
 import type { ThemeCatalog } from "../../shared/theme-file";
 import { ThemeFilesStatus } from "./theme-files-status";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   ansiNames,
   resolveTerminalTheme,
@@ -40,25 +40,28 @@ export function TerminalThemePicker({
     <div className="terminal-theme-settings">
       <div className="terminal-theme-picker-column">
         <div className="terminal-theme-choices" role="group" aria-label="Terminal colors">
-          {[...terminalThemeOptions, ...(catalog?.terminal ?? [])].map((option) => {
+          {[...terminalThemeOptions, ...(catalog?.terminal ?? [])].map((option, index) => {
             const palette = resolveTerminalTheme(option.id, dark, catalog);
             return (
-              <button
-                type="button"
-                key={option.id}
-                aria-pressed={settings.terminalTheme === option.id}
-                onClick={() => {
-                  onChange({ terminalTheme: option.id });
-                }}
-              >
-                {option.name}
-                <span className="terminal-theme-strip" aria-hidden="true">
-                  <i style={{ backgroundColor: palette.background }} />
-                  {ansiNames.slice(1, 8).map((name) => (
-                    <i key={name} style={{ backgroundColor: palette[name] }} />
-                  ))}
-                </span>
-              </button>
+              <Fragment key={option.id}>
+                {index === terminalThemeOptions.length && <hr className="theme-divider" />}
+                <button
+                  type="button"
+                  key={option.id}
+                  aria-pressed={settings.terminalTheme === option.id}
+                  onClick={() => {
+                    onChange({ terminalTheme: option.id });
+                  }}
+                >
+                  {option.name}
+                  <span className="terminal-theme-strip" aria-hidden="true">
+                    <i style={{ backgroundColor: palette.background }} />
+                    {ansiNames.slice(1, 8).map((name) => (
+                      <i key={name} style={{ backgroundColor: palette[name] }} />
+                    ))}
+                  </span>
+                </button>
+              </Fragment>
             );
           })}
           {typeof settings.terminalTheme !== "string" && <p>Custom theme</p>}

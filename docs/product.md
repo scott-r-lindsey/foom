@@ -72,6 +72,14 @@ Its panel-toggle button collapses the sidebar to a 64px rail at any width; Expan
 returns to the tree. View → Collapse sidebar / Expand sidebar and ⌘B on macOS or
 Ctrl+Shift+B on Windows/Linux do the same. Plain Ctrl+B stays with the terminal.
 The choice saves with each window’s tile layout; new windows start expanded.
+Drag the expanded sidebar’s border to resize it live, from 240px to 40% of the
+window (300px by default). A thin highlight and resize cursor mark the border on
+hover or drag. Double-click resets it. The focusable separator reports its width;
+Left/Right resize by 10px and Home/End select the limits. Width saves with each
+window’s tile layout; new windows use the default. Collapsing preserves the width.
+A smaller window clamps the displayed width without changing the saved value.
+The rail and narrow-window overlay have no resize handle. Dragging has no width
+animation; terminals refit once at the end.
 The rail keeps every session’s light and badge, repository dividers, a textual
 needs-you count (including held config changes, absent at zero), and the config gear.
 Session panels open beside the rail and retain keyboard navigation and location names.
@@ -156,20 +164,19 @@ the existing folder-removal action and is unavailable while a session runs there
 
 The sidebar footer holds a compact −/value/+ zoom stepper, an always-visible
 master volume slider with a speaker mute button, and the **Foom config** gear.
-Zoom uses the same interface scale as Settings and the app menu; clicking its
+Zoom is one app-wide setting shared by every window, Settings and the app menu; clicking its
 value resets to 100%. The speaker shape shows muted (also at zero), low or high
 volume. Moving the slider unmutes; releasing it plays a short sample. The rail
 keeps only the gear. The gear opens a
 pinned panel to the right, bottom-aligned and pointing at the gear. **Settings**
 is its first command, with its shortcut; ⌘, on macOS, Ctrl+Shift+, on
 Windows/Linux and the app menu still open Settings directly. Then come the agent launchers and Shell (run in the config
-folder), **Open Foom config settings** and **Open folder**. A launcher for the
-running session says “running”; launching again focuses it.
+folder), **Open Foom config settings** and **Open folder**. Each launcher action starts a new session.
 
 A dock above the footer bar appears only while a config change is held, files
 are rejected or a config session exists. Its small gear and **Foom config** name
 open the same panel, beside **Needs you** and **N rejected** chips as applicable.
-The session row beneath it focuses its tile and retains the normal light, ring
+Each session row beneath it focuses its tile and retains the normal light, ring
 and panel behavior, including after exit. The tree has no config row or group;
 repositories follow the home shell directly. Filtering the tree leaves the dock
 reachable. In the rail the dock hides; config sessions join the compact session list. The gear repeats held changes with an amber dot, otherwise
@@ -177,8 +184,7 @@ rejections with a magenta square dot; its accessible name includes these statuse
 Held config changes count in “N need you” and the app badge.
 
 The panel shows the folder path (copyable), Approval with **Needs you**, Rejected
-and Sessions. Only one
-config session runs at a time. No worktree is created, and the session's `PATH`
+and Sessions. Multiple config sessions can run at a time. No worktree is created, and the session's `PATH`
 includes the bundled `foom` CLI.
 
 Session panels show location, discovered agent version, state and reason,
@@ -288,7 +294,7 @@ menu is the same everywhere and lists app-wide commands, the sidebar toggle and 
   Settings is open. A new config session starts with a fixed greeting describing
   what it can change and asking what the user wants; resuming a conversation adds
   no greeting. Antigravity releases without interactive prompt support open
-  without the greeting. An existing config session is focused in its owning window.
+  without the greeting. Each launch opens a new config session in the current window.
 - **View › Collapse sidebar / Expand sidebar**, plus **Tidy tiles**, which removes empty spaces and evens every run in the focused window
 - **Size − 100% +**, one row that steps the interface size and stays open
 - Action log (#157), Keyboard shortcuts, About Foom, Third-party licenses
@@ -461,8 +467,9 @@ Maximize/Restore and Close. The tile menu offers Allow network… when off, and 
 A preview has no running process to hide. Replacement closes previews that no longer fit. Split, Grow, drag, Tidy and focus
 shortcuts treat previews as occupied tiles. Opening or reloading a preview never
 moves focus; a click or explicit focus command does. While panels, trusted
-confirmation scrims, drag previews or maximize/restore motion cover previews,
-they show a frozen image of the page beneath the board UI and resume afterwards.
+confirmation scrims or drag previews cover previews, they show a frozen image
+of the page beneath the board UI and resume afterwards. During maximize/restore
+motion, live previews follow the tile bounds without a cover.
 Previews do not intercept board drags. Foom shortcuts remain available when a
 preview has keyboard focus.
 
@@ -734,10 +741,10 @@ the action log and supports the same operations and idempotency as other mutatio
 
 ## First run
 
-Setup starts with Welcome, then a preflight countdown:
+Setup starts with Welcome, then a preflight countdown. The welcome illustration uses the current tile headers: a state light, neutral agent badge, repository and branch, and compact tile controls. Ten active terminals fold into rows with state words; Needs you has a steady amber halo. Reduced motion starts with the settled rows.
 
 1. **Agents** (T-2): detect the supported CLIs on PATH and show each one's attention signal. One setting controls whether Foom supplies hooks and credentials per launch. Antigravity’s row shows Hooks with an active plugin and Screen rules otherwise. It offers Install plugin, Update plugin or Enable plugin inline; Remove plugin is inline. Install and update open a trusted confirmation disclosing location, behavior and removal, with no disclosure paragraphs in the step.
-2. **Repositories** (T-1): "Where do you keep your code?" Foom suggests common code folders that hold repositories, with a count for each, or you choose one. It scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked.
+2. **Repositories** (T-1): "Where do you keep your code?" Foom suggests common code folders that hold repositories, with a count for each, or you choose one. It scans that folder and lists its Git repositories, with the ones worked on in the last 30 days checked by default. The day count edits in place (integer 1–365); typing or scrolling over it changes the saved window and regroups existing results without rescanning or clearing selections.
 3. **Go / no-go** (T-0): each item shows GO or NO-GO with a link back to its step. Launch needs every item GO: at least one agent ready and one repository added.
 
 New profiles use Foom’s worktree folder (`~/.foom/worktrees`) without a location prompt.
@@ -753,9 +760,13 @@ Short steps center vertically. Content changes
 re-center over 180 milliseconds (immediately with reduced motion). Back, Continue and
 Launch stay in a footer at the bottom of the window, outside the scrolling content.
 
-The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–300%, so a presenter can zoom Foom alone without changing OS scaling; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Terminal font size is separate and lives in Settings → Terminal. Launch opens the board. The board starts empty. A repository’s **New worktree** action creates a Git worktree for the branch, or focuses the checkout that already has it regardless of which tool created it, and launches nothing; checkout panels launch sessions. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–300%, so a presenter can zoom Foom alone without changing OS scaling; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Interface size applies immediately to all windows, their confirmations and previews. Each window grows and shrinks from its own remembered 100% size; only the window where you changed zoom follows the pointer. Terminal font size is separate and lives in Settings → Terminal. Launch opens the board. The board starts empty. A repository’s **New worktree** action creates a Git worktree for the branch, or focuses the checkout that already has it regardless of which tool created it, and launches nothing; checkout panels launch sessions. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
 
 ## Settings
+
+Settings → Foom config explains that the folder contains plain files watched and
+validated by Foom. You can edit them yourself or launch an agent from the sidebar’s
+Foom config entry. Invalid files are rejected and the last good version stays.
 
 Open **Settings** from the board, or press ⌘, on macOS and Ctrl+Shift+, elsewhere.
 It replaces the terminal tiles beside the persistent sidebar in the same window.
@@ -774,13 +785,16 @@ assign hosts. GitHub defaults to `github.com`. Disabling preserves assignments.
 These profile preferences are preparatory: the existing GitHub provider still polls,
 and cards show declared executables with status “Not checked” until runtime integration.
 
-Worktrees offers Foom’s folder or a location next to each repository, with an example
+General offers Foom’s folder or a location next to each repository for new worktrees, with an example
 destination. Changes apply to future creation; existing worktrees stay where they are.
 
 Agents and Repositories use the same controls as preflight. Agents shows one central-column card per provider, including config
 plugins, and plugins rejected by validation. A missing installation is one
-line. Every card has an On/Off switch. Off removes the agent from launch menus
-and discovery probes while retaining its defaults, environment and attention preferences.
+line with a disabled Off switch and “Not found”; its saved preference is retained.
+Opening Agents or loading or reloading a manifest refreshes discovery. Once the
+executable is found, the switch follows the saved preference. Every installed
+agent has an On/Off switch. Off removes the agent from launch menus
+and CLI discovery probes while retaining its defaults, environment and attention preferences.
 To customize a built-in agent, copy its bundled manifest into the config folder's
 `agents/` folder with a new ID and name (see [agent plugins](agent-plugins.md#customizing-a-built-in-agent)).
 Settings offers no action for it. Like any valid config plugin, the copy loads as
@@ -842,7 +856,7 @@ glow decoration only. Status text and outlines retain color and words. High
 Contrast and `prefers-contrast: more` force Plain and full-strength chip outlines.
 Decoration uses highlight; Working continues to use accent.
 
-Appearance shares the preflight rail's System/Light/Dark and interface-size controls.
+Appearance contains only non-theme settings and shares the preflight rail's System/Light/Dark and interface-size controls.
 Changing either view is reflected in the other without restarting.
 
 Terminal font lists the bundled Hack Nerd Font Mono first, followed by installed
@@ -852,7 +866,7 @@ columns and rows. Missing fonts fall back silently to Hack Nerd Font Mono, Geist
 Mono and `monospace`.
 
 Terminal font size applies to every terminal view: 10–32 pixels, 14 by default,
-independent of interface size. The Terminal section previews text size, all 16 ANSI colors, bold, dim and selection.
+independent of interface size. The Themes section previews text size, all 16 ANSI colors, bold, dim and selection.
 Terminal colors default to Follow interface, with Foom Light/Dark, Solarized Light/Dark
 and Dracula built in. Changes apply live to visible and detached terminals.
 Settings → Themes offers System, Eclipse Light, Eclipse Dark, High Contrast,
@@ -863,8 +877,8 @@ and Appearance System/Light/Dark controls return to the corresponding Eclipse
 appearance; changing interface size keeps the selected theme. Terminal color
 schemes remain independent; Follow interface uses the light/dark base.
 
-Appearance and Terminal list custom themes after the built-ins and offer **Open
-themes folder**. Add interface JSON files to `~/.foom/config/themes/` and terminal
+Themes holds both interface and terminal choices. Each picker lists shipped themes first,
+then user themes below a divider, with file status and **Open themes folder**. Add interface JSON files to `~/.foom/config/themes/` and terminal
 JSON files to `~/.foom/config/terminal-themes/`. New files and valid edits apply live,
 without restarting. Rejected files appear below the picker with a filename, JSON
 path and reason in failure styling. An invalid edit retains that theme's last good

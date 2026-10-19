@@ -7,8 +7,8 @@ import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { hostRequest } from "../../../../src/shared/terminal-host-protocol";
 import type { AgentProvider } from "../../../../src/main/agents/providers/provider";
 import pluginFixture from "../../../fixtures/agent-plugin.json";
-import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
-import { configProvider } from "../../../../src/main/agents/providers/config";
+import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
+import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import { CONFIG_PROMPT } from "../../../../src/main/agents/providers/cli-launch";
 import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
@@ -27,6 +27,11 @@ import { CLI_GUIDANCE } from "../../../../src/main/agents/providers/cli-launch";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 import type { AgentHooks, AgentLaunch } from "../../../../src/shared/agents";
 
+vi.mock("../../../../src/main/login-shell", async () => {
+  const { promisify } = await import("node:util");
+  const { execFile } = await import("node:child_process");
+  return { readLoginShell: promisify(execFile) };
+});
 vi.mock("node:child_process", async (original) => {
   const actual = await original<{ execFile: typeof execFile; ChildProcess: typeof ChildProcess }>();
   const mocked = vi.fn();
@@ -815,10 +820,7 @@ it.each([true, false])(
         channels: new Map(),
         state: {},
         runtime: new V2ExecutionHooks(
-          agentProvider("codex").model ??
-            (() => {
-              throw new Error("Missing model");
-            })(),
+          agentProvider("codex").model,
           new Map(),
           (() => {
             const health = new V2Health(root, "test", "definition");
@@ -1101,9 +1103,9 @@ it.each([
 });
 
 it("discards a discovery result when a loaded plugin changes during probing", async () => {
-  const manifest = parseAgentPlugin(JSON.stringify(pluginFixture));
-  const changed = configProvider(manifest, () => Promise.resolve());
-  const original = configProvider(manifest, () => {
+  const manifest = parseAgentManifest(JSON.stringify(pluginFixture)).model;
+  const changed = v2Provider(manifest, () => Promise.resolve());
+  const original = v2Provider(manifest, () => {
     replaceConfigProviders([changed]);
     return Promise.resolve();
   });
@@ -1114,14 +1116,14 @@ it("discards a discovery result when a loaded plugin changes during probing", as
 });
 
 it("marks config-agent results as metadata on both normal launch and immediate exit", async () => {
-  const manifest = parseAgentPlugin(JSON.stringify(pluginFixture));
-  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
+  const manifest = parseAgentManifest(JSON.stringify(pluginFixture)).model;
+  replaceConfigProviders([v2Provider(manifest, () => Promise.resolve())]);
   const launch = { ...request, agent: manifest.id };
   expect(await service.launch(launch)).toMatchObject({
     id: "terminal-id",
     providerOrigin: "config",
   });
-  expect(create.mock.calls[0]?.[0].args).toEqual(manifest.launch.arguments);
+  expect(create.mock.calls[0]?.[0].args).toEqual(manifest.launch.arguments?.arguments);
   service.release("terminal-id");
   create.mockImplementationOnce(() => {
     service.release("terminal-id");
@@ -1167,7 +1169,6 @@ it("v2 checks final environment bypass on every launch, redacts values, and reje
       launch: { ...fixture.default.launch, mcp: undefined, toolPermissions: undefined },
     }),
   );
-  if (parsed.version !== 2) throw Error("Expected v2");
   const validate = vi.fn(() => Promise.resolve());
   replaceConfigProviders([v2Provider(parsed.model, validate)]);
   versions[parsed.model.id] = "fixture 1.2.3";
@@ -1242,7 +1243,6 @@ it("v2 revokes launch on approval races, disposal and failed version/help probes
       launch: { ...fixture.default.launch, mcp: undefined, toolPermissions: undefined },
     }),
   );
-  if (parsed.version !== 2) throw Error("Expected v2");
   let changed = false;
   const validate = () =>
     changed ? Promise.reject(Error("Agent plugin changed")) : Promise.resolve();
@@ -1295,7 +1295,6 @@ it("v2 revokes control credentials before removing launch resources on release, 
       launch: { ...fixture.default.launch, mcp: undefined, toolPermissions: undefined },
     }),
   );
-  if (parsed.version !== 2) throw Error("Expected v2");
   const provider = v2Provider(parsed.model, () => Promise.resolve());
   let revoked = false;
   const dispose = vi.fn(() => {
@@ -1304,8 +1303,8 @@ it("v2 revokes control credentials before removing launch resources on release, 
   const guarded: AgentProvider = {
     ...provider,
     prepareLaunch: async (...args) => {
-      const prepared = await provider.prepareLaunch?.(...args);
-      if (!prepared) throw Error("Missing preparation");
+      const prepared = await provider.prepareLaunch(...args);
+
       return {
         ...prepared,
         dispose: () => {
@@ -1356,7 +1355,6 @@ it("v2 preserves successful discovery data when only the independent version pro
       launch: { ...fixture.default.launch, mcp: undefined, toolPermissions: undefined },
     }),
   );
-  if (parsed.version !== 2) throw Error("Expected v2");
   replaceConfigProviders([v2Provider(parsed.model, () => Promise.resolve())]);
   help = "--inline --prompt";
   failed = "--version";
@@ -1399,9 +1397,9 @@ it("does not let a renderer acknowledgement approve revised, context-selected bu
 it("disabled agents retain card identity but run no discovery or setup probes, and enabling probes again", async () => {
   const scan = await service.scan({ claude: false, codex: false, agy: false });
   expect(scan.agents.map((agent) => [agent.id, agent.path, agent.reason])).toEqual([
-    ["claude", null, "Turned off"],
-    ["codex", null, "Turned off"],
-    ["agy", null, "Turned off"],
+    ["claude", join(root, process.platform === "win32" ? "claude.exe" : "claude"), "Turned off"],
+    ["codex", join(root, process.platform === "win32" ? "codex.exe" : "codex"), "Turned off"],
+    ["agy", join(root, process.platform === "win32" ? "agy.exe" : "agy"), "Turned off"],
   ]);
   expect(scan.agents[0]?.name).toBe("Claude Code");
   expect(execFile).not.toHaveBeenCalledWith(

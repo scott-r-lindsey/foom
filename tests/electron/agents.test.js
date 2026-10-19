@@ -1170,14 +1170,6 @@ process.stdin.on("data", (key) => {
   );
   const snapshot = await page.evaluate(() => window.desktop.workspace());
   assert.equal(snapshot.terminals.find((entry) => entry.id === id).attention, "hooks");
-  // A second launch focuses the running session instead of starting another.
-  await page.evaluate(() => window.desktop.sidebarCommand({ kind: "config-launch", run: "shell" }));
-  assert.equal(
-    (await page.evaluate(() => window.desktop.workspace())).terminals.filter(
-      (entry) => entry.config,
-    ).length,
-    1,
-  );
 
   // 2. It writes a theme and validates the folder with the bundled CLI.
   await page.evaluate((id) => window.desktop.input(id, "t"), id);
@@ -1773,11 +1765,10 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         status: result.code === 0 ? 200 : result.code === 3 ? 403 : 400,
         body: JSON.parse(result.stdout || result.stderr),
       };
-      // The CLI's five-second transport deadline can expire while a mutation is
-      // still running (for example, waiting for durable operation storage). Its
-      // unavailable envelope can describe an accepted operation. Reconcile it
-      // as the control protocol requires; never repeat the mutation.
-      if (result.code === 4 && response.body.error === "unavailable" && params.idempotencyKey) {
+      // A lost mutation response is explicitly ambiguous. Reconcile the same key
+      // without repeating the mutation, within the existing command budget.
+      if (result.code === 6 && response.body.error === "unknown_outcome" && params.idempotencyKey) {
+        assert.equal(response.body.idempotencyKey, params.idempotencyKey);
         const lookup = () =>
           directCall(token, "operation_status", { idempotencyKey: params.idempotencyKey });
         const accepted = await lookup();
@@ -1920,26 +1911,21 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       ).body,
       tree.body,
     );
-    // Deterministically exercise the observed timeout: hold launch persistence
-    // until the fixture publishes the CLI's unavailable response. No sleep or
-    // extra deadline; completion still comes from main's operation history.
-    const delayedLaunch = cliOnly && phase === "children";
-    if (delayedLaunch) {
-      await app.evaluate(({ app }) => {
-        const require = process
-          .getBuiltinModule("module")
-          .createRequire(app.getAppPath() + "/package.json");
-        const { ControlStore } = require(app.getAppPath() + "/build/main/control/store.js");
-        const persist = ControlStore.prototype.persist;
-        const gate = new Promise((resolve) => {
-          globalThis.releaseLaunchPersistence = resolve;
-        });
-        ControlStore.prototype.persist = async function (record) {
-          if (record.operation.action === "launch" && record.operation.status === "running") {
-            ControlStore.prototype.persist = persist;
-            await gate;
+    // Drop one completed launch response to exercise ambiguous delivery without
+    // waiting for the full CLI timeout. Operation history must recover success.
+    const lostLaunchResponse = cliOnly && phase === "children";
+    if (lostLaunchResponse) {
+      await app.evaluate(() => {
+        const { ServerResponse } = process.getBuiltinModule("http");
+        const end = ServerResponse.prototype.end;
+        ServerResponse.prototype.end = function (...args) {
+          const body = typeof args[0] === "string" ? JSON.parse(args[0]) : undefined;
+          if (body?.result?.action === "launch" && body.result.status === "succeeded") {
+            ServerResponse.prototype.end = end;
+            this.destroy();
+            return this;
           }
-          return persist.call(this, record);
+          return end.apply(this, args);
         };
       });
     }
@@ -1949,28 +1935,18 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       agent: "claude",
       prompt: "Summarize the README",
     });
-    if (delayedLaunch) {
-      try {
-        const file = `${credentials}.response-${requestId}`;
-        await expect.poll(() => existsSync(file), { timeout: deadline(40000) }).toBe(true);
-        const timedOut = JSON.parse(await readFile(file, "utf8"));
-        assert.equal(timedOut.code, 4);
-        assert.deepEqual(JSON.parse(timedOut.stderr), { error: "unavailable" });
-        const accepted = await directCall(parent.controlToken, "operation_status", {
-          idempotencyKey: "launch-1",
-        });
-        assert.equal(accepted.status, 200);
-        assert.equal(accepted.body.result.status, "running");
-        assert.equal(existsSync(`${credentials}.child-one`), false);
-      } finally {
-        await app.evaluate(() => globalThis.releaseLaunchPersistence());
-        // Settle the in-flight read before fixture cleanup, including assertion failures.
-        await launching.catch(() => undefined);
-      }
-    }
     const launched = await launching;
     assert.equal(launched.status, 200, JSON.stringify(launched.body));
     assert.equal(launched.body.result.status, "succeeded", JSON.stringify(launched.body));
+    if (lostLaunchResponse) {
+      const file = `${credentials}.response-${requestId}`;
+      const lost = JSON.parse(await readFile(file, "utf8"));
+      assert.equal(lost.code, 6);
+      assert.deepEqual(JSON.parse(lost.stderr), {
+        error: "unknown_outcome",
+        idempotencyKey: "launch-1",
+      });
+    }
     const childId = launched.body.result.resultId;
     if (phase === "unread") {
       const parentBoard = parentRow.locator(":scope > .board-row");
@@ -3255,30 +3231,27 @@ process.exit(1);
   });
 }
 
-for (const version of [1, 2])
-  test(version === 1
-    ? "a manifest-only fixture agent loads from the config folder, reloads edits and is withdrawn when invalid"
-    : "a manifest-only v2 fixture agent loads from the config folder, reloads edits and is withdrawn when invalid", {
-    timeout: deadline(60_000),
-  }, async (context) => {
-    const { chmod, copyFile } = require("node:fs/promises");
-    const root = await mkdtemp(path.join(tmpdir(), "foom-manifest-agent-"));
-    removeAfterApps(context, root);
-    const bin = path.join(root, "bin");
-    const home = path.join(root, "home");
-    const repo = path.join(root, "repo");
-    const output = path.join(root, "argv.json");
-    const script = path.join(root, "fixture.js");
-    await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
-    const executable = path.join(
-      bin,
-      process.platform === "win32" ? "foom-test-agent.exe" : "foom-test-agent",
-    );
-    await copyFile(process.execPath, executable);
-    await chmod(executable, 0o755);
-    await writeFile(
-      script,
-      `require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify(process.argv.slice(2)));
+test("a manifest-only v2 fixture agent loads from the config folder, reloads edits and is withdrawn when invalid", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const { chmod, copyFile } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-manifest-agent-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  const repo = path.join(root, "repo");
+  const output = path.join(root, "argv.json");
+  const script = path.join(root, "fixture.js");
+  await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
+  const executable = path.join(
+    bin,
+    process.platform === "win32" ? "foom-test-agent.exe" : "foom-test-agent",
+  );
+  await copyFile(process.execPath, executable);
+  await chmod(executable, 0o755);
+  await writeFile(
+    script,
+    `require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify(process.argv.slice(2)));
 process.stdin.on('data', async () => {
   if (!process.env.FOOM_TOKEN) return;
   const payload = { session_id: 'fixture-hook-conversation', hook_event_name: 'PermissionRequest' };
@@ -3286,238 +3259,226 @@ process.stdin.on('data', async () => {
   request.end(JSON.stringify(payload));
 });
 process.stdin.resume();`,
-    );
-    isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
-    isolatedGit(
-      [
-        "-c",
-        "user.name=Foom",
-        "-c",
-        "user.email=foom@example.com",
-        "commit",
-        "-q",
-        "--allow-empty",
-        "-m",
-        "init",
+  );
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  const app = await launchApp(context, {
+    fixture: "agent",
+    env: { HOME: home, PATH: bin, TEST_ARGV: output, FIXTURE_BYPASS: "private-bypass-value" },
+  });
+  const page = await boardPage(app);
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  const repository = await page.evaluate(() => window.desktop.addRepository());
+  assert.ok(repository);
+  await openSettingsScreen(page);
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  const file = path.join(home, ".foom/config/agents/foom-test-agent.json");
+  const v2 = JSON.parse(
+    await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8"),
+  );
+  const manifest = {
+    ...v2,
+    id: "foom-test-agent",
+    name: "Fixture agent",
+    badge: "FT",
+    executables: ["foom-test-agent"],
+    discovery: { facts: [] },
+    launch: {
+      ...v2.launch,
+      order: [
+        "arguments",
+        "resume",
+        "defaults",
+        "display",
+        "guidance",
+        "mcp",
+        "hooks",
+        "tools",
+        "prompt",
       ],
-      { cwd: repo },
-    );
-    const app = await launchApp(context, {
-      fixture: "agent",
-      env: { HOME: home, PATH: bin, TEST_ARGV: output, FIXTURE_BYPASS: "private-bypass-value" },
-    });
-    const page = await boardPage(app);
-    await app.evaluate(({ dialog }, repo) => {
-      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
-    }, repo);
-    const repository = await page.evaluate(() => window.desktop.addRepository());
-    assert.ok(repository);
-    await openSettingsScreen(page);
-    await page
-      .getByRole("navigation", { name: "Settings sections" })
-      .getByRole("button", { name: "Agents", exact: true })
-      .click();
-    const file = path.join(home, ".foom/config/agents/foom-test-agent.json");
-    const legacy = {
-      kind: "agent",
-      version: 1,
-      id: "foom-test-agent",
-      name: "Fixture agent",
-      badge: "FT",
-      executables: ["foom-test-agent"],
-      launch: {
-        arguments: [script, "$(literal)", "--yolo"],
-        prompt: ["--prompt", "{prompt}"],
-        resume: ["--resume", "{conversationId}"],
+      arguments: { arguments: [script, "$(literal)", "--yolo"] },
+      display: undefined,
+      prompt: { arguments: ["--prompt", "{prompt}"] },
+      mcp: {
+        arguments: ["--mcp", "{file:config/mcp.json}"],
+        when: { all: [{ field: "control", op: "eq", value: true }] },
       },
-      bypassArguments: ["--yolo"],
-      attention: { minimumEngineVersion: 1, rules: [] },
-    };
-    const v2 = JSON.parse(
-      await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8"),
-    );
-    const manifest =
-      version === 1
-        ? legacy
-        : {
-            ...v2,
-            id: legacy.id,
-            name: legacy.name,
-            badge: legacy.badge,
-            executables: legacy.executables,
-            discovery: { facts: [] },
-            launch: {
-              ...v2.launch,
-              order: [
-                "arguments",
-                "resume",
-                "defaults",
-                "display",
-                "guidance",
-                "mcp",
-                "hooks",
-                "tools",
-                "prompt",
-              ],
-              arguments: { arguments: legacy.launch.arguments },
-              display: undefined,
-              prompt: { arguments: ["--prompt", "{prompt}"] },
-              mcp: {
-                arguments: ["--mcp", "{file:config/mcp.json}"],
-                when: { all: [{ field: "control", op: "eq", value: true }] },
-              },
-            },
-            execution: { ...v2.execution, completionChannels: ["lifecycle"] },
-            hooks: {
-              channels: [
-                {
-                  id: "lifecycle",
-                  when: { all: [{ field: "hooksEnabled", op: "eq", value: true }] },
-                  observer: {
-                    transport: "stdin",
-                    placement: "launch",
-                    version: 1,
-                    response: "silent",
-                    delivery: "foreground",
-                    timeoutMs: 3000,
-                  },
-                  arguments: ["--settings", "{hookFile:hooks.json}"],
-                  mapping: {
-                    session: { source: "payload", path: ["session_id"] },
-                    event: { source: "payload", path: ["hook_event_name"] },
-                    cases: [
-                      {
-                        id: "PermissionRequest",
-                        event: "PermissionRequest",
-                        action: "needs_input",
-                      },
-                      { id: "Stop", event: "Stop", action: "classify" },
-                    ],
-                  },
-                },
-              ],
-            },
-            files: [
+    },
+    execution: { ...v2.execution, completionChannels: ["lifecycle"] },
+    hooks: {
+      channels: [
+        {
+          id: "lifecycle",
+          when: { all: [{ field: "hooksEnabled", op: "eq", value: true }] },
+          observer: {
+            transport: "stdin",
+            placement: "launch",
+            version: 1,
+            response: "silent",
+            delivery: "foreground",
+            timeoutMs: 3000,
+          },
+          arguments: ["--settings", "{hookFile:hooks.json}"],
+          mapping: {
+            session: { source: "payload", path: ["session_id"] },
+            event: { source: "payload", path: ["hook_event_name"] },
+            cases: [
               {
-                name: "hooks.json",
-                scope: "launch",
-                format: "json",
-                content:
-                  '{"hooks":{"PermissionRequest":[{"type":"command","command":{observerCommand:lifecycle:json}}]}}',
-                when: { all: [{ field: "hooksEnabled", op: "eq", value: true }] },
+                id: "PermissionRequest",
+                event: "PermissionRequest",
+                action: "needs_input",
               },
-              ...v2.files.map((file) => ({
-                ...file,
-                when: { all: [{ field: "control", op: "eq", value: true }] },
-              })),
+              { id: "Stop", event: "Stop", action: "classify" },
             ],
-            conversation: { resumePin: "requested-on-paste", restoreControl: false },
-            resumePaste: [{ command: legacy.id, selector: "--resume" }],
-          };
-    const launch = () =>
-      page.evaluate(
-        (repository) =>
-          window.desktop.sidebarCommand({
-            kind: "launch",
-            repository,
-            worktree: repository,
-            run: "foom-test-agent",
-          }),
-        repository.path,
-      );
-    require("../../build/shared/agent-plugin-parser.js").parseAgentManifest(
-      JSON.stringify(manifest),
-    );
-    await writeFile(file, JSON.stringify(manifest));
-    const card = page
-      .locator(".agent-card")
-      .filter({ has: page.getByRole("heading", { name: "Fixture agent", exact: true }) });
-    await expect(card).toContainText("agents/foom-test-agent.json");
-    await expect(card.getByRole("button", { name: "Review…", exact: true })).toHaveCount(0);
-    await expect
-      .poll(async () =>
-        (await page.evaluate(() => window.desktop.scanAgents(true))).agents.some(
-          (agent) => agent.id === "foom-test-agent" && agent.path !== null,
-        ),
-      )
-      .toBe(true);
-    await expect(card.getByLabel("Fixture agent default arguments")).toBeVisible();
-    await expect(card.getByLabel("New Fixture agent variable name")).toBeVisible();
-    await expect(
-      card.getByText(version === 2 ? "Hooks" : "Screen rules", { exact: true }),
-    ).toBeVisible();
-    await assertAccessible(page);
-    await page.screenshot({ path: path.join(__dirname, "../../test-results/agents-settings.png") });
-    if (version === 2) {
-      await page.evaluate((repository) => {
-        window.v2Launch = window.desktop.sidebarCommand({
+          },
+        },
+      ],
+    },
+    files: [
+      {
+        name: "hooks.json",
+        scope: "launch",
+        format: "json",
+        content:
+          '{"hooks":{"PermissionRequest":[{"type":"command","command":{observerCommand:lifecycle:json}}]}}',
+        when: { all: [{ field: "hooksEnabled", op: "eq", value: true }] },
+      },
+      ...v2.files.map((file) => ({
+        ...file,
+        when: { all: [{ field: "control", op: "eq", value: true }] },
+      })),
+    ],
+    conversation: { resumePin: "requested-on-paste", restoreControl: false },
+    resumePaste: [{ command: "foom-test-agent", selector: "--resume" }],
+  };
+  const launch = () =>
+    page.evaluate(
+      (repository) =>
+        window.desktop.sidebarCommand({
           kind: "launch",
           repository,
           worktree: repository,
           run: "foom-test-agent",
-        });
-      }, repository.path);
-      const disclosure = await confirmationPage(app);
-      await expect(
-        disclosure.getByRole("heading", { name: "Launch Fixture agent with bypass?" }),
-      ).toBeVisible();
-      await expect(disclosure.getByRole("alertdialog")).toContainText(
-        "FIXTURE_BYPASS: present-nonempty",
-      );
-      await expect(disclosure.getByRole("alertdialog")).not.toContainText("private-bypass-value");
-      await disclosure.getByRole("button", { name: "Launch with bypass", exact: true }).click();
-      await page.evaluate(() => window.v2Launch);
-    } else await launch();
-    await expect
-      .poll(async () => {
-        try {
-          const args = JSON.parse(await readFile(output, "utf8"));
-          return version === 1 ? args : args.slice(0, 2);
-        } catch {
-          return null;
-        }
-      })
-      .toEqual(["$(literal)", "--yolo"]);
-    if (version === 2) {
-      const args = JSON.parse(await readFile(output, "utf8"));
-      assert.ok(args.includes("--mcp"));
-      assert.equal(
-        args.filter((arg) =>
-          /^mcp__foom_.*__(open_preview|list_previews|close_preview)$/u.test(arg),
-        ).length,
-        3,
-      );
-      const mcp = args[args.indexOf("--mcp") + 1];
-      assert.ok((await readFile(mcp, "utf8")).includes("Bearer ${FOOM_CONTROL_TOKEN}"));
-      assert.ok(args.at(-1).includes("Foom provides a workspace CLI"));
-    }
-    const snapshot = await page.evaluate(() => window.desktop.workspace());
-    const launched = snapshot.terminals.find((entry) => entry.agent === "foom-test-agent");
-    assert.equal(launched.bypass, true);
-    assert.equal(launched.providerOrigin, "config");
-    if (version === 2) {
-      const args = JSON.parse(await readFile(output, "utf8"));
-      const hooks = JSON.parse(await readFile(args[args.indexOf("--settings") + 1], "utf8"));
-      assert.ok(hooks.hooks.PermissionRequest[0].command.includes("observer"));
-      await page.evaluate((id) => window.desktop.input(id, "hooks\r"), launched.id);
-      await expect
-        .poll(
-          async () =>
-            (await page.evaluate(() => window.desktop.workspace())).terminals.find(
-              (entry) => entry.id === launched.id,
-            )?.conversationId,
-        )
-        .toBe("fixture-hook-conversation");
-    }
-
-    await writeFile(file, JSON.stringify({ ...manifest, name: "Edited fixture" }));
+        }),
+      repository.path,
+    );
+  require("../../build/shared/agent-plugin-parser.js").parseAgentManifest(JSON.stringify(manifest));
+  await writeFile(file, JSON.stringify(manifest));
+  const card = page
+    .locator(".agent-card")
+    .filter({ has: page.getByRole("heading", { name: "Fixture agent", exact: true }) });
+  await expect(card).toContainText("agents/foom-test-agent.json");
+  await expect(card.getByRole("button", { name: "Review…", exact: true })).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.scanAgents(true))).agents.some(
+        (agent) => agent.id === "foom-test-agent" && agent.path !== null,
+      ),
+    )
+    .toBe(true);
+  await expect(card.getByLabel("Fixture agent default arguments")).toBeVisible();
+  await expect(card.getByLabel("New Fixture agent variable name")).toBeVisible();
+  await expect(card.getByText("Hooks", { exact: true })).toBeVisible();
+  await assertAccessible(page);
+  await page.screenshot({ path: path.join(__dirname, "../../test-results/agents-settings.png") });
+  {
+    await page.evaluate((repository) => {
+      window.v2Launch = window.desktop.sidebarCommand({
+        kind: "launch",
+        repository,
+        worktree: repository,
+        run: "foom-test-agent",
+      });
+    }, repository.path);
+    const disclosure = await confirmationPage(app);
     await expect(
-      page.locator(".agent-card").getByRole("heading", { name: "Edited fixture", exact: true }),
+      disclosure.getByRole("heading", { name: "Launch Fixture agent with bypass?" }),
     ).toBeVisible();
-    await writeFile(file, "{}");
-    await expect(page.getByText("Rejected · launch blocked", { exact: true })).toBeVisible();
-    await assert.rejects(launch(), /Invalid sidebar command/);
-  });
+    await expect(disclosure.getByRole("alertdialog")).toContainText(
+      "FIXTURE_BYPASS: present-nonempty",
+    );
+    await expect(disclosure.getByRole("alertdialog")).not.toContainText("private-bypass-value");
+    await disclosure.getByRole("button", { name: "Launch with bypass", exact: true }).click();
+    await page.evaluate(() => window.v2Launch);
+  }
+  await expect
+    .poll(async () => {
+      try {
+        const args = JSON.parse(await readFile(output, "utf8"));
+        return args.slice(0, 2);
+      } catch {
+        return null;
+      }
+    })
+    .toEqual(["$(literal)", "--yolo"]);
+  {
+    const args = JSON.parse(await readFile(output, "utf8"));
+    assert.ok(args.includes("--mcp"));
+    assert.equal(
+      args.filter((arg) => /^mcp__foom_.*__(open_preview|list_previews|close_preview)$/u.test(arg))
+        .length,
+      3,
+    );
+    const mcp = args[args.indexOf("--mcp") + 1];
+    assert.ok((await readFile(mcp, "utf8")).includes("Bearer ${FOOM_CONTROL_TOKEN}"));
+    assert.ok(args.at(-1).includes("Foom provides a workspace CLI"));
+  }
+  const snapshot = await page.evaluate(() => window.desktop.workspace());
+  const launched = snapshot.terminals.find((entry) => entry.agent === "foom-test-agent");
+  assert.equal(launched.bypass, true);
+  assert.equal(launched.providerOrigin, "config");
+  {
+    const args = JSON.parse(await readFile(output, "utf8"));
+    const hooks = JSON.parse(await readFile(args[args.indexOf("--settings") + 1], "utf8"));
+    assert.ok(hooks.hooks.PermissionRequest[0].command.includes("observer"));
+    await page.evaluate((id) => window.desktop.input(id, "hooks\r"), launched.id);
+    await expect
+      .poll(
+        async () =>
+          (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+            (entry) => entry.id === launched.id,
+          )?.conversationId,
+      )
+      .toBe("fixture-hook-conversation");
+  }
+
+  await writeFile(file, JSON.stringify({ ...manifest, name: "Edited fixture" }));
+  await expect(
+    page.locator(".agent-card").getByRole("heading", { name: "Edited fixture", exact: true }),
+  ).toBeVisible();
+  await writeFile(file, JSON.stringify({ ...manifest, version: 1 }));
+  await expect(
+    page.getByText(
+      "$.version: Agent manifest version 1 is no longer supported; use version 2 (see README.md)",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  assert.ok(
+    (await page.evaluate(() => window.desktop.workspace())).terminals.some(
+      (entry) => entry.id === launched.id,
+    ),
+  );
+  await expect(page.getByText("Rejected · launch blocked", { exact: true })).toBeVisible();
+  await assert.rejects(launch(), /Invalid sidebar command/);
+});
 
 test("v2 plugin setup confirms fixed actions and refuses unknown, malformed and linked metadata", {
   timeout: deadline(60_000),
@@ -3801,4 +3762,75 @@ test("board pull requests show running failed and passed checks through fixture 
   await expect(page.getByText("#340 · Fixture pull request", { exact: true })).toBeVisible();
   await expect(page.getByText("1 passed · 0 failed · 0 running", { exact: true })).toBeVisible();
   await assertAccessible(page);
+});
+
+test("missing agent cards recover on Settings entry and manifest reload without toggling", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const { chmod, copyFile } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-missing-agent-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  await Promise.all([bin, home].map((directory) => mkdir(directory)));
+  const app = await launchApp(context, { fixture: "agent", env: { HOME: home, PATH: bin } });
+  const page = await boardPage(app);
+  const openAgents = async () => {
+    await openSettingsScreen(page);
+    await page
+      .getByRole("navigation", { name: "Settings sections" })
+      .getByRole("button", { name: "Agents", exact: true })
+      .click();
+  };
+  await openAgents();
+  const file = path.join(home, ".foom/config/agents/late-agent.json");
+  const manifest = {
+    ...JSON.parse(await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8")),
+    kind: "agent",
+    version: 2,
+    id: "late-agent",
+    name: "Late agent",
+    badge: "LA",
+    executables: ["late-agent"],
+    attention: { minimumEngineVersion: 1, rules: [] },
+    execution: { completion: "attached", completionChannels: [] },
+  };
+  await writeFile(file, JSON.stringify(manifest));
+  const card = page.locator("#agent-card-late-agent");
+  await expect(card.getByText("Not found", { exact: true })).toBeVisible();
+  await expect(card.getByRole("switch")).not.toBeChecked();
+  await expect(card.getByRole("switch")).toBeDisabled();
+  const executable = path.join(bin, process.platform === "win32" ? "late-agent.exe" : "late-agent");
+  const install = async () => {
+    await copyFile(process.execPath, executable);
+    await chmod(executable, 0o755);
+  };
+  await page.keyboard.press("Escape");
+  await install();
+  await openAgents();
+  await expect(card.getByRole("switch")).toBeEnabled();
+  await expect(card.getByRole("switch")).toBeChecked();
+  assert.equal(
+    (await page.evaluate(() => window.desktop.setupState())).settings.agents["late-agent"],
+    undefined,
+  );
+  await rm(executable);
+  await writeFile(file, JSON.stringify({ ...manifest, name: "Late agent missing" }));
+  await expect(card.getByText("Not found", { exact: true })).toBeVisible();
+  await expect(card.getByRole("switch")).toBeDisabled();
+  await install();
+  await writeFile(file, JSON.stringify({ ...manifest, name: "Late agent restored" }));
+  await expect(card.getByRole("switch")).toBeEnabled();
+  await expect(card.getByRole("switch")).toBeChecked();
+  await card.getByRole("switch").uncheck();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.setupState())).settings.agents["late-agent"],
+    )
+    .toBe(false);
+  await page.keyboard.press("Escape");
+  await openAgents();
+  await expect(card.getByRole("switch")).toBeEnabled();
+  await expect(card.getByRole("switch")).not.toBeChecked();
 });

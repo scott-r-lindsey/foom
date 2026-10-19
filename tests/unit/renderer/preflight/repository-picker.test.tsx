@@ -201,3 +201,27 @@ test("with nothing found, the picker is the main choice", async () => {
   render(<Harness source={source} />);
   expect((await screen.findByRole("button", { name: "Choose folder…" })).className).toBe("primary");
 });
+
+test("changing the recent window regroups retained timestamps and preserves every selection", () => {
+  const { source } = setup();
+  const onScan = vi.fn();
+  const onSelection = vi.fn();
+  const found = scan([repo("recent", 2), repo("older", 60), repo("unknown", null)]);
+  const selection = { scan: found, selected: new Set(["/code/recent", "/code/older"]) };
+  const props = { source, selection, added: [], progress: undefined, onScan, onSelection };
+  const view = render(<RepositoryPicker {...props} recentDays={30} />);
+  expect(
+    within(screen.getByRole("region", { name: "Recent · last 30 days" })).getAllByRole("checkbox"),
+  ).toHaveLength(1);
+  view.rerender(<RepositoryPicker {...props} recentDays={90} />);
+  expect(
+    within(screen.getByRole("region", { name: "Recent · last 90 days" })).getAllByRole("checkbox"),
+  ).toHaveLength(2);
+  view.rerender(<RepositoryPicker {...props} recentDays={1} />);
+  expect(screen.queryByRole("region", { name: /Recent/ })).toBeNull();
+  expect(screen.getByRole("checkbox", { name: "recent" })).toHaveProperty("checked", true);
+  expect(screen.getByRole("checkbox", { name: "older" })).toHaveProperty("checked", true);
+  expect(screen.getByRole("checkbox", { name: "unknown" })).toHaveProperty("checked", false);
+  expect(onScan).not.toHaveBeenCalled();
+  expect(onSelection).not.toHaveBeenCalled();
+});

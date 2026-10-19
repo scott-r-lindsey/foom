@@ -1,10 +1,9 @@
 import { validAgentId } from "../../shared/providers/catalog";
-import { execFile } from "node:child_process";
+import { readLoginShell } from "../login-shell";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
-import { promisify } from "node:util";
 import type { AgentId } from "../../shared/agents";
 import type {
   EnvironmentCandidate,
@@ -87,8 +86,6 @@ export function parseEnvironmentChange(value: unknown): EnvironmentChange {
   };
 }
 
-const execute = promisify(execFile);
-
 /**
  * Reads only the importable variables from the login shell: a fixed program with NUL
  * delimiters, no interpolated names or paths. Windows has no login shell; it reads the
@@ -99,7 +96,7 @@ export async function loginEnvironment(
     file: string,
     args: readonly string[],
     options: { encoding: "utf8"; timeout: number; maxBuffer: number; cwd: string },
-  ) => Promise<{ stdout: string }> = execute,
+  ) => Promise<{ stdout: string }> = readLoginShell,
   platform: NodeJS.Platform = process.platform,
   inherited: NodeJS.ProcessEnv = process.env,
 ): Promise<Record<string, string>> {

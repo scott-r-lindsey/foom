@@ -321,7 +321,7 @@
 
 /* Repository → worktree → session sidebar. */
 .sidebar-shell {
-  flex: 0 0 300px;
+  flex: 0 0 var(--sidebar-width, 300px);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1857,4 +1857,32 @@
 }
 .pull-request[data-status="failed"] {
   color: var(--failed-ink);
+}
+
+/* The border is the only visible resize affordance. */
+.sidebar-resize {
+  position: absolute;
+  inset: 0 -3px 0 auto;
+  width: 7px;
+  z-index: 3;
+  cursor: col-resize;
+  outline: none;
+  touch-action: none;
+}
+.sidebar-resize::after {
+  content: "";
+  position: absolute;
+  inset: 0 3px;
+}
+.sidebar-resize:hover::after,
+.sidebar-resize:focus-visible::after,
+.sidebar-shell[data-resizing="true"] .sidebar-resize::after {
+  background: var(--highlight);
+}
+.sidebar-shell[data-resizing="true"] {
+  transition: none;
+}
+.board-workspace:has(.sidebar-shell[data-resizing="true"]) {
+  cursor: col-resize;
+  user-select: none;
 }

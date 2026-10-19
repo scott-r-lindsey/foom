@@ -86,9 +86,6 @@
         5.115, 16.678, 12.165
       ],
       "a fresh profile opens preflight, and it passes accessibility checks": [4.099, 9.847, 6.443],
-      "a manifest-only fixture agent loads from the config folder, reloads edits and is withdrawn when invalid": [
-        5.782, 18.87, 11.709
-      ],
       "agent discovery uses the fixture login shell and controlled PATH": [4.087, 37.141, 12.168],
       "an agent fixture opens full-board previews in columns, retains focus and respects human close": [
         11.23, 0, 20.642
@@ -106,7 +103,9 @@
       "fixture cleanup closes every app before removing directories and retains quit failures": [
         0.01, 0.037, 0.015
       ],
-      "footer config gear opens Settings and launches a docked Shell": [4.089, 12.112, 7.654],
+      "footer config gear opens Settings and launches two independent docked Shells": [
+        4.089, 12.112, 7.654
+      ],
       "merged cleanup opens checking, continues hidden, reopens progress and stops unstarted worktrees": [
         8.297, 35.395, 22.414
       ],
@@ -225,7 +224,7 @@
       "Environment settings reach a launched shell; main refuses reserved names": [
         4.063, 9.996, 5.407
       ],
-      "Settings agent menu launches config and focuses its existing window": [3.135, 15.651, 8.087],
+      "Settings agent menu launches a new config session in each window": [3.135, 15.651, 8.087],
       "Settings persists literal agent defaults and discloses bypass once per agent": [
         4.214, 12.451, 9.571
       ],

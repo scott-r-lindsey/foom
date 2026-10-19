@@ -157,7 +157,7 @@ export class Setup {
       truncated: scan.truncated,
       repositories: scan.repositories.map((repository) => ({
         ...repository,
-        recent: isRecent(repository.lastActive, now),
+        recent: isRecent(repository.lastActive, now, this.deps.store.get().recentRepositoryDays),
         added: added.has(repository.path),
       })),
     };

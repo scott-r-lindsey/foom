@@ -1,8 +1,29 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { PreviewSnapshot } from "../../../../src/shared/previews";
 import { attachPreviewComposition } from "../../../../src/renderer/board/preview-composition";
 
+const frames = new Map<number, FrameRequestCallback>();
+let frameId = 0;
+beforeEach(() => {
+  frames.clear();
+  frameId = 0;
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+});
+const frame = () => {
+  const pending = [...frames.values()];
+  frames.clear();
+  for (const callback of pending) callback(0);
+};
+const settle = async () => {
+  await flush();
+  frame();
+  await flush();
+};
 afterEach(() => {
   document.body.replaceChildren();
   vi.unstubAllGlobals();
@@ -70,31 +91,31 @@ test("freezes for panels, scrim, full drag and settings; preserves overlapping r
     '<main class="board-home" data-preview-covered="true"></main>',
   ]) {
     root.innerHTML = markup;
-    await flush();
+    await settle();
     expect(f.cover).toHaveBeenLastCalledWith(true);
     root.insertAdjacentHTML("beforeend", '<div class="wordmark-menu" aria-expanded="true"></div>');
-    await flush();
+    await settle();
     root.firstElementChild?.remove();
-    await flush();
+    await settle();
     expect(f.cover).toHaveBeenLastCalledWith(true);
     root.replaceChildren();
-    await flush();
+    await settle();
     expect(f.cover).toHaveBeenLastCalledWith(false);
   }
   expect(f.getAnimations).not.toHaveBeenCalled();
   f.send([snapshot]);
-  await flush();
+  await settle();
   expect(document.querySelector("canvas")?.style.left).toBe("2px");
   expect(f.drawImage).toHaveBeenCalled();
   expect(f.getAnimations).toHaveBeenCalled();
   f.send([snapshot]);
-  await flush();
+  await settle();
   expect(document.querySelectorAll("canvas")).toHaveLength(1);
   f.send([]);
   expect(document.querySelector("canvas")).toBeNull();
   f.send([snapshot]);
   f.dispose();
-  await flush();
+  await settle();
   expect(f.off).toHaveBeenCalled();
   expect(f.bitmap.close).toHaveBeenCalled();
   expect(document.querySelector("canvas")).toBeNull();
@@ -113,33 +134,24 @@ test("snapshots follow tile geometry and opacity during real animation lifetime"
   } as DOMRect);
   vi.spyOn(title, "getBoundingClientRect").mockReturnValue({ bottom: 40 } as DOMRect);
   f.send([snapshot]);
-  await flush();
+  await settle();
   const image = document.querySelector("canvas");
   expect(image?.style.left).toBe("105px");
   expect(image?.style.width).toBe("390px");
   expect(image?.style.height).toBe("255px");
   expect(image?.style.opacity).toBe("0.4");
-  let frame: FrameRequestCallback | undefined;
-  vi.stubGlobal(
-    "requestAnimationFrame",
-    vi.fn((callback: FrameRequestCallback) => {
-      frame = callback;
-      return 1;
-    }),
-  );
-  vi.stubGlobal("cancelAnimationFrame", vi.fn());
   f.animations.push({
     effect: new KeyframeEffect(tile, []),
     playState: "running",
   } as unknown as Animation);
   tile.setAttribute("data-maximized", "true");
-  await flush();
+  await settle();
   expect(f.cover).toHaveBeenLastCalledWith(false);
   f.animations.splice(0);
   title.remove();
   tile.style.padding = "0px";
   tile.style.border = "none";
-  frame?.(0);
+  frame();
   expect(image?.style.left).toBe("100px");
   expect(image?.style.height).toBe("300px");
   expect(f.cover).toHaveBeenLastCalledWith(false);
@@ -151,20 +163,12 @@ test("cover and bitmap failures leave board input available", async () => {
   vi.mocked(createImageBitmap).mockRejectedValue(new Error("invalid"));
   document.getElementById("root")?.insertAdjacentHTML("beforeend", "<dialog open></dialog>");
   f.send([snapshot]);
-  await flush();
+  await settle();
   f.dispose();
-  await flush();
+  await settle();
 });
 
 test("paint acknowledgement waits for decode and a painted frame, rejects stale decodes and disposal", async () => {
-  const frames: FrameRequestCallback[] = [];
-  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-    frames.push(callback);
-    return frames.length;
-  });
-  const frame = () => {
-    for (const callback of frames.splice(0)) callback(0);
-  };
   const f = fixture();
   let resolve: ((bitmap: ImageBitmap) => void) | undefined;
   vi.mocked(createImageBitmap).mockImplementationOnce(
@@ -225,4 +229,109 @@ test("a failed replacement canvas context preserves the previously drawn cache",
   expect(canvas?.width).toBe(10);
   expect(f.drawImage).toHaveBeenCalledTimes(1);
   f.dispose();
+});
+
+test.each([false, true])(
+  "terminal repaint bursts do no composition work (previews: %s)",
+  async (previews) => {
+    const f = fixture();
+    document.getElementById("root")?.insertAdjacentHTML(
+      "beforeend",
+      `
+    <section class="terminal-tile"><div class="tile-terminal"><div class="xterm"><div class="xterm-rows"><div>old</div></div></div></div></section>
+    ${previews ? `<section class="terminal-tile" data-preview-id="${snapshot.id}"><header class="tile-title"></header></section>` : ""}
+  `,
+    );
+    if (previews) f.send([snapshot]);
+    await settle();
+    await settle();
+    const rows = document.querySelector(".xterm-rows");
+    if (!rows) throw new Error("rows");
+    const queries = vi.spyOn(document, "querySelector");
+    const layout = vi.spyOn(Element.prototype, "getBoundingClientRect");
+    f.getAnimations.mockClear();
+    for (let index = 0; index < 100; index++) {
+      const removed = rows.firstElementChild;
+      rows.replaceChildren(document.createElement("div"));
+      removed?.setAttribute("style", "height:1px");
+      rows.firstElementChild?.setAttribute("style", `height:${String(index)}px`);
+      await flush();
+    }
+    console.info("terminal repaint composition", {
+      previews,
+      queries: queries.mock.calls.length,
+      layouts: layout.mock.calls.length,
+      animations: f.getAnimations.mock.calls.length,
+    });
+    expect(queries).not.toHaveBeenCalled();
+    expect(layout).not.toHaveBeenCalled();
+    frame();
+    expect(queries).not.toHaveBeenCalled();
+    expect(layout).not.toHaveBeenCalled();
+    expect(f.getAnimations).not.toHaveBeenCalled();
+    f.dispose();
+  },
+);
+
+test("board mutations and snapshots share one frame, follow animations and cancel pending disposal", async () => {
+  const f = fixture();
+  const root = document.getElementById("root");
+  if (!root) throw new Error("root");
+  root.innerHTML = `<main class="board-home"><section class="terminal-tile" data-preview-id="${snapshot.id}"><header class="tile-title"></header></section></main>`;
+  f.send([snapshot]);
+  await settle();
+  await settle();
+  const tile = root.querySelector("section");
+  const board = root.querySelector("main");
+  if (!tile || !board) throw new Error("board");
+  const layout = vi.spyOn(tile, "getBoundingClientRect");
+  const queries = vi.spyOn(document, "querySelector");
+  f.getAnimations.mockClear();
+  for (let index = 0; index < 100; index++) {
+    tile.style.left = `${String(index)}px`;
+    tile.dataset["maximized"] = "true";
+    tile.dataset["behind"] = "true";
+    await flush();
+  }
+  board.dataset["previewCovered"] = "true";
+  root.insertAdjacentHTML("beforeend", "<dialog open></dialog>");
+  f.send([snapshot]);
+  await flush();
+  expect(layout).not.toHaveBeenCalled();
+  expect(queries).not.toHaveBeenCalled();
+  expect(f.getAnimations).not.toHaveBeenCalled();
+  frame();
+  expect(layout).toHaveBeenCalledTimes(1);
+  expect(f.getAnimations).toHaveBeenCalledTimes(1);
+  expect(f.cover).toHaveBeenLastCalledWith(true);
+  await flush();
+  frame();
+  expect(layout).toHaveBeenCalledTimes(1);
+
+  const animation = {
+    effect: new KeyframeEffect(tile, []),
+    playState: "running",
+  } as unknown as Animation;
+  f.animations.push(animation);
+  tile.style.left = "0px";
+  await settle();
+  expect(layout).toHaveBeenCalledTimes(2);
+  // Mutation and animation work must use the same pending frame.
+  root.querySelector("dialog")?.remove();
+  board.dataset["previewCovered"] = "false";
+  await flush();
+  frame();
+  expect(layout).toHaveBeenCalledTimes(3);
+  expect(f.cover).toHaveBeenLastCalledWith(false);
+  f.animations.splice(0);
+  frame();
+  expect(layout).toHaveBeenCalledTimes(4);
+  frame();
+  expect(layout).toHaveBeenCalledTimes(4);
+  board.dataset["dragging"] = "true";
+  await flush();
+  f.dispose();
+  frame();
+  expect(layout).toHaveBeenCalledTimes(4);
+  expect(f.cover).toHaveBeenLastCalledWith(false);
 });

@@ -1382,7 +1382,7 @@ test("config panel orders Settings, launchers and folder commands; dock uses the
   const items = within(panel).getAllByRole("menuitem");
   expect(items.map((item) => item.textContent)).toEqual([
     "SettingsCtrl+,",
-    "CCVia Claude Coderunning",
+    "CCVia Claude Code",
     ">_Shell",
     "Open Foom config settings",
     "Open folder",

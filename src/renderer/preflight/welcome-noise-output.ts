@@ -3,7 +3,7 @@
  * time, tool output lands in bursts, and agents stall between steps, so each tile
  * moves like a real terminal rather than a smooth scroll.
  */
-export type Tone = "plain" | "dim" | "bold" | "accent" | "blue" | "cyan" | "green" | "red";
+export type Tone = "plain" | "dim" | "bold" | "accent" | "blue" | "cyan" | "green" | "removed";
 export type Segment = readonly [Tone, string];
 export type Line = readonly Segment[];
 export type Agent = "Claude Code" | "Codex" | "Antigravity";
@@ -77,11 +77,11 @@ const CLAUDE: Template[] = [
     line: (r) => [
       ["dim", "  ⎿ "],
       ["green", `+${count(r, 1, 30)} `],
-      ["red", `-${count(r, 0, 12)}`],
+      ["removed", `-${count(r, 0, 12)}`],
     ],
   },
   { line: () => [["green", "+   const rows = pinnedFirst(repos, pins);"]] },
-  { line: () => [["red", "-   const rows = sortRows(repos);"]] },
+  { line: () => [["removed", "-   const rows = sortRows(repos);"]] },
   {
     line: (r) => [
       ["accent", "● "],

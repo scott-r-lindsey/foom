@@ -10,7 +10,7 @@
   --term-blue: #7aa2ff;
   --term-cyan: #5fd7e6;
   --term-green: #6fe0a3;
-  --term-red: #ff6b81;
+  --term-removed: #857da6;
   position: relative;
   width: min(100%, 920px);
   height: clamp(320px, 48vh, 480px);
@@ -48,10 +48,13 @@
   border-radius: var(--shape-radius, 6px);
 }
 .noise-title {
-  height: 16px;
-  padding: 0 8px;
+  height: 25px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
   overflow: hidden;
-  font: 9px / 16px var(--font-mono);
+  font: 9px / 25px var(--font-mono);
   white-space: nowrap;
   color: var(--term-dim);
   background: var(--term-bar);
@@ -61,7 +64,7 @@
 /* New lines push up from the bottom, like a real terminal. */
 .noise-output {
   position: absolute;
-  inset: 16px 0 0;
+  inset: 25px 0 0;
   margin: 0;
   padding: 4px 8px 6px;
   display: flex;
@@ -98,14 +101,14 @@
 .tone-green {
   color: var(--term-green);
 }
-.tone-red {
-  color: var(--term-red);
+.tone-removed {
+  color: var(--term-removed);
 }
 .noise-row {
   position: absolute;
   inset: 0;
   display: grid;
-  grid-template-columns: 10px 1fr auto;
+  grid-template-columns: 10px auto minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   padding: 0 14px;
@@ -137,7 +140,7 @@
 }
 .noise-tile[data-state="needs_input"] .noise-light {
   background: var(--attention);
-  animation: noise-knock 2.4s ease-in-out infinite;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--attention) 22%, transparent);
 }
 .noise-tile[data-state="needs_input"] .noise-agent {
   color: var(--attention-ink);
@@ -147,15 +150,6 @@
 }
 .noise-tile[data-state="done"] .noise-agent {
   color: var(--done-ink);
-}
-@keyframes noise-knock {
-  0%,
-  100% {
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--attention) 22%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 7px color-mix(in srgb, var(--attention) 12%, transparent);
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .noise-tile,
@@ -171,4 +165,30 @@
   .noise-tile[data-state="needs_input"] .noise-light {
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--attention) 22%, transparent);
   }
+}
+
+.noise-title .noise-light {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  background: var(--term-accent);
+}
+.noise-title .board-agent {
+  color: var(--term-plain);
+  background: var(--term-line);
+  font-size: 8px;
+  line-height: 14px;
+  min-width: 20px;
+}
+.noise-location,
+.noise-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.noise-location {
+  flex: 1;
+}
+.noise-tile-menu {
+  margin-left: auto;
 }

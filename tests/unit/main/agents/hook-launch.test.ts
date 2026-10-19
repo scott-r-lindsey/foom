@@ -1,6 +1,3 @@
-import fixture from "../../../fixtures/agent-plugin.json";
-import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
-import { configProvider } from "../../../../src/main/agents/providers/config";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import type * as Fs from "node:fs/promises";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
@@ -161,7 +158,7 @@ test.skipIf(process.platform === "win32")(
     try {
       const hooks = await prepareHookLaunch(real, "claude", vi.fn(), process.platform, scratch);
       const model = agentProvider("claude").model;
-      for (const channel of model?.hooks?.channels ?? [])
+      for (const channel of model.hooks?.channels ?? [])
         hooks.v2?.channels.set(channel.id, channel);
       const payload = JSON.stringify({ session_id: "abc", hook_event_name: "PermissionRequest" });
       const child = execFile("sh", ["-c", String(hooks.v2?.values["observerCommand:lifecycle"])], {
@@ -208,7 +205,7 @@ test.skipIf(process.platform !== "win32").each(["claude", "codex"] as const)(
       const hooks = await prepareHookLaunch(real, agent, vi.fn(), "win32", scratch);
       try {
         expect(signals).toMatchObject([]); // Startup probe must not send an event.
-        for (const channel of agentProvider(agent).model?.hooks?.channels ?? [])
+        for (const channel of agentProvider(agent).model.hooks?.channels ?? [])
           hooks.v2?.channels.set(channel.id, channel);
         const argv =
           hooks.v2?.values[agent === "claude" ? "observerArgv:lifecycle" : "observerArgv:notify"];
@@ -284,52 +281,4 @@ test("Antigravity binds and revokes credentials with only a private ordering cou
   expect(revoke).toHaveBeenCalledOnce();
   expect(bind).toHaveBeenCalledTimes(2);
   expect(bind).toHaveBeenLastCalledWith(receiver.register.mock.calls[0]?.[0], undefined);
-});
-
-test("legacy hooks fail closed on policy and registration failures, and tolerate exit cleanup failure", async () => {
-  const manifest = parseAgentPlugin(JSON.stringify(fixture));
-  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
-  const execute = vi.fn().mockRejectedValue(new Error("policy"));
-  await expect(
-    prepareHookLaunch(receiver, fixture.id, vi.fn(), "win32", scratch, execute),
-  ).rejects.toThrow("PowerShell hook script could not run");
-  expect(receiver.register).not.toHaveBeenCalled();
-  receiver.register.mockImplementationOnce(() => {
-    throw new Error("closed");
-  });
-  await expect(prepareHookLaunch(receiver, fixture.id, vi.fn(), "linux", scratch)).rejects.toThrow(
-    "closed",
-  );
-  expect(await launchDirectories()).toEqual([]);
-  const hooks = await prepareHookLaunch(receiver, fixture.id, vi.fn(), "linux", scratch);
-  const files = await import("node:fs/promises");
-  const remove = vi.spyOn(files, "rm").mockRejectedValueOnce(new Error("busy"));
-  hooks.dispose();
-  await vi.waitFor(() => {
-    expect(remove).toHaveBeenCalledOnce();
-  });
-  remove.mockRestore();
-  for (const name of await launchDirectories())
-    await rm(join(scratch, name), { recursive: true, force: true });
-});
-
-test("legacy Windows argv hooks probe policy before registration and quote their private path", async () => {
-  const manifest = parseAgentPlugin(JSON.stringify(fixture));
-  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
-  const execute = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
-  const hooks = await prepareHookLaunch(receiver, fixture.id, vi.fn(), "win32", scratch, execute);
-  try {
-    const script = hooks.observerArgv.at(-1) ?? "";
-    expect(hooks.observerCommand).toBe(
-      `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`,
-    );
-    expect(execute).toHaveBeenCalledExactlyOnceWith(
-      "powershell.exe",
-      [...hooks.observerArgv.slice(1), "--foom-probe"],
-      { timeout: 8000, maxBuffer: 65536 },
-    );
-    expect(await readFile(script, "utf8")).toContain("$args[-1]");
-  } finally {
-    hooks.dispose();
-  }
 });

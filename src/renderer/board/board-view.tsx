@@ -30,7 +30,7 @@ import { createSoundController } from "../sound/sound-controller";
 import { createAudioSink } from "../sound/web-audio";
 import { SidebarControls } from "./sidebar-controls";
 import { Sidebar } from "./sidebar-view";
-import { readPreferences, writePreferences, renameSession } from "./sidebar-preferences";
+import { createPreferencesStore, renameSession } from "./sidebar-preferences";
 import type { SidebarCommand } from "../../shared/workspace";
 import type { LaunchOptions } from "./board-source.d";
 import { repositoryKey, worktreeKey, rowRepository, rowWorktree } from "./sidebar-model";
@@ -128,6 +128,7 @@ export function Board({
       next = {
         ...next,
         sidebarCollapsed: next.sidebarCollapsed ?? layoutRef.current.sidebarCollapsed ?? false,
+        sidebarWidth: next.sidebarWidth ?? layoutRef.current.sidebarWidth,
       };
       if (
         next.focused !== layoutRef.current.focused ||
@@ -336,7 +337,11 @@ export function Board({
     },
     [changeLayout, source],
   );
-  const [preferences, setPreferences] = useState(() => readPreferences(localStorage));
+  const [preferencesStore] = useState(() => createPreferencesStore(localStorage, window));
+  const preferences = useSyncExternalStore(
+    preferencesStore.subscribe,
+    preferencesStore.getSnapshot,
+  );
   const revealRef = useRef<(row: BoardRow) => void>(undefined);
   const newWorktreeRef = useRef<(repository?: string) => boolean>(undefined);
   const [options, setOptions] = useState<LaunchOptions>();
@@ -354,8 +359,7 @@ export function Board({
   }, [source, inactive, settingsOpen]);
   const save = (next: typeof preferences) => {
     try {
-      writePreferences(localStorage, next);
-      setPreferences(next);
+      preferencesStore.save(preferences, next);
     } catch {
       setRemoveError("Unable to save sidebar preferences.");
     }
@@ -578,11 +582,9 @@ export function Board({
           value.kind === "home-shell" ||
           value.kind === "config-launch"
         ) {
-          // One config session at a time: a second launch focuses the running one.
-          const created =
-            value.kind === "config-launch"
-              ? source.getSnapshot().find((row) => row.config && !row.exited)
-              : source.getSnapshot().find((row) => !before.has(row.id));
+          const created = source
+            .getSnapshot()
+            .find((row) => !before.has(row.id) && (value.kind !== "config-launch" || row.config));
           if (created) {
             open(created, false, destination);
             const name = value.kind === "restart" ? preferences.names[value.id] : undefined;
@@ -802,6 +804,10 @@ export function Board({
       {removeError && <p role="alert">{removeError}</p>}
       <div className="board-workspace">
         <Sidebar
+          width={layout.sidebarWidth}
+          setWidth={(sidebarWidth) => {
+            changeLayout({ ...layoutRef.current, sidebarWidth });
+          }}
           collapsed={layout.sidebarCollapsed ?? false}
           setCollapsed={(sidebarCollapsed) => {
             changeLayout({ ...layoutRef.current, sidebarCollapsed });

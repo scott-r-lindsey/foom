@@ -1,3 +1,4 @@
+import { agentCapabilities } from "../../shared/agent-capabilities";
 import type { DialogContent } from "../../shared/confirmation";
 import type { PreparedLaunch } from "./providers/provider";
 import { matchesArguments, bypassEnvironment } from "./providers/v2-values";
@@ -8,11 +9,11 @@ import {
   providerRevision,
 } from "./providers/registry";
 import { AgyPlugin } from "./agy-plugin";
-import type { prepareMcpLaunch } from "./providers/mcp-launch";
 import type { ControlLaunch } from "../control/types";
 import { parseAgentArguments } from "./default-arguments";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import { execFile } from "node:child_process";
+import { readLoginShell } from "../login-shell";
 import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
@@ -39,7 +40,7 @@ export async function loginPath(): Promise<{ path: string; warning: string | nul
   try {
     const shell = userInfo().shell;
     if (!shell || !isAbsolute(shell)) throw new Error("No login shell");
-    const { stdout } = await execute(
+    const { stdout } = await readLoginShell(
       shell,
       ["-ilc", 'printf "\\000FOOM_PATH\\000%s\\000" "$PATH"'],
       {
@@ -73,7 +74,7 @@ async function findExecutable(id: string, path: string): Promise<string | null> 
   return null;
 }
 
-async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
+async function detect(id: AgentId, path: string, probeEnabled = true): Promise<AgentInstallation> {
   const provider = agentProvider(id);
   await provider.validate?.();
   let executable: string | null = null;
@@ -83,45 +84,23 @@ async function detect(id: AgentId, path: string): Promise<AgentInstallation> {
   }
   if (!executable)
     return { id, path: null, version: null, hooks: false, reason: "Not found on PATH." };
-  if (provider.model) {
-    const options = { ...probeOptions, cwd: homedir(), env: { ...process.env, PATH: path } };
-    const probe = async (flag: "--version" | "--help"): Promise<string> => {
-      await provider.validate?.();
-      if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
-      try {
-        return (await execute(executable, [flag], options)).stdout;
-      } catch {
-        return "";
-      }
-    };
-    const version = (await probe("--version")).trim();
-    const help = await probe("--help");
+  if (!probeEnabled)
+    return { id, path: executable, version: null, hooks: false, reason: "Turned off" };
+  const options = { ...probeOptions, cwd: homedir(), env: { ...process.env, PATH: path } };
+  const probe = async (flag: "--version" | "--help"): Promise<string> => {
     await provider.validate?.();
     if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
-    return provider.discover(executable, version, help);
-  }
-  let version: string | null = null;
-  try {
-    const options = { ...probeOptions, cwd: homedir(), env: { ...process.env, PATH: path } };
-    version = (await execute(executable, ["--version"], options)).stdout.trim();
-    if (!version) throw new Error("Empty version");
-    await provider.validate?.();
-    if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
-    const help = (await execute(executable, ["--help"], options)).stdout;
-    await provider.validate?.();
-    if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
-    return provider.discover(executable, version, help);
-  } catch {
-    await provider.validate?.();
-    if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
-    return {
-      id,
-      path: executable,
-      version,
-      hooks: false,
-      reason: "Version/help probe failed; using output evaluation.",
-    };
-  }
+    try {
+      return (await execute(executable, [flag], options)).stdout;
+    } catch {
+      return "";
+    }
+  };
+  const version = (await probe("--version")).trim();
+  const help = await probe("--help");
+  await provider.validate?.();
+  if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
+  return provider.discover(executable, version, help);
 }
 
 /** Main-only service, like WorktreeService. No agent config files are written. */
@@ -168,35 +147,20 @@ export class AgentService {
     const agents = await Promise.all(
       agentProviders().map(async (provider) =>
         (enabled[provider.id] === false
-          ? Promise.resolve<AgentInstallation>({
-              id: provider.id,
-              path: null,
-              version: null,
-              hooks: false,
-              reason: "Turned off",
-            } satisfies AgentInstallation)
+          ? detect(provider.id, resolved.path, false)
           : provider.enrich(await detect(provider.id, resolved.path), this.agyPlugin)
         ).then((agent) => ({
           ...agent,
           name: provider.name,
           mark: provider.mark,
           command: provider.executableNames[0] ?? provider.id,
-          resume: provider.model
-            ? Boolean(provider.model.launch.resume)
-            : !provider.manifest || provider.manifest.launch.resume.length > 0,
-          ...(provider.model
-            ? {
-                ...(provider.origin === "bundled" ? {} : { source: `agents/${provider.id}.json` }),
-                resumePaste: provider.model.resumePaste,
-                restoreControl: agent.restoreControl ?? provider.model.conversation.restoreControl,
-              }
-            : {}),
-          ...(provider.manifest
-            ? {
-                ...(provider.origin === "bundled" ? {} : { source: `agents/${provider.id}.json` }),
-                bypassArguments: provider.manifest.bypassArguments,
-              }
-            : {}),
+          resume: Boolean(provider.model.launch.resume),
+          attentionSignal: !agentCapabilities({
+            model: provider.model,
+          }).warnings.includes("No attention signal"),
+          ...(provider.origin === "bundled" ? {} : { source: `agents/${provider.id}.json` }),
+          resumePaste: provider.model.resumePaste,
+          restoreControl: agent.restoreControl ?? provider.model.conversation.restoreControl,
         })),
       ),
     );
@@ -244,8 +208,7 @@ export class AgentService {
     const provider = agentProvider(request.agent);
     await provider.validate?.();
     const defaults = parseAgentArguments(request.agent, request.defaultArguments ?? []);
-    const resume =
-      request.conversationId === undefined ? [] : provider.resume(request.conversationId);
+    if (request.conversationId !== undefined) provider.resume(request.conversationId);
     const config = request.configCli;
     if (config === undefined) {
       const trees = await this.worktrees.listWorktrees(request.repository);
@@ -291,12 +254,11 @@ export class AgentService {
     ) {
       binding?.dispose();
       throw new Error(
-        provider.model?.hooks?.channels.find((channel) => channel.disclosure)?.disclosure?.text ??
+        provider.model.hooks?.channels.find((channel) => channel.disclosure)?.disclosure?.text ??
           "Channel replacement requires acknowledgement.",
       );
     }
     let control: ControlLaunch | undefined;
-    let mcp: Awaited<ReturnType<typeof prepareMcpLaunch>> | undefined;
     let prepared: PreparedLaunch | undefined;
     try {
       // Config sessions get no repository-scoped control grant.
@@ -309,8 +271,6 @@ export class AgentService {
               request.control,
             )
           : undefined;
-      if (control && agent.mcp && !provider.prepareLaunch)
-        mcp = await provider.prepareMcp(control.env["FOOM_CONTROL_URL"] ?? "");
       this.ensureOpen();
       if (
         config === undefined &&
@@ -320,7 +280,7 @@ export class AgentService {
         throw new Error("Worktree has changed. Select it and try again.");
       if (request.control !== undefined && "role" in request.control && !control)
         throw new Error("Orchestration needs control credentials");
-      prepared = await provider.prepareLaunch?.(
+      prepared = await provider.prepareLaunch(
         agent,
         request,
         defaults,
@@ -339,25 +299,13 @@ export class AgentService {
       )
         throw new Error(replacement.disclosure.text);
       if (
-        prepared &&
         request.control &&
         "role" in request.control &&
         !prepared.mcp &&
-        !(request.conversationId === undefined && provider.model?.launch.guidance)
+        !(request.conversationId === undefined && provider.model.launch.guidance)
       )
         throw new Error("This launch cannot restore orchestration without MCP");
-      const args =
-        prepared?.args ??
-        agentProvider(agent.id).arguments(
-          agent,
-          request,
-          defaults,
-          resume,
-          binding,
-          mcp,
-          Boolean(control),
-          config !== undefined,
-        );
+      const args = prepared.args;
       const baseEnvironment = inheritedEnvironment();
       const environment = buildLaunchEnvironment({
         layers: request.environment ?? [],
@@ -366,26 +314,21 @@ export class AgentService {
         pathFirst: config ?? control?.env["FOOM_CLI_DIRECTORY"],
         foom: { ...control?.env, ...binding?.env },
       });
-      const finalEnvironment = provider.model
-        ? { ...baseEnvironment, ...environment.env }
-        : environment.env;
+      const finalEnvironment = { ...baseEnvironment, ...environment.env };
       // The host inherits OS names such as ProgramFiles(x86) itself. IPC accepts
       // portable names only; freeze inspected inherited bypass names in that surface.
       const launchEnvironment =
-        provider.model && provider.origin !== "bundled"
+        provider.origin !== "bundled"
           ? Object.fromEntries(
               Object.entries(finalEnvironment).filter(([name]) =>
                 /^[A-Za-z_][A-Za-z0-9_]*$/u.test(name),
               ),
             )
           : environment.env;
-      const environmentMatches = provider.model
-        ? bypassEnvironment(provider.model, finalEnvironment)
-        : [];
-      const argumentMatches =
-        provider.model?.bypassArguments
-          .filter((matcher) => matchesArguments([matcher], args))
-          .map((matcher) => JSON.stringify(matcher)) ?? [];
+      const environmentMatches = bypassEnvironment(provider.model, finalEnvironment);
+      const argumentMatches = provider.model.bypassArguments
+        .filter((matcher) => matchesArguments([matcher], args))
+        .map((matcher) => JSON.stringify(matcher));
       const argumentBypass = argumentMatches.length > 0;
       const bypass = argumentBypass || environmentMatches.length > 0;
       if (bypass) {
@@ -417,7 +360,6 @@ export class AgentService {
       }
       await provider.validate?.();
       if (
-        provider.model &&
         config === undefined &&
         (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
           checkoutIdentity
@@ -441,22 +383,20 @@ export class AgentService {
           this.occupied.delete(request.worktree);
         control?.dispose();
         binding?.dispose();
-        mcp?.dispose();
-        prepared?.dispose();
+        prepared.dispose();
         return {
           id,
           ...(provider.origin ? { providerOrigin: provider.origin } : {}),
           attention: binding ? "hooks" : "evaluator",
-          ...(prepared?.conversationId ? { conversationId: prepared.conversationId } : {}),
-          ...(provider.model ? { bypass } : {}),
+          ...(prepared.conversationId ? { conversationId: prepared.conversationId } : {}),
+          bypass,
           ...(environment.names.length ? { environment: environment.names } : {}),
         };
       }
       this.launched.set(id, request.worktree);
-      if (mcp) this.mcpBindings.set(id, mcp);
-      if (prepared) this.mcpBindings.set(id, prepared);
+      this.mcpBindings.set(id, prepared);
       if (control) {
-        control.bind(id, prepared?.mcp ?? Boolean(mcp));
+        control.bind(id, prepared.mcp);
         this.controls.set(id, control);
       }
       if (binding) {
@@ -467,14 +407,13 @@ export class AgentService {
         id,
         ...(provider.origin ? { providerOrigin: provider.origin } : {}),
         attention: binding ? "hooks" : "evaluator",
-        ...(prepared?.conversationId ? { conversationId: prepared.conversationId } : {}),
-        ...(provider.model ? { bypass } : {}),
+        ...(prepared.conversationId ? { conversationId: prepared.conversationId } : {}),
+        bypass,
         ...(environment.names.length ? { environment: environment.names } : {}),
       };
     } catch (error) {
       control?.dispose();
       binding?.dispose();
-      mcp?.dispose();
       prepared?.dispose();
       throw error;
     }

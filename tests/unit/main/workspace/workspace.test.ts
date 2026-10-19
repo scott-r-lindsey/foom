@@ -1,3 +1,4 @@
+import * as agentDiscovery from "../../../../src/main/agents/agents";
 import { flushV2Health } from "../../../../src/main/agents/providers/v2-health";
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
@@ -7,8 +8,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pluginFixture from "../../../fixtures/agent-plugin.json";
-import { parseAgentPlugin } from "../../../../src/shared/agent-manifest";
-import { configProvider } from "../../../../src/main/agents/providers/config";
 import {
   agentProvider,
   replaceConfigProviders,
@@ -80,6 +79,7 @@ const commit = vi.fn<(record: VerdictRecord) => Promise<void>>();
 const startReceiver = vi.fn(() => Promise.resolve(receiver));
 
 beforeEach(async () => {
+  vi.spyOn(agentDiscovery, "loginPath").mockResolvedValue({ path: "/login/bin", warning: null });
   agentProvider("codex").discover("/bin/codex", "codex-cli 0.161.0", "-c --no-alt-screen");
   states = [];
   evaluated = [];
@@ -536,7 +536,7 @@ function held<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 /** Prepares and binds a Claude launch to t1, returning its hook key. */
 async function bound(agent: AgentId = "claude"): Promise<string> {
   const hooks = await prepare?.(agent);
-  for (const channel of agentProvider(agent).model?.hooks?.channels ?? [])
+  for (const channel of agentProvider(agent).model.hooks?.channels ?? [])
     hooks?.v2?.channels.set(channel.id, channel);
   hooks?.bind?.("t1");
   return receiver.register.mock.calls.at(-1)?.[0] ?? "";
@@ -2476,7 +2476,7 @@ async function codexWorkspace() {
   });
   const hooks = await prepare?.("codex");
   if (!hooks) throw new Error("Missing hook binding");
-  await agentProvider("codex").prepareLaunch?.(
+  await agentProvider("codex").prepareLaunch(
     agentProvider("codex").discover("/bin/codex", "codex-cli 0.161.0", "-c --no-alt-screen"),
     { agent: "codex", repository: repo.path, worktree: tree.path, cols: 80, rows: 24 },
     [],
@@ -2558,7 +2558,7 @@ test.each([true, false])(
   "previously trusted Codex hooks fall back when review is %s",
   async (review) => {
     const model = agentProvider("codex").model;
-    if (!model) throw new Error("Missing bundled model");
+
     const health = await installedHealth(model, deps.agentPluginDirectory);
     health.set("trusted");
     const { workspace, hooks } = await codexWorkspace();
@@ -3221,7 +3221,7 @@ const configDep = (check = vi.fn(async () => {})) => ({
   check,
 });
 
-test("config sessions run in the config folder with the bundled CLI, one at a time", async () => {
+test("config sessions run in the config folder with the bundled CLI", async () => {
   const create = vi.spyOn(deps.terminals, "create");
   deps.config = configDep();
   const workspace = new Workspace(deps);
@@ -3231,7 +3231,7 @@ test("config sessions run in the config folder with the bundled CLI, one at a ti
     expect.objectContaining({
       cwd: "/home/.foom/config",
       shellIntegration: true,
-      env: { PATH: expect.stringMatching(/^\/app\/console[:;]/) as unknown },
+      env: { PATH: expect.stringMatching(/^\/app\/console[:;]\/login\/bin$/) as unknown },
     }),
   );
   expect(workspace.snapshot().terminals[0]).toMatchObject({
@@ -3240,15 +3240,57 @@ test("config sessions run in the config folder with the bundled CLI, one at a ti
     repository: "/home/.foom/config",
     worktree: "/home/.foom/config",
   });
-  // A second launch while one runs starts nothing; the renderer focuses the running one.
-  await workspace.sidebarCommand({ kind: "config-launch", run: "claude" }, no);
-  expect(agents.launch).not.toHaveBeenCalled();
-  expect(create).toHaveBeenCalledTimes(1);
   await workspace.exited("t1", 0);
   await workspace.sidebarCommand({ kind: "restart", id: "t1" }, no);
   expect(create).toHaveBeenCalledTimes(2);
   await workspace.dispose();
 });
+
+test.each(["shell", "claude"] as const)(
+  "concurrent config launches start %s and shell independently",
+  async (first) => {
+    const checked = Promise.withResolvers<undefined>();
+    const check = vi.fn(async () => {
+      await checked.promise;
+    });
+    deps.config = configDep(check);
+    const create = vi
+      .spyOn(deps.terminals, "create")
+      .mockResolvedValueOnce("shell-1")
+      .mockResolvedValueOnce("shell-2");
+    agents.launch.mockResolvedValue({ id: "agent-1", attention: "hooks" });
+    const workspace = new Workspace(deps);
+    const no = () => Promise.resolve(false);
+    const launches = [
+      workspace.sidebarCommand({ kind: "config-launch", run: first }, no),
+      workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, no),
+    ];
+    expect(check).toHaveBeenCalledTimes(2);
+    checked.resolve(undefined);
+    await Promise.all(launches);
+    const rows = workspace.snapshot().terminals;
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((row) => row.id)).size).toBe(2);
+    expect(rows.every((row) => row.config && !row.exited)).toBe(true);
+    expect(create).toHaveBeenCalledTimes(first === "shell" ? 2 : 1);
+    if (first === "claude") {
+      const request = agents.launch.mock.calls[0]?.[0];
+      expect(request).toMatchObject({
+        configCli: "/app/console",
+        worktree: deps.config.root,
+        sharedCheckout: true,
+      });
+      expect(request?.control).toBeUndefined();
+      expect(request?.checkoutIdentity).toBeUndefined();
+    }
+    // Another launch after both have started also creates its own session.
+    create.mockResolvedValueOnce("shell-3");
+    await workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, no);
+    expect(workspace.snapshot().terminals).toHaveLength(3);
+    expect(deps.worktrees.createWorktree).not.toHaveBeenCalled();
+    await workspace.dispose();
+  },
+);
 
 test.each(["claude", "codex", "agy"] as const)(
   "config %s agents preserve defaults and resume in the same row",
@@ -3284,6 +3326,9 @@ test.each(["claude", "codex", "agy"] as const)(
       agent,
       attention: "hooks",
     });
+    // Replacing or resuming this conversation must work while another config session runs.
+    vi.spyOn(deps.terminals, "create").mockResolvedValue("config-shell");
+    await workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, no);
     await workspace.exited("c1", 0);
     await workspace.sidebarCommand({ kind: "new-conversation", id: "c1" }, no);
     expect(agents.launch.mock.calls.at(-1)?.[0].conversationId).toBeUndefined();
@@ -3335,7 +3380,7 @@ test("config sessions get Environment layers with the bundled CLI first on PATH"
   await workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, no);
   const env = create.mock.calls.at(-1)?.[0].env ?? {};
   const pathKey = Object.keys(env).find((name) => name.toUpperCase() === "PATH") ?? "PATH";
-  expect(env[pathKey]).toMatch(/^\/app\/console[:;]\/opt\/bin[:;]/);
+  expect(env[pathKey]).toMatch(/^\/app\/console[:;]\/opt\/bin[:;]\/login\/bin$/);
   expect(workspace.snapshot().terminals[0]).toMatchObject({ config: true, environment: ["PATH"] });
   await workspace.exited("t1", 0);
   await workspace.sidebarCommand({ kind: "config-launch", run: "codex" }, no);
@@ -3424,7 +3469,9 @@ test("restores config sessions only for the current config folder", async () => 
   deps.sessions = {
     load: () =>
       Promise.resolve([
-        stored,
+        { ...stored, conversationId: "conversation-1", running: true },
+        { ...stored, id: "config-2", conversationId: "conversation-2", running: true },
+        { ...stored, id: "config-shell", kind: "shell", agent: "shell", running: true },
         { ...stored, id: "moved", worktree: "/other", repository: "/other" },
         { ...stored, id: "split", repository: "/repos/app" },
       ]),
@@ -3433,7 +3480,33 @@ test("restores config sessions only for the current config folder", async () => 
   };
   const workspace = new Workspace(deps);
   await workspace.restore();
-  expect(workspace.snapshot().terminals.map((entry) => entry.id)).toEqual(["config-1"]);
+  expect(workspace.snapshot().terminals.map((entry) => entry.id)).toEqual([
+    "config-1",
+    "config-2",
+    "config-shell",
+  ]);
+  agents.launch.mockImplementation((request) =>
+    Promise.resolve({
+      id: request.terminalId ?? "unexpected",
+      attention: "hooks",
+    }),
+  );
+  vi.spyOn(deps.terminals, "create").mockResolvedValue("config-shell");
+  await workspace.restartSaved();
+  expect(workspace.snapshot().terminals.every((row) => !row.exited)).toBe(true);
+  expect(agents.launch).toHaveBeenCalledTimes(2);
+  for (const [id, conversationId] of [
+    ["config-1", "conversation-1"],
+    ["config-2", "conversation-2"],
+  ]) {
+    expect(agents.launch).toHaveBeenCalledWith(
+      expect.objectContaining({ terminalId: id, conversationId }),
+    );
+  }
+  expect(vi.spyOn(deps.terminals, "create")).toHaveBeenCalledWith(
+    expect.objectContaining({ id: "config-shell" }),
+  );
+  await workspace.dispose();
 });
 
 test("publishes transient MCP connection changes and removes them on revocation", async () => {
@@ -3692,8 +3765,8 @@ test("provider stalls recover on a working title while the provider line remains
 });
 
 test("an unavailable config plugin still protects its recorded conversation from merged cleanup", async () => {
-  const manifest = parseAgentPlugin(JSON.stringify(pluginFixture));
-  replaceConfigProviders([configProvider(manifest, () => Promise.resolve())]);
+  const manifest = parseAgentManifest(JSON.stringify(pluginFixture)).model;
+  replaceConfigProviders([v2Provider(manifest, () => Promise.resolve())]);
   const workspace = await launched(manifest.id);
   try {
     await workspace.hook({
@@ -3740,7 +3813,7 @@ test("v2 workspace treats startup as metadata, suppresses duplicate completion a
   deps.agentPluginDirectory = profile;
   const workspace = await launched(model.id);
   const hooks = await prepare?.(model.id);
-  if (!hooks?.v2 || !provider.prepareLaunch) throw Error("Missing hooks");
+  if (!hooks?.v2) throw Error("Missing hooks");
   const installation = provider.discover("/fixture", "codex-cli 0.161.0", "-c");
   const prepared = await provider.prepareLaunch(
     installation,

@@ -17,6 +17,7 @@ export interface TileSplit {
 export type TileNode = TileLeaf | TileSplit;
 export interface TileLayout {
   sidebarCollapsed?: boolean;
+  sidebarWidth?: number | undefined;
   tree: TileNode;
   focused: string;
   maximized: string | null;

@@ -3,12 +3,8 @@ import type { ManifestChannel } from "../../../shared/agent-manifest-v2";
 import type { V2HookState } from "./v2-events";
 import { agentProvider } from "./registry";
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { promisify } from "node:util";
-import { hookAdapter } from "./hook-adapters";
 import type { AgentHooks } from "../../../shared/agents";
 import type { HookAgent, HookLaunch } from "../../../shared/hooks";
 
@@ -24,11 +20,6 @@ export interface HookRegistrar {
     agent: HookAgent,
     v2?: { channels: Map<string, ManifestChannel>; state: V2HookState },
   ): HookLaunch;
-}
-
-/** POSIX single-quoting: the path is data to the agent's hook shell, never syntax. */
-function quote(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
 /**
@@ -48,72 +39,14 @@ export async function prepareHookLaunch(
   const windows = platform === "win32";
   const provider = agentProvider(agent);
   const model = provider.model;
-  if (model)
-    return prepareV2Hooks(
-      receiver,
-      model,
-      bind,
-      windows,
-      scratch,
-      stableDirectory,
-      execute,
-      provider.origin === "bundled",
-    );
-  const adapter = hookAdapter(
-    agentProvider(agent).manifest?.attention.hook?.transport ?? "argv",
-    windows ? "win32" : "posix",
+  return prepareV2Hooks(
+    receiver,
+    model,
+    bind,
+    windows,
+    scratch,
+    stableDirectory,
+    execute,
+    provider.origin === "bundled",
   );
-  // mkdtemp creates the directory with mode 0700, so other users can't swap the script.
-  const directory = await mkdtemp(join(scratch, "foom-hooks-"));
-  const script = join(directory, `${agent}${adapter.extension}`);
-  let launch: HookLaunch | undefined;
-  try {
-    await writeFile(script, adapter.source, { mode: 0o700, flag: "wx" });
-    const command = windows ? "powershell.exe" : "sh";
-    const args = windows
-      ? ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script]
-      : [script];
-    if (windows) {
-      try {
-        // Exercise this generated file before promising hooks. Group Policy can
-        // override the process-only policy; never change persistent user settings.
-        await execute(command, [...args, "--foom-probe"], { timeout: 8000, maxBuffer: 65536 });
-      } catch {
-        throw new Error(
-          "PowerShell hook script could not run. Check enforced script policy or disable hooks.",
-        );
-      }
-    }
-    const key = randomUUID();
-    launch = receiver.register(key, agent);
-    let disposed = false;
-    return {
-      // Claude runs hook commands through a shell; Codex receives an argument array.
-      observerCommand: windows
-        ? `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${script}"`
-        : `sh ${quote(script)}`,
-      observerArgv: [command, ...args],
-      env: launch.env,
-      bind: (terminalId) => {
-        if (!disposed) bind(key, terminalId);
-      },
-      dispose: () => {
-        if (disposed) return;
-        disposed = true;
-        launch?.revoke();
-        bind(key, undefined);
-        void (async () => {
-          try {
-            await rm(directory, { recursive: true, force: true });
-          } catch {
-            // Best effort: the script holds no secrets, and the OS clears temp files.
-          }
-        })();
-      },
-    };
-  } catch (error) {
-    launch?.revoke();
-    await rm(directory, { recursive: true, force: true });
-    throw error;
-  }
 }

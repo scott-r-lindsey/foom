@@ -32,8 +32,8 @@ vi.mock("../../../src/main/agents/setup-offers", () => ({
   },
 }));
 import pluginFixture from "../../fixtures/agent-plugin.json";
-import { parseAgentPlugin } from "../../../src/shared/agent-manifest";
-import { configProvider } from "../../../src/main/agents/providers/config";
+import { parseAgentManifest } from "../../../src/shared/agent-plugin-parser";
+import { v2Provider } from "../../../src/main/agents/providers/v2";
 import { replaceConfigProviders } from "../../../src/main/agents/providers/registry";
 import type { PreviewRecord } from "../../../src/shared/previews";
 import type { ForgeProviderFactory, ForgeWorktree } from "../../../src/main/control/forge.d";
@@ -171,6 +171,7 @@ vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
 }));
 import { join } from "node:path";
 import type { Settings } from "../../../src/shared/setup";
+import type { ConfigSettings } from "../../../src/shared/config";
 import { setupState } from "../../fixtures/setup";
 import type { BrowserWindowConstructorOptions, Input } from "electron";
 import type { Setup } from "../../../src/main/setup/setup";
@@ -262,7 +263,7 @@ vi.mock("../../../src/main/window/window-state", () => ({
 }));
 vi.mock("../../../src/main/setup/setup", () => ({
   Setup: class {
-    state = () => Promise.resolve({ settings: mock.settingsStore.get() });
+    state = mock.setupState;
     refresh = mock.setupRefresh;
     constructor(deps: ConstructorParameters<typeof Setup>[0]) {
       mock.setup.deps = deps;
@@ -461,7 +462,9 @@ const mock = vi.hoisted(() => {
     setupIpc: { dispose: vi.fn(), zoom: vi.fn<(direction: string) => Promise<void>>() },
     attachSetup: vi.fn<(...args: unknown[]) => unknown>(),
     loadPlacements: vi.fn<() => Promise<WindowPlacement[]>>(() => Promise.resolve([])),
-    savePlacements: vi.fn(() => Promise.resolve()),
+    savePlacements: vi.fn<
+      (_userData: string, placements: readonly WindowPlacement[]) => Promise<void>
+    >(() => Promise.resolve()),
     instances,
     loadWindowSize: vi.fn<() => Promise<{ width: number; height: number } | undefined>>(),
     saveWindowSize: vi.fn<() => Promise<void>>(),
@@ -474,9 +477,10 @@ const mock = vi.hoisted(() => {
     },
     attachConfig: vi.fn(() => vi.fn()),
     setupRefresh: vi.fn(),
+    setupState: vi.fn<() => Promise<{ settings: Partial<Settings> }>>(),
     managesPath: vi.fn(() => Promise.resolve(false)),
     settingsStore: {
-      legacyConfig: vi.fn(() => ({ terminalFontSize: 16 })),
+      legacyConfig: vi.fn<() => ConfigSettings | undefined>(() => ({ terminalFontSize: 16 })),
       configDigest: vi.fn(() => null),
       attachConfig: vi.fn(() => Promise.resolve()),
       setConfig: vi.fn(),
@@ -662,6 +666,7 @@ beforeEach(() => {
     managesPath: mock.managesPath,
   });
   mock.config.initialize.mockResolvedValue({});
+  mock.setupState.mockResolvedValue({ settings: mock.settingsStore.get() });
   mock.openSettings.mockResolvedValue(mock.settingsStore);
   mock.attachSetup.mockImplementation(() => mock.setupIpc);
   mock.setupIpc.zoom.mockResolvedValue();
@@ -1099,7 +1104,7 @@ test("setup owns the settings, applies them to the workspace, and uses the local
     worktreeRoot: string;
     apply(settings: unknown): void;
   };
-  expect(deps.store).not.toBe(mock.settingsStore);
+  expect(deps.store).toBe(mock.settingsStore);
   expect(deps.worktreeRoot).toBe("/home/.foom/worktrees");
   // The saved mode and scale apply before the window exists.
   expect(mock.construct.mock.calls[0]?.[0].webPreferences?.zoomFactor).toBe(1.2);
@@ -1498,7 +1503,7 @@ test("new windows share one workspace and route reservations, focus and popout i
   expect(mock.ipc.sendChanged).toHaveBeenCalledTimes(3);
 });
 
-test("restores separate window identities, scales and maximization, keeping expanded bounds on screen", async () => {
+test("restores window identities and maximization with one shared scale and persists geometry only", async () => {
   mock.loadPlacements.mockResolvedValue([
     {
       id: "first",
@@ -1521,27 +1526,25 @@ test("restores separate window identities, scales and maximization, keeping expa
   });
   expect(mock.instances[0]?.maximize).toHaveBeenCalledOnce();
   expect(mock.construct.mock.calls[0]?.[0]).toMatchObject({
-    x: 570,
-    y: 120,
-    width: 1350,
-    height: 960,
+    x: 840,
+    y: 312,
+    width: 1080,
+    height: 768,
   });
-  expect(mock.construct.mock.calls[1]?.[0].webPreferences?.zoomFactor).toBe(0.9);
+  expect(mock.construct.mock.calls[1]?.[0].webPreferences?.zoomFactor).toBe(1.2);
   const store = mock.setup.deps?.store;
-  expect(store?.get().interfaceScale).toBe(90);
-  await store?.update({ interfaceScale: 100, colorMode: "light" });
-  expect(mock.settingsStore.update).toHaveBeenLastCalledWith({ colorMode: "light" });
-  expect(store?.get().interfaceScale).toBe(100);
-  await store?.update({ colorMode: "dark" });
-  expect(store?.get().interfaceScale).toBe(100);
+  expect(store).toBe(mock.settingsStore);
+  expect(store?.get().interfaceScale).toBe(120);
+  mock.setup.deps?.apply({ ...mock.settingsStore.get(), interfaceScale: 140 } as Settings);
+  for (const window of mock.instances)
+    expect(window.webContents.setZoomFactor).toHaveBeenLastCalledWith(1.4);
   quitting();
   await vi.waitFor(() => {
     expect(mock.quit).toHaveBeenCalledOnce();
   });
-  expect(mock.savePlacements).toHaveBeenCalledWith("/test/user-data", [
-    expect.objectContaining({ id: "first", scale: 150 }),
-    expect.objectContaining({ id: "second", scale: 100 }),
-  ]);
+  const persisted = mock.savePlacements.mock.calls[0]?.[1];
+  expect(persisted?.map((placement) => placement.id)).toEqual(["first", "second"]);
+  for (const placement of persisted ?? []) expect(placement).not.toHaveProperty("scale");
 });
 
 test("macOS closing the last window retains app services and activation opens another board", async () => {
@@ -1739,7 +1742,7 @@ test("Foom config migrates profile values, applies file changes live and broadca
   mock.setupRefresh.mockClear();
   deps.apply({ terminalFontSize: 20 });
   expect(mock.settingsStore.setConfig).toHaveBeenCalledWith({ terminalFontSize: 20 });
-  expect(mock.setupRefresh).toHaveBeenCalled();
+  expect(mock.window.webContents.setZoomFactor).toHaveBeenCalled();
   // An interface size change from the file resizes the window like a Settings change.
   const settings = vi.spyOn(mock.settingsStore, "get");
   settings.mockReturnValueOnce({
@@ -2086,7 +2089,7 @@ test("config plugins refresh changed registries and report discovery failure", a
   await start();
   const deps = mock.config.deps;
   if (!deps?.applyPlugins) throw Error("Missing plugin capabilities");
-  const provider = configProvider(parseAgentPlugin(JSON.stringify(pluginFixture)), () =>
+  const provider = v2Provider(parseAgentManifest(JSON.stringify(pluginFixture)).model, () =>
     Promise.resolve(),
   );
   deps.applyPlugins([provider]);
@@ -2112,7 +2115,7 @@ test("config plugins refresh changed registries and report discovery failure", a
 test("config plugins load before the first workspace exists without starting discovery from the config callback", async () => {
   const warn = vi.spyOn(console, "error").mockImplementation(() => undefined);
   mock.config.initialize.mockImplementationOnce(() => {
-    const provider = configProvider(parseAgentPlugin(JSON.stringify(pluginFixture)), () =>
+    const provider = v2Provider(parseAgentManifest(JSON.stringify(pluginFixture)).model, () =>
       Promise.resolve(),
     );
     mock.config.deps?.applyPlugins?.([provider]);
@@ -2345,4 +2348,73 @@ test("manifest composition uses live profile choices, discovered PATH and tracke
     get.mockRestore();
     discover.mockRestore();
   }
+});
+
+test("migrates only the first saved window scale when shared config has no scale", async () => {
+  mock.loadPlacements.mockResolvedValue([
+    {
+      id: "first",
+      display: 1,
+      bounds: { x: 0, y: 0, width: 1200, height: 900 },
+      maximized: false,
+      scale: 150,
+    },
+    {
+      id: "second",
+      display: 1,
+      bounds: { x: 0, y: 0, width: 1200, height: 900 },
+      maximized: false,
+      scale: 90,
+    },
+  ]);
+  await start();
+  expect(mock.settingsStore.update).toHaveBeenCalledWith({ interfaceScale: 150 });
+});
+
+test("existing shared scale wins over legacy window scales", async () => {
+  mock.config.initialize.mockResolvedValue({ interfaceScale: 100 });
+  mock.loadPlacements.mockResolvedValue([
+    {
+      id: "first",
+      display: 1,
+      bounds: { x: 0, y: 0, width: 1200, height: 900 },
+      maximized: false,
+      scale: 150,
+    },
+  ]);
+  await start();
+  expect(mock.settingsStore.update).not.toHaveBeenCalled();
+});
+
+test("legacy shared profile scale wins over window scales", async () => {
+  mock.settingsStore.legacyConfig.mockReturnValueOnce({
+    terminalFontSize: 16,
+    interfaceScale: 110,
+  });
+  mock.loadPlacements.mockResolvedValue([
+    {
+      id: "first",
+      display: 1,
+      bounds: { x: 0, y: 0, width: 1200, height: 900 },
+      maximized: false,
+      scale: 150,
+    },
+  ]);
+  await start();
+  expect(mock.settingsStore.update).toHaveBeenCalledWith({ interfaceScale: 110 });
+});
+
+test("a failed settings notification does not prevent broadcasting to another window", async () => {
+  await start();
+  await newWindow();
+  await Promise.resolve();
+  const error = new Error("window state unavailable");
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  mock.window.webContents.send.mockClear();
+  mock.setupState.mockRejectedValueOnce(error);
+  mock.setup.deps?.apply(mock.settingsStore.get() as Settings);
+  await vi.waitFor(() => {
+    expect(log).toHaveBeenCalledWith("Unable to refresh settings:", error);
+    expect(mock.window.webContents.send).toHaveBeenCalledWith("setup:changed", expect.anything());
+  });
 });

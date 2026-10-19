@@ -469,6 +469,13 @@ export function restoreLayout(raw: string | null): TileLayout {
       focused,
       maximized: null,
       ...(landing ? { landing } : {}),
+      ...("sidebarWidth" in value &&
+      typeof value.sidebarWidth === "number" &&
+      Number.isFinite(value.sidebarWidth) &&
+      value.sidebarWidth >= 240 &&
+      value.sidebarWidth <= 10000
+        ? { sidebarWidth: value.sidebarWidth }
+        : {}),
       ...("sidebarCollapsed" in value && typeof value.sidebarCollapsed === "boolean"
         ? { sidebarCollapsed: "sidebarCollapsed" in value && value.sidebarCollapsed }
         : {}),
@@ -526,6 +533,7 @@ export function saveLayout(
       focused: layout.focused,
       landing: layout.landing,
       sidebarCollapsed: layout.sidebarCollapsed,
+      sidebarWidth: layout.sidebarWidth,
     }),
   );
 }

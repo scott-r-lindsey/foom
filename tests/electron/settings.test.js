@@ -18,6 +18,7 @@ const {
   openSettingsScreen,
   quitAndWait,
   removeAfterApps,
+  stopSession,
   tabTo,
 } = require("./harness.js");
 
@@ -661,6 +662,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     hooks: true,
     restoreSessions: true,
     concurrentChildren: 4,
+    recentRepositoryDays: 30,
     unreadChildMinutes: 5,
     autoRemoveMergedWorktrees: false,
     showPullRequests: false,
@@ -724,7 +726,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
   await expect(shellRow).toBeFocused();
   await openSettingsScreen(page);
-  await page.getByRole("button", { name: "Worktrees", exact: true }).click();
+  await page.getByRole("button", { name: "General", exact: true }).click();
   await page.getByRole("radio", { name: /Put them next to/ }).check();
   await expect
     .poll(
@@ -745,7 +747,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   });
   const reopenedPage = await boardPage(reopened);
   await openSettingsScreen(reopenedPage);
-  await reopenedPage.getByRole("button", { name: "Worktrees", exact: true }).click();
+  await reopenedPage.getByRole("button", { name: "General", exact: true }).click();
   await expect(reopenedPage.getByRole("radio", { name: /Put them next to/ })).toBeChecked();
   await expect(
     reopenedPage.getByText(`${await realpath(repo)}-feat/search`, { exact: true }),
@@ -1078,7 +1080,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
       ),
     )
     .toContain("settings-example");
-  await section("Worktrees");
+  await section("General");
   await tabToControl(page.getByRole("radio", { name: /Keep worktrees/ }));
   await page.keyboard.press("ArrowDown");
   await expect
@@ -1212,15 +1214,7 @@ test("every Settings section passes axe in light and dark, including the narrow 
   const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await openSettingsScreen(page);
-  for (const name of [
-    "Agents",
-    "Repositories",
-    "Worktrees",
-    "Appearance",
-    "Terminal",
-    "Themes",
-    "Sound",
-  ]) {
+  for (const name of ["Agents", "Repositories", "Appearance", "Terminal", "Themes", "Sound"]) {
     await page
       .getByRole("navigation", { name: "Settings sections" })
       .getByRole("button", { name, exact: true })
@@ -1773,7 +1767,7 @@ test("custom theme files appear live, update selected colors and retain rejected
   const app = await launchApp(context, { fixture: "empty-board", home: root });
   const page = await boardPage(app);
   await boardCommand(app, ",", process.platform !== "darwin");
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("button", { name: "Themes", exact: true }).click();
   const { interfaceThemes } = require("../../build/shared/interface-themes.js");
   const { terminalThemes, ansiNames } = require("../../build/shared/terminal-themes.js");
   const file = path.join(root, ".foom/config/themes/custom.json");
@@ -1804,7 +1798,7 @@ test("custom theme files appear live, update selected colors and retain rejected
     await page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceTheme),
     "user:custom.json",
   );
-  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await page.getByRole("button", { name: "Themes", exact: true }).click();
   const terminal = terminalThemes.dracula;
   const terminalFile = path.join(root, ".foom/config/terminal-themes/custom.json");
   const terminalTheme = {
@@ -1841,9 +1835,12 @@ test("custom theme files appear live, update selected colors and retain rejected
     )
     .toBe("#101010");
   await writeFile(terminalFile, "{");
-  await expect(page.getByRole("status").filter({ hasText: "Rejected custom.json" })).toContainText(
-    "malformed-json",
-  );
+  await expect(
+    page
+      .locator(".terminal-theme-picker-column")
+      .getByRole("status")
+      .filter({ hasText: "Rejected custom.json" }),
+  ).toContainText("malformed-json");
   await expect(page.getByLabel("Terminal theme preview")).toHaveCSS(
     "background-color",
     "rgb(16, 16, 16)",
@@ -1919,7 +1916,7 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
   await expect(page.getByText(/Evaluator|Run check|API key/)).toHaveCount(0);
 });
 
-test("Settings agent menu launches config and focuses its existing window", {
+test("Settings agent menu launches a new config session in each window", {
   timeout: deadline(60_000),
 }, async (context) => {
   const { chmod, copyFile } = require("node:fs/promises");
@@ -2006,14 +2003,24 @@ test("Settings agent menu launches config and focuses its existing window", {
       item.click();
     });
   } else await second.evaluate(() => window.desktop.appMenu.execute("via-claude"));
-  await expect.poll(() => first.evaluate(() => document.hasFocus())).toBe(true);
+  await expect(second.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
   assert.equal(
     (await first.evaluate(() => window.desktop.workspace())).terminals.filter(
       (session) => session.config,
     ).length,
-    1,
+    2,
   );
-  await expect(second.locator(".terminal-tile[data-empty=false]")).toHaveCount(0);
+  const configIds = (await second.evaluate(() => window.desktop.workspace())).terminals
+    .filter((session) => session.config)
+    .map((session) => session.id);
+  assert.equal(new Set(configIds).size, 2);
+  for (const configId of configIds) {
+    await expect
+      .poll(() =>
+        second.evaluate(async (id) => (await window.desktop.tail(id, 40)).join(""), configId),
+      )
+      .toMatch(/CONFIG_MENU_READY \["Read AGENTS\.md, then greet the user/);
+  }
   await first.evaluate(() =>
     window.desktop.saveSetup({ agents: { claude: false, codex: false, agy: false } }),
   );
@@ -2021,6 +2028,11 @@ test("Settings agent menu launches config and focuses its existing window", {
     second.evaluate(() => window.desktop.appMenu.execute("via-claude")),
     /Unavailable app command/,
   );
+  // Stop both agents through their owning boards before the shared app teardown.
+  await stopSession(first, id);
+  const secondId = configIds.find((configId) => configId !== id);
+  assert.ok(secondId);
+  await stopSession(second, secondId);
 });
 
 test("version 2 themes scope portaled colors, shape and warnings and hold attention edits", {
@@ -2048,7 +2060,7 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   const file = path.join(root, ".foom/config/themes/personal.json");
   await writeFile(file, JSON.stringify(theme));
   await boardCommand(app, ",", process.platform !== "darwin");
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("button", { name: "Themes", exact: true }).click();
   await page.getByRole("button", { name: "Personal v2", exact: true }).click();
   await expect(page.locator(".sidebar-shell")).toHaveCSS("background-color", "rgb(1, 2, 3)");
   await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
@@ -2088,7 +2100,7 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   assert.equal(await readFile(file, "utf8"), original);
 });
 
-test("footer config gear opens Settings and launches a docked Shell", async (context) => {
+test("footer config gear opens Settings and launches two independent docked Shells", async (context) => {
   const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   const gear = page.locator(".config-gear");
@@ -2099,12 +2111,30 @@ test("footer config gear opens Settings and launches a docked Shell", async (con
   await expect(gear).toHaveAttribute("aria-expanded", "true");
   await expect(panel.getByRole("menuitem").first()).toContainText("Settings");
   await panel.getByRole("menuitem", { name: /^Shell/ }).click();
-  const session = dock.locator(".board-row");
+  const session = dock.locator(".board-row").first();
   await expect(session).toBeVisible();
   await session.press("Enter");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await gear.click();
-  await expect(panel.getByRole("menuitem", { name: /^Shell/ })).toContainText("running");
+  await expect(panel.getByRole("menuitem", { name: /^Shell/ })).not.toContainText("running");
+  await panel.getByRole("menuitem", { name: /^Shell/ }).click();
+  await expect(dock.locator(".board-row")).toHaveCount(2);
+  await expect(page.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
+  const shells = (await page.evaluate(() => window.desktop.workspace())).terminals.filter(
+    (row) => row.config,
+  );
+  assert.equal(shells.length, 2);
+  assert.notEqual(shells[0].id, shells[1].id);
+  for (const shell of shells) {
+    assert.equal(shell.kind, "shell");
+    assert.equal(shell.worktree, shells[0].worktree);
+    await expect
+      .poll(() =>
+        page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), shell.id),
+      )
+      .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
+  }
+  await gear.click();
   await panel.getByRole("menuitem", { name: /^Settings/ }).click();
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   await assertAccessible(page);
@@ -2303,6 +2333,7 @@ test("terminal font picker updates open shells and config shells and refits thei
       page.evaluate(async () => (await window.desktop.setupState()).settings.terminalFont),
     )
     .toBe(family);
+  await page.getByRole("button", { name: "Themes", exact: true }).click();
   await expect(page.getByLabel("Terminal theme preview")).toHaveCSS("font-family", stack);
   await app.evaluate(() => {
     global.fontResizes = [];
@@ -2421,4 +2452,47 @@ test("Settings forge cards persist user host assignments without activating prov
   await expect(restoredCustom.getByRole("button", { name: "Remove git.example.org" })).toHaveCount(
     0,
   );
+});
+
+test("interface zoom follows the shared setting in every window", async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const first = await boardPage(app);
+  await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  await expect
+    .poll(() => app.windows().filter((page) => page.url() === "app://bundle/index.html").length)
+    .toBe(2);
+  const second = app
+    .windows()
+    .find((page) => page !== first && page.url() === "app://bundle/index.html");
+  const zoomButton = (page, scale) =>
+    page.getByRole("button", {
+      name: scale === 100 ? "Zoom 100%" : `Zoom ${scale}%, reset to 100%`,
+      exact: true,
+    });
+  await expect(zoomButton(second, 100)).toBeVisible();
+  await first.getByRole("button", { name: "Zoom in", exact: true }).click();
+  const assertScale = async (scale) => {
+    for (const page of [first, second]) {
+      await expect(zoomButton(page, scale)).toBeVisible();
+      await expect
+        .poll(() =>
+          page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceScale),
+        )
+        .toBe(scale);
+    }
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()
+            .filter((window) => window.webContents.getURL() === "app://bundle/index.html")
+            .map((window) => window.webContents.getZoomFactor()),
+        ),
+      )
+      .toEqual([scale / 100, scale / 100]);
+  };
+  await assertScale(110);
+  await second.evaluate(() => window.desktop.appMenu.execute("zoom-in"));
+  await assertScale(120);
+  await zoomButton(first, 120).click();
+  await assertScale(100);
 });

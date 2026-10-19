@@ -10,6 +10,8 @@ const mock = vi.hoisted(() => ({
   construct: vi.fn(),
   load: vi.fn<() => Promise<void>>(),
   activate: vi.fn(),
+  power: undefined as EventEmitter | undefined,
+  screen: undefined as EventEmitter | undefined,
 }));
 class FakeWindow extends EventEmitter {
   webContents = Object.assign(new EventEmitter(), {
@@ -26,7 +28,11 @@ class FakeWindow extends EventEmitter {
     setWindowOpenHandler: vi.fn<(handler: () => { action: string }) => void>(),
   });
   removeMenu = vi.fn();
-  setBounds = vi.fn();
+  bounds = { x: 0, y: 0, width: 440, height: 240 };
+  setBounds = vi.fn((bounds: typeof this.bounds) => {
+    this.bounds = bounds;
+  });
+  getBounds = vi.fn(() => this.bounds);
   setBackgroundColor = vi.fn();
   show = vi.fn();
   setParentWindow = vi.fn();
@@ -49,7 +55,17 @@ vi.mock("electron", () => ({
   BrowserWindow: vi.fn(function (options: BrowserWindowConstructorOptions) {
     return new FakeWindow(options);
   }),
-  screen: { getDisplayMatching: () => ({ workArea: mock.workArea }) },
+  powerMonitor: {
+    on: (event: string, listener: () => void) => mock.power?.on(event, listener),
+    removeListener: (event: string, listener: () => void) =>
+      mock.power?.removeListener(event, listener),
+  },
+  screen: {
+    getDisplayMatching: () => ({ workArea: mock.workArea }),
+    on: (event: string, listener: () => void) => mock.screen?.on(event, listener),
+    removeListener: (event: string, listener: () => void) =>
+      mock.screen?.removeListener(event, listener),
+  },
   ipcMain: {
     on: (channel: string, fn: (...args: unknown[]) => void) => mock.ipc.set(channel, fn),
     removeListener: (channel: string) => mock.ipc.delete(channel),
@@ -109,6 +125,8 @@ async function shown() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  mock.power = new EventEmitter();
+  mock.screen = new EventEmitter();
   mock.autoSize = true;
   mock.workArea = { x: 0, y: 0, width: 1920, height: 1080 };
   parent.webContents.getZoomFactor.mockReturnValue(1);
@@ -212,23 +230,23 @@ test("tracks parent bounds and focus only while pending and restores input on ca
   const dialog = setup();
   const pending = dialog.request(content);
   await shown();
-  expect(parent.setEnabled).toHaveBeenLastCalledWith(false);
+  expect(parent.setEnabled).not.toHaveBeenCalled();
   window().setBounds.mockClear();
   window().focus.mockClear();
   parent.emit("move");
   parent.emit("resize");
   parent.emit("focus");
-  expect(window().setBounds).toHaveBeenCalledTimes(2);
+  expect(window().setBounds).toHaveBeenCalledTimes(4);
   expect(window().setBounds).toHaveBeenLastCalledWith({ x: 190, y: 200, width: 440, height: 240 });
   expect(window().focus).toHaveBeenCalledOnce();
   window().emit("close", { preventDefault: vi.fn() });
   await expect(pending).resolves.toBe(false);
-  expect(parent.setEnabled).toHaveBeenLastCalledWith(true);
+  expect(parent.setEnabled).not.toHaveBeenCalled();
   expect(parent.listenerCount("move")).toBe(0);
   expect(parent.listenerCount("resize")).toBe(0);
   expect(parent.listenerCount("focus")).toBe(0);
   parent.emit("resize");
-  expect(window().setBounds).toHaveBeenCalledTimes(2);
+  expect(window().setBounds).toHaveBeenCalledTimes(4);
   dialog.dispose();
 });
 
@@ -260,7 +278,7 @@ test("size requires a pending trusted main frame and finite positive dimensions 
   expect(window().setBounds).not.toHaveBeenCalled();
   const pending = dialog.request(content);
   await vi.waitFor(() => {
-    expect(parent.setEnabled).toHaveBeenCalledWith(false);
+    expect(parent.webContents.send).toHaveBeenCalledWith("confirmation:scrim", true);
   });
   expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", true);
   const valid = { width: 440, height: 240 };
@@ -492,8 +510,8 @@ test("macOS blocks board input and native focus without a disabling sheet, then 
   expect(parent.setEnabled).not.toHaveBeenCalled();
   expect(parent.setFocusable).toHaveBeenLastCalledWith(false);
   const event = { preventDefault: vi.fn() };
-  parent.webContents.emit("before-input-event", event);
-  parent.webContents.emit("before-mouse-event", event);
+  parent.webContents.emit("before-input-event", event, { type: "keyUp" });
+  parent.webContents.emit("before-mouse-event", event, { type: "mouseMove" });
   expect(event.preventDefault).toHaveBeenCalledTimes(2);
   expect(window().setParentWindow).toHaveBeenCalledWith(parent);
   expect(window().moveTop).toHaveBeenCalledOnce();
@@ -501,8 +519,8 @@ test("macOS blocks board input and native focus without a disabling sheet, then 
   expect(await pending).toBe(false);
   expect(parent.setEnabled).not.toHaveBeenCalled();
   expect(parent.setFocusable).toHaveBeenLastCalledWith(false);
-  parent.webContents.emit("before-input-event", event);
-  parent.webContents.emit("before-mouse-event", event);
+  parent.webContents.emit("before-input-event", event, { type: "keyUp" });
+  parent.webContents.emit("before-mouse-event", event, { type: "mouseMove" });
   expect(event.preventDefault).toHaveBeenCalledTimes(2);
   dialog.dispose();
 });
@@ -519,7 +537,7 @@ for (const target of ["child", "parent"] as const) {
       native.emit(event);
       expect(await pending).toBe(false);
       expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", false);
-      expect(parent.setEnabled).toHaveBeenLastCalledWith(true);
+      expect(parent.setEnabled).not.toHaveBeenCalled();
       expect(parent.webContents.listenerCount("before-input-event")).toBe(0);
       dialog.dispose();
     });
@@ -542,7 +560,7 @@ test.each(["isVisible", "isFocused"] as const)(
     await vi.advanceTimersByTimeAsync(1000);
     expect(await result).toBe(false);
     expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", false);
-    expect(parent.setEnabled).toHaveBeenLastCalledWith(true);
+    expect(parent.setEnabled).not.toHaveBeenCalled();
     dialog.dispose();
   },
 );
@@ -733,5 +751,116 @@ test("native occlusion events during reparent/show do not cancel the request bei
   expect(window().hide).not.toHaveBeenCalled();
   answer(id, true);
   expect(await pending).toBe(true);
+  dialog.dispose();
+});
+
+test.each(["win32", "linux"] as const)("%s preserves native enabled state", async (platform) => {
+  const dialog = setup(platform);
+  const result = dialog.request(content);
+  const id = await shown();
+  if (platform === "win32") expect(parent.setEnabled).toHaveBeenLastCalledWith(false);
+  else expect(parent.setEnabled).not.toHaveBeenCalled();
+  answer(id, false);
+  expect(await result).toBe(false);
+  if (platform === "win32") expect(parent.setEnabled).toHaveBeenLastCalledWith(true);
+  dialog.dispose();
+});
+
+test.each([
+  { x: -9000, y: 200, width: 440, height: 240 },
+  { x: 190, y: 200, width: 0, height: 240 },
+  { x: 190, y: 200, width: 440, height: 0 },
+  { x: 190, y: 200, width: 1, height: 1 },
+  { x: 1910, y: 1070, width: 440, height: 240 },
+])("focused mapped geometry %j cannot approve", async (bounds) => {
+  const dialog = setup();
+  const result = dialog.request(content);
+  const id = await shown();
+  window().getBounds.mockReturnValue(bounds);
+  answer(id, true);
+  expect(await result).toBe(false);
+  dialog.dispose();
+});
+
+test.each(["isFocused", "isVisible", "isMinimized"] as const)(
+  "lost %s cannot authorize cleanup or a removal selection",
+  async (state) => {
+    const dialog = setup();
+    const act = vi.fn();
+    const pending = dialog.request({
+      ...content,
+      feed: {
+        current: () => ({
+          stage: "ready",
+          progress: { total: 0, done: 0, phase: "fetch", stopped: false, items: [] },
+        }),
+        subscribe: () => () => {},
+        act,
+      },
+    });
+    const id = await shown();
+    window()[state].mockReturnValue(state === "isMinimized");
+    answer(id, true);
+    expect(await pending).toBe(false);
+    expect(act).not.toHaveBeenCalled();
+    dialog.dispose();
+  },
+);
+
+test("blocked board clicks and focus re-present instead of only focusing an invisible child", async () => {
+  const dialog = setup();
+  const result = dialog.request(content);
+  const id = await shown();
+  const preventDefault = vi.fn();
+  parent.webContents.emit("before-mouse-event", { preventDefault }, { type: "mouseDown" });
+  parent.webContents.emit("before-input-event", { preventDefault }, { type: "keyDown" });
+  parent.emit("focus");
+  expect(preventDefault).toHaveBeenCalledTimes(2);
+  expect(window().show).toHaveBeenCalledTimes(4);
+  expect(window().moveTop).toHaveBeenCalledTimes(4);
+  answer(id, false);
+  expect(await result).toBe(false);
+  dialog.dispose();
+});
+
+test("resume, unlock, display changes and parent show/restore repair presentation and dispose listeners", async () => {
+  const dialog = setup();
+  const result = dialog.request(content);
+  const id = await shown();
+  for (const event of ["resume", "unlock-screen"]) mock.power?.emit(event);
+  for (const event of ["display-metrics-changed", "display-removed"]) mock.screen?.emit(event);
+  for (const event of ["show", "restore"]) parent.emit(event);
+  expect(window().show).toHaveBeenCalledTimes(7);
+  answer(id, false);
+  expect(await result).toBe(false);
+  for (const event of ["resume", "unlock-screen"]) expect(mock.power?.listenerCount(event)).toBe(0);
+  for (const event of ["display-metrics-changed", "display-removed"])
+    expect(mock.screen?.listenerCount(event)).toBe(0);
+  for (const event of ["show", "restore"]) expect(parent.listenerCount(event)).toBe(0);
+  dialog.dispose();
+});
+
+test("silent geometry loss after the first successful check is repaired by the periodic guard", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const dialog = setup();
+  const result = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(1000);
+  window().bounds.x = -9000;
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(window().show).toHaveBeenCalledTimes(2);
+  expect(window().bounds.x).toBe(190);
+  await vi.advanceTimersByTimeAsync(1000);
+  dialog.dispose();
+  expect(await result).toBe(false);
+});
+
+test("native presentation exceptions decline and release every input guard", async () => {
+  const dialog = setup();
+  window().show.mockImplementation(() => {
+    throw Error("native failure");
+  });
+  expect(await dialog.request(content)).toBe(false);
+  expect(parent.webContents.listenerCount("before-input-event")).toBe(0);
+  expect(mock.power?.listenerCount("resume")).toBe(0);
   dialog.dispose();
 });

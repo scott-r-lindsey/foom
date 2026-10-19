@@ -17,8 +17,7 @@ export function bundledProvider(
   if (createHash("sha256").update(source).digest("hex") !== digest)
     throw new Error("Bundled agent manifest integrity mismatch");
   const parsed = parseAgentManifest(source, "bundled");
-  if (parsed.version !== 2 || parsed.model.id !== id)
-    throw new Error("Invalid bundled agent manifest identity");
+  if (parsed.model.id !== id) throw new Error("Invalid bundled agent manifest identity");
   return {
     ...v2Provider(parsed.model, () => Promise.resolve()),
     origin: "bundled",

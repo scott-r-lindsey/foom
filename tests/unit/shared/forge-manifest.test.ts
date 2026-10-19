@@ -27,7 +27,7 @@ const checksWith = (primaryValue: unknown) => ({
 const rootWithResult = (patch: object) =>
   checksWith({ ...primary, result: { ...primary.result, ...patch } });
 
-it("dispatches both kinds without changing agent v1/v2 bytes or semantics", () => {
+it("dispatches both kinds without changing agent v2 bytes or semantics", () => {
   const sources = [
     readFileSync("tests/fixtures/agent-plugin.json", "utf8"),
     readFileSync("src/shared/bundled-agents/claude.json", "utf8"),

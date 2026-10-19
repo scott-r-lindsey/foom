@@ -2,11 +2,8 @@ import { githubManifest } from "../control/forge-manifests";
 import type { LoadedForgeManifest } from "./plugins";
 import { parsePluginManifest } from "../../shared/plugin-parser";
 import { AgentManifestError } from "../../shared/agent-manifest";
-import type { AgentPluginManifest } from "../../shared/agent-plugin";
-import type { AgentManifestV2 } from "../../shared/agent-manifest-v2";
 import { v2Provider } from "../agents/providers/v2";
 import type { AgentProvider } from "../agents/providers/registry";
-import { configProvider } from "../agents/providers/config";
 import { randomUUID } from "node:crypto";
 import { constants, watch } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
@@ -154,15 +151,6 @@ function themeKind(path: string): ThemeKind | undefined {
       : undefined;
 }
 
-function createConfigProvider(
-  manifest: AgentPluginManifest | AgentManifestV2,
-  validate: () => Promise<void>,
-): AgentProvider {
-  return manifest.version === 2
-    ? v2Provider(manifest, validate)
-    : configProvider(manifest, validate);
-}
-
 /**
  * The Foom config folder: plain files that Foom validates, applies live when safe,
  * and holds for approval when a change would weaken attention.
@@ -287,6 +275,7 @@ export class ConfigService {
       THEME_FOLDERS.theme,
       THEME_FOLDERS["terminal-theme"],
       "schemas",
+      "examples",
       "agents",
       "forges",
       ...SOUND_KINDS.map((kind) => `sounds/${kind}`),
@@ -544,10 +533,7 @@ export class ConfigService {
         entry = {
           kind: "agent",
           text,
-          provider: createConfigProvider(
-            loaded.plugin.version === 2 ? loaded.plugin.model : loaded.plugin.manifest,
-            validate,
-          ),
+          provider: v2Provider(loaded.plugin.model, validate),
         };
       else
         entry = { kind: "forge", text, forge: { manifest: loaded.plugin, digest: hash, validate } };

@@ -218,7 +218,7 @@ it("migrates exact legacy installed-observer health into protected storage on th
     "../../../helpers/legacy-codex"
   );
   const model = agentProvider("codex").model;
-  if (!model) throw new Error("Missing model");
+
   const profile = await mkdtemp(join(tmpdir(), "foom-legacy-health-"));
   const fingerprint = createHash("sha256")
     .update(JSON.stringify(codexHookArguments(codexObserverCommand())))
