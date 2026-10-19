@@ -1,9 +1,11 @@
 # xterm WebGL evaluation (#620)
 
 Research only, 2026-10-19, Linux x64. **Retain the DOM renderer; defer WebGL.**
-This environment cannot provide a valid GPU comparison. No application source,
+The initial Xvfb run could not create a context. The follow-up below validates
+real WebGL2 functionality with fixture-only SwiftShader; hardware performance
+validation is a separate, explicitly authorized session. No application source,
 production dependency, security policy or packaged asset changes are included.
-The issue remains open for measurements on GPU-capable infrastructure.
+No renderer change ships without a clear hardware performance win.
 
 ## Method and reproduction
 
@@ -18,13 +20,7 @@ pnpm run audit
 pnpm --dir spikes/xterm-webgl audit --audit-level=low
 pnpm run build
 node spikes/xterm-webgl/build.mjs
-for renderer in dom webgl; do
-  for tiles in 4 9; do
-    FOOM_WEBGL_RENDERER="$renderer" FOOM_WEBGL_TILES="$tiles" \
-      xvfb-run -a -s '-screen 0 1920x1200x24' \
-      node --require ./tests/helpers/setup.js --test spikes/xterm-webgl/measure.cjs
-  done
-done
+
 ```
 
 The root lockfile is unchanged. The spike pins addon-webgl 0.19.0 in its own
@@ -32,44 +28,109 @@ lockfile. Its published package identifies upstream commit
 `f447274f430fd22513f6adbf9862d19524471c04`, matching the xterm 6.0.0 release.
 Both audits found no known vulnerabilities.
 
-`build.mjs` bundles the real renderer with an in-memory transform of the imperative
-shell controller. It loads one addon immediately after `terminal.open`, before
-initial attachment, registers DOM fallback on context loss, and uses xterm's addon
-manager for disposal. Initialization exceptions are recorded and disposed. It
-refuses a changed injection point. No source file or production build is replaced.
-The fixture routes only the existing allowlisted `renderer.js` URL to this
-comparison bundle; no CSP, sandbox or asset allowlist changes are made.
+`build.mjs` produces two instrumented comparison bundles via an in-memory
+transform of the imperative shell controller. `instrument.ts` tracks public xterm
+objects and attachment boundaries in both modes, limits WebGL to 12 visible
+controllers, disposes it when hidden/unmounted, and permanently falls back to DOM
+on context loss for that controller. It preserves the existing attach/drain/reset/
+fit/snapshot path and uses the public addon manager for disposal. This is a research
+prototype; nothing imports it into production. Both published packages identify
+upstream commit `f447274f430fd22513f6adbf9862d19524471c04`.
 
-`measure.cjs` uses the same isolated profile, fixture login shell, controlled PATH,
-agent guard, cleanup and descendant-process audit as
-`tests/electron/preview-composition-measurement.js`. It explicitly places each new
-session into an empty tile (mounted xterms alone do not prove occupied tiles),
-splits the largest tile, and runs only `tests/electron/tile-flood.js` in the PTYs.
-The workload emits about 390 KB/s per terminal for 12 seconds, independently of
-terminal dimensions. Every host must show flood output; DOM views must show it as
-well. After a one-second warmup, the probe samples eight seconds and waits for
-`FLOOD_DONE` in every host. Elapsed-time windows are intentional measurements.
-The app quits before fixtures are removed; all completed runs passed the process
-audit with no surviving descendants.
+## Follow-up functional validation
 
-Reports go to `test-results/620-{dom,webgl}-{4,9}.json` (override with
-`FOOM_WEBGL_REPORT`). Committed `results/` files are raw observations from this
-machine, not portable thresholds. They include:
+```sh
+node spikes/xterm-webgl/build.mjs
+xvfb-run -a -s '-screen 0 1920x1200x24' \
+  node --require ./tests/helpers/setup.js --test --test-concurrency=1 \
+  spikes/xterm-webgl/functional.cjs
+python3 spikes/xterm-webgl/compare-visual.py
+```
 
-- CDP renderer task/script, layout and style durations and counts;
-- trace `Paint` CPU durations (not GPU raster or presentation time);
-- rAF interval percentiles (not actual presented-frame latency), long-task counts,
-  total durations and maximum duration;
-- idle and streaming JS heap, DOM counters and Electron process working sets;
-- actual/requested renderer, per-shell addon outcomes, viewport and terminal sizes,
-  Electron/Chromium versions, GPU feature status and GPU-information failure.
+Pillow is required only for the screenshot comparison script. Functional fixtures
+pass `--use-angle=swiftshader --enable-unsafe-swiftshader` to their isolated
+Electron app, without disabling sandboxing. The addon canvas reports **ANGLE /
+SwiftShader Device (Subzero)** and a live WebGL2 context. These software runs are
+functional evidence only; no SwiftShader timing is performance evidence.
 
-Memory is a point-in-time observation without forced GC. Dividing board-process
-working set or JS heap by tile count includes the shared board and baseline costs;
-it is an amortized footprint, not marginal memory per terminal. GPU working set
-is process-wide and cannot establish GPU allocation per tile here.
+The automated assertions and raw reports under `results/software/` cover:
 
-## Results and decision
+- Forced `WEBGL_lose_context`: unchanged scrollback, base position, cursor and
+  xterm identity; no detach/reset/reattach caused by loss; subsequent PTY input and
+  output work through DOM. Switching sessions still drains, resets, fits, and
+  attaches in order. Output produced by a hidden host appears in its fresh snapshot
+  on reattachment and never contaminates the other session.
+- Context exhaustion: creating 24 unmanaged contexts leaves 16 live and causes
+  browser-driven loss of the terminal's older context. After releasing probes,
+  **18 occupied tiles** use 12 verified WebGL2 contexts and six DOM fallbacks.
+  No budgeted terminal loses its context; a budget fallback continues real PTY
+  output. The cap is observed, not assumed portable. Twelve is a conservative
+  experimental budget; loss fallback also handles a lower platform limit.
+- Settings hides all attachments: all addons release while the 18 xterms remain.
+  Returning reinstates at most 12 addons. Hiding and tidying a tile removes its
+  controller, disposes its terminal exactly once, and leaves no addon attached.
+- Security: renderer sandbox and context isolation stay enabled, Node integration
+  stays disabled, the exact original CSP remains, and no CSP violations occur.
+  Request/resource inventories contain only existing `app://bundle/` assets;
+  requesting unlisted `addon-webgl.js` still returns 404. The addon is bundled into
+  the existing `renderer.js`, compiles GLSL strings through WebGL `shaderSource`,
+  and uploads in-memory canvas glyph atlases. It loads no worker, WASM, shader file,
+  remote texture, network resource, eval code, or additional protocol URL. Existing
+  local font URLs are the only font assets.
+
+The six-case visual matrix compares Foom Dark/Light, Dracula, selection, a visible
+block cursor, Hack Nerd Font Mono and Geist Mono, sizes 10/14/16/20, and interface
+scales 80/100/150%. Screenshots use native `capturePage` with zoom-adjusted clipping;
+PTY output is held quiet during the static cell comparison. Logical cell content,
+theme, selection, cursor position and row count match. Saved pairs and the contact
+sheet were inspected: palettes, bold text, cursor, selection and ligature-free
+characters remain visible, but glyph spacing/rasterization is **not identical**.
+WebGL integer cell-width rounding fits 103 versus DOM's 98 columns at 14 px and
+165 versus 137 at 10 px/80% zoom. `visual-diff.json` records 3.49–6.38% differing
+pixels with RGB tolerance 32. These are reported differences, not a pixel-perfect
+pass. Font/zoom geometry needs attention before any future rollout.
+
+The guarded `common.cjs` reuses the ordinary isolated profiles, fixture shells,
+controlled PATH, agent guard, cleanup and process audit. For inactive desktop
+readiness it compiles a fixture-only in-memory harness variant that replaces
+focus-dependent readiness and installs `inactive.cjs` before main. Window `show`
+uses `showInactive`; native focus calls are suppressed. Teardown exits fixture
+shells before requesting quit, avoiding a focus-requiring quit dialog. Its normal
+quit acknowledgement and process audit remain in place. This inactive variant is
+also validated under Xvfb before any visible session.
+
+## Hardware session
+
+`desktop-session.cjs` is reserved for the one explicitly authorized visible-desktop
+measurement session. All other Electron runs must use Xvfb. Do not run it again
+without new authorization:
+
+```sh
+FOOM_WEBGL_DESKTOP_SESSION=1 node --require ./tests/helpers/setup.js \
+  --test --test-concurrency=1 spikes/xterm-webgl/desktop-session.cjs
+```
+
+It inherits DISPLAY/WAYLAND_DISPLAY, adds no GPU switches, uses inactive windows,
+and bounds the entire session to ten minutes. The first app records GPU/driver
+information plus a real WebGL2 probe in `results/hardware-status.json`. If hardware
+WebGL is unavailable or the renderer is software, it stops without trying flags
+or launching the other cases. Otherwise it runs DOM/WebGL × 4/9 tiles, verifies a
+real hardware context per WebGL addon, and writes raw reports. The workload is the
+bounded `tests/electron/tile-flood.js`: about 390 KB/s per terminal for 12 seconds,
+a one-second warmup and an eight-second sample. Cell counts are normalized between
+renderers (40×18 for four tiles; 20×6 for nine) to avoid the observed font rounding
+confound; board/viewport sizes are recorded. It waits for every flood to complete
+and audits descendants at teardown. The report contains task/script/layout/style
+and paint CPU durations, rAF interval percentiles, long tasks, heap/DOM counters,
+and process working sets. rAF intervals are not presentation latency; paint CPU is
+not GPU raster time. Memory includes shared board overhead and is not marginal
+GPU allocation per tile. These qualifications also apply to the archived reports.
+
+## Initial observations (superseded evaluation)
+
+These four reports were produced by commit `7c564fd`; use that revision to
+reproduce the initial failed-context experiment. Current scripts deliberately
+require actual hardware contexts before labeling a WebGL performance run.
 
 | Requested mode (actual: DOM) | Tiles | Task ms | Script ms | Layout ms | Style ms | Paint ms | rAF p95 ms | Long tasks | Heap MiB/tile | Board RSS MiB/tile |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -92,18 +153,8 @@ with DOM. No hardware WebGL or software WebGL measurements were obtained.
 Reported timings are observational; other development work shared the host, so
 small differences between runs are not evidence about renderer performance.
 
-The initialization-failure path continued streaming and completed each PTY flood.
-Actual context loss, context-cap exhaustion, GPU memory per tile, pixel fidelity,
-selection, cursor, theme, font sizes and interface zoom were **not validated** for
-WebGL because no context could be created. The comparison injection is an
-experiment, not a production-ready lifecycle implementation.
-
-Do not ship the addon on this evidence. Repeat on GPU-capable isolated fixtures
-before deciding. If it wins, integrate it in the existing imperative controller,
-keep one xterm per mounted shell and the existing attach/drain/reset/fit/snapshot
-order, scope GPU resources to visible tiles, and dispose the addon on context loss
-to keep that terminal usable through DOM. Test exhaustion beyond the observed
-platform context cap instead of assuming a fixed cap; never destroy a PTY or
-recreate its xterm just to recover a GPU context. Run the visual matrix and full
-runtime validation on all supported platforms before enabling it. No security
-policy weakening is justified by this experiment.
+The initial initialization-failure path continued streaming and completed each PTY
+flood. These initial reports are retained for provenance; the missing functional
+checks are now covered by the SwiftShader follow-up above. They still provide no
+hardware performance evidence. The final decision will use the authorized
+hardware-session result, never the SwiftShader timings.

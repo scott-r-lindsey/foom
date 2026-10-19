@@ -1398,21 +1398,27 @@ than treating frame timings as portable pass/fail thresholds.
 
 ### WebGL evaluation (#620)
 
-Visible terminals retain xterm 6.0.0's DOM renderer. The isolated Linux/Xvfb
-[WebGL spike](../spikes/xterm-webgl/README.md) attempted `@xterm/addon-webgl`
-0.19.0 with four and nine streaming terminals after the #619 composition fix.
-Electron disabled GPU access after GPU-process crashes; WebGL2 context creation
-returned null, and every addon initialization fell back to DOM. The recorded task,
-layout, paint, frame, long-task and memory measurements therefore describe DOM
-and failed-initialization fallback, not a WebGL performance comparison. They do
-not establish a clear win, so no application dependency or renderer change ships.
+Visible terminals retain xterm 6.0.0's DOM renderer. The isolated
+[WebGL spike](../spikes/xterm-webgl/README.md) evaluates matching
+`@xterm/addon-webgl` 0.19.0 without changing production source or dependencies.
+The initial Xvfb run could not create WebGL2 contexts and measured DOM fallback;
+those archived reports are not a renderer performance comparison.
 
-Revisit on GPU-capable isolated test infrastructure before enabling WebGL. Measure
-four and nine visible tiles with identical workloads and dimensions; include GPU
-memory, context exhaustion/loss and DOM fallback, disposal, attachment ordering,
-and theme/selection/cursor/font/zoom visual checks. Keep one xterm per mounted
-shell and preserve the CSP, asset allowlist and sandbox. Neither software-rendered
-Xvfb timings nor failed context creation justify enabling WebGL by default.
+A follow-up uses fixture-only SwiftShader switches under Xvfb to validate actual
+addon WebGL2 contexts, forced/context-cap loss and DOM recovery, scrollback and
+attachment order, visible-only resource allocation and unmount disposal. The
+observed browser cap was 16: an experimental budget of 12 verified WebGL contexts
+left six DOM fallbacks with 18 occupied tiles. Hidden views dispose addons while
+retaining their xterms; each removed controller disposes its terminal once. No
+sandbox, CSP or asset-allowlist changes are needed: the existing renderer bundle
+contains shader strings and creates in-memory glyph atlases, with no added URLs.
+
+Six saved DOM/WebGL visual pairs cover themes, selection, cursor, fonts, font size
+and interface zoom. Logical content and colors match, but cell widths and glyph
+rasterization differ; WebGL fits more columns, especially at small font sizes.
+SwiftShader validates functionality only. Hardware performance validation uses a
+separately authorized, bounded inactive-window fixture session; enabling WebGL
+still requires a clear hardware win and attention to the observed font geometry.
 
 ## Recorded sounds
 
