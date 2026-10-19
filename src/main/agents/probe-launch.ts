@@ -1,10 +1,8 @@
 import { TERMINAL_ENVIRONMENT } from "../../shared/terminal-environment";
-import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access, lstat, mkdtemp, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
-import { promisify } from "node:util";
 import { parseAgentManifest } from "../../shared/agent-plugin-parser";
 import type { TerminalSpec } from "../../shared/desktop";
 import { agentProvider } from "./providers/registry";
@@ -14,8 +12,8 @@ import { bypassEnvironment, matchesArguments } from "./providers/v2-values";
 import { inheritedEnvironment } from "../setup/environment";
 import type { ProbeRequest } from "../../node-common/agent-probe";
 import type { AgentProvider } from "./providers/provider";
+import { readLoginShell } from "../login-shell";
 
-const execute = promisify(execFile);
 const options = { encoding: "utf8", timeout: 5000, maxBuffer: 256 * 1024 } as const;
 /** Fixed program, no caller text. Do not run agents through a login shell. */
 export async function probeEnvironment(
@@ -23,7 +21,7 @@ export async function probeEnvironment(
     file: string,
     args: readonly string[],
     options: { encoding: "utf8"; timeout: number; maxBuffer: number; cwd: string },
-  ) => Promise<{ stdout: string }> = execute,
+  ) => Promise<{ stdout: string }> = readLoginShell,
   platform: NodeJS.Platform = process.platform,
   source: NodeJS.ProcessEnv = process.env,
 ): Promise<Record<string, string>> {
@@ -64,7 +62,7 @@ export function isolatedGitEnvironment(
 export async function scratchRepository(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "foom-agent-probe-"));
   try {
-    await execute("git", ["-c", "init.templateDir=", "init", "--quiet", "--", directory], {
+    await readLoginShell("git", ["-c", "init.templateDir=", "init", "--quiet", "--", directory], {
       ...options,
       cwd: directory,
       env: isolatedGitEnvironment(process.env),
@@ -119,7 +117,8 @@ export async function prepareProbe(
   const command = await executable(provider, launchEnvironment);
   const read = async (flag: string) => {
     try {
-      return (await execute(command, [flag], { ...options, cwd, env: launchEnvironment })).stdout;
+      return (await readLoginShell(command, [flag], { ...options, cwd, env: launchEnvironment }))
+        .stdout;
     } catch {
       return "";
     }

@@ -27,6 +27,7 @@ function assertFixtureAgent(file, directories) {
 function guardAgentProbes(directories, log) {
   const children = require("node:child_process");
   const original = children.execFile;
+  const originalSpawn = children.spawn;
   function check(file) {
     try {
       const executable =
@@ -47,6 +48,10 @@ function guardAgentProbes(directories, log) {
       throw error;
     }
   }
+  children.spawn = function (file, ...args) {
+    check(file);
+    return originalSpawn.call(this, file, ...args);
+  };
   children.execFile = function (file, ...args) {
     check(file);
     return original.call(this, file, ...args);

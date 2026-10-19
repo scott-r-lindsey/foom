@@ -3844,10 +3844,7 @@ test("config probe CLI drives only scratch fixture screens and the user can inte
   const bin = path.join(root, "bin");
   const home = path.join(root, "home");
   await Promise.all([bin, home].map((directory) => mkdir(directory)));
-  const executable = path.join(
-    bin,
-    process.platform === "win32" ? "foom-probe-fixture.exe" : "foom-probe-fixture",
-  );
+  const executable = path.join(bin, process.platform === "win32" ? "copilot.exe" : "copilot");
   await copyFile(process.execPath, executable);
   await chmod(executable, 0o755);
   const script = path.join(root, "agent.cjs");
@@ -3861,19 +3858,25 @@ const fs = require('node:fs');
 fs.writeFileSync(${JSON.stringify(details)}, JSON.stringify({cwd:process.cwd(),env:Object.keys(process.env).filter(key => /^FOOM_/i.test(key)),args:process.argv.slice(2)}));
 process.stdout.write(Array.from({length:40},(_,i) => 'SCROLLBACK_SECRET_'+i+'\\r\\n').join(''));
 process.stdout.write('\\x1b[?1049h\\x1b[2J\\x1b[H\\x1b]0;Fixture probe title\\x07Approve fixture? (y/n)');
-process.stdin.on('data', data => {process.stdout.write('\\r\\nRECEIVED:'+data.toString().trim());});
+process.stdin.setRawMode(true);
+process.stdin.on('data', data => {
+  const value=data.toString();
+  if(value.includes('\\t')) process.stdout.write('\\r\\nKEY:TAB');
+  const text=value.split('\\t').join('').trim();
+  if(text) process.stdout.write('\\r\\nRECEIVED:'+text);
+});
 process.stdin.resume();
 `,
   );
   const v2 = JSON.parse(
-    await readFile(path.join(__dirname, "../fixtures/agent-plugin-v2.json"), "utf8"),
+    await readFile(path.join(__dirname, "../fixtures/agent-plugins-v2/copilot.json"), "utf8"),
   );
   const manifest = {
     ...v2,
-    id: "foom-probe-fixture",
-    name: "Probe fixture",
-    badge: "PF",
-    executables: ["foom-probe-fixture"],
+    id: "copilot",
+    name: "GitHub Copilot",
+    badge: "CP",
+    executables: ["copilot"],
     discovery: { facts: [] },
     launch: {
       order: [
@@ -3896,19 +3899,20 @@ process.stdin.resume();
     conversation: { resumePin: "requested-on-paste", restoreControl: false },
     resumePaste: [],
     attention: { minimumEngineVersion: 1, rules: [] },
+    execution: { completion: "attached", completionChannels: [] },
   };
   delete manifest.hooks;
   delete manifest.setup;
   delete manifest.health;
   const draft = path.join(root, "draft.json");
-  await writeFile(draft, JSON.stringify(manifest));
   await writeFile(
     driver,
     `
 const fs=require('node:fs'); const {execFileSync}=require('node:child_process');
 const cli=process.platform==='win32'?'foom.exe':'foom';
 const call=(...args) => JSON.parse(execFileSync(cli,['agent','probe',...args],{encoding:'utf8',env:process.env})).result;
-const probe=call('start','foom-probe-fixture','--manifest',${JSON.stringify(draft)}).probe;
+fs.writeFileSync(${JSON.stringify(draft)},JSON.stringify(${JSON.stringify(manifest)}));
+const probe=call('start','copilot','--manifest',${JSON.stringify(draft)}).probe;
 fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe}));
 console.log('DRIVER_READY');
 require('node:readline').createInterface({input:process.stdin}).on('line', line => {
@@ -3919,10 +3923,36 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       call('send',probe,'yes'); call('keys',probe,'tab'); call('wait',probe,'--quiet','0.1');
       fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe,before,state,after:call('screen',probe)}));
       console.log('SCREEN_READY');
+    } else if(line==='restart') {
+      const second=call('start','copilot','--manifest',${JSON.stringify(draft)}).probe;
+      let screen;
+      const deadline=Date.now()+${deadline(5000)};
+      do { call('wait',second,'--quiet','0.1'); screen=call('screen',second); } while(!screen.lines.join('\\n').includes('Approve fixture?') && Date.now()<deadline);
+      const launch=JSON.parse(fs.readFileSync(${JSON.stringify(details)},'utf8'));
+      const stopped=call('stop',second);
+      const previous=JSON.parse(fs.readFileSync(${JSON.stringify(result)},'utf8'));
+      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({...previous,second:{probe:second,screen,launch,...stopped}}));
+      console.log('SECOND_STOPPED');
     }
   } catch(error) {fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({error:error.message}));console.error(error.message);}
 });
 `,
+  );
+  const agents = path.join(home, ".foom/config/agents");
+  await mkdir(agents, { recursive: true });
+  await copyFile(
+    process.execPath,
+    path.join(bin, process.platform === "win32" ? "foom-config-driver.exe" : "foom-config-driver"),
+  );
+  await writeFile(
+    path.join(agents, "config-driver.json"),
+    JSON.stringify({
+      ...manifest,
+      id: "config-driver",
+      name: "Config driver",
+      executables: ["foom-config-driver"],
+      launch: { ...manifest.launch, arguments: { arguments: [driver] } },
+    }),
   );
   const app = await launchApp(context, {
     fixture: "running-shell",
@@ -3931,14 +3961,17 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
     env: { HOME: home, PATH: bin },
   });
   const page = await boardPage(app);
-  await page.evaluate(() => window.desktop.sidebarCommand({ kind: "config-launch", run: "shell" }));
+  await page.evaluate(() =>
+    window.desktop.sidebarCommand({ kind: "config-launch", run: "config-driver" }),
+  );
   const configId = await page.evaluate(
     async () => (await window.desktop.workspace()).terminals.find((row) => row.config).id,
   );
-  await page.evaluate(
-    ({ id, driver }) => window.desktop.input(id, `node ${JSON.stringify(driver)}\r`),
-    { id: configId, driver },
-  );
+  await expect
+    .poll(async () =>
+      (await page.evaluate((id) => window.desktop.tail(id, 24), configId)).join("\n"),
+    )
+    .toContain("DRIVER_READY");
   await expect
     .poll(
       async () =>
@@ -3970,6 +4003,9 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       }
     })
     .toContain("RECEIVED:yes");
+  await expect
+    .poll(async () => JSON.parse(await readFile(result, "utf8")).after?.lines.join("\n") ?? "")
+    .toContain("KEY:TAB");
   const record = JSON.parse(await readFile(result, "utf8"));
   assert.equal(record.before.title, "Fixture probe title");
   assert.ok(!record.before.lines.join("\n").includes("SCROLLBACK_SECRET"));
@@ -3981,11 +4017,11 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   assert.deepEqual(launch.args, []);
   await page
     .getByRole("button", {
-      name: "Actions for foom-probe-fixture · Probe in Foom config",
+      name: "Actions for copilot · Probe in Foom config",
       exact: true,
     })
     .click();
-  await page.getByRole("menuitem", { name: "Stop foom-probe-fixture", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Stop copilot", exact: true }).click();
   const confirmStop = page.getByRole("menuitem", { name: "Click again to stop", exact: true });
   await expect(confirmStop).toBeVisible();
   // The existing Stop confirmation requires at least 300 ms between clicks.
@@ -4006,5 +4042,20 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       }
     })
     .toBe(false);
+  await page.evaluate((id) => window.desktop.input(id, "restart\r"), configId);
+  await expect
+    .poll(async () => JSON.parse(await readFile(result, "utf8")).second?.stopped ?? false)
+    .toBe(true);
+  const second = JSON.parse(await readFile(result, "utf8")).second;
+  assert.notEqual(second.probe, record.probe);
+  assert.notEqual(second.launch.cwd, launch.cwd);
+  assert.ok(second.screen.lines.join("\n").includes("Approve fixture?"));
+  await expect(page.getByRole("note")).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.workspace())).terminals.some((row) => row.probe),
+    )
+    .toBe(false);
+  await assert.rejects(require("node:fs/promises").access(second.launch.cwd), { code: "ENOENT" });
   await assertAccessible(page);
 });

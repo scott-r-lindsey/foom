@@ -2238,7 +2238,11 @@ The launch uses no user defaults, control/MCP grant or hook attachment. Known
 manifest bypass arguments and environment conditions are refused before PTY
 creation. Hooks and MCP verification are reserved for #593.
 
-The fixed login-shell environment query has bounded output and a deadline. The
+The fixed login-shell environment query uses `readLoginShell` with ignored stdin,
+a detached Unix session, bounded output and a deadline. Scratch Git initialization
+and fixed CLI metadata reads use the same isolation and process-group cleanup,
+so none can acquire the launching terminal or stop Foom through shell job control.
+The interactive CLI gets its own PTY through the ordinary terminal host. The
 probe's inspected environment strips Foom/Electron/parent-agent variables and
 inherited Git overrides. `replaceEnvironment` is a main-only terminal spec option:
 the utility host passes the complete supplied environment instead of merging its
