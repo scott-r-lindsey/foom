@@ -1395,6 +1395,25 @@ input-to-render probes on another terminal, plus final flood byte counts. The
 fixture uses the DOM renderer and retains sandboxing. Measurements are machine-
 and workload-specific; record the report and interpretation in the PR rather
 than treating frame timings as portable pass/fail thresholds.
+
+### WebGL evaluation (#620)
+
+Visible terminals retain xterm 6.0.0's DOM renderer. The isolated Linux/Xvfb
+[WebGL spike](../spikes/xterm-webgl/README.md) attempted `@xterm/addon-webgl`
+0.19.0 with four and nine streaming terminals after the #619 composition fix.
+Electron disabled GPU access after GPU-process crashes; WebGL2 context creation
+returned null, and every addon initialization fell back to DOM. The recorded task,
+layout, paint, frame, long-task and memory measurements therefore describe DOM
+and failed-initialization fallback, not a WebGL performance comparison. They do
+not establish a clear win, so no application dependency or renderer change ships.
+
+Revisit on GPU-capable isolated test infrastructure before enabling WebGL. Measure
+four and nine visible tiles with identical workloads and dimensions; include GPU
+memory, context exhaustion/loss and DOM fallback, disposal, attachment ordering,
+and theme/selection/cursor/font/zoom visual checks. Keep one xterm per mounted
+shell and preserve the CSP, asset allowlist and sandbox. Neither software-rendered
+Xvfb timings nor failed context creation justify enabling WebGL by default.
+
 ## Recorded sounds
 
 `shared/sound.d.ts` defines four kinds and path-free `{source, file}` choices.
