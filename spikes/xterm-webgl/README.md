@@ -175,7 +175,12 @@ Production unit tests cover lazy activation, initialization/constructor failures
 loss, budget release and idempotent disposal, plus controller fallback refitting
 without reset/reattach. Dedicated real-app Electron tests request fixture-only
 SwiftShader and verify loss/scrollback/attachment continuity and 18-tile resource
-allocation. Existing DOM-specific pixel/cursor tests and packaged smoke explicitly
+allocation. Production WebGL fixtures explicitly select `--use-gl=angle` as documented by
+[Chromium](https://chromium.googlesource.com/chromium/src/+/main/docs/gpu/swiftshader.md);
+this avoids relying on the platform's default GL implementation. Linux/Windows
+use SwiftShader; macOS CI runs native Metal because its ARM runner did not create
+SwiftShader contexts. The assertions still require actual WebGL2 contexts.
+Existing DOM-specific pixel/cursor tests and packaged smoke explicitly
 exercise the unavailable-GPU fallback; their fixture flags never affect shipped
 launches. Full runtime validation accompanies this production change.
 

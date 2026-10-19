@@ -12,6 +12,25 @@ const contexts = (page) =>
         return gl && !gl.isContextLost();
       }).length,
   );
+async function expectContexts(app, page, count) {
+  try {
+    await expect.poll(() => contexts(page)).toBe(count);
+  } catch (error) {
+    console.error(
+      "WebGL fixture diagnostics",
+      await app.evaluate(async ({ app }) => {
+        let info;
+        try {
+          info = await app.getGPUInfo("complete");
+        } catch (failure) {
+          info = String(failure);
+        }
+        return { platform: process.platform, features: app.getGPUFeatureStatus(), info };
+      }),
+    );
+    throw error;
+  }
+}
 async function output(page, id, marker) {
   const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "webgl-output.js")}" ${marker}\r`;
   await page.evaluate(({ id, command }) => window.desktop.input(id, command), { id, command });
@@ -25,7 +44,7 @@ test("WebGL loss keeps the terminal, scrollback and attachment usable through DO
 }, async (context) => {
   const app = await launchApp(context, { fixture: "running-shell", renderer: "webgl" });
   const page = await boardPage(app);
-  await expect.poll(() => contexts(page)).toBe(1);
+  await expectContexts(app, page, 1);
   const [session] = (await page.evaluate(() => window.desktop.workspace())).terminals;
   await page.evaluate(() => {
     window.webglTokens = [];
@@ -37,7 +56,7 @@ test("WebGL loss keeps the terminal, scrollback and attachment usable through DO
     const debug = gl.getExtension("WEBGL_debug_renderer_info");
     return gl.getParameter(debug.UNMASKED_RENDERER_WEBGL);
   });
-  assert.match(renderer, /SwiftShader/);
+  assert.match(renderer, process.platform === "darwin" ? /Metal/ : /SwiftShader/);
   await output(page, session.id, "BEFORE");
   await page.locator(".xterm-screen canvas").evaluateAll((canvases) => {
     const gl = canvases.map((canvas) => canvas.getContext("webgl2")).find(Boolean);
@@ -46,7 +65,7 @@ test("WebGL loss keeps the terminal, scrollback and attachment usable through DO
   const rows = page.locator(".xterm-rows");
   await expect(rows).toBeVisible();
   await expect(rows).toContainText("WEBGL_BEFORE_DONE");
-  await expect.poll(() => contexts(page)).toBe(0);
+  await expectContexts(app, page, 0);
   const input = page.locator(".xterm-helper-textarea");
   for (let index = 0; index < 8; index++) await input.press("Shift+PageUp");
   await expect(rows).toContainText("WEBGL_BEFORE_TOP");
@@ -66,7 +85,7 @@ test("WebGL loss keeps the terminal, scrollback and attachment usable through DO
   await page.evaluate(() => window.desktop.appMenu.execute("settings"));
   await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
   await expect(rows).toContainText("WEBGL_AFTER_DONE");
-  await expect.poll(() => contexts(page)).toBe(0);
+  await expectContexts(app, page, 0);
   assert.equal(
     await page.evaluate(() => document.querySelector(".xterm") === window.webglElement),
     true,
@@ -117,18 +136,18 @@ test("WebGL uses a visible context budget and releases hidden and unmounted view
     await expect(page.locator(".terminal-tile[data-empty=false]")).toHaveCount(index + 1);
   }
   await expect(page.locator(".xterm")).toHaveCount(18);
-  await expect.poll(() => contexts(page)).toBe(12);
+  await expectContexts(app, page, 12);
   await expect(page.locator(".terminal-tile[data-empty=false] .xterm-rows")).toHaveCount(6);
   await page.evaluate(() => window.desktop.appMenu.execute("settings"));
-  await expect.poll(() => contexts(page)).toBe(0);
+  await expectContexts(app, page, 0);
   await expect(page.locator(".xterm")).toHaveCount(18);
   await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
-  await expect.poll(() => contexts(page)).toBe(12);
+  await expectContexts(app, page, 12);
   const firstTile = page.locator(".terminal-tile").first();
   await firstTile.getByRole("button", { name: "Hide", exact: true }).click();
   await page.evaluate(() => window.desktop.appMenu.execute("tidy-tiles"));
   await expect(page.locator(".xterm")).toHaveCount(17);
-  await expect.poll(() => contexts(page)).toBe(11);
+  await expectContexts(app, page, 11);
   assert.deepEqual(
     await app.evaluate(({ BrowserWindow }) => {
       const preferences = BrowserWindow.getAllWindows()
