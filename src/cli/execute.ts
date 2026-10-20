@@ -1,4 +1,4 @@
-import { probeCommand } from "../node-common/agent-probe";
+import { probeCommand, probeRequest } from "../node-common/agent-probe";
 import { exchange } from "./client";
 import { formatAgentCapabilities } from "../shared/agent-capabilities";
 import { handoffCommand } from "./handoff";
@@ -40,8 +40,25 @@ export async function execute(
       output(result.output, result.error);
       return result.code;
     }
+    if (
+      words[0] === "agent" &&
+      words[1] === "probe" &&
+      words[2] === "screen" &&
+      words[4] === "--save" &&
+      words[5] === "done"
+    ) {
+      output(
+        {
+          error: "invalid_request",
+          detail: "Screen rules cannot announce Done. Use --save idle or --save other.",
+        },
+        true,
+      );
+      return 2;
+    }
+    const testRules = words[0] === "config" && words[1] === "test-rules";
     const configStatus = words.length === 2 && words[0] === "config" && words[1] === "status";
-    if (words[0] === "config" && !configStatus) {
+    if (words[0] === "config" && !configStatus && !testRules) {
       const path = words[2];
       if (
         words.length !== 3 ||
@@ -61,8 +78,13 @@ export async function execute(
       if (!json) for (const agent of result.agents ?? []) output(formatAgentCapabilities(agent));
       return result.code;
     }
-    if (configStatus || (words[0] === "agent" && words[1] === "probe")) {
-      const request = configStatus ? { action: "config-status" } : probeCommand(words.slice(2));
+    if (configStatus || testRules || (words[0] === "agent" && words[1] === "probe")) {
+      if (testRules && words.length !== 3) throw new ControlError("invalid_request");
+      const request = configStatus
+        ? { action: "config-status" }
+        : testRules
+          ? probeRequest({ action: "test-rules", agent: words[2] })
+          : probeCommand(words.slice(2));
       const token = env["FOOM_CONFIG_TOKEN"];
       const url = env["FOOM_CONFIG_URL"];
       if (!token || !/^[a-f0-9]{64}$/u.test(token) || !url) throw new ControlError("unauthorized");
@@ -92,6 +114,20 @@ export async function execute(
                 ? "conflict"
                 : "unavailable",
         );
+      if (testRules) {
+        const report = object(response["result"]);
+        if (typeof report["passed"] !== "boolean" || !Array.isArray(report["captures"]))
+          throw new ControlError("unavailable");
+        if (json) output(result);
+        else
+          for (const entry of report["captures"]) {
+            const capture = object(entry);
+            output(
+              `${JSON.stringify(capture["file"])}: expected ${JSON.stringify(capture["expected"])}, got ${JSON.stringify(capture["actual"])}, rule ${JSON.stringify(capture["ruleId"])}`,
+            );
+          }
+        return report["passed"] ? 0 : 1;
+      }
       output(result);
       return 0;
     }

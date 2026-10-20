@@ -132,3 +132,5 @@ Every bundled detection rule must match a redacted real capture in `tests/fixtur
 The host accepts OSC 9;4 states 0–4 and optional integer values 0–100; state 0 means no progress/busy indication. Invalid sequences preserve prior metadata. No progress-only rule ships without capture evidence. Rules are packaged JSON and are never downloaded or supplied by a CLI. [Evidence: #161](https://github.com/scott-r-lindsey/foom/issues/161).
 
 Claude and Antigravity have no verified provider-specific capacity/rate-limit mapping; lifecycle completion/error and generic exits cannot distinguish these causes. Support requires recorded evidence or a verified structured signal. [Evidence: #339](https://github.com/scott-r-lindsey/foom/issues/339).
+
+The live detector and saved-capture replay share `shared/providers/screen-rules.ts` (`evaluateScreenRules` and `ruleRegion`), including priorities, exclusions and evaluation budget. Replay reports raw rule state; idle is not Done. See [capture regression rules](../contracts/agent-report.md#saved-screen-rule-regressions-592).

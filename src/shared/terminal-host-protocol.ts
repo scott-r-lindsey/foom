@@ -110,6 +110,8 @@ export function hostResponse(value: unknown): value is HostResponse {
     case "result":
       return (
         integer(value["request"], 1, Number.MAX_SAFE_INTEGER) &&
+        (value["cols"] === undefined || integer(value["cols"], 1, 1000)) &&
+        (value["rows"] === undefined || integer(value["rows"], 1, 1000)) &&
         (value["title"] === undefined ||
           (typeof value["title"] === "string" && value["title"].length <= 4096)) &&
         Array.isArray(value["lines"]) &&

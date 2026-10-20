@@ -23,7 +23,15 @@ export type HostResponse =
   | { type: "activity"; entries: TerminalActivity[] }
   | { type: "quiet"; id: string }
   | { type: "output"; id: string }
-  | { type: "result"; request: number; id: string; lines: string[]; title?: string }
+  | {
+      type: "result";
+      request: number;
+      id: string;
+      lines: string[];
+      title?: string;
+      cols?: number;
+      rows?: number;
+    }
   | { type: "error"; request: number; id: string }
   | { type: "data"; id: string; view: string; token: string; data: string }
   | { type: "exit"; id: string; code: number };

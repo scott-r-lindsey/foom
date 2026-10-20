@@ -172,3 +172,20 @@ test("probe screen and complete environment messages validate at the utility bou
     hostResponse({ type: "result", id: "probe", request: 1, lines: [], title: "x".repeat(4097) }),
   ).toBe(false);
 });
+
+test("capture screen dimensions cannot cross the host boundary with invalid runtime values", () => {
+  for (const field of ["cols", "rows"]) {
+    for (const value of [0, 1001, 1.5, "80", null])
+      expect(hostResponse({ ...base, type: "result", lines: [], [field]: value })).toBe(false);
+  }
+  expect(
+    hostResponse({
+      ...base,
+      type: "result",
+      lines: ["screen"],
+      title: "title",
+      cols: 80,
+      rows: 24,
+    }),
+  ).toBe(true);
+});

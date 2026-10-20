@@ -313,7 +313,9 @@ export class TerminalManager {
     this.updateFlow(session);
   }
 
-  async screen(id: string): Promise<{ lines: string[]; title: string }> {
+  async screen(
+    id: string,
+  ): Promise<{ lines: string[]; title: string; cols: number; rows: number }> {
     const session = this.get(id);
     return new Promise((resolve) => {
       session.screen.write("", () => {
@@ -321,7 +323,12 @@ export class TerminalManager {
         const lines: string[] = [];
         for (let row = 0; row < session.screen.rows; row++)
           lines.push(buffer.getLine(buffer.baseY + row)?.translateToString(true) ?? "");
-        resolve({ lines, title: session.evidence.title });
+        resolve({
+          lines,
+          title: session.evidence.title,
+          cols: session.screen.cols,
+          rows: session.screen.rows,
+        });
       });
     });
   }

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "agentId": "fixture",
+  "agentVersion": "1.2.3",
+  "expected": "blocked",
+  "lines": ["old Working", "----", "Approve?"],
+  "title": "Agent",
+  "cols": 80,
+  "rows": 3
+}

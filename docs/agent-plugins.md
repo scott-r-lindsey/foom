@@ -363,3 +363,7 @@ This disabled draft is retained here because `tests/unit/main/config/layout.test
   }
 }
 ```
+
+### Saved screen-rule regressions (#592)
+
+See [saved screen-rule regressions](contracts/agent-report.md#saved-screen-rule-regressions-592).

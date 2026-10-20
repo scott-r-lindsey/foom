@@ -515,8 +515,8 @@ test("screen requests require an available host and a validated title", async ()
   await expect(client.screen("missing")).rejects.toThrow("unavailable");
   const id = await create();
   const reading = client.screen(id);
-  child.reply(undefined, { lines: ["visible"], title: "title" });
-  expect(await reading).toEqual({ lines: ["visible"], title: "title" });
+  child.reply(undefined, { lines: ["visible"], title: "title", cols: 80, rows: 24 });
+  expect(await reading).toEqual({ lines: ["visible"], title: "title", cols: 80, rows: 24 });
   const missing = client.screen(id);
   child.reply();
   await expect(missing).rejects.toThrow("Missing terminal title");

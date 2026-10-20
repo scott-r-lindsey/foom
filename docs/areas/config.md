@@ -105,3 +105,5 @@ carry no paths.
 and `config:open-folder` check the trusted top frame and exact argument counts; main pushes `config:changed`. File contents, raw parser messages and
 absolute paths other than the folder itself never reach the renderer. The folder
 never holds secrets; Foom sends nothing from it to any network service.
+
+Saved probe viewports live in private `captures/<agentId>/` files when requested by a config session. New guides exclude captures from optional user Git history; Foom never uploads them. [Capture/replay and offline validation](../contracts/agent-report.md#saved-screen-rule-regressions-592) govern their use.
