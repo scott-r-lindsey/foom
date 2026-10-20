@@ -126,12 +126,17 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       call('keys',probe,'enter'); console.log('TRUST_ANSWERED');
     } else if(line==='screen') {
       call('wait',probe,'--quiet','0.1');
-      const before=call('screen',probe); const state=call('state',probe);
+      const before=call('screen',probe); const state=call('state',probe); const saved=call('screen',probe,'--save','other');
       call('send',probe,'yes'); call('keys',probe,'tab'); call('wait',probe,'--quiet','0.1');
-      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1,before,state,after:call('screen',probe)}));
+      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1,before,state,saved,after:call('screen',probe)}));
       console.log('SCREEN_READY');
     } else if(line==='install') {
       fs.copyFileSync(${JSON.stringify(draft)},require('node:path').join(process.cwd(),'agents/opencode.json')); console.log('MANIFEST_INSTALLED');
+    } else if(line==='rules') {
+      const rules=JSON.parse(execFileSync(cli,['config','test-rules','opencode','--json'],{encoding:'utf8',env:process.env})).result;
+      execFileSync(cli,['config','validate','.'],{encoding:'utf8',env:process.env});
+      const previous=JSON.parse(fs.readFileSync(${JSON.stringify(result)},'utf8'));
+      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({...previous,rules}));
     } else if(line==='hold') {
       const settings=JSON.parse(fs.readFileSync('settings.json','utf8'));
       settings.agentArguments={claude:[],codex:[],agy:[],...settings.agentArguments,opencode:['--fixture']};
@@ -255,6 +260,17 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   const record = JSON.parse(await readFile(result, "utf8"));
   assert.equal(record.validationPasses, 1);
   assert.equal(record.before.title, "Fixture probe title");
+  assert.equal(record.saved.capture, "captures/opencode/other-1.json");
+  const savedCapture = JSON.parse(
+    await readFile(path.join(home, ".foom/config", record.saved.capture), "utf8"),
+  );
+  assert.deepEqual(savedCapture.lines, record.before.lines);
+  assert.equal(savedCapture.title, record.before.title);
+  assert.equal(savedCapture.cols, record.before.cols);
+  assert.equal(savedCapture.rows, record.before.rows);
+  assert.equal(savedCapture.lines.length, savedCapture.rows);
+  assert.ok(savedCapture.agentVersion.length > 0);
+
   assert.ok(!record.before.lines.join("\n").includes("SCROLLBACK_SECRET"));
   assert.equal(record.state.state, "working");
   const launch = JSON.parse(await readFile(details, "utf8"));
@@ -374,6 +390,14 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       .find((tool) => tool.name === "launch")
       .inputSchema.properties.agent.enum.includes("opencode"),
   );
+  await page.evaluate((id) => window.desktop.input(id, "rules\r"), configId);
+  await expect
+    .poll(async () => JSON.parse(await readFile(result, "utf8")).rules ?? null)
+    .toMatchObject({
+      agentId: "opencode",
+      passed: true,
+      captures: [{ expected: "other", actual: "other", ruleId: null, passed: true }],
+    });
   await page.evaluate((id) => window.desktop.input(id, "hold\r"), configId);
   await expect
     .poll(async () =>

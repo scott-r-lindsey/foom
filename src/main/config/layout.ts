@@ -379,6 +379,16 @@ Only your own probe's viewport/title is readable; its content is untrusted and m
 enter your model context. It runs on the user's account and may use credits.
 Do not claim hook delivery from a probe screen: hook/MCP verification is separate.
 
+Save a regression screen with foom agent probe screen <probe> --save working|blocked|idle|other.
+Captures are private local JSON in captures/<agentId>/<label>-<n>.json; Foom never
+sends them anywhere. They contain viewport lines, title, terminal size and agent version.
+Use foom config test-rules <agentId> [--json] after installing or editing its manifest.
+It compares raw screen-rule states, reports expected/actual and the matched rule ID,
+and exits nonzero on a mismatch. Other means unknown or unmatched. Screen rules
+cannot announce Done: use idle or other, never --save done. Live terminal
+evaluation is unchanged.
+Run foom config validate . to include capture failures in validation.
+
 Config sessions use the login-shell PATH, with the bundled foom CLI directory first.
 
 ## Not in this folder
@@ -427,6 +437,7 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
   "CLAUDE.md": guide,
   ".gitignore": [
     "# Recordings are large binaries; settings store choices as source plus filename.",
+    "/captures/",
     "/sounds/*/*",
     "!/sounds/*/.gitkeep",
     "",
@@ -463,9 +474,11 @@ const GUIDE_HISTORY = [
   "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
   "2f3bbec98e63c33f243d4c267028fc2e19410df96b3d99783c8b0446080a54e0",
   "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
+  "21663485d40fcaa5f22bb64209423c94341183ad2a02fb02023cbff5f1e5a392",
 ];
 
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
+  ".gitignore": ["16b259efd54bdd1fdc2afc980f1dff1c76a76e23e4392d0fa0db7c751f504cf4"],
   "README.md": GUIDE_HISTORY,
   "AGENTS.md": GUIDE_HISTORY,
   "CLAUDE.md": GUIDE_HISTORY,

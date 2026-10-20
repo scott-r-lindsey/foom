@@ -109,7 +109,12 @@ export async function prepareProbe(
   request: Extract<ProbeRequest, { action: "start" }>,
   cwd: string,
   env: Record<string, string>,
-): Promise<{ spec: TerminalSpec; conversationId?: string; dispose(): void }> {
+): Promise<{
+  spec: TerminalSpec;
+  agentVersion?: string;
+  conversationId?: string;
+  dispose(): void;
+}> {
   await provider.validate?.();
   const launchEnvironment = { ...env, ...TERMINAL_ENVIRONMENT };
   if (bypassEnvironment(provider.model, launchEnvironment).length)
@@ -148,6 +153,7 @@ export async function prepareProbe(
       throw Error("Probe bypass arguments refused");
     await provider.validate?.();
     return {
+      agentVersion: installation.version ?? "",
       spec: {
         command,
         args: prepared.args,

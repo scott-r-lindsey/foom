@@ -62,11 +62,16 @@ test("help lists every probe action and top-level console route", () => {
     help()
       .split("\n")
       .find((entry) => entry.startsWith("Config sessions only: foom agent probe ")) ?? "";
+  const configActions = dispatched("src/cli/execute.ts", "words[1]").map((name) =>
+    name === "status" ? "config-status" : name,
+  );
   expect(documented([line.replace("Config sessions only: foom agent probe ", "")])).toEqual(
     dispatched("src/node-common/agent-probe.ts", "action").filter(
-      (name) => name !== "config-status",
+      (name) => !configActions.includes(name),
     ),
   );
+  for (const route of dispatched("src/cli/execute.ts", "words[1]"))
+    expect(help()).toContain(`${route === "probe" ? "agent" : "config"} ${route}`);
   const consoleRoutes = dispatched("src/cli/execute.ts", "words[0]");
   for (const route of consoleRoutes) expect(help()).toContain(route);
 });

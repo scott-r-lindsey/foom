@@ -1,3 +1,6 @@
+import { testCaptureRules } from "../node-common/probe-captures";
+import { bundledAgentData } from "../shared/bundled-agent-data";
+import { parseAgentManifest } from "../shared/agent-plugin-parser";
 import { agentCapabilities } from "../shared/agent-capabilities";
 import type { AgentCapabilityReport } from "../shared/agent-capability-report";
 import { parsePluginManifest } from "../shared/plugin-parser";
@@ -124,7 +127,28 @@ async function validateFile(
       const loaded = parsePluginManifest(text);
       const identifier = loaded.kind === "agent" ? loaded.plugin.model.id : loaded.plugin.id;
       if (basename(path) !== `${identifier}.json`) fail("invalid-value");
-      if (loaded.kind === "agent") agents.push(agentCapabilities(loaded.plugin));
+      if (loaded.kind === "agent") {
+        agents.push(agentCapabilities(loaded.plugin));
+        const root = basename(dirname(path)) === "agents" ? dirname(dirname(path)) : dirname(path);
+        const result = await testCaptureRules(
+          root,
+          identifier,
+          loaded.plugin.model.attention.rules.map(({ lines, ...rule }) => ({
+            ...rule,
+            ...(lines === undefined ? {} : { lines }),
+          })),
+        );
+        if (!result.passed)
+          return [
+            ...diagnostics,
+            {
+              file: "",
+              path: "$.attention.rules",
+              reason: "invalid-value",
+              detail: "Saved screen captures fail attention rules",
+            },
+          ];
+      }
     }
     return diagnostics;
   }
@@ -190,6 +214,34 @@ export async function validateConfig(
         if (kind === "config") {
           // Foom writes these itself; validation covers only the agent-editable formats.
           if (FOOM_OWNED.includes(entry.name)) continue;
+          if (entry.name === "captures") {
+            const captures = await directoryIdentity(file);
+            if (dirname(captures.canonical) !== identity.canonical) fail("unsafe-file");
+            for (const data of bundledAgentData) {
+              const builtin = parseAgentManifest(JSON.stringify(data), "bundled").model;
+              try {
+                const result = await testCaptureRules(
+                  directory,
+                  builtin.id,
+                  builtin.attention.rules.map(({ lines, ...rule }) => ({
+                    ...rule,
+                    ...(lines === undefined ? {} : { lines }),
+                  })),
+                );
+                if (!result.passed)
+                  problems.push({
+                    file: `captures/${builtin.id}`,
+                    path: "$",
+                    reason: "invalid-value",
+                    detail: "Saved screen captures fail attention rules",
+                  });
+              } catch (error) {
+                report(`captures/${builtin.id}`, error);
+              }
+            }
+            await checkDirectory(captures);
+            continue;
+          }
           if (entry.name === "settings.json") {
             await visitFile(file, name, identity, "settings");
             continue;
