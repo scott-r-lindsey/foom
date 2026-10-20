@@ -6,9 +6,18 @@ const args = process.argv.slice(2);
 const packaged = args.includes("--packaged");
 const reuse = args.includes("--reuse-build");
 const forwarded = [];
+const selectedSuites = [];
+const inventory = suiteFiles();
 for (let index = 0; index < args.length; index++) {
   const arg = args[index];
   if (arg === "--packaged" || arg === "--reuse-build") continue;
+  if (arg.startsWith("--suite=")) {
+    const name = arg.slice("--suite=".length);
+    const suite = inventory.find((file) => file.endsWith(`/${name}`) || file.endsWith(`\\${name}`));
+    if (!suite || !/^[a-z-]+\.test\.js$/.test(name)) throw new Error(`Unknown suite: ${name}`);
+    selectedSuites.push(suite);
+    continue;
+  }
   const value =
     arg === "--test-name-pattern"
       ? args[++index]
@@ -19,6 +28,8 @@ for (let index = 0; index < args.length; index++) {
   new RegExp(value); // Fail before building for malformed regular expressions.
   forwarded.push(`--test-name-pattern=${value}`);
 }
+if (packaged && selectedSuites.length > 0)
+  throw new Error("--suite is only for development Electron tests");
 if (packaged && reuse) throw new Error("--reuse-build is only for development Electron tests");
 mkdirSync("test-results", { recursive: true });
 const receipt = "test-results/electron-build.json";
@@ -63,7 +74,11 @@ const result = spawnSync(
     `--test-reporter-destination=${summaryPath}`,
     // Node filters must precede every discovered suite.
     ...forwarded,
-    ...(packaged ? ["tests/electron/packaged-smoke.js"] : suiteFiles()),
+    ...(packaged
+      ? ["tests/electron/packaged-smoke.js"]
+      : selectedSuites.length > 0
+        ? [...new Set(selectedSuites)].sort()
+        : inventory),
   ],
   { stdio: "inherit" },
 );
@@ -82,7 +97,7 @@ console.info("Electron test runner outcome:", outcome);
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;
 
-if (result.status === 0 && forwarded.length > 0) {
+if (result.status === 0 && (forwarded.length > 0 || selectedSuites.length > 0)) {
   const counts = JSON.parse(readFileSync(summaryPath, "utf8"));
   if (counts.passed === 0) {
     console.error("No selected tests passed. Check --test-name-pattern and FOOM_ELECTRON_SHARD.");

@@ -1,39 +1,4 @@
-import { terminalFontStack, TERMINAL_FONT_FALLBACK } from "../../shared/terminal-fonts";
-import type { PreviewSummary } from "../../shared/workspace";
-import type { WindowAudioState } from "../../shared/windows";
-import { ActionLog } from "./action-log-view";
-import { TileArea } from "./tile-area";
-import {
-  placeAgentPreview,
-  placeContent,
-  TILE_STORAGE,
-  restoreLayout,
-  saveLayout,
-  loadLayout,
-  leaves,
-  placeSession,
-  tidyTiles,
-  splitTile,
-  closeTile,
-  hideSession,
-  growTile,
-  terminals,
-  pruneContent,
-  sessionId,
-  contentId,
-  neighbor,
-  swapTiles,
-} from "./tiles";
-import type { TileDrag, TileLayout } from "./tiles.d";
-import type { SetupSource } from "../preflight/setup-source.d";
-import { createSoundController } from "../sound/sound-controller";
-import { createAudioSink } from "../sound/web-audio";
-import { SidebarControls } from "./sidebar-controls";
-import { Sidebar } from "./sidebar-view";
-import { createPreferencesStore, renameSession } from "./sidebar-preferences";
-import type { SidebarCommand } from "../../shared/workspace";
-import type { LaunchOptions } from "./board-source.d";
-import { repositoryKey, worktreeKey, rowRepository, rowWorktree } from "./sidebar-model";
+import type { ReactNode } from "react";
 import {
   useCallback,
   useEffect,
@@ -43,12 +8,37 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { ReactNode } from "react";
-import type { BoardSource } from "./board-source.d";
+import type { PreviewSummary, SidebarCommand } from "../../shared/workspace";
+import type { SetupSource } from "../preflight/setup-source.d";
+import { ActionLog } from "./action-log-view";
+import { nextWaiting } from "./board";
+import type { BoardSource, LaunchOptions } from "./board-source.d";
 import type { BoardRow } from "./board.d";
-import { subscribeLights } from "./light-activity";
-import { nextWaiting, waitTime } from "./board";
+import { SidebarControls } from "./sidebar-controls";
+import { repositoryKey, rowRepository, rowWorktree, worktreeKey } from "./sidebar-model";
+import { createPreferencesStore, renameSession } from "./sidebar-preferences";
+import { Sidebar } from "./sidebar-view";
+import { TileArea } from "./tile-area";
+import {
+  contentId,
+  leaves,
+  neighbor,
+  placeContent,
+  placeSession,
+  sessionId,
+  swapTiles,
+  terminals,
+  tidyTiles,
+  TILE_STORAGE,
+} from "./tiles";
+import type { TileDrag } from "./tiles.d";
+import { useBoardTiles } from "./use-board-tiles";
 
+import type { WindowAudioState } from "../../shared/windows";
+import { createSoundController } from "../sound/sound-controller";
+import { createAudioSink } from "../sound/web-audio";
+
+import { useBoardActivity } from "./use-board-activity";
 const emptyPreviews: readonly PreviewSummary[] = [];
 export function Board({
   source,
@@ -67,7 +57,6 @@ export function Board({
   onCloseSettings?: () => void;
 }) {
   const storageKey = source.windows ? `${TILE_STORAGE}.${source.windows.id}` : TILE_STORAGE;
-  const [otherViews, setOtherViews] = useState<ReadonlySet<string>>(() => new Set());
   const [drag, setDrag] = useState<TileDrag>();
   const [removeError, setRemoveError] = useState("");
   const [logOpen, setLogOpen] = useState(false);
@@ -84,259 +73,30 @@ export function Board({
     });
   };
   useEffect(() => source.connect?.(), [source]);
-  const [layout, setLayout] = useState(() => {
-    try {
-      return loadLayout(localStorage, storageKey);
-    } catch {
-      return restoreLayout(null);
-    }
-  });
   const toggleSidebarRef = useRef<(() => void) | undefined>(undefined);
   const [sidebarCompact, setSidebarCompact] = useState(false);
-  const boardRef = useRef<HTMLDivElement>(null);
-  const fontSizeRef = useRef(14);
-  const fontFamilyRef = useRef(TERMINAL_FONT_FALLBACK);
-  const focusedAtRef = useRef(new Map<string, number>());
-  const focusClockRef = useRef(0);
-  useEffect(() => {
-    if (!soundSetup) return;
-    let active = true;
-    let changed = false;
-    const off = soundSetup.subscribe((state) => {
-      changed = true;
-      fontSizeRef.current = state.settings.terminalFontSize;
-      fontFamilyRef.current = terminalFontStack(state.settings.terminalFont);
-    });
-    void soundSetup
-      .state()
-      .then((state) => {
-        if (active && !changed) {
-          fontSizeRef.current = state.settings.terminalFontSize;
-          fontFamilyRef.current = terminalFontStack(state.settings.terminalFont);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      off();
-    };
-  }, [soundSetup]);
-  const layoutRef = useRef(layout);
-  const [focusRequest, setFocusRequest] = useState(0);
-  const changeLayout = useCallback(
-    (next: TileLayout) => {
-      next = {
-        ...next,
-        sidebarCollapsed: next.sidebarCollapsed ?? layoutRef.current.sidebarCollapsed ?? false,
-        sidebarWidth: next.sidebarWidth ?? layoutRef.current.sidebarWidth,
-      };
-      if (
-        next.focused !== layoutRef.current.focused ||
-        leaves(next.tree).find((tile) => tile.id === next.focused)?.content !==
-          leaves(layoutRef.current.tree).find((tile) => tile.id === next.focused)?.content
-      ) {
-        focusedAtRef.current.set(next.focused, ++focusClockRef.current);
-      }
-      const retained = new Set(
-        leaves(next.tree).flatMap((tile) =>
-          tile.content?.kind === "preview" ? [tile.content.preview] : [],
-        ),
-      );
-      setArrivals((current) => {
-        const nextArrivals = new Set([...current].filter((id) => retained.has(id)));
-        return nextArrivals.size === current.size ? current : nextArrivals;
-      });
-      for (const tile of leaves(layoutRef.current.tree)) {
-        if (tile.content?.kind === "preview" && !retained.has(tile.content.preview)) {
-          void source.previews?.close(tile.content.preview).catch(() => {
-            setRemoveError("Unable to close preview.");
-          });
-        }
-      }
-      layoutRef.current = next;
-      setLayout(next);
-      try {
-        saveLayout(localStorage, next, storageKey);
-      } catch {
-        setRemoveError("Unable to save tile layout.");
-      }
-    },
-    [storageKey, source],
-  );
-  const placementOptions = useCallback(() => {
-    const area = boardRef.current?.querySelector(".tile-area");
-    const probe = document.createElement("span");
-    probe.style.cssText = `position:absolute;visibility:hidden;font:${String(fontSizeRef.current)}px ${fontFamilyRef.current}`;
-    probe.textContent = "M";
-    boardRef.current?.append(probe);
-    const cell = probe.getBoundingClientRect().width || fontSizeRef.current * 0.6;
-    probe.remove();
-    return {
-      columns: (area?.getBoundingClientRect().width ?? 0) / cell,
-      needsYou: new Set(
-        source
-          .getSnapshot()
-          .filter((row) => row.state === "needs_input")
-          .map((row) => row.id),
-      ),
-      focusedAt: focusedAtRef.current,
-    };
-  }, [source]);
-  useEffect(
-    () =>
-      source.previews?.onPlace?.((id, expiresAt) => {
-        if (
-          Date.now() >= expiresAt ||
-          !source.previews?.getSnapshot().some((preview) => preview.id === id)
-        )
-          return Promise.resolve("sidebar");
-        const placed = placeAgentPreview(layoutRef.current, id, placementOptions());
-        if (placed.layout !== layoutRef.current) {
-          setArrivals((current) => new Set([...current, id]));
-          changeLayout(placed.layout);
-        }
-        return Promise.resolve(placed.placement);
-      }),
-    [source, changeLayout, placementOptions],
-  );
-  useEffect(() => {
-    if (source.isReady && !source.isReady()) return;
-    const current = layoutRef.current;
-    if (
-      leaves(current.tree).some((tile) =>
-        tile.content?.kind === "preview"
-          ? !previews.some((preview) => preview.id === contentId(tile.content))
-          : sessionId(tile) && !rows.some((row) => row.id === sessionId(tile)),
-      )
-    ) {
-      const next = pruneContent(current, {
-        sessions: new Set(rows.map((row) => row.id)),
-        previews: new Set(previews.map((preview) => preview.id)),
-      });
-      layoutRef.current = next;
-      setLayout(next);
-      try {
-        saveLayout(localStorage, next, storageKey);
-      } catch {
-        setRemoveError("Unable to save tile layout.");
-      }
-    }
-  }, [source, rows, previews, storageKey]);
-  useEffect(() => {
-    const api = source.windows;
-    if (!api) return;
-    let active = true;
-    const changed = (entries: { id: string; window: number }[]) => {
-      if (active)
-        setOtherViews(
-          new Set(entries.filter((entry) => entry.window !== 0).map((entry) => entry.id)),
-        );
-    };
-    const off = api.onChanged(changed);
-    const removed = api.onRemoved((id) => {
-      const ids = new Set(
-        leaves(layoutRef.current.tree).flatMap((tile) =>
-          sessionId(tile) && sessionId(tile) !== id ? [sessionId(tile) ?? ""] : [],
-        ),
-      );
-      changeLayout(
-        pruneContent(layoutRef.current, {
-          sessions: ids,
-          previews: new Set(previews.map((preview) => preview.id)),
-        }),
-      );
-    });
-    void api
-      .snapshot()
-      .then(changed)
-      .catch(() => {});
-    return () => {
-      active = false;
-      off();
-      removed();
-    };
-  }, [source, changeLayout, previews]);
-  const reservationRef = useRef<
-    { source: BoardSource; layout: TileLayout; ids: string } | undefined
-  >(undefined);
-  useEffect(() => {
-    if (!source.windows || (source.isReady && !source.isReady())) return;
-    const current = layout;
-    const ids = leaves(current.tree).flatMap((tile) =>
-      sessionId(tile) && rows.some((row) => row.id === sessionId(tile))
-        ? [sessionId(tile) ?? ""]
-        : [],
-    );
-    const previous = reservationRef.current;
-    const key = JSON.stringify(ids);
-    if (previous?.source === source && previous.layout === current && previous.ids === key) return;
-    // State/activity updates publish new row objects, not a new set of views.
-    // Reconcile only when the layout or its known session IDs actually change.
-    const reservation = { source, layout: current, ids: key };
-    reservationRef.current = reservation;
-    void source.windows
-      .sync(ids)
-      .then((accepted) => {
-        if (layoutRef.current === current && ids.some((id) => !accepted.includes(id)))
-          changeLayout(
-            pruneContent(current, {
-              sessions: new Set(accepted),
-              previews: new Set(previews.map((preview) => preview.id)),
-            }),
-          );
-      })
-      .catch(() => {
-        if (reservationRef.current === reservation) reservationRef.current = undefined;
-        setRemoveError("Unable to reserve terminal views.");
-      });
-  }, [source, rows, previews, layout, changeLayout]);
-  const tileAction = useCallback(
-    (
-      tile: string,
-      action: "right" | "down" | "growx" | "growy" | "maximize" | "hide" | "close",
-    ) => {
-      setFocusRequest((value) => value + 1);
-      const current = { ...layoutRef.current, focused: tile };
-      const session = sessionId(leaves(current.tree).find((item) => item.id === tile));
-      const content = leaves(current.tree).find((item) => item.id === tile)?.content;
-      if (action === "maximize" && !content) return;
-      if (
-        action === "close" &&
-        session &&
-        source.getSnapshot().some((row) => row.id === session && row.exited)
-      ) {
-        void source
-          .sidebarCommand?.({ kind: "close", id: session })
-          .then(() => {
-            if (
-              leaves(layoutRef.current.tree).some(
-                (item) =>
-                  item.id === tile && (sessionId(item) === session || item.content === null),
-              )
-            ) {
-              changeLayout(closeTile({ ...layoutRef.current, focused: tile }));
-              setFocusRequest((value) => value + 1);
-            }
-          })
-          .catch(() => {
-            setRemoveError("Unable to close session.");
-          });
-        return;
-      }
-      changeLayout(
-        action === "growx" || action === "growy"
-          ? growTile(current, action === "growx" ? "horizontal" : "vertical")
-          : action === "right" || action === "down"
-            ? splitTile(current, action === "right" ? "horizontal" : "vertical")
-            : action === "close"
-              ? closeTile(current)
-              : action === "hide"
-                ? hideSession(current)
-                : { ...current, maximized: current.maximized === tile ? null : tile },
-      );
-    },
-    [changeLayout, source],
-  );
+  const {
+    otherViews,
+    layout,
+    boardRef,
+    fontSizeRef,
+    fontFamilyRef,
+    focusedAtRef,
+    layoutRef,
+    focusRequest,
+    setFocusRequest,
+    changeLayout,
+    placementOptions,
+    tileAction,
+  } = useBoardTiles({
+    source,
+    soundSetup,
+    rows,
+    previews,
+    storageKey,
+    setArrivals,
+    setRemoveError,
+  });
   const [preferencesStore] = useState(() => createPreferencesStore(localStorage, window));
   const preferences = useSyncExternalStore(
     preferencesStore.subscribe,
@@ -434,36 +194,7 @@ export function Board({
     };
   }, [source, soundSetup, audioEnabled]);
   const sidebarRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      for (const row of source.getSnapshot()) {
-        const element = buttonsRef.current.get(row.id)?.querySelector(".board-wait");
-        if (element) element.textContent = waitTime(row, Date.now());
-      }
-    }, 1000);
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [source]);
-  useEffect(
-    () =>
-      subscribeLights(source, () =>
-        source.getSnapshot().flatMap((row) => {
-          const button = buttonsRef.current.get(row.id);
-          const element = button?.querySelector<HTMLElement>(".board-light");
-          return element
-            ? [
-                {
-                  row,
-                  element,
-                  trace: button?.querySelector<SVGPathElement>(".activity-trace path"),
-                },
-              ]
-            : [];
-        }),
-      ),
-    [source],
-  );
+  useBoardActivity(source, buttonsRef);
   const wasInactiveRef = useRef(paneInactive);
   const focusedInitialRowRef = useRef(false);
   useLayoutEffect(() => {
@@ -551,7 +282,7 @@ export function Board({
           });
       } else present();
     },
-    [source, onCloseSettings, changeLayout, placementOptions],
+    [source, onCloseSettings, changeLayout, placementOptions, layoutRef, setFocusRequest],
   );
   const initialSessionOpenedRef = useRef(false);
   useEffect(() => {
@@ -715,6 +446,8 @@ export function Board({
       settingsOpen,
       tileAction,
       changeLayout,
+      layoutRef,
+      setFocusRequest,
     ],
   );
   useEffect(() => {
@@ -762,7 +495,7 @@ export function Board({
           open(row, !visible);
         }
       }),
-    [source, inactive, open, onCloseSettings],
+    [source, inactive, open, onCloseSettings, layoutRef],
   );
   return (
     <main

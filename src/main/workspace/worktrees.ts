@@ -1,5 +1,5 @@
 import type { ForgeProviderFactory } from "../control/forge.d";
-import { UncertainEffect } from "../control/orchestration";
+import { UncertainEffect } from "../control/orchestration-mutations";
 import { forgeBranch, legacyForgeProvider, pullRequest } from "../control/forge";
 import { ControlError } from "../../node-common/control-validation";
 import { fetchAdvertisedDefault } from "./fetch-default";

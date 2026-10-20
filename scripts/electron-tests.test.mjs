@@ -134,3 +134,26 @@ test("explicit build reuse rejects missing receipts and changed inputs, dependen
     assert.equal(run(["--reuse-build", filter]).status, 0, file);
   }
 });
+
+test("suite selection validates inventory, executes only selected files and rejects zero tests", (context) => {
+  const { root, run } = fixture(context);
+  writeFileSync(join(root, "tests/electron/two.test.js"), `throw Error('UNSELECTED_FILE');`);
+  const selected = run(["--suite=one.test.js", "--test-name-pattern=^selected case$"]);
+  assert.equal(selected.status, 0, selected.output);
+  assert.doesNotMatch(selected.output, /UNSELECTED_FILE/);
+  for (const args of [
+    ["--suite=missing.test.js"],
+    ["--suite=../one.test.js"],
+    ["--packaged", "--suite=one.test.js"],
+    ["--suite=one.test.js", "--test-name-pattern=absent"],
+  ]) {
+    assert.notEqual(run(args).status, 0);
+  }
+  writeFileSync(join(root, "tests/electron/empty.test.js"), "");
+  const empty = run(["--suite=empty.test.js"]);
+  assert.notEqual(empty.status, 0, empty.output);
+  assert.match(empty.output, /No selected tests passed/);
+  const failed = run(["--suite=two.test.js"]);
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.output, /UNSELECTED_FILE/);
+});

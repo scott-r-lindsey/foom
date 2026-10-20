@@ -1408,7 +1408,7 @@ test("control startup publishes private discovery and binds trusted pairing call
     expect(mock.workspace.mcpConnectionChanged).toHaveBeenCalledWith("t1", "connected");
     const pairing = startControl.mock.calls[0]?.[2];
     expect(pairing?.repository("/foreign")).toBeUndefined();
-    const { worktrees } = await import("../../../src/main/main");
+    const { worktrees } = await import("../../../src/main/wiring/application");
     vi.spyOn(worktrees, "listRepositories").mockReturnValue([{ path: "/repo", name: "Repo" }]);
     expect(pairing?.repository("/repo")).toBe("/repo");
     await pairing?.approve("/repo", "ABCD1234", new AbortController().signal, Date.now() + 60000);
@@ -1996,7 +1996,7 @@ test("main preview composition targets the opener's board and releases human-clo
     previewMock.humanClose?.("unknown");
     const backend = initialize.mock.calls[0]?.[6];
     if (!backend) throw new Error("Missing preview backend");
-    const { previewHosts } = await import("../../../src/main/main");
+    const { previewHosts } = await import("../../../src/main/wiring/application");
     const actor = {
       grantedAt: "2026-10-15T00:00:00.000Z",
       generation: "g",
@@ -2173,7 +2173,7 @@ test("preview popout creates a window, transfers the host record and requests pl
   )?.[1];
   await invokeWindow(1, "preview:placed", request, "a".repeat(32), "empty");
   await moving;
-  const { previewHosts } = await import("../../../src/main/main");
+  const { previewHosts } = await import("../../../src/main/wiring/application");
   expect(source.moveTo).toHaveBeenCalledWith("a".repeat(32), previewHosts.get(target.id));
 });
 

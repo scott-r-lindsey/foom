@@ -9,7 +9,7 @@ import type { HookSignal } from "../../shared/hooks";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import { AGENTS } from "../agents/agent-list";
 import { conversationId } from "../agents/conversation";
-import { UncertainEffect } from "../control/orchestration";
+import { UncertainEffect } from "../control/orchestration-mutations";
 import type { ExecutionEventsContext, OrchestrationCommandsContext } from "./feature-context";
 
 export async function auditHuman(
