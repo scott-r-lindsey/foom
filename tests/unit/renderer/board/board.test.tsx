@@ -259,6 +259,21 @@ test("activity updates brightness without replacing rows or rerendering React", 
   });
   expect(Number(bulb?.style.getPropertyValue("--activity"))).toBeGreaterThan(0.99);
   expect(button?.querySelector<HTMLElement>(".board-light")).toBe(bulb);
+  const filter = view.getByLabelText("Filter repositories and sessions");
+  fireEvent.change(filter, { target: { value: "no-matching-session" } });
+  expect(view.container.querySelector(".board-row")).toBeNull();
+  renders.mockClear();
+  source.setActivity("build", 4000);
+  act(() => {
+    vi.advanceTimersByTime(1000);
+  });
+  expect(renders).not.toHaveBeenCalled();
+  fireEvent.change(filter, { target: { value: "" } });
+  act(() => {
+    vi.advanceTimersByTime(1000);
+  });
+  const restored = view.container.querySelector<HTMLElement>('[data-state="working"] .board-light');
+  expect(Number(restored?.style.getPropertyValue("--activity"))).toBeGreaterThan(0.99);
   view.unmount();
   source.setActivity("build", 0);
   expect(Number(bulb?.style.getPropertyValue("--activity"))).toBeGreaterThan(0.99);
