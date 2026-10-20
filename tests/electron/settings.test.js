@@ -329,23 +329,35 @@ test("preflight fits safely through resize, zoom, long input and changing steps"
     }
   }
   await rail.getByRole("button", { name: /Repositories/ }).click();
-  for (const control of [
-    "Larger",
-    "Larger",
-    "Larger",
-    "Larger",
-    "Larger",
-    "Smaller",
-    "Smaller",
-    "Smaller",
-    "Smaller",
-    "Smaller",
-    "Smaller",
-    "Smaller",
-    "Larger",
-    "Larger",
+  for (const [control, scale] of [
+    ["Larger", 110],
+    ["Larger", 120],
+    ["Larger", 130],
+    ["Larger", 140],
+    ["Larger", 150],
+    ["Smaller", 140],
+    ["Smaller", 130],
+    ["Smaller", 120],
+    ["Smaller", 110],
+    ["Smaller", 100],
+    ["Smaller", 90],
+    ["Smaller", 80],
+    ["Larger", 90],
+    ["Larger", 100],
   ]) {
     await page.getByRole("button", { name: control, exact: true }).click();
+    await expect(page.getByRole("group", { name: "Interface size" }).locator("output")).toHaveText(
+      `${scale}%`,
+    );
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()
+            .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+            .webContents.getZoomFactor(),
+        ),
+      )
+      .toBeCloseTo(scale / 100);
     await assertPreflightFits(
       page,
       "Real interface-size controls after resizing and expanding settings",
