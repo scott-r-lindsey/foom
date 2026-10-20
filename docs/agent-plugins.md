@@ -429,6 +429,18 @@ capability and is discarded; never log, save or copy credentials into a manifest
 agent configuration, extension source or conversation transcript. Same-user code
 inheriting the launch environment is within that launch's trust boundary.
 
+## Per-launch environment (#636)
+
+For CLIs that accept a configuration path through the environment, declare
+`launch.environment` entries such as
+`{"name":"AGENT_CONFIG","value":"{file:config/mcp.json}","when":{"all":[{"field":"control","op":"eq","value":true}]}}`.
+Declare that launch file with matching conditions and select `launch.mcp` with
+those conditions; its `arguments` may be empty for an environment-only attachment.
+Up to eight entries may carry whole owned file paths or short fixed literals.
+Names exclude runtime injection, command selectors (such as `EDITOR` and `PAGER`),
+code-loading paths, resolver overrides, `TMPDIR`, proxy, credential and Foom
+variables; values never expand the inherited environment. See the [complete rules and diagnostics](contracts/agent-launch.md#per-launch-manifest-environment-636).
+
 ## Probe hook and MCP verification (#593)
 
 See [probe verification](contracts/agent-report.md#probe-hook-and-mcp-verification-593).

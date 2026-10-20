@@ -193,12 +193,77 @@ export function tools(v: unknown, p: string) {
     merge: optional(merge)(d["merge"], `${p}.merge`),
   };
 }
+/** Manifest environment is data-only, never a route to runtime injection or credentials. */
+export function launchEnvironment(v: unknown, p: string) {
+  const d = object(v, p, ["name", "value"], ["when"]);
+  const name = envName(d["name"], `${p}.name`);
+  if (
+    /^(?:LD_|DYLD_|NODE_|BUN_|DENO_|NPM_CONFIG_|YARN_|PNPM_|LUA_|PYTHON|PERL5|RUBY|GIT_|SSH_|AWS_|GITHUB_|GH_|FOOM_|ELECTRON_)/iu.test(
+      name,
+    ) ||
+    /TOKEN|SECRET|KEY|PASSWORD|PROXY/iu.test(name) ||
+    [
+      "JAVA_TOOL_OPTIONS",
+      "_JAVA_OPTIONS",
+      "JDK_JAVA_OPTIONS",
+      "PATH",
+      "HOME",
+      "SHELL",
+      "BASH_ENV",
+      "ENV",
+      "PS4",
+      "IFS",
+      "ZDOTDIR",
+      "PROMPT_COMMAND",
+      "EDITOR",
+      "VISUAL",
+      "PAGER",
+      "BROWSER",
+      "MANPAGER",
+      "LESSOPEN",
+      "LESSCLOSE",
+      "PERLLIB",
+      "GCONV_PATH",
+      "LOCPATH",
+      "HOSTALIASES",
+      "RES_OPTIONS",
+      "LOCALDOMAIN",
+      "TMPDIR",
+      "CLAUDECODE",
+      "TERM",
+      "COLORTERM",
+      "TERM_PROGRAM",
+      "CONSTRUCTOR",
+      "PROTOTYPE",
+      "__PROTO__",
+    ].includes(name.toUpperCase())
+  )
+    fail(`${p}.name`, "reserved-environment");
+  const value = text(d["value"], `${p}.value`, 128);
+  if (/\$|%|`/u.test(value)) fail(`${p}.value`, "environment-reference");
+  if (/[{}]/u.test(value) && !/^\{file:[^{}]+\}$/u.test(value))
+    fail(`${p}.value`, "invalid-environment-value");
+  return {
+    name: envName(d["name"], `${p}.name`),
+    value: text(d["value"], `${p}.value`, 128),
+    when: optional(condition)(d["when"], `${p}.when`),
+  };
+}
 export function launch(v: unknown, p: string) {
   const d = object(
     v,
     p,
     ["order"],
-    ["arguments", "display", "resume", "prompt", "guidance", "mcp", "toolPermissions"],
+    [
+      "arguments",
+      "display",
+      "resume",
+      "prompt",
+      "guidance",
+      "mcp",
+      "toolPermissions",
+      "environment",
+    ],
   );
   return {
     order: array(
@@ -222,6 +287,7 @@ export function launch(v: unknown, p: string) {
     prompt: optional(prompt)(d["prompt"], `${p}.prompt`),
     guidance: optional(guidance)(d["guidance"], `${p}.guidance`),
     mcp: optional(block)(d["mcp"], `${p}.mcp`),
+    environment: optional(array(launchEnvironment, 8))(d["environment"], `${p}.environment`),
     toolPermissions: optional(tools)(d["toolPermissions"], `${p}.toolPermissions`),
   };
 }

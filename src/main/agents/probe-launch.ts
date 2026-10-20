@@ -26,7 +26,7 @@ import { agentProvider } from "./providers/registry";
 import { v2Provider } from "./providers/v2";
 import { readOwnedFile } from "./providers/v2-files";
 import { bypassEnvironment, matchesArguments } from "./providers/v2-values";
-import { inheritedEnvironment } from "../setup/environment";
+import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import type { ProbeRequest } from "../../node-common/agent-probe";
 import type { AgentProvider } from "./providers/provider";
 import { readLoginShell } from "../login-shell";
@@ -210,6 +210,15 @@ export async function prepareProbe(
       binding,
     );
     expected = prepared.conversationId;
+    Object.assign(
+      launchEnvironment,
+      buildLaunchEnvironment({
+        base: launchEnvironment,
+        layers: [prepared.environment ?? []],
+      }).env,
+    );
+    if (bypassEnvironment(provider.model, launchEnvironment).length)
+      throw Error("Probe bypass environment refused");
     if (matchesArguments(provider.model.bypassArguments, prepared.args))
       throw Error("Probe bypass arguments refused");
     await provider.validate?.();

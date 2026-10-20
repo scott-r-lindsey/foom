@@ -177,6 +177,28 @@ test.skipIf(process.platform === "win32")(
     await expect(
       prepareProbe(bypass, { action: "start", agent: "copilot" }, root, { PATH: root }),
     ).rejects.toThrow("bypass arguments refused");
+    const environmentBypass = {
+      ...provider,
+      model: {
+        ...provider.model,
+        launch: {
+          ...provider.model.launch,
+          environment: [{ name: "COPILOT_ALLOW_ALL", value: "1", when: undefined }],
+        },
+        bypassEnvironment: [
+          {
+            name: "COPILOT_ALLOW_ALL",
+            match: "present-nonempty" as const,
+            values: undefined,
+            caseInsensitive: false,
+            trim: false,
+          },
+        ],
+      },
+    };
+    await expect(
+      prepareProbe(environmentBypass, { action: "start", agent: "copilot" }, root, { PATH: root }),
+    ).rejects.toThrow("bypass environment refused");
     await writeFile(command, "#!/bin/sh\nexit 1\n", { mode: 0o700 });
     const final = await prepareProbe(
       provider,
