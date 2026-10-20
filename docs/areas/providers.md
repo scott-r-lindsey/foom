@@ -1,0 +1,82 @@
+# Providers
+
+Decided implementation and security rules for this area. Read the [file map](../map.md) to locate related owners. User-visible rules: [behavior](../behavior/settings.md).
+
+## Agent provider registry and manifest approval (#407)
+
+The heading is retained for existing links; config manifests no longer require approval.
+
+`main/agents/providers/provider.d.ts` declares the single `AgentProvider` contract.
+Claude, Codex and Antigravity register through the build-locked bundled manifest loader. The bundled loader uses the same strict parser and immutable v2 engine as config providers; JSON cannot claim its origin. See [bundled delivery and compatibility](../contracts/agent-compatibility.md#bundled-manifest-delivery-434) for digest/version rules, unchanged settings/consents and observer ABI differences. The shared engine owns discovery gates, launch argv, MCP attachment, observer selection and hook payload reduction. The launch features use capability metadata rather than comparing
+agent IDs. Shared built-in policy metadata is browser-safe. Main emits generic observed-health and notifier-selection facts to the renderer; config manifests cannot grant themselves build provenance. Agent identities can now be strings, but runtime IPC accepts only IDs in
+main's current loaded provider registry. Config providers cannot register a
+built-in ID or duplicate another provider. Built-in orchestration restore checks
+remain unchanged. v2 config plugins may declare restore capability, but a grant
+still requires persisted human orchestration provenance and matching repository
+identity, an installed, valid provider and supported per-launch MCP.
+
+`shared/agent-plugin-parser.ts` validates the [version 2 format](../agent-plugins.md)
+from `unknown`, rejecting version 1 with the fixed migration diagnostic
+`Agent manifest version 1 is no longer supported; use version 2 (see README.md)`,
+any other version with `Agent manifest version must be 2 (see README.md)`,
+and unknown keys at every object boundary, including capability,
+script, environment and network-reference fields. Manifest rules use the shared
+`boundedRegex` implementation used by built-in rules. Manifest argv uses fixed,
+field-specific substitutions and argument arrays; expanded values are never parsed
+again. Discovery probes are fixed and bounded. Executables use the existing PATH
+resolver and platform wrapper restrictions. Foom fetches nothing for plugins.
+
+The config service creates and watches `agents/`, resubscribing when it is replaced.
+It considers at most 50 matching direct JSON filenames per directory scan. Reads
+use the same contained-directory and descriptor-bounded 64 KiB policy as config
+settings. Missing, unsafe or malformed manifests never enter the active registry,
+so they cannot launch even discovery probes; invalid manifests appear as rejected
+cards and in Settings → Foom config with fixed paths/reasons. A valid manifest enters the
+registry on the scan that reads it, with no approval step (#539): agents already
+run as the user, so approval guarded one door among many. Older profiles may still hold
+`agents/<id>.json` entries in `themeDigests`; they are ignored.
+
+Registry revisions invalidate both workspace and agent-service discovery caches.
+Each config provider captures a main-only byte-validation callback. Discovery checks
+it before probing; launch checks it before preparation and again immediately before
+spawning, and rejects a replaced provider until the next scan loads the edit.
+Worktrees and same-user processes remain outside an isolation guarantee. Running sessions keep their launch-bound
+hook extractors after a file change. Config sessions receive no repository control
+grant, as before. Config agents inherit All sessions environment settings; the
+existing per-agent Environment editors remain built-in scopes.
+
+The hook receiver captures the loaded mapping at registration. Fixed top-level
+extractors discard all other fields, validate and pin conversation identity, and
+emit only a bounded `plugin:<id>:<event>` signal plus the existing enumerated action.
+Unknown events are inert. The launch supplies the same private fixed stdin/argv
+adapter, loopback token and cleanup lifecycle as built-ins. Neither templates nor
+hook output can request capabilities, execute code inside main or obtain secrets.
+Terminal content stays in the existing local evaluator.
+
+Session metadata marks config-agent origin. A missing or invalid provider retains
+its dormant conversation row across restart; syntactic ID validation and that marker
+grant no launch authority. Resume still resolves a loaded provider and revalidates
+the checkout. Merged cleanup retains a recorded
+agent conversation even while its provider is unavailable.
+
+
+### Consolidated agent settings (#409)
+
+Settings → Agents and preflight's Agents step share the provider-driven card view.
+Discovery includes display-only provider name, badge, executable, resume support,
+plugin source and declared bypass flags. Config status separately reports rejected
+manifests without probing their executables.
+
+Agent enablement, default argv and environment lists accept bounded syntactically
+valid provider IDs; those values grant no discovery or launch authority. Environment
+keeps at most 100 lists across provider absence, including encrypted secret values.
+The same editor serves global Environment and individual cards. `agentHooks` is a
+profile-only boolean map: an explicit false selects screen rules for that agent,
+and the global hooks switch takes precedence. Preferences apply on future launches,
+without notifier consent. Default arguments save on blur through the
+existing main-owned bypass disclosure and acknowledgement.
+
+Disabled agents remain configurable: discovery resolves their executable on PATH
+without running CLI discovery or setup probes. Agents cards refresh discovery on
+entry and config changes, keeping missing switches Off without saving a preference.
+Enablement changes invalidate workspace discovery caches.
