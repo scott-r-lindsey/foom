@@ -686,6 +686,16 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
       args: [
         entry,
         ...profile.args,
+        // Existing pixel/cursor assertions exercise the DOM fallback. The WebGL
+        // boundary tests request SwiftShader, or native Metal on macOS; hardware probes
+        // add no GPU switches. No shipped app flags are changed.
+        ...(options.renderer === "webgl"
+          ? process.platform === "darwin"
+            ? ["--use-gl=angle", "--use-angle=metal"]
+            : ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
+          : options.renderer === "hardware"
+            ? []
+            : ["--disable-gpu", "--disable-software-rasterizer"]),
         ...(traceStartup
           ? [
               "--enable-logging=file",

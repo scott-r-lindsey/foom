@@ -1,0 +1,687 @@
+{
+  "actualRenderer": "webgl",
+  "viewport": {
+    "width": 2304,
+    "height": 1254,
+    "devicePixelRatio": 1
+  },
+  "requestedRenderer": "webgl",
+  "tiles": 9,
+  "gpu": {
+    "features": {
+      "2d_canvas": "enabled",
+      "direct_rendering_display_compositor": "disabled_off_ok",
+      "gpu_compositing": "enabled",
+      "multiple_raster_threads": "enabled_on",
+      "opengl": "enabled_on",
+      "rasterization": "enabled",
+      "raw_draw": "disabled_off_ok",
+      "skia_graphite": "disabled_off",
+      "trees_in_viz": "disabled_off",
+      "video_decode": "enabled",
+      "video_encode": "disabled_software",
+      "vulkan": "disabled_off",
+      "webgl": "enabled",
+      "webgpu": "enabled",
+      "webgpu_on_vk_via_gl_interop": "enabled",
+      "webnn": "disabled_off"
+    },
+    "info": {
+      "auxAttributes": {
+        "amdSwitchable": false,
+        "canSupportThreadedTextureMailbox": false,
+        "glImplementationParts": "(gl=none,angle=none)",
+        "glResetNotificationStrategy": 0,
+        "hardwareSupportsVulkan": false,
+        "inProcessGpu": true,
+        "initializationTime": 0,
+        "isAsan": false,
+        "isClangCoverage": false,
+        "jpegDecodeAcceleratorSupported": false,
+        "optimus": false,
+        "passthroughCmdDecoder": false,
+        "sandboxed": false,
+        "skiaBackendType": "None",
+        "subpixelFontRendering": true,
+        "targetCpuBits": 64,
+        "visibilityCallbackCallCount": 0
+      },
+      "gpuDevice": [
+        {
+          "active": true,
+          "deviceId": 11524,
+          "driverVendor": "Nvidia",
+          "driverVersion": "580.178.04",
+          "gpuPreference": 0,
+          "vendorId": 4318
+        },
+        {
+          "active": false,
+          "deviceId": 9476,
+          "driverVendor": "Nvidia",
+          "driverVersion": "580.178.04",
+          "gpuPreference": 0,
+          "vendorId": 4318
+        }
+      ]
+    }
+  },
+  "renderer": {
+    "available": true,
+    "vendor": "Google Inc. (NVIDIA Corporation)",
+    "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.5.0)",
+    "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "grid": {
+    "cols": 20,
+    "rows": 6
+  },
+  "rendererShells": [
+    {
+      "id": "a1be799e-ea33-4206-8a1b-822811ec136e",
+      "state": "active",
+      "losses": 0,
+      "disposals": 0,
+      "events": [
+        "drain",
+        "reset",
+        "fit",
+        "attach:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "attached:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e",
+        "data:a1be799e-ea33-4206-8a1b-822811ec136e"
+      ],
+      "visible": true,
+      "contexts": 1,
+      "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.5.0)",
+      "rows": 6,
+      "cols": 20
+    },
+    {
+      "id": "70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+      "state": "active",
+      "losses": 0,
+      "disposals": 0,
+      "events": [
+        "drain",
+        "reset",
+        "fit",
+        "attach:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "attached:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c",
+        "data:70ff421a-ef91-4b5c-9e1e-8e66984a760c"
+      ],
+      "visible": true,
+      "contexts": 1,
+      "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.5.0)",
+      "rows": 6,
+      "cols": 20
+    },
+    {
+      "id": "94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+      "state": "active",
+      "losses": 0,
+      "disposals": 0,
+      "events": [
+        "drain",
+        "reset",
+        "fit",
+        "attach:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "attached:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6",
+        "data:94d5fc18-2b1c-44c2-9108-54cc480b41f6"
+      ],
+      "visible": true,
+      "contexts": 1,
+      "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.5.0)",
+      "rows": 6,
+      "cols": 20
+    },
+    {
+      "id": "662810df-717b-4664-ab27-f4185fcf9c30",
+      "state": "active",
+      "losses": 0,
+      "disposals": 0,
+      "events": [
+        "drain",
+        "reset",
+        "fit",
+        "attach:662810df-717b-4664-ab27-f4185fcf9c30",
+        "attached:662810df-717b-4664-ab27-f4185fcf9c30",
+        "data:662810df-717b-4664-ab27-f4185fcf9c30",
+        "data:662810df-717b-4664-ab27-f4185fcf9c30",
+        "data:662810df-717b-4664-ab27-f4185fcf9c30",
+        "data:662810df-717b-4664-ab27-f4185fcf9c30",
+        "data:662810df-717b-4664-ab27-f4185fcf9c30",
+        "data:662810df-717b-4664-ab27-f4185fcf9c30",
+        "data:662810df-717b-4664-ab27-f4185fcf9c30",
+        "data:662810df-717b-4664-ab27-f4185fcf9c30",
+        "data:662810df-717b-4664-ab27-f4185fcf9c30"
+      ],
+      "visible": true,
+      "contexts": 1,
+      "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.5.0)",
+      "rows": 6,
+      "cols": 20
+    },
+    {
+      "id": "cf1b0c3c-f6f4-43d6-afa7-40563b815937",
+      "state": "active",
+      "losses": 0,
+      "disposals": 0,
+      "events": [
+        "drain",
+        "reset",
+        "fit",
+        "attach:cf1b0c3c-f6f4-43d6-afa7-40563b815937",
+        "attached:cf1b0c3c-f6f4-43d6-afa7-40563b815937",
+        "data:cf1b0c3c-f6f4-43d6-afa7-40563b815937",
+        "data:cf1b0c3c-f6f4-43d6-afa7-40563b815937",
+        "data:cf1b0c3c-f6f4-43d6-afa7-40563b815937"
+      ],
+      "visible": true,
+      "contexts": 1,
+      "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.5.0)",
+      "rows": 6,
+      "cols": 20
+    },
+    {
+      "id": "6f18236d-f068-4953-8ca1-c94e1eb7c3df",
+      "state": "active",
+      "losses": 0,
+      "disposals": 0,
+      "events": [
+        "drain",
+        "reset",
+        "fit",
+        "attach:6f18236d-f068-4953-8ca1-c94e1eb7c3df",
+        "attached:6f18236d-f068-4953-8ca1-c94e1eb7c3df",
+        "data:6f18236d-f068-4953-8ca1-c94e1eb7c3df",
+        "data:6f18236d-f068-4953-8ca1-c94e1eb7c3df",
+        "data:6f18236d-f068-4953-8ca1-c94e1eb7c3df"
+      ],
+      "visible": true,
+      "contexts": 1,
+      "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.5.0)",
+      "rows": 6,
+      "cols": 20
+    },
+    {
+      "id": "9462133f-7d26-47e6-8aeb-e7821f66bafb",
+      "state": "active",
+      "losses": 0,
+      "disposals": 0,
+      "events": [
+        "drain",
+        "reset",
+        "fit",
+        "attach:9462133f-7d26-47e6-8aeb-e7821f66bafb",
+        "attached:9462133f-7d26-47e6-8aeb-e7821f66bafb",
+        "data:9462133f-7d26-47e6-8aeb-e7821f66bafb",
+        "data:9462133f-7d26-47e6-8aeb-e7821f66bafb",
+        "data:9462133f-7d26-47e6-8aeb-e7821f66bafb"
+      ],
+      "visible": true,
+      "contexts": 1,
+      "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.5.0)",
+      "rows": 6,
+      "cols": 20
+    },
+    {
+      "id": "ca0c65e3-5081-40e2-a5cb-8fc276f34d0b",
+      "state": "active",
+      "losses": 0,
+      "disposals": 0,
+      "events": [
+        "drain",
+        "reset",
+        "fit",
+        "attach:ca0c65e3-5081-40e2-a5cb-8fc276f34d0b",
+        "attached:ca0c65e3-5081-40e2-a5cb-8fc276f34d0b",
+        "data:ca0c65e3-5081-40e2-a5cb-8fc276f34d0b",
+        "data:ca0c65e3-5081-40e2-a5cb-8fc276f34d0b",
+        "data:ca0c65e3-5081-40e2-a5cb-8fc276f34d0b"
+      ],
+      "visible": true,
+      "contexts": 1,
+      "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.5.0)",
+      "rows": 6,
+      "cols": 20
+    },
+    {
+      "id": "1a99d875-aaad-45b3-89c1-de19ca154218",
+      "state": "active",
+      "losses": 0,
+      "disposals": 0,
+      "events": [
+        "drain",
+        "reset",
+        "fit",
+        "attach:1a99d875-aaad-45b3-89c1-de19ca154218",
+        "attached:1a99d875-aaad-45b3-89c1-de19ca154218",
+        "data:1a99d875-aaad-45b3-89c1-de19ca154218",
+        "data:1a99d875-aaad-45b3-89c1-de19ca154218",
+        "data:1a99d875-aaad-45b3-89c1-de19ca154218"
+      ],
+      "visible": true,
+      "contexts": 1,
+      "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.5.0)",
+      "rows": 6,
+      "cols": 20
+    }
+  ],
+  "nativeWindows": [
+    {
+      "visible": false,
+      "focused": false
+    },
+    {
+      "visible": true,
+      "focused": false
+    }
+  ],
+  "addonStates": [
+    {
+      "state": "active"
+    },
+    {
+      "state": "active"
+    },
+    {
+      "state": "active"
+    },
+    {
+      "state": "active"
+    },
+    {
+      "state": "active"
+    },
+    {
+      "state": "active"
+    },
+    {
+      "state": "active"
+    },
+    {
+      "state": "active"
+    },
+    {
+      "state": "active"
+    }
+  ],
+  "grids": [
+    {
+      "width": 160,
+      "height": 96
+    },
+    {
+      "width": 160,
+      "height": 96
+    },
+    {
+      "width": 160,
+      "height": 96
+    },
+    {
+      "width": 160,
+      "height": 96
+    },
+    {
+      "width": 160,
+      "height": 96
+    },
+    {
+      "width": 160,
+      "height": 96
+    },
+    {
+      "width": 160,
+      "height": 96
+    },
+    {
+      "width": 160,
+      "height": 96
+    },
+    {
+      "width": 160,
+      "height": 96
+    }
+  ],
+  "durationMs": 8004.699999809265,
+  "frames": 480,
+  "frameP50Ms": 16.69999999999891,
+  "frameP95Ms": 16.799999999999272,
+  "frameMaxMs": 33.29999999999927,
+  "longTasks": 0,
+  "longTaskMs": 0,
+  "maxLongTaskMs": 0,
+  "TaskDuration": 1.706468,
+  "ScriptDuration": 0.9446190000000001,
+  "LayoutDuration": 0.013597999999999999,
+  "RecalcStyleDuration": 0.09704499999999999,
+  "LayoutCount": 51,
+  "RecalcStyleCount": 494,
+  "paintMs": 26.699999999999985,
+  "paintEvents": 864,
+  "memory": {
+    "idle": {
+      "metrics": {
+        "Timestamp": 2877742.698512,
+        "AudioHandlers": 2,
+        "AudioWorkletProcessors": 0,
+        "Documents": 1,
+        "Frames": 1,
+        "JSEventListeners": 1121,
+        "LayoutObjects": 743,
+        "MediaKeySessions": 0,
+        "MediaKeys": 0,
+        "Nodes": 957,
+        "Resources": 10,
+        "ContextLifecycleStateObservers": 7,
+        "V8PerContextDatas": 3,
+        "WorkerGlobalScopes": 0,
+        "UACSSResources": 0,
+        "RTCPeerConnections": 0,
+        "ResourceFetchers": 1,
+        "AdSubframes": 0,
+        "DetachedScriptStates": 0,
+        "ArrayBufferContents": 581,
+        "LayoutCount": 0,
+        "RecalcStyleCount": 1,
+        "LayoutDuration": 0,
+        "RecalcStyleDuration": 0.00057,
+        "DevToolsCommandDuration": 0.00002,
+        "ScriptDuration": 0.000072,
+        "V8CompileDuration": 0,
+        "TaskDuration": 0.000757,
+        "TaskOtherDuration": 0.000095,
+        "ThreadTime": 0.000789,
+        "ProcessTime": 0,
+        "JSHeapUsedSize": 19495356,
+        "JSHeapTotalSize": 34525184,
+        "FirstMeaningfulPaint": 0,
+        "DomContentLoaded": 2877733.947857,
+        "NavigationStart": 2877733.800206
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 957,
+        "jsEventListeners": 1121
+      },
+      "processes": [
+        {
+          "type": "Browser",
+          "board": false,
+          "memory": {
+            "workingSetSize": 208332,
+            "peakWorkingSetSize": 208896
+          }
+        },
+        {
+          "type": "GPU",
+          "board": false,
+          "memory": {
+            "workingSetSize": 287520,
+            "peakWorkingSetSize": 287520
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 82604,
+            "peakWorkingSetSize": 82604
+          }
+        },
+        {
+          "type": "Tab",
+          "board": true,
+          "memory": {
+            "workingSetSize": 223716,
+            "peakWorkingSetSize": 232428
+          }
+        },
+        {
+          "type": "Tab",
+          "board": false,
+          "memory": {
+            "workingSetSize": 101728,
+            "peakWorkingSetSize": 101728
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 73816,
+            "peakWorkingSetSize": 73816
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 118316,
+            "peakWorkingSetSize": 118316
+          }
+        }
+      ]
+    },
+    "streaming": {
+      "metrics": {
+        "Timestamp": 2877751.850859,
+        "AudioHandlers": 2,
+        "AudioWorkletProcessors": 0,
+        "Documents": 1,
+        "Frames": 1,
+        "JSEventListeners": 819,
+        "LayoutObjects": 777,
+        "MediaKeySessions": 0,
+        "MediaKeys": 0,
+        "Nodes": 946,
+        "Resources": 10,
+        "ContextLifecycleStateObservers": 8,
+        "V8PerContextDatas": 3,
+        "WorkerGlobalScopes": 0,
+        "UACSSResources": 0,
+        "RTCPeerConnections": 0,
+        "ResourceFetchers": 1,
+        "AdSubframes": 0,
+        "DetachedScriptStates": 0,
+        "ArrayBufferContents": 90159,
+        "LayoutCount": 63,
+        "RecalcStyleCount": 565,
+        "LayoutDuration": 0.016388,
+        "RecalcStyleDuration": 0.117099,
+        "DevToolsCommandDuration": 0.004005,
+        "ScriptDuration": 1.312723,
+        "V8CompileDuration": 0,
+        "TaskDuration": 2.223615,
+        "TaskOtherDuration": 0.7734,
+        "ThreadTime": 2.245263,
+        "ProcessTime": 0,
+        "JSHeapUsedSize": 60210196,
+        "JSHeapTotalSize": 107663360,
+        "FirstMeaningfulPaint": 0,
+        "DomContentLoaded": 2877733.947857,
+        "NavigationStart": 2877733.800206
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 946,
+        "jsEventListeners": 819
+      },
+      "processes": [
+        {
+          "type": "Browser",
+          "board": false,
+          "memory": {
+            "workingSetSize": 223072,
+            "peakWorkingSetSize": 223072
+          }
+        },
+        {
+          "type": "GPU",
+          "board": false,
+          "memory": {
+            "workingSetSize": 299672,
+            "peakWorkingSetSize": 299672
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 82996,
+            "peakWorkingSetSize": 82996
+          }
+        },
+        {
+          "type": "Tab",
+          "board": true,
+          "memory": {
+            "workingSetSize": 406108,
+            "peakWorkingSetSize": 406108
+          }
+        },
+        {
+          "type": "Tab",
+          "board": false,
+          "memory": {
+            "workingSetSize": 102772,
+            "peakWorkingSetSize": 102772
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 74524,
+            "peakWorkingSetSize": 74524
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 234768,
+            "peakWorkingSetSize": 235760
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 53688,
+            "peakWorkingSetSize": 53688
+          }
+        }
+      ]
+    }
+  },
+  "versions": {
+    "node": "24.21.0",
+    "acorn": "8.18.0",
+    "ada": "4.0.0",
+    "amaro": "1.1.11",
+    "ares": "1.34.8",
+    "brotli": "1.2.0",
+    "cldr": "48.0",
+    "icu": "78.2",
+    "llhttp": "9.4.3",
+    "merve": "1.2.2",
+    "modules": "149",
+    "napi": "10",
+    "nbytes": "0.1.4",
+    "ncrypto": "0.0.1",
+    "nghttp2": "1.70.0",
+    "nghttp3": "",
+    "ngtcp2": "",
+    "openssl": "0.0.0",
+    "simdjson": "4.6.7",
+    "simdutf": "7.7.0",
+    "sqlite": "3.53.4",
+    "tz": "2025c",
+    "undici": "7.29.1",
+    "unicode": "17.0",
+    "uv": "1.52.1",
+    "uvwasi": "0.0.23",
+    "v8": "15.2.124.28-electron.0",
+    "zlib": "1.3.2.1-motley",
+    "zstd": "1.6.0",
+    "electron": "44.4.5",
+    "chrome": "152.0.7977.130"
+  }
+}

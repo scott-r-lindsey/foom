@@ -9,6 +9,7 @@ import { TerminalColors } from "../../shared/terminal-colors";
 import { Terminal } from "@xterm/xterm";
 import { suppressTerminalReplies } from "./terminal-replies";
 import { FitAddon } from "@xterm/addon-fit";
+import { createWebglRenderer } from "./webgl-renderer";
 import type { ShellView } from "./shell.d";
 
 /** Imperative terminal lifecycle; output never enters React state. */
@@ -45,6 +46,12 @@ export function createShell(
     fontFamily: TERMINAL_FONT_FALLBACK,
     scrollback: 10000,
     theme: theme(),
+  });
+  const renderer = createWebglRenderer(terminal, () => {
+    // DOM and WebGL round cell widths differently; refit without reattaching or
+    // resetting either screen when acceleration becomes unavailable.
+    fontResizePending = true;
+    resize();
   });
   suppressTerminalReplies(terminal);
   const offMiddleClick = suppressTrackedMiddleClick(container, terminal);
@@ -95,6 +102,7 @@ export function createShell(
   const visibility = (visible: boolean) => {
     attached = visible;
     container.hidden = !visible;
+    renderer.visible(visible);
     view.toggleLabel = visible ? "Hide terminal" : "Open terminal";
     view.visible = visible;
     publish();
@@ -360,6 +368,7 @@ export function createShell(
     offMiddleClick();
     if (activeId && attached && isAvailable(activeId))
       void window.desktop.detach(activeId).catch(() => {});
+    renderer.dispose();
     terminal.dispose();
   };
   // Measure the first grid only after the bundled terminal face is available.

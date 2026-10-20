@@ -1,0 +1,504 @@
+{
+  "actualRenderer": "dom",
+  "viewport": {
+    "width": 2304,
+    "height": 1254,
+    "devicePixelRatio": 1
+  },
+  "requestedRenderer": "dom",
+  "tiles": 4,
+  "gpu": {
+    "features": {
+      "2d_canvas": "enabled",
+      "direct_rendering_display_compositor": "disabled_off_ok",
+      "gpu_compositing": "enabled",
+      "multiple_raster_threads": "enabled_on",
+      "opengl": "enabled_on",
+      "rasterization": "enabled",
+      "raw_draw": "disabled_off_ok",
+      "skia_graphite": "disabled_off",
+      "trees_in_viz": "disabled_off",
+      "video_decode": "enabled",
+      "video_encode": "disabled_software",
+      "vulkan": "disabled_off",
+      "webgl": "enabled",
+      "webgpu": "enabled",
+      "webgpu_on_vk_via_gl_interop": "enabled",
+      "webnn": "disabled_off"
+    },
+    "info": {
+      "auxAttributes": {
+        "amdSwitchable": false,
+        "canSupportThreadedTextureMailbox": false,
+        "glImplementationParts": "(gl=none,angle=none)",
+        "glResetNotificationStrategy": 0,
+        "hardwareSupportsVulkan": false,
+        "inProcessGpu": true,
+        "initializationTime": 0,
+        "isAsan": false,
+        "isClangCoverage": false,
+        "jpegDecodeAcceleratorSupported": false,
+        "optimus": false,
+        "passthroughCmdDecoder": false,
+        "sandboxed": false,
+        "skiaBackendType": "None",
+        "subpixelFontRendering": true,
+        "targetCpuBits": 64,
+        "visibilityCallbackCallCount": 0
+      },
+      "gpuDevice": [
+        {
+          "active": true,
+          "deviceId": 11524,
+          "driverVendor": "Nvidia",
+          "driverVersion": "580.178.04",
+          "gpuPreference": 0,
+          "vendorId": 4318
+        },
+        {
+          "active": false,
+          "deviceId": 9476,
+          "driverVendor": "Nvidia",
+          "driverVersion": "580.178.04",
+          "gpuPreference": 0,
+          "vendorId": 4318
+        }
+      ]
+    }
+  },
+  "renderer": {
+    "available": true,
+    "vendor": "Google Inc. (NVIDIA Corporation)",
+    "renderer": "ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 3060/PCIe/SSE2, OpenGL 4.5.0)",
+    "version": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "grid": {
+    "cols": 40,
+    "rows": 18
+  },
+  "rendererShells": [
+    {
+      "id": "0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+      "state": "dom-hidden",
+      "losses": 0,
+      "disposals": 0,
+      "events": [
+        "drain",
+        "reset",
+        "fit",
+        "attach:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "attached:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a",
+        "data:0ea3cbdc-975e-4c28-abcd-87d57c2be24a"
+      ],
+      "visible": true,
+      "contexts": 0,
+      "rows": 18,
+      "cols": 40
+    },
+    {
+      "id": "5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+      "state": "dom-hidden",
+      "losses": 0,
+      "disposals": 0,
+      "events": [
+        "drain",
+        "reset",
+        "fit",
+        "attach:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "attached:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2",
+        "data:5fa59b2e-13d6-4563-b39f-0fa3d38b21e2"
+      ],
+      "visible": true,
+      "contexts": 0,
+      "rows": 18,
+      "cols": 40
+    },
+    {
+      "id": "fca03e19-fe07-431c-b99f-ae42edeb041c",
+      "state": "dom-hidden",
+      "losses": 0,
+      "disposals": 0,
+      "events": [
+        "drain",
+        "reset",
+        "fit",
+        "attach:fca03e19-fe07-431c-b99f-ae42edeb041c",
+        "attached:fca03e19-fe07-431c-b99f-ae42edeb041c",
+        "data:fca03e19-fe07-431c-b99f-ae42edeb041c",
+        "data:fca03e19-fe07-431c-b99f-ae42edeb041c",
+        "data:fca03e19-fe07-431c-b99f-ae42edeb041c"
+      ],
+      "visible": true,
+      "contexts": 0,
+      "rows": 18,
+      "cols": 40
+    },
+    {
+      "id": "52e74fe9-0007-4668-8a63-4051e0ef081a",
+      "state": "dom-hidden",
+      "losses": 0,
+      "disposals": 0,
+      "events": [
+        "drain",
+        "reset",
+        "fit",
+        "attach:52e74fe9-0007-4668-8a63-4051e0ef081a",
+        "attached:52e74fe9-0007-4668-8a63-4051e0ef081a",
+        "data:52e74fe9-0007-4668-8a63-4051e0ef081a",
+        "data:52e74fe9-0007-4668-8a63-4051e0ef081a",
+        "data:52e74fe9-0007-4668-8a63-4051e0ef081a"
+      ],
+      "visible": true,
+      "contexts": 0,
+      "rows": 18,
+      "cols": 40
+    }
+  ],
+  "nativeWindows": [
+    {
+      "visible": false,
+      "focused": false
+    },
+    {
+      "visible": true,
+      "focused": false
+    }
+  ],
+  "addonStates": [
+    {
+      "state": "dom-hidden"
+    },
+    {
+      "state": "dom-hidden"
+    },
+    {
+      "state": "dom-hidden"
+    },
+    {
+      "state": "dom-hidden"
+    }
+  ],
+  "grids": [
+    {
+      "width": 337,
+      "height": 288
+    },
+    {
+      "width": 337,
+      "height": 288
+    },
+    {
+      "width": 337,
+      "height": 288
+    },
+    {
+      "width": 337,
+      "height": 288
+    }
+  ],
+  "durationMs": 8000.199999809265,
+  "frames": 481,
+  "frameP50Ms": 16.69999999999891,
+  "frameP95Ms": 16.799999999999272,
+  "frameMaxMs": 16.80000000000109,
+  "longTasks": 0,
+  "longTaskMs": 0,
+  "maxLongTaskMs": 0,
+  "TaskDuration": 2.324596,
+  "ScriptDuration": 0.801648,
+  "LayoutDuration": 0.318471,
+  "RecalcStyleDuration": 0.298267,
+  "LayoutCount": 520,
+  "RecalcStyleCount": 905,
+  "paintMs": 240.4410000000002,
+  "paintEvents": 2386,
+  "memory": {
+    "idle": {
+      "metrics": {
+        "Timestamp": 2877679.713186,
+        "AudioHandlers": 2,
+        "AudioWorkletProcessors": 0,
+        "Documents": 2,
+        "Frames": 2,
+        "JSEventListeners": 1562,
+        "LayoutObjects": 1808,
+        "MediaKeySessions": 0,
+        "MediaKeys": 0,
+        "Nodes": 2400,
+        "Resources": 16,
+        "ContextLifecycleStateObservers": 10,
+        "V8PerContextDatas": 3,
+        "WorkerGlobalScopes": 0,
+        "UACSSResources": 0,
+        "RTCPeerConnections": 0,
+        "ResourceFetchers": 2,
+        "AdSubframes": 0,
+        "DetachedScriptStates": 3,
+        "ArrayBufferContents": 341,
+        "LayoutCount": 0,
+        "RecalcStyleCount": 0,
+        "LayoutDuration": 0,
+        "RecalcStyleDuration": 0,
+        "DevToolsCommandDuration": 0.000009,
+        "ScriptDuration": 0,
+        "V8CompileDuration": 0,
+        "TaskDuration": 0.000011,
+        "TaskOtherDuration": 0.000002,
+        "ThreadTime": 0.000058,
+        "ProcessTime": 0,
+        "JSHeapUsedSize": 14828096,
+        "JSHeapTotalSize": 31379456,
+        "FirstMeaningfulPaint": 0,
+        "DomContentLoaded": 2877676.761585,
+        "NavigationStart": 2877676.585152
+      },
+      "dom": {
+        "documents": 2,
+        "nodes": 2400,
+        "jsEventListeners": 1562
+      },
+      "processes": [
+        {
+          "type": "Browser",
+          "board": false,
+          "memory": {
+            "workingSetSize": 208060,
+            "peakWorkingSetSize": 211300
+          }
+        },
+        {
+          "type": "GPU",
+          "board": false,
+          "memory": {
+            "workingSetSize": 258228,
+            "peakWorkingSetSize": 259112
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 83060,
+            "peakWorkingSetSize": 83060
+          }
+        },
+        {
+          "type": "Tab",
+          "board": true,
+          "memory": {
+            "workingSetSize": 218712,
+            "peakWorkingSetSize": 218712
+          }
+        },
+        {
+          "type": "Tab",
+          "board": false,
+          "memory": {
+            "workingSetSize": 101324,
+            "peakWorkingSetSize": 101324
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 73588,
+            "peakWorkingSetSize": 73588
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 116520,
+            "peakWorkingSetSize": 116520
+          }
+        }
+      ]
+    },
+    "streaming": {
+      "metrics": {
+        "Timestamp": 2877688.907724,
+        "AudioHandlers": 2,
+        "AudioWorkletProcessors": 0,
+        "Documents": 1,
+        "Frames": 1,
+        "JSEventListeners": 546,
+        "LayoutObjects": 14230,
+        "MediaKeySessions": 0,
+        "MediaKeys": 0,
+        "Nodes": 27910,
+        "Resources": 10,
+        "ContextLifecycleStateObservers": 8,
+        "V8PerContextDatas": 3,
+        "WorkerGlobalScopes": 0,
+        "UACSSResources": 0,
+        "RTCPeerConnections": 0,
+        "ResourceFetchers": 1,
+        "AdSubframes": 0,
+        "DetachedScriptStates": 0,
+        "ArrayBufferContents": 40105,
+        "LayoutCount": 651,
+        "RecalcStyleCount": 1097,
+        "LayoutDuration": 0.36434,
+        "RecalcStyleDuration": 0.351254,
+        "DevToolsCommandDuration": 0.002675,
+        "ScriptDuration": 1.055512,
+        "V8CompileDuration": 0,
+        "TaskDuration": 2.816752,
+        "TaskOtherDuration": 1.042971,
+        "ThreadTime": 2.844625,
+        "ProcessTime": 0,
+        "JSHeapUsedSize": 50050288,
+        "JSHeapTotalSize": 82497536,
+        "FirstMeaningfulPaint": 0,
+        "DomContentLoaded": 2877676.761585,
+        "NavigationStart": 2877676.585152
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 27910,
+        "jsEventListeners": 546
+      },
+      "processes": [
+        {
+          "type": "Browser",
+          "board": false,
+          "memory": {
+            "workingSetSize": 219196,
+            "peakWorkingSetSize": 219196
+          }
+        },
+        {
+          "type": "GPU",
+          "board": false,
+          "memory": {
+            "workingSetSize": 273176,
+            "peakWorkingSetSize": 273176
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 83648,
+            "peakWorkingSetSize": 83648
+          }
+        },
+        {
+          "type": "Tab",
+          "board": true,
+          "memory": {
+            "workingSetSize": 373844,
+            "peakWorkingSetSize": 373844
+          }
+        },
+        {
+          "type": "Tab",
+          "board": false,
+          "memory": {
+            "workingSetSize": 102400,
+            "peakWorkingSetSize": 102400
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 74112,
+            "peakWorkingSetSize": 74112
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 182412,
+            "peakWorkingSetSize": 182412
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 51776,
+            "peakWorkingSetSize": 51776
+          }
+        }
+      ]
+    }
+  },
+  "versions": {
+    "node": "24.21.0",
+    "acorn": "8.18.0",
+    "ada": "4.0.0",
+    "amaro": "1.1.11",
+    "ares": "1.34.8",
+    "brotli": "1.2.0",
+    "cldr": "48.0",
+    "icu": "78.2",
+    "llhttp": "9.4.3",
+    "merve": "1.2.2",
+    "modules": "149",
+    "napi": "10",
+    "nbytes": "0.1.4",
+    "ncrypto": "0.0.1",
+    "nghttp2": "1.70.0",
+    "nghttp3": "",
+    "ngtcp2": "",
+    "openssl": "0.0.0",
+    "simdjson": "4.6.7",
+    "simdutf": "7.7.0",
+    "sqlite": "3.53.4",
+    "tz": "2025c",
+    "undici": "7.29.1",
+    "unicode": "17.0",
+    "uv": "1.52.1",
+    "uvwasi": "0.0.23",
+    "v8": "15.2.124.28-electron.0",
+    "zlib": "1.3.2.1-motley",
+    "zstd": "1.6.0",
+    "electron": "44.4.5",
+    "chrome": "152.0.7977.130"
+  }
+}
