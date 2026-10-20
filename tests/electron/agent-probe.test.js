@@ -45,7 +45,7 @@ if(pluginIndex!==-1) {
   fs.writeFileSync(${JSON.stringify(attachment)},JSON.stringify({directory,generatedCommand:true,nestedFile:true,controlUrl:process.env.FOOM_CONTROL_URL,controlToken:process.env.FOOM_CONTROL_TOKEN}));
   process.stdout.write('HOOKS_ATTACHED\\r\\n');
 }
-fs.writeFileSync(${JSON.stringify(details)}, JSON.stringify({cwd:process.cwd(),env:Object.keys(process.env).filter(key => /^FOOM_/i.test(key)),args:process.argv.slice(2)}));
+fs.writeFileSync(${JSON.stringify(details)}, JSON.stringify({cwd:process.cwd(),hookProtocol:process.env.FOOM_HOOK_PROTOCOL,hookChannels:JSON.parse(process.env.FOOM_HOOK_CHANNELS),env:Object.keys(process.env).filter(key => /^FOOM_/i.test(key)),args:process.argv.slice(2)}));
 process.stdout.write(Array.from({length:40},(_,i) => 'SCROLLBACK_SECRET_'+i+'\\r\\n').join(''));
 process.stdout.write('\\x1b[?1049h\\x1b[2J\\x1b[H\\x1b]0;Fixture probe title\\x07Trust this folder? (y/n)');
 let trusted=false;
@@ -282,10 +282,14 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       "FOOM_CHANNEL_lifecycle",
       "FOOM_CONTROL_TOKEN",
       "FOOM_HOOK_URL",
+      "FOOM_HOOK_PROTOCOL",
+      "FOOM_HOOK_CHANNELS",
       "FOOM_SESSION",
       "FOOM_TOKEN",
     ].sort(),
   );
+  assert.equal(launch.hookProtocol, "1");
+  assert.deepEqual(launch.hookChannels, []);
   assert.equal(launch.args[0], "--plugin-dir");
   assert.ok(path.isAbsolute(launch.args[1]));
   await page
