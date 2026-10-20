@@ -4,13 +4,13 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 ## Board shortcut definitions
 
-`main/window/commands.ts` owns the command registry: IDs, native and wordmark
+`shared/board-commands.ts` owns static board action IDs, shortcut definitions and runtime validation; the `BoardCommand` declaration derives its static union from that data. `main/window/commands.ts` owns the application command registry: IDs, native and wordmark
 labels, platform bindings, enabled/checked state, agent badges, shortcut-sheet
 rows, native roles and actions. `app-menu.ts` projects this one registry two
 ways: every implemented command to the macOS menu bar, and a curated, fixed
 layout to the wordmark menu on every platform. The wordmark projection is data
 only (`AppMenuEntry`): commands, separators, the Settings submenu (the agent
-routes come from `main/agents/agent-list.ts`, followed by Via Settings UI), and a
+routes come from the live provider registry, followed by Via Settings UI), and a
 `size` row carrying Bigger/Smaller and main's current interface scale. Action log
 is an enabled board command in both the wordmark and macOS menus; it has no direct
 shortcut binding.
@@ -33,11 +33,11 @@ the board to show it. View accepts bounded tile counts and booleans solely for
 presentation availability and the maximize checkmark. The board source exposes
 this small typed capability. Add repository reaches the board as the
 `add-repository` board command and uses the sidebar's picker path.
-The three `via-<agent>` commands use the same registry for native and wordmark
+The live provider `via-<agent>` commands use the same registry for native and wordmark
 menus. Main derives their availability from discovery and saved agent switches;
 the board reports config-launch availability separately from tile availability,
 so Settings can stay open while choosing an agent. Preflight disables these routes. Availability refreshes on menu reads, execution, window
-focus and settings updates. The preload accepts only the three fixed route IDs.
+focus and settings updates. The preload validates bounded syntactic provider IDs; main checks the live provider registry before launch.
 The board dispatches the existing `config-launch` command,
 awaits the source's refreshed inventory, and opens the newly created config session
 through normal session selection. Menu and sidebar launches use the same launch policy without notifier confirmation.

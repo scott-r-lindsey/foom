@@ -351,8 +351,9 @@ test("the shortcut sheet is generated from the registry for each platform", () =
 
 test("agent settings routes share board actions in native and wordmark menus", async () => {
   const calls = actions();
-  const commands = createCommands("darwin", false, calls, AGENTS);
-  for (const agent of AGENTS) {
+  const agents = [...AGENTS, { id: "new-provider", name: "New provider", mark: "NP" }];
+  const commands = createCommands("darwin", false, calls, agents);
+  for (const agent of agents) {
     const command = commands.find((entry) => entry.id === `via-${agent.id}`);
     if (!command) throw new Error("Missing agent command");
     expect(command.enabled).toBe(false);
@@ -363,7 +364,13 @@ test("agent settings routes share board actions in native and wordmark menus", a
   const native = nativeMenu(commands).flatMap((section) =>
     Array.isArray(section.submenu) ? section.submenu : [],
   );
-  for (const agent of AGENTS)
+  const wordmark = projectAppMenu(commands, 100).flatMap((entry) =>
+    entry?.kind === "submenu" ? entry.items : [],
+  );
+  expect(
+    wordmark.filter((entry) => entry?.id.startsWith("via-")).map((entry) => entry?.id),
+  ).toEqual(agents.map(({ id }) => `via-${id}`));
+  for (const agent of agents)
     expect(native).toContainEqual(
       expect.objectContaining({ id: `via-${agent.id}`, enabled: true }),
     );
