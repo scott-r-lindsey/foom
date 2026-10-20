@@ -24,8 +24,13 @@ import {
 } from "./v2-values";
 
 /** Immutable validated manifest data; probes/facts and temporary files never reach board renderers. */
-export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>): AgentProvider {
+export function v2Provider(
+  input: AgentManifestV2,
+  validate: () => Promise<void>,
+  verification = false,
+): AgentProvider {
   const model = structuredClone(input);
+  if (verification) for (const fact of model.discovery.facts) fact.enabled = true;
   const freeze = (value: unknown): void => {
     if (typeof value !== "object" || value === null) return;
     for (const entry of Object.values(value)) freeze(entry);
@@ -308,13 +313,15 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
         let toolIndex = 0;
         const tools = model.launch.toolPermissions;
         if (mcp && tools)
-          grants = mcpTools(1, [])
-            .filter((tool) => tools.names.includes(tool.name))
-            .map(({ name: tool }) =>
-              tools.format === "mcp-double-underscore"
-                ? `mcp__${String(values["mcpName"] ?? "")}__${tool}`
-                : `${String(values["mcpName"] ?? "")}(${tool})`,
-            );
+          grants = (
+            verification
+              ? [{ name: "ping" }]
+              : mcpTools(1, []).filter((tool) => tools.names.includes(tool.name))
+          ).map(({ name: tool }) =>
+            tools.format === "mcp-double-underscore"
+              ? `mcp__${String(values["mcpName"] ?? "")}__${tool}`
+              : `${String(values["mcpName"] ?? "")}(${tool})`,
+          );
         const expand = (templates: readonly string[]) =>
           templates.map((arg) => expandV2(arg, values));
         for (const stage of model.launch.order) {

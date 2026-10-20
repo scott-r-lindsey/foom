@@ -60,7 +60,7 @@ exports.complete = async () => {
       });
     } finally {
       terminal.kill("SIGKILL");
-      prepared.forEach((launch) => launch.dispose());
+      await Promise.all(prepared.map((launch) => launch.dispose()));
     }
   } finally {
     rmSync(cwd, { recursive: true, force: true });

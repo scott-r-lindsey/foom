@@ -45,7 +45,7 @@ if(pluginIndex!==-1) {
   fs.writeFileSync(${JSON.stringify(attachment)},JSON.stringify({directory,generatedCommand:true,nestedFile:true,controlUrl:process.env.FOOM_CONTROL_URL,controlToken:process.env.FOOM_CONTROL_TOKEN}));
   process.stdout.write('HOOKS_ATTACHED\\r\\n');
 }
-fs.writeFileSync(${JSON.stringify(details)}, JSON.stringify({cwd:process.cwd(),env:Object.keys(process.env).filter(key => /^FOOM_/i.test(key)),args:process.argv.slice(2)}));
+fs.writeFileSync(${JSON.stringify(details)}, JSON.stringify({cwd:process.cwd(),hookProtocol:process.env.FOOM_HOOK_PROTOCOL,hookChannels:JSON.parse(process.env.FOOM_HOOK_CHANNELS),env:Object.keys(process.env).filter(key => /^FOOM_/i.test(key)),args:process.argv.slice(2)}));
 process.stdout.write(Array.from({length:40},(_,i) => 'SCROLLBACK_SECRET_'+i+'\\r\\n').join(''));
 process.stdout.write('\\x1b[?1049h\\x1b[2J\\x1b[H\\x1b]0;Fixture probe title\\x07Trust this folder? (y/n)');
 let trusted=false;
@@ -102,6 +102,7 @@ process.stdin.resume();
     `
 const fs=require('node:fs'); const {execFileSync}=require('node:child_process');
 const cli=process.platform==='win32'?'foom.exe':'foom';
+const writeResult=(target,text) => { fs.writeFileSync(target+'.tmp',text); fs.renameSync(target+'.tmp',target); };
 const call=(...args) => JSON.parse(execFileSync(cli,['agent','probe',...args],{encoding:'utf8',env:process.env})).result;
 // This deterministic fixture agent receives the shipped guide/starter, not a prepared target manifest.
 const guide=fs.readFileSync('AGENTS.md','utf8');
@@ -118,7 +119,7 @@ fs.mkdirSync(require('node:path').dirname(${JSON.stringify(draft)}),{recursive:t
 fs.writeFileSync(${JSON.stringify(draft)},JSON.stringify(target));
 execFileSync(cli,['config','validate',${JSON.stringify(draft)}],{encoding:'utf8',env:process.env});
 const probe=call('start','opencode','--manifest',${JSON.stringify(draft)}).probe;
-fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1}));
+writeResult(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1}));
 console.log('DRIVER_READY');
 require('node:readline').createInterface({input:process.stdin}).on('line', line => {
   try {
@@ -128,7 +129,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       call('wait',probe,'--quiet','0.1');
       const before=call('screen',probe); const state=call('state',probe); const saved=call('screen',probe,'--save','other');
       call('send',probe,'yes'); call('keys',probe,'tab'); call('wait',probe,'--quiet','0.1');
-      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1,before,state,saved,after:call('screen',probe)}));
+      writeResult(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1,before,state,saved,after:call('screen',probe)}));
       console.log('SCREEN_READY');
     } else if(line==='install') {
       fs.copyFileSync(${JSON.stringify(draft)},require('node:path').join(process.cwd(),'agents/opencode.json')); console.log('MANIFEST_INSTALLED');
@@ -136,7 +137,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       const rules=JSON.parse(execFileSync(cli,['config','test-rules','opencode','--json'],{encoding:'utf8',env:process.env})).result;
       execFileSync(cli,['config','validate','.'],{encoding:'utf8',env:process.env});
       const previous=JSON.parse(fs.readFileSync(${JSON.stringify(result)},'utf8'));
-      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({...previous,rules}));
+      writeResult(${JSON.stringify(result)},JSON.stringify({...previous,rules}));
     } else if(line==='hold') {
       const settings=JSON.parse(fs.readFileSync('settings.json','utf8'));
       settings.agentArguments={claude:[],codex:[],agy:[],...settings.agentArguments,opencode:['--fixture']};
@@ -144,7 +145,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       execFileSync(cli,['config','validate','settings.json'],{encoding:'utf8',env:process.env});
       const status=JSON.parse(execFileSync(cli,['config','status','--json'],{encoding:'utf8',env:process.env})).result;
       const previous=JSON.parse(fs.readFileSync(${JSON.stringify(result)},'utf8'));
-      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({...previous,status}));
+      writeResult(${JSON.stringify(result)},JSON.stringify({...previous,status}));
       if(status.pending) console.log('Settings held: '+status.pending.detail+'. Choose Allow / Keep it on in Foom config.');
     } else if(line==='exit') {process.exit(0);
     } else if(line==='restart') {
@@ -155,10 +156,10 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       const launch=JSON.parse(fs.readFileSync(${JSON.stringify(details)},'utf8'));
       const stopped=call('stop',second);
       const previous=JSON.parse(fs.readFileSync(${JSON.stringify(result)},'utf8'));
-      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({...previous,second:{probe:second,screen,launch,...stopped}}));
+      writeResult(${JSON.stringify(result)},JSON.stringify({...previous,second:{probe:second,screen,launch,...stopped}}));
       console.log('SECOND_STOPPED');
     }
-  } catch(error) {fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({error:error.message}));console.error(error.message);}
+  } catch(error) {writeResult(${JSON.stringify(result)},JSON.stringify({error:error.message}));console.error(error.message);}
 });
 `,
   );
@@ -276,8 +277,22 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   const launch = JSON.parse(await readFile(details, "utf8"));
   assert.notEqual(launch.cwd, home);
   assert.notEqual(launch.cwd, path.join(home, ".foom/config"));
-  assert.deepEqual(launch.env, []);
-  assert.deepEqual(launch.args, []);
+  assert.deepEqual(
+    launch.env.sort(),
+    [
+      "FOOM_CHANNEL_lifecycle",
+      "FOOM_CONTROL_TOKEN",
+      "FOOM_HOOK_URL",
+      "FOOM_HOOK_PROTOCOL",
+      "FOOM_HOOK_CHANNELS",
+      "FOOM_SESSION",
+      "FOOM_TOKEN",
+    ].sort(),
+  );
+  assert.equal(launch.hookProtocol, "1");
+  assert.deepEqual(launch.hookChannels, []);
+  assert.equal(launch.args[0], "--plugin-dir");
+  assert.ok(path.isAbsolute(launch.args[1]));
   await page
     .getByRole("button", {
       name: "Actions for opencode · Probe in Foom config",
@@ -338,6 +353,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "OpenCode", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
+  await require("node:fs/promises").rm(attachment, { force: true });
   await page.evaluate(async () => {
     const repository = (await window.desktop.workspace()).repositories[0].path;
     await window.desktop.sidebarCommand({

@@ -1,3 +1,20 @@
+import { HookReceiver } from "./hook-receiver";
+import { ProbeMcp } from "./probe-mcp";
+import type { ProbeHookEvent } from "./probe-events";
+import type { HookSignal } from "../../shared/hooks";
+import { prepareV2Hooks } from "./providers/v2-hook-launch";
+
+export interface PreparedProbe {
+  spec: TerminalSpec;
+  agentVersion?: string;
+  conversationId?: string;
+  events?(): {
+    hooks: ProbeHookEvent[];
+    mcp: { connected: boolean; listedTools: boolean; pinged: boolean };
+  };
+  hook?(): HookSignal | undefined;
+  dispose(): void | Promise<void>;
+}
 import { TERMINAL_ENVIRONMENT } from "../../shared/terminal-environment";
 import { constants } from "node:fs";
 import { access, lstat, mkdtemp, rm, stat } from "node:fs/promises";
@@ -109,12 +126,7 @@ export async function prepareProbe(
   request: Extract<ProbeRequest, { action: "start" }>,
   cwd: string,
   env: Record<string, string>,
-): Promise<{
-  spec: TerminalSpec;
-  agentVersion?: string;
-  conversationId?: string;
-  dispose(): void;
-}> {
+): Promise<PreparedProbe> {
   await provider.validate?.();
   const launchEnvironment = { ...env, ...TERMINAL_ENVIRONMENT };
   if (bypassEnvironment(provider.model, launchEnvironment).length)
@@ -128,27 +140,76 @@ export async function prepareProbe(
       return "";
     }
   };
-  const installation = provider.discover(
+  // Clone only for this probe. Normal discovery and launches keep every gate intact.
+  const verification = v2Provider(
+    provider.model,
+    async () => {
+      await provider.validate?.();
+    },
+    true,
+  );
+  const installation = verification.discover(
     command,
     (await read("--version")).trim(),
     await read("--help"),
   );
-  const prepared = await provider.prepareLaunch(
-    installation,
-    {
-      agent: request.agent,
-      repository: cwd,
-      worktree: cwd,
-      cols: 80,
-      rows: 24,
-      ...(request.resume === undefined ? {} : { conversationId: request.resume }),
-    },
-    [],
-    undefined,
-    false,
-    false,
-  );
+  const hooks: ProbeHookEvent[] = [];
+  let signal: HookSignal | undefined;
+  let expected: string | undefined;
+  const receiver = await HookReceiver.listen((value) => {
+    signal = value;
+  });
+  let mcp: ProbeMcp | undefined;
+  let binding: Awaited<ReturnType<typeof prepareV2Hooks>> | undefined;
+  let prepared: Awaited<ReturnType<AgentProvider["prepareLaunch"]>> | undefined;
   try {
+    mcp = await ProbeMcp.listen();
+    binding = await prepareV2Hooks(
+      {
+        register: (key, agent, v2) =>
+          receiver.register(
+            key,
+            agent,
+            v2
+              ? {
+                  ...v2,
+                  observe: {
+                    expected: () => expected,
+                    receive: (event) => {
+                      if (hooks.length < 128) hooks.push(event);
+                    },
+                  },
+                }
+              : undefined,
+          ),
+      },
+      verification.model,
+      () => {},
+      process.platform === "win32",
+      cwd,
+      cwd,
+    );
+    prepared = await verification.prepareLaunch(
+      installation,
+      {
+        agent: request.agent,
+        repository: cwd,
+        worktree: cwd,
+        cols: 80,
+        rows: 24,
+        ...(request.resume === undefined ? {} : { conversationId: request.resume }),
+      },
+      [],
+      {
+        env: { FOOM_CONTROL_URL: mcp.url, FOOM_CONTROL_TOKEN: mcp.token },
+        bind: () => {},
+        dispose: () => {},
+      },
+      false,
+      true,
+      binding,
+    );
+    expected = prepared.conversationId;
     Object.assign(
       launchEnvironment,
       buildLaunchEnvironment({
@@ -158,9 +219,12 @@ export async function prepareProbe(
     );
     if (bypassEnvironment(provider.model, launchEnvironment).length)
       throw Error("Probe bypass environment refused");
-    if (matchesArguments(provider.model.bypassArguments, prepared.args) || prepared.mcp)
+    if (matchesArguments(provider.model.bypassArguments, prepared.args))
       throw Error("Probe bypass arguments refused");
     await provider.validate?.();
+    const launch = prepared;
+    const attached = binding;
+    const endpoint = mcp;
     return {
       agentVersion: installation.version ?? "",
       spec: {
@@ -169,16 +233,25 @@ export async function prepareProbe(
         cwd,
         cols: 80,
         rows: 24,
-        env: launchEnvironment,
+        env: { ...launchEnvironment, ...binding.env, FOOM_CONTROL_TOKEN: mcp.token },
         replaceEnvironment: true,
       },
       ...(prepared.conversationId === undefined ? {} : { conversationId: prepared.conversationId }),
-      dispose: () => {
-        prepared.dispose();
+      events: () => ({ hooks: structuredClone(hooks), mcp: endpoint.snapshot() }),
+      hook: () => signal,
+      dispose: async () => {
+        launch.dispose();
+        endpoint.close();
+        await receiver.close();
+        await attached.disposeAndWait();
       },
     };
   } catch (error) {
-    prepared.dispose();
+    prepared?.dispose();
+    binding?.dispose();
+    mcp?.close();
+    await receiver.close();
+    await binding?.disposeAndWait();
     throw error;
   }
 }

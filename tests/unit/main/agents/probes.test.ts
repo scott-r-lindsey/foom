@@ -63,7 +63,7 @@ test("owns unguessable probes, drives only the owner and exposes visible JSON", 
     const probe = await f.start();
     expect(probe).toMatch(/^[a-f0-9]{64}$/u);
     const foreign = f.probes.grant();
-    for (const action of ["screen", "state", "stop", "send", "keys", "wait"])
+    for (const action of ["screen", "state", "events", "stop", "send", "keys", "wait"])
       await expect(
         f.probes.call(foreign, {
           action,
@@ -78,6 +78,10 @@ test("owns unguessable probes, drives only the owner and exposes visible JSON", 
         }),
       ).rejects.toThrow("not_found");
     await expect(f.start()).rejects.toThrow("conflict");
+    expect(await f.probes.call(f.token, { action: "events", probe })).toEqual({
+      hooks: [],
+      mcp: { connected: false, listedTools: false, pinged: false },
+    });
     await f.probes.call(f.token, { action: "send", probe, text: "yes" });
     await f.probes.call(f.token, { action: "keys", probe, key: "ctrl-c" });
     expect(f.backend.reply.mock.calls).toEqual([
@@ -361,6 +365,48 @@ test("config status is refreshed only for a live config credential and never gra
   }
 });
 
+test("credential-owned events and state reflect accepted hooks without exposing payloads", async () => {
+  const f = await fixture();
+  let action: "ready" | "working" | "needs_input" | "failed" | "classify" = "ready";
+  f.operations.prepare.mockImplementation(() =>
+    Promise.resolve({
+      spec: { command: "/fixture/claude", args: [], cwd: f.cwd, cols: 80, rows: 24 },
+      dispose: vi.fn(),
+      agentVersion: "1.2.3",
+      conversationId: "conversation",
+      events: () => ({ hooks: [], mcp: { connected: true, listedTools: true, pinged: true } }),
+      hook: () => ({
+        terminalId: "probe",
+        action,
+        caseId: "observed",
+        signal: "plugin:fixture:observed",
+      }),
+    }),
+  );
+  try {
+    const probe = await f.start();
+    expect(await f.probes.call(f.token, { action: "events", probe })).toEqual({
+      hooks: [],
+      mcp: { connected: true, listedTools: true, pinged: true },
+    });
+    for (const [next, state] of [
+      ["ready", "quiet_ok"],
+      ["working", "working"],
+      ["needs_input", "needs_input"],
+      ["failed", "failed"],
+      ["classify", "needs_input"],
+    ] as const) {
+      action = next;
+      expect(await f.probes.call(f.token, { action: "state", probe })).toMatchObject({
+        state,
+        hookEvent: "observed",
+      });
+    }
+  } finally {
+    await f.probes.close();
+  }
+});
+
 test("capture save and rule replay are credential-bound and keep screen text out of responses", async () => {
   const f = await fixture();
   try {
@@ -458,6 +504,34 @@ test("saving refuses a backend screen without actual dimensions", async () => {
       f.probes.call(f.token, { action: "screen", probe, save: "other" }),
     ).rejects.toThrow("unavailable");
   } finally {
+    await f.probes.close();
+  }
+});
+
+test("stop awaits attachment cleanup before deleting the scratch repository", async () => {
+  const f = await fixture();
+  const disposed = Promise.withResolvers<undefined>();
+  const dispose = vi.fn(() => disposed.promise);
+  f.operations.prepare.mockImplementation(() =>
+    Promise.resolve({
+      spec: { command: "/fixture/claude", args: [], cwd: f.cwd, cols: 80, rows: 24 },
+      dispose,
+      agentVersion: "1.2.3",
+      conversationId: "conversation",
+    }),
+  );
+  try {
+    const probe = await f.start();
+    const stopping = f.probes.call(f.token, { action: "stop", probe });
+    await vi.waitFor(() => {
+      expect(dispose).toHaveBeenCalledOnce();
+    });
+    await expect(access(f.cwd)).resolves.toBeUndefined();
+    disposed.resolve(undefined);
+    await stopping;
+    await expect(access(f.cwd)).rejects.toThrow();
+  } finally {
+    disposed.resolve(undefined);
     await f.probes.close();
   }
 });

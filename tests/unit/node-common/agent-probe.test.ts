@@ -12,7 +12,7 @@ test("probe CLI grammar and main validation agree", () => {
     [["send", id, "approve"], { action: "send", probe: id, text: "approve" }],
     [["wait", id, "--quiet", "0.5"], { action: "wait", probe: id, quiet: 0.5 }],
     [["wait", id, "--timeout", "600"], { action: "wait", probe: id, timeout: 600 }],
-    ...["screen", "state", "stop"].map((action): [readonly string[], unknown] => [
+    ...["screen", "state", "events", "stop"].map((action): [readonly string[], unknown] => [
       [action, id],
       { action, probe: id },
     ]),

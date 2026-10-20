@@ -1,3 +1,4 @@
+import { probeHookEvent, type ProbeHookObserver } from "./probe-events";
 import type { ManifestChannel } from "../../shared/agent-manifest-v2";
 import type { V2HookState } from "./providers/v2-events";
 import { agentProvider } from "./providers/registry";
@@ -54,7 +55,11 @@ export class HookReceiver {
   register(
     terminalId: string,
     agent: HookAgent,
-    v2?: { channels: Map<string, ManifestChannel>; state: V2HookState },
+    v2?: {
+      channels: Map<string, ManifestChannel>;
+      state: V2HookState;
+      observe?: ProbeHookObserver;
+    },
   ): HookLaunch {
     if (this.closed) throw new Error("Receiver is closed");
     if (!identifier(terminalId)) throw new Error("Invalid terminal ID");
@@ -67,7 +72,7 @@ export class HookReceiver {
       agent,
       digest: digest(token),
       ...(model ? { model } : {}),
-      ...(v2 ? { channels: v2.channels, v2State: v2.state } : {}),
+      ...(v2 ? { channels: v2.channels, v2State: v2.state, observe: v2.observe } : {}),
     });
     return {
       env: { FOOM_SESSION: sessionId, FOOM_TOKEN: token, FOOM_HOOK_URL: `${this.origin}/hooks` },
@@ -151,13 +156,37 @@ export class HookReceiver {
         const value: unknown = JSON.parse(
           new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)),
         );
-        signal = reduceEvent(
-          session,
-          value,
-          request.headers["x-foom-event"],
-          request.headers["x-foom-sequence"],
-          request.headers["x-foom-channel"],
-        );
+        const header = request.headers["x-foom-channel"];
+        const channel =
+          typeof header === "string"
+            ? session.channels?.get(header)
+            : header === undefined
+              ? [...(session.channels?.values() ?? [])].find(
+                  (entry) => entry.observer.protocol === "ordered-v2",
+                )
+              : undefined;
+        const expected = session.observe?.expected();
+        try {
+          signal = reduceEvent(
+            session,
+            value,
+            request.headers["x-foom-event"],
+            request.headers["x-foom-sequence"],
+            request.headers["x-foom-channel"],
+          );
+        } finally {
+          if (session.observe && channel)
+            session.observe.receive(
+              probeHookEvent(
+                channel,
+                value,
+                request.headers["x-foom-event"],
+                request.headers["x-foom-sequence"],
+                expected,
+                signal,
+              ),
+            );
+        }
       } catch {
         end(400);
         return;

@@ -188,3 +188,7 @@ See [Coded capability errors](areas/errors.md#coded-capability-errors) and [prun
 ## External lifecycle hooks
 
 See [Agent hooks](areas/agent-hooks.md) and [public hook protocol 1](agent-plugins.md#user-authored-extensions-public-hook-protocol-1-635).
+
+### Probe verification (#593)
+
+See [probe verification](areas/probes.md#probe-verification-593).

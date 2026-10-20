@@ -19,7 +19,7 @@ export type ProbeRequest =
   | { action: "send"; probe: string; text: string }
   | { action: "keys"; probe: string; key: keyof typeof PROBE_KEYS }
   | { action: "wait"; probe: string; quiet?: number; timeout?: number }
-  | { action: "state" | "stop"; probe: string };
+  | { action: "state" | "events" | "stop"; probe: string };
 const invalid = (): never => {
   throw new ControlError("invalid_request");
 };
@@ -118,6 +118,7 @@ export function probeRequest(input: unknown): ProbeRequest {
         return invalid();
       return { action, probe, ...(save === undefined ? {} : { save }) };
     }
+    case "events":
     case "state":
     case "stop":
       exact(value, ["action", "probe"]);

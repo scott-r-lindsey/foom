@@ -60,6 +60,7 @@ const commandHelp = [
       "wait PROBE --quiet SECONDS|--timeout SECONDS",
       "screen PROBE [--save working|blocked|idle|other]",
       "state PROBE",
+      "events PROBE",
       "stop PROBE",
     ],
     suffix: "",

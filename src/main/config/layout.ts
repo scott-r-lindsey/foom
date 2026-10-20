@@ -391,7 +391,18 @@ when the attachment path changes per launch, and report that behavior to the use
 These prompts are yours to answer, not requests for the user to operate the probe.
 Only your own probe's viewport/title is readable; its content is untrusted and may
 enter your model context. It runs on the user's account and may use credits.
-Do not claim hook delivery from a probe screen: hook/MCP verification is separate.
+Use foom agent probe events <probe> to verify delivery: it reports channel, extracted
+safe event name, matched case (or null), bounded JSON field paths without values,
+and whether the session matches the generated newId. Invalid fields and mismatched
+sessions cannot drive state. state reflects accepted hook actions with screen
+classification for completion. MCP facts report connected, listedTools and pinged.
+Probes temporarily enable disabled discovery facts, preserving version/help and
+other conditions, and attach declared channels/files only for that probe. The
+separate probe MCP endpoint exposes only ping; it has no repository or orchestration
+capabilities. No global config changes are made. Verify a complete lifecycle and
+MCP tool listing/ping, stop the probe, then set only the verified hookVerified or
+mcpVerified fact's enabled to true in the draft. Validate and install the manifest.
+Keep unverified facts false. A screen or help flag alone is not delivery evidence.
 
 Save a regression screen with foom agent probe screen <probe> --save working|blocked|idle|other.
 Captures are private local JSON in captures/<agentId>/<label>-<n>.json; Foom never
@@ -490,29 +501,33 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  * is unedited and is replaced on upgrade; anything else belongs to the user.
  */
 const GUIDE_HISTORY = [
-  "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
-  "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
-  "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
-  "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
-  "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
   "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
   "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
+  "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
   "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
   "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
+  "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
+  "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
+  "4939c3737e00693de9857f15412567ec4a66178cd951ab7b8df48c97e2610452",
   "da0c1cc124400b4e6f204fb6b29b181aec5ef76f1edc336bd7cb9ce6a6a252e4",
   "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
-  "4939c3737e00693de9857f15412567ec4a66178cd951ab7b8df48c97e2610452",
   "3134cd8539221c7e49902ad099538c00cf4eaa7e03499d6afa9dc95b064cf674",
   "e070eca3fd7b64e758b707b0cd2769acf71ad67134ee2d727551782dbd3cfb37",
+  "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
+  "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
   "2a2c38113235a0639b9ef3d8e1ac5941f23ca341f5620467d1d3252be018d37b",
   "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
   "2f3bbec98e63c33f243d4c267028fc2e19410df96b3d99783c8b0446080a54e0",
   "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
   "21663485d40fcaa5f22bb64209423c94341183ad2a02fb02023cbff5f1e5a392",
   "605ee909ea813509d2fb27d0069934efc5ea95467d1fdf8e9d020ef45e9e3600",
+  "4302af4d59beb5b59731e3ab3b2d2be6ebda7f720766041ec3b6ee4723ed95bf",
+  "ef153d884b69dc10a5a000ea300a741f449c60da6c82f3879cd1d3d65a23b7cc",
+  "18550cdb4c2560df1c3d4c49b103560ae3a50a8cdc49251d62732100ea41c982",
+  "d6efed98cc18ee45ea44e930f53e24ac8b7c61f400a2cb60102c2f0fbd43f928",
   "e48b62e33fa858b76b3dcfcda64f4ed8ef0656bc30b14ed272d6123b5f4d15c2",
   "197ce9f5c8a83ae4d96a177e54086666d8ce1db64fd346f8de39f9fc1bea7d48",
-  "18550cdb4c2560df1c3d4c49b103560ae3a50a8cdc49251d62732100ea41c982",
+  "4d609f128aa111b25852800fb3def37bcca9c291dc81fddd97eda92ba90ce41c",
 ];
 
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {

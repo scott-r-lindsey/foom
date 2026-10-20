@@ -24,7 +24,7 @@ export async function prepareV2Hooks(
   stableDirectory?: string,
   execute: HookExecutor = promisify(execFile),
   installed = false,
-): Promise<AgentHooks> {
+): Promise<AgentHooks & { disposeAndWait(): Promise<void> }> {
   const temporary = await mkdtemp(join(scratch, "foom-v2-hooks-"));
   const cleanupState: { removal?: Promise<void> } = {};
   try {
@@ -151,6 +151,10 @@ export async function prepareV2Hooks(
           if (!disposed) bind(key, terminal);
         },
         dispose,
+        disposeAndWait: async () => {
+          dispose();
+          await cleanupState.removal;
+        },
       };
     } catch (error) {
       dispose();

@@ -440,3 +440,7 @@ Up to eight entries may carry whole owned file paths or short fixed literals.
 Names exclude runtime injection, command selectors (such as `EDITOR` and `PAGER`),
 code-loading paths, resolver overrides, `TMPDIR`, proxy, credential and Foom
 variables; values never expand the inherited environment. See the [complete rules and diagnostics](contracts/agent-launch.md#per-launch-manifest-environment-636).
+
+## Probe hook and MCP verification (#593)
+
+See [probe verification](contracts/agent-report.md#probe-hook-and-mcp-verification-593).

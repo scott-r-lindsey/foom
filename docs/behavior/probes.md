@@ -9,8 +9,8 @@ A config session can start and drive one probe at a time with its own bundled
 v2 manifest supplied with `--manifest`, in a fresh temporary Git repository made
 by Foom. It never uses a managed repository or worktree. User default arguments
 are not applied, and known bypass arguments and environment variables are refused.
-The probe receives the login-shell environment without Foom credentials or MCP
-grants. This is a working-directory boundary, not an OS sandbox: the real CLI
+The probe receives the login-shell environment without inherited Foom credentials or repository MCP
+grants. It receives isolated hook and ping-only MCP verification credentials. This is a working-directory boundary, not an OS sandbox: the real CLI
 runs on the user's account, can access files and network as that account, and may
 use credits. Enter is allowed, including at approval prompts.
 
@@ -41,8 +41,15 @@ The CLI provides `start <agent> [--manifest <path>] [--resume <conversationId>]`
 `send <probe> <text>` (text followed by Enter),
 `keys <probe> <esc|ctrl-c|enter|up|down|tab>`,
 `wait <probe> --quiet <seconds>` or `--timeout <seconds>`, `screen <probe>`,
-`state <probe>`, and `stop <probe>`, below `foom agent probe`. Screen and state
+`state <probe>`, `events <probe>`, and `stop <probe>`, below `foom agent probe`. Screen and state
 results are JSON. Quiet waits reset on output; timeout waits wait the requested
 elapsed time. Both are bounded by the probe's remaining lifetime.
 
-Probe screens can be saved with `screen <probe> --save working|blocked|idle|other` and replayed with `foom config test-rules <agentId> [--json]`. These are raw attention-rule labels, not completion; `done` is rejected. Captures remain private and local. See [capture/replay rules](../contracts/agent-report.md#saved-screen-rule-regressions-592). Hook/MCP verification and guide automation remain separate (#593–#594).
+Probe screens can be saved with `screen <probe> --save working|blocked|idle|other` and replayed with `foom config test-rules <agentId> [--json]`. These are raw attention-rule labels, not completion; `done` is rejected. Captures remain private and local. See [capture/replay rules](../contracts/agent-report.md#saved-screen-rule-regressions-592). Guide automation remains separate (#594).
+
+`events` reports bounded hook field paths and mapping facts without payload values,
+and whether its isolated MCP endpoint was connected, listed or pinged. Probe-only
+preparation enables disabled verification facts while preserving version/help gates;
+normal launches retain them. `state` reflects accepted hook actions. The probe MCP
+endpoint exposes only ping and cannot access repository or orchestration tools.
+See [the verification contract](../contracts/agent-report.md#probe-hook-and-mcp-verification-593).
