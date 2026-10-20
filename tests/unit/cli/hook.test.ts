@@ -219,3 +219,43 @@ it("offline config validation accepts external channels and rejects observer opt
   await writeFile(file, JSON.stringify(changed));
   expect(await validateConfig(file)).toMatchObject({ code: 1 });
 });
+
+it("silently consumes an interrupted error response", async () => {
+  const { env } = await setup();
+  let interrupted: (() => void) | undefined;
+  const closed = new Promise<void>((resolve) => {
+    interrupted = resolve;
+  });
+  const server = createServer((_request, response) => {
+    response.writeHead(400, { "Content-Length": 100 });
+    response.write("x");
+    // Permit headers to arrive, then exercise the response stream's failure path.
+    setTimeout(() => {
+      response.destroy();
+      interrupted?.();
+    }, 10);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  cleanup.push(() => {
+    server.closeAllConnections();
+    return new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw Error("Missing address");
+  const output = vi.fn();
+  expect(
+    await execute(
+      ["hook", "Working"],
+      "1",
+      { out: output, error: output, input: input() },
+      { ...env, FOOM_HOOK_URL: `http://127.0.0.1:${String(address.port)}/hooks` },
+      "foom",
+    ),
+  ).toBe(1);
+  await closed;
+  expect(output).not.toHaveBeenCalled();
+});

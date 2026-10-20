@@ -69,6 +69,7 @@ export async function hookCommand(
           },
         },
         (response) => {
+          response.on("error", resolve.bind(undefined, 1));
           response.resume();
           resolve(response.statusCode === 204 ? 0 : 1);
         },
