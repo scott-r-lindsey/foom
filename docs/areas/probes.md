@@ -76,7 +76,7 @@ honors this projection across execution events and drops it when main clears it.
 The fixture harness may inject a shorter delay; no config setting or renderer IPC
 can change it. A profile-only list of agent IDs records the terse first-probe credit
 note; it contains no terminal content or credential. Session persistence excludes
-probe rows. [Capture persistence and replay](../contracts/agent-report.md#saved-screen-rule-regressions-592) compare raw rule states through the live matcher; idle does not imply Done. The guide workflow (#594) remains separate.
+probe rows. [Capture persistence and replay](../contracts/agent-report.md#saved-screen-rule-regressions-592) compare raw rule states through the live matcher; idle does not imply Done. The config guide walks through capture/replay, fresh live and resume checks, then hook/MCP verification before enabling facts.
 
 ### Config decisions and live launch catalogs (#591 follow-up)
 
