@@ -18,7 +18,8 @@ ahead of user Environment entries and that PATH. Foom writes
 its files at first launch and replaces one on upgrade only when it is missing or
 byte-identical to a version Foom shipped earlier (`OWNED_HISTORY`), so user edits
 survive. Guide edits append the new digest to `tests/fixtures/config/guide-digests.json`
-and retain every earlier digest in all three guide entries in `OWNED_HISTORY`;
+and retain every earlier digest once in `GUIDE_HISTORY`, shared by all three
+`OWNED_HISTORY` guide entries;
 the layout unit test enforces this. The folder is plain files (#540): Foom never creates, reads or writes a
 `.git` there, and leaves an existing one untouched. `.gitignore` excludes recordings
 under `sounds/` and keeps `.gitkeep` files, for users who keep the folder in their
@@ -50,6 +51,8 @@ replacement retries EPERM/EBUSY up to five attempts with 25, 50, 100 and 200 ms
 backoff for transient external sharing locks. It never unlinks the destination;
 exhaustion removes the temporary file, reports a fixed error naming the config
 file, and retains the existing file, applied values and pending approval.
+
+`config/service.ts` keeps approval baselines, held settings and theme changes, trusted argument disclosure, and decision revalidation together. `config/files.ts` owns bounded reads, directory containment and atomic replacement; `config/catalog.ts` owns theme path discovery and agent and forge manifest discovery, validation and reload.
 
 **Live reload.** Main watches `settings.json`, `themes/` and `terminal-themes/`,
 waits 250 ms after the last event and scans serially. When `themes` or

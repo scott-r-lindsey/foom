@@ -581,3 +581,16 @@ it("delivers a private MCP file through environment alone and omits unselected v
     { name: "AGENT_MODE", value: "fixed" },
   ]);
 });
+
+it("keeps an environment-selected data file when its separate MCP argv attachment is unavailable", async () => {
+  const m = model();
+  const file = required(m.files[0]);
+  file.content = '{"name":"launch data"}';
+  file.when = undefined;
+  m.launch.environment = [{ name: "AGENT_CONFIG", value: `{file:${file.name}}`, when: undefined }];
+  const { prepared } = await launch(model(m));
+  expect(prepared.mcp).toBe(false);
+  const path = required(prepared.environment?.[0]).value;
+  expect(await readFile(path, "utf8")).toBe('{"name":"launch data"}');
+  expect(prepared.args).not.toContain(path);
+});

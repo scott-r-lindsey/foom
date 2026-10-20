@@ -4,6 +4,8 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 ## Previews
 
+`previews/host.ts` owns view lifetime, focus handoff, bounds, snapshots and transfers. `previews/partition.ts` creates the isolated session and view, serves preview responses and checks request/navigation policy; `previews/hosted-preview.d.ts` declares the per-view state.
+
 Main owns a `PreviewHost` per board window and registers the standard, secure
 `foom-preview` scheme before readiness. Each view has an in-memory `preview-<id>`
 partition and an origin named by a random 128-bit ID. Its session handler captures
