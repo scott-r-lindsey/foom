@@ -1,3 +1,4 @@
+import { ActionError } from "../board/error-presentation";
 import type { ReactNode } from "react";
 import type { SetupSource } from "./setup-source.d";
 
@@ -22,6 +23,7 @@ export function SettingsFrame({
   onClose,
   go,
   error,
+  dismissError,
   children,
 }: {
   source: SetupSource;
@@ -30,6 +32,7 @@ export function SettingsFrame({
   onClose: (() => void) | undefined;
   go: (step: number) => void;
   error: string | undefined;
+  dismissError: () => void;
   children: ReactNode;
 }) {
   return (
@@ -75,11 +78,7 @@ export function SettingsFrame({
             </legend>
             {children}
           </fieldset>
-          {error && (
-            <p className="preflight-error" role="alert">
-              {error}
-            </p>
-          )}
+          {error && <ActionError message={error} close={dismissError} />}
         </div>
       </div>
     </section>

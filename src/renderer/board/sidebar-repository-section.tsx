@@ -1,3 +1,5 @@
+import { repositoryKey } from "./sidebar-model";
+import { BackgroundErrorMark } from "./error-presentation";
 import type { SidebarRowEvents } from "./sidebar-interactions.d";
 import type { ReactNode } from "react";
 import type { SidebarTree } from "./sidebar.d";
@@ -92,6 +94,7 @@ export function SidebarRepositorySection({
               </span>
             </>
           )}
+          <BackgroundErrorMark row={repositoryKey(repo.repository.path)} />
           {actions}
         </div>
         {repo.expanded && (

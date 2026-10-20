@@ -73,3 +73,7 @@ See [area rules](behavior/settings.md#foom-config).
 
 <a id="shell-status"></a>
 See [area rules](behavior/attention.md#shell-status).
+
+## Error presentation
+
+See [Error presentation](behavior/errors.md#error-presentation).

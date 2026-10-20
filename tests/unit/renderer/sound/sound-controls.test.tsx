@@ -1,9 +1,26 @@
+import type { ReactNode } from "react";
+import type { RenderOptions } from "@testing-library/react";
+import {
+  ErrorPresentation,
+  BackgroundErrorMark,
+} from "../../../../src/renderer/board/error-presentation";
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderView, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { SoundControls } from "../../../../src/renderer/sound/sound-controls";
 import { DEFAULT_SOUND } from "../../../../src/shared/sounds";
 import type { SoundKind, SoundEntry } from "../../../../src/shared/sound";
+const render = (ui: ReactNode, options?: RenderOptions) =>
+  renderView(ui, {
+    ...options,
+    wrapper: ({ children }) => (
+      <ErrorPresentation>
+        {children}
+        <BackgroundErrorMark />
+      </ErrorPresentation>
+    ),
+  });
+
 const sink = vi.hoisted(() => ({
   configure: vi.fn(),
   working: vi.fn(),
@@ -147,7 +164,7 @@ test("failed and late catalog responses do not break or update an unmounted view
   await settle(() => {
     render(<SoundControls settings={DEFAULT_SOUND} onChange={f.change} />);
   });
-  expect(screen.getByRole("alert").textContent).toContain("Unable to list");
+  expect(screen.getByText("Unable to list sounds.").textContent).toContain("Unable to list");
   cleanup();
   let resolve: ((value: SoundEntry[]) => void) | undefined;
   f.api.list.mockReturnValueOnce(

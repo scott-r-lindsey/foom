@@ -176,7 +176,9 @@ test("opens the popout's initial session once inventory arrives and reports oper
     f.command("split-right");
     await Promise.resolve();
   });
-  expect(view.getByRole("alert").textContent).toContain("Unable to reserve");
+  expect(view.getByText("Unable to reserve terminal views.").textContent).toContain(
+    "Unable to reserve",
+  );
 });
 
 test("existing profiles migrate their split layout once, without copying it into later windows", () => {

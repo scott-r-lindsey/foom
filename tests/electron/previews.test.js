@@ -101,6 +101,7 @@ test("worktree panel previews pick contained Markdown and HTML, persist v2 tiles
     await page.getByRole("menuitem", { name: "Preview file…", exact: true }).click();
     await expect(page.getByRole("alert")).toBeVisible();
     await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
+    await page.getByRole("button", { name: "Dismiss", exact: true }).click();
   }
   await app.evaluate(({ dialog }) => {
     dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });

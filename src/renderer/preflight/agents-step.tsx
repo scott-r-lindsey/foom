@@ -1,3 +1,4 @@
+import { ActionError, useBackgroundErrors } from "../board/error-presentation";
 import { useEffect, useEffectEvent, useState } from "react";
 import { builtinAgent } from "../../shared/providers/catalog";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
@@ -33,12 +34,14 @@ export function AgentsStep({
     source?: SetupSource | undefined;
     saveArguments: (id: string, args: readonly string[]) => Promise<void>;
   }) {
+  const { report: reportFailure, clear } = useBackgroundErrors();
   const [config, setConfig] = useState<ConfigStatus>();
   const [error, setError] = useState("");
   const [reviewing, setReviewing] = useState(false);
   const configSource = source?.config;
   const configChanged = useEffectEvent((next: ConfigStatus) => {
     setConfig(next);
+    clear("agent-catalog");
     void scan(true);
   });
   const refresh = useEffectEvent(() => {
@@ -53,10 +56,13 @@ export function AgentsStep({
     };
     void configSource.status().then(
       (next) => {
-        if (active) setConfig(next);
+        if (active) {
+          setConfig(next);
+          clear("agent-catalog");
+        }
       },
-      (caught: unknown) => {
-        if (active) setError(message(caught));
+      () => {
+        if (active) reportFailure("agent-catalog", "Unable to load agent settings.");
       },
     );
     const dispose = configSource.subscribe(receive);
@@ -64,7 +70,7 @@ export function AgentsStep({
       active = false;
       dispose();
     };
-  }, [configSource]);
+  }, [configSource, clear, reportFailure]);
   const rejected = (config?.agentPlugins ?? []).filter((plugin) => !builtinAgent(plugin.id));
   const choices = [
     ...agentChoices(report),
@@ -98,9 +104,12 @@ export function AgentsStep({
       </header>
       {report?.warning && <p className="preflight-warning">{report.warning}</p>}
       {error && (
-        <p className="preflight-error" role="alert">
-          {error}
-        </p>
+        <ActionError
+          message={error}
+          close={() => {
+            setError("");
+          }}
+        />
       )}
       <div className="agent-cards">
         {choices.map(({ id, name, command }) => {

@@ -92,11 +92,9 @@ export function createShell(
   let exited = false;
   let hostFailed = false;
   let terminalStatus = "Starting shell…";
-  const showOperationError = (prefix: string, error: unknown) => {
+  const showOperationError = (prefix: string, _error: unknown) => {
     // Host exit can arrive before a pending IPC operation rejects.
-    view.status = hostFailed
-      ? terminalStatus
-      : `${prefix}: ${error instanceof Error ? error.message : String(error)}`;
+    view.status = hostFailed ? terminalStatus : prefix;
     publish();
   };
   const visibility = (visible: boolean) => {

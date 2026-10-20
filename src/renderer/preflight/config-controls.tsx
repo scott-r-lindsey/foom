@@ -1,3 +1,5 @@
+import { ActionError, useBackgroundErrors } from "../board/error-presentation";
+import { errorMessage } from "../../shared/application-errors";
 import { useEffect, useState } from "react";
 import type { ConfigPending, ConfigStatus } from "../../shared/foom-config";
 import type { SetupSource } from "./setup-source.d";
@@ -6,6 +8,7 @@ type ConfigSource = NonNullable<SetupSource["config"]>;
 
 /** Settings → Foom config: the folder, and only what needs the user now. */
 export function ConfigControls({ config }: { config: ConfigSource }) {
+  const { report, clear } = useBackgroundErrors();
   const [status, setStatus] = useState<ConfigStatus>();
   const pending = status?.pending;
   const [error, setError] = useState("");
@@ -14,22 +17,28 @@ export function ConfigControls({ config }: { config: ConfigSource }) {
     let active = true;
     void config.status().then(
       (next) => {
-        if (active) setStatus(next);
+        if (active) {
+          setStatus(next);
+          clear("config-status");
+        }
       },
       () => {
-        if (active) setError("Foom config is unavailable.");
+        if (active) report("config-status", "Foom config is unavailable.");
       },
     );
-    const unsubscribe = config.subscribe(setStatus);
+    const unsubscribe = config.subscribe((status) => {
+      setStatus(status);
+      clear("config-status");
+    });
     return () => {
       active = false;
       unsubscribe();
     };
-  }, [config]);
+  }, [config, clear, report]);
   const openFolder = () => {
     setError("");
     void config.openFolder().catch((reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : "Unable to update Foom config.");
+      setError(errorMessage(reason, "Unable to update Foom config."));
     });
   };
   return (
@@ -59,9 +68,12 @@ export function ConfigControls({ config }: { config: ConfigSource }) {
         </ul>
       ) : null}
       {error && (
-        <p className="preflight-error" role="alert">
-          {error}
-        </p>
+        <ActionError
+          message={error}
+          close={() => {
+            setError("");
+          }}
+        />
       )}
     </div>
   );
@@ -85,7 +97,7 @@ export function ConfigDecision({
     void decide(decision, pending.id)
       .then(onDecided)
       .catch((reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : "Unable to update Foom config.");
+        setError(errorMessage(reason, "Unable to update Foom config."));
       })
       .finally(() => {
         setBusy(false);
@@ -118,7 +130,14 @@ export function ConfigDecision({
       >
         Keep it on
       </button>
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <ActionError
+          message={error}
+          close={() => {
+            setError("");
+          }}
+        />
+      )}
     </section>
   );
 }

@@ -181,13 +181,13 @@ See [area rules](areas/providers.md#consolidated-agent-settings-409).
 <a id="config-decisions-and-live-launch-catalogs-591-follow-up"></a>
 See [area rules](areas/probes.md#config-decisions-and-live-launch-catalogs-591-follow-up).
 
-User-authored code extensions can report lifecycle observations through the
-[public hook protocol 1](agent-plugins.md#user-authored-extensions-public-hook-protocol-1-635).
-`foom hook` sends bounded stdin JSON using only the current launch's hook credential;
-external manifest channels attach no files or arguments. The existing hook receiver
-owns authentication, reduction, dedupe, conversation pinning and revocation. The
-extension is installed by the user, with no global agent configuration writes by
-Foom or its config agent.
+## Coded capability errors
+
+See [Coded capability errors](areas/errors.md#coded-capability-errors) and [pruning stale worktrees](areas/worktrees.md#pruning-stale-worktrees).
+
+## External lifecycle hooks
+
+See [Agent hooks](areas/agent-hooks.md) and [public hook protocol 1](agent-plugins.md#user-authored-extensions-public-hook-protocol-1-635).
 
 ### Probe verification (#593)
 

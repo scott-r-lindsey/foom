@@ -102,6 +102,7 @@ process.stdin.resume();
     `
 const fs=require('node:fs'); const {execFileSync}=require('node:child_process');
 const cli=process.platform==='win32'?'foom.exe':'foom';
+const writeResult=(target,text) => { fs.writeFileSync(target+'.tmp',text); fs.renameSync(target+'.tmp',target); };
 const call=(...args) => JSON.parse(execFileSync(cli,['agent','probe',...args],{encoding:'utf8',env:process.env})).result;
 // This deterministic fixture agent receives the shipped guide/starter, not a prepared target manifest.
 const guide=fs.readFileSync('AGENTS.md','utf8');
@@ -118,7 +119,7 @@ fs.mkdirSync(require('node:path').dirname(${JSON.stringify(draft)}),{recursive:t
 fs.writeFileSync(${JSON.stringify(draft)},JSON.stringify(target));
 execFileSync(cli,['config','validate',${JSON.stringify(draft)}],{encoding:'utf8',env:process.env});
 const probe=call('start','opencode','--manifest',${JSON.stringify(draft)}).probe;
-fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1}));
+writeResult(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1}));
 console.log('DRIVER_READY');
 require('node:readline').createInterface({input:process.stdin}).on('line', line => {
   try {
@@ -128,7 +129,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       call('wait',probe,'--quiet','0.1');
       const before=call('screen',probe); const state=call('state',probe); const saved=call('screen',probe,'--save','other');
       call('send',probe,'yes'); call('keys',probe,'tab'); call('wait',probe,'--quiet','0.1');
-      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1,before,state,saved,after:call('screen',probe)}));
+      writeResult(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1,before,state,saved,after:call('screen',probe)}));
       console.log('SCREEN_READY');
     } else if(line==='install') {
       fs.copyFileSync(${JSON.stringify(draft)},require('node:path').join(process.cwd(),'agents/opencode.json')); console.log('MANIFEST_INSTALLED');
@@ -136,7 +137,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       const rules=JSON.parse(execFileSync(cli,['config','test-rules','opencode','--json'],{encoding:'utf8',env:process.env})).result;
       execFileSync(cli,['config','validate','.'],{encoding:'utf8',env:process.env});
       const previous=JSON.parse(fs.readFileSync(${JSON.stringify(result)},'utf8'));
-      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({...previous,rules}));
+      writeResult(${JSON.stringify(result)},JSON.stringify({...previous,rules}));
     } else if(line==='hold') {
       const settings=JSON.parse(fs.readFileSync('settings.json','utf8'));
       settings.agentArguments={claude:[],codex:[],agy:[],...settings.agentArguments,opencode:['--fixture']};
@@ -144,7 +145,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       execFileSync(cli,['config','validate','settings.json'],{encoding:'utf8',env:process.env});
       const status=JSON.parse(execFileSync(cli,['config','status','--json'],{encoding:'utf8',env:process.env})).result;
       const previous=JSON.parse(fs.readFileSync(${JSON.stringify(result)},'utf8'));
-      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({...previous,status}));
+      writeResult(${JSON.stringify(result)},JSON.stringify({...previous,status}));
       if(status.pending) console.log('Settings held: '+status.pending.detail+'. Choose Allow / Keep it on in Foom config.');
     } else if(line==='exit') {process.exit(0);
     } else if(line==='restart') {
@@ -155,10 +156,10 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       const launch=JSON.parse(fs.readFileSync(${JSON.stringify(details)},'utf8'));
       const stopped=call('stop',second);
       const previous=JSON.parse(fs.readFileSync(${JSON.stringify(result)},'utf8'));
-      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({...previous,second:{probe:second,screen,launch,...stopped}}));
+      writeResult(${JSON.stringify(result)},JSON.stringify({...previous,second:{probe:second,screen,launch,...stopped}}));
       console.log('SECOND_STOPPED');
     }
-  } catch(error) {fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({error:error.message}));console.error(error.message);}
+  } catch(error) {writeResult(${JSON.stringify(result)},JSON.stringify({error:error.message}));console.error(error.message);}
 });
 `,
   );

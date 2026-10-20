@@ -1,3 +1,4 @@
+import { useBackgroundErrors } from "./error-presentation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TERMINAL_FONT_FALLBACK, terminalFontStack } from "../../shared/terminal-fonts";
 import type { PreviewSummary } from "../../shared/workspace";
@@ -40,6 +41,7 @@ export function useBoardTiles({
   setArrivals: Dispatch<SetStateAction<ReadonlySet<string>>>;
   setRemoveError: Dispatch<SetStateAction<string>>;
 }) {
+  const { report, clear } = useBackgroundErrors();
   const [otherViews, setOtherViews] = useState<ReadonlySet<string>>(() => new Set());
   const [layout, setLayout] = useState(() => {
     try {
@@ -79,7 +81,7 @@ export function useBoardTiles({
   const layoutRef = useRef(layout);
   const [focusRequest, setFocusRequest] = useState(0);
   const changeLayout = useCallback(
-    (next: TileLayout) => {
+    (next: TileLayout, background = false) => {
       next = {
         ...next,
         sidebarCollapsed: next.sidebarCollapsed ?? layoutRef.current.sidebarCollapsed ?? false,
@@ -103,20 +105,28 @@ export function useBoardTiles({
       });
       for (const tile of leaves(layoutRef.current.tree)) {
         if (tile.content?.kind === "preview" && !retained.has(tile.content.preview)) {
-          void source.previews?.close(tile.content.preview).catch(() => {
-            setRemoveError("Unable to close preview.");
-          });
+          const id = tile.content.preview;
+          void source.previews
+            ?.close(id)
+            .then(() => {
+              clear(`preview-close:${id}`);
+            })
+            .catch(() => {
+              if (background) report(`preview-close:${id}`, "Unable to close preview.", id);
+              else setRemoveError("Unable to close preview.");
+            });
         }
       }
       layoutRef.current = next;
       setLayout(next);
       try {
         saveLayout(localStorage, next, storageKey);
+        clear("tile-layout");
       } catch {
-        setRemoveError("Unable to save tile layout.");
+        report("tile-layout", "Unable to save tile layout.");
       }
     },
-    [storageKey, source],
+    [storageKey, source, clear, report],
   );
   const placementOptions = useCallback(() => {
     const area = boardRef.current?.querySelector(".tile-area");
@@ -148,7 +158,7 @@ export function useBoardTiles({
         const placed = placeAgentPreview(layoutRef.current, id, placementOptions());
         if (placed.layout !== layoutRef.current) {
           setArrivals((current) => new Set([...current, id]));
-          changeLayout(placed.layout);
+          changeLayout(placed.layout, true);
         }
         return Promise.resolve(placed.placement);
       }),
@@ -172,11 +182,12 @@ export function useBoardTiles({
       setLayout(next);
       try {
         saveLayout(localStorage, next, storageKey);
+        clear("tile-layout");
       } catch {
-        setRemoveError("Unable to save tile layout.");
+        report("tile-layout", "Unable to save tile layout.");
       }
     }
-  }, [source, rows, previews, storageKey]);
+  }, [source, rows, previews, storageKey, clear, report]);
   useEffect(() => {
     const api = source.windows;
     if (!api) return;
@@ -199,6 +210,7 @@ export function useBoardTiles({
           sessions: ids,
           previews: new Set(previews.map((preview) => preview.id)),
         }),
+        true,
       );
     });
     void api
@@ -232,19 +244,23 @@ export function useBoardTiles({
     void source.windows
       .sync(ids)
       .then((accepted) => {
+        if (reservationRef.current === reservation) clear("terminal-views");
         if (layoutRef.current === current && ids.some((id) => !accepted.includes(id)))
           changeLayout(
             pruneContent(current, {
               sessions: new Set(accepted),
               previews: new Set(previews.map((preview) => preview.id)),
             }),
+            true,
           );
       })
       .catch(() => {
-        if (reservationRef.current === reservation) reservationRef.current = undefined;
-        setRemoveError("Unable to reserve terminal views.");
+        if (reservationRef.current === reservation) {
+          reservationRef.current = undefined;
+          report("terminal-views", "Unable to reserve terminal views.");
+        }
       });
-  }, [source, rows, previews, layout, changeLayout]);
+  }, [source, rows, previews, layout, changeLayout, clear, report]);
   const tileAction = useCallback(
     (
       tile: string,

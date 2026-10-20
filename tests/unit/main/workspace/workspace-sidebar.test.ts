@@ -291,3 +291,33 @@ test("publishes transient MCP connection changes and removes them on revocation"
   expect(workspace.snapshot().terminals[0]?.mcpConnection).toBeUndefined();
   await workspace.dispose();
 });
+
+test("prune uses the named repository and checkout, refuses sessions and releases its operation lock", async () => {
+  const workspace = new Workspace(deps);
+  const command = { kind: "prune-worktree", repository: repo.path, worktree: tree.path } as const;
+  const confirm = vi.fn(() => Promise.resolve(true));
+  await workspace.sidebarCommand(command, confirm);
+  expect(deps.worktrees.pruneWorktree).toHaveBeenCalledWith(repo.path, tree.path);
+  expect(confirm).not.toHaveBeenCalled();
+  let finish: (() => void) | undefined;
+  vi.mocked(deps.worktrees.pruneWorktree).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const pending = workspace.sidebarCommand(command, confirm);
+  await vi.waitFor(() => {
+    expect(finish).toBeTypeOf("function");
+  });
+  await expect(workspace.sidebarCommand(command, confirm)).rejects.toThrow("busy");
+  finish?.();
+  await pending;
+  vi.mocked(deps.worktrees.pruneWorktree).mockRejectedValueOnce(new Error("refused"));
+  await expect(workspace.sidebarCommand(command, confirm)).rejects.toThrow("refused");
+  await workspace.sidebarCommand(command, confirm);
+  await workspace.startWorktree(start, confirm);
+  await expect(workspace.sidebarCommand(command, confirm)).rejects.toThrow(
+    "Close this worktree's sessions first",
+  );
+});

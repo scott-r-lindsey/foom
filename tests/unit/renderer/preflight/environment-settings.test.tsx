@@ -106,7 +106,7 @@ test("credentials in a URL force Secret; main's refusal is shown on the row", as
   expect(secret).toHaveProperty("disabled", true);
   fireEvent.focusOut(value);
   await waitFor(() => {
-    expect(within(group).getByRole("alert").textContent).toBe("Refused by main");
+    expect(within(group).getByRole("alert").textContent).toBe("Unable to update settings.");
   });
   expect(api.saveEnvironment).toHaveBeenCalledWith(
     expect.objectContaining({ name: "HTTPS_PROXY", secret: true }),
@@ -209,7 +209,7 @@ test("import offers main's candidates and adds only the picked ones", async () =
   });
   api.readShellEnvironment.mockRejectedValueOnce(new Error("Unable to read the login shell"));
   fireEvent.click(screen.getByRole("button", { name: "Import from login shell" }));
-  expect((await screen.findByRole("alert")).textContent).toBe("Unable to read the login shell");
+  expect((await screen.findByRole("alert")).textContent).toBe("Unable to update settings.");
 });
 
 test("reports a failed load and refuses secrets without a keychain", async () => {
@@ -223,7 +223,7 @@ test("reports a failed load and refuses secrets without a keychain", async () =>
       scopes={["all", "claude", "codex", "agy"]}
     />,
   );
-  expect((await screen.findByRole("alert")).textContent).toBe("Unavailable");
+  expect((await screen.findByRole("alert")).textContent).toBe("Unable to update settings.");
   cleanup();
   source(state({}, { secrets: false, windows: true }));
   fireEvent.change(await screen.findByLabelText("New All sessions variable name"), {

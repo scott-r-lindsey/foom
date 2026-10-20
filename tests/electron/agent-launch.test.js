@@ -79,7 +79,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
       cols: 80,
       rows: 24,
     }),
-    /Worktree is missing/,
+    /foom-error:worktree-missing/,
   );
 
   const launched = await page.evaluate((request) => window.desktop.launchAgent(request), {

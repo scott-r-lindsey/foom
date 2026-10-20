@@ -1,3 +1,7 @@
+import {
+  ErrorPresentation,
+  BackgroundErrorMark,
+} from "../../../../src/renderer/board/error-presentation";
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -236,14 +240,21 @@ test("a rejected final sound save restores main's settings and permits another e
   const initial = setupState({ setupComplete: true });
   const source = fake(initial);
   source.save.mockRejectedValueOnce(Error("Disk full"));
-  render(<Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />);
+  render(
+    <ErrorPresentation>
+      <Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />
+      <BackgroundErrorMark />
+    </ErrorPresentation>,
+  );
   fireEvent.click(button("Sound"));
   const slider = screen.getByLabelText("Working volume");
   await act(async () => {
     fireEvent.change(slider, { target: { value: "80" } });
     await Promise.resolve();
   });
-  expect(screen.getByRole("alert").textContent).toBe("Disk full");
+  expect(screen.getByText("Unable to save sound preferences.").textContent).toContain(
+    "Unable to save sound preferences.",
+  );
   expect(slider).toHaveProperty("value", "15");
   source.save.mockRejectedValueOnce(Error("Offline"));
   source.state.mockRejectedValueOnce(Error("Offline"));
@@ -251,7 +262,9 @@ test("a rejected final sound save restores main's settings and permits another e
     fireEvent.change(slider, { target: { value: "70" } });
     await Promise.resolve();
   });
-  expect(screen.getByRole("alert").textContent).toBe("Offline");
+  expect(screen.getByText("Unable to save sound preferences.").textContent).toContain(
+    "Unable to save sound preferences.",
+  );
   await act(async () => {
     fireEvent.change(slider, { target: { value: "60" } });
     await Promise.resolve();
@@ -377,12 +390,12 @@ test("errors from main are shown without the IPC wrapper", async () => {
     new Error("Error invoking remote method 'setup:save': Error: Disk full"),
   );
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
-  await screen.findByRole("alert");
+  await screen.findByText("Unable to load repositories.");
   fireEvent.click(screen.getByLabelText("Dark"));
   await waitFor(() => {
-    expect(screen.getByRole("alert").textContent).toBe("Disk full");
+    expect(screen.getByRole("alert").textContent).toBe("Unable to update settings.");
   });
-  expect(message("plain")).toBe("plain");
+  expect(message("plain")).toBe("Unable to update settings.");
 });
 
 test("a failed launch save keeps preflight open with the error", async () => {
@@ -395,8 +408,8 @@ test("a failed launch save keeps preflight open with the error", async () => {
   await screen.findByText("All stations go.");
   source.save.mockRejectedValueOnce(new Error("Disk full"));
   fireEvent.click(button("Launch"));
-  await screen.findByText("Disk full");
-  expect(screen.queryByRole("dialog")).toBeNull();
+  await screen.findByText("Unable to update settings.");
+  expect(screen.getByRole("dialog", { name: "Action failed" })).toBeTruthy();
 });
 
 test("appearance applies at once, follows shortcuts from main, and stays within its steps", async () => {
@@ -447,7 +460,7 @@ test("appearance applies at once, follows shortcuts from main, and stays within 
   source.save.mockRejectedValueOnce(new Error("Disk full"));
   fireEvent.click(button("Larger"));
   expect(screen.getByText("90%")).toBeTruthy();
-  await screen.findByText("Disk full");
+  await screen.findByText("Unable to update settings.");
   // The fake last saved 300, so that is what comes back.
   await waitFor(() => {
     expect(screen.getByText("300%")).toBeTruthy();
@@ -485,14 +498,12 @@ test("a refused or failed selection keeps you on Repositories with the reason", 
     failures: [{ path: "/home/me/code/app", message: "Has 1 worktree Foom made; remove it first" }],
   });
   fireEvent.click(button("Continue"));
-  expect((await screen.findByRole("alert")).textContent).toBe(
-    "app: Has 1 worktree Foom made; remove it first",
-  );
+  expect((await screen.findByRole("alert")).textContent).toBe("Unable to update repositories.");
   expect(screen.getByText("Where do you keep your code?")).toBeTruthy();
   source.apply.mockRejectedValueOnce(new Error("Choose repositories from the latest scan"));
   fireEvent.click(button("Continue"));
   await waitFor(() => {
-    expect(screen.getByRole("alert").textContent).toBe("Choose repositories from the latest scan");
+    expect(screen.getByRole("alert").textContent).toBe("Unable to update settings.");
   });
   // Nothing to save: moving on needs no apply.
   fireEvent.click(screen.getByRole("checkbox", { name: /^app/ }));
@@ -544,7 +555,7 @@ test("scans show live progress; a saved folder is rescanned on arrival; failures
     new Error("Error invoking remote method 'setup:scan-code': Error: EACCES"),
   );
   fireEvent.click(button("Scan again"));
-  expect((await screen.findByRole("alert")).textContent).toBe("EACCES");
+  expect((await screen.findByRole("alert")).textContent).toBe("Unable to update settings.");
 });
 
 test("Settings shares setup controls, saves immediately and exposes planned sections", async () => {
@@ -696,11 +707,11 @@ test("Settings rolls back refused repository changes and prevents leaving during
       failures: [{ path: "/home/me/code/app", message: "Repository unavailable" }],
     });
   });
-  expect(screen.getByRole("alert").textContent).toContain("Repository unavailable");
+  expect(screen.getByRole("alert").textContent).toBe("Unable to update repositories.");
   expect(screen.getByRole("checkbox", { name: /app/ })).toHaveProperty("checked", false);
   source.apply.mockRejectedValueOnce(new Error("Cannot write"));
   fireEvent.click(screen.getByRole("checkbox", { name: /app/ }));
-  await screen.findByText("Cannot write");
+  await screen.findByText("Unable to update settings.");
   expect(source.apply).toHaveBeenLastCalledWith(["/home/me/code/app"]);
   expect(screen.getByRole("checkbox", { name: /app/ })).toHaveProperty("checked", false);
   fireEvent.click(button("Close settings (Esc)"));
@@ -787,7 +798,7 @@ test("agent setup waits for explicit plugin installation, refreshes status and r
   expect(source.changeAgyPlugin).toHaveBeenCalledWith("install");
   source.changeAgyPlugin.mockRejectedValueOnce(new Error("Plugin command failed"));
   fireEvent.click(button("Remove plugin"));
-  await screen.findByText("Plugin command failed");
+  await screen.findByText("Unable to update settings.");
   expect(button("Remove plugin")).toHaveProperty("disabled", false);
 });
 
@@ -874,7 +885,7 @@ test("concurrent card saves preserve other agents' defaults and continue after a
   fireEvent.blur(claude);
   fireEvent.change(codex, { target: { value: "--model\ntwo" } });
   fireEvent.blur(codex);
-  await screen.findByText("First save refused");
+  await screen.findByText("Unable to update settings.");
   await waitFor(() => {
     expect(source.save).toHaveBeenLastCalledWith({
       agentArguments: { claude: [], codex: ["--model", "two"], agy: [] },
@@ -976,4 +987,31 @@ test("editing recent days in first run saves without rescanning or clearing sele
   expect(screen.getByRole("checkbox", { name: "app" })).toHaveProperty("checked", true);
   expect(screen.getByRole("checkbox", { name: "old" })).toHaveProperty("checked", false);
   expect(source.scan).toHaveBeenCalledTimes(1);
+});
+
+test("a Settings action failure dismisses inside the Settings frame without closing Settings", async () => {
+  const initial = setupState({ setupComplete: true });
+  const source = fake(initial);
+  const close = vi.fn();
+  render(
+    <Preflight
+      source={source}
+      initial={initial}
+      settingsMode
+      onClose={close}
+      onLaunched={vi.fn()}
+    />,
+  );
+  fireEvent.click(button("Appearance"));
+  source.save.mockRejectedValueOnce(
+    new Error("Error invoking remote method 'setup:save': Error: private details"),
+  );
+  fireEvent.click(screen.getByLabelText("Dark"));
+  expect((await screen.findByRole("dialog", { name: "Action failed" })).textContent).toContain(
+    "Unable to update settings.",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+  expect(screen.queryByRole("dialog", { name: "Action failed" })).toBeNull();
+  expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
+  expect(close).not.toHaveBeenCalled();
 });

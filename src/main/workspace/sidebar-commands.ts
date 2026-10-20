@@ -181,6 +181,25 @@ export async function sidebarCommand(
     return;
   }
   this.known(command.repository);
+  if (command.kind === "prune-worktree") {
+    await this.withRepository(command.repository, async () => {
+      if ([...this.launched.values()].some((entry) => entry.worktree === command.worktree))
+        throw new Error("Close this worktree's sessions first");
+      const tree = (await this.worktrees(command.repository)).find(
+        (tree) => tree.path === command.worktree,
+      );
+      const key = `${command.repository}\0${tree?.branch ?? ""}`;
+      if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+      this.busyWorktrees.add(key);
+      try {
+        await this.deps.worktrees.pruneWorktree(command.repository, command.worktree);
+        this.refresh();
+      } finally {
+        this.busyWorktrees.delete(key);
+      }
+    });
+    return;
+  }
   if (command.kind === "delete-merged-worktrees")
     return this.cleanup.deleteMerged(command.repository, confirm);
   if (command.kind === "remove-repository") {

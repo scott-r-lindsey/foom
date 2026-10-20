@@ -8,6 +8,7 @@ Paths below are relative to the repository root.
 
 | Area / source owner | Responsibility and entry points | Required area rules / behavior |
 | --- | --- | --- |
+| `src/renderer/board/error-presentation.tsx`, `src/shared/application-error.d.ts`, `application-errors.ts` | Fixed coded failures, action dialogs, focus restoration and operation-scoped background marks | [Errors](areas/errors.md), [behavior](behavior/errors.md) |
 | `src/main/main.ts`, `src/main/wiring/` | Entry delegates to `application.ts` (startup/security/quit), `window.ts` (per-board composition), `workspace.ts` (app-wide services); live bindings in `application-wiring.d.ts` | [Boundaries](areas/boundaries.md), [profiles](areas/application.md) |
 | `src/main/window/` | `window-ipc.ts` routes registered windows; `terminal-views.ts` reserves views; `window-placement.ts` persists geometry; `window-audio.ts` elects sound owner | [Windows](areas/windows.md), [behavior](behavior/windows.md) |
 | `src/shared/board-commands.ts`, `src/main/window/commands.ts`, `app-menu.ts`, `attention-badge.ts` | One command registry, shortcut dispatch, menu projections and native attention counts | [Commands](areas/commands.md), [menus](behavior/menus.md) |

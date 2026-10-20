@@ -43,11 +43,11 @@ test("routes each registered window without replacing handlers and removes the l
   first.removeHandler("test");
   first.removeHandler("test");
   expect(mock.removeHandler).not.toHaveBeenCalled();
-  expect(() => dispatch?.(event(a))).toThrow("Untrusted");
+  expect(() => dispatch?.(event(a))).toThrow("foom-error:operation-failed");
   expect(dispatch?.(event(b))).toBe("b");
   second.removeHandler("test");
   expect(mock.removeHandler).toHaveBeenCalledWith("test");
-  expect(() => dispatch?.(event(b))).toThrow("Untrusted");
+  expect(() => dispatch?.(event(b))).toThrow("foom-error:operation-failed");
 });
 test("unknown windows, subframes, absent frames and other pages never reach a handler", () => {
   const router = new WindowIpcRouter();
@@ -60,8 +60,28 @@ test("unknown windows, subframes, absent frames and other pages never reach a ha
     { ...event(a), senderFrame: null },
     { ...event(a), senderFrame: contents().mainFrame },
   ])
-    expect(() => dispatch?.(sender)).toThrow("Untrusted");
+    expect(() => dispatch?.(sender)).toThrow("foom-error:operation-failed");
   vi.spyOn(a.mainFrame, "url", "get").mockReturnValue("https://example.com");
-  expect(() => dispatch?.(event(a))).toThrow("Untrusted");
+  expect(() => dispatch?.(event(a))).toThrow("foom-error:operation-failed");
   expect(handler).not.toHaveBeenCalled();
+});
+
+test("routes expose only coded synchronous and asynchronous failures", async () => {
+  const { ApplicationError } = await import("../../../../src/shared/application-errors");
+  const router = new WindowIpcRouter();
+  const a = contents();
+  const handler = vi.fn<() => unknown>(() => {
+    throw new Error("private details");
+  });
+  router.forWindow(a).handle("test", handler);
+  const dispatch = mock.handle.mock.calls[0]?.[1];
+  expect(() => dispatch?.(event(a))).toThrow(/^foom-error:operation-failed$/u);
+  handler.mockImplementationOnce(() => {
+    throw new ApplicationError("worktree-locked");
+  });
+  expect(() => dispatch?.(event(a))).toThrow("foom-error:worktree-locked");
+  handler.mockRejectedValueOnce(new Error("private async details"));
+  await expect(dispatch?.(event(a))).rejects.toThrow(/^foom-error:operation-failed$/u);
+  handler.mockRejectedValueOnce(new ApplicationError("worktree-missing"));
+  await expect(dispatch?.(event(a))).rejects.toThrow("foom-error:worktree-missing");
 });

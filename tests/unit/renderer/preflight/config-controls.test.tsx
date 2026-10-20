@@ -1,8 +1,25 @@
+import type { ReactNode } from "react";
+import type { RenderOptions } from "@testing-library/react";
+import {
+  ErrorPresentation,
+  BackgroundErrorMark,
+} from "../../../../src/renderer/board/error-presentation";
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as renderView, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ConfigControls, ConfigDecision } from "../../../../src/renderer/preflight/config-controls";
 import type { ConfigStatus } from "../../../../src/shared/foom-config";
+
+const render = (ui: ReactNode, options?: RenderOptions) =>
+  renderView(ui, {
+    ...options,
+    wrapper: ({ children }) => (
+      <ErrorPresentation>
+        {children}
+        <BackgroundErrorMark />
+      </ErrorPresentation>
+    ),
+  });
 
 afterEach(cleanup);
 
@@ -104,7 +121,8 @@ test("failures are shown, nothing is listed when all is well, and unmount unsubs
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
     await Promise.resolve();
   });
-  expect(screen.getByRole("alert").textContent).toBe("The file changed. Review the new change.");
+  expect(screen.getByRole("alert").textContent).toBe("Unable to update Foom config.");
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   config.openFolder.mockRejectedValue("nope");
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Open folder" }));
@@ -113,6 +131,7 @@ test("failures are shown, nothing is listed when all is well, and unmount unsubs
   expect(screen.getAllByRole("alert").map((element) => element.textContent)).toContain(
     "Unable to update Foom config.",
   );
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   view.unmount();
   expect(config.listening()).toBe(false);
 });
@@ -121,7 +140,9 @@ test("an unavailable folder reports it", async () => {
   const config = source(base);
   config.status.mockRejectedValue(new Error("no"));
   render(<ConfigControls config={config} />);
-  expect((await screen.findByRole("alert")).textContent).toBe("Foom config is unavailable.");
+  expect((await screen.findByText("Foom config is unavailable.")).textContent).toContain(
+    "Foom config is unavailable.",
+  );
 });
 
 test("the shared decision keeps errors actionable and blocks concurrent clicks", async () => {
