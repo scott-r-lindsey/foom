@@ -1,9 +1,12 @@
-import { mkdtemp, access, rm } from "node:fs/promises";
+import { mkdtemp, access, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import { AgentProbes } from "../../../../src/main/agents/probes";
-import { agentProvider } from "../../../../src/main/agents/providers/registry";
+import {
+  agentProvider,
+  replaceConfigProviders,
+} from "../../../../src/main/agents/providers/registry";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 const roots: string[] = [];
 afterEach(async () => {
@@ -12,13 +15,16 @@ afterEach(async () => {
 });
 async function fixture(limit = 600000) {
   const cwd = await mkdtemp(join(tmpdir(), "foom-probe-unit-"));
-  roots.push(cwd);
+  const configRoot = await mkdtemp(join(tmpdir(), "foom-probe-config-"));
+  roots.push(cwd, configRoot);
   const backend = {
     create: vi.fn((_spec: TerminalSpec) => Promise.resolve("terminal")),
     stop: vi.fn(() => Promise.resolve()),
     kill: vi.fn(() => Promise.resolve()),
     reply: vi.fn(() => Promise.resolve()),
-    screen: vi.fn(() => Promise.resolve({ lines: ["approve?"], title: "ready" })),
+    screen: vi.fn<() => Promise<{ lines: string[]; title: string; cols?: number; rows?: number }>>(
+      () => Promise.resolve({ lines: ["approve?"], title: "ready", cols: 80, rows: 1 }),
+    ),
     show: vi.fn(() => Promise.resolve()),
     removed: vi.fn(),
   };
@@ -31,11 +37,12 @@ async function fixture(limit = 600000) {
       Promise.resolve({
         spec: { command: "/fixture/claude", args: [], cwd, cols: 80, rows: 24 },
         dispose: vi.fn(),
+        agentVersion: "1.2.3",
         conversationId: "conversation",
       }),
     ),
   };
-  const probes = new AgentProbes(backend, "/config", operations, limit);
+  const probes = new AgentProbes(backend, configRoot, operations, limit);
   const token = probes.grant();
   const start = async () => {
     const result: unknown = await probes.call(token, { action: "start", agent: "claude" });
@@ -48,7 +55,7 @@ async function fixture(limit = 600000) {
       throw Error("Missing probe");
     return result.probe;
   };
-  return { cwd, backend, operations, probes, token, start };
+  return { cwd, configRoot, backend, operations, probes, token, start };
 }
 test("owns unguessable probes, drives only the owner and exposes visible JSON", async () => {
   const f = await fixture();
@@ -80,6 +87,8 @@ test("owns unguessable probes, drives only the owner and exposes visible JSON", 
     expect(await f.probes.call(f.token, { action: "screen", probe })).toEqual({
       lines: ["approve?"],
       title: "ready",
+      cols: 80,
+      rows: 1,
     });
     expect(await f.probes.call(f.token, { action: "state", probe })).toMatchObject({
       state: "needs_input",
@@ -238,6 +247,7 @@ test("expiry can address a host ID while its create acknowledgement is pending",
   const prepared = {
     spec: { id: "reserved-host", command: "fixture", args: [], cwd: f.cwd, cols: 80, rows: 24 },
     dispose: vi.fn(),
+    agentVersion: "1.2.3",
     conversationId: "conversation",
   };
   f.operations.prepare.mockResolvedValueOnce(prepared);
@@ -347,6 +357,107 @@ test("config status is refreshed only for a live config credential and never gra
     );
   } finally {
     await broker.close();
+    await f.probes.close();
+  }
+});
+
+test("capture save and rule replay are credential-bound and keep screen text out of responses", async () => {
+  const f = await fixture();
+  try {
+    const probe = await f.start();
+    const saved = await f.probes.call(f.token, { action: "screen", probe, save: "other" });
+    expect(saved).toEqual({ capture: "captures/claude/other-1.json" });
+    const capture: unknown = JSON.parse(
+      await readFile(join(f.configRoot, "captures/claude/other-1.json"), "utf8"),
+    );
+    expect(capture).toMatchObject({
+      agentVersion: "1.2.3",
+      cols: 80,
+      rows: 1,
+      lines: ["approve?"],
+    });
+    const report = await f.probes.call(f.token, { action: "test-rules", agent: "claude" });
+    expect(report).toMatchObject({
+      passed: true,
+      captures: [{ expected: "other", actual: "other", ruleId: null }],
+    });
+    expect(JSON.stringify(report)).not.toContain("approve?");
+    await expect(
+      f.probes.call("foreign", { action: "test-rules", agent: "claude" }),
+    ).rejects.toThrow("unauthorized");
+    const read = Promise.withResolvers<{
+      lines: string[];
+      title: string;
+      cols: number;
+      rows: number;
+    }>();
+    f.backend.screen.mockReturnValueOnce(read.promise);
+    const saving = f.probes.call(f.token, { action: "screen", probe, save: "idle" });
+    const refused = expect(saving).rejects.toThrow("not_found");
+    await f.probes.revoke(f.token);
+    read.resolve({ lines: ["private"], title: "idle", cols: 80, rows: 1 });
+    await refused;
+    await expect(access(join(f.configRoot, "captures/claude/idle-1.json"))).rejects.toThrow();
+  } finally {
+    await f.probes.close();
+  }
+});
+
+test("rule replay rechecks a revoked token after provider validation and accepts providers without validators", async () => {
+  const f = await fixture();
+  const base = agentProvider("claude");
+  const plain = { ...base };
+  delete plain.validate;
+  const provider = {
+    ...plain,
+    id: "fixture",
+    model: {
+      ...base.model,
+      id: "fixture",
+      attention: {
+        ...base.model.attention,
+        rules: [
+          {
+            id: "working",
+            state: "working" as const,
+            priority: 100,
+            region: "bottom" as const,
+            lines: 3,
+            match: { contains: ["busy"], regex: [] },
+            not: [],
+            reason: "Busy",
+            comment: "Fixture",
+          },
+        ],
+      },
+    },
+  };
+  try {
+    replaceConfigProviders([provider]);
+    await expect(
+      f.probes.call(f.token, { action: "test-rules", agent: "fixture" }),
+    ).resolves.toMatchObject({ passed: true, captures: [] });
+    const validated = Promise.withResolvers<undefined>();
+    replaceConfigProviders([{ ...provider, validate: () => validated.promise }]);
+    const pending = f.probes.call(f.token, { action: "test-rules", agent: "fixture" });
+    const refused = expect(pending).rejects.toThrow("unauthorized");
+    await f.probes.revoke(f.token);
+    validated.resolve(undefined);
+    await refused;
+  } finally {
+    replaceConfigProviders([]);
+    await f.probes.close();
+  }
+});
+test("saving refuses a backend screen without actual dimensions", async () => {
+  const f = await fixture();
+  try {
+    const probe = await f.start();
+    f.backend.screen.mockResolvedValueOnce({ lines: ["private"], title: "title" });
+    await expect(
+      f.probes.call(f.token, { action: "screen", probe, save: "other" }),
+    ).rejects.toThrow("unavailable");
+  } finally {
     await f.probes.close();
   }
 });
