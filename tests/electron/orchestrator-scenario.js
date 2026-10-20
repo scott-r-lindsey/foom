@@ -1208,7 +1208,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       await expect(page.locator('.board-row .session-robot-mark[data-kind="rx"]')).toHaveCount(1);
       await assert.rejects(
         page.evaluate((id) => window.desktop.sidebarCommand({ kind: "close", id }), parentId),
-        /Close the orchestrator/u,
+        /foom-error:operation-failed/u,
       );
       assert.ok(after.orchestration.history.some((entry) => entry.action === "remove_worktree"));
     }

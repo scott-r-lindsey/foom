@@ -1,3 +1,4 @@
+import { ActionError, useBackgroundErrors } from "../board/error-presentation";
 import { useEffect, useState } from "react";
 import type { ConfigStatus } from "../../shared/foom-config";
 import type { Settings, SettingsPatch } from "../../shared/setup";
@@ -16,6 +17,7 @@ export function ForgesSettings({
   source: SetupSource;
   save: (patch: SettingsPatch) => Promise<void>;
 }) {
+  const { report: reportFailure, clear } = useBackgroundErrors();
   const [catalog, setCatalog] = useState<ConfigStatus>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -25,17 +27,20 @@ export function ForgesSettings({
     if (!config) return;
     let active = true;
     const receive = (next: ConfigStatus) => {
-      if (active) setCatalog(next);
+      if (active) {
+        setCatalog(next);
+        clear("forge-catalog");
+      }
     };
-    void config.status().then(receive, (caught: unknown) => {
-      if (active) setError(message(caught));
+    void config.status().then(receive, () => {
+      if (active) reportFailure("forge-catalog", "Unable to load forge settings.");
     });
     const dispose = config.subscribe(receive);
     return () => {
       active = false;
       dispose();
     };
-  }, [source]);
+  }, [source, clear, reportFailure]);
   const persist = async (patch: SettingsPatch) => {
     setBusy(true);
     setError("");
@@ -55,9 +60,12 @@ export function ForgesSettings({
         </h2>
       </header>
       {error && (
-        <p className="preflight-error" role="alert">
-          {error}
-        </p>
+        <ActionError
+          message={error}
+          close={() => {
+            setError("");
+          }}
+        />
       )}
       <div className="agent-cards">
         {(catalog?.forgePlugins ?? []).map((forge) => {

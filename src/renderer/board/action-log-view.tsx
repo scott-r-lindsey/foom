@@ -1,3 +1,4 @@
+import { ActionError, useBackgroundErrors } from "./error-presentation";
 import { useEffect, useRef, useState } from "react";
 import type { ActionLogApi, ActionLogPage } from "../../shared/action-log";
 
@@ -10,6 +11,7 @@ export function ActionLog({
   subscribe: (listener: () => void) => () => void;
   close: () => void;
 }) {
+  const { report, clear: clearFailure } = useBackgroundErrors();
   const [search, setSearch] = useState("");
   const [action, setAction] = useState("");
   const [status, setStatus] = useState("");
@@ -41,19 +43,19 @@ export function ActionLog({
         if (active) {
           setPage(next);
           setLoadedKey(queryKey);
-          setError("");
+          clearFailure("action-log-read");
         }
       })
       .catch(() => {
         if (active) {
-          setError("Unable to read the action log.");
+          report("action-log-read", "Unable to read the action log.");
           setLoadedKey(queryKey);
         }
       });
     return () => {
       active = false;
     };
-  }, [api, search, action, status, offset, revision, queryKey]);
+  }, [api, search, action, status, offset, revision, queryKey, report, clearFailure]);
   const clear = async () => {
     setClearing(true);
     try {
@@ -193,7 +195,14 @@ export function ActionLog({
           </button>
         )}
       </div>
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <ActionError
+          message={error}
+          close={() => {
+            setError("");
+          }}
+        />
+      )}
       <p role="status">
         {loading ? "Loading action log…" : `${String(page.total)} matching events`}
       </p>

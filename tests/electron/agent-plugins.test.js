@@ -274,7 +274,7 @@ process.stdin.resume();`,
     ),
   );
   await expect(page.getByText("Rejected · launch blocked", { exact: true })).toBeVisible();
-  await assert.rejects(launch(), /Invalid sidebar command/);
+  await assert.rejects(launch(), /foom-error:operation-failed/);
 });
 
 test("v2 plugin setup confirms fixed actions and refuses unknown, malformed and linked metadata", {

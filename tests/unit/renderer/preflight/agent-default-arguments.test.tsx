@@ -32,7 +32,10 @@ test("in-place defaults save on blur, preserve refused drafts, and disclose buil
   fireEvent.change(input, { target: { value: "--dangerously-skip-permissions" } });
   expect(screen.getByText(/Bypass approvals/)).toBeTruthy();
   fireEvent.blur(input);
-  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Cancelled");
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    "Unable to update settings.",
+  );
   expect(input).toHaveProperty("value", "--dangerously-skip-permissions");
   fireEvent.change(input, { target: { value: "--model\nnew" } });
   expect(screen.queryByRole("alert")).toBeNull();

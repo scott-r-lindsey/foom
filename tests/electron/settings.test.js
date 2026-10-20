@@ -42,7 +42,7 @@ test("Environment settings reach a launched shell; main refuses reserved names",
         (error) => String(error),
       ),
   );
-  assert.match(refused, /FOOM_CONTROL_TOKEN is reserved by Foom/);
+  assert.match(refused, /foom-error:operation-failed/);
   const state = await page.evaluate(async () => {
     const save = (scope, name, value) =>
       window.desktop.saveEnvironment({ scope, previous: null, name, value, secret: false });
@@ -329,23 +329,35 @@ test("preflight fits safely through resize, zoom, long input and changing steps"
     }
   }
   await rail.getByRole("button", { name: /Repositories/ }).click();
-  for (const control of [
-    "Larger",
-    "Larger",
-    "Larger",
-    "Larger",
-    "Larger",
-    "Smaller",
-    "Smaller",
-    "Smaller",
-    "Smaller",
-    "Smaller",
-    "Smaller",
-    "Smaller",
-    "Larger",
-    "Larger",
+  for (const [control, scale] of [
+    ["Larger", 110],
+    ["Larger", 120],
+    ["Larger", 130],
+    ["Larger", 140],
+    ["Larger", 150],
+    ["Smaller", 140],
+    ["Smaller", 130],
+    ["Smaller", 120],
+    ["Smaller", 110],
+    ["Smaller", 100],
+    ["Smaller", 90],
+    ["Smaller", 80],
+    ["Larger", 90],
+    ["Larger", 100],
   ]) {
     await page.getByRole("button", { name: control, exact: true }).click();
+    await expect(page.getByRole("group", { name: "Interface size" }).locator("output")).toHaveText(
+      `${scale}%`,
+    );
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()
+            .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+            .webContents.getZoomFactor(),
+        ),
+      )
+      .toBeCloseTo(scale / 100);
     await assertPreflightFits(
       page,
       "Real interface-size controls after resizing and expanding settings",
@@ -1603,8 +1615,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   await expect(input).toBeVisible();
   await input.fill("--settings={}");
   await input.blur();
-  await expect(page.locator(".agent-card [role=alert]")).toContainText("Claude Code, line 1:");
-  await expect(page.locator(".agent-card [role=alert]")).toContainText("reserved");
+  await expect(page.locator(".agent-card [role=alert]")).toHaveText("Unable to update settings.");
   const args = [
     "--eval",
     'require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify([...process.execArgv, ...process.argv.slice(1)])); setInterval(() => {}, 1000)',
@@ -1626,7 +1637,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   const disclosureScan = await new AxeBuilder({ page: disclosure }).setLegacyMode().analyze();
   assert.deepEqual(disclosureScan.violations, []);
   await disclosure.keyboard.press("Enter");
-  await expect(page.locator(".agent-card [role=alert]")).toContainText("cancelled");
+  await expect(page.locator(".agent-card [role=alert]")).toHaveText("Unable to update settings.");
   assert.deepEqual(
     (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.claude,
     [],
@@ -2024,7 +2035,7 @@ test("Settings agent menu launches a new config session in each window", {
   );
   await assert.rejects(
     second.evaluate(() => window.desktop.appMenu.execute("via-claude")),
-    /Unavailable app command/,
+    /foom-error:operation-failed/,
   );
   // Stop both agents through their owning boards before the shared app teardown.
   await stopSession(first, id);
@@ -2410,7 +2421,8 @@ test("Settings forge cards persist user host assignments without activating prov
   await expect(custom.getByRole("textbox")).toBeEnabled();
   await custom.getByRole("textbox").fill("https://bad.example.org");
   await custom.getByRole("button", { name: "Assign host" }).click();
-  await expect(page.getByRole("alert")).toContainText("lowercase DNS hostname");
+  await expect(page.getByRole("alert")).toHaveText("Unable to update settings.");
+  await page.getByRole("button", { name: "Dismiss", exact: true }).click();
   await custom.getByRole("textbox").fill("git.example.org");
   await custom.getByRole("button", { name: "Assign host" }).click();
   await expect(custom.getByRole("button", { name: "Remove git.example.org" })).toBeVisible();
@@ -2424,7 +2436,7 @@ test("Settings forge cards persist user host assignments without activating prov
       (error) => String(error),
     ),
   );
-  assert.match(rejected, /enabled forge/);
+  assert.match(rejected, /foom-error:operation-failed/);
   const before = await page.evaluate(() => window.desktop.setupState());
   assert.equal(before.settings.forgeHosts["github.com"], "github");
   assert.equal(before.settings.forgeHosts["git.example.org"], "custom");

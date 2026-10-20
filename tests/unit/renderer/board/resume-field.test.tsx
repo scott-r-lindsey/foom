@@ -86,6 +86,8 @@ test("launch errors mark the field and it can be edited and retried", async () =
     await Promise.resolve();
   });
   expect(input.getAttribute("aria-invalid")).toBe("true");
+  expect(view.getByRole("alert").textContent).toBe("Unable to resume conversation.");
+  fireEvent.click(view.getByRole("button", { name: "Dismiss" }));
   expect(document.activeElement).toBe(input);
   fireEvent.change(input, { target: { value: "claude --resume def" } });
   expect(input.getAttribute("aria-invalid")).toBe("false");

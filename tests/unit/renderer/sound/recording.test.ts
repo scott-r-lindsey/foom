@@ -38,14 +38,14 @@ test("falls back without changing the choice and explains decode, read and durat
     .mockResolvedValueOnce({ error: "Missing" })
     .mockResolvedValue({ bytes: new Uint8Array([1]) });
   expect(await loadRecording("done", chosen, read, decode)).toMatchObject({
-    reason: "Missing. Using the default sound.",
+    reason: "Sound unavailable. Using the default sound.",
   });
   expect(read).toHaveBeenLastCalledWith({ kind: "done", ...DEFAULT_SOUND.choices.done });
   expect(chosen.file).toBe("mine.wav");
   decode.mockRejectedValueOnce(new Error("codec"));
-  expect((await loadRecording("done", chosen, read, decode)).reason).toContain("decoded");
+  expect((await loadRecording("done", chosen, read, decode)).reason).toContain("Sound unavailable");
   decode.mockResolvedValueOnce(buffer(2));
-  expect((await loadRecording("done", chosen, read, decode)).reason).toContain("duration");
+  expect((await loadRecording("done", chosen, read, decode)).reason).toContain("Sound unavailable");
   read.mockRejectedValueOnce("unavailable");
   expect((await loadRecording("done", chosen, read, decode)).reason).toContain("Sound unavailable");
   read.mockResolvedValue({ error: "Missing default" });

@@ -1,3 +1,4 @@
+import { ApplicationError } from "../../shared/application-errors";
 import { ipcMain } from "electron";
 import type { IpcMainInvokeEvent, WebContents } from "electron";
 
@@ -19,15 +20,25 @@ export class WindowIpcRouter {
           handlers = new Map();
           this.channels.set(channel, handlers);
           ipcMain.handle(channel, (event, ...args: unknown[]) => {
-            const target = this.channels.get(channel)?.get(event.sender);
-            if (
-              !target ||
-              !event.senderFrame ||
-              event.senderFrame !== event.sender.mainFrame ||
-              event.senderFrame.url !== "app://bundle/index.html"
-            )
-              throw new Error("Untrusted IPC sender");
-            return target(event, ...args);
+            const reject = (error: unknown): never => {
+              throw error instanceof ApplicationError
+                ? error
+                : new ApplicationError("operation-failed");
+            };
+            try {
+              const target = this.channels.get(channel)?.get(event.sender);
+              if (
+                !target ||
+                !event.senderFrame ||
+                event.senderFrame !== event.sender.mainFrame ||
+                event.senderFrame.url !== "app://bundle/index.html"
+              )
+                throw new Error("Untrusted IPC sender");
+              const result = target(event, ...args);
+              return result instanceof Promise ? result.catch(reject) : result;
+            } catch (error) {
+              return reject(error);
+            }
           });
         }
         if (handlers.has(contents)) throw new Error("Duplicate window IPC registration");

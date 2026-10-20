@@ -1,3 +1,4 @@
+import { BackgroundErrorMark } from "./error-presentation";
 import type { SidebarRowEvents } from "./sidebar-interactions.d";
 import type { CSSProperties, ReactNode } from "react";
 import type { BoardRow } from "./board.d";
@@ -230,6 +231,7 @@ export function SidebarSessionRow({
         {compact && robot}
         {!docked && actions}
       </div>
+      <BackgroundErrorMark row={row.id} />
       {docked && actions}
     </div>
   );

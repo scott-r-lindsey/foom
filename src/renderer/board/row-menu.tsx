@@ -1,3 +1,4 @@
+import { registerErrorFocus } from "./error-presentation";
 import { AgentBadge } from "./agent-badge";
 import { CommandGlyph, PanelMark } from "./panel-glyphs";
 import type { CommandGlyphName } from "./panel-glyphs";
@@ -87,6 +88,11 @@ export function RowMenu({
   const confirmation = useConfirmation(confirmations);
   const [selected, setSelected] = useState<number>();
   const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (element) return registerErrorFocus(element, anchor, close);
+    return undefined;
+  }, [anchor, close]);
   useEffect(
     () =>
       confirmations?.onDialog?.(() => {

@@ -36,6 +36,7 @@ test("shows fixed diagnostic text for the relevant kind and handles folder failu
   await waitFor(() => {
     expect(screen.getByRole("alert").textContent).toBe("Unable to open themes folder.");
   });
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   view.rerender(<ThemeFilesStatus kind="terminal-theme" />);
   expect(screen.queryByRole("status")).toBeNull();
   expect(screen.queryByRole("button")).toBeNull();

@@ -1,3 +1,4 @@
+import { ActionError, ErrorPresentation } from "./board/error-presentation";
 import { attachPreviewComposition } from "./board/preview-composition";
 import { attachInterfaceTheme } from "./ui/interface-theme";
 import { useEffect, useState } from "react";
@@ -13,6 +14,14 @@ import { createSetupSource } from "./preflight/setup-source";
  * Once mounted, the board stays mounted underneath so its shell keeps running.
  */
 export function App() {
+  return (
+    <ErrorPresentation>
+      <AppContents />
+    </ErrorPresentation>
+  );
+}
+function AppContents() {
+  const [actionError, setActionError] = useState(false);
   const [source] = useState(() =>
     typeof FOOM_SAMPLE_BOARD !== "undefined" && FOOM_SAMPLE_BOARD
       ? createSampleSource()
@@ -50,12 +59,20 @@ export function App() {
     try {
       setState(await setup.state());
       setSettings(true);
-    } catch (error) {
-      console.error("Unable to load setup:", error);
+    } catch {
+      setActionError(true);
     }
   };
   return (
     <>
+      {actionError && (
+        <ActionError
+          message="Unable to open Settings."
+          close={() => {
+            setActionError(false);
+          }}
+        />
+      )}
       {preflight && state && (
         <Preflight
           source={setup}
