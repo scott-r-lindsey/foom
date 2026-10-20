@@ -887,8 +887,14 @@ with no file/network access. Missing duration is invalid.
 This checks container metadata, not sample decoding; playback still verifies that
 Chromium can decode the audio and checks its samples.
 
-**Orchestrators and children implemented in #155.** `main/control/orchestration.ts`
-owns slots, limits, ownership and the action history; `Workspace` supplies main's
+**Orchestrators and children implemented in #155.**
+`main/control/orchestration-authority.ts` owns slots, limits, ownership checks,
+lifecycle and the action history. `orchestration-mutations.ts` implements worktree
+creation/removal and child launch/stop/close; `orchestration.ts` dispatches calls
+and implements child input, handoff reads, tails and waits. The classes share
+the authority module through inheritance, keeping all parent/generation and child
+ownership checks in one place. `orchestration.d.ts` holds their host and state
+contracts; `Workspace` supplies main's
 existing effects (worktree creation, agent launch, stop, close, host tail, removal) and
 the service delegates `create_worktree`, `launch`, `stop`, `close`, `remove_worktree`,
 `tail` and `wait_for` to it through an asynchronous `call`. MCP lists these tools
