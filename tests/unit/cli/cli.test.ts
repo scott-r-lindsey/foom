@@ -1,7 +1,13 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { run } from "../../../src/cli/cli";
 
 describe("console entry", () => {
+  it("preserves the complete help output byte for byte", () => {
+    const expected = readFileSync(new URL("./help.txt", import.meta.url), "utf8");
+    for (const args of [[], ["--help"], ["--json"], ["--help", "--json"]])
+      expect(run(args, "1")).toEqual({ output: expected, error: false, code: 0 });
+  });
   it("reports version and protocol without contacting the app", () => {
     expect(run(["--version"], "1.2.3").output).toBe("foom 1.2.3 (protocol 1)");
     expect(run(["--version", "--json"], "1.2.3").output).toEqual({ version: "1.2.3", protocol: 1 });
