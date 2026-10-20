@@ -6,41 +6,33 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 ### Forge observations
 
-[Forge manifests](../forge-plugins.md) are approved as a second plugin kind. The first
-#521 stage adds the shared `(kind, version)` dispatch path, strict offline forge
-validation, a build-locked GitHub manifest and a transport-injected interpreter.
-The current GitHub provider remains active while side-by-side fixture tests prove
-parity. The new interpreter receives argv-array transport from main; it cannot
-resolve or spawn a CLI itself. Fork/same-repository decisions and trusted
-default-branch refusal remain TypeScript policy. Settings now exposes forge cards
-through the main-owned config status catalog, including fixed rejection reasons.
-Profile-only `forges` and `forgeHosts` maps use the settings store atomic writes
-and runtime parser. New host assignments require an enabled catalog entry; stale
-assignments remain unavailable without fallback. Setup IPC checks the owning app
-top frame, and host syntax is validated only in main. These preferences do not
-change active polling. The inactive `ForgeLifecycle`
-service now supplies native executable resolution, disposable neutral working
-directories, bounded execution and process-tree cancellation, auth gating, narrowed
-result caching and explicit invalidation. It revalidates registry membership, exact
-manifest bytes, executable identity and the main-owned worktree context before
-execution and publication, including cached reads. CLI diagnostics never escape
-this boundary; consumers receive only fixed execution states and mapped metadata.
-`ForgeRuntime` now wires the config scanner’s registry callback and profile
-settings invalidation to tracking and adoption, with discovered login PATH supplied
-by main. Its internal constructor selection defaults to the old provider; there
-is no user-visible switch. Only parity tests select manifests. Host routing uses
-only enabled entries in the user’s `forgeHosts` assignments, never manifest host
-claims or inferred fallback. Registry/settings changes cancel samples and retire
-tracking observations and number bindings. Main-owned lazy context closures
-revalidate registration, filesystem identity, branch and remote at the lifecycle
-boundary; tracking additionally guards publication with a selection generation.
-Legacy selection does not discover executables or evaluate manifest contexts.
-Large-request scheduling within manifest bounds (including slowdown-only minima),
-optional display/checks-meaning metadata, versioned persistence and production
-activation/removal of the old provider remain integration work. The interpreter
-supports declarative dynamic batch AST composition and check-count reduction with old/new offline parity tests;
-activation remains gated on the remaining scheduling, metadata and persistence work.
-#516's adaptive cadence and dynamic check-count batches are unchanged.
+[Forge manifests](../forge-plugins.md) are a second plugin kind, loaded through the
+shared `(kind, version)` dispatcher and contained config scanner. Production uses
+the build-locked GitHub JSON and the same interpreter for config copies. The old
+provider survives only as a frozen test reference; recorded-fixture parity passed
+before removal from application code. Fork/same-repository decisions and trusted
+default-branch refusal remain TypeScript policy.
+
+`ForgeRuntime` connects the catalog, profile settings and discovered login PATH to
+tracking, adoption and merged-PR hints. Only enabled entries in the user's exact
+`forgeHosts` assignments authorize routing; declarations cannot claim hosts or
+trigger fallback. Settings cards show declared executables with “Not checked”;
+runtime requests perform native resolution and mandatory auth preflight. Disabled
+or unassigned manifests perform no discovery/probes. First-use board enablement
+uses host-only auth preflight through this same lifecycle.
+
+`ForgeLifecycle` supplies disposable neutral working directories, bounded argv
+execution, process-tree cancellation and narrowed caching. It revalidates registry,
+exact bytes, executable identity and main-owned checkout context before execution,
+cached reads and publication. Settings/registry changes retire observations and
+number bindings; PATH changes retire the lifecycle. CLI diagnostics never escape.
+Batch sizing includes the 16 KiB query, 64 argv entries and 64 KiB total argv caps.
+One bounded prefix runs per serial tick, leaving the remainder due. Manifest minima
+only slow regular polling, preserving #516's adaptive cadence, one-second discovery
+binding follow-up and fleet budgets. Version-1 observation persistence records
+provider provenance; legacy numbers are reused only for bundled GitHub after
+remote/ownership validation. Optional display enrichment and checks-meaning
+metadata remain under #521.
 
 Foom also reads PR and check status for board checkouts and orchestrator-owned child
 worktrees through a main-owned forge provider. GitHub is supported through your

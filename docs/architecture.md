@@ -184,3 +184,7 @@ See [area rules](areas/probes.md#config-decisions-and-live-launch-catalogs-591-f
 ## Coded capability errors
 
 See [Coded capability errors](areas/errors.md#coded-capability-errors) and [pruning stale worktrees](areas/worktrees.md#pruning-stale-worktrees).
+
+## External lifecycle hooks
+
+See [Agent hooks](areas/agent-hooks.md) and [public hook protocol 1](agent-plugins.md#user-authored-extensions-public-hook-protocol-1-635).

@@ -1,6 +1,4 @@
-function configCommand(value: unknown): value is `via-${string}` {
-  return typeof value === "string" && /^via-[a-z][a-z0-9-]{0,39}$/u.test(value);
-}
+import { isBoardCommand } from "../shared/board-commands";
 import type { PreviewPlacement, PreviewSnapshot } from "../shared/previews";
 import type { WindowView, WindowAudioState } from "../shared/windows";
 import type { ExecutionTransition } from "../shared/execution";
@@ -352,40 +350,7 @@ const desktop: DesktopApi = {
   },
   onBoardCommand(callback) {
     const listener = (_event: IpcRendererEvent, command: unknown) => {
-      if (
-        command === "action-log" ||
-        command === "sidebar" ||
-        command === "toggle-sidebar" ||
-        command === "next-waiting" ||
-        command === "settings" ||
-        configCommand(command) ||
-        command === "new-worktree" ||
-        command === "add-repository" ||
-        command === "tidy-tiles" ||
-        command === "maximize" ||
-        command === "left" ||
-        command === "right" ||
-        command === "up" ||
-        command === "down" ||
-        command === "split-right" ||
-        command === "split-down" ||
-        command === "close-tile" ||
-        command === "hide-session" ||
-        command === "swap-left" ||
-        command === "swap-right" ||
-        command === "swap-up" ||
-        command === "swap-down" ||
-        command === "tile-1" ||
-        command === "tile-2" ||
-        command === "tile-3" ||
-        command === "tile-4" ||
-        command === "tile-5" ||
-        command === "tile-6" ||
-        command === "tile-7" ||
-        command === "tile-8" ||
-        command === "tile-9"
-      )
-        callback(command);
+      if (isBoardCommand(command)) callback(command);
     };
     ipcRenderer.on("board:command", listener);
     return () => {

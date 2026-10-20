@@ -12,7 +12,7 @@ examples; the verifier also checks the current bundled manifest's structural sha
 | --- | --- |
 | `forge.schema.json` | Draft 2020-12 closed structural schema; semantic/trust rules remain in the spec |
 | `github.json`, `gitlab.json` | Full standalone worked manifests; proposed, not installed plugins |
-| `required-checks.graphql` | Exact current `forge.ts` fallback query, also embedded in GitHub JSON; no runtime include |
+| `required-checks.graphql` | Exact legacy fallback query (frozen in `tests/helpers/legacy-forge.ts`), also embedded in GitHub JSON; no runtime include |
 | `fixtures/gh-view-public.json` | Recorded `gh pr view` for public cli/cli #14700; enriched metadata |
 | `fixtures/gh-list-public.json` | Recorded exact-branch list with current six status fields |
 | `fixtures/gh-id-public.json` | Recorded GraphQL node ID lookup |
@@ -53,7 +53,7 @@ clearly marked synthetic, and never fetch credentials/network data during tests.
 - [gh PR view JSON fields](https://cli.github.com/manual/gh_pr_view).
 - [gh checks JSON fields/buckets and exit codes](https://cli.github.com/manual/gh_pr_checks).
 - [gh checks implementation](https://github.com/cli/cli/blob/trunk/pkg/cmd/pr/checks/checks.go),
-  plus the checked-in `forge.ts`/orchestration contract for the legacy diagnostic.
+  plus the checked-in legacy reference/orchestration contract for the legacy diagnostic.
 - [glab API flags](https://docs.gitlab.com/cli/api/): raw fields remain strings;
   fields change the default method, so the example explicitly passes GET.
 - [GitLab MR API](https://docs.gitlab.com/api/merge_requests/): list/detail shapes,

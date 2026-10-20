@@ -367,3 +367,64 @@ This disabled draft is retained here because `tests/unit/main/config/layout.test
 ### Saved screen-rule regressions (#592)
 
 See [saved screen-rule regressions](contracts/agent-report.md#saved-screen-rule-regressions-592).
+
+### User-authored extensions: public hook protocol 1 (#635)
+
+For an agent whose extension API runs code, use `"observer":{"transport":"external"}`
+and `"arguments":[]` on a channel. Its `when`, payload mapping, requirements,
+dedupe, attention and conversation tracking work exactly as for other channels.
+External channels create no observer files, counters or launch arguments. Observer
+placeholders cannot reference them. Foom ships no agent-specific extension glue
+for this transport. The user installs their own extension through their agent's
+extension mechanism; neither Foom nor the config agent edits global agent config.
+
+The launch environment is the credential contract:
+
+| Variable | Meaning |
+| --- | --- |
+| `FOOM_HOOK_PROTOCOL` | `1`; reject unsupported versions |
+| `FOOM_HOOK_URL` | Literal `http://127.0.0.1:<port>/hooks` receiver |
+| `FOOM_SESSION` | Random launch UUID (not the agent conversation ID) |
+| `FOOM_TOKEN` | Launch-only 256-bit token, 64 lowercase hex digits |
+| `FOOM_CHANNEL_<id>` | Channel ID, with hyphens replaced by underscores in the variable name |
+| `FOOM_HOOK_CHANNELS` | JSON array of attached external channel IDs |
+
+Call `foom hook EVENT [--channel ID]` with one UTF-8 JSON value on stdin, at
+most 64 KiB. EVENT matches `[A-Za-z][A-Za-z0-9_-]{0,63}` and is sent in
+`X-Foom-Event`; mappings may select that header or a payload event field.
+One attached external channel is selected automatically; multiple channels require
+`--channel`. The command never derives credentials, receiver or channel from the
+payload, discovers another app, pairs, or uses control credentials. Without all
+three URL/session/token variables it exits 0 immediately, silently, without reading
+stdin or making a network call. All paths are silent. With credentials present,
+exit 0 means accepted, 1 means receiver refusal/transport failure, and 2 means
+invalid input/environment. Delivery has a three-second deadline and bypasses proxies.
+Extensions should treat reporting as best effort and never gate an agent permission
+decision on it.
+
+Generic Node extension glue (adapt event names and payloads to your manifest):
+
+```js
+const { spawn } = require('node:child_process');
+function report(event, conversationId) {
+  if (process.env.FOOM_HOOK_PROTOCOL !== '1') return;
+  const child = spawn('foom', ['hook', event], {
+    env: process.env, stdio: ['pipe', 'ignore', 'ignore'], shell: false,
+  });
+  child.on('error', () => {});
+  child.stdin.on('error', () => {});
+  child.stdin.end(JSON.stringify({ conversationId }));
+}
+```
+
+The receiver authenticates `Authorization: <FOOM_TOKEN>` and
+`X-Foom-Session: <FOOM_SESSION>`, with `X-Foom-Channel` identifying the attached
+channel. It keeps the existing literal loopback/Host and no-Origin checks, 8 KiB
+header and 64 KiB body limits, mapping validation, dedupe and shared first-event
+conversation pin. Unknown events are inert; malformed or mismatched IDs fail.
+`classify` only requests local evaluation, never directly declares Done.
+Credentials are revoked on launch failure, exit/removal and shutdown. Stale,
+foreign and mixed launch credentials fail authentication. Payload text grants no
+capability and is discarded; never log, save or copy credentials into a manifest,
+agent configuration, extension source or conversation transcript. Same-user code
+inheriting the launch environment is within that launch's trust boundary.

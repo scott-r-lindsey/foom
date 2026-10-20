@@ -42,7 +42,7 @@ const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const args = process.argv.slice(2);
 const state = JSON.parse(fs.readFileSync(process.env.STATE, 'utf8'));
-fs.appendFileSync(process.env.LOG, JSON.stringify({ args, cwd: process.cwd(), pager: process.env.GH_PAGER }) + '\\n');
+fs.appendFileSync(process.env.LOG, JSON.stringify({ args, cwd: process.cwd(), pager: process.env.GH_PAGER, capabilities: Object.keys(process.env).filter((key) => /^(FOOM_|ELECTRON_|CLAUDECODE$)/i.test(key)) }) + '\\n');
 if (state.change && args[1] === 'view') fs.appendFileSync(process.env.MANIFEST, ' ');
 if (state.hang && args[0] !== 'auth') {
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {stdio: 'inherit'});
@@ -75,7 +75,16 @@ else {
     path: bin,
     timeoutMs,
     cacheMs,
-    environment: { STATE: state, LOG: log, MANIFEST: manifestFile, PIDS: join(root, "pids") },
+    environment: {
+      STATE: state,
+      LOG: log,
+      MANIFEST: manifestFile,
+      PIDS: join(root, "pids"),
+      FOOM_CONTROL_TOKEN: "must-not-leak",
+      FOOM_CONFIG_TOKEN: "must-not-leak",
+      ELECTRON_RUN_AS_NODE: "1",
+      CLAUDECODE: "1",
+    },
   });
   lifecycle.replace([plugin]);
   lifecycles.push(lifecycle);
@@ -125,6 +134,7 @@ posix(
       requiredChecks: "none",
     });
     const first = await calls();
+    for (const call of first) expect(call).toHaveProperty("capabilities", []);
     expect(first).toHaveLength(4);
     expect(first[0]).toMatchObject({
       args: ["auth", "status", "--hostname", "github.com"],

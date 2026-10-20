@@ -302,8 +302,8 @@
       "anyOf": [
         {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 63
+          "maximum": 63,
+          "minimum": 0
         },
         {
           "type": "string",
@@ -336,7 +336,6 @@
         },
         {
           "type": "array",
-          "maxItems": 16,
           "items": {
             "anyOf": [
               {
@@ -355,7 +354,8 @@
                 "type": "null"
               }
             ]
-          }
+          },
+          "maxItems": 16
         }
       ]
     },
@@ -599,6 +599,16 @@
       }
     },
     "observer": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/generatedObserver"
+        },
+        {
+          "$ref": "#/$defs/externalObserver"
+        }
+      ]
+    },
+    "generatedObserver": {
       "type": "object",
       "additionalProperties": false,
       "required": ["transport", "placement", "version", "response", "delivery", "timeoutMs"],
@@ -678,6 +688,16 @@
       "minLength": 1,
       "maxLength": 64,
       "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+    },
+    "externalObserver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transport"],
+      "properties": {
+        "transport": {
+          "const": "external"
+        }
+      }
     },
     "mapping": {
       "type": "object",

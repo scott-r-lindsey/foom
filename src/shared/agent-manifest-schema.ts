@@ -235,7 +235,30 @@ export function file(v: unknown, p: string) {
     when: optional(condition)(d["when"], `${p}.when`),
   };
 }
+function externalObserver(v: unknown, p: string) {
+  const d = object(v, p, ["transport"]);
+  return { transport: literal("external")(d["transport"], `${p}.transport`) };
+}
 export function observer(v: unknown, p: string) {
+  if (typeof v === "object" && v !== null && "transport" in v && v.transport === "external") {
+    return {
+      ...generatedObserver(
+        {
+          transport: "stdin",
+          placement: "launch",
+          version: 1,
+          response: "silent",
+          delivery: "foreground",
+          timeoutMs: 3000,
+        },
+        p,
+      ),
+      ...externalObserver(v, p),
+    };
+  }
+  return generatedObserver(v, p);
+}
+function generatedObserver(v: unknown, p: string) {
   const d = object(
     v,
     p,

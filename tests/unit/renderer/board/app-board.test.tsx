@@ -911,7 +911,7 @@ test("the Foom config dock contains its sessions, shows chips, launches there an
   ).toBe("page");
 });
 
-test.each(["via-claude", "via-codex", "via-agy"] as const)(
+test.each(["via-claude", "via-codex", "via-agy", "via-new-provider"] as const)(
   "%s launches config from Settings and focuses its session",
   async (route) => {
     const screen = render(<App />);

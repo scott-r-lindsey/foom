@@ -398,6 +398,26 @@ These are set in Foom's Settings window, not here. Tell the user exactly what to
 - Environment variables: Settings → Environment.
 - Repositories, the code folder and where worktrees are created: Settings.
 
+## User-installed code extensions
+
+For code-only extension APIs, draft a channel with observer transport \`external\`
+and empty arguments. Foom supplies \`FOOM_HOOK_PROTOCOL=1\`, \`FOOM_HOOK_URL\`,
+\`FOOM_SESSION\`, \`FOOM_TOKEN\`, \`FOOM_CHANNEL_<id>\` and a JSON array of attached
+external channel IDs in \`FOOM_HOOK_CHANNELS\`. The user's extension calls
+\`foom hook EVENT [--channel ID]\` with one JSON payload on stdin (64 KiB maximum).
+A single attached external channel is automatic. Map the event from the
+\`X-Foom-Event\` header and the conversation ID from the payload; use ordinary
+working/needs_input/classify cases and optional payload dedupe. Classification
+never directly announces Done. No observer assets or launch arguments are generated.
+
+Draft generic glue using a process spawn with an argument array, inherited launch
+environment and JSON stdin. The CLI is silent, inert outside Foom and uses only
+that launch's hook credential, revoked on exit. Never put credentials in files,
+source, logs or prompts. Give the user the draft and installation instructions for
+their agent's extension API; the user installs it themselves. Do not install it or
+edit their agent's global configuration. Validate the manifest with
+\`foom config validate .\`; screen probes do not verify external hook integration.
+
 ## Rules
 
 - Change Foom only by editing files in this folder and checking them with the
@@ -455,71 +475,35 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  * SHA-256 digests of every earlier version Foom wrote. A file matching one of these
  * is unedited and is replaced on upgrade; anything else belongs to the user.
  */
+const GUIDE_HISTORY = [
+  "605ee909ea813509d2fb27d0069934efc5ea95467d1fdf8e9d020ef45e9e3600",
+  "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
+  "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
+  "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
+  "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
+  "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
+  "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
+  "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
+  "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
+  "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
+  "da0c1cc124400b4e6f204fb6b29b181aec5ef76f1edc336bd7cb9ce6a6a252e4",
+  "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
+  "4939c3737e00693de9857f15412567ec4a66178cd951ab7b8df48c97e2610452",
+  "3134cd8539221c7e49902ad099538c00cf4eaa7e03499d6afa9dc95b064cf674",
+  "e070eca3fd7b64e758b707b0cd2769acf71ad67134ee2d727551782dbd3cfb37",
+  "2a2c38113235a0639b9ef3d8e1ac5941f23ca341f5620467d1d3252be018d37b",
+  "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
+  "2f3bbec98e63c33f243d4c267028fc2e19410df96b3d99783c8b0446080a54e0",
+  "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
+  "21663485d40fcaa5f22bb64209423c94341183ad2a02fb02023cbff5f1e5a392",
+];
+
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
+  "schemas/agent.schema.json": ["a75143842a1b3c12f56c68550f7b0b083246b20e60d9de1f8062b98c55131f5c"],
   ".gitignore": ["16b259efd54bdd1fdc2afc980f1dff1c76a76e23e4392d0fa0db7c751f504cf4"],
-  "README.md": [
-    "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
-    "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
-    "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
-    "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
-    "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
-    "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
-    "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
-    "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
-    "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
-    "da0c1cc124400b4e6f204fb6b29b181aec5ef76f1edc336bd7cb9ce6a6a252e4",
-    "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
-    "4939c3737e00693de9857f15412567ec4a66178cd951ab7b8df48c97e2610452",
-    "3134cd8539221c7e49902ad099538c00cf4eaa7e03499d6afa9dc95b064cf674",
-    "e070eca3fd7b64e758b707b0cd2769acf71ad67134ee2d727551782dbd3cfb37",
-    "2a2c38113235a0639b9ef3d8e1ac5941f23ca341f5620467d1d3252be018d37b",
-    "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
-    "2f3bbec98e63c33f243d4c267028fc2e19410df96b3d99783c8b0446080a54e0",
-    "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
-    "21663485d40fcaa5f22bb64209423c94341183ad2a02fb02023cbff5f1e5a392",
-  ],
-  "AGENTS.md": [
-    "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
-    "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
-    "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
-    "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
-    "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
-    "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
-    "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
-    "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
-    "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
-    "da0c1cc124400b4e6f204fb6b29b181aec5ef76f1edc336bd7cb9ce6a6a252e4",
-    "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
-    "4939c3737e00693de9857f15412567ec4a66178cd951ab7b8df48c97e2610452",
-    "3134cd8539221c7e49902ad099538c00cf4eaa7e03499d6afa9dc95b064cf674",
-    "e070eca3fd7b64e758b707b0cd2769acf71ad67134ee2d727551782dbd3cfb37",
-    "2a2c38113235a0639b9ef3d8e1ac5941f23ca341f5620467d1d3252be018d37b",
-    "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
-    "2f3bbec98e63c33f243d4c267028fc2e19410df96b3d99783c8b0446080a54e0",
-    "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
-    "21663485d40fcaa5f22bb64209423c94341183ad2a02fb02023cbff5f1e5a392",
-  ],
-  "CLAUDE.md": [
-    "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
-    "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
-    "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
-    "88acb3815e8efc866973c2d329491c63bef04d67b19e61579fe5abcf9af1221e",
-    "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
-    "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
-    "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
-    "c6b86f464a73d1c4255fd412bc454bea148a5bf2130aa3175b3de36e85aeb6a2",
-    "d71127b1f24427c8f3a36b5b32fde2aac496941c5bc038960f0d81399519c3e5",
-    "da0c1cc124400b4e6f204fb6b29b181aec5ef76f1edc336bd7cb9ce6a6a252e4",
-    "f3788eb927a38ad2d638fbf3f4e38164421ec40b46c039c96216787747e0b072",
-    "4939c3737e00693de9857f15412567ec4a66178cd951ab7b8df48c97e2610452",
-    "3134cd8539221c7e49902ad099538c00cf4eaa7e03499d6afa9dc95b064cf674",
-    "e070eca3fd7b64e758b707b0cd2769acf71ad67134ee2d727551782dbd3cfb37",
-    "2a2c38113235a0639b9ef3d8e1ac5941f23ca341f5620467d1d3252be018d37b",
-    "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
-    "2f3bbec98e63c33f243d4c267028fc2e19410df96b3d99783c8b0446080a54e0",
-    "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
-    "21663485d40fcaa5f22bb64209423c94341183ad2a02fb02023cbff5f1e5a392",
-  ],
+  "README.md": GUIDE_HISTORY,
+  "AGENTS.md": GUIDE_HISTORY,
+  "CLAUDE.md": GUIDE_HISTORY,
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [
     "7adeb4afdb505fdaeaf83ef3056e662f30ed502021c49adae30eb60e7bc17cca",

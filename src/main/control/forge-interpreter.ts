@@ -8,7 +8,7 @@ import type {
 } from "./forge.d";
 import { forgeBranch, pullRequest } from "./forge";
 import { forgeIdentity, forgeValue, reduceForgeChecks } from "./forge-mapping";
-import { manifestForgeBatch } from "./forge-manifest-batch";
+import { manifestBatchSize, manifestForgeBatch } from "./forge-manifest-batch";
 import { expandForgeArguments, forgeJson } from "./forge-execution";
 
 /** Fixed workflow; ownership and final identity checks cannot be changed by output tables. */
@@ -42,6 +42,8 @@ export function manifestForgeProvider(
     return reduceForgeChecks(value, plan.result, candidate.headSha, candidate.number);
   }
   return {
+    minimumIntervalMs: manifest.minimumIntervalSeconds * 1000,
+    batchSize: (matches) => manifestBatchSize(manifest, remote, matches),
     ...(manifest.operations.batchStatus
       ? ({
           batch: (matches) =>

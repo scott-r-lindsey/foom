@@ -1,16 +1,12 @@
 import type * as ForgeRuntimeModule from "../../../src/main/control/forge-runtime";
 import type { WorkspaceTerminal } from "../../../src/shared/workspace";
-import type * as ForgeModule from "../../../src/main/control/forge";
 import { DEFAULT_SETTINGS } from "../../../src/main/setup/settings";
-import { runForge } from "../../../src/main/control/forge";
-const forgeRuntimeMode = vi.hoisted(() => ({ manifest: false }));
+const forgeAvailable = vi.hoisted(() => vi.fn(() => Promise.resolve(false)));
 vi.mock("../../../src/main/control/forge-runtime", async (original) => {
   const actual = await original<typeof ForgeRuntimeModule>();
   return {
     ForgeRuntime: class extends actual.ForgeRuntime {
-      constructor(...args: ConstructorParameters<typeof actual.ForgeRuntime>) {
-        super(args[0], args[1], forgeRuntimeMode.manifest ? "manifest" : args[2], args[3]);
-      }
+      override available = forgeAvailable;
     },
   };
 });
@@ -19,10 +15,6 @@ const forgeUi = vi.hoisted(() => ({
   rows: undefined as WorkspaceTerminal[] | undefined,
   events: new Map<string, () => void>(),
   notices: [] as { title: string; body: string; click?: () => void }[],
-}));
-vi.mock("../../../src/main/control/forge", async (original) => ({
-  ...(await original<typeof ForgeModule>()),
-  runForge: vi.fn(() => Promise.resolve("")),
 }));
 vi.mock("../../../src/main/agents/setup-offers", () => ({
   setupOffers: {
@@ -490,8 +482,13 @@ const mock = vi.hoisted(() => {
       configText: vi.fn(() => null),
       setConfigText: vi.fn(() => Promise.resolve()),
       update: vi.fn(() => Promise.resolve()),
-      get: (): Pick<Settings, "colorMode" | "interfaceScale" | "interfaceTheme"> &
+      get: (): Pick<
+        Settings,
+        "colorMode" | "interfaceScale" | "interfaceTheme" | "forges" | "forgeHosts"
+      > &
         Partial<Pick<Settings, "agentBypassAcknowledged" | "showPullRequests">> => ({
+        forges: { github: true },
+        forgeHosts: { "github.com": "github" },
         showPullRequests: false,
         colorMode: "dark",
         interfaceScale: 120,
@@ -627,7 +624,7 @@ vi.mock("electron", () => ({
 }));
 
 beforeEach(() => {
-  forgeRuntimeMode.manifest = false;
+  forgeAvailable.mockResolvedValue(false);
   vi.resetModules();
   vi.clearAllMocks();
   mock.instances.length = 0;
@@ -1744,11 +1741,17 @@ test("Foom config migrates profile values, applies file changes live and broadca
   // An interface size change from the file resizes the window like a Settings change.
   const settings = vi.spyOn(mock.settingsStore, "get");
   settings.mockReturnValueOnce({
+    ...DEFAULT_SETTINGS,
     colorMode: "dark",
     interfaceScale: 120,
     interfaceTheme: "follow",
   });
-  settings.mockReturnValue({ colorMode: "dark", interfaceScale: 140, interfaceTheme: "follow" });
+  settings.mockReturnValue({
+    ...DEFAULT_SETTINGS,
+    colorMode: "dark",
+    interfaceScale: 140,
+    interfaceTheme: "follow",
+  });
   deps.apply({ interfaceScale: 140 });
   settings.mockRestore();
   deps.onStatus?.(mock.config.status as never);
@@ -2184,9 +2187,9 @@ test("preview popout creates a window, transfers the host record and requests pl
 test("forge default probes GitHub CLI login once unless the preference was already saved", async () => {
   const get = vi.spyOn(mock.settingsStore, "get").mockReturnValue({ ...DEFAULT_SETTINGS });
   try {
-    vi.mocked(runForge).mockResolvedValueOnce("");
+    forgeAvailable.mockResolvedValueOnce(true);
     await start();
-    expect(runForge).toHaveBeenCalledWith(["auth", "status", "--hostname", "github.com"]);
+    expect(forgeAvailable).toHaveBeenCalledOnce();
     expect(mock.settingsStore.update).toHaveBeenCalledWith({ showPullRequests: true });
   } finally {
     get.mockRestore();
@@ -2195,7 +2198,7 @@ test("forge default probes GitHub CLI login once unless the preference was alrea
 test("missing or logged-out gh defaults board tracking off", async () => {
   const get = vi.spyOn(mock.settingsStore, "get").mockReturnValue({ ...DEFAULT_SETTINGS });
   try {
-    vi.mocked(runForge).mockRejectedValueOnce(new Error("missing"));
+    forgeAvailable.mockResolvedValueOnce(false);
     await start();
     expect(mock.settingsStore.update).toHaveBeenCalledWith({ showPullRequests: false });
   } finally {
@@ -2300,7 +2303,7 @@ test("pass notifications use current execution evidence rather than stale verdic
   }
 });
 
-test("wires the forge catalog and shares the legacy selector between tracking and adoption", async () => {
+test("wires the forge catalog and shares the manifest selector between tracking and adoption", async () => {
   await start();
   const provider = forgeMock.open.mock.calls[0]?.[3];
   expect(provider).toEqual(expect.any(Function));
@@ -2310,16 +2313,23 @@ test("wires the forge catalog and shares the legacy selector between tracking an
     [join("/test/user-data", ".foom", "config")],
     provider,
   );
-  await expect(provider?.("https://github.com/o/r")).resolves.toHaveProperty("batch");
+  await expect(
+    provider?.("https://github.com/o/r", () =>
+      Promise.resolve({ identity: "fixture", validate: async () => {} }),
+    ),
+  ).resolves.toHaveProperty("batch");
   await expect(provider?.("https://unassigned.example/o/r")).resolves.toBeUndefined();
   const deps = mock.config.deps;
   if (!deps?.applyForges) throw new Error("Missing forge catalog wiring");
   deps.applyForges([]);
-  await expect(provider?.("https://github.com/o/r")).resolves.toHaveProperty("batch");
+  await expect(
+    provider?.("https://github.com/o/r", () =>
+      Promise.resolve({ identity: "fixture", validate: async () => {} }),
+    ),
+  ).resolves.toHaveProperty("batch");
 });
 
 test("manifest composition uses live profile choices, discovered PATH and tracker invalidation", async () => {
-  forgeRuntimeMode.manifest = true;
   let current = { ...DEFAULT_SETTINGS };
   const get = vi.spyOn(mock.settingsStore, "get").mockImplementation(() => current);
   const agents = await import("../../../src/main/agents/agents");

@@ -18,7 +18,8 @@ ahead of user Environment entries and that PATH. Foom writes
 its files at first launch and replaces one on upgrade only when it is missing or
 byte-identical to a version Foom shipped earlier (`OWNED_HISTORY`), so user edits
 survive. Guide edits append the new digest to `tests/fixtures/config/guide-digests.json`
-and retain every earlier digest in all three guide entries in `OWNED_HISTORY`;
+and retain every earlier digest once in `GUIDE_HISTORY`, shared by all three
+`OWNED_HISTORY` guide entries;
 the layout unit test enforces this. The folder is plain files (#540): Foom never creates, reads or writes a
 `.git` there, and leaves an existing one untouched. `.gitignore` excludes recordings
 under `sounds/` and keeps `.gitkeep` files, for users who keep the folder in their

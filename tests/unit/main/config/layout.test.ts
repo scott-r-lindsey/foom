@@ -56,9 +56,9 @@ test("the strict JSON starter validates after only its identity changes", () => 
 test("each guide revision is appended to the digest ledger and all older revisions stay refreshable", () => {
   for (const file of ["README.md", "AGENTS.md", "CLAUDE.md"]) {
     const current = OWNED_FILES[file] ?? "";
-    // On edits append the new digest; move the previous digest to OWNED_HISTORY.
+    // On edits append the new digest; move the previous digest to GUIDE_HISTORY.
     expect(digest(current)).toBe(guides.at(-1));
-    for (const previous of guides.slice(0, -1)) expect(OWNED_HISTORY[file]).toContain(previous);
+    expect(new Set(OWNED_HISTORY[file])).toEqual(new Set(guides.slice(0, -1)));
     expect(refreshable(file, new TextEncoder().encode(current))).toBe(false);
     expect(refreshable(file, new TextEncoder().encode(`${current}\nUser notes`))).toBe(false);
     expect(refreshable(file, null)).toBe(true);

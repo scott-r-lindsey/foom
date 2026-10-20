@@ -1,6 +1,7 @@
-import { forgeBranch, pullRequest, rollupChecks } from "./forge";
-import type { ForgeRunner } from "./forge";
-import type { ForgeMatch, ForgeObservation } from "./forge.d";
+// Frozen pre-activation batch reference; fixture transports only.
+import { forgeBranch, pullRequest, rollupChecks } from "./legacy-forge";
+import type { ForgeRunner } from "./legacy-forge";
+import type { ForgeMatch, ForgeObservation } from "../../src/main/control/forge.d";
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)

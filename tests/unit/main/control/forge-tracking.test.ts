@@ -1,10 +1,10 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ForgeTracking, forgeDelay } from "../../../../src/main/control/forge-tracking";
 import { privateDirectory, atomicPrivate } from "../../../../src/node-common/private-files";
-import type { PullRequest } from "../../../../src/main/control/forge.d";
+import type { ForgeMatch, PullRequest } from "../../../../src/main/control/forge.d";
 import { SessionMetadata } from "../../../../src/main/control/metadata";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 import type { Principal } from "../../../../src/main/control/types";
@@ -341,7 +341,7 @@ it("refuses invalid adoption numbers in memory and persisted tracking", async ()
   expect(h.lookup).not.toHaveBeenCalled();
 });
 
-function batched() {
+function batched(minimumIntervalMs = 0, batchSize?: (matches: readonly ForgeMatch[]) => number) {
   let now = 100;
   const observation = {
     ...pending,
@@ -363,7 +363,7 @@ function batched() {
     directory,
     inspect,
     changed,
-    () => ({ batch, lookup: vi.fn() }),
+    () => ({ batch, lookup: vi.fn(), minimumIntervalMs, ...(batchSize ? { batchSize } : {}) }),
     () => now,
   );
   trackers.push(tracker);
@@ -579,4 +579,268 @@ it("notifies for a new failed head even when checks finish between polls", async
   h.tracker.recheck(tree.path);
   await h.tracker.poll();
   expect(completed).toHaveBeenCalledTimes(1);
+});
+
+it.each([20000, 30000, 180000, 86400000])(
+  "manifest minima only slow regular cadence (%s)",
+  async (minimum) => {
+    const h = batched(minimum);
+    h.tracker.track(tree);
+    await h.tracker.poll();
+    h.advance(1000);
+    await h.tracker.poll(); // Discovery always binds on the next tick.
+    expect(h.batch).toHaveBeenCalledTimes(2);
+    h.advance(Math.max(20000, minimum) - 1);
+    await h.tracker.poll();
+    expect(h.batch).toHaveBeenCalledTimes(2);
+    h.advance(1);
+    const settled = {
+      ...h.observation,
+      requiredChecks: "success" as const,
+      board: { ...h.observation.board, checks: { passed: 1, failed: 0, pending: 0 } },
+    };
+    h.result(new Map([[tree.branch, settled]]));
+    await h.tracker.poll();
+    h.advance(Math.max(120000, minimum) - 1);
+    await h.tracker.poll();
+    expect(h.batch).toHaveBeenCalledTimes(3);
+    h.advance(1);
+    h.result(undefined);
+    await h.tracker.poll();
+    h.advance(Math.max(60000, minimum) - 1);
+    await h.tracker.poll();
+    expect(h.batch).toHaveBeenCalledTimes(4);
+    h.advance(1);
+    await h.tracker.poll();
+    expect(h.batch).toHaveBeenCalledTimes(5);
+  },
+);
+it("samples one bounded prefix per tick and leaves the suffix due", async () => {
+  const h = batched(20000, () => 1);
+  const second = { ...tree, path: join(root, "second"), branch: "second" };
+  h.tracker.sync(tree.repository, [tree, second]);
+  h.tracker.setEnabled(true);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenLastCalledWith([{ branch: tree.branch }]);
+  h.advance(1000);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenLastCalledWith([{ branch: tree.branch, number: 340 }]);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenLastCalledWith([{ branch: second.branch }]);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(3);
+});
+
+it.each([true, false])(
+  "migrates legacy bindings only for the approved bundled GitHub route (%s)",
+  async (acceptLegacyBinding) => {
+    await atomicPrivate(directory, "forge.json", [
+      { ...tree, remote: "https://github.com/o/r", pr: pending },
+    ]);
+    const lookup = vi.fn(() => Promise.resolve(pending));
+    const tracker = new ForgeTracking(
+      directory,
+      () => Promise.resolve("https://github.com/o/r"),
+      vi.fn(),
+      () => ({ lookup, binding: "selected-manifest", acceptLegacyBinding }),
+    );
+    trackers.push(tracker);
+    await tracker.load();
+    expect(tracker.read(tree.repository, tree.path)).toBeUndefined();
+    await tracker.poll();
+    expect(lookup).toHaveBeenCalledWith(
+      tree.branch,
+      acceptLegacyBinding ? pending.number : undefined,
+    );
+    await tracker.close();
+    expect(JSON.parse(await readFile(join(directory, "forge.json"), "utf8"))).toMatchObject({
+      version: 1,
+      entries: [{ binding: "selected-manifest", pr: pending }],
+    });
+  },
+);
+it("invalidates persisted provider bindings before lookup and rejects unknown persistence versions", async () => {
+  for (const version of [2, null]) {
+    await atomicPrivate(directory, "forge.json", { version, entries: [{ ...tree, pr: pending }] });
+    const h = harness();
+    await h.tracker.load();
+    await h.tracker.poll();
+    expect(h.lookup).not.toHaveBeenCalled();
+  }
+  for (const binding of [null, 1, "x".repeat(8193)]) {
+    await atomicPrivate(directory, "forge.json", {
+      version: 1,
+      entries: [{ ...tree, binding, pr: pending }],
+    });
+    const h = harness();
+    await h.tracker.load();
+    await h.tracker.poll();
+    expect(h.lookup).not.toHaveBeenCalled();
+  }
+  await atomicPrivate(directory, "forge.json", {
+    version: 1,
+    entries: [{ ...tree, remote: "https://github.com/o/r", binding: "old", pr: pending }],
+  });
+  let binding = "old";
+  const lookup = vi.fn(() => Promise.resolve(pending));
+  const tracker = new ForgeTracking(
+    directory,
+    () => Promise.resolve("https://github.com/o/r"),
+    vi.fn(),
+    () => ({ lookup, binding }),
+  );
+  trackers.push(tracker);
+  await tracker.load();
+  await tracker.poll();
+  expect(lookup).toHaveBeenLastCalledWith(tree.branch, pending.number);
+  binding = "new";
+  tracker.recheck(tree.path);
+  await tracker.poll();
+  expect(lookup).toHaveBeenLastCalledWith(tree.branch, undefined);
+  tracker.invalidate();
+  tracker.recheck(tree.path);
+  await tracker.poll();
+  expect(lookup).toHaveBeenLastCalledWith(tree.branch, undefined);
+});
+
+it("deduplicates matching branches before request sizing and publishes to every checkout", async () => {
+  const size = vi.fn(() => 1);
+  const h = batched(20000, size);
+  const second = { ...tree, path: join(root, "same-branch") };
+  h.tracker.setEnabled(true);
+  h.tracker.sync(tree.repository, [tree, second]);
+  await h.tracker.poll();
+  expect(size).toHaveBeenCalledWith([{ branch: tree.branch }]);
+  expect(h.batch).toHaveBeenCalledWith([{ branch: tree.branch }]);
+  expect(h.tracker.readBoard(tree.repository, tree.path)).toEqual(h.observation.board);
+  expect(h.tracker.readBoard(tree.repository, second.path)).toEqual(h.observation.board);
+});
+
+it("revalidates the sampled chunk without publishing observations for unselected checkouts", async () => {
+  let sampling = false;
+  const second = { ...tree, path: join(root, "unselected"), branch: "other" };
+  const tracker = new ForgeTracking(
+    directory,
+    (row) =>
+      Promise.resolve(
+        sampling && row.branch === second.branch ? undefined : "https://github.com/o/r",
+      ),
+    vi.fn(),
+    async (_remote, getContext) => {
+      const context = await getContext?.();
+      return {
+        lookup: () => Promise.resolve(undefined),
+        batchSize: () => 1,
+        batch: async (matches) => {
+          sampling = true;
+          await context?.validate(matches.map((match) => match.branch));
+          return new Map([
+            [
+              tree.branch,
+              {
+                ...pending,
+                board: {
+                  number: pending.number,
+                  title: "PR",
+                  url: "https://github.com/o/r/pull/340",
+                  state: "OPEN" as const,
+                  checks: { passed: 0, failed: 0, pending: 1 },
+                },
+              },
+            ],
+          ]);
+        },
+      };
+    },
+  );
+  trackers.push(tracker);
+  tracker.setEnabled(true);
+  tracker.sync(tree.repository, [tree, second]);
+  await tracker.poll();
+  expect(tracker.read(tree.repository, tree.path)).toEqual(pending);
+  expect(tracker.read(tree.repository, second.path)).toBeUndefined();
+});
+
+it("keeps repository cadence across chunks with active, settled and absent PRs", async () => {
+  let capacity = 2;
+  const h = batched(20000, () => capacity);
+  const second = { ...tree, path: join(root, "second"), branch: "other" };
+  h.tracker.sync(tree.repository, [tree, second]);
+  h.tracker.setEnabled(true);
+  h.result(
+    new Map([
+      [tree.branch, h.observation],
+      [second.branch, h.observation],
+    ]),
+  );
+  await h.tracker.poll();
+  h.advance(1000);
+  await h.tracker.poll();
+  capacity = 1;
+  h.result(
+    new Map([
+      [
+        tree.branch,
+        {
+          ...h.observation,
+          requiredChecks: "success",
+          board: { ...h.observation.board, checks: { passed: 1, failed: 0, pending: 0 } },
+        },
+      ],
+    ]),
+  );
+  h.advance(20000);
+  await h.tracker.poll();
+  h.result(new Map());
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(4);
+  h.advance(19999);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(4);
+  h.advance(1);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenLastCalledWith([{ branch: tree.branch, number: 340 }]);
+  h.advance(99999);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(5);
+  h.advance(1);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenLastCalledWith([{ branch: second.branch, number: 340 }]);
+});
+
+it("backs off the entire repository after a failed chunk and hides unsampled stale observations", async () => {
+  let capacity = 2;
+  const h = batched(20000, () => capacity);
+  const second = { ...tree, path: join(root, "second"), branch: "other" };
+  h.tracker.sync(tree.repository, [tree, second]);
+  h.tracker.setEnabled(true);
+  h.result(
+    new Map([
+      [tree.branch, h.observation],
+      [second.branch, h.observation],
+    ]),
+  );
+  await h.tracker.poll();
+  h.advance(1000);
+  await h.tracker.poll();
+  capacity = 1;
+  h.result(undefined);
+  h.advance(20000);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(3);
+  expect(h.tracker.read(tree.repository, tree.path)).toBeUndefined();
+  expect(h.tracker.read(tree.repository, second.path)).toBeUndefined();
+  h.advance(59999);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(3);
+  h.advance(1);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(4);
+  h.advance(119999);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(4);
+  h.advance(1);
+  h.result(new Map());
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(5);
 });

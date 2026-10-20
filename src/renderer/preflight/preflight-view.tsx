@@ -522,8 +522,10 @@ function PreflightContents({
           <span>Show pull requests and checks</span>
         </label>
         <p>
-          Foom uses your GitHub CLI to send repository and branch names to GitHub. It sends no
-          terminal content.
+          Foom uses your selected forge CLI and its existing login to read PR or merge request and
+          CI metadata. It sends repository/project, branch and PR/MR identifiers in read-only status
+          requests. Foom does not send terminal content, store forge tokens, change CLI
+          login/configuration, or write to the forge.
         </p>
         <label className="concurrent-children">
           Concurrent children per orchestrator

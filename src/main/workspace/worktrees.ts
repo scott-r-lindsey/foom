@@ -1,7 +1,7 @@
 import { ApplicationError } from "../../shared/application-errors";
 import type { ForgeProviderFactory } from "../control/forge.d";
 import { UncertainEffect } from "../control/orchestration-mutations";
-import { forgeBranch, legacyForgeProvider, pullRequest } from "../control/forge";
+import { forgeBranch, pullRequest } from "../control/forge";
 import { ControlError } from "../../node-common/control-validation";
 import { fetchAdvertisedDefault } from "./fetch-default";
 import type { GitPanelFacts } from "../../shared/panel";
@@ -145,7 +145,7 @@ export class WorktreeService {
     userData: string,
     root?: string,
     protect: readonly string[] = [],
-    provider: ForgeProviderFactory = legacyForgeProvider,
+    provider: ForgeProviderFactory = () => undefined,
   ): Promise<WorktreeService> {
     validatePath(userData);
     const service = new WorktreeService(root, provider);
@@ -236,7 +236,7 @@ export class WorktreeService {
 
   constructor(
     root = join(homedir(), ".foom", "worktrees"),
-    private readonly provider: ForgeProviderFactory = legacyForgeProvider,
+    private readonly provider: ForgeProviderFactory = () => undefined,
   ) {
     validatePath(root);
     this.root = resolve(root);
