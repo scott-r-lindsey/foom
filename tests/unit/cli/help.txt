@@ -1,3 +1,4 @@
+Observers: foom hook EVENT [--channel ID] reads bounded JSON on stdin; silent and inert outside Foom.
 foom [--json] whoami | sessions [--limit N] [--cursor ID] | session-state ID | operation-status --operation-id ID | operation-status --idempotency-key KEY
 Agents: open-preview PATH | previews | close-preview PREVIEW_ID (also with --json)
 Children only: handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL]... --idempotency-key KEY

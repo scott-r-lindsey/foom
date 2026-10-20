@@ -60,3 +60,12 @@ state => not-reviewed. No trust-store read or grant. Missing prompt callbacks af
 an observed turn => declined/unavailable and later launch fallback. A review text match sets outdated from trusted/outdated, otherwise not-reviewed, preserving current code; it does not mean the user declined. No timer while input box idle. Snapshot fallback at launch: establishing
 launch keeps notify. Completion groups deduplicate notify after Stop for the same
 execution turn; an attached notify can complete a later turn lacking lifecycle.
+
+### Public external transport (#635)
+
+An external channel uses exactly `observer: {transport: "external"}` and empty
+`arguments`. It exposes protocol 1 to user-installed extensions through
+`foom hook EVENT [--channel ID]`; see the [environment and CLI contract](../agent-plugins.md#user-authored-extensions-public-hook-protocol-1-635).
+No observer source, counter or attachment arguments are generated. Extra observer
+options and observer placeholders for external channels are invalid. Existing
+mapping validation, payload dedupe and shared conversation pinning apply unchanged.

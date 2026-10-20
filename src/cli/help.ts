@@ -1,6 +1,11 @@
 /** One entry per command; alternate forms stay together in the same entry. */
 const commandHelp = [
   {
+    prefix: "Observers: foom ",
+    commands: ["hook EVENT [--channel ID]"],
+    suffix: " reads bounded JSON on stdin; silent and inert outside Foom.",
+  },
+  {
     prefix: "foom [--json] ",
     commands: [
       "whoami",
