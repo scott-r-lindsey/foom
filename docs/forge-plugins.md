@@ -11,15 +11,15 @@ The existing config scanner also loads and watches `forges/<id>.json` with
 contained 64 KiB reads, per-kind 50-file caps and byte-bound validation callbacks.
 Loading only builds a catalog; it does not enable or probe a forge.
 Offline tests run the existing provider and new interpreter side by side before
-removing the old provider. This stage does **not** replace the running GitHub provider. Runtime wiring of
-Settings/host assignments and the lifecycle, optional display metadata, persistence migration
-and the active-provider switch remain for the integration stage. The lifecycle
-stage below adds execution without activating it in the running app. A second stage
-adds optional `batchStatus` query composition and interpretation with offline
-old/new parity tests. Runtime selection and the #516 scheduler still use the old
-provider; no new CLI is enabled by this stage. GitLab #522
-still requires authenticated public-project evidence. The Settings stage adds forge cards
-and user-controlled host assignments; these preferences remain inactive for polling.
+removing the old provider. This stage does **not** replace the running GitHub
+provider. Main wires Settings/host assignments and the lifecycle through an
+internal provider selection, fixed to the old provider in production. Optional
+display metadata, persistence migration and the active-provider switch remain for
+later stages. The lifecycle below supplies bounded execution; optional
+`batchStatus` supplies dynamic query composition and check-count interpretation.
+Both have offline old/new parity tests. No new CLI is enabled in production.
+GitLab #522 still requires authenticated public-project evidence. Settings forge
+cards and user-controlled host assignments remain inactive for production polling.
 
 A forge is a second manifest **kind** in the [existing plugin system](agent-plugins.md),
 not another plugin architecture. Built-ins are bundled JSON. A valid config copy
@@ -311,10 +311,22 @@ envelopes; constructed contexts cover optional failures, unknowns and partial pa
 explicit registry. Config entries use the loader's exact-byte validation callback;
 bundled entries use the build-locked manifest/digest. Registry replacement,
 explicit refresh/invalidation and shutdown clear caches and abort pending samples.
-Host assignments, remote/branch changes and worktree removal must invalidate the
-service when runtime integration lands. The caller supplies a main-owned worktree
-identity and a validation callback that reinspects registration, canonical identity,
-remote and branch; neither is an IPC capability exposed to the renderer.
+The main-owned `ForgeRuntime` now connects the config scanner’s forge registry,
+profile enablement/host assignments and discovered login PATH to this service.
+Its constructor selection defaults to `legacy`; only fixture/parity tests choose
+`manifest`. There is no user-visible setting, environment flag or IPC switch.
+Unknown, unassigned, disabled or missing selections return no provider, without
+probing or falling back. Declared hosts never authorize routing.
+
+Settings changes and registry replacements invalidate pending work and caches;
+tracking immediately hides observations and clears number bindings. PATH changes
+retire the old lifecycle, and executable identities are checked on every sample.
+Tracking supplies a validation closure over registered checkout identities,
+branches and remotes. Adoption and merged-PR hints supply a lazy main-owned
+repository/worktree closure, used only by the manifest path. Each closure is
+rechecked by the lifecycle before execution, cache reads and publication. Tracking
+also rejects publication across selection generations. These context closures
+are not IPC capabilities exposed to the renderer.
 
 Executable discovery uses the agent policy: validated basenames, absolute PATH
 components only, executable regular files, canonical paths, and native `.exe`/`.com`
@@ -349,8 +361,19 @@ already completed transport. This is filesystem revalidation, not protection
 against a malicious local process racing individual filesystem operations.
 
 The legacy `gh` provider remains active. Fixture tests exercise this boundary
-without invoking real forge CLIs or network services. Scheduling, runtime wiring,
-optional display enrichment and persistence remain separate #521 stages.
+without invoking real forge CLIs or network services. Tracking and adoption
+entry-point parity tests replay recorded public fork evidence and explicitly
+derived same-repository/batch envelopes through both providers.
+Fixture CLI tests verify that a renamed, hostile manifest cannot relax Foom’s fork,
+same-repository or advertised default-branch refusals. No real forge CLI or network
+is used.
+
+Large-request scheduling within manifest caps, slowdown-only manifest minima,
+optional display enrichment/checks-meaning metadata, versioned persistence and
+production activation/removal of the old provider remain separate #521 stages.
+This wiring stage leaves #516’s scheduling and dynamic batching unchanged,
+including the one-second discovery follow-up and existing serial/fleet budgets.
+The internal manifest harness is not a shipping activation gate.
 
 ## JSON mapping and check reduction
 

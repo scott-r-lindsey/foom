@@ -1,3 +1,4 @@
+import type { ForgeSampleContext } from "./forge-lifecycle-types";
 import type { BoardPullRequest } from "../../shared/forge";
 export interface PullRequest {
   number: number;
@@ -52,3 +53,8 @@ export interface ForgeBindings extends ForgeRemote {
   projectOwner?: string;
   projectName?: string;
 }
+
+export type ForgeProviderFactory = (
+  remote: string,
+  context?: () => Promise<ForgeSampleContext>,
+) => ForgeProvider | undefined | Promise<ForgeProvider | undefined>;

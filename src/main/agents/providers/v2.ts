@@ -143,7 +143,7 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
       for (const channel of model.hooks?.channels ?? []) {
         const attached = selected(channel.when, facts);
         facts[`channelAttached:${channel.id}`] = attached;
-        if (attached && channel.disclosure) replacement = true;
+        if (attached && channel.observer.transport === "argv-last") replacement = true;
       }
       return replacement;
     },

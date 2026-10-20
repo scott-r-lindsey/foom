@@ -21,7 +21,6 @@ export interface LaunchOptions {
   agents: readonly AgentInstallation[];
   enabled: Readonly<Record<AgentId, boolean>>;
   hooks: boolean;
-  acknowledged: boolean;
 }
 export interface WorktreeSource {
   confirmations?: ConfirmationClient;

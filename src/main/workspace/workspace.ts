@@ -107,7 +107,6 @@ export interface WorkspaceDependencies {
   onState(state: TerminalState): void;
   onChange?(): void;
   watcher?: Pick<InventoryWatch, "sync" | "dispose">;
-  acknowledgeNotifier(): Promise<void>;
   acknowledgeAgyPluginOffer?(): Promise<void>;
   forge?: ForgeTracking;
   openExternal?: (url: string) => Promise<void>;
@@ -172,7 +171,6 @@ export class Workspace {
   private closed = false;
   private readonly launchAbort = new AbortController();
   private location: "root" | "adjacent" = "root";
-  private acknowledged = false;
   private hooksEnabled = true;
   private agentHooks: Readonly<Record<string, boolean>> = {};
   private concurrentChildren = 4;
@@ -455,7 +453,7 @@ export class Workspace {
           return undefined;
         }
         if (entry.config) {
-          await this.startConfig(entry.agent, confirm, replacement);
+          await this.startConfig(entry.agent, replacement);
           return undefined;
         }
         return this.startExisting(
@@ -493,7 +491,6 @@ export class Workspace {
         Pick<
           Settings,
           | "worktreeLocation"
-          | "codexNotifierAcknowledged"
           | "agentArguments"
           | "agentHooks"
           | "restoreSessions"
@@ -519,7 +516,6 @@ export class Workspace {
     if (JSON.stringify(this.enabled) !== JSON.stringify(settings.agents)) this.scanned = undefined;
     this.enabled = settings.agents;
     this.location = settings.worktreeLocation ?? "root";
-    this.acknowledged = settings.codexNotifierAcknowledged ?? false;
     if (reminderChanged) this.refresh();
   }
 
@@ -946,14 +942,6 @@ export class Workspace {
         const identity = await this.deps.worktrees.launchIdentity(request.repository, tree.path);
         if (request.run !== "shell") {
           if (!(await this.confirmAgentLaunch(tree.path, confirm))) return null;
-          if (
-            builtinAgent(request.run)?.hookHealth &&
-            request.acknowledgeNotifierReplacement &&
-            !this.acknowledged
-          ) {
-            await this.deps.acknowledgeNotifier();
-            this.acknowledged = true;
-          }
           return (
             await this.launchAgent(
               {
@@ -962,7 +950,6 @@ export class Workspace {
                 worktree: tree.path,
                 cols: 80,
                 rows: 24,
-                acknowledgeNotifierReplacement: this.acknowledged,
               },
               false,
               true,
@@ -1184,7 +1171,6 @@ export class Workspace {
   /** Config sessions have no worktree or repository grants. */
   private async startConfig(
     run: AgentId,
-    confirm: ConfirmWorkspace,
     replacement?: { id: string; conversationId?: string },
   ): Promise<void> {
     const config = this.deps.config;
@@ -1207,20 +1193,7 @@ export class Workspace {
       return;
     }
     if (this.enabled[run] === false) throw new Error("This agent is turned off in preflight");
-    const scan = await this.scanAgents(false);
-    if (
-      builtinAgent(run)?.hookHealth &&
-      this.hooksEnabled &&
-      this.agentHooks[run] !== false &&
-      !this.acknowledged &&
-      scan.agents.some(
-        (agent) => agent.id === run && agent.hooks && agent.notifierReplacement === true,
-      )
-    ) {
-      if (!(await confirm({ kind: "notifier" }))) return;
-      await this.deps.acknowledgeNotifier();
-      this.acknowledged = true;
-    }
+    await this.scanAgents(false);
     if (replacement) {
       const old = this.launched.get(replacement.id);
       if (!old || this.executionOwner.view(old.id).exitCode === undefined)
@@ -1245,7 +1218,6 @@ export class Workspace {
         defaultArguments,
         configCli: config.cliDirectory,
         sharedCheckout: true,
-        acknowledgeNotifierReplacement: this.acknowledged,
         ...(this.deps.environment ? { environment: this.deps.environment(run) } : {}),
         ...(replacement
           ? {
@@ -1353,7 +1325,7 @@ export class Workspace {
     if (this.closed) throw new Error("Workspace is closed");
     if (command.kind === "resume-id") return this.resumeId(command, confirm);
     if (command.kind === "home-shell") return this.startHomeShell();
-    if (command.kind === "config-launch") return this.startConfig(command.run, confirm);
+    if (command.kind === "config-launch") return this.startConfig(command.run);
     if (command.kind === "copy-config-path") {
       if (!this.deps.config) throw new Error("Foom config is unavailable");
       await this.deps.copyText?.(this.deps.config.root);
@@ -1421,7 +1393,7 @@ export class Workspace {
             ? { conversationId: entry.conversationId }
             : {}),
         };
-        if (entry.config) await this.startConfig(entry.agent, confirm, replacement);
+        if (entry.config) await this.startConfig(entry.agent, replacement);
         else
           await this.startExisting(
             entry.repository,
@@ -1455,7 +1427,7 @@ export class Workspace {
         throw new Error("Close the orchestrator's children first to keep their parent context");
       if (command.kind === "restart") {
         if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
-        if (entry.config) await this.startConfig("shell", confirm);
+        if (entry.config) await this.startConfig("shell");
         else if (entry.home) await this.startHomeShell();
         else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
       }
@@ -1568,20 +1540,7 @@ export class Workspace {
         if (run !== "shell" && !restoring && !(await this.confirmAgentLaunch(worktree, confirm)))
           return;
         if (run !== "shell") {
-          const scan = await this.scanAgents(false);
-          if (
-            builtinAgent(run)?.hookHealth &&
-            this.hooksEnabled &&
-            this.agentHooks[run] !== false &&
-            !this.acknowledged &&
-            scan.agents.some(
-              (agent) => agent.id === run && agent.hooks && agent.notifierReplacement === true,
-            )
-          ) {
-            if (!(await confirm({ kind: "notifier" }))) return;
-            await this.deps.acknowledgeNotifier();
-            this.acknowledged = true;
-          }
+          await this.scanAgents(false);
           if (replacement) {
             if (!restoring) this.orchestration.relaunched(replacement.id);
             const old = this.launched.get(replacement.id);
@@ -1602,7 +1561,6 @@ export class Workspace {
                   worktree,
                   cols: 80,
                   rows: 24,
-                  acknowledgeNotifierReplacement: this.acknowledged,
                 },
                 worktree === repository,
                 true,
@@ -1787,7 +1745,6 @@ export class Workspace {
             worktree,
             cols: 80,
             rows: 24,
-            acknowledgeNotifierReplacement: this.acknowledged,
           },
           false,
           false,

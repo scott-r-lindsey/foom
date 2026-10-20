@@ -373,7 +373,7 @@ test("launch, close and worktree actions refresh their inventories", async () =>
   off?.();
   await source.config?.decide?.("keep", "held");
   expect(mock.configStatus).toHaveBeenCalledWith("keep", "held");
-  expect(await source.worktrees?.load()).toMatchObject({ hooks: true, acknowledged: false });
+  expect(await source.worktrees?.load()).toMatchObject({ hooks: true });
   expect(await source.worktrees?.addRepository()).toBeNull();
   await expect(source.worktrees?.branches("/r")).resolves.toMatchObject({ head: "main" });
   expect(mock.branches).toHaveBeenCalledWith("/r");
@@ -942,7 +942,6 @@ test.each(["via-claude", "via-codex", "via-agy"] as const)(
     expect(mock.sidebarCommand).toHaveBeenLastCalledWith({
       kind: "config-launch",
       run: route.slice(4),
-      origin: "menu",
     });
     expect(mock.open).toHaveBeenLastCalledWith("cfg");
     expect(screen.queryByRole("heading", { name: "Settings" })).toBeNull();

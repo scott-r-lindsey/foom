@@ -509,7 +509,6 @@ else {
     return (
       await window.desktop.launchAgent({
         agent: "codex",
-        acknowledgeNotifierReplacement: true,
         repository: repo,
         worktree: tree.path,
         cols: 80,
@@ -640,7 +639,6 @@ if (resumed) {
         repository: repository.path,
         branch: "resume-test",
         run: agent,
-        acknowledgeNotifierReplacement: true,
       });
     }, agent);
     await expect
@@ -815,9 +813,9 @@ process.stdin.on('data', data => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
   }, repo);
   const repository = await page.evaluate(() => window.desktop.addRepository());
-  const launch = (branch, acknowledge) =>
+  const launch = (branch) =>
     page.evaluate(
-      async ({ repository, branch, acknowledge }) => {
+      async ({ repository, branch }) => {
         await window.desktop.scanAgents(true);
         const tree = await window.desktop.createWorktree(repository, branch, "adjacent");
         return (
@@ -827,13 +825,12 @@ process.stdin.on('data', data => {
             worktree: tree.path,
             cols: 80,
             rows: 24,
-            acknowledgeNotifierReplacement: acknowledge,
           })
         ).id;
       },
-      { repository: repository.path, branch, acknowledge },
+      { repository: repository.path, branch },
     );
-  const id = await launch("first", true);
+  const id = await launch("first");
   const health = () =>
     page.evaluate(
       async () =>
@@ -878,7 +875,7 @@ process.stdin.on('data', data => {
     )
     .toBe("done");
   await expect.poll(health).toBe("trusted");
-  const later = await launch("later", false);
+  const later = await launch("later");
   await expect
     .poll(() => page.evaluate((id) => window.desktop.tail(id, 40), later))
     .toContain("USER NOTIFIER PRESERVED");
@@ -2881,7 +2878,6 @@ req.end(JSON.stringify(payload));
     }, repo);
     await first.evaluate(async () => {
       await window.desktop.addRepository();
-      await window.desktop.saveSetup({ codexNotifierAcknowledged: true });
     });
     const rows = (page) => page.evaluate(async () => (await window.desktop.workspace()).terminals);
     await first.evaluate(

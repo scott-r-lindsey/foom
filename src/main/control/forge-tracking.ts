@@ -2,8 +2,8 @@ import type { BoardPullRequest } from "../../shared/forge";
 import { lstat, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { atomicPrivate, privateDirectory, verifyPrivate } from "../../node-common/private-files";
-import { forgeBranch, forgeProvider, pullRequest } from "./forge";
-import type { ForgeProvider, ForgeWorktree, PullRequest } from "./forge.d";
+import { forgeBranch, legacyForgeProvider, pullRequest } from "./forge";
+import type { ForgeProvider, ForgeProviderFactory, ForgeWorktree, PullRequest } from "./forge.d";
 
 interface Entry extends ForgeWorktree {
   board?: BoardPullRequest;
@@ -28,6 +28,7 @@ export class ForgeTracking {
   private running: Promise<void> = Promise.resolve();
   private closed = false;
   private enabled = false;
+  private generation = 0;
   private readonly pauses = new Set<string>();
   onCompleted?: (tree: ForgeWorktree, pr: BoardPullRequest) => void;
   private stopped(): boolean {
@@ -40,7 +41,7 @@ export class ForgeTracking {
       orchestrator?: boolean,
     ) => Promise<string | undefined>,
     private readonly changed: () => void,
-    private readonly provider: (remote: string) => ForgeProvider | undefined = forgeProvider,
+    private readonly provider: ForgeProviderFactory = legacyForgeProvider,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -48,8 +49,9 @@ export class ForgeTracking {
     userData: string,
     inspect: (tree: ForgeWorktree, orchestrator?: boolean) => Promise<string | undefined>,
     changed: () => void,
+    provider: ForgeProviderFactory = legacyForgeProvider,
   ): Promise<ForgeTracking> {
-    const tracker = new ForgeTracking(await privateDirectory(userData), inspect, changed);
+    const tracker = new ForgeTracking(await privateDirectory(userData), inspect, changed, provider);
     await tracker.load();
     tracker.schedule();
     return tracker;
@@ -125,6 +127,43 @@ export class ForgeTracking {
     this.schedule();
   }
 
+  /** Selection changes retire observations and bindings, including pending publication. */
+  invalidate(): void {
+    this.generation++;
+    for (const entry of this.entries.values()) {
+      entry.available = false;
+      delete entry.pr;
+      delete entry.board;
+      delete entry.number;
+      entry.due = 0;
+    }
+    this.changed();
+  }
+
+  private context(rows: readonly Entry[], remote: string) {
+    return {
+      identity: JSON.stringify(
+        rows.map(({ repository, path, identity, branch }) => [
+          repository,
+          path,
+          identity,
+          branch,
+          remote,
+        ]),
+      ),
+      validate: async () => {
+        for (const row of rows) {
+          if (
+            this.stopped() ||
+            this.entries.get(row.path) !== row ||
+            (await this.inspect(row, row.orchestrator)) !== remote
+          )
+            throw new Error("Forge worktree changed");
+        }
+      },
+    };
+  }
+
   get boardEnabled(): boolean {
     return this.enabled;
   }
@@ -181,6 +220,7 @@ export class ForgeTracking {
           .sort((a, b) => a.due - b.due)
           .find((row) => row.due <= this.now() && (row.orchestrator || this.enabled));
         if (!entry) return;
+        const generation = this.generation;
         const remote = await this.inspect(entry, entry.orchestrator).catch(() => undefined);
         if (this.stopped() || this.pauses.size > 0 || this.entries.get(entry.path) !== entry)
           return;
@@ -189,7 +229,13 @@ export class ForgeTracking {
           this.entries.delete(entry.path);
         } else {
           if (entry.remote !== undefined && remote !== entry.remote) delete entry.number;
-          const provider = this.provider(remote);
+          const candidates = [...this.entries.values()].filter(
+            (row) => row.repository === entry.repository && (row.orchestrator || this.enabled),
+          );
+          const provider = await this.provider(remote, () =>
+            Promise.resolve(this.context(candidates, remote)),
+          );
+          if (generation !== this.generation) return;
           if (provider?.batch) {
             await this.pollRepository(entry.repository, remote, provider);
             return;
@@ -200,7 +246,12 @@ export class ForgeTracking {
               entry.number ?? (remote === entry.remote ? entry.pr?.number : undefined),
             )
             .catch(() => undefined);
-          if (this.stopped() || this.pauses.size > 0 || this.entries.get(entry.path) !== entry)
+          if (
+            this.stopped() ||
+            generation !== this.generation ||
+            this.pauses.size > 0 ||
+            this.entries.get(entry.path) !== entry
+          )
             return;
           const pr = pullRequest(result);
           entry.available = pr !== undefined;
@@ -225,6 +276,7 @@ export class ForgeTracking {
     remote: string,
     provider: ForgeProvider,
   ): Promise<void> {
+    const generation = this.generation;
     const candidates = [...this.entries.values()].filter(
       (entry) => entry.repository === repository && (entry.orchestrator || this.enabled),
     );
@@ -259,7 +311,7 @@ export class ForgeTracking {
         }),
       )
       .catch(() => undefined);
-    if (this.stopped() || this.pauses.size > 0) return;
+    if (this.stopped() || generation !== this.generation || this.pauses.size > 0) return;
     const running =
       result &&
       [...result.values()].some(

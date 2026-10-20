@@ -404,3 +404,7 @@ export function rollupChecks(value: unknown, headSha: string): PullRequest["requ
   }
   return requiredChecks(buckets) ?? "unknown";
 }
+
+/** Legacy composition adapter: the second factory argument is a lazy manifest context. */
+export const legacyForgeProvider = (remote: string): ForgeProvider | undefined =>
+  forgeProvider(remote);

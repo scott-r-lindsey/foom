@@ -356,13 +356,10 @@ when removing a repository. Removing a worktree keeps its branch.
 
 Launching an agent in a checkout with another running agent changes the launcher
 to **Click again for multiple agents here**. Shell launches need no sharing confirmation.
-A Codex launch using the notifier fallback also requires **Click again to replace notifier**
-when the notifier replacement has not already been acknowledged. Application-menu
-config launches use a trusted dialog with the same disclosure because that menu
-closes on selection. After trusted lifecycle
-hooks have been observed working, later launches keep the user's notifier and omit
-that disclosure. Setup shows hook health and directs review to Codex's own `/hooks` screen. Creating a
-worktree launches nothing, so the disclosure stays with the launchers.
+Foom attaches Codex's notifier fallback per launch without a warning or confirmation.
+After trusted lifecycle hooks have been observed working, later launches keep the
+user's notifier. Setup shows hook health and directs review to Codex's own `/hooks`
+screen.
 
 Decisions with content use a separate trusted Foom window. Removing a dirty
 worktree lists the exact uncommitted status from Git and offers **Cancel** and
@@ -989,7 +986,7 @@ trusted dialogs attach to the window that requested them.
 
 Each window saves its display, normal bounds, maximized state, interface size and
 tile tree and sidebar collapse choice. At launch Foom restores those windows. Missing displays fall back to the
-primary display and bounds are clamped to its work area. After showing all windows, Foom restarts sessions that were running at quit (or their last known state before a crash), up to three launches at a time. Shells use their saved checkout or home; agents resume only with a saved conversation ID. Missing checkouts keep exited rows with the Worktree removed label. Failed launches retain their conversations for retry. If Codex needs new consent to replace its notifier, the row stays exited for manual Resume. Restores use current defaults, fresh credentials and reserved conversation selectors, and skip the shared-checkout warning. Turning Restore sessions on launch off restores every row exited. Closing a window removes it from the saved
+primary display and bounds are clamped to its work area. After showing all windows, Foom restarts sessions that were running at quit (or their last known state before a crash), up to three launches at a time. Shells use their saved checkout or home; agents resume only with a saved conversation ID. Missing checkouts keep exited rows with the Worktree removed label. Failed launches retain their conversations for retry. Codex restore attaches its notifier fallback without confirmation. Restores use current defaults, fresh credentials and reserved conversation selectors, and skip the shared-checkout warning. Turning Restore sessions on launch off restores every row exited. Closing a window removes it from the saved
 window set. Interface size is independent per window; other settings are shared.
 The attention badge counts sessions once for the app. One window plays app sounds,
 with attention suppression following the focused terminal in any window.

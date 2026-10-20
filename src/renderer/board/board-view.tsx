@@ -619,7 +619,7 @@ export function Board({
       source.subscribeCommands?.((command) => {
         if (inactive) return;
         if (command.startsWith("via-")) {
-          void runSidebarCommand({ kind: "config-launch", run: command.slice(4), origin: "menu" });
+          void runSidebarCommand({ kind: "config-launch", run: command.slice(4) });
         } else if (command === "toggle-sidebar") {
           toggleSidebarRef.current?.();
         } else if (command === "action-log") {

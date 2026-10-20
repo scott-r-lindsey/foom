@@ -477,11 +477,6 @@
           "timeoutMs": 3000
         },
         "arguments": ["-c", "notify={observerArgv:notify:json}"],
-        "disclosure": {
-          "id": "notifier-replacement",
-          "text": "Foom replaces your Codex notifier for this launch. Disable hooks to preserve it while lifecycle hooks are unavailable.",
-          "acknowledgement": "profile"
-        },
         "mapping": {
           "session": {
             "source": "payload",

@@ -71,8 +71,6 @@ export interface AgentLaunch {
   readonly worktree: string;
   readonly cols: number;
   readonly rows: number;
-  /** UI must disclose that Foom replaces the user's notifier for this invocation. */
-  readonly acknowledgeNotifierReplacement?: boolean;
   /**
    * Main-only control role: the repository panel's orchestrator, or an orchestrator's
    * child (an ordinary agent naming its parent). Never copied from IPC or the control API.

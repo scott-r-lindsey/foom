@@ -644,7 +644,6 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     "agyPluginOfferAnswered",
     "autoRemoveMergedWorktrees",
     "codeFolder",
-    "codexNotifierAcknowledged",
     "forgeHosts",
     "forges",
     "setupComplete",
@@ -656,7 +655,6 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   assert.deepEqual(effective, {
     forges: { github: true },
     forgeHosts: { "github.com": "github" },
-    codexNotifierAcknowledged: false,
     agyPluginOfferAnswered: false,
     setupComplete: true,
     hooks: true,
