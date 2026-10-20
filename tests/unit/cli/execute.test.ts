@@ -5,6 +5,7 @@ import type { ConsoleIo } from "../../../src/cli/types";
 vi.mock("../../../src/cli/client", async (importOriginal) => ({
   ...(await importOriginal<typeof Client>()),
   inherited: vi.fn(),
+  exchange: vi.fn(() => Promise.resolve({ result: { pending: null, rejected: [] } })),
   profilePath: vi.fn(() => "/profile"),
   pair: vi.fn((_profile, _repository, announce: (code: string) => void) => {
     announce("ABCD1234");
@@ -15,7 +16,7 @@ vi.mock("../../../src/cli/client", async (importOriginal) => ({
 vi.mock("../../../src/cli/install", () => ({
   installCli: vi.fn(() => Promise.resolve("Installed")),
 }));
-import { inherited, pair, call } from "../../../src/cli/client";
+import { inherited, pair, call, exchange } from "../../../src/cli/client";
 import { installCli } from "../../../src/cli/install";
 import { execute } from "../../../src/cli/execute";
 const io = (lines: string[] = []): ConsoleIo => ({
@@ -165,4 +166,23 @@ it("prints blocking wait metadata and uses distinct timeout exit 5", async () =>
     ).toBe(timedOut ? 5 : 0);
     expect(output.out).toHaveBeenCalledWith(JSON.stringify({ result }) + "\n");
   }
+});
+
+it("reads live config status only through the config-session credential", async () => {
+  const env = {
+    FOOM_CONFIG_TOKEN: "a".repeat(64),
+    FOOM_CONFIG_URL: "http://127.0.0.1:1234/probe/v1",
+  };
+  const output = io();
+  expect(await execute(["config", "status", "--json"], "1", output, env, "/foom")).toBe(0);
+  expect(exchange).toHaveBeenCalledWith(
+    env.FOOM_CONFIG_URL,
+    { action: "config-status" },
+    env.FOOM_CONFIG_TOKEN,
+    undefined,
+    615000,
+  );
+  expect(output.out).toHaveBeenCalledWith('{"result":{"pending":null,"rejected":[]}}\n');
+  expect(await execute(["config", "status"], "1", io(), {}, "/foom")).toBe(3);
+  expect(await execute(["config", "status", "allow"], "1", io(), env, "/foom")).toBe(2);
 });

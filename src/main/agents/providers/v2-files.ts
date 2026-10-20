@@ -21,7 +21,9 @@ export async function readOwnedFile(
   const expected = await lstat(target);
   const handle = await open(
     target,
-    constants.O_RDONLY | (process.platform === "win32" ? 0 : constants.O_NOFOLLOW),
+    constants.O_RDONLY |
+      constants.O_NONBLOCK |
+      (process.platform === "win32" ? 0 : constants.O_NOFOLLOW),
   );
   try {
     const opened = await handle.stat();

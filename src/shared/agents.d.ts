@@ -64,6 +64,8 @@ export interface AgentLaunch {
    * control grant is involved, and this bundled CLI directory is prepended to PATH.
    */
   readonly configCli?: string;
+  /** Main-only probe capability for this config launch. Never repository control. */
+  readonly configEnvironment?: Readonly<Record<string, string>>;
   readonly agent: AgentId;
   readonly repository: string;
   readonly worktree: string;

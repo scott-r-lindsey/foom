@@ -40,6 +40,9 @@ vi.mock("../../../../src/main/terminals/terminal-host-client", async () => {
       tail(id: string, lines: number) {
         return this.manager.tail(id, lines);
       }
+      screen(id: string) {
+        return this.manager.screen(id);
+      }
       detach(id: string) {
         this.manager.detach(id);
       }
@@ -1317,4 +1320,19 @@ test("the main-only reviewed reply capability checks terminal ownership and writ
   await expect(terminalControl.reply("unknown", "answer\r")).rejects.toThrow("Unknown terminal");
   await terminalControl.reply(id, "answer\r");
   expect(ptys[0]?.write).toHaveBeenCalledWith("answer\r");
+});
+
+test("the main-only probe screen capability checks ownership", async () => {
+  await expect(terminalControl.screen("unknown")).rejects.toThrow("Unknown terminal");
+  const id = await terminalControl.create({
+    command: "fixture",
+    args: [],
+    cwd: "/tmp",
+    cols: 80,
+    rows: 24,
+  });
+  const screen = await terminalControl.screen(id);
+  expect(screen.lines).toHaveLength(24);
+  expect(screen.title).toBe("");
+  expect(mock.handle.mock.calls.some(([channel]) => channel === "terminal:screen")).toBe(false);
 });

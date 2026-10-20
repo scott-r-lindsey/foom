@@ -1,5 +1,5 @@
 // Runs as the foreground PTY job, independently of the observing test process.
-const { readLoginShell } = require(process.argv[2]);
+const { readLoginShell, complete } = require(process.argv[4] || process.argv[2]);
 const { readFileSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 console.log(`READY:${process.pid}`);
@@ -22,14 +22,20 @@ Promise.all(
       cwd: process.env.HOME,
     }),
   ),
-).then(
-  (results) => {
-    if (results.some(({ stdout }) => stdout !== "fixture-value")) process.exitCode = 1;
-    console.log("COMPLETE");
-  },
-  (error) => {
-    clearInterval(release);
+)
+  .then(
+    async (results) => {
+      if (results.some(({ stdout }) => stdout !== "fixture-value")) process.exitCode = 1;
+      await complete?.();
+      console.log("COMPLETE");
+    },
+    (error) => {
+      clearInterval(release);
+      console.error(error);
+      process.exitCode = 1;
+    },
+  )
+  .catch((error) => {
     console.error(error);
     process.exitCode = 1;
-  },
-);
+  });

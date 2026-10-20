@@ -35,7 +35,7 @@ export interface SetupSource {
   environment?: EnvironmentApi;
   config?: {
     status(): Promise<ConfigStatus>;
-    decide(decision: "allow" | "keep", id: string): Promise<ConfigStatus>;
+    decide: (decision: "allow" | "keep", id: string) => Promise<ConfigStatus>;
     openFolder(): Promise<void>;
     subscribe(listener: (status: ConfigStatus) => void): () => void;
   };

@@ -456,3 +456,44 @@ test("repository facts count waiting parents without conflating child counts", a
   });
   expect(view.getByText("2 waiting").getAttribute("data-tone")).toBe("neutral");
 });
+
+test("the config panel offers the held digest's existing Allow/Keep decision", async () => {
+  const pending = {
+    id: "held-digest",
+    file: "settings.json",
+    action: "change OpenCode launch arguments",
+    detail: "agentArguments.opencode",
+  };
+  const status = { folder: "/config", available: true, pending, rejected: [] };
+  const decide = vi.fn(() => Promise.resolve({ ...status, pending: null }));
+  const live = {
+    ...source,
+    config: {
+      status: () => Promise.resolve(status),
+      subscribe: () => () => {},
+      openFolder: () => Promise.resolve(),
+      decide,
+    },
+  };
+  const view = render(
+    <PanelFacts subject={{ kind: "config", status, rows: [] }} source={live} options={undefined} />,
+  );
+  await act(async () => {
+    fireEvent.click(view.getByRole("button", { name: /^Allow$/ }));
+    await Promise.resolve();
+  });
+  expect(decide).toHaveBeenCalledWith("allow", "held-digest");
+  await act(async () => {
+    fireEvent.click(view.getByRole("button", { name: "Keep it on" }));
+    await Promise.resolve();
+  });
+  expect(decide).toHaveBeenCalledWith("keep", "held-digest");
+  view.rerender(
+    <PanelFacts
+      subject={{ kind: "config", status: { ...status, pending: null }, rows: [] }}
+      source={live}
+      options={undefined}
+    />,
+  );
+  expect(view.queryByText("Needs you")).toBeNull();
+});

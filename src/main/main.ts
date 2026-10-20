@@ -1,3 +1,4 @@
+import { ProbeNotices } from "./agents/probe-notices";
 import { ForgeRuntime } from "./control/forge-runtime";
 import { loginPath } from "./agents/agents";
 import { runForge } from "./control/forge";
@@ -428,7 +429,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       const current = settings.get();
       return current.setupComplete
         ? report.agents
-            .filter((agent) => agent.path && current.agents[agent.id])
+            .filter((agent) => agent.path && current.agents[agent.id] !== false)
             .map((agent) => agent.id)
         : [];
     },
@@ -563,6 +564,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
         notice.show();
       };
     }
+    const probeNotices = new ProbeNotices(app.getPath("userData"));
     workspace = new Workspace({
       openExternal: (url) => shell.openExternal(url),
       pluginStagingRoot: app.getPath("userData"),
@@ -584,6 +586,8 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       // Local rules classify each terminal; the log stores verdict metadata only.
       verdicts: new VerdictLog(app.getPath("userData")),
       config: {
+        status: () => config.refresh(),
+        probeNotice: probeNotices.first.bind(probeNotices),
         root: configRoot,
         cliDirectory: path.join(__dirname, "../console").replace("app.asar", "app.asar.unpacked"),
         check: async () => {
@@ -1053,6 +1057,7 @@ if (!ownsProfile) {
               .scanAgents(true)
               .then(() => {
                 workspace.refresh();
+                publishSettings();
               })
               .catch(() => {
                 console.error("Unable to refresh agent plugins");

@@ -565,6 +565,7 @@ test("preload accepts menu board commands and rejects unknown values", async () 
     "via-claude",
     "via-codex",
     "via-agy",
+    "via-opencode",
     "tidy-tiles",
     "action-log",
   ])
@@ -572,7 +573,7 @@ test("preload accepts menu board commands and rejects unknown values", async () 
   listener?.({}, "reload");
   listener?.({}, {});
   listener?.({}, "preset-grid");
-  expect(callback).toHaveBeenCalledTimes(7);
+  expect(callback).toHaveBeenCalledTimes(8);
   off();
 });
 

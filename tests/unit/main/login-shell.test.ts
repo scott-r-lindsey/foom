@@ -34,9 +34,9 @@ async function fixture() {
   };
 }
 
-it.skipIf(process.platform === "win32")(
-  "concurrent interactive reads never stop the foreground PTY process group",
-  async () => {
+it.skipIf(process.platform === "win32").each(["login", "probe"])(
+  "%s concurrent interactive reads never stop the foreground PTY process group",
+  async (mode) => {
     const { shell, options } = await fixture();
     await writeFile(
       join(directory, "rc"),
@@ -44,12 +44,31 @@ it.skipIf(process.platform === "win32")(
     );
     const bundled = join(directory, "reader.cjs");
     await build({
-      entryPoints: ["src/main/login-shell.ts"],
+      entryPoints: [
+        mode === "probe" ? "src/main/agents/probe-launch.ts" : "src/main/login-shell.ts",
+      ],
       outfile: bundled,
       bundle: true,
       platform: "node",
       format: "cjs",
     });
+    if (mode === "probe") {
+      await writeFile(
+        join(directory, "draft.json"),
+        await readFile("tests/fixtures/agent-plugins-v2/copilot.json"),
+      );
+      await writeFile(
+        join(directory, "copilot"),
+        `#!/bin/sh
+if [ "$1" = "--version" ] || [ "$1" = "--help" ]; then
+  exec /bin/bash --noprofile --norc -ic 'echo $$ >> "$HOME/metadata-ready"; while [ ! -f "$HOME/metadata-release" ]; do /bin/sleep 0.01; done; echo "GitHub Copilot CLI 1.0.95. --interactive"'
+fi
+printf 'FIXTURE_CLI_SCREEN\\r\\n'
+read -r unused
+`,
+        { mode: 0o700 },
+      );
+    }
     const pty = await import("node-pty");
     const terminal = pty.spawn(
       "/bin/bash",
@@ -57,14 +76,15 @@ it.skipIf(process.platform === "win32")(
         "--noprofile",
         "--norc",
         "-ic",
-        '"$1" "$2" "$3" "$4"; result=$?; if [ "$result" -eq 0 ]; then exit 0; fi; read -r unused',
+        '"$1" "$2" "$3" "$4" "$5"; result=$?; if [ "$result" -eq 0 ]; then exit 0; fi; read -r unused',
         "supervisor",
         process.execPath,
         resolve("tests/fixtures/login-shell/foreground.js"),
         bundled,
         shell,
+        mode === "probe" ? resolve("tests/fixtures/login-shell/probe.js") : "",
       ],
-      { cwd: directory, env: options.env },
+      { cwd: directory, env: { ...options.env, FIXTURE_PTY: resolve("node_modules/node-pty") } },
     );
     let output = "";
     const state = { exited: false };
@@ -101,6 +121,7 @@ it.skipIf(process.platform === "win32")(
       expect(output).not.toContain("Stopped");
       expect(output).toContain("READY:");
       expect(output).toContain("COMPLETE");
+      if (mode === "probe") expect(output).toContain("FIXTURE_CLI_SCREEN");
       expect(state.exited).toBe(true);
     } finally {
       for (const pid of pids) {

@@ -1,3 +1,7 @@
+import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
+import { v2Provider } from "../../../../src/main/agents/providers/v2";
+import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
+import pluginFixture from "../../../fixtures/agent-plugin-v2.json";
 import type { AgentId } from "../../../../src/shared/agents";
 import { afterEach, expect, test, vi } from "vitest";
 import { EventEmitter } from "node:events";
@@ -362,4 +366,23 @@ test("an adapter without config services keeps agent routes unavailable", async 
   );
   await f.call("execute", "new-window");
   f.attached.dispose();
+});
+
+test("publishes newly installed config launch routes and removes them live", async () => {
+  const f = fixture("darwin");
+  const model = parseAgentManifest(JSON.stringify(pluginFixture)).model;
+  try {
+    replaceConfigProviders([v2Provider(model, () => Promise.resolve())]);
+    f.configAgents.mockResolvedValue([model.id]);
+    await f.call("view", { available: true, configAvailable: true, maximized: false, tiles: 1 });
+    expect(JSON.stringify(await f.call("list"))).toContain(`"id":"via-${model.id}"`);
+    await f.call("execute", `via-${model.id}`);
+    expect(f.contents.send).toHaveBeenLastCalledWith("board:command", `via-${model.id}`);
+    replaceConfigProviders([]);
+    await f.attached.refreshAgents();
+    expect(JSON.stringify(await f.call("list"))).not.toContain(`"id":"via-${model.id}"`);
+  } finally {
+    replaceConfigProviders([]);
+    f.attached.dispose();
+  }
 });

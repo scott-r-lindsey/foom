@@ -25,6 +25,7 @@ export interface TerminalControl
   create(spec: TerminalSpec): Promise<string>;
   kill(id: string): Promise<void>;
   tail(id: string, lines: number): Promise<string[]>;
+  screen(id: string): Promise<{ lines: string[]; title: string }>;
   owns(id: string): boolean;
   reply(id: string, data: string): Promise<void>;
 }
@@ -325,6 +326,10 @@ export function attachTerminal(
     },
     stop: (id: string) => manager.stop(id),
     tail: (id: string, lines: number) => manager.tail(id, lines),
+    screen: async (id: string) => {
+      if (!owned.has(id)) throw new Error("Unknown terminal");
+      return manager.screen(id);
+    },
     reply: async (id: string, data: string) => {
       if (!owned.has(id)) throw new Error("Unknown terminal");
       await manager.reply(id, data);

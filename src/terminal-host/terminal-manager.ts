@@ -1,3 +1,4 @@
+import { TERMINAL_ENVIRONMENT } from "../shared/terminal-environment";
 import { ForegroundProgram } from "./foreground-program";
 import { cleanTitle, parseProgress } from "../shared/agent-evidence";
 import type { AgentEvidence } from "../shared/agent-detection";
@@ -55,7 +56,11 @@ export class TerminalManager {
     if (this.shuttingDown) throw new Error("Terminals are shutting down");
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined && !/^(npm_|ELECTRON_|FOOM_|CLAUDECODE$)/i.test(key))
+      if (
+        !spec.replaceEnvironment &&
+        value !== undefined &&
+        !/^(npm_|ELECTRON_|FOOM_|CLAUDECODE$)/i.test(key)
+      )
         env[key] = value;
     }
     const shell = prepareShell(spec);
@@ -71,9 +76,7 @@ export class TerminalManager {
         env: {
           ...env,
           ...spec.env,
-          TERM: "xterm-256color",
-          COLORTERM: "truecolor",
-          TERM_PROGRAM: "Foom",
+          ...TERMINAL_ENVIRONMENT,
         },
       });
     } catch (error) {
@@ -300,6 +303,19 @@ export class TerminalManager {
     session.pending -= count;
     if (session.pending < 65536) session.viewBlocked = false;
     this.updateFlow(session);
+  }
+
+  async screen(id: string): Promise<{ lines: string[]; title: string }> {
+    const session = this.get(id);
+    return new Promise((resolve) => {
+      session.screen.write("", () => {
+        const buffer = session.screen.buffer.active;
+        const lines: string[] = [];
+        for (let row = 0; row < session.screen.rows; row++)
+          lines.push(buffer.getLine(buffer.baseY + row)?.translateToString(true) ?? "");
+        resolve({ lines, title: session.evidence.title });
+      });
+    });
   }
 
   async tail(id: string, lines: number): Promise<string[]> {

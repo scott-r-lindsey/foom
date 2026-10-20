@@ -2090,12 +2090,14 @@ test("config plugins refresh changed registries and report discovery failure", a
   const provider = v2Provider(parseAgentManifest(JSON.stringify(pluginFixture)).model, () =>
     Promise.resolve(),
   );
+  mock.window.webContents.send.mockClear();
   deps.applyPlugins([provider]);
   await vi.waitFor(() => {
     expect(mock.workspace.scanAgents).toHaveBeenCalledWith(true);
   });
   await vi.waitFor(() => {
     expect(mock.workspace.refresh).toHaveBeenCalled();
+    expect(mock.window.webContents.send).toHaveBeenCalledWith("setup:changed", expect.anything());
   });
   mock.workspace.scanAgents.mockClear();
   deps.applyPlugins([provider]);

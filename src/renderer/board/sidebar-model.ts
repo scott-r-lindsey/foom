@@ -33,7 +33,8 @@ export function sessionIdentity(row: BoardRow, shell: string | undefined): strin
   return agentNames.get(row.agent) || row.agent || "Unknown agent";
 }
 export function sessionName(row: BoardRow, preferences: SidebarPreferences): string {
-  return preferences.names[row.id] || agentNames.get(row.agent) || row.agent;
+  const name = preferences.names[row.id] || agentNames.get(row.agent) || row.agent;
+  return row.probe ? `${name} · Probe` : name;
 }
 export function previewOpener(
   preview: PreviewSummary,
