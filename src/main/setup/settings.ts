@@ -25,7 +25,6 @@ const MAX_THEME_DIGESTS = 100;
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
   setupComplete: false,
-  codexNotifierAcknowledged: false,
   agyPluginOfferAnswered: false,
   hooks: true,
   restoreSessions: true,
@@ -64,7 +63,6 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
   for (const [key, entry] of Object.entries(value)) {
     if (
       (key === "setupComplete" ||
-        key === "codexNotifierAcknowledged" ||
         key === "agyPluginOfferAnswered" ||
         key === "autoRemoveMergedWorktrees" ||
         key === "showPullRequests") &&
@@ -178,6 +176,7 @@ export class SettingsStore {
       if (record(state) && (version === 1 || version === 2) && record(state["settings"])) {
         const { agentArguments, sound, ...rest } = state["settings"];
         const legacy = "inference" in rest || "inferenceTimeoutMs" in rest;
+        delete rest["codexNotifierAcknowledged"];
         delete rest["inference"];
         delete rest["inferenceTimeoutMs"];
         const kept =

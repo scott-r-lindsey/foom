@@ -62,7 +62,7 @@ export interface ConfirmationWindowApi {
 
 /** Main-only requests: click-again is misclick protection, not a trust boundary. */
 export type WorkspaceConfirmation =
-  | { kind: "remove" | "stop" | "shared-agent" | "notifier" }
+  | { kind: "remove" | "stop" | "shared-agent" }
   | {
       kind: "merged-worktrees";
       feed?: CleanupFeed;

@@ -715,3 +715,28 @@ test("recent repository days validates, migrates defaults and persists through c
   store.setConfig({});
   expect(store.get().recentRepositoryDays).toBe(30);
 });
+
+test.each([1, 2])(
+  "ignores stored Codex notifier acknowledgement in profile version %s",
+  async (version) => {
+    const dir = await directory();
+    await writeFile(
+      path.join(dir, "settings.json"),
+      JSON.stringify({
+        version,
+        settings: {
+          setupComplete: true,
+          codexNotifierAcknowledged: true,
+          agyPluginOfferAnswered: true,
+        },
+      }),
+    );
+    const store = await SettingsStore.open(dir);
+    expect(store.get()).toMatchObject({ setupComplete: true, agyPluginOfferAnswered: true });
+    expect(store.get()).not.toHaveProperty("codexNotifierAcknowledged");
+    await store.update({});
+    expect(await readFile(path.join(dir, "settings.json"), "utf8")).not.toContain(
+      "codexNotifierAcknowledged",
+    );
+  },
+);

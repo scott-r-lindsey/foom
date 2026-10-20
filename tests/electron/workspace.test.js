@@ -147,7 +147,6 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
         repository,
         branch: "feature/remaining",
         run: "shell",
-        acknowledgeNotifierReplacement: false,
       }),
     terminal.repository,
   );

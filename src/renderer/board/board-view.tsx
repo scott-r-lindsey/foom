@@ -614,7 +614,7 @@ export function Board({
         if (inactive) return;
         if (command === "via-claude" || command === "via-codex" || command === "via-agy") {
           const agent = { "via-claude": "claude", "via-codex": "codex", "via-agy": "agy" } as const;
-          void runSidebarCommand({ kind: "config-launch", run: agent[command], origin: "menu" });
+          void runSidebarCommand({ kind: "config-launch", run: agent[command] });
         } else if (command === "toggle-sidebar") {
           toggleSidebarRef.current?.();
         } else if (command === "action-log") {

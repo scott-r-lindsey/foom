@@ -423,13 +423,13 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `workspace:worktrees` | renderer → main (invoke) | added repository path → worktrees |
 | `workspace:branches` | renderer → main (invoke) | repository path → `{ head, local: [{ name, worktree }], remote, remoteBranches }` from refs already present; never fetches |
 | `workspace:create-worktree` | renderer → main (invoke) | repository path, branch, optional `root` / `adjacent` (default: configured) → worktree plus `outcome`: `new`, `existing`, `origin` or `open`; launches nothing |
-| `workspace:start` | renderer → main (invoke) | `{ repository, branch, run, acknowledgeNotifierReplacement }` → terminal ID or null on cancellation; the board no longer uses it |
+| `workspace:start` | renderer → main (invoke) | `{ repository, branch, run }` → terminal ID or null on cancellation; the board no longer uses it |
 | `confirmation:scrim` | main → requesting board | boolean visibility only; cosmetic dimming, no dialog content or approval capability |
 | `confirmation:size` | trusted renderer → main | finite positive `{ width, height }` in CSS pixels; exact trusted main frame, URL and pending request required; zoomed and clamped to parent content and display work area |
 | `confirmation:answer` | trusted renderer → main | request ID and boolean; exact trusted window, main frame, URL and pending ID required |
 | `workspace:remove` | renderer → main (invoke) | terminal ID → boolean; main owns confirmation and dirty-file inspection |
 | `agents:scan` | renderer → main (invoke) | `refresh` → `{ warning, agents }` (no PATH) |
-| `agents:launch` | renderer → main (invoke) | `{ agent, repository, worktree, cols, rows, acknowledgeNotifierReplacement? }` → `{ id, attention }` or null on cancellation |
+| `agents:launch` | renderer → main (invoke) | `{ agent, repository, worktree, cols, rows }` → `{ id, attention }` or null on cancellation |
 | `setup:state` | renderer → main (invoke) | → `{ settings, themes?, worktreeRoot }` |
 | `setup:save` | renderer → main (invoke) | settings patch (known fields only) → state |
 | `setup:changed` | main → renderer | setup state after a successful settings save or zoom shortcut |
@@ -702,9 +702,9 @@ PowerShell 6+ and set an empty default proxy on 5.1, so hooks reach the loopback
 receiver behind any proxy. That change made the Windows Codex observer `codex-v2.ps1`
 (POSIX stays v1) and the Antigravity plugin version 2.
 
-`setHooksEnabled(false)` disables hook attachment for subsequent launches. A main-process integration supplies a fresh `AgentHooks` binding per launch, with a Claude stdin adapter command, a Codex argv adapter command, session credentials, and a cleanup callback. Claude settings attach prompt, tool, Stop, PermissionRequest, and Notification observer hooks as inline JSON in `--settings`; Codex 0.161+ receives stable lifecycle definitions and keeps `-c notify=[...]` until completion hooks are observed working. Older supported Codex versions receive notify only. No settings files are created in the user's HOME or workspace. Codex notifier fallback requires `acknowledgeNotifierReplacement` after the UI discloses that the user's notifier is replaced for this invocation. Confirmed lifecycle hooks remove that override and disclosure on later launches. `release(terminalId)` must be called on exit/kill to revoke credentials and free the worktree; `dispose()` releases all bindings during shutdown after terminals are stopped. Spawn failures clean up immediately.
+`setHooksEnabled(false)` disables hook attachment for subsequent launches. A main-process integration supplies a fresh `AgentHooks` binding per launch, with a Claude stdin adapter command, a Codex argv adapter command, session credentials, and a cleanup callback. Claude settings attach prompt, tool, Stop, PermissionRequest, and Notification observer hooks as inline JSON in `--settings`; Codex 0.161+ receives stable lifecycle definitions and keeps `-c notify=[...]` until completion hooks are observed working. Older supported Codex versions receive notify only. No settings files are created in the user's HOME or workspace. Codex notifier fallback attaches per launch without a warning or confirmation. Confirmed lifecycle hooks remove that override on later launches. `release(terminalId)` must be called on exit/kill to revoke credentials and free the worktree; `dispose()` releases all bindings during shutdown after terminals are stopped. Spawn failures clean up immediately.
 
-`src/main/workspace/workspace.ts` connects these services in main. It scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/main/agents/providers/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity uses a separately installed opt-in observer plugin; only its Foom launches receive fresh hook credentials. Preflight's settings reach the workspace through `configure`: the hooks setting calls `setHooksEnabled`, and launching an agent that preflight turned off is refused. Launched agents and worktree shells appear immediately in stable repository groups on the board. Checkout launchers disclose Codex notifier replacement before the first hooked Codex launch; main persists `codexNotifierAcknowledged` in settings and reuses it for later launches.
+`src/main/workspace/workspace.ts` connects these services in main. It scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/main/agents/providers/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity uses a separately installed opt-in observer plugin; only its Foom launches receive fresh hook credentials. Preflight's settings reach the workspace through `configure`: the hooks setting calls `setHooksEnabled`, and launching an agent that preflight turned off is refused. Launched agents and worktree shells appear immediately in stable repository groups on the board. Board, application-menu config and restored Codex sessions attach the notify fallback without notifier consent. Stored legacy `codexNotifierAcknowledged` values are ignored.
 
 ## Control plane
 
@@ -1128,7 +1128,6 @@ Theme IDs are checked syntactically, without opening any other file or profile.
 | Excluded key | Reason |
 | --- | --- |
 | `agentBypassAcknowledged` | Records human consent to bypass mode |
-| `codexNotifierAcknowledged` | Records human consent to notifier replacement |
 | `setupComplete` | Records human setup progress |
 | `codeFolder`, `worktreeLocation` | Select filesystem paths or placement |
 | `environment` | Variables reach every agent launch, like `agentArguments`, and may hold secrets; set only through Settings (#215) |
@@ -1209,7 +1208,7 @@ Requests POST JSON to `/hooks`, with `X-Foom-Session` and `Authorization` contai
 
 The first supported event pins the agent session/thread ID for that launch. Subsequent events must match; Codex also requires a turn ID. Only `{ terminalId, action, signal, conversationId }` escapes the receiver. The validated conversation ID is saved locally by Workspace and is not forwarded into evaluation. PermissionRequest and `permission_prompt` produce `needs_input`; Stop, `idle_prompt`, and Codex `agent-turn-complete` produce `classify`. No event directly sets Done. Agent text, paths, tool inputs, and Codex `input-messages` are discarded, never logged, executed, or forwarded to the evaluator. Classification still uses only the redacted terminal tail.
 
-The hook command cannot run Node from the packaged app because the RunAsNode fuse is disabled. `src/main/agents/providers/v2-observers.ts` generates observer scripts from each manifest channel for stdin or the CLI's final JSON argument: POSIX `sh` plus `curl`, and Windows PowerShell plus `Invoke-WebRequest`. The launcher writes the returned source to a private launch directory, invokes POSIX files with `sh` or Windows files with `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, supplies the launch environment, and removes the files afterward. On Windows it first runs the generated script in probe mode; a missing interpreter or enforced policy that blocks the script rejects launch with an error and cleans up the script. The execution policy applies only to that PowerShell invocation; user and machine settings are unchanged. Codex's configured notify argument array must end at the script's configured arguments so the CLI can append its JSON argument. Payloads remain data throughout; scripts emit no output or approval decisions, have a three-second HTTP timeout, and exit successfully even when the receiver is unavailable. Per-launch settings and notify attachment, tool availability checks, and notifier-replacement disclosure belong to #12.
+The hook command cannot run Node from the packaged app because the RunAsNode fuse is disabled. `src/main/agents/providers/v2-observers.ts` generates observer scripts from each manifest channel for stdin or the CLI's final JSON argument: POSIX `sh` plus `curl`, and Windows PowerShell plus `Invoke-WebRequest`. The launcher writes the returned source to a private launch directory, invokes POSIX files with `sh` or Windows files with `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, supplies the launch environment, and removes the files afterward. On Windows it first runs the generated script in probe mode; a missing interpreter or enforced policy that blocks the script rejects launch with an error and cleans up the script. The execution policy applies only to that PowerShell invocation; user and machine settings are unchanged. Codex's configured notify argument array must end at the script's configured arguments so the CLI can append its JSON argument. Payloads remain data throughout; scripts emit no output or approval decisions, have a three-second HTTP timeout, and exit successfully even when the receiver is unavailable. Per-launch settings and notify attachment, tool availability checks, and notify fallback belong to #12.
 
 ## Saved conversations
 
@@ -1515,12 +1514,9 @@ menus. Main derives their availability from discovery and saved agent switches;
 the board reports config-launch availability separately from tile availability,
 so Settings can stay open while choosing an agent. Preflight disables these routes. Availability refreshes on menu reads, execution, window
 focus and settings updates. The preload accepts only the three fixed route IDs.
-The board dispatches the existing `config-launch` command with `origin: "menu"`,
+The board dispatches the existing `config-launch` command,
 awaits the source's refreshed inventory, and opens the newly created config session
-through normal session selection. This optional, validated origin changes
-only notifier confirmation presentation: main uses a trusted disclosure dialog
-for menu launches and keeps click-again for sidebar launches. It grants no consent
-and cannot change the executable, directory or launch policy.
+through normal session selection. Menu and sidebar launches use the same launch policy without notifier confirmation.
 
 The renderer reuses RowMenu's keyboard navigation, portal and dismissal behavior.
 RowMenu renders a submenu as a nested portal anchored to its item: the top-level
@@ -1671,7 +1667,7 @@ ACLs may include only the current user, SYSTEM and local Administrators; new hea
 files remain protected and current-user-only. A corrupt/stale private record cannot
 restore older trusted data. A fingerprint of the six definitions invalidates cached health when the
 installed observer path/version changes. Only observed startup + prompt + Stop
-permits later launches to omit `notify` and its disclosure. A review screen or missing
+permits later launches to omit `notify`. A review screen or missing
 prompt callbacks in the current execution turn restores the fallback for subsequent
 launches. Prompt and Stop observations are scoped to execution turns: notify is
 ignored only when Stop completed that same turn. An attached notify fallback can
@@ -1687,9 +1683,8 @@ mapping and health engine as config plugins (#435). The build generates
 stable installed observers with the existing filenames and serialized commands.
 Only bundled provenance selects installed assets and the existing exact-definition
 profile health file; copied config manifests use their own private stable paths
-and observations. The legacy notifier acknowledgement is reused only through a
-separate build-owned digest for an equivalent disclosure/effect, never through
-manifest-declared authority. See [bundled delivery](agent-plugins.md#bundled-manifest-delivery-434).
+and observations. The bundled Codex notify channel has no disclosure; legacy notifier acknowledgements
+are ignored. User manifests retain the generic v2 channel `disclosure` mechanism. See [bundled delivery](agent-plugins.md#bundled-manifest-delivery-434).
 
 
 ### Antigravity plugin ownership
@@ -2165,7 +2160,7 @@ The heading is retained for existing links; config manifests no longer require a
 
 `main/agents/providers/provider.d.ts` declares the single `AgentProvider` contract.
 Claude, Codex and Antigravity register through the build-locked bundled manifest loader. The bundled loader uses the same strict parser and immutable v2 engine as config providers; JSON cannot claim its origin. See [bundled delivery and compatibility](agent-plugins.md#bundled-manifest-delivery-434) for digest/version rules, unchanged settings/consents and observer ABI differences. The shared engine owns discovery gates, launch argv, MCP attachment, observer selection and hook payload reduction. Workspace uses capability metadata rather than comparing
-agent IDs. Shared built-in policy metadata is browser-safe. Main emits generic observed-health and notifier-selection facts to the renderer; config manifests cannot grant themselves build provenance or migrated profile consent. Agent identities can now be strings, but runtime IPC accepts only IDs in
+agent IDs. Shared built-in policy metadata is browser-safe. Main emits generic observed-health and notifier-selection facts to the renderer; config manifests cannot grant themselves build provenance. Agent identities can now be strings, but runtime IPC accepts only IDs in
 main's current loaded provider registry. Config providers cannot register a
 built-in ID or duplicate another provider. Built-in orchestration restore checks
 remain unchanged. v2 config plugins may declare restore capability, but a grant
@@ -2230,7 +2225,7 @@ keeps at most 100 lists across provider absence, including encrypted secret valu
 The same editor serves global Environment and individual cards. `agentHooks` is a
 profile-only boolean map: an explicit false selects screen rules for that agent,
 and the global hooks switch takes precedence. Preferences apply on future launches,
-including notifier disclosure gating. Default arguments save on blur through the
+without notifier consent. Default arguments save on blur through the
 existing main-owned bypass disclosure and acknowledgement.
 
 Disabled agents remain configurable: discovery resolves their executable on PATH

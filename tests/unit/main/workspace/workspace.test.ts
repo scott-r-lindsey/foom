@@ -109,7 +109,6 @@ beforeEach(async () => {
   };
   deps = {
     agentPluginDirectory: await mkdtemp(join(tmpdir(), "foom-health-")),
-    acknowledgeNotifier: vi.fn(async () => {}),
     worktrees: {
       canAutoRemove: vi.fn(() => Promise.resolve(false)),
       panelFacts: vi.fn(),
@@ -726,7 +725,6 @@ const start = {
   repository: repo.path,
   branch: "feature",
   run: "shell" as const,
-  acknowledgeNotifierReplacement: false,
 };
 
 test("shells get only the All sessions layer; agents get their layers and record names", async () => {
@@ -780,7 +778,7 @@ test("launches multiple shells in a managed worktree", async () => {
   await workspace.dispose();
 });
 
-test("creates missing worktrees at the configured location and persists Codex acknowledgement once", async () => {
+test("creates missing worktrees at the configured location and launches Codex without consent", async () => {
   const listing = vi
     .spyOn(deps.worktrees, "listWorktrees")
     .mockResolvedValueOnce([])
@@ -794,22 +792,16 @@ test("creates missing worktrees at the configured location and persists Codex ac
   await workspace.startWorktree({
     ...start,
     run: "codex",
-    acknowledgeNotifierReplacement: true,
   });
   expect(vi.mocked(deps.worktrees.createWorktree)).toHaveBeenCalledWith(repo.path, "feature", {
     location: "adjacent",
   });
-  expect(vi.spyOn(deps, "acknowledgeNotifier")).toHaveBeenCalledOnce();
-  expect(agents.launch).toHaveBeenCalledWith(
-    expect.objectContaining({ agent: "codex", acknowledgeNotifierReplacement: true }),
-  );
+  expect(agents.launch).toHaveBeenCalledWith(expect.objectContaining({ agent: "codex" }));
   await workspace.exited("t1", 0);
   await workspace.startWorktree({
     ...start,
     run: "codex",
-    acknowledgeNotifierReplacement: true,
   });
-  expect(vi.spyOn(deps, "acknowledgeNotifier")).toHaveBeenCalledOnce();
   expect(listing).toHaveBeenCalled();
   await workspace.dispose();
 });
@@ -1181,7 +1173,7 @@ test("main checkout supports shells and confirms a second agent; cancellation cr
   await workspace.sidebarCommand({ ...command, run: "shell" }, confirm);
   expect(workspace.snapshot().terminals).toHaveLength(3);
 });
-test("sidebar Codex launches disclose notifier replacement, persist consent and serialize while confirming", async () => {
+test("sidebar Codex launches start without notifier consent", async () => {
   const workspace = new Workspace(deps);
   agents.scan.mockResolvedValue({
     ...scan,
@@ -1195,28 +1187,10 @@ test("sidebar Codex launches disclose notifier replacement, persist consent and 
     worktree: tree.path,
     run: "codex",
   } as const;
-  await workspace.sidebarCommand(command, () => Promise.resolve(false));
-  expect(agents.launch).not.toHaveBeenCalled();
-  let resolve: ((answer: boolean) => void) | undefined;
-  const starting = workspace.sidebarCommand(
-    command,
-    () =>
-      new Promise((answer) => {
-        resolve = answer;
-      }),
-  );
-  await vi.waitFor(() => {
-    expect(resolve).toBeTypeOf("function");
-  });
-  await expect(workspace.sidebarCommand(command, () => Promise.resolve(true))).rejects.toThrow(
-    "busy",
-  );
-  resolve?.(true);
-  await starting;
-  expect(vi.spyOn(deps, "acknowledgeNotifier")).toHaveBeenCalledOnce();
-  expect(agents.launch).toHaveBeenCalledWith(
-    expect.objectContaining({ acknowledgeNotifierReplacement: true }),
-  );
+  const confirm = vi.fn(() => Promise.resolve(false));
+  await workspace.sidebarCommand(command, confirm);
+  expect(confirm).not.toHaveBeenCalled();
+  expect(agents.launch).toHaveBeenCalledWith(expect.objectContaining({ agent: "codex" }));
 });
 test("stop preserves a session and Close only removes exited sessions, never a worktree", async () => {
   const workspace = await launched();
@@ -1322,7 +1296,6 @@ function startRepositoryOperation(
       repository: repo.path,
       branch: "feature",
       run: entry === "worktree-shell" ? "shell" : "claude",
-      acknowledgeNotifierReplacement: false,
     });
   return workspace.sidebarCommand(
     {
@@ -2472,7 +2445,6 @@ async function codexWorkspace() {
     worktree: tree.path,
     cols: 80,
     rows: 24,
-    acknowledgeNotifierReplacement: true,
   });
   const hooks = await prepare?.("codex");
   if (!hooks) throw new Error("Missing hook binding");
@@ -3428,9 +3400,7 @@ test("config launches refuse when the folder is unavailable or turned-off agents
   expect(copy).toHaveBeenCalledWith("/home/.foom/config");
 });
 
-test("config Codex launches ask for the notifier acknowledgement first", async () => {
-  const acknowledge = vi.fn(async () => {});
-  deps.acknowledgeNotifier = acknowledge;
+test("config Codex launches start without notifier consent", async () => {
   deps.config = configDep();
   agents.scan.mockResolvedValue({
     ...scan,
@@ -3439,17 +3409,10 @@ test("config Codex launches ask for the notifier acknowledgement first", async (
     ],
   });
   const workspace = new Workspace(deps);
-  await workspace.sidebarCommand({ kind: "config-launch", run: "codex" }, () =>
-    Promise.resolve(false),
-  );
-  expect(agents.launch).not.toHaveBeenCalled();
-  await workspace.sidebarCommand({ kind: "config-launch", run: "codex" }, () =>
-    Promise.resolve(true),
-  );
-  expect(acknowledge).toHaveBeenCalled();
-  expect(agents.launch).toHaveBeenCalledWith(
-    expect.objectContaining({ agent: "codex", acknowledgeNotifierReplacement: true }),
-  );
+  const confirm = vi.fn(() => Promise.resolve(false));
+  await workspace.sidebarCommand({ kind: "config-launch", run: "codex" }, confirm);
+  expect(confirm).not.toHaveBeenCalled();
+  expect(agents.launch).toHaveBeenCalledWith(expect.objectContaining({ agent: "codex" }));
 });
 
 test("restores config sessions only for the current config folder", async () => {

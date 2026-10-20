@@ -570,9 +570,6 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       acknowledgeAgyPluginOffer: async () => {
         await settings.update({ agyPluginOfferAnswered: true });
       },
-      acknowledgeNotifier: async () => {
-        await settings.update({ codexNotifierAcknowledged: true });
-      },
       // Local rules classify each terminal; the log stores verdict metadata only.
       verdicts: new VerdictLog(app.getPath("userData")),
       config: {
