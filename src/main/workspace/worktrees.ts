@@ -1,5 +1,6 @@
+import type { ForgeProviderFactory } from "../control/forge.d";
 import { UncertainEffect } from "../control/orchestration";
-import { forgeBranch, forgeProvider, pullRequest } from "../control/forge";
+import { forgeBranch, legacyForgeProvider, pullRequest } from "../control/forge";
 import { ControlError } from "../../node-common/control-validation";
 import { fetchAdvertisedDefault } from "./fetch-default";
 import type { GitPanelFacts } from "../../shared/panel";
@@ -143,9 +144,10 @@ export class WorktreeService {
     userData: string,
     root?: string,
     protect: readonly string[] = [],
+    provider: ForgeProviderFactory = legacyForgeProvider,
   ): Promise<WorktreeService> {
     validatePath(userData);
-    const service = new WorktreeService(root);
+    const service = new WorktreeService(root, provider);
     for (const path of protect) await service.protect(path);
     const stateFile = join(resolve(userData), "worktrees.json");
     await service.load(stateFile);
@@ -233,7 +235,7 @@ export class WorktreeService {
 
   constructor(
     root = join(homedir(), ".foom", "worktrees"),
-    private readonly provider = forgeProvider,
+    private readonly provider: ForgeProviderFactory = legacyForgeProvider,
   ) {
     validatePath(root);
     this.root = resolve(root);
@@ -463,6 +465,28 @@ export class WorktreeService {
     };
   }
 
+  private async forgeProviderFor(repository: string, path: string, remote: string) {
+    return this.provider(remote, async () => {
+      const identity = await this.launchIdentity(repository, path);
+      const branch = (await this.listWorktrees(repository)).find(
+        (row) => row.path === path,
+      )?.branch;
+      return {
+        identity: JSON.stringify([repository, path, identity, branch, remote]),
+        validate: async () => {
+          this.repository(repository);
+          if (
+            (await this.launchIdentity(repository, path)) !== identity ||
+            (await this.listWorktrees(repository)).find((row) => row.path === path)?.branch !==
+              branch ||
+            (await this.forgeRemote(repository)) !== remote
+          )
+            throw new Error("Forge worktree changed");
+        },
+      };
+    });
+  }
+
   /** Only main-owned unused checkouts can be reused; no caller supplies a remote or path. */
   async adoptWorktree(
     repositoryPath: string,
@@ -476,7 +500,11 @@ export class WorktreeService {
       () => undefined,
     );
     const head =
-      remote === undefined ? undefined : await this.provider(remote.trim())?.resolve?.(number);
+      remote === undefined
+        ? undefined
+        : await (
+            await this.forgeProviderFor(repositoryPath, repositoryPath, remote.trim())
+          )?.resolve?.(number);
     if (!head) throw new ControlError("forge_unavailable");
     if (head.state !== "OPEN") throw new ControlError("pr_not_open");
     if (!head.sameRepository) throw new ControlError("pr_from_fork");
@@ -904,7 +932,11 @@ export class WorktreeService {
       const pr = pullRequest(
         await (remote === undefined
           ? undefined
-          : this.provider(remote)?.lookup(tree.branch, undefined, "all")),
+          : (await this.forgeProviderFor(repository, tree.path, remote))?.lookup(
+              tree.branch,
+              undefined,
+              "all",
+            )),
       );
       if (pr?.state !== "MERGED" || pr.headSha !== tree.head || !pr.mergeCommit) return false;
       await git(repository, ["merge-base", "--is-ancestor", pr.mergeCommit, base]);

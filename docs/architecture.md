@@ -947,10 +947,21 @@ result caching and explicit invalidation. It revalidates registry membership, ex
 manifest bytes, executable identity and the main-owned worktree context before
 execution and publication, including cached reads. CLI diagnostics never escape
 this boundary; consumers receive only fixed execution states and mapped metadata.
-Runtime wiring of settings and lifecycle, large-request scheduling within manifest
-bounds and persistence remain integration work. The interpreter now supports declarative dynamic batch
-AST composition and check-count reduction with old/new offline parity tests;
-activation remains gated on the remaining scheduling and runtime integration.
+`ForgeRuntime` now wires the config scanner’s registry callback and profile
+settings invalidation to tracking and adoption, with discovered login PATH supplied
+by main. Its internal constructor selection defaults to the old provider; there
+is no user-visible switch. Only parity tests select manifests. Host routing uses
+only enabled entries in the user’s `forgeHosts` assignments, never manifest host
+claims or inferred fallback. Registry/settings changes cancel samples and retire
+tracking observations and number bindings. Main-owned lazy context closures
+revalidate registration, filesystem identity, branch and remote at the lifecycle
+boundary; tracking additionally guards publication with a selection generation.
+Legacy selection does not discover executables or evaluate manifest contexts.
+Large-request scheduling within manifest bounds (including slowdown-only minima),
+optional display/checks-meaning metadata, versioned persistence and production
+activation/removal of the old provider remain integration work. The interpreter
+supports declarative dynamic batch AST composition and check-count reduction with old/new offline parity tests;
+activation remains gated on the remaining scheduling, metadata and persistence work.
 #516's adaptive cadence and dynamic check-count batches are unchanged.
 
 Foom also reads PR and check status for board checkouts and orchestrator-owned child
