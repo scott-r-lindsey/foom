@@ -305,3 +305,48 @@ test("stale screens after probe input, output or revocation cannot raise driver 
     await f.probes.close();
   }
 });
+
+test("config status is refreshed only for a live config credential and never grants decisions", async () => {
+  const f = await fixture();
+  const status = {
+    folder: "/config",
+    available: true,
+    pending: {
+      id: "digest",
+      file: "settings.json",
+      action: "change arguments",
+      detail: "agentArguments.opencode",
+    },
+    rejected: [],
+  };
+  const read = vi.fn(() => Promise.resolve(status));
+  const broker = new AgentProbes({ ...f.backend, configStatus: read }, "/config", f.operations);
+  const token = broker.grant();
+  try {
+    await expect(broker.call("foreign", { action: "config-status" })).rejects.toThrow(
+      "unauthorized",
+    );
+    expect(read).not.toHaveBeenCalled();
+    expect(() => broker.call(token, { action: "config-status", decision: "allow" })).toThrow(
+      "invalid_request",
+    );
+    await expect(broker.call(token, { action: "config-status" })).resolves.toEqual(status);
+    let resolve: ((value: typeof status) => void) | undefined;
+    read.mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const pending = broker.call(token, { action: "config-status" });
+    await broker.revoke(token);
+    resolve?.(status);
+    await expect(pending).rejects.toThrow("unauthorized");
+    await expect(f.probes.call(f.token, { action: "config-status" })).rejects.toThrow(
+      "unavailable",
+    );
+  } finally {
+    await broker.close();
+    await f.probes.close();
+  }
+});

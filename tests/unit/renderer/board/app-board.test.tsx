@@ -369,6 +369,10 @@ test("explicit shell launch serializes duplicate requests and keeps failures ret
 });
 test("launch, close and worktree actions refresh their inventories", async () => {
   const source = createAppSource();
+  const off = source.worktrees?.subscribe?.(vi.fn());
+  off?.();
+  await source.config?.decide?.("keep", "held");
+  expect(mock.configStatus).toHaveBeenCalledWith("keep", "held");
   expect(await source.worktrees?.load()).toMatchObject({ hooks: true, acknowledged: false });
   expect(await source.worktrees?.addRepository()).toBeNull();
   await expect(source.worktrees?.branches("/r")).resolves.toMatchObject({ head: "main" });

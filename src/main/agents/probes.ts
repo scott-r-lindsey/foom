@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises";
 import type { ProbeRequest } from "../../node-common/agent-probe";
 import { PROBE_KEYS, probeRequest } from "../../node-common/agent-probe";
 import { ControlError } from "../../node-common/control-validation";
+import type { ConfigStatus } from "../../shared/foom-config";
 import type { TerminalSpec } from "../../shared/desktop";
 import type { AgentProvider } from "./providers/provider";
 import { evaluateRules } from "../evaluator/evaluator";
@@ -24,6 +25,7 @@ type Probe = {
   changed: Set<() => void>;
 };
 export interface ProbeBackend {
+  configStatus?(): Promise<ConfigStatus>;
   waitingChanged?(): void;
   create(spec: TerminalSpec): Promise<string>;
   stop(id: string): Promise<void>;
@@ -121,6 +123,12 @@ export class AgentProbes {
   }
   private async dispatch(token: string, request: ProbeRequest): Promise<unknown> {
     if (!this.sessions.has(token)) throw new ControlError("unauthorized");
+    if (request.action === "config-status") {
+      if (!this.backend.configStatus) throw new ControlError("unavailable");
+      const status = await this.backend.configStatus();
+      if (!this.sessions.has(token)) throw new ControlError("unauthorized");
+      return status;
+    }
     if (request.action === "start") return this.start(token, request);
     const probe = this.sessions.get(token);
     if (!probe || probe.id !== request.probe || !probe.terminal)

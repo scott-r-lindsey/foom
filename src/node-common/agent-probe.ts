@@ -11,6 +11,7 @@ export const PROBE_KEYS = {
   tab: "\t",
 };
 export type ProbeRequest =
+  | { action: "config-status" }
   | { action: "start"; agent: string; manifest?: string; resume?: string }
   | { action: "send"; probe: string; text: string }
   | { action: "keys"; probe: string; key: keyof typeof PROBE_KEYS }
@@ -22,6 +23,10 @@ const invalid = (): never => {
 export function probeRequest(input: unknown): ProbeRequest {
   const value = object(input);
   const action = value["action"];
+  if (action === "config-status") {
+    exact(value, ["action"]);
+    return { action };
+  }
   if (action === "start") {
     exact(value, ["action", "agent", "manifest", "resume"]);
     const agent = value["agent"];

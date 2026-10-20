@@ -3844,7 +3844,7 @@ test("config probe CLI drives only scratch fixture screens and the user can inte
   const bin = path.join(root, "bin");
   const home = path.join(root, "home");
   await Promise.all([bin, home].map((directory) => mkdir(directory)));
-  const executable = path.join(bin, process.platform === "win32" ? "copilot.exe" : "copilot");
+  const executable = path.join(bin, process.platform === "win32" ? "opencode.exe" : "opencode");
   await copyFile(process.execPath, executable);
   await chmod(executable, 0o755);
   const attachment = path.join(root, "attachment.json");
@@ -3864,7 +3864,7 @@ if(pluginIndex!==-1) {
   const hooks=JSON.parse(fs.readFileSync(path.join(directory,'hooks/hooks.json'),'utf8'));
   const command=hooks.hooks.Stop[0].command;
   if(plugin.name!=='foom-observer' || typeof command!=='string' || command.includes('{observer') || !fs.existsSync(path.join(directory,'lifecycle',process.platform==='win32'?'observer.ps1':'observer.sh'))) throw Error('Invalid generated plugin attachment');
-  fs.writeFileSync(${JSON.stringify(attachment)},JSON.stringify({directory,generatedCommand:true,nestedFile:true}));
+  fs.writeFileSync(${JSON.stringify(attachment)},JSON.stringify({directory,generatedCommand:true,nestedFile:true,controlUrl:process.env.FOOM_CONTROL_URL,controlToken:process.env.FOOM_CONTROL_TOKEN}));
   process.stdout.write('HOOKS_ATTACHED\\r\\n');
 }
 fs.writeFileSync(${JSON.stringify(details)}, JSON.stringify({cwd:process.cwd(),env:Object.keys(process.env).filter(key => /^FOOM_/i.test(key)),args:process.argv.slice(2)}));
@@ -3887,10 +3887,10 @@ process.stdin.resume();
   );
   const manifest = {
     ...v2,
-    id: "copilot",
-    name: "GitHub Copilot",
+    id: "opencode",
+    name: "OpenCode",
     badge: "CP",
-    executables: ["copilot"],
+    executables: ["opencode"],
     discovery: { facts: [] },
     launch: {
       order: [
@@ -3918,7 +3918,7 @@ process.stdin.resume();
   delete manifest.hooks;
   delete manifest.setup;
   delete manifest.health;
-  const draft = path.join(root, "draft", "copilot.json");
+  const draft = path.join(root, "draft", "opencode.json");
   await writeFile(
     driver,
     `
@@ -3932,14 +3932,14 @@ const pluginArguments=blocks.find(block=>Array.isArray(block) && block[0]==='--p
 const files=blocks.find(block=>Array.isArray(block) && block[0]?.scope==='launch');
 if(!pluginArguments || !files || !guide.includes('answer the probe') || !guide.includes('Stop')) throw Error('Guide lacks probe/plugin instructions');
 const target=JSON.parse(fs.readFileSync('examples/agent.json','utf8'));
-Object.assign(target,{id:'copilot',name:'GitHub Copilot',badge:'CP',executables:['copilot'],launch:{order:target.launch.order,arguments:{arguments:[${JSON.stringify(script)}]}},conversation:{resumePin:'requested-on-paste',restoreControl:false},attention:{minimumEngineVersion:1,rules:[]},resumePaste:[]});
+Object.assign(target,{id:'opencode',name:'OpenCode',badge:'CP',executables:['opencode'],launch:{order:target.launch.order,arguments:{arguments:[${JSON.stringify(script)}]}},conversation:{resumePin:'requested-on-paste',restoreControl:false},attention:{minimumEngineVersion:1,rules:[]},resumePaste:[]});
 const channel=target.hooks.channels[0]; channel.arguments=pluginArguments; channel.observer.transport='stdin'; channel.when={all:[{field:'hooksEnabled',op:'eq',value:true}]};
 target.files=files.map(file=>({...file,when:channel.when}));
 target.reservedArguments.push({flag:'--plugin-dir',forms:['exact','equals','separate']});
 fs.mkdirSync(require('node:path').dirname(${JSON.stringify(draft)}),{recursive:true});
 fs.writeFileSync(${JSON.stringify(draft)},JSON.stringify(target));
 execFileSync(cli,['config','validate',${JSON.stringify(draft)}],{encoding:'utf8',env:process.env});
-const probe=call('start','copilot','--manifest',${JSON.stringify(draft)}).probe;
+const probe=call('start','opencode','--manifest',${JSON.stringify(draft)}).probe;
 fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1}));
 console.log('DRIVER_READY');
 require('node:readline').createInterface({input:process.stdin}).on('line', line => {
@@ -3953,9 +3953,19 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1,before,state,after:call('screen',probe)}));
       console.log('SCREEN_READY');
     } else if(line==='install') {
-      fs.copyFileSync(${JSON.stringify(draft)},require('node:path').join(process.cwd(),'agents/copilot.json')); console.log('MANIFEST_INSTALLED');
+      fs.copyFileSync(${JSON.stringify(draft)},require('node:path').join(process.cwd(),'agents/opencode.json')); console.log('MANIFEST_INSTALLED');
+    } else if(line==='hold') {
+      const settings=JSON.parse(fs.readFileSync('settings.json','utf8'));
+      settings.agentArguments={claude:[],codex:[],agy:[],...settings.agentArguments,opencode:['--fixture']};
+      fs.writeFileSync('settings.json',JSON.stringify(settings));
+      execFileSync(cli,['config','validate','settings.json'],{encoding:'utf8',env:process.env});
+      const status=JSON.parse(execFileSync(cli,['config','status','--json'],{encoding:'utf8',env:process.env})).result;
+      const previous=JSON.parse(fs.readFileSync(${JSON.stringify(result)},'utf8'));
+      fs.writeFileSync(${JSON.stringify(result)},JSON.stringify({...previous,status}));
+      if(status.pending) console.log('Settings held: '+status.pending.detail+'. Choose Allow / Keep it on in Foom config.');
+    } else if(line==='exit') {process.exit(0);
     } else if(line==='restart') {
-      const second=call('start','copilot','--manifest',${JSON.stringify(draft)}).probe;
+      const second=call('start','opencode','--manifest',${JSON.stringify(draft)}).probe;
       let screen;
       const deadline=Date.now()+${deadline(5000)};
       do { call('wait',second,'--quiet','0.1'); screen=call('screen',second); } while(!screen.lines.join('\\n').includes('Trust this folder?') && Date.now()<deadline);
@@ -4044,7 +4054,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
         )?.state?.reason ?? "",
     )
     .not.toBe("Probe waiting");
-  await expect(page.locator(".tile-name").filter({ hasText: "copilot" })).toBeVisible();
+  await expect(page.locator(".tile-name").filter({ hasText: "opencode" })).toBeVisible();
   await expect
     .poll(async () =>
       (await page.evaluate((id) => window.desktop.tail(id, 24), configId)).join("\n"),
@@ -4076,11 +4086,11 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   assert.deepEqual(launch.args, []);
   await page
     .getByRole("button", {
-      name: "Actions for copilot · Probe in Foom config",
+      name: "Actions for opencode · Probe in Foom config",
       exact: true,
     })
     .click();
-  await page.getByRole("menuitem", { name: "Stop copilot", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Stop opencode", exact: true }).click();
   const confirmStop = page.getByRole("menuitem", { name: "Click again to stop", exact: true });
   await expect(confirmStop).toBeVisible();
   // The existing Stop confirmation requires at least 300 ms between clicks.
@@ -4117,7 +4127,13 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
     .toBe(false);
   await assert.rejects(require("node:fs/promises").access(second.launch.cwd), { code: "ENOENT" });
   await page.evaluate((id) => window.desktop.input(id, "install\r"), configId);
-  // Let the watcher publish the installed provider before discovery scans it.
+  // Every launch surface updates while Settings stays closed, without a manual scan.
+  await page.locator(".config-gear").click();
+  await expect(page.getByRole("menuitem", { name: "Via OpenCode", exact: true })).toBeVisible();
+  await expect
+    .poll(async () => JSON.stringify(await page.evaluate(() => window.desktop.appMenu.commands())))
+    .toContain('"id":"via-opencode"');
+  await page.keyboard.press("Escape");
   await expect
     .poll(() =>
       app.evaluate(({ app }) => {
@@ -4125,15 +4141,24 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
           .getBuiltinModule("node:module")
           .createRequire(app.getAppPath() + "/package.json");
         const { knownAgentId } = load("./build/main/agents/providers/registry.js");
-        return knownAgentId("copilot");
+        return knownAgentId("opencode");
       }),
     )
     .toBe(true);
   const installed = await page.evaluate(() => window.desktop.scanAgents(true));
-  assert.equal(installed.agents.find((agent) => agent.id === "copilot")?.hooks, true);
-  await page.evaluate(() =>
-    window.desktop.sidebarCommand({ kind: "config-launch", run: "copilot" }),
-  );
+  assert.equal(installed.agents.find((agent) => agent.id === "opencode")?.hooks, true);
+  await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "OpenCode", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.evaluate(async () => {
+    const repository = (await window.desktop.workspace()).repositories[0].path;
+    await window.desktop.sidebarCommand({
+      kind: "launch",
+      repository,
+      worktree: repository,
+      run: "opencode",
+    });
+  });
   await expect
     .poll(async () => {
       try {
@@ -4146,5 +4171,98 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   const attached = JSON.parse(await readFile(attachment, "utf8"));
   assert.ok(path.isAbsolute(attached.directory));
   assert.notEqual(attached.directory, launch.cwd);
+  const mcpUrl = attached.controlUrl.replace("/control/v1", "/mcp");
+  let session;
+  const mcp = async (message) =>
+    fetch(mcpUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${attached.controlToken}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...(session ? { "Mcp-Session-Id": session, "Mcp-Protocol-Version": "2025-11-25" } : {}),
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", ...message }),
+    });
+  const initialized = await mcp({
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-11-25",
+      capabilities: {},
+      clientInfo: { name: "fixture", version: "1" },
+    },
+  });
+  assert.equal(initialized.status, 200);
+  session = initialized.headers.get("mcp-session-id");
+  assert.equal((await mcp({ method: "notifications/initialized" })).status, 202);
+  const listed = await (await mcp({ id: 2, method: "tools/list" })).json();
+  assert.ok(
+    listed.result.tools
+      .find((tool) => tool.name === "launch")
+      .inputSchema.properties.agent.enum.includes("opencode"),
+  );
+  await page.evaluate((id) => window.desktop.input(id, "hold\r"), configId);
+  await expect
+    .poll(async () =>
+      JSON.stringify(
+        JSON.parse(await readFile(result, "utf8")).status ??
+          JSON.parse(await readFile(result, "utf8")).error ??
+          "",
+      ),
+    )
+    .toContain("agentArguments.opencode");
+  await expect
+    .poll(async () =>
+      (await page.evaluate((id) => window.desktop.tail(id, 24), configId)).join("\n"),
+    )
+    .toContain("Settings held:");
+  await page.evaluate((id) => window.desktop.input(id, "exit\r"), configId);
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.id === configId,
+        )?.exited,
+    )
+    .toBe(true);
+  await expect(page.locator(".config-dock")).toContainText("Needs you");
+  await page.locator(".config-gear").click();
+  const decision = page.getByRole("region", { name: "Change waiting for approval" });
+  await expect(decision).toContainText("agentArguments.opencode");
+  await page.screenshot({ path: "test-results/config-held-decision.png", animations: "disabled" });
+  await decision.getByRole("button", { name: "Allow", exact: true }).click();
+  const disclosure = await confirmationPage(app);
+  await expect(disclosure.getByRole("alertdialog")).toHaveAccessibleName(
+    "Allow agent launch arguments?",
+  );
+  await disclosure.getByRole("button", { name: "Allow", exact: true }).click();
+  await expect(decision).toHaveCount(0);
+  await expect(page.locator(".config-dock")).not.toContainText("Needs you");
+  assert.deepEqual(
+    (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.opencode,
+    ["--fixture"],
+  );
+  // A second held write is kept from Settings; the dock/panel clears in the same turn.
+  const settingsFile = path.join(home, ".foom/config/settings.json");
+  const settings = JSON.parse(await readFile(settingsFile, "utf8"));
+  settings.agentArguments.opencode = ["--second-fixture"];
+  await writeFile(settingsFile, JSON.stringify(settings));
+  await expect(decision).toBeVisible();
+  await page.keyboard.press("Escape");
+  await openSettingsScreen(page);
+  await page
+    .getByRole("region", { name: "Settings" })
+    .getByRole("button", { name: "Foom config", exact: true })
+    .click();
+  await page
+    .getByRole("region", { name: "Change waiting for approval" })
+    .getByRole("button", { name: "Keep it on" })
+    .click();
+  await expect(page.locator(".config-dock")).not.toContainText("Needs you");
+  assert.deepEqual(
+    (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.opencode,
+    ["--fixture"],
+  );
   await assertAccessible(page);
 });

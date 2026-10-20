@@ -418,3 +418,14 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.panel-facts .config-pending {
+  margin-top: 8px;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+}
+.panel-facts .config-pending > div {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}

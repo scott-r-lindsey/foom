@@ -442,6 +442,7 @@ export function createAppSource(): BoardSource {
     homeShell: () => home,
     config: {
       status: () => window.desktop.configStatus(),
+      decide: (decision, id) => window.desktop.decideConfig(decision, id),
       subscribe: (listener) => window.desktop.onConfigChange(listener),
       openFolder: () => window.desktop.openConfigFolder(),
     },
@@ -501,6 +502,7 @@ export function createAppSource(): BoardSource {
       snapshot(await window.desktop.workspace());
     },
     worktrees: {
+      subscribe: (listener) => window.desktop.onSetupChange(listener),
       confirmations: window.desktop.confirmations,
       load: async () => {
         const [workspace, scan, setup] = await Promise.all([

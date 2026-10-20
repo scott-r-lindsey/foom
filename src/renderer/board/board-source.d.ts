@@ -26,6 +26,7 @@ export interface LaunchOptions {
 export interface WorktreeSource {
   confirmations?: ConfirmationClient;
   load(): Promise<LaunchOptions>;
+  subscribe?(listener: () => void): () => void;
   addRepository(): Promise<Repository | null>;
   /** Local refs for the branch field. */
   branches(repository: string): Promise<BranchInventory>;
@@ -61,6 +62,7 @@ export interface BoardSource {
   shellName?: () => string;
   config?: {
     status(): Promise<ConfigStatus>;
+    decide?: (decision: "allow" | "keep", id: string) => Promise<ConfigStatus>;
     subscribe(listener: (status: ConfigStatus) => void): () => void;
     openFolder(): Promise<void>;
   };

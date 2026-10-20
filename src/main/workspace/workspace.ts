@@ -1,3 +1,4 @@
+import type { ConfigStatus } from "../../shared/foom-config";
 import { AgentProbes } from "../agents/probes";
 import { ProbeHttp } from "../agents/probe-http";
 import { ExecutionOwner } from "./execution-owner";
@@ -133,6 +134,7 @@ export interface WorkspaceDependencies {
   config?: {
     root: string;
     cliDirectory: string;
+    status?(): Promise<ConfigStatus>;
     probeNotice?(agent: string): Promise<boolean>;
     /** Throws when the folder is unavailable or sits inside a managed repository. */
     check(): Promise<void>;
@@ -1105,6 +1107,10 @@ export class Workspace {
     if (!config || this.closed) throw new Error("Foom config unavailable");
     this.probes ??= new AgentProbes(
       {
+        configStatus: async () => {
+          if (!config.status) throw new Error("Foom config status unavailable");
+          return config.status();
+        },
         waitingChanged: () => {
           this.refresh();
         },

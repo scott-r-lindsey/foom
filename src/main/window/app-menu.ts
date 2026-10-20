@@ -9,7 +9,7 @@ import {
   projectAppMenu,
   shortcutSheet,
 } from "./commands";
-import { AGENTS } from "../agents/agent-list";
+import { agentProviders } from "../agents/providers/registry";
 import type { ZoomDirection } from "./appearance";
 
 /** The bridge accepts command IDs only, from this window's trusted top-level frame. */
@@ -114,7 +114,7 @@ export function attachAppMenu(
           console.error("Unable to change interface size:", error);
         }),
     },
-    AGENTS,
+    agentProviders(),
   );
   app.setAboutPanelOptions({
     applicationName: "Foom",
@@ -137,10 +137,23 @@ export function attachAppMenu(
     const current = ++generation;
     const agents: readonly AgentId[] = await configAgents().catch(() => []);
     if (disposed || current !== generation) return;
-    for (const agent of AGENTS) {
-      const command = commands.find((entry) => entry.id === `via-${agent.id}`);
-      if (command) command.enabled = configAvailable && agents.includes(agent.id);
-    }
+    const routes = createCommands(
+      process.platform,
+      !app.isPackaged,
+      {
+        native,
+        board: (command) => {
+          contents.send("board:command", command);
+        },
+        zoom,
+      },
+      agentProviders(),
+    ).filter((command) => command.id.startsWith("via-"));
+    for (const command of routes)
+      command.enabled = configAvailable && agents.includes(command.id.slice(4));
+    for (let index = commands.length - 1; index >= 0; index--)
+      if (commands[index]?.id.startsWith("via-")) commands.splice(index, 1);
+    commands.splice(1, 0, ...routes);
     refresh();
   };
   const focus = () => {

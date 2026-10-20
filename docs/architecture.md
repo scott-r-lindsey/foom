@@ -2315,3 +2315,21 @@ can change it. A profile-only list of agent IDs records the terse first-probe cr
 note; it contains no terminal content or credential. Session persistence excludes
 probe rows. Captures and test rules (#592), verification (#593), and the guide
 workflow (#594) are deliberately outside this change.
+
+### Config decisions and live launch catalogs (#591 follow-up)
+
+The config panel and Settings share the held-change decision component. Both name
+main's held digest through the existing validated `config:decide` IPC; argument
+approval still requires the main-owned trusted disclosure. Main publishes decision
+status to all windows. The config-session-only `foom config status` command uses
+the existing per-session credential, authenticates before reading and again after
+awaiting ConfigService.refresh(), and has no decision or settings-write authority.
+The guide requires checking it and explaining held settings to the human.
+
+After a changed provider registry finishes discovery, main publishes setup changes
+and refreshes workspace and application menus. Board launch options subscribe to
+setup changes, discarding stale asynchronous results. Application routes are rebuilt
+from loaded provider identities, with absent enablement meaning enabled, matching
+workspace launches. Preload accepts bounded syntactic via-provider commands; main
+still validates installed IDs and launch authority. MCP tools/list resolves the
+current registry for each request, including existing MCP sessions.

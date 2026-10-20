@@ -346,15 +346,21 @@ export function Board({
   const newWorktreeRef = useRef<(repository?: string) => boolean>(undefined);
   const [options, setOptions] = useState<LaunchOptions>();
   useEffect(() => {
-    let current = true;
-    void source.worktrees?.load().then(
-      (next) => {
-        if (current) setOptions(next);
-      },
-      () => {},
-    );
+    let revision = 0;
+    const load = () => {
+      const request = ++revision;
+      void source.worktrees?.load().then(
+        (next) => {
+          if (request === revision) setOptions(next);
+        },
+        () => {},
+      );
+    };
+    const unsubscribe = source.worktrees?.subscribe?.(load);
+    load();
     return () => {
-      current = false;
+      revision++;
+      unsubscribe?.();
     };
   }, [source, inactive, settingsOpen]);
   const save = (next: typeof preferences) => {
@@ -612,9 +618,8 @@ export function Board({
     () =>
       source.subscribeCommands?.((command) => {
         if (inactive) return;
-        if (command === "via-claude" || command === "via-codex" || command === "via-agy") {
-          const agent = { "via-claude": "claude", "via-codex": "codex", "via-agy": "agy" } as const;
-          void runSidebarCommand({ kind: "config-launch", run: agent[command], origin: "menu" });
+        if (command.startsWith("via-")) {
+          void runSidebarCommand({ kind: "config-launch", run: command.slice(4), origin: "menu" });
         } else if (command === "toggle-sidebar") {
           toggleSidebarRef.current?.();
         } else if (command === "action-log") {

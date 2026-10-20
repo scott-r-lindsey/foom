@@ -6,6 +6,7 @@ import type { ConfigStatus } from "../../shared/foom-config";
 import type { BoardSource, LaunchOptions } from "./board-source.d";
 import type { BoardRow } from "./board.d";
 import type { SidebarRepository, SidebarWorktree } from "./sidebar.d";
+import { ConfigDecision } from "../preflight/config-controls";
 import { light, waitTime } from "./board";
 import { sessionIdentity } from "./sidebar-model";
 export type PanelSubject =
@@ -205,7 +206,10 @@ export function PanelFacts({
               <Chip tone="needs" dot>
                 Needs you
               </Chip>{" "}
-              <Sub>{subject.status.pending.detail}</Sub>
+              {!source.config?.decide && <Sub>{subject.status.pending.detail}</Sub>}
+              {source.config?.decide && (
+                <ConfigDecision pending={subject.status.pending} decide={source.config.decide} />
+              )}
             </Fact>
           )}
           {Boolean(subject.status?.rejected.length) && (

@@ -40,7 +40,8 @@ export async function execute(
       output(result.output, result.error);
       return result.code;
     }
-    if (words[0] === "config") {
+    const configStatus = words.length === 2 && words[0] === "config" && words[1] === "status";
+    if (words[0] === "config" && !configStatus) {
       const path = words[2];
       if (
         words.length !== 3 ||
@@ -60,8 +61,8 @@ export async function execute(
       if (!json) for (const agent of result.agents ?? []) output(formatAgentCapabilities(agent));
       return result.code;
     }
-    if (words[0] === "agent" && words[1] === "probe") {
-      const request = probeCommand(words.slice(2));
+    if (configStatus || (words[0] === "agent" && words[1] === "probe")) {
+      const request = configStatus ? { action: "config-status" } : probeCommand(words.slice(2));
       const token = env["FOOM_CONFIG_TOKEN"];
       const url = env["FOOM_CONFIG_URL"];
       if (!token || !/^[a-f0-9]{64}$/u.test(token) || !url) throw new ControlError("unauthorized");

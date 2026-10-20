@@ -1,3 +1,7 @@
+import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
+import { v2Provider } from "../../../../src/main/agents/providers/v2";
+import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
+import pluginFixture from "../../../fixtures/agent-plugin-v2.json";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -242,4 +246,24 @@ it("records only authenticated valid MCP traffic and clears the state on revocat
   revoke();
   expect(connectionChanged).toHaveBeenLastCalledWith("terminal", undefined);
   expect((await send(initialize)).status).toBe(401);
+});
+
+it("an existing MCP session lists newly installed providers and removes deleted ones", async () => {
+  await init();
+  vi.spyOn(service, "listed").mockReturnValue(["launch"]);
+  const model = parseAgentManifest(JSON.stringify(pluginFixture)).model;
+  const agents = async () => {
+    const response = await send({ jsonrpc: "2.0", id: 22, method: "tools/list" });
+    const body: unknown = await response.json();
+    return JSON.stringify(body);
+  };
+  expect(await agents()).not.toContain(`"${model.id}"`);
+  try {
+    replaceConfigProviders([v2Provider(model, () => Promise.resolve())]);
+    expect(await agents()).toContain(`"${model.id}"`);
+    replaceConfigProviders([]);
+    expect(await agents()).not.toContain(`"${model.id}"`);
+  } finally {
+    replaceConfigProviders([]);
+  }
 });

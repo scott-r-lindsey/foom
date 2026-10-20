@@ -183,7 +183,8 @@ reachable. In the rail the dock hides; config sessions join the compact session 
 rejections with a magenta square dot; its accessible name includes these statuses.
 Held config changes count in “N need you” and the app badge.
 
-The panel shows the folder path (copyable), Approval with **Needs you**, Rejected
+The panel shows the folder path (copyable), Approval with **Needs you** and its
+**Allow / Keep it on** decision, Rejected
 and Sessions. Multiple config sessions can run at a time. No worktree is created, and the session's `PATH`
 includes the bundled `foom` CLI.
 
@@ -946,7 +947,12 @@ applies live; an invalid file is rejected whole and the previous version stays i
 effect. Changes that would make Foom less able to say something
 needs you (turning alerts off, alert or master volume 0, master mute, hooks off, or turning an agent off)
 wait in an amber banner, such as "An agent wants to turn off the needs-you sound",
-with **Allow** and **Keep it on**. Keep it on restores the file.
+with **Allow** and **Keep it on** in both the Foom config panel and Settings →
+Foom config. Selecting the dock's Needs you opens that decision, even after the
+config session closes. A decision on either surface clears it everywhere.
+Keep it on restores the file. Config agents read `foom config status --json` after
+settings edits and tell the human when a write is held; validation alone does not
+mean the settings applied.
 
 `agentArguments` in settings.json contains literal lists keyed by provider ID,
 including the required `claude`, `codex` and `agy` entries. Every file-originated argument change waits for Allow, including removing
@@ -955,6 +961,10 @@ after lists, one argument per line, and names known bypass flags. Accepting also
 records bypass acknowledgement. Settings edits write the same file directly and
 retain their existing bypass disclosure. Running sessions keep their arguments;
 new, resumed and restored launches use the approved defaults.
+
+Valid agent manifests load without approval. Their installation, edits and removal
+refresh every board launch menu and the application menu without visiting Settings.
+MCP launch tool lists use the current provider registry.
 
 Below the folder, the section shows only what needs the user now: a held change,
 or each rejected file with its reason. When all is well it shows nothing more.

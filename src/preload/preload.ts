@@ -1,3 +1,6 @@
+function configCommand(value: unknown): value is `via-${string}` {
+  return typeof value === "string" && /^via-[a-z][a-z0-9-]{0,39}$/u.test(value);
+}
 import type { PreviewPlacement, PreviewSnapshot } from "../shared/previews";
 import type { WindowView, WindowAudioState } from "../shared/windows";
 import type { ExecutionTransition } from "../shared/execution";
@@ -355,9 +358,7 @@ const desktop: DesktopApi = {
         command === "toggle-sidebar" ||
         command === "next-waiting" ||
         command === "settings" ||
-        command === "via-claude" ||
-        command === "via-codex" ||
-        command === "via-agy" ||
+        configCommand(command) ||
         command === "new-worktree" ||
         command === "add-repository" ||
         command === "tidy-tiles" ||

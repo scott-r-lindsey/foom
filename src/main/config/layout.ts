@@ -399,6 +399,12 @@ These are set in Foom's Settings window, not here. Tell the user exactly what to
   \`~/.gemini\`, or their AGENTS.md or CLAUDE.md files).
 - Run \`foom config validate .\` after every edit. An invalid file is rejected whole
   and the last good version stays in effect.
+- After editing settings.json, run \`foom config status --json\`. This refreshes the
+  watched config and reports pending/rejected changes; offline validation alone does
+  not mean a write applied. Every launch-argument change also waits for approval.
+  If pending is non-null, tell the human what is held and direct them to Foom config
+  → Allow / Keep it on. Never claim the held settings are installed or work around
+  the decision. Recheck status after their decision before reporting completion.
 - Changes that make Foom less able to tell the user something needs them wait for the
   user's approval: turning alerts off, setting the alert volume to 0, turning hooks
   off, turning an agent off, or enabling restoreSessions (which can restore orchestrator control). Do not try to work around this.
@@ -457,6 +463,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "2a2c38113235a0639b9ef3d8e1ac5941f23ca341f5620467d1d3252be018d37b",
     "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
     "2f3bbec98e63c33f243d4c267028fc2e19410df96b3d99783c8b0446080a54e0",
+    "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
   ],
   "AGENTS.md": [
     "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
@@ -476,6 +483,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "2a2c38113235a0639b9ef3d8e1ac5941f23ca341f5620467d1d3252be018d37b",
     "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
     "2f3bbec98e63c33f243d4c267028fc2e19410df96b3d99783c8b0446080a54e0",
+    "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
   ],
   "CLAUDE.md": [
     "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
@@ -495,6 +503,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "2a2c38113235a0639b9ef3d8e1ac5941f23ca341f5620467d1d3252be018d37b",
     "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
     "2f3bbec98e63c33f243d4c267028fc2e19410df96b3d99783c8b0446080a54e0",
+    "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
   ],
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [
