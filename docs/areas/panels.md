@@ -2,6 +2,8 @@
 
 Decided implementation and security rules for this area. Read the [file map](../map.md) to locate related owners. User-visible rules: [behavior](../behavior/sidebar.md).
 
+Main panel facts remain in `workspace-context.ts`; sidebar dispatch is in `sidebar-commands.ts` and home-shell launch in `worktree-launch.ts`, all behind the Workspace facade.
+
 ## Sidebar panels and home shells (#197)
 
 `PanelIntent` owns cancellable 400/120/250 ms hover timers, pinning and drag

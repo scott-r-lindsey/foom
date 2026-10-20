@@ -11,9 +11,9 @@ creation/removal and child launch/stop/close; `orchestration.ts` dispatches call
 and implements child input, handoff reads, tails and waits. The classes share
 the authority module through inheritance, keeping all parent/generation and child
 ownership checks in one place. `orchestration.d.ts` holds their host and state
-contracts; `Workspace` supplies main's
-existing effects (worktree creation, agent launch, stop, close, host tail, removal) and
-the service delegates `create_worktree`, `launch`, `stop`, `close`, `remove_worktree`,
+contracts. `WorkspaceContext` wires main's worktree creation, agent launch,
+stop, close, host tail and removal effects. Role changes and child worktree/agent
+launches live in `orchestration-commands.ts`. The service delegates `create_worktree`, `launch`, `stop`, `close`, `remove_worktree`,
 `tail` and `wait_for` to it through an asynchronous `call`. MCP lists these tools
 and `operation_status` to every agent but runs them only for an orchestrator
 principal. `prompt` and `send_keys` (#629) deliver bounded input to owned children

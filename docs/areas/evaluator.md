@@ -20,11 +20,13 @@ completion/interruption evidence, hook health runtime, shell facts, output/input
 revisions, evaluation generation, current verdict, feedback deduplication and
 attention dismissal digest. Its narrow typed dependencies supply terminal launch
 facts, host tails, verdict storage, orchestration notifications and presentation,
-clock and lifecycle callbacks; it never receives Workspace. Workspace routes
-validated per-launch hook capabilities and persists conversation IDs, and delegates
+clock and lifecycle callbacks; it never receives the coordinator.
+`orchestration-commands.ts` routes validated per-launch hook capabilities and
+persists conversation IDs through the coordinator, and delegates
 execution, evidence, input, feedback and exit classification to the owner.
 
-Workspace retains the per-terminal promise queues across invocation replacement.
+`WorkspaceContext` retains the per-terminal promise queues across invocation
+replacement; `orchestration-commands.ts` serializes work through `enqueue`.
 The owner captures generation/output revisions when scheduling and the input
 revision when evaluation begins, then checks those plus invocation identity and
 closure after asynchronous classification and verdict storage. Replies, output, lifecycle transitions, replacement, removal and
@@ -33,7 +35,7 @@ the invocation; a fresh execution machine advances launch identity even when the
 is reused. Exit still releases agent/orchestration resources before queued final
 classification and persistence. Child-event publications and unread-child reminder
 projection continue through the same orchestration capabilities. After PTYs stop,
-Workspace closes and aborts launches, drains cleanup, clears execution subscriptions,
+the coordinator closes and aborts launches, drains cleanup, clears execution subscriptions,
 disposes unread reminders/watchers, forgets verdicts, releases agents and closes forge,
 control and hook services before draining session writes. PTYs and headless screens
 remain in the utility-process host; hidden terminals keep running.

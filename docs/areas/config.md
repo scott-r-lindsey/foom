@@ -2,6 +2,8 @@
 
 Decided implementation and security rules for this area. Read the [file map](../map.md) to locate related owners. User-visible rules: [behavior](../behavior/settings.md).
 
+Config-session launch and probe-credential plumbing live in `main/workspace/sidebar-commands.ts`, bound by `workspace-context.ts`. The public Workspace facade grants no additional config capability.
+
 ## Foom config environment (#84)
 
 `~/.foom/config` is the agent-editable configuration folder. It is not Electron's

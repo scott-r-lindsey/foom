@@ -15,11 +15,11 @@ cached plans, live cleanup runs and their inventory progress/tombstones behind
 `CleanupOwner` and a narrow typed dependencies interface. It coordinates repository
 forgetting, idle/owned worktree removal, automatic-removal policy and revalidation,
 terminal stop/exit/removal callbacks and checkout-resource release. It receives
-capabilities, never the Workspace object. `Workspace` keeps the shared repository
+capabilities, never the facade or coordinator object. `WorkspaceContext` in `workspace-context.ts` keeps the shared repository
 and branch launch/removal locks, terminal queues and cancellation; the cleanup owner
 acquires/releases those locks through callbacks. Execution and verdict state live in
 `ExecutionOwner`. Successful merged removals hold the shared branch locks until the checked-ref transaction finishes.
-Session restoration and persistence remain in `SessionOwner`. Workspace preserves
+Session restoration and persistence remain in `SessionOwner`. The coordinator preserves
 shutdown order: after PTYs stop, it marks itself closed and aborts launches, then
 asks cleanup to stop scheduling and drain active runs before releasing watchers,
 agent/control/hook services and session writes. Superseded background scans cannot

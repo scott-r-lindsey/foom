@@ -12,9 +12,13 @@ Paths below are relative to the repository root.
 | `src/main/window/` | `window-ipc.ts` routes registered windows; `terminal-views.ts` reserves views; `window-placement.ts` persists geometry; `window-audio.ts` elects sound owner | [Windows](areas/windows.md), [behavior](behavior/windows.md) |
 | `src/main/window/commands.ts`, `app-menu.ts`, `attention-badge.ts` | One command registry, shortcut dispatch, menu projections and native attention counts | [Commands](areas/commands.md), [menus](behavior/menus.md) |
 | `src/main/terminals/`, `src/terminal-host/` | `terminal-ipc.ts` grants ID-scoped capabilities; `terminal-host-client.ts` brokers host requests; `terminal-manager.ts` owns PTYs/headless xterms; snapshot, activity, foreground and shell integration helpers stay in the host | [Terminals](areas/terminals.md), [shell lifecycle](areas/shells.md), [tile behavior](behavior/tiles.md) |
-| `src/main/workspace/workspace.ts`, `workspace-ipc.ts` | Shared launch/removal locks, terminal queues, cancellation and service coordination; validated workspace IPC | [Worktrees](areas/worktrees.md), [launch](areas/agent-launch.md), [behavior](behavior/worktrees.md) |
+| `src/main/workspace/workspace.ts`, `workspace-context.ts`, `workspace-ipc.ts` | Public facade delegates to the internal coordinator; context owns shared reservations/locks, terminal queues, cancellation, owner initialization, persistence delegates and shutdown; IPC validates workspace requests | [Launch/composition](areas/agent-launch.md), [worktrees](areas/worktrees.md), [sessions](areas/sessions.md), [evaluator](areas/evaluator.md) |
+| `src/main/workspace/worktree-launch.ts` | Discovery caching, provider setup, agent/shell/home launches, existing checkouts and pasted resumes | [Launch](areas/agent-launch.md), [sessions](areas/sessions.md), [panels/home](areas/panels.md) |
+| `src/main/workspace/sidebar-commands.ts` | Sidebar inventory/dispatch, checkout creation/removal, config sessions and probe credentials | [Worktrees](areas/worktrees.md), [config](areas/config.md), [probes](areas/probes.md), [sidebar behavior](behavior/sidebar.md) |
+| `src/main/workspace/orchestration-commands.ts` | Role changes, child worktree/agent launches, terminal execution events and ordered evaluation | [Orchestration](areas/orchestration.md), [execution](areas/execution.md), [evaluator](areas/evaluator.md) |
+| `src/main/workspace/feature-context.d.ts`, `workspace-types.d.ts` | Narrow coordinator capability types per feature; dependencies and feature method signatures | [Launch/composition](areas/agent-launch.md), [boundaries](areas/boundaries.md) |
 | `src/main/workspace/worktrees.ts`, `fetch-default.ts`, `cleanup-owner.ts`, `cleanup-run.ts`, `inventory-watch.ts` | Git membership/identity, repository persistence, fetches, merged cleanup and local inventory watching | [Worktrees](areas/worktrees.md), [board inventory](areas/board.md), [behavior](behavior/worktrees.md) |
-| `src/main/workspace/session-owner.ts`, `session-store.ts`, `session-restore.ts`, `home-shell.ts` | Session records, restore/restart/quit freeze, home launch; owners receive narrow dependencies, never Workspace | [Sessions](areas/sessions.md), [panels/home](areas/panels.md), [behavior](behavior/sidebar.md) |
+| `src/main/workspace/session-owner.ts`, `session-store.ts`, `session-restore.ts`, `home-shell.ts` | Session records, restore/restart/quit freeze, home launch; owners receive narrow dependencies, never the facade/coordinator | [Sessions](areas/sessions.md), [panels/home](areas/panels.md), [behavior](behavior/sidebar.md) |
 | `src/main/workspace/execution-owner.ts`, `src/main/agents/execution.ts` | Invocation execution, evidence, evaluation generations, feedback and dismissal; `waiting-state.ts` projects child waiting | [Execution](areas/execution.md), [evaluator](areas/evaluator.md), [attention behavior](behavior/attention.md) |
 | `src/main/evaluator/` | Pure local classification, bounded agent rules, tail redaction and verdict log | [Evaluator](areas/evaluator.md), [privacy](areas/privacy.md), [attention behavior](behavior/attention.md) |
 | `src/main/agents/`, `src/main/login-shell.ts` | `agents.ts` discovers/launches; `hook-receiver.ts` authenticates observations; login-shell isolation and environment layering | [Launch](areas/agent-launch.md), [hooks](areas/agent-hooks.md), [execution](areas/execution.md) |
@@ -44,7 +48,10 @@ Every top-level `src/` directory is covered above: `cli`, `main`, `node-common`,
 
 ## Tests, tooling and references
 
-`tests/unit/` mirrors process/feature ownership. `tests/electron/agent-{config,launch,lifecycle,plugins,probe,restore,resume}.test.js`
+`tests/unit/` mirrors process/feature ownership. Workspace tests are split into
+`workspace-{agent-setup,attention,cleanup,config-launch,config-probes,execution,forge,provider-hooks,repository-operations,sessions,sidebar}.test.ts`
+plus `workspace.test.ts` and `orchestration-workspace.test.ts`; their shared setup
+and helpers live in `tests/unit/main/workspace/workspace-fixture.ts`. `tests/electron/agent-{config,launch,lifecycle,plugins,probe,restore,resume}.test.js`
 are distinct feature suites; `antigravity-plugin.test.js` covers plugin behavior.
 Other named feature suites, `harness.js`, `agent-isolation.js`, `test-policy.js`,
 `process-audit.js` and `shard-plan.json` own app fixtures, CLI isolation, deadlines,

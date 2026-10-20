@@ -2,6 +2,8 @@
 
 Decided implementation and security rules for this area. Read the [file map](../map.md) to locate related owners.
 
+Workspace composition lives behind the public `main/workspace/workspace.ts` facade. `workspace-context.ts` owns shared locks, queues, owner wiring and shutdown; bound feature methods live in `worktree-launch.ts`, `sidebar-commands.ts` and `orchestration-commands.ts`. Narrow feature capabilities and dependency/method declarations live in `feature-context.d.ts` and `workspace-types.d.ts`. Owners receive capabilities rather than the coordinator object.
+
 ## Process model
 
 | Process | Owns | Must not |

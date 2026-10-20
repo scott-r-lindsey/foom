@@ -2,6 +2,8 @@
 
 Decided implementation and security rules for this area. Read the [file map](../map.md) to locate related owners. User-visible rules: [behavior](../behavior/probes.md).
 
+`main/workspace/sidebar-commands.ts` owns config-session launch and credential handling; `workspace-context.ts` wires the probe broker and shared lifecycle. Probe execution and ownership policy remain in the agent probe modules.
+
 ## Config-owned probe capability (#591)
 
 Main issues a fresh 256-bit `FOOM_CONFIG_TOKEN` and loopback `FOOM_CONFIG_URL` per

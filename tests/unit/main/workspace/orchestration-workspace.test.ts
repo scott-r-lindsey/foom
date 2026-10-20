@@ -2,7 +2,7 @@ import type { ChildInput } from "../../../../src/shared/child-input";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { beforeEach, expect, it, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
-import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace";
+import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace-types";
 import { ControlStore } from "../../../../src/main/control/store";
 import { Operations } from "../../../../src/main/control/operations";
 import type { Operation, Principal } from "../../../../src/main/control/types";

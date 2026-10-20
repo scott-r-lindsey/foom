@@ -2,6 +2,8 @@
 
 Decided implementation and security rules for this area. Read the [file map](../map.md) to locate related owners. User-visible rules: [behavior](../behavior/attention.md).
 
+`main/workspace/orchestration-commands.ts` routes terminal events and ordered evaluation to `ExecutionOwner`. `workspace-context.ts` retains shared queues and subscriptions behind the public Workspace facade.
+
 ## Agent execution
 
 `main/agents/execution.ts` owns an independent machine per agent invocation:

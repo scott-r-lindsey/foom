@@ -22,17 +22,18 @@ rejection exits the row normally and keeps the ID; no agent transcript or runtim
 `src/main/workspace/session-owner.ts` owns session restoration and persistence behind
 `SessionOwner` and its typed capability dependencies. It holds saved records,
 restoring IDs, roles that could not be restored, repository identities, the shared
-restart promise and the quit freeze. `Workspace` delegates loading, restart,
+restart promise and the quit freeze. `WorkspaceContext` delegates loading, restart,
 saves and quit preparation, and queries restore markers for inventory and launch/
 removal guards. The owner restores handoff history, re-grants parent authority and
 restores child relationships through the orchestration capabilities. Its launch
-adapter calls Workspace's existing home, config and checkout launch paths; launch/
-removal locks, terminal queues and cancellation remain in Workspace. Execution and
-verdict state belong to `ExecutionOwner`. No owner receives the Workspace object
+adapter calls the coordinator's bound home/checkout paths in `worktree-launch.ts`
+and config path in `sidebar-commands.ts`; launch/removal locks, terminal queues
+and cancellation remain in `workspace-context.ts`. Execution and
+verdict state belong to `ExecutionOwner`. No owner receives the facade or coordinator object
 or owns PTYs or terminal views.
 Quit preparation waits for restoration, freezes and flushes the running records
 before PTYs stop; failed preparation or cancelled quit re-enables persistence.
-Workspace still releases agents and control/hook services after terminals stop,
+The coordinator still releases agents and control/hook services after terminals stop,
 then asks the owner to drain session writes.
 
 Main writes ordered, atomic replacements of private `sessions.json` in the active
