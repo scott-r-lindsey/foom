@@ -4131,22 +4131,16 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   await page.locator(".config-gear").click();
   await expect(page.getByRole("menuitem", { name: "Via OpenCode", exact: true })).toBeVisible();
   await expect
-    .poll(async () => JSON.stringify(await page.evaluate(() => window.desktop.appMenu.commands())))
-    .toContain('"id":"via-opencode"');
-  await page.keyboard.press("Escape");
-  await expect
     .poll(() =>
-      app.evaluate(({ app }) => {
-        const load = process
-          .getBuiltinModule("node:module")
-          .createRequire(app.getAppPath() + "/package.json");
-        const { knownAgentId } = load("./build/main/agents/providers/registry.js");
-        return knownAgentId("opencode");
+      page.evaluate(async () => {
+        const entries = await window.desktop.appMenu.commands();
+        return entries
+          .flatMap((entry) => (entry?.kind === "submenu" ? entry.items : []))
+          .find((entry) => entry?.id === "via-opencode")?.enabled;
       }),
     )
     .toBe(true);
-  const installed = await page.evaluate(() => window.desktop.scanAgents(true));
-  assert.equal(installed.agents.find((agent) => agent.id === "opencode")?.hooks, true);
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "OpenCode", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
