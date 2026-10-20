@@ -306,7 +306,7 @@ under the existing launch/removal locks. Git and processes use argument arrays.
 | `operation_status` | Orchestrator or authorized human CLI grant, own operations only | Exactly one of operation ID or idempotency key; returns the operation record described below, never child output |
 
 `create_worktree({ pullRequest: N, idempotencyKey })` (#337) uses the #340
-forge provider and the user's read-only `gh` login to resolve the PR head. Main
+selected forge manifest and the user's existing CLI login to resolve the PR head. Main
 selects `origin`; the API accepts no remote, branch override or path. Both
 `isCrossRepository` and `headRepositoryOwner` must establish the selected repository:
 a fork is refused even when its branch name also exists locally. Fixed refusal
@@ -425,18 +425,17 @@ reported capacity line and upstream render snapshots are in
 
 ## Child PR and required checks (#340)
 
-The first #521 forge-manifest stage keeps the running provider and #516 scheduler
-unchanged. A new transport-injected interpreter is tested against the old path with
-recorded public `gh` captures and derived fixtures. It maps identity and checks,
-refuses forks and mismatched repositories in Foom code, and always refreshes the
-head/state after checks. Main-supplied default-branch policy cannot be overridden
-by a manifest table. The shared kind loader grants no execution authority; host
-routing at runtime, auth lifecycle, bounded large-request scheduling and persistence migration
-remain integration work. Settings now saves user-controlled forge enablement and
-host assignments, without changing this running provider or scheduler. The optional manifest batch plan now reproduces dynamic
-numeric bindings, next-tick discovery and separate all/required check reductions
-in offline parity tests. It composes GraphQL ASTs with branch variables, never
-interpolated branch syntax, and leaves the active #516 scheduler unchanged. See [the implementation boundary](forge-plugins.md).
+Forge tracking, adoption and merged-PR hints use the bundled GitHub manifest through
+the shared lifecycle. Recorded-fixture parity passed before the production legacy
+provider was removed; its frozen test-only reference preserves comparisons.
+Configured copies use the same interpreter. Main owns fork/same-repository and
+default-branch refusals, exact enabled host assignments, auth/executable validation,
+cancellation and publication checks. The batch plan composes GraphQL ASTs with
+branch variables, numeric bindings and separate all/required check reductions.
+Large requests run as bounded prefixes on successive serial ticks. Manifest minima
+only slow regular polls; #516's discovery follow-up, adaptive cadence and budgets
+are preserved. Optional display enrichment/checks-meaning metadata remain under
+#521. See [the forge contract](forge-plugins.md).
 
 Main tracks branches in every registered repository’s board checkouts and in orchestrator-owned worktrees, choosing a read-only
 forge provider from the repository's origin URL (or its sole remote). GitHub on
@@ -525,13 +524,15 @@ read. Main validates checkout identity and branch before polling; removal or
 replacement retires observations. Shutdown stops polling. Tracking remains bounded
 to 1,000 checkouts and command output to 256 KiB.
 
-Settings → General → Show pull requests and checks defaults from the first `gh auth
-status --hostname github.com` probe. Its disclosure names repository and branch
-transmission, with no terminal content. Disabling it hides board observations and
+Settings → General → Show pull requests and checks defaults from the first
+selected enabled forge CLI auth preflight (`gh auth status --hostname github.com`
+for the default assignment). Its shared disclosure names the selected CLI, existing
+login and read-only repository/project, branch and PR/MR metadata requests, with no
+terminal content. Disabling it hides board observations and
 stops non-orchestrator polling; orchestrator metadata and `wait_for` remain active.
 
-A private, atomically written `control/forge.json` stores checkout identity, branch,
-remote and the narrowed PR mapping separately from launch grants. It survives app
+A private, atomically written version-1 `control/forge.json` envelope stores checkout identity, branch,
+remote, manifest provenance and the narrowed PR mapping separately from launch grants. It survives app
 restart, parent exit and a new orchestrator generation; saved data grants no
 capabilities and remains absent from public metadata until ownership and the forge
 result have been checked again. Local worktree paths and identities never enter

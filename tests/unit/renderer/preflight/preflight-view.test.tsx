@@ -896,7 +896,7 @@ test("General discloses GitHub polling and saves its privacy toggle", async () =
   fireEvent.click(await screen.findByRole("button", { name: "General" }));
   expect(
     screen.getByText(
-      "Foom uses your GitHub CLI to send repository and branch names to GitHub. It sends no terminal content.",
+      "Foom uses your selected forge CLI and its existing login to read PR or merge request and CI metadata. It sends repository/project, branch and PR/MR identifiers in read-only status requests. Foom does not send terminal content, store forge tokens, change CLI login/configuration, or write to the forge.",
     ),
   ).toBeTruthy();
   const toggle = screen.getByRole("checkbox", { name: "Show pull requests and checks" });

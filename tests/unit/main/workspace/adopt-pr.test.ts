@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { git, gitSync } from "../../../helpers/git.js";
 import { FAKE_GH } from "../../../helpers/forge-cli.js";
-import { forgeProvider } from "../../../../src/main/control/forge";
+import { forgeProvider } from "../../../helpers/legacy-forge";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { UncertainEffect } from "../../../../src/main/control/orchestration-mutations";
 let root: string;

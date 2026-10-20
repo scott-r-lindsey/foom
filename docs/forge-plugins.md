@@ -5,21 +5,19 @@ with the later [#521 polling decision](https://github.com/scott-r-lindsey/foom/i
 superseding the original cadence proposal. There are no new permissions for agents,
 no forge writes, and no merge automation.
 
-The first #521 implementation stage adds the shared kind dispatcher, strict forge
-parser, build-locked GitHub manifest and transport-injected single-PR interpreter.
-The existing config scanner also loads and watches `forges/<id>.json` with
-contained 64 KiB reads, per-kind 50-file caps and byte-bound validation callbacks.
-Loading only builds a catalog; it does not enable or probe a forge.
-Offline tests run the existing provider and new interpreter side by side before
-removing the old provider. This stage does **not** replace the running GitHub
-provider. Main wires Settings/host assignments and the lifecycle through an
-internal provider selection, fixed to the old provider in production. Optional
-display metadata, persistence migration and the active-provider switch remain for
-later stages. The lifecycle below supplies bounded execution; optional
-`batchStatus` supplies dynamic query composition and check-count interpretation.
-Both have offline old/new parity tests. No new CLI is enabled in production.
-GitLab #522 still requires authenticated public-project evidence. Settings forge
-cards and user-controlled host assignments remain inactive for production polling.
+The shared kind dispatcher, strict parser and build-locked GitHub manifest now
+serve production tracking, adoption and merged-PR hints through the main-owned
+lifecycle. Recorded-fixture parity passed before retiring the old provider from
+application code; a frozen test-only reference keeps the comparisons reproducible.
+Bundled and config manifests use the same interpreter, executable resolver, auth
+preflight and bounded batch scheduler. GitHub's 20/120-second adaptive cadence,
+one-second discovery follow-up and fleet budgets are preserved. GitLab #522 still
+requires authenticated public-project evidence.
+
+Optional separate display enrichment and checks-meaning metadata remain under
+#521. The current board batch fields retain GitHub parity. Persistence now uses a
+versioned envelope and binds saved numeric IDs to manifest digest and selected
+remote; adding future display/meaning fields remains follow-up work.
 
 A forge is a second manifest **kind** in the [existing plugin system](agent-plugins.md),
 not another plugin architecture. Built-ins are bundled JSON. A valid config copy
@@ -61,11 +59,11 @@ Hostnames must be exact lowercase ASCII DNS names, bounded to 253 characters; UR
 port, wildcard, IP, trailing-dot and unsafe-key spellings are rejected in main.
 These preferences cannot be set in config `settings.json` or manifests. The
 renderer only displays and submits them through sender-validated setup IPC.
-This Settings stage does not switch the provider or run discovery/auth probes;
-cards show declared executable names and “Not checked” until lifecycle integration.
+Cards show declared executable names and “Not checked”; polling performs native
+resolution and auth checks only for an enabled, explicitly assigned provider.
 There is no Duplicate action (removed for agents in #538); a hand-made
 config copy of a built-in starts with no enablement, host assignments or
-cached observations. After runtime activation, disabling a card preserves settings
+cached observations. Disabling a card preserves settings
 but stops probes and polls. This is a behavior
 specification, not approval of a new visual layout.
 
@@ -252,8 +250,8 @@ conclusions include only required checks. Main owns batching, budgets and policy
 
 The earlier candidate-only, fixed-query batch proposal is superseded by the user's
 follow-main decision. The optional `batchStatus` representation below now expresses dynamic queries and
-check counts. The integration stage must connect it to executable/auth lifecycle
-and prove scheduling parity before switching the active provider. It must not replace batching with serial
+check counts. The main-owned lifecycle connects it to executable/auth validation, and
+fixture tests prove parity with the retired provider. It must not replace batching with serial
 candidate checks or change existing #337/#340/#516 tests. Bundled and config
 manifests must use the same engine, with no provider-ID compatibility exception.
 
@@ -306,7 +304,7 @@ discovery binding follow-up; there are no per-PR fallback requests or catch-up l
 Recorded public identity/rollup fields are replayed in explicitly derived batch
 envelopes; constructed contexts cover optional failures, unknowns and partial pages.
 
-## Execution lifecycle (inactive integration boundary)
+## Execution lifecycle
 
 `ForgeLifecycle` accepts only main-selected `LoadedForgeManifest` entries from its
 explicit registry. Config entries use the loader's exact-byte validation callback;
@@ -314,8 +312,8 @@ bundled entries use the build-locked manifest/digest. Registry replacement,
 explicit refresh/invalidation and shutdown clear caches and abort pending samples.
 The main-owned `ForgeRuntime` now connects the config scanner’s forge registry,
 profile enablement/host assignments and discovered login PATH to this service.
-Its constructor selection defaults to `legacy`; only fixture/parity tests choose
-`manifest`. There is no user-visible setting, environment flag or IPC switch.
+It always selects manifests; there is no legacy production path, provider-mode
+setting, environment flag or IPC switch.
 Unknown, unassigned, disabled or missing selections return no provider, without
 probing or falling back. Declared hosts never authorize routing.
 
@@ -326,6 +324,8 @@ Tracking supplies a validation closure over registered checkout identities,
 branches and remotes. Adoption and merged-PR hints supply a lazy main-owned
 repository/worktree closure, used only by the manifest path. Each closure is
 rechecked by the lifecycle before execution, cache reads and publication. Tracking
+rechecks the sampled branches within each chunk, so a large fleet does not repeat
+unrelated checkout validation for every command. Tracking
 also rejects publication across selection generations. These context closures
 are not IPC capabilities exposed to the renderer.
 
@@ -348,8 +348,9 @@ raw stdout/stderr, Error causes or credentials. Raw output is transient input to
 the interpreter, never logged, persisted or published. Successful status metadata
 still passes the existing mapping and Foom-owned identity/ownership rules.
 
-Only successful narrowed results are cached (default 20 seconds, configurable up
-to 120 seconds, bounded to 1000 entries per operation). Cache keys include manifest
+The lifecycle supports caching successful narrowed results for up to 120 seconds,
+bounded to 1000 entries per operation. Production disables sample caching so
+explicit idle/refresh reads remain fresh; the tracker owns the regular cadence. Cache keys include manifest
 ID/digest, host/project, executable filesystem identity, main-owned worktree
 identity, default branch and complete operation inputs including bound numbers.
 Auth caching is independent of result caching. Cache reads and every command
@@ -361,19 +362,16 @@ cached results/auth; invalidation retires the generation even if an operation ha
 already completed transport. This is filesystem revalidation, not protection
 against a malicious local process racing individual filesystem operations.
 
-The legacy `gh` provider remains active. Fixture tests exercise this boundary
-without invoking real forge CLIs or network services. Tracking and adoption
-entry-point parity tests replay recorded public fork evidence and explicitly
-derived same-repository/batch envelopes through both providers.
-Fixture CLI tests verify that a renamed, hostile manifest cannot relax Foom’s fork,
-same-repository or advertised default-branch refusals. No real forge CLI or network
-is used.
+Tracking and adoption entry-point parity tests replay recorded public fork evidence
+and explicitly derived same-repository/batch envelopes through the manifest engine
+and a frozen test-only legacy reference. Fixture CLI tests verify that a renamed,
+hostile manifest cannot relax Foom's fork, same-repository or advertised
+default-branch refusals. No real forge CLI or network is used.
 
-Optional display enrichment/checks-meaning metadata, versioned persistence and
-production activation/removal of the old provider remain separate #521 stages.
-This wiring stage leaves #516’s scheduling and dynamic batching unchanged,
-including the one-second discovery follow-up and existing serial/fleet budgets.
-The internal manifest harness is not a shipping activation gate.
+The scheduler measures exact expanded requests, sends one bounded prefix per
+serial tick and leaves unsampled work due. Minima only slow regular polling;
+discovery binding still follows on the next tick. Separate display enrichment and
+checks-meaning metadata remain follow-up work under #521.
 
 ## JSON mapping and check reduction
 
@@ -451,7 +449,7 @@ rows means none. No invalid/partial result can become a green result.
 | `head-pipeline` | GitLab MR head pipeline at the sampled SHA; not approvals, external status checks, mergeability, merge trains or all branch protection |
 | `commit-status` | Gitea/Forgejo aggregate commit statuses when no reliable required subset is exposed; never label it required |
 
-Keep `requiredChecks` for existing MCP compatibility. The integration stage adds a
+Keep `requiredChecks` for existing MCP compatibility. Follow-up work under #521 adds a
 validated `checksMeaning` discriminator to metadata/UI and labels it “Required checks”, “Head
 pipeline” or “Commit status”. Persist it with observations. No check meaning or
 conclusion grants merge authority. `none` means a verified empty relevant set,
@@ -459,7 +457,7 @@ never that the user may merge; unknown is never success.
 
 GitHub maps failed/cancelled to failure, unfinished to pending, neutral/skipped to
 success; GraphQL errors, different head, missing data and partial context pages are
-unknown. The fallback query is byte-for-byte the one in `forge.ts`. A null rollup
+unknown. The fallback query is byte-for-byte the one in the frozen legacy test reference. A null rollup
 on the verified commit is none. The [current gh manual](https://cli.github.com/manual/gh_pr_checks)
 documents JSON bucket values and pending exit 8; the installed 2.45 CLI instead
 uses the existing fallback.
@@ -490,13 +488,16 @@ polling, idle/exit may request a fresh read, and shutdown stops it.
 Cache keys include host, project, selected manifest/digest, executable identity,
 worktree identity, branch and bound number. Reinspect identity/branch before network
 work and before publish. Removal/replacement retires observations. Saved narrowed
-metadata remains private/atomic in `control/forge.json`; add a versioned envelope
-when new fields land, reading legacy records as GitHub observations only after
-remote/ownership revalidation. Unknown versions/corrupt data grant no authority and
+metadata remains private/atomic in a version-1 `{version, entries}` envelope in
+`control/forge.json`. Saved number bindings include manifest ID/digest and selected
+host/project. A changed provider clears the binding before a new request. Legacy
+array records may retain numbers only for the bundled GitHub manifest on
+`github.com`, after remote/ownership revalidation; config copies start with a fresh
+lookup. Loaded metadata stays hidden until a fresh successful sample. Unknown versions/corrupt data grant no authority and
 no visible cached success. Revocation/offline failures hide stale PR metadata as
 today; they never reuse a previously green check result. Stop all work on shutdown.
 
-Proposed shared disclosure (replaces GitHub-specific wording when implemented):
+Shared disclosure:
 
 > Foom uses your selected forge CLI and its existing login to read PR or merge
 > request and CI metadata. It sends repository/project, branch and PR/MR identifiers

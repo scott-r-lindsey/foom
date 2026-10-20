@@ -2,13 +2,16 @@ import type { BoardPullRequest } from "../../shared/forge";
 import { lstat, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { atomicPrivate, privateDirectory, verifyPrivate } from "../../node-common/private-files";
-import { forgeBranch, legacyForgeProvider, pullRequest } from "./forge";
+import { forgeBranch, pullRequest } from "./forge";
 import type { ForgeProvider, ForgeProviderFactory, ForgeWorktree, PullRequest } from "./forge.d";
 
 interface Entry extends ForgeWorktree {
+  binding?: string;
+  restored?: boolean;
   board?: BoardPullRequest;
   orchestrator: boolean;
   refresh: number;
+  followUp?: boolean;
   remote?: string;
   number?: number;
   pr?: PullRequest;
@@ -41,7 +44,7 @@ export class ForgeTracking {
       orchestrator?: boolean,
     ) => Promise<string | undefined>,
     private readonly changed: () => void,
-    private readonly provider: ForgeProviderFactory = legacyForgeProvider,
+    private readonly provider: ForgeProviderFactory = () => undefined,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -49,7 +52,7 @@ export class ForgeTracking {
     userData: string,
     inspect: (tree: ForgeWorktree, orchestrator?: boolean) => Promise<string | undefined>,
     changed: () => void,
-    provider: ForgeProviderFactory = legacyForgeProvider,
+    provider: ForgeProviderFactory = () => undefined,
   ): Promise<ForgeTracking> {
     const tracker = new ForgeTracking(await privateDirectory(userData), inspect, changed, provider);
     await tracker.load();
@@ -63,8 +66,17 @@ export class ForgeTracking {
       await verifyPrivate(file, false);
       if ((await lstat(file)).size > 16 * 1024 * 1024) return;
       const data: unknown = JSON.parse(await readFile(file, "utf8"));
-      if (!Array.isArray(data) || data.length > 1000) return;
-      const rows: unknown[] = data;
+      const envelope =
+        typeof data === "object" && data !== null && !Array.isArray(data)
+          ? Object.fromEntries(Object.entries(data))
+          : undefined;
+      const saved: unknown = Array.isArray(data)
+        ? data
+        : envelope?.["version"] === 1
+          ? envelope["entries"]
+          : undefined;
+      if (!Array.isArray(saved) || saved.length > 1000) return;
+      const rows: unknown[] = saved;
       for (const item of rows) {
         if (typeof item !== "object" || item === null) continue;
         const row: Record<string, unknown> = Object.fromEntries(Object.entries(item));
@@ -78,6 +90,9 @@ export class ForgeTracking {
         )
           continue;
         if (row["orchestrator"] !== undefined && typeof row["orchestrator"] !== "boolean") continue;
+        const binding = row["binding"];
+        if (binding !== undefined && (typeof binding !== "string" || binding.length > 8192))
+          continue;
         const pr = pullRequest(row["pr"]);
         if (row["pr"] !== undefined && !pr) continue;
         // Revalidate ownership before making any network call or exposing saved data.
@@ -88,6 +103,8 @@ export class ForgeTracking {
         );
         const entry = this.entries.get(tree.path);
         if (entry) {
+          entry.restored = true;
+          if (typeof binding === "string") entry.binding = binding;
           if (pr) entry.pr = pr;
           if (typeof remote === "string") entry.remote = remote;
         }
@@ -135,6 +152,9 @@ export class ForgeTracking {
       delete entry.pr;
       delete entry.board;
       delete entry.number;
+      delete entry.binding;
+      delete entry.restored;
+      delete entry.followUp;
       entry.due = 0;
     }
     this.changed();
@@ -151,8 +171,9 @@ export class ForgeTracking {
           remote,
         ]),
       ),
-      validate: async () => {
+      validate: async (branches?: readonly string[]) => {
         for (const row of rows) {
+          if (branches && !branches.includes(row.branch)) continue;
           if (
             this.stopped() ||
             this.entries.get(row.path) !== row ||
@@ -162,6 +183,21 @@ export class ForgeTracking {
         }
       },
     };
+  }
+
+  private bind(entry: Entry, provider: ForgeProvider | undefined): void {
+    if (provider?.binding === undefined) return;
+    if (
+      (entry.binding !== undefined && entry.binding !== provider.binding) ||
+      (entry.restored && entry.binding === undefined && !provider.acceptLegacyBinding)
+    ) {
+      delete entry.number;
+      delete entry.pr;
+      delete entry.board;
+      entry.available = false;
+    }
+    entry.binding = provider.binding;
+    delete entry.restored;
   }
 
   get boardEnabled(): boolean {
@@ -240,6 +276,7 @@ export class ForgeTracking {
             await this.pollRepository(entry.repository, remote, provider);
             return;
           }
+          this.bind(entry, provider);
           const result = await provider
             ?.lookup(
               entry.branch,
@@ -297,6 +334,7 @@ export class ForgeTracking {
         delete entry.board;
         entry.available = false;
       }
+      this.bind(entry, provider);
       rows.push(entry);
     }
     if (rows.length === 0) return;
@@ -309,21 +347,39 @@ export class ForgeTracking {
     };
     // Start with the oldest due checkout. An unsampled suffix stays due for the next
     // serial worker tick, rather than being hidden or retried inside one sample.
-    rows.sort((a, b) => a.due - b.due);
-    const size = provider.batchSize?.(rows.map(match)) ?? rows.length;
-    const selected = rows.slice(0, Math.max(1, size));
+    rows.sort(
+      (a, b) =>
+        Number(b.followUp === true && b.due <= this.now()) -
+          Number(a.followUp === true && a.due <= this.now()) || a.due - b.due,
+    );
+    const requests = [
+      ...new Map(rows.map((entry) => [JSON.stringify(match(entry)), match(entry)])).values(),
+    ];
+    const size = provider.batchSize?.(requests) ?? requests.length;
+    const matches = requests.slice(0, Math.max(1, size));
+    const keys = new Set(matches.map((request) => JSON.stringify(request)));
+    const selected = rows.filter((entry) => keys.has(JSON.stringify(match(entry))));
     const revisions = new Map(selected.map((entry) => [entry, entry.refresh]));
-    const result = await provider.batch?.(selected.map(match)).catch(() => undefined);
+    const result = await provider.batch?.(matches).catch(() => undefined);
     if (this.stopped() || generation !== this.generation || this.pauses.size > 0) return;
+    const remaining = rows.filter((entry) => !selected.includes(entry) && entry.available);
     const running =
       result &&
-      [...result.values()].some(
+      ([...result.values()].some(
         (pr) =>
           pr.state === "OPEN" &&
           (pr.board.checks === null ||
             pr.board.checks.pending > 0 ||
             pr.requiredChecks === "unknown"),
-      );
+      ) ||
+        remaining.some(
+          (entry) =>
+            entry.pr?.state === "OPEN" &&
+            (!entry.board?.checks ||
+              entry.board.checks.pending > 0 ||
+              entry.pr.requiredChecks === "unknown"),
+        ));
+    const hasMatches = result && (result.size > 0 || remaining.some((entry) => entry.pr));
     for (const entry of selected) {
       if (this.entries.get(entry.path) !== entry || (!this.enabled && !entry.orchestrator))
         continue;
@@ -333,6 +389,7 @@ export class ForgeTracking {
       const oldHead = entry.pr?.headSha;
       const discovered = pr && !entry.pr && entry.number === undefined;
       entry.available = pr !== undefined;
+      entry.followUp = Boolean(discovered);
       if (pr) {
         entry.pr = {
           number: pr.number,
@@ -350,13 +407,7 @@ export class ForgeTracking {
           ? 1000
           : Math.max(
               provider.minimumIntervalMs ?? 0,
-              !result
-                ? forgeDelay(entry.failures)
-                : running
-                  ? 20000
-                  : result.size
-                    ? 120000
-                    : 600000,
+              !result ? forgeDelay(entry.failures) : running ? 20000 : hasMatches ? 120000 : 600000,
             ));
       if (entry.refresh !== revisions.get(entry)) entry.due = 0;
       if (
@@ -379,10 +430,10 @@ export class ForgeTracking {
   }
 
   private async save(): Promise<void> {
-    await atomicPrivate(
-      this.directory,
-      "forge.json",
-      [...this.entries.values()].map((entry) => ({
+    await atomicPrivate(this.directory, "forge.json", {
+      version: 1,
+      entries: [...this.entries.values()].map((entry) => ({
+        binding: entry.binding,
         repository: entry.repository,
         path: entry.path,
         identity: entry.identity,
@@ -392,7 +443,7 @@ export class ForgeTracking {
         number: entry.number,
         orchestrator: entry.orchestrator,
       })),
-    );
+    });
   }
 
   private schedule(): void {

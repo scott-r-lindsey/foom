@@ -20,6 +20,10 @@ export interface ForgeObservation extends PullRequest {
   board: BoardPullRequest;
 }
 export interface ForgeProvider {
+  /** Stable manifest/remote provenance for durable numeric bindings. */
+  binding?: string;
+  acceptLegacyBinding?: boolean;
+  available?(): Promise<boolean>;
   /** Regular polling floor; discovery binding follow-ups keep their one-second cadence. */
   minimumIntervalMs?: number;
   /** Main-owned request sizing; never executes commands. */

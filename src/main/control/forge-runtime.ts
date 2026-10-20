@@ -1,7 +1,6 @@
 import type { Settings } from "../../shared/setup";
 import type { LoadedForgeManifest } from "../config/plugins";
 import type { ForgeProviderFactory } from "./forge.d";
-import { legacyForgeProvider } from "./forge";
 import { forgeRemote } from "./forge-mapping";
 import { ForgeLifecycle } from "./forge-lifecycle";
 import { githubManifest } from "./forge-manifests";
@@ -13,7 +12,7 @@ const bundled: LoadedForgeManifest = {
   validate: () => Promise.resolve(),
 };
 
-/** Internal composition choice only; no setting, environment flag or IPC selects manifests. */
+/** Main-owned manifest selection; routing authority comes only from profile assignments. */
 export class ForgeRuntime {
   private plugins: readonly LoadedForgeManifest[] = [bundled];
   private lifecycle: ForgeLifecycle | undefined;
@@ -27,7 +26,6 @@ export class ForgeRuntime {
   constructor(
     private readonly settings: () => Pick<Settings, "forges" | "forgeHosts">,
     private readonly discoverPath: () => Promise<string>,
-    private readonly mode: "legacy" | "manifest" = "legacy",
     private readonly options: Omit<ForgeLifecycleOptions, "path"> = {},
   ) {}
 
@@ -42,7 +40,6 @@ export class ForgeRuntime {
   }
 
   configure(): void {
-    if (this.mode === "legacy") return;
     const { forges, forgeHosts } = this.settings();
     const next = JSON.stringify([Object.entries(forges).sort(), Object.entries(forgeHosts).sort()]);
     if (this.preferences === next) return;
@@ -54,12 +51,11 @@ export class ForgeRuntime {
   invalidate(): void {
     this.revision++;
     this.lifecycle?.invalidate();
-    if (this.mode === "manifest") this.onInvalidate?.();
+    this.onInvalidate?.();
   }
 
   readonly provider: ForgeProviderFactory = async (url, getContext) => {
     if (this.closed) return undefined;
-    if (this.mode === "legacy") return legacyForgeProvider(url);
     this.configure();
     const parsed = forgeRemote(url, "nested");
     if (!parsed || !getContext) return undefined;
@@ -93,7 +89,7 @@ export class ForgeRuntime {
         this.path = undefined;
         return undefined;
       }
-      this.lifecycle = new ForgeLifecycle({ ...this.options, path });
+      this.lifecycle = new ForgeLifecycle({ cacheMs: 0, ...this.options, path });
       this.lifecycle.replace(this.plugins);
     }
     const lifecycle = this.lifecycle;
@@ -103,17 +99,33 @@ export class ForgeRuntime {
       remote,
       context: {
         identity: context.identity,
-        validate: async () => {
+        validate: async (branches) => {
           this.configure();
           if (this.closed || revision !== this.revision || lifecycle !== this.lifecycle)
             throw new Error("Forge selection changed");
-          await context.validate();
+          await context.validate(branches);
         },
       },
     });
+    provider.binding = JSON.stringify([plugin.manifest.id, plugin.digest, remote]);
+    provider.acceptLegacyBinding = plugin === bundled && remote.host === "github.com";
     if (!plugin.manifest.operations.batchStatus) delete provider.batch;
     return provider;
   };
+
+  /** Neutral host-only auth preflight. The placeholder project is never sent to the CLI. */
+  async available(): Promise<boolean> {
+    for (const host of Object.keys(this.settings().forgeHosts)) {
+      const provider = await this.provider(`https://${host}/foom/auth`, () =>
+        Promise.resolve({
+          identity: `auth:${host}`,
+          validate: () => Promise.resolve(),
+        }),
+      );
+      if (await provider?.available?.()) return true;
+    }
+    return false;
+  }
 
   async close(): Promise<void> {
     this.closed = true;

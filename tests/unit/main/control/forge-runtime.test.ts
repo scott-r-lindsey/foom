@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { ForgeLifecycle } from "../../../../src/main/control/forge-lifecycle";
 import { ForgeRuntime } from "../../../../src/main/control/forge-runtime";
 import { ForgeTracking } from "../../../../src/main/control/forge-tracking";
-import { forgeProvider } from "../../../../src/main/control/forge";
+import { forgeProvider } from "../../../helpers/legacy-forge";
 import { forgeValue } from "../../../../src/main/control/forge-mapping";
 import { executeForge, resolveForgeExecutable } from "../../../../src/main/control/forge-process";
 import github from "../../../../src/shared/bundled-forges/github.json";
@@ -44,7 +44,7 @@ function harness(cacheMs = 20000) {
     }),
   );
   vi.mocked(executeForge).mockResolvedValue({ code: 0, stdout: "", stderr: "" });
-  const runtime = new ForgeRuntime(() => preferences, discover, "manifest", { cacheMs });
+  const runtime = new ForgeRuntime(() => preferences, discover, { cacheMs });
   runtimes.push(runtime);
   return {
     runtime,
@@ -71,17 +71,14 @@ async function capture(name: string): Promise<unknown> {
   return value;
 }
 
-it("defaults to the legacy provider without discovering or validating a manifest context", async () => {
-  const discover = vi.fn(() => Promise.resolve(""));
-  const runtime = new ForgeRuntime(() => settings(), discover);
-  runtimes.push(runtime);
-  expect(await runtime.provider(remote, getContext)).toHaveProperty("batch");
-  expect(await runtime.provider("https://unknown.example/o/r")).toBeUndefined();
-  runtime.replace([]);
-  runtime.configure();
-  expect(discover).not.toHaveBeenCalled();
-  await runtime.close();
-  expect(await runtime.provider(remote)).toBeUndefined();
+it("defaults to manifests and requires main-owned context before discovery", async () => {
+  const h = harness();
+  expect(await h.runtime.provider(remote)).toBeUndefined();
+  expect(h.discover).not.toHaveBeenCalled();
+  expect(await h.runtime.provider(remote, getContext)).toHaveProperty("batch");
+  expect(h.discover).toHaveBeenCalledOnce();
+  await h.runtime.close();
+  expect(await h.runtime.provider(remote, getContext)).toBeUndefined();
 });
 
 it("routes only explicit enabled assignments; declarations cannot claim hosts or provide fallback", async () => {
@@ -402,4 +399,24 @@ it.each(["invalidate", "close"])("handles %s while retiring a previous PATH", as
   closing.mockRestore();
   if (action === "invalidate") expect(await h.runtime.provider(remote, getContext)).toBeDefined();
   else expect(finished).toHaveBeenCalledOnce();
+});
+
+it("uses selected enabled manifests for neutral auth preflight without sending project data", async () => {
+  const h = harness(0);
+  expect(await h.runtime.available()).toBe(true);
+  expect(executeForge).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(executeForge).mock.calls[0]?.[1]).toEqual([
+    "auth",
+    "status",
+    "--hostname",
+    "github.com",
+  ]);
+  vi.mocked(executeForge).mockResolvedValue({ code: 1, stdout: "", stderr: "not logged in" });
+  expect(await h.runtime.available()).toBe(false);
+  h.settings({ forges: { github: false }, forgeHosts: { "github.com": "github" } });
+  h.discover.mockClear();
+  vi.mocked(executeForge).mockClear();
+  expect(await h.runtime.available()).toBe(false);
+  expect(h.discover).not.toHaveBeenCalled();
+  expect(executeForge).not.toHaveBeenCalled();
 });

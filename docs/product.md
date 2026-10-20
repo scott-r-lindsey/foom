@@ -658,15 +658,17 @@ file contents, diffs or echoed input, and redaction cannot catch every secret.
 The Make orchestrator dialog discloses this data path. The agent's own tools and provider
 settings continue to govern its other data access.
 
-Forge manifests are being introduced in stages (#521). The first stage loads and validates
-manifest data and tests a shared interpreter without changing the active provider
-or polling. A second stage adds offline dynamic-batch interpretation and parity
-for board counts and required-check conclusions; runtime enablement remains pending. When integration activates forge selection, the disclosure will read:
-“Foom uses your selected forge CLI and its existing login to read PR or merge request
-and CI metadata. It sends repository/project, branch and PR/MR identifiers in
-read-only status requests. Foom does not send terminal content, store forge tokens,
-change CLI login/configuration, or write to the forge.” The current GitHub runtime
-and disclosure remain in place until that integration is complete.
+Forge manifests now drive production tracking, adoption and merged-PR hints. The
+bundled GitHub manifest preserves current PR/check behavior and adaptive polling;
+config copies use the same engine. Only enabled, explicitly assigned hosts are
+queried. Manifest minima can slow regular polls, while discovery binding keeps its
+one-second follow-up. Optional separate display enrichment and checks-meaning
+metadata remain follow-up work under #521.
+
+The disclosure reads: “Foom uses your selected forge CLI and its existing login to
+read PR or merge request and CI metadata. It sends repository/project, branch and
+PR/MR identifiers in read-only status requests. Foom does not send terminal content,
+store forge tokens, change CLI login/configuration, or write to the forge.”
 
 Foom also reads PR and check status for board checkouts and orchestrator-owned child
 worktrees through a main-owned forge provider. GitHub is supported through your
@@ -777,7 +779,7 @@ It replaces the terminal tiles beside the persistent sidebar in the same window.
 Esc returns to the tiles and restores the same focused sidebar row.
 Selecting a terminal in the sidebar also leaves Settings; terminals keep running throughout.
 
-General offers **Show pull requests and checks**, defaulting to on when the GitHub CLI is installed and logged in on first use. The disclosure reads: “Foom uses your GitHub CLI to send repository and branch names to GitHub. It sends no terminal content.” Turning it off stops non-orchestrator polling. Foom stores no tokens and makes no forge writes.
+General offers **Show pull requests and checks**, defaulting to on when the GitHub CLI is installed and logged in on first use. The shared forge disclosure above explains the CLI login and read-only metadata requests. Turning it off stops non-orchestrator polling. Foom stores no tokens and makes no forge writes.
 
 General offers **Restore sessions on launch**, on by default. Turning it on through agent-edited config requires Allow because it also permits restoring orchestrator control. General also offers **Auto-remove merged worktrees**, off by default and applying to all repositories.
 
@@ -786,8 +788,10 @@ switch, badge, source and host assignments. Valid config manifests load without
 approval; there is no Duplicate action. Copies start off with no hosts. Settings
 saves exact lowercase DNS hostnames against an enabled forge; manifests cannot
 assign hosts. GitHub defaults to `github.com`. Disabling preserves assignments.
-These profile preferences are preparatory: the existing GitHub provider still polls,
-and cards show declared executables with status “Not checked” until runtime integration.
+These preferences control production routing and polling. Disabling a forge stops
+its probes/polls and retires observations; declarations cannot claim hosts. Cards
+show declared executables with status “Not checked”; requests resolve the native
+executable and perform auth preflight through the main-owned lifecycle.
 
 General offers Foom’s folder or a location next to each repository for new worktrees, with an example
 destination. Changes apply to future creation; existing worktrees stay where they are.

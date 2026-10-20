@@ -1,4 +1,5 @@
 import { manifestBatchSize } from "./forge-manifest-batch";
+import { inheritedEnvironment } from "../setup/environment";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +26,7 @@ function authFailure(stdout: string, stderr: string): boolean {
   );
 }
 
-/** Inactive integration boundary. Only main may select registered plugins and worktree contexts. */
+/** Only main may select registered plugins and worktree contexts. */
 export class ForgeLifecycle {
   private plugins: readonly LoadedForgeManifest[] = [];
   private generation = 0;
@@ -77,6 +78,7 @@ export class ForgeLifecycle {
       key: unknown,
       cache: Map<string, { until: number; value: T }>,
       read: (provider: ForgeProvider) => Promise<T>,
+      branches?: readonly string[],
     ): Promise<T | undefined> => {
       const completion: { finish?: () => void } = {};
       const finished = new Promise<void>((resolve) => {
@@ -104,7 +106,7 @@ export class ForgeLifecycle {
       const validate = async () => {
         assertCurrent();
         await plugin.validate();
-        await context.validate();
+        await context.validate(branches);
         assertCurrent();
       };
       try {
@@ -154,7 +156,7 @@ export class ForgeLifecycle {
               argv,
               cwd,
               {
-                ...(this.options.environment ?? process.env),
+                ...inheritedEnvironment(this.options.environment),
                 PATH: this.options.path,
                 ...plugin.manifest.environment,
               },
@@ -221,16 +223,29 @@ export class ForgeLifecycle {
       }
     };
     return {
+      available: async () =>
+        (await sample(["auth"], new Map<string, { until: number; value: object }>(), () =>
+          Promise.resolve({}),
+        )) !== undefined,
       minimumIntervalMs: selection.plugin.manifest.minimumIntervalSeconds * 1000,
       batchSize: (matches) =>
         manifestBatchSize(selection.plugin.manifest, selection.remote, matches),
       lookup: (branch, number, state) =>
-        sample(["lookup", branch, number, state], this.lookups, (p) =>
-          p.lookup(branch, number, state),
+        sample(
+          ["lookup", branch, number, state],
+          this.lookups,
+          (p) => p.lookup(branch, number, state),
+          [branch],
         ),
       resolve: (number) =>
         sample(["resolve", number], this.resolutions, async (p) => p.resolve?.(number)),
-      batch: (matches) => sample(["batch", matches], this.batches, async (p) => p.batch?.(matches)),
+      batch: (matches) =>
+        sample(
+          ["batch", matches],
+          this.batches,
+          async (p) => p.batch?.(matches),
+          matches.map((match) => match.branch),
+        ),
     };
   }
 }

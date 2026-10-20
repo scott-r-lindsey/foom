@@ -4,7 +4,6 @@ import * as path from "node:path";
 import { HookReceiver } from "../agents/hook-receiver";
 import { ProbeNotices } from "../agents/probe-notices";
 import { setupOffers } from "../agents/setup-offers";
-import { runForge } from "../control/forge";
 import { ForgeTracking } from "../control/forge-tracking";
 import { ControlRuntime } from "../control/runtime";
 import { VerdictLog } from "../evaluator/verdict-log";
@@ -67,10 +66,7 @@ export async function initializeWorkspace(
     if (wiring.settings.get().agyPluginOfferAnswered && !setupOffers.answered("agy"))
       await setupOffers.answer("agy");
     if (wiring.settings.get().showPullRequests === undefined) {
-      const loggedIn = await runForge(["auth", "status", "--hostname", "github.com"]).then(
-        () => true,
-        () => false,
-      );
+      const loggedIn = await wiring.forgeRuntime.available();
       await wiring.settings.update({ showPullRequests: loggedIn });
     }
     const forge = await ForgeTracking.open(

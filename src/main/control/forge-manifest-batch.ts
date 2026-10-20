@@ -156,16 +156,27 @@ export function manifestBatchSize(
   remote: ForgeRemote,
   matches: readonly ForgeMatch[],
 ): number {
-  let low = 0;
-  let high = Math.min(matches.length, 1000);
-  while (low < high) {
-    const size = Math.ceil((low + high) / 2);
+  const fits = (size: number) => {
     try {
       batchArguments(manifest, remote, matches.slice(0, size));
-      low = size;
+      return true;
     } catch {
-      high = size - 1;
+      return false;
     }
+  };
+  const limit = Math.min(matches.length, 1000);
+  let low = 0;
+  let high = Math.min(1, limit);
+  // Grow from a small request: expanding half of a 1000-checkout fleet just to
+  // discover a 16 KiB cap wastes the serial worker's preparation budget.
+  while (high < limit && fits(high)) {
+    low = high;
+    high = Math.min(limit, high * 2);
+  }
+  while (low < high) {
+    const size = Math.ceil((low + high) / 2);
+    if (fits(size)) low = size;
+    else high = size - 1;
   }
   return low;
 }

@@ -2,7 +2,7 @@ import { manifestBatchSize } from "../../../../src/main/control/forge-manifest-b
 import { readFile } from "node:fs/promises";
 import { expect, it, vi } from "vitest";
 import { parse, print } from "graphql/language";
-import { batchForge } from "../../../../src/main/control/forge-batch";
+import { batchForge } from "../../../helpers/legacy-forge-batch";
 import { manifestForgeProvider } from "../../../../src/main/control/forge-interpreter";
 import { githubManifest } from "../../../../src/main/control/forge-manifests";
 import { forgeValue } from "../../../../src/main/control/forge-mapping";
@@ -351,6 +351,7 @@ it.each([false, true])("bounds large requests before execution (bound=%s)", asyn
   expect(size).toBeGreaterThan(0);
   expect(size).toBeLessThan(selected.length);
   const { forge, run } = provider({});
+  expect(forge.batchSize?.(selected)).toBe(size);
   await forge.batch?.(selected.slice(0, size));
   expect(run).toHaveBeenCalledOnce();
   const argv = run.mock.calls[0]?.[0] ?? [];
@@ -370,4 +371,9 @@ it("reports zero capacity for absent plans and invalid query bindings", () => {
     ),
   ).toBe(0);
   expect(manifestBatchSize(githubManifest, { host: "bad host", project: "o/r" }, matches)).toBe(0);
+});
+
+it("sizes empty and small requests without executing a command", () => {
+  expect(manifestBatchSize(githubManifest, remote, [])).toBe(0);
+  expect(manifestBatchSize(githubManifest, remote, matches)).toBe(1);
 });
