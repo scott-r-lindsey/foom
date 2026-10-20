@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ForgeTracking, forgeDelay } from "../../../../src/main/control/forge-tracking";
 import { privateDirectory, atomicPrivate } from "../../../../src/node-common/private-files";
-import type { PullRequest } from "../../../../src/main/control/forge.d";
+import type { ForgeMatch, PullRequest } from "../../../../src/main/control/forge.d";
 import { SessionMetadata } from "../../../../src/main/control/metadata";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 import type { Principal } from "../../../../src/main/control/types";
@@ -341,7 +341,7 @@ it("refuses invalid adoption numbers in memory and persisted tracking", async ()
   expect(h.lookup).not.toHaveBeenCalled();
 });
 
-function batched() {
+function batched(minimumIntervalMs = 0, batchSize?: (matches: readonly ForgeMatch[]) => number) {
   let now = 100;
   const observation = {
     ...pending,
@@ -363,7 +363,7 @@ function batched() {
     directory,
     inspect,
     changed,
-    () => ({ batch, lookup: vi.fn() }),
+    () => ({ batch, lookup: vi.fn(), minimumIntervalMs, ...(batchSize ? { batchSize } : {}) }),
     () => now,
   );
   trackers.push(tracker);
@@ -579,4 +579,54 @@ it("notifies for a new failed head even when checks finish between polls", async
   h.tracker.recheck(tree.path);
   await h.tracker.poll();
   expect(completed).toHaveBeenCalledTimes(1);
+});
+
+it.each([20000, 30000, 180000])(
+  "manifest minima only slow regular cadence (%s)",
+  async (minimum) => {
+    const h = batched(minimum);
+    h.tracker.track(tree);
+    await h.tracker.poll();
+    h.advance(1000);
+    await h.tracker.poll(); // Discovery always binds on the next tick.
+    expect(h.batch).toHaveBeenCalledTimes(2);
+    h.advance(Math.max(20000, minimum) - 1);
+    await h.tracker.poll();
+    expect(h.batch).toHaveBeenCalledTimes(2);
+    h.advance(1);
+    const settled = {
+      ...h.observation,
+      requiredChecks: "success" as const,
+      board: { ...h.observation.board, checks: { passed: 1, failed: 0, pending: 0 } },
+    };
+    h.result(new Map([[tree.branch, settled]]));
+    await h.tracker.poll();
+    h.advance(Math.max(120000, minimum) - 1);
+    await h.tracker.poll();
+    expect(h.batch).toHaveBeenCalledTimes(3);
+    h.advance(1);
+    h.result(undefined);
+    await h.tracker.poll();
+    h.advance(Math.max(60000, minimum) - 1);
+    await h.tracker.poll();
+    expect(h.batch).toHaveBeenCalledTimes(4);
+    h.advance(1);
+    await h.tracker.poll();
+    expect(h.batch).toHaveBeenCalledTimes(5);
+  },
+);
+it("samples one bounded prefix per tick and leaves the suffix due", async () => {
+  const h = batched(20000, () => 1);
+  const second = { ...tree, path: join(root, "second"), branch: "second" };
+  h.tracker.sync(tree.repository, [tree, second]);
+  h.tracker.setEnabled(true);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenLastCalledWith([{ branch: tree.branch }]);
+  h.advance(1000);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenLastCalledWith([{ branch: second.branch }]);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenLastCalledWith([{ branch: tree.branch, number: 340 }]);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(3);
 });

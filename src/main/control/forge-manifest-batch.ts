@@ -118,6 +118,58 @@ function parseManifestBatch(
   return observations;
 }
 
+/** Measure the exact request that will execute, including generated raw-field variables. */
+function batchArguments(
+  manifest: ForgeManifest,
+  remote: ForgeRemote,
+  matches: readonly ForgeMatch[],
+) {
+  const plan = manifest.operations.batchStatus;
+  if (!plan) throw new Error("Missing batch plan");
+  const [projectOwner, projectName] = remote.project.split("/");
+  const query = expandForgeBatchQuery(
+    plan.query,
+    plan.discovery,
+    plan.bound,
+    matches.map((match) => match.number),
+  );
+  const argv = expandForgeArguments(plan.command.argv, {
+    ...remote,
+    query,
+    ...(projectOwner === undefined ? {} : { projectOwner }),
+    ...(projectName === undefined ? {} : { projectName }),
+  });
+  // This append form is part of the closed GraphQL raw-field command grammar.
+  argv.push(
+    ...matches.flatMap((match, index) =>
+      match.number === undefined ? ["-f", `b${String(index)}=${match.branch}`] : [],
+    ),
+  );
+  if (argv.length > 64 || argv.reduce((size, arg) => size + Buffer.byteLength(arg), 0) > 65536)
+    throw new Error("Batch arguments too large");
+  return argv;
+}
+
+/** Largest prefix within the query and argv caps. Scheduling stays in the serial tracker. */
+export function manifestBatchSize(
+  manifest: ForgeManifest,
+  remote: ForgeRemote,
+  matches: readonly ForgeMatch[],
+): number {
+  let low = 0;
+  let high = Math.min(matches.length, 1000);
+  while (low < high) {
+    const size = Math.ceil((low + high) / 2);
+    try {
+      batchArguments(manifest, remote, matches.slice(0, size));
+      low = size;
+    } catch {
+      high = size - 1;
+    }
+  }
+  return low;
+}
+
 /** One bounded argv-array request; no CLI execution, retries or scheduling in the interpreter. */
 export async function manifestForgeBatch(
   manifest: ForgeManifest,
@@ -141,26 +193,7 @@ export async function manifestForgeBatch(
   )
     return undefined;
   try {
-    const [projectOwner, projectName] = remote.project.split("/");
-    const query = expandForgeBatchQuery(
-      plan.query,
-      plan.discovery,
-      plan.bound,
-      matches.map((match) => match.number),
-    );
-    const argv = expandForgeArguments(plan.command.argv, {
-      ...remote,
-      query,
-      ...(projectOwner === undefined ? {} : { projectOwner }),
-      ...(projectName === undefined ? {} : { projectName }),
-    });
-    // This append form is part of the closed GraphQL raw-field command grammar.
-    argv.push(
-      ...matches.flatMap((match, index) =>
-        match.number === undefined ? ["-f", `b${String(index)}=${match.branch}`] : [],
-      ),
-    );
-    if (argv.reduce((size, arg) => size + Buffer.byteLength(arg), 0) > 65536) return undefined;
+    const argv = batchArguments(manifest, remote, matches);
     const value = forgeJson(await transport(argv), plan.command);
     return parseManifestBatch(value, manifest, plan, remote, matches, defaultBranch);
   } catch {

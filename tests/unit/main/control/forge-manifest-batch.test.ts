@@ -1,3 +1,4 @@
+import { manifestBatchSize } from "../../../../src/main/control/forge-manifest-batch";
 import { readFile } from "node:fs/promises";
 import { expect, it, vi } from "vitest";
 import { parse, print } from "graphql/language";
@@ -339,4 +340,34 @@ it("maps only hex merge commits from the declared batch output path", async () =
       typeof oid === "string" && /^[a-f0-9]{40,64}$/u.test(oid) ? oid : undefined,
     );
   }
+});
+
+it.each([false, true])("bounds large requests before execution (bound=%s)", async (bound) => {
+  const selected = Array.from({ length: 1000 }, (_, i) => ({
+    branch: `branch-${String(i)}-${"x".repeat(160)}`,
+    ...(bound ? { number: i + 1 } : {}),
+  }));
+  const size = manifestBatchSize(githubManifest, remote, selected);
+  expect(size).toBeGreaterThan(0);
+  expect(size).toBeLessThan(selected.length);
+  const { forge, run } = provider({});
+  await forge.batch?.(selected.slice(0, size));
+  expect(run).toHaveBeenCalledOnce();
+  const argv = run.mock.calls[0]?.[0] ?? [];
+  expect(argv.length).toBeLessThanOrEqual(64);
+  expect(Buffer.byteLength((argv[5] ?? "").slice(6))).toBeLessThanOrEqual(16384);
+  expect(argv.reduce((n, arg) => n + Buffer.byteLength(arg), 0)).toBeLessThanOrEqual(65536);
+  run.mockClear();
+  await forge.batch?.(selected.slice(0, size + 1));
+  expect(run).not.toHaveBeenCalled();
+});
+it("reports zero capacity for absent plans and invalid query bindings", () => {
+  expect(
+    manifestBatchSize(
+      { ...githubManifest, operations: { ...githubManifest.operations, batchStatus: undefined } },
+      remote,
+      matches,
+    ),
+  ).toBe(0);
+  expect(manifestBatchSize(githubManifest, { host: "bad host", project: "o/r" }, matches)).toBe(0);
 });

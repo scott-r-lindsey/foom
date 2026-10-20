@@ -1,3 +1,4 @@
+import { manifestBatchSize } from "./forge-manifest-batch";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -220,6 +221,9 @@ export class ForgeLifecycle {
       }
     };
     return {
+      minimumIntervalMs: selection.plugin.manifest.minimumIntervalSeconds * 1000,
+      batchSize: (matches) =>
+        manifestBatchSize(selection.plugin.manifest, selection.remote, matches),
       lookup: (branch, number, state) =>
         sample(["lookup", branch, number, state], this.lookups, (p) =>
           p.lookup(branch, number, state),

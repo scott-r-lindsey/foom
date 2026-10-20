@@ -20,6 +20,10 @@ export interface ForgeObservation extends PullRequest {
   board: BoardPullRequest;
 }
 export interface ForgeProvider {
+  /** Regular polling floor; discovery binding follow-ups keep their one-second cadence. */
+  minimumIntervalMs?: number;
+  /** Main-owned request sizing; never executes commands. */
+  batchSize?(matches: readonly ForgeMatch[]): number;
   batch?(
     matches: readonly ForgeMatch[],
   ): Promise<ReadonlyMap<string, ForgeObservation> | undefined>;

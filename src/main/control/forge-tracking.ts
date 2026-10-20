@@ -260,7 +260,8 @@ export class ForgeTracking {
             entry.remote = remote;
             entry.failures = 0;
           } else entry.failures = Math.min(entry.failures + 1, 5);
-          entry.due = this.now() + forgeDelay(entry.failures);
+          entry.due =
+            this.now() + Math.max(forgeDelay(entry.failures), provider?.minimumIntervalMs ?? 0);
         }
         const current = this.read(entry.repository, entry.path);
         if (previous !== (current === undefined ? undefined : JSON.stringify(current)))
@@ -299,18 +300,20 @@ export class ForgeTracking {
       rows.push(entry);
     }
     if (rows.length === 0) return;
-    const revisions = new Map(rows.map((entry) => [entry, entry.refresh]));
-    const result = await provider
-      .batch?.(
-        rows.map((entry) => {
-          const number =
-            entry.remote === undefined || entry.remote === remote
-              ? (entry.number ?? entry.pr?.number)
-              : undefined;
-          return { branch: entry.branch, ...(number === undefined ? {} : { number }) };
-        }),
-      )
-      .catch(() => undefined);
+    const match = (entry: Entry) => {
+      const number =
+        entry.remote === undefined || entry.remote === remote
+          ? (entry.number ?? entry.pr?.number)
+          : undefined;
+      return { branch: entry.branch, ...(number === undefined ? {} : { number }) };
+    };
+    // Start with the oldest due checkout. An unsampled suffix stays due for the next
+    // serial worker tick, rather than being hidden or retried inside one sample.
+    rows.sort((a, b) => a.due - b.due);
+    const size = provider.batchSize?.(rows.map(match)) ?? rows.length;
+    const selected = rows.slice(0, Math.max(1, size));
+    const revisions = new Map(selected.map((entry) => [entry, entry.refresh]));
+    const result = await provider.batch?.(selected.map(match)).catch(() => undefined);
     if (this.stopped() || generation !== this.generation || this.pauses.size > 0) return;
     const running =
       result &&
@@ -321,7 +324,7 @@ export class ForgeTracking {
             pr.board.checks.pending > 0 ||
             pr.requiredChecks === "unknown"),
       );
-    for (const entry of rows) {
+    for (const entry of selected) {
       if (this.entries.get(entry.path) !== entry || (!this.enabled && !entry.orchestrator))
         continue;
       const previous = entry.available ? JSON.stringify([entry.pr, entry.board]) : undefined;
@@ -345,13 +348,16 @@ export class ForgeTracking {
         this.now() +
         (discovered
           ? 1000
-          : !result
-            ? forgeDelay(entry.failures)
-            : running
-              ? 20000
-              : result.size
-                ? 120000
-                : 600000);
+          : Math.max(
+              provider.minimumIntervalMs ?? 0,
+              !result
+                ? forgeDelay(entry.failures)
+                : running
+                  ? 20000
+                  : result.size
+                    ? 120000
+                    : 600000,
+            ));
       if (entry.refresh !== revisions.get(entry)) entry.due = 0;
       if (
         pr &&

@@ -298,10 +298,11 @@ checks until the next bound poll. Bound CLOSED/MERGED PRs remain observable.
 
 The interpreter retains the existing manifest limits (16 KiB expanded query slot,
 64 KiB total argv, 256 KiB stdout/stderr) and fails unavailable before spawning an
-oversized request. The active-provider switch must address large repository
-requests within these bounds while retaining #516's serial worker, fleet budgets
-and adaptive cadence; this stage does not change the scheduler or silently fall
-back to per-PR requests. No executable or network calls occur in parity tests.
+oversized request. The tracker sizes each request against the exact expanded query and argv, including
+branch variables and the 64-entry argv cap. It submits one bounded prefix per
+serial worker tick and leaves the remainder due for subsequent ticks. This
+preserves #516's serial worker, fleet budgets, adaptive cadence and one-second
+discovery binding follow-up; there are no per-PR fallback requests or catch-up loops. No executable or network calls occur in parity tests.
 Recorded public identity/rollup fields are replayed in explicitly derived batch
 envelopes; constructed contexts cover optional failures, unknowns and partial pages.
 
@@ -368,8 +369,7 @@ Fixture CLI tests verify that a renamed, hostile manifest cannot relax Foom’s 
 same-repository or advertised default-branch refusals. No real forge CLI or network
 is used.
 
-Large-request scheduling within manifest caps, slowdown-only manifest minima,
-optional display enrichment/checks-meaning metadata, versioned persistence and
+Optional display enrichment/checks-meaning metadata, versioned persistence and
 production activation/removal of the old provider remain separate #521 stages.
 This wiring stage leaves #516’s scheduling and dynamic batching unchanged,
 including the one-second discovery follow-up and existing serial/fleet budgets.
