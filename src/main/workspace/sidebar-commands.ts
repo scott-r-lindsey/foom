@@ -462,32 +462,3 @@ export async function removeWorktree(
   if (!entry) throw new Error("Unknown worktree terminal");
   return this.cleanup.removeIdleTree(entry.repository, entry.worktree, entry.branch, confirm);
 }
-
-export async function removeTree(
-  this: RepositoryOperationsContext,
-  repository: string,
-  worktree: string,
-  branch: string | null,
-  confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
-  revalidate?: () => void | Promise<void>,
-  retainBranchLock = false,
-  autoApprove?: () => Promise<boolean>,
-): Promise<boolean> {
-  const key = `${repository}\0${branch ?? ""}`;
-  if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
-  this.busyWorktrees.add(key);
-  let removed = false;
-  try {
-    removed = await this.cleanup.removeReservedTree(
-      repository,
-      worktree,
-      branch,
-      confirm,
-      revalidate,
-      autoApprove,
-    );
-    return removed;
-  } finally {
-    if (!retainBranchLock || !removed) this.busyWorktrees.delete(key);
-  }
-}
