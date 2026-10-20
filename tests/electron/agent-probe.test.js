@@ -478,3 +478,113 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   );
   await assertAccessible(page);
 });
+
+test("config guide add-agent workflow verifies captures resume hooks and MCP with fixture CLIs", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const { chmod, copyFile } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-add-agent-"));
+  removeAfterApps(context, root);
+  const home = path.join(root, "home");
+  const bin = path.join(root, "bin");
+  const agents = path.join(home, ".foom/config/agents");
+  await Promise.all([mkdir(bin), mkdir(agents, { recursive: true })]);
+  for (const name of ["workflow-agent", "foom-config-driver"]) {
+    const target = path.join(bin, process.platform === "win32" ? `${name}.exe` : name);
+    await copyFile(process.execPath, target);
+    await chmod(target, 0o755);
+  }
+  for (const name of ["agent", "driver"]) {
+    await copyFile(
+      path.join(__dirname, `../fixtures/add-agent/${name}.js`),
+      path.join(root, `${name}.cjs`),
+    );
+  }
+  const starter = JSON.parse(
+    await readFile(path.join(__dirname, "../../src/shared/agent-plugin.example.json"), "utf8"),
+  );
+  const driver = {
+    ...starter,
+    id: "config-driver",
+    name: "Config driver",
+    executables: ["foom-config-driver"],
+    discovery: { facts: [] },
+    launch: {
+      order: starter.launch.order,
+      arguments: { arguments: [path.join(root, "driver.cjs"), root, String(deadline(10_000))] },
+    },
+    conversation: { resumePin: "requested-on-paste", restoreControl: false },
+    attention: { minimumEngineVersion: 1, rules: [] },
+    execution: { completion: "attached", completionChannels: [] },
+  };
+  delete driver.hooks;
+  await writeFile(path.join(agents, "config-driver.json"), JSON.stringify(driver));
+  const app = await launchApp(context, {
+    fixture: "agent",
+    home,
+    env: { HOME: home, PATH: bin },
+  });
+  const page = await boardPage(app);
+  await page.evaluate(() =>
+    window.desktop.sidebarCommand({ kind: "config-launch", run: "config-driver" }),
+  );
+  const resultFile = path.join(root, "result.json");
+  await expect
+    .poll(
+      async () => {
+        try {
+          return JSON.parse(await readFile(resultFile, "utf8"));
+        } catch {
+          return null;
+        }
+      },
+      { timeout: deadline(30_000) },
+    )
+    .not.toBeNull();
+  const result = JSON.parse(await readFile(resultFile, "utf8"));
+  assert.equal(result.error, undefined, `${result.error} ${result.agentError}`);
+  assert.ok(result.metadata.every((text) => text.length > 0));
+  assert.equal(result.finalRules.passed, true);
+  assert.deepEqual(
+    result.finalRules.captures.map(({ expected, actual, ruleId, passed }) => ({
+      expected,
+      actual,
+      ruleId,
+      passed,
+    })),
+    [
+      { expected: "blocked", actual: "blocked", ruleId: "permission", passed: true },
+      { expected: "idle", actual: "idle", ruleId: "idle", passed: true },
+      { expected: "working", actual: "working", ruleId: "working", passed: true },
+    ],
+  );
+  assert.deepEqual(
+    result.states.map(({ state }) => state),
+    ["working", "needs_input", "working"],
+  );
+  assert.deepEqual(
+    result.states.map(({ ruleId }) => ruleId),
+    ["working", "permission", "idle"],
+  );
+  assert.equal(result.resumed.conversationId, result.states[0].conversationId);
+  assert.deepEqual(result.events.mcp, { connected: true, listedTools: true, pinged: true });
+  assert.deepEqual(result.validation.problems, []);
+  const installed = JSON.parse(await readFile(path.join(agents, "workflow-agent.json"), "utf8"));
+  assert.ok(installed.discovery.facts.every(({ enabled }) => enabled === true));
+  const capabilities = result.validation.agents.find(({ id }) => id === "workflow-agent");
+  assert.deepEqual(capabilities, {
+    id: "workflow-agent",
+    attention: { rules: 3, channels: ["on"] },
+    completion: "observed",
+    resume: "Foom-assigned ID",
+    mcp: "gated by facts",
+    foomTools: "off",
+    bypass: { argumentMatchers: 1, environmentVariables: 1 },
+    warnings: [],
+  });
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.workspace())).terminals.some((row) => row.probe),
+    )
+    .toBe(false);
+});

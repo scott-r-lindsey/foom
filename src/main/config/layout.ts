@@ -296,16 +296,17 @@ valid changes live. It is plain files: Foom keeps no history of it.
 
 ## Adding an agent
 
-Copy \`examples/agent.json\` to \`agents/<id>.json\`; change id, name and executables.
-It is strict JSON: use the field notes, not JSON comments or extra keys.
-The example flags and screen text are placeholders; replace them with CLI evidence.
+Use harmless tasks in Foom's scratch repository. Probes run the real CLI on the
+user's account, can access files/network and may use credits; the scratch cwd is
+not an OS sandbox. Only probes started by this config session are readable.
+Follow the probe controls and disclosure below before each launch.
 
-1. Confirm the executable is on PATH (\`command -v <executable>\`, or \`where.exe <executable>\` on Windows); read its \`--version\` and \`--help\`.
-2. Choose prompt, resume and new-session-ID flags. Match discovery help tokens and version grammar to the CLI. Remove unsupported features.
-3. Look for per-launch hook and MCP options. Never edit global config. Keep verification facts disabled until tested; help text alone does not verify integration.
-4. List bypass flags and environment predicates. Reserve arguments that could replace Foom's prompt, resume, hooks or MCP attachments. Launch defaults belong in settings.agentArguments, keyed by agent ID; every edit requires Allow.
-5. Write bounded screen rules from observed output. Higher priority wins; blocked rules must outrank working hints. Status needs a reason, not just color.
-6. Run \`foom config validate\` and fix what it reports. Check capabilities and unavailable reasons in the report when provided; validate again after each edit.
+1. Confirm the executable is on PATH (\`command -v <executable>\`, or \`where.exe <executable>\` on Windows); read its \`--version\` and \`--help\`. Copy \`examples/agent.json\` to \`agents/<id>.json\`; change id, name and executables. Use \`examples/agent.md\` and \`schemas/agent.schema.json\`: strict JSON, no comments or extra keys. A valid draft loads immediately. Replace placeholder flags/text with CLI evidence. Choose prompt, resume and new-session-ID flags; match discovery help tokens and version grammar. Remove unsupported features. Declare per-launch hooks/MCP with verification facts disabled. List bypass flags/environment predicates and reserve arguments that replace Foom's attachments. Never edit global config.
+2. Validate the draft, then run \`foom agent probe start <id> --manifest agents/<id>.json\`. Drive working, permission-blocked and completed turns with \`send\`, \`keys\`, \`wait\` and \`screen\`. Read before answering prompts yourself. Save each observed screen with \`foom agent probe screen <probe> --save working|blocked|idle|other\`. Completion screens use idle or other: \`--save done\` is rejected. Stop the probe.
+3. Write bounded screen rules from the captures; blocked rules must outrank working hints. Status needs a reason, not just color. Update \`agents/<id>.json\`, validate after every edit, refresh with \`foom config status --json\`, then run \`foom config test-rules <id> --json\`. It uses the installed manifest, not a draft passed to a probe. Fix rules until every saved capture passes; inspect expected/actual raw rule states and matched rule IDs. Do not relabel a failure to make it pass.
+4. Start a fresh probe with the updated manifest. Check \`foom agent probe state <probe>\` through the same lifecycle. State uses live classifications such as needs_input, not replay labels; idle still projects as working and does not verify Done. Report that completion limitation against \`execution.completion\`. Record the returned conversation ID, stop, then run \`foom agent probe start <id> --manifest agents/<id>.json --resume <conversationId>\`. Check state and the screen to verify the conversation resumed. If no automatic ID source exists, report the resume limitation.
+5. Inspect \`foom agent probe events <probe>\` during a complete lifecycle and MCP tool listing/ping. Check hook mappings, session matches and accepted hook-driven state. Stop the probe, then set only the verified hookVerified/mcpVerified discovery facts' enabled fields to true. Keep unverified facts false. Update the manifest, refresh config status, rerun capture tests and validate. Help text, a screen or a valid template alone does not verify delivery.
+6. Run \`foom config validate .\` (or \`--json\`) and report Attention, Completion, Resume, MCP, Foom tools, bypass coverage and warnings to the user. Validation is offline manifest analysis, not proof the CLI works. Summarize what probes verified and any unavailable or unverified capabilities. Launch defaults belong in settings.agentArguments, keyed by agent ID; every edit requires Allow and the settings status check below.
 
 ## Hook attachment patterns
 
@@ -383,7 +384,7 @@ the user can Stop it. Summarize the result afterward. For example: "I'll try the
 Copilot plugin-directory attachment in a scratch repository. I'll answer its trust
 and approval prompts; you can Stop the probe at any time."
 
-Use foom agent probe start <id> --manifest <draft.json>, then send, keys, wait,
+Use foom agent probe start <id> --manifest agents/<id>.json, then send, keys, wait,
 screen and state to drive your own probe. Read the screen before answering; use
 keys <probe> enter for a folder-trust prompt. Stop it when finished, then start a
 second probe. Check whether the CLI asks for hook or plugin trust on every launch
@@ -394,8 +395,8 @@ enter your model context. It runs on the user's account and may use credits.
 Use foom agent probe events <probe> to verify delivery: it reports channel, extracted
 safe event name, matched case (or null), bounded JSON field paths without values,
 and whether the session matches the generated newId. Invalid fields and mismatched
-sessions cannot drive state. state reflects accepted hook actions with screen
-classification for completion. MCP facts report connected, listedTools and pinged.
+sessions cannot drive state. state reflects accepted hook actions, falling back to local screen
+classification; it does not establish Done. MCP facts report connected, listedTools and pinged.
 Probes temporarily enable disabled discovery facts, preserving version/help and
 other conditions, and attach declared channels/files only for that probe. The
 separate probe MCP endpoint exposes only ping; it has no repository or orchestration
@@ -410,8 +411,7 @@ sends them anywhere. They contain viewport lines, title, terminal size and agent
 Use foom config test-rules <agentId> [--json] after installing or editing its manifest.
 It compares raw screen-rule states, reports expected/actual and the matched rule ID,
 and exits nonzero on a mismatch. Other means unknown or unmatched. Screen rules
-cannot announce Done: use idle or other, never --save done. Live terminal
-evaluation is unchanged.
+cannot announce Done: use idle or other, never --save done. Replay does not establish completion.
 Run foom config validate . to include capture failures in validation.
 
 Config sessions use the login-shell PATH, with the bundled foom CLI directory first.
@@ -528,6 +528,7 @@ const GUIDE_HISTORY = [
   "e48b62e33fa858b76b3dcfcda64f4ed8ef0656bc30b14ed272d6123b5f4d15c2",
   "197ce9f5c8a83ae4d96a177e54086666d8ce1db64fd346f8de39f9fc1bea7d48",
   "4d609f128aa111b25852800fb3def37bcca9c291dc81fddd97eda92ba90ce41c",
+  "059593f9163e5235069e812137968e794883fce7f457af91c7a9a72bfb901c4e",
 ];
 
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {

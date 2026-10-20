@@ -45,7 +45,7 @@ The CLI provides `start <agent> [--manifest <path>] [--resume <conversationId>]`
 results are JSON. Quiet waits reset on output; timeout waits wait the requested
 elapsed time. Both are bounded by the probe's remaining lifetime.
 
-Probe screens can be saved with `screen <probe> --save working|blocked|idle|other` and replayed with `foom config test-rules <agentId> [--json]`. These are raw attention-rule labels, not completion; `done` is rejected. Captures remain private and local. See [capture/replay rules](../contracts/agent-report.md#saved-screen-rule-regressions-592). Guide automation remains separate (#594).
+Probe screens can be saved with `screen <probe> --save working|blocked|idle|other` and replayed with `foom config test-rules <agentId> [--json]`. These are raw attention-rule labels, not completion; `done` is rejected. Captures remain private and local. See [capture/replay rules](../contracts/agent-report.md#saved-screen-rule-regressions-592). The config guide uses these captures to refine rules, then verifies a fresh probe, resume and hook/MCP delivery before enabling verified facts and reporting capabilities.
 
 `events` reports bounded hook field paths and mapping facts without payload values,
 and whether its isolated MCP endpoint was connected, listed or pinged. Probe-only
