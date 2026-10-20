@@ -20,6 +20,16 @@ await rm(new URL("../build/", import.meta.url), { recursive: true, force: true }
 for (const config of ["tsconfig.main.json", "tsconfig.renderer.json"]) {
   execFileSync(process.execPath, [compiler, "-p", config], { cwd: root, stdio: "inherit" });
 }
+// Inline the pure board registry: the sandbox loader still requires only Electron.
+await build({
+  entryPoints: [join(root, "src/preload/preload.ts")],
+  bundle: true,
+  platform: "browser",
+  format: "cjs",
+  external: ["electron"],
+  outfile: join(root, "build/preload/preload.js"),
+});
+
 await mkdir(new URL("../build/renderer/", import.meta.url), { recursive: true });
 for (const asset of ["index.html", "confirmation.html", "tokens.css"]) {
   await copyFile(

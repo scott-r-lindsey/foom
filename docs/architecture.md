@@ -117,7 +117,7 @@ Within those features:
 - `board.ts` contains production board helpers. `sample-rows.ts` holds development fixture rows and is imported only by the sample source and tests.
 - `styles/styles.css` is an ordered import manifest for base, board/terminal, preflight, appearance, welcome, welcome animation, repository picker, layout overrides, tooltips, agent cards and branch field styles. The build bundles it into the existing `styles.css` asset; there are no runtime imports or new asset permissions. Keep the import order: the later preflight/layout/card rules intentionally follow the base feature rules.
 
-The `foom/process-boundaries` ESLint rule checks static imports, re-exports, literal dynamic imports and `require` calls. Process-owned code may depend on its own process and shared modules. Shared modules cannot depend on process-owned code. Only main and the console may import `node-common` utilities; the console cannot import main, Electron or terminal-host policy. Renderer and shared modules cannot import Node, Electron, node-pty or headless xterm. The sandboxed preload may import Electron at runtime and shared declarations as types; adding another runtime dependency requires an explicit boundary and loader design change.
+The `foom/process-boundaries` ESLint rule checks static imports, re-exports, literal dynamic imports and `require` calls. Process-owned code may depend on its own process and shared modules. Shared modules cannot depend on process-owned code. Only main and the console may import `node-common` utilities; the console cannot import main, Electron or terminal-host policy. Renderer and shared modules cannot import Node, Electron, node-pty or headless xterm. The sandboxed preload may import Electron at runtime and shared declarations as types. Its sole shared runtime dependency, `shared/board-commands.ts`, is pure browser-safe data and validation bundled inline by esbuild; the sandbox loader still requires only Electron. The boundary lint rule permits only this specific shared module.
 
 Import implementations and their types directly from their owning modules; do not
 add migration-only `export *` forwarding files. Provider launch helpers live in
@@ -1523,7 +1523,7 @@ five seconds for Working (two seconds for other kinds). No synthesis remains.
 
 ## Board shortcut definitions
 
-`main/window/commands.ts` owns the command registry: IDs, native and wordmark
+`shared/board-commands.ts` owns static board action IDs, shortcut definitions and runtime validation; the `BoardCommand` declaration derives its static union from that data. `main/window/commands.ts` owns the application command registry: IDs, native and wordmark
 labels, platform bindings, enabled/checked state, agent badges, shortcut-sheet
 rows, native roles and actions. `app-menu.ts` projects this one registry two
 ways: every implemented command to the macOS menu bar, and a curated, fixed
@@ -1552,11 +1552,11 @@ the board to show it. View accepts bounded tile counts and booleans solely for
 presentation availability and the maximize checkmark. The board source exposes
 this small typed capability. Add repository reaches the board as the
 `add-repository` board command and uses the sidebar's picker path.
-The three `via-<agent>` commands use the same registry for native and wordmark
+The live provider `via-<agent>` commands use the same registry for native and wordmark
 menus. Main derives their availability from discovery and saved agent switches;
 the board reports config-launch availability separately from tile availability,
 so Settings can stay open while choosing an agent. Preflight disables these routes. Availability refreshes on menu reads, execution, window
-focus and settings updates. The preload accepts only the three fixed route IDs.
+focus and settings updates. The preload validates bounded syntactic provider IDs; main checks the live provider registry before launch.
 The board dispatches the existing `config-launch` command,
 awaits the source's refreshed inventory, and opens the newly created config session
 through normal session selection. Menu and sidebar launches use the same launch policy without notifier confirmation.
@@ -1865,7 +1865,8 @@ ahead of user Environment entries and that PATH. Foom writes
 its files at first launch and replaces one on upgrade only when it is missing or
 byte-identical to a version Foom shipped earlier (`OWNED_HISTORY`), so user edits
 survive. Guide edits append the new digest to `tests/fixtures/config/guide-digests.json`
-and retain every earlier digest in all three guide entries in `OWNED_HISTORY`;
+and retain every earlier digest once in `GUIDE_HISTORY`, shared by all three
+`OWNED_HISTORY` guide entries;
 the layout unit test enforces this. The folder is plain files (#540): Foom never creates, reads or writes a
 `.git` there, and leaves an existing one untouched. `.gitignore` excludes recordings
 under `sounds/` and keeps `.gitkeep` files, for users who keep the folder in their

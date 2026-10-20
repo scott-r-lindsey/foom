@@ -288,8 +288,8 @@ menu is the same everywhere and lists app-wide commands, the sidebar toggle and 
 
 - New window, New worktree…, Add repository… (orchestration is granted from a
   session's menu, #303)
-- **Settings ›**, a submenu of routes: Via Claude Code, Via Codex and Via
-  Antigravity (#84: each starts that agent in `~/.foom/config` in the Foom
+- **Settings ›**, a submenu of routes from the live provider registry, including
+  config providers (#84: each starts that agent in `~/.foom/config` in the Foom
   config dock), then Via Settings UI, which opens the Settings screen. Agent routes
   are enabled for installed, enabled agents after preflight, including while
   Settings is open. A new config session starts with a fixed greeting describing
