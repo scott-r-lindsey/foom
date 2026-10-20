@@ -53,6 +53,8 @@ uses an isolated disposable profile and deletes it on exit.
 
 - `pnpm test` runs fast unit tests without a display. Test behavior, failure paths, and security boundaries. Keep logic separable from platform APIs as the app grows.
 - `pnpm run test:electron` launches the real app and verifies the Electron boundary. Mocks do not replace this check.
+- Local follow-up changes on an existing PR may replace the full development Electron run with `pnpm run test:electron:affected [base]` (default `origin/main`) when every changed path is explicitly mapped by `scripts/electron-affected.mjs`. Currently these are renderer `preview/` and `terminal/` areas, plus `sound/volume-control.tsx`, `sound/sound-controls.tsx`, and `sound/recording.ts`. The command unions their feature suites, includes committed, staged, unstaged and untracked changes since the merge base, and automatically uses `xvfb-run -a` on Linux. Do not set `FOOM_ELECTRON_SHARD` for this local run. Use the PR base for a different target branch; do not choose a later base to hide changes.
+- A first implementation requires the full local Electron suite. Follow-ups also require it for any unknown/unmapped path, an unavailable comparison base, changes to main/preload IPC, protocol or CSP, shared code, the test harness, packaging, process audit, or shard tooling. The affected command falls back to the full suite in these cases (and for no changed paths or missing mapped suites). A manually chosen name filter alone does not satisfy validation. CI still runs every required full-suite shard on all platforms, and must be green before review.
 - On Linux, run Electron tests under Xvfb (`xvfb-run -a pnpm run test:electron`) so test windows do not appear on the user’s desktop or steal focus. Use the same virtual-display wrapper for packaged smoke tests and automated Electron previews; use the visible desktop only when the user explicitly requests it. Keep sandboxing enabled.
 - Tests must never run the developer's real agent CLIs (`claude`, `codex`, or `agy`), including discovery and plugin probes. Electron launches use a fixture login shell and controlled PATH; agent tests provide fake CLIs in fixture directories. Never append the inherited PATH; add only the directory of a specifically required system tool. The agent guard must remain enabled.
 - Electron tests use an isolated profile and fixture repositories per test. Register cleanup before launching; quit all apps before deleting fixtures, including on assertion or startup failure. The process audit tracks app descendants and fails on surviving processes; never use retries to hide leaks.
@@ -65,7 +67,7 @@ uses an isolated disposable profile and deletes it on exit.
 ## Validation and delivery
 
 Before committing, run `pnpm run check` (format, lint, typecheck, unit tests). Husky enforces this locally.
-For runtime, build, or tooling changes, also run:
+For runtime, build, or tooling changes, also run the following. Only for eligible existing-PR follow-ups under the rules above, replace `pnpm run test:electron` with `pnpm run test:electron:affected [base]`; all other checks remain required:
 
 ```sh
 pnpm run test:coverage
