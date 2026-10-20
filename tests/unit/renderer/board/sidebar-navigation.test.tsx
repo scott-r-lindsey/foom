@@ -139,6 +139,8 @@ test("tree keyboard traversal, filter typing, narrow mode and persistence failur
   fireEvent.keyDown(name, { key: "Home" });
   expect(document.activeElement?.textContent).toContain("zsh ~");
   fireEvent.keyDown(name, { key: "End" });
+  expect(document.activeElement).toBe(view.getByRole("button", { name: "Add repository" }));
+  fireEvent.keyDown(document.activeElement ?? name, { key: "ArrowUp" });
   expect(document.activeElement?.className).toBe("board-row");
   fireEvent.keyDown(document.activeElement ?? name, { key: "ArrowUp" });
   expect(document.activeElement?.className).toBe("tree-name");

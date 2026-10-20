@@ -54,6 +54,43 @@ test.each(["empty", "home", "config"] as const)(
   },
 );
 
+test("add repository follows all repository groups in keyboard list order", async () => {
+  const view = await emptySections();
+  const add = view.getByRole("button", { name: "Add repository" });
+  expect(add.textContent).toBe("+");
+  expect(view.container.querySelector(".sidebar-filter button")).toBeNull();
+  const nav = view.getByRole("navigation", { name: "Terminal sidebar" });
+  expect(nav.lastElementChild).toBe(add);
+  const ordered = nav.querySelectorAll("[data-nav]");
+  expect(ordered[ordered.length - 1]).toBe(add);
+  fireEvent.keyDown(ordered[ordered.length - 2] ?? nav, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(add);
+  fireEvent.keyDown(add, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(ordered[ordered.length - 2]);
+  const filter = view.getByLabelText("Filter repositories and sessions");
+  for (const value of ["Foom", "no-such-repository"]) {
+    fireEvent.change(filter, { target: { value } });
+    expect(view.queryByRole("button", { name: "Add repository" })).toBeNull();
+  }
+  fireEvent.click(view.getByRole("button", { name: "Clear filter" }));
+  expect(view.getByRole("button", { name: "Add repository" }).textContent).toBe("+");
+});
+
+test("empty repository inventory keeps the Add repository label and source action", async () => {
+  const view = setup();
+  const empty: BoardRow[] = [];
+  view.rerender(
+    <Board source={{ ...view.source, getSidebar: () => [], getSnapshot: () => empty }} />,
+  );
+  const add = view.getByRole("button", { name: "Add repository" });
+  expect(add.textContent).toBe("Add repository");
+  await act(async () => {
+    fireEvent.click(add);
+    await Promise.resolve();
+  });
+  expect(view.add).toHaveBeenCalledOnce();
+});
+
 test("worktree deletion remains disabled when filtering hides its running session", async () => {
   const original = sampleRows(0)[0];
   if (!original) throw new Error("Missing fixture");
@@ -168,6 +205,7 @@ test("F2 renames the focused session without sending keys to its terminal and ad
     target: { value: "Build helper" },
   });
   expect(row.textContent).toContain("Build helper");
+  fireEvent.click(view.getByRole("button", { name: "Clear filter" }));
   view.add.mockRejectedValueOnce(Error("denied"));
   await act(async () => {
     fireEvent.click(view.getByRole("button", { name: "Add repository" }));

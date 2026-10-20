@@ -138,18 +138,6 @@ export function Sidebar(props: SidebarProps) {
               ×
             </button>
           )}
-          <button
-            type="button"
-            aria-label="Add repository"
-            onClick={() => {
-              setError("");
-              void source.worktrees?.addRepository().catch(() => {
-                setError("Unable to add repository.");
-              });
-            }}
-          >
-            {tree.length === 0 ? "Add repository" : "+"}
-          </button>
         </div>
       </header>
       {error && <p role="alert">{error}</p>}
@@ -504,6 +492,22 @@ export function Sidebar(props: SidebarProps) {
                 );
               })}
         </div>
+        {!compact && !filter.trim() && (
+          <button
+            type="button"
+            className="sidebar-add-repository"
+            data-nav
+            aria-label="Add repository"
+            onClick={() => {
+              setError("");
+              void source.worktrees?.addRepository().catch(() => {
+                setError("Unable to add repository.");
+              });
+            }}
+          >
+            {tree.length === 0 ? "Add repository" : "+"}
+          </button>
+        )}
       </nav>
       <footer className="sidebar-footer">
         {!compact && (configStatus?.pending || configRejected > 0 || configRows.length > 0) && (
