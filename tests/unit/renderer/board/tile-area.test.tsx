@@ -1005,6 +1005,7 @@ test.each(["markdown", "html"] as const)(
     preview.network = true;
     screen.rerender(<Board source={{ ...source }} />);
     expect(within(tile).getByText("network")).toBeTruthy();
+    within(tile).getByRole("button", { name: "Tile 2 menu" }).focus();
     fireEvent.click(within(tile).getByRole("button", { name: "Tile 2 menu" }));
     expect(screen.getByText("On", { selector: "dd" })).toBeTruthy();
     network.mockRejectedValueOnce(
@@ -1014,6 +1015,9 @@ test.each(["markdown", "html"] as const)(
     await act(async () => {});
     expect(network).toHaveBeenCalledWith("preview", false);
     expect(screen.getByRole("alert").textContent).toBe("Network change failed");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("dialog", { name: "Action failed" })).toBeNull();
+    expect(document.activeElement).toBe(within(tile).getByRole("button", { name: "Tile 2 menu" }));
     fireEvent.click(within(tile).getByRole("button", { name: "Tile 2 menu" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /^Maximize/ }));
     expect(tile.getAttribute("data-maximized")).toBe("true");

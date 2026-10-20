@@ -1,4 +1,4 @@
-import { ActionError, useBackgroundErrors } from "./error-presentation";
+import { ActionError, captureErrorFocus, useBackgroundErrors } from "./error-presentation";
 import { errorMessage } from "../../shared/application-errors";
 import { OrchestrationMark } from "./orchestration-mark";
 import type { PreviewSummary } from "../../shared/workspace";
@@ -104,6 +104,7 @@ export function Tile({
   const { report, clear } = useBackgroundErrors();
   const [view] = useState(() => source.createView?.());
   const [error, setError] = useState("");
+  const errorOriginRef = useRef<Element | null>(null);
   const [menu, setMenu] = useState<{ anchor: HTMLElement; point?: { x: number; y: number } }>();
   const menuRef = useRef<HTMLButtonElement>(null);
   const lightRef = useRef<HTMLSpanElement>(null);
@@ -367,6 +368,7 @@ export function Tile({
           network={
             preview && source.previews?.network
               ? () => {
+                  errorOriginRef.current = captureErrorFocus();
                   void source.previews
                     ?.network?.(preview.id, !preview.network)
                     .catch((error: unknown) => {
@@ -394,6 +396,7 @@ export function Tile({
               <button
                 type="button"
                 onClick={() => {
+                  errorOriginRef.current = captureErrorFocus();
                   setError("");
                   void Promise.resolve(source.resolve(row.id, "Not attention")).catch(() => {
                     setError("Unable to record feedback. Try again.");
@@ -416,6 +419,7 @@ export function Tile({
       {error && (
         <ActionError
           message={error}
+          returnFocus={() => errorOriginRef.current}
           close={() => {
             setError("");
           }}
