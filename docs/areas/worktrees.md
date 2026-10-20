@@ -80,3 +80,16 @@ Shutdown stops scheduling new removals and waits for in-flight work.
 As with ordinary removal, this does not isolate concurrent filesystem mutations
 by external local processes. Fetches disable interactive credential prompts and
 Git commands have a 30-second process deadline.
+
+## Pruning stale worktrees
+
+`prune-worktree` is a validated sidebar command naming a registered repository and
+its recorded checkout path. Main refuses sessions in that checkout. WorktreeService
+requires a current unlocked prunable Git entry, rejects the main checkout, and
+checks the leftover folder before running fixed `git worktree prune` arguments
+through `execFile` in that repository. It checks every path component with `lstat`,
+canonical containment strictly under the managed root and absence of any `.git`
+entry. It rechecks the folder's identity after Git returns before removing only
+that folder. Missing folders need no deletion. Branches are never deleted. As
+with normal removal, this does not isolate filesystem entries from another local
+process replacing them concurrently.

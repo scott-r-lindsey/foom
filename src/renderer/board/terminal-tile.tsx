@@ -1,3 +1,5 @@
+import { ActionError, captureErrorFocus, useBackgroundErrors } from "./error-presentation";
+import { errorMessage } from "../../shared/application-errors";
 import { OrchestrationMark } from "./orchestration-mark";
 import type { PreviewSummary } from "../../shared/workspace";
 import { TileMenu } from "./tile-menu";
@@ -99,8 +101,10 @@ export function Tile({
   select: () => void;
   action: (action: TileAction) => void;
 }) {
+  const { report, clear } = useBackgroundErrors();
   const [view] = useState(() => source.createView?.());
   const [error, setError] = useState("");
+  const errorOriginRef = useRef<Element | null>(null);
   const [menu, setMenu] = useState<{ anchor: HTMLElement; point?: { x: number; y: number } }>();
   const menuRef = useRef<HTMLButtonElement>(null);
   const lightRef = useRef<HTMLSpanElement>(null);
@@ -159,12 +163,26 @@ export function Tile({
           height: bounds.height,
           visible: !inactive && !behind && bounds.width > 0 && bounds.height > 0,
         })
+        .then(() => {
+          clear(`preview-bounds:${id}`);
+        })
         .catch(() => {
-          setError("Unable to display preview.");
+          report(`preview-bounds:${id}`, "Unable to display preview.", id);
         });
     };
     reportRef.current();
-  }, [source, preview?.id, inactive, behind, rect.x, rect.y, rect.width, rect.height]);
+  }, [
+    source,
+    preview?.id,
+    inactive,
+    behind,
+    rect.x,
+    rect.y,
+    rect.width,
+    rect.height,
+    clear,
+    report,
+  ]);
   const lastFocusRef = useRef(0);
   useEffect(() => {
     if (focusRequest === lastFocusRef.current) return;
@@ -350,10 +368,11 @@ export function Tile({
           network={
             preview && source.previews?.network
               ? () => {
+                  errorOriginRef.current = captureErrorFocus();
                   void source.previews
                     ?.network?.(preview.id, !preview.network)
                     .catch((error: unknown) => {
-                      setError(error instanceof Error ? error.message : "Network change failed");
+                      setError(errorMessage(error, "Network change failed"));
                     });
                 }
               : undefined
@@ -377,6 +396,7 @@ export function Tile({
               <button
                 type="button"
                 onClick={() => {
+                  errorOriginRef.current = captureErrorFocus();
                   setError("");
                   void Promise.resolve(source.resolve(row.id, "Not attention")).catch(() => {
                     setError("Unable to record feedback. Try again.");
@@ -396,7 +416,15 @@ export function Tile({
         </>
       )}
       {preview && <div className="tile-shell" ref={previewRef} />}
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <ActionError
+          message={error}
+          returnFocus={() => errorOriginRef.current}
+          close={() => {
+            setError("");
+          }}
+        />
+      )}
       {view && (
         <div className="tile-shell" hidden={!row || row.kind === "sample"}>
           <TerminalView

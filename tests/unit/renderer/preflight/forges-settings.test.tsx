@@ -1,5 +1,19 @@
+import type { ReactNode } from "react";
+import type { RenderOptions } from "@testing-library/react";
+import {
+  ErrorPresentation,
+  BackgroundErrorMark,
+} from "../../../../src/renderer/board/error-presentation";
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as renderView,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ForgesSettings } from "../../../../src/renderer/preflight/forges-settings";
 import { Preflight } from "../../../../src/renderer/preflight/preflight-view";
@@ -7,6 +21,17 @@ import type { SettingsPatch } from "../../../../src/shared/setup";
 import type { ConfigStatus } from "../../../../src/shared/foom-config";
 import type { SetupSource } from "../../../../src/renderer/preflight/setup-source.d";
 import { setupState, report } from "../../../fixtures/setup";
+
+const render = (ui: ReactNode, options?: RenderOptions) =>
+  renderView(ui, {
+    ...options,
+    wrapper: ({ children }) => (
+      <ErrorPresentation>
+        {children}
+        <BackgroundErrorMark />
+      </ErrorPresentation>
+    ),
+  });
 
 afterEach(cleanup);
 const catalog: ConfigStatus = {
@@ -169,7 +194,7 @@ test("catalog subscriptions update cards, retain missing assignments and dispose
 test("load errors surface and late completions after unmount are ignored", async () => {
   const failed = fixture(Promise.reject(new Error("Catalog unavailable")));
   render(<ForgesSettings {...failed.props} />);
-  expect((await screen.findByRole("alert")).textContent).toBe("Catalog unavailable");
+  expect(await screen.findByText("Unable to load forge settings.")).toBeTruthy();
   cleanup();
   let resolve: ((value: ConfigStatus) => void) | undefined;
   const late = fixture(

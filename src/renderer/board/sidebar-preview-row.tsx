@@ -1,3 +1,4 @@
+import { BackgroundErrorMark } from "./error-presentation";
 import type { PreviewSummary } from "../../shared/workspace";
 import { Highlight } from "./text-highlight";
 export interface SidebarPreviewRowProps {
@@ -39,6 +40,7 @@ export function SidebarPreviewRow({ preview, opener, tile, filter, open }: Sideb
           </span>
         )}
       </button>
+      <BackgroundErrorMark row={preview.id} />
     </div>
   );
 }

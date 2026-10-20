@@ -284,7 +284,7 @@ export function createAppSource(): BoardSource {
         ...rows,
       ];
       publish();
-    } catch (error) {
+    } catch {
       rows = [
         ...rows.filter((row) => row.id !== shellId),
         {
@@ -292,7 +292,7 @@ export function createAppSource(): BoardSource {
           id: shellId,
           state: "failed",
           exited: true,
-          reason: `Unable to start shell: ${error instanceof Error ? error.message : String(error)}`,
+          reason: "Unable to start shell.",
         },
       ];
       publish();

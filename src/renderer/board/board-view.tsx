@@ -1,3 +1,11 @@
+import { applicationErrorCode, errorMessage } from "../../shared/application-errors";
+import {
+  ActionError,
+  ErrorPresentation,
+  useBackgroundErrors,
+  captureErrorFocus,
+} from "./error-presentation";
+import type { ComponentProps, SetStateAction } from "react";
 import type { ReactNode } from "react";
 import {
   useCallback,
@@ -39,8 +47,39 @@ import { createSoundController } from "../sound/sound-controller";
 import { createAudioSink } from "../sound/web-audio";
 
 import { useBoardActivity } from "./use-board-activity";
+const commandFailures: Readonly<Record<SidebarCommand["kind"], string>> = {
+  "open-handoff-link": "Unable to open link.",
+  "home-shell": "Unable to start shell.",
+  "copy-home-path": "Unable to copy home path.",
+  "config-launch": "Unable to launch Foom config.",
+  "copy-config-path": "Unable to copy config path.",
+  "open-pull-request": "Unable to open pull request.",
+  "copy-worktree-path": "Unable to copy worktree path.",
+  launch: "Unable to launch session.",
+  "remove-worktree": "Unable to remove worktree.",
+  "prune-worktree": "Unable to prune worktree.",
+  "delete-merged-worktrees": "Unable to delete merged worktrees.",
+  "remove-repository": "Unable to remove repository.",
+  stop: "Unable to stop session.",
+  close: "Unable to close session.",
+  restart: "Unable to restart shell.",
+  resume: "Unable to resume conversation.",
+  "resume-id": "Unable to resume conversation.",
+  "new-conversation": "Unable to start conversation.",
+  "copy-session-id": "Unable to copy session ID.",
+  "make-orchestrator": "Unable to make orchestrator.",
+  "revoke-orchestrator": "Unable to revoke orchestrator.",
+  "take-over": "Unable to take over session.",
+};
 const emptyPreviews: readonly PreviewSummary[] = [];
-export function Board({
+export function Board(props: ComponentProps<typeof BoardContents>) {
+  return (
+    <ErrorPresentation>
+      <BoardContents {...props} />
+    </ErrorPresentation>
+  );
+}
+function BoardContents({
   source,
   inactive = false,
   onSettings,
@@ -58,7 +97,15 @@ export function Board({
 }) {
   const storageKey = source.windows ? `${TILE_STORAGE}.${source.windows.id}` : TILE_STORAGE;
   const [drag, setDrag] = useState<TileDrag>();
-  const [removeError, setRemoveError] = useState("");
+  const { report: reportBackground, clear: clearBackground } = useBackgroundErrors();
+  const [prune, setPrune] =
+    useState<Extract<SidebarCommand, { kind: "remove-worktree" | "prune-worktree" }>>();
+  const actionOriginRef = useRef<Element | null>(null);
+  const [actionMessage, setActionMessage] = useState("");
+  const setRemoveError = useCallback((message: SetStateAction<string>) => {
+    setPrune(undefined);
+    setActionMessage(message);
+  }, []);
   const [logOpen, setLogOpen] = useState(false);
   const settingsOpen = Boolean(settingsView) || logOpen;
   const paneInactive = inactive || settingsOpen;
@@ -126,8 +173,9 @@ export function Board({
   const save = (next: typeof preferences) => {
     try {
       preferencesStore.save(preferences, next);
+      clearBackground("sidebar-preferences");
     } catch {
-      setRemoveError("Unable to save sidebar preferences.");
+      reportBackground("sidebar-preferences", "Unable to save sidebar preferences.");
     }
   };
   const [selection, setSelection] = useState(rows[0]?.id);
@@ -227,7 +275,7 @@ export function Board({
       }
       changeLayout({ ...next, focused: current.focused, maximized: current.maximized });
     } catch (error) {
-      setRemoveError(error instanceof Error ? error.message : "Unable to open preview.");
+      setRemoveError(errorMessage(error, "Unable to open preview."));
     }
   };
   const open = useCallback(
@@ -256,11 +304,19 @@ export function Board({
           },
         );
         if (!next) {
-          setRemoveError("The tile layout has reached its size limit.");
+          if (background)
+            reportBackground(
+              `placement:${row.id}`,
+              "The tile layout has reached its size limit.",
+              row.id,
+            );
+          else setRemoveError("The tile layout has reached its size limit.");
           return;
         }
+        clearBackground(`placement:${row.id}`);
         changeLayout(
           background ? { ...next, focused: current.focused, maximized: current.maximized } : next,
+          background,
         );
         if (background) return;
         setFocusRequest((value) => value + 1);
@@ -282,7 +338,17 @@ export function Board({
           });
       } else present();
     },
-    [source, onCloseSettings, changeLayout, placementOptions, layoutRef, setFocusRequest],
+    [
+      source,
+      onCloseSettings,
+      changeLayout,
+      placementOptions,
+      layoutRef,
+      setFocusRequest,
+      reportBackground,
+      clearBackground,
+      setRemoveError,
+    ],
   );
   const initialSessionOpenedRef = useRef(false);
   useEffect(() => {
@@ -296,7 +362,9 @@ export function Board({
     }
   }, [source, rows, open]);
   const command = (value: SidebarCommand) => {
+    actionOriginRef.current = captureErrorFocus();
     setRemoveError("");
+    setPrune(undefined);
     const before = new Set(source.getSnapshot().map((row) => row.id));
     const original =
       value.kind === "restart"
@@ -341,7 +409,9 @@ export function Board({
       })
       .catch((error: unknown) => {
         if (value.kind === "resume-id") throw error;
-        setRemoveError(error instanceof Error ? error.message : "Unable to update workspace.");
+        setRemoveError(errorMessage(error, commandFailures[value.kind]));
+        if (value.kind === "remove-worktree" && applicationErrorCode(error) === "worktree-prunable")
+          setPrune(value);
       });
   };
   const runSidebarCommand = useEffectEvent(command);
@@ -439,6 +509,7 @@ export function Board({
       source,
       inactive,
       focusedRow,
+      setRemoveError,
       selected,
       open,
       onSettings,
@@ -539,7 +610,25 @@ export function Board({
         }
       }}
     >
-      {removeError && <p role="alert">{removeError}</p>}
+      {actionMessage && (
+        <ActionError
+          returnFocus={() => actionOriginRef.current}
+          message={actionMessage}
+          close={() => {
+            setRemoveError("");
+          }}
+          fix={
+            prune
+              ? {
+                  label: "Prune",
+                  run: () => {
+                    void command({ ...prune, kind: "prune-worktree" });
+                  },
+                }
+              : undefined
+          }
+        />
+      )}
       <div className="board-workspace">
         <Sidebar
           width={layout.sidebarWidth}

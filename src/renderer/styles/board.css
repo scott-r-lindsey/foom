@@ -1905,3 +1905,85 @@
   cursor: col-resize;
   user-select: none;
 }
+
+.action-error {
+  background: var(--surface);
+  color: var(--failed-ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 20px;
+  max-width: min(440px, calc(100vw - 40px));
+  font: 14px / 1.5 var(--font-interface);
+}
+.action-error::backdrop {
+  background: #06050b99;
+}
+.action-error p {
+  margin: 0 0 20px;
+}
+.action-error-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.action-error button,
+.background-error-message button {
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 5px 10px;
+}
+.failure-mark {
+  color: var(--failed-ink);
+}
+.background-error {
+  position: relative;
+  display: inline-flex;
+}
+button.failure-mark {
+  background: none;
+  border: 0;
+  padding: 4px;
+}
+.background-error-message {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  z-index: 30;
+  min-width: 220px;
+  padding: 10px;
+  background: var(--surface);
+  color: var(--failed-ink);
+  border: 1px solid var(--line);
+}
+.background-error-message > span {
+  display: block;
+}
+.background-error-message button {
+  margin-left: 8px;
+}
+.background-error:hover .background-error-message,
+.background-error:focus-within .background-error-message,
+.background-error[data-expanded="true"] .background-error-message,
+.tree-row:hover .background-error-message,
+.tree-row:focus-within .background-error-message {
+  display: block;
+}
+
+.action-error-message {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+[role="treeitem"]:hover > .background-error .background-error-message,
+[role="treeitem"]:focus-within > .background-error .background-error-message {
+  display: block;
+}
+
+.action-error:focus-visible {
+  outline: 2px solid var(--highlight);
+  outline-offset: 2px;
+}

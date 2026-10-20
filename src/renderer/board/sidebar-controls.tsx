@@ -1,3 +1,4 @@
+import { useBackgroundErrors } from "./error-presentation";
 import { useEffect, useRef, useState } from "react";
 import { SCALES } from "../../shared/config-settings";
 import type { SettingsPatch } from "../../shared/setup";
@@ -10,6 +11,7 @@ import { createAudioSink } from "../sound/web-audio";
 
 type FooterSource = Pick<SetupSource, "state" | "subscribe"> & Partial<Pick<SetupSource, "save">>;
 export function SidebarControls({ source }: { source: FooterSource | undefined }) {
+  const { report, clear } = useBackgroundErrors();
   const [settings, setSettings] = useState({ interfaceScale: 100, sound: DEFAULT_SOUND });
   const settingsRef = useRef(settings);
   const pendingRef = useRef<SettingsPatch>(undefined);
@@ -68,12 +70,14 @@ export function SidebarControls({ source }: { source: FooterSource | undefined }
       // Retain the optimistic patch through broadcasts from this save.
       try {
         const saved = await source.save(next);
+        clear("footer-preferences");
         if (pendingRef.current === next) {
           pendingRef.current = undefined;
           settingsRef.current = saved.settings;
           setSettings(settingsRef.current);
         }
       } catch {
+        report("footer-preferences", "Unable to save preferences.");
         if (pendingRef.current === next) {
           pendingRef.current = undefined;
           const restored = await source.state().catch(() => undefined);

@@ -115,6 +115,8 @@ export type SidebarCommandsContext = Pick<
   | "known"
   | "removeRepository"
   | "refresh"
+  | "withRepository"
+  | "busyWorktrees"
 >;
 
 export type OrchestrationCommandsContext = Pick<

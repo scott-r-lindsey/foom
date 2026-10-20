@@ -1,3 +1,5 @@
+import { worktreeKey } from "./sidebar-model";
+import { BackgroundErrorMark } from "./error-presentation";
 import type { SidebarRowEvents } from "./sidebar-interactions.d";
 import type { ReactNode } from "react";
 import type { SidebarWorktree } from "./sidebar.d";
@@ -142,6 +144,7 @@ export function SidebarWorktreeSection({
           </span>
         )}
         {!expanded && <SidebarRollup row={rollup} />}
+        <BackgroundErrorMark row={worktreeKey(worktree.path)} />
         {actions}
       </div>
       {expanded && <div role="group">{children}</div>}

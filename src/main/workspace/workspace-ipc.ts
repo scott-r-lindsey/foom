@@ -1,3 +1,4 @@
+import { ApplicationError } from "../../shared/application-errors";
 import { knownAgentId } from "../agents/providers/registry";
 import type { PreviewOpenAction, PreviewRecord } from "../../shared/previews";
 import { conversationId } from "../../shared/conversation";
@@ -120,11 +121,22 @@ function sidebarCommand(value: unknown): SidebarCommand {
   }
   if (!text(value["repository"])) throw new Error("Invalid repository");
   const repository = value["repository"];
+  if (
+    kind === "prune-worktree" &&
+    (Object.keys(value).length !== 3 ||
+      Object.keys(value).some((key) => !["kind", "repository", "worktree"].includes(key)))
+  )
+    throw new Error("Invalid prune request");
   if (kind === "remove-repository" || kind === "delete-merged-worktrees")
     return { kind, repository };
   if (!text(value["worktree"])) throw new Error("Invalid worktree");
   const worktree = value["worktree"];
-  if (kind === "remove-worktree" || kind === "copy-worktree-path" || kind === "open-pull-request")
+  if (
+    kind === "remove-worktree" ||
+    kind === "prune-worktree" ||
+    kind === "copy-worktree-path" ||
+    kind === "open-pull-request"
+  )
     return { kind, repository, worktree };
   if (kind === "launch" && (value["run"] === "shell" || agent(value["run"])))
     return { kind, repository, worktree, run: value["run"] };
@@ -514,8 +526,15 @@ export function attachWorkspace(
   ]);
   for (const [channel, handler] of handlers)
     ipc.handle(channel, (event, ...args: unknown[]) => {
-      if (!trusted(event)) throw new Error("Untrusted IPC sender");
-      return handler(...args);
+      const reject = (error: unknown): never => {
+        throw error instanceof ApplicationError ? error : new ApplicationError("operation-failed");
+      };
+      try {
+        if (!trusted(event)) throw new Error("Untrusted IPC sender");
+        return Promise.resolve(handler(...args)).catch(reject);
+      } catch (error) {
+        return reject(error);
+      }
     });
   return {
     sendExecution(event) {

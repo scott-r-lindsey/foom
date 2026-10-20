@@ -1,3 +1,4 @@
+import { ActionError, BackgroundErrorMark } from "./error-presentation";
 import { AgentBadge } from "./agent-badge";
 import { AppMenu } from "./app-menu";
 import { PanelMark } from "./panel-glyphs";
@@ -140,7 +141,14 @@ export function Sidebar(props: SidebarProps) {
           )}
         </div>
       </header>
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <ActionError
+          message={error}
+          close={() => {
+            setError("");
+          }}
+        />
+      )}
       {hiddenNeeds > 0 && (
         <button
           type="button"
@@ -537,6 +545,7 @@ export function Sidebar(props: SidebarProps) {
         )}
         <div className="sidebar-footer-bar">
           {footer}
+          <BackgroundErrorMark />
           <button
             ref={configGearRef}
             type="button"

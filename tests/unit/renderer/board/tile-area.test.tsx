@@ -337,7 +337,9 @@ test("storage failures do not prevent layout changes", () => {
     throw new Error("quota");
   });
   send("split-right");
-  expect(screen.getByRole("alert").textContent).toContain("Unable to save tile layout");
+  expect(screen.getByText("Unable to save tile layout.").textContent).toContain(
+    "Unable to save tile layout",
+  );
   click(0);
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(2);
   failure.mockRestore();
@@ -1003,6 +1005,7 @@ test.each(["markdown", "html"] as const)(
     preview.network = true;
     screen.rerender(<Board source={{ ...source }} />);
     expect(within(tile).getByText("network")).toBeTruthy();
+    within(tile).getByRole("button", { name: "Tile 2 menu" }).focus();
     fireEvent.click(within(tile).getByRole("button", { name: "Tile 2 menu" }));
     expect(screen.getByText("On", { selector: "dd" })).toBeTruthy();
     network.mockRejectedValueOnce(
@@ -1011,9 +1014,10 @@ test.each(["markdown", "html"] as const)(
     fireEvent.click(screen.getByRole("menuitem", { name: "Block network" }));
     await act(async () => {});
     expect(network).toHaveBeenCalledWith("preview", false);
-    expect(screen.getByRole("alert").textContent).toBe(
-      kind === "markdown" ? "Network unavailable" : "Network change failed",
-    );
+    expect(screen.getByRole("alert").textContent).toBe("Network change failed");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("dialog", { name: "Action failed" })).toBeNull();
+    expect(document.activeElement).toBe(within(tile).getByRole("button", { name: "Tile 2 menu" }));
     fireEvent.click(within(tile).getByRole("button", { name: "Tile 2 menu" }));
     fireEvent.click(screen.getByRole("menuitem", { name: /^Maximize/ }));
     expect(tile.getAttribute("data-maximized")).toBe("true");
@@ -1169,7 +1173,7 @@ test("panel picking fills the landing spot without focus, and handles cancel and
   expect(close).not.toHaveBeenCalled();
   pick.mockRejectedValueOnce(new Error("Refused file"));
   await choose();
-  expect(screen.getByRole("alert").textContent).toBe("Refused file");
+  expect(screen.getByRole("alert").textContent).toBe("Unable to open preview.");
 });
 
 test("preview bounds follow body measurement and transitions, hide under settings, and dispose observers", async () => {
@@ -1197,9 +1201,26 @@ test("preview bounds follow body measurement and transitions, hide under setting
   if (!layout) throw new Error("Missing layout");
   saveLayout(localStorage, layout);
   const bounds = vi.fn(() => Promise.resolve());
-  bounds.mockRejectedValueOnce(new Error("native view failed"));
+  bounds.mockRejectedValue(new Error("native view failed"));
   const source = {
     ...createSampleSource([]),
+    getSidebar: () => [
+      {
+        path: "repo",
+        name: "repo",
+        worktrees: [
+          {
+            path: "/tree",
+            head: "abc",
+            branch: "main",
+            bare: false,
+            locked: false,
+            prunable: false,
+            managed: true,
+          },
+        ],
+      },
+    ],
     previews: {
       getSnapshot: () => [preview],
       pick: () => Promise.resolve(null),
@@ -1209,7 +1230,10 @@ test("preview bounds follow body measurement and transitions, hide under setting
   };
   const screen = render(<Board source={source} />);
   await act(async () => {});
-  expect(screen.getByRole("alert").textContent).toBe("Unable to display preview.");
+  expect(screen.getByText("Unable to display preview.").textContent).toContain(
+    "Unable to display preview.",
+  );
+  bounds.mockResolvedValue();
   const tile = screen.getByRole("region", { name: "Tile 1: page.html" });
   fireEvent(tile, new Event("transitionend"));
   fireEvent(window, new Event("resize"));

@@ -167,6 +167,7 @@ export interface WorkspaceDependencies {
     | "changes"
     | "removalIdentity"
     | "launchIdentity"
+    | "pruneWorktree"
     | "removeWorktree"
     | "removeRepository"
     | "mergedDefault"

@@ -1,3 +1,4 @@
+import { ActionError } from "../board/error-presentation";
 import { useState } from "react";
 import type { ThemeCatalog, ThemeKind } from "../../shared/theme-file";
 export function ThemeFilesStatus({
@@ -26,9 +27,12 @@ export function ThemeFilesStatus({
         </button>
       )}
       {error && (
-        <p className="preflight-error" role="alert">
-          Unable to open themes folder.
-        </p>
+        <ActionError
+          message="Unable to open themes folder."
+          close={() => {
+            setError(false);
+          }}
+        />
       )}
       {catalog?.errors
         .filter((entry) => entry.kind === kind)

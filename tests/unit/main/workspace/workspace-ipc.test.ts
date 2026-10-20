@@ -106,7 +106,7 @@ test("rejects untrusted senders on every channel", () => {
   const noFrame = { sender: contents, senderFrame: null };
   for (const channel of channels)
     for (const event of [other, subframe, noFrame])
-      expect(() => invoke(channel, [], event)).toThrow("Untrusted IPC sender");
+      expect(() => invoke(channel, [], event)).toThrow("foom-error:operation-failed");
   expect(workspace.snapshot).not.toHaveBeenCalled();
 });
 
@@ -129,12 +129,12 @@ test("validates worktree and scan arguments before calling the workspace", async
   await invoke("workspace:worktrees", ["/repos/app"]);
   expect(workspace.worktrees).toHaveBeenCalledWith("/repos/app");
   for (const bad of [undefined, "", 7, "a\0b", "x".repeat(4097)])
-    expect(() => invoke("workspace:worktrees", [bad])).toThrow("Invalid repository");
+    expect(() => invoke("workspace:worktrees", [bad])).toThrow("foom-error:operation-failed");
 
   await invoke("workspace:branches", ["/repos/app"]);
   expect(workspace.branches).toHaveBeenCalledWith("/repos/app");
   for (const args of [[], [undefined], [""], ["/repos/app", "extra"], ["a\0b"]])
-    expect(() => invoke("workspace:branches", args)).toThrow("Invalid repository");
+    expect(() => invoke("workspace:branches", args)).toThrow("foom-error:operation-failed");
 
   await invoke("workspace:create-worktree", ["/repos/app", "feature/x", "adjacent"]);
   expect(workspace.createWorktree).toHaveBeenCalledWith("/repos/app", "feature/x", "adjacent");
@@ -148,11 +148,11 @@ test("validates worktree and scan arguments before calling the workspace", async
     ["/repos/app", "x".repeat(256), "root"],
     [null, "b", "root"],
   ])
-    expect(() => invoke("workspace:create-worktree", args)).toThrow("Invalid worktree request");
+    expect(() => invoke("workspace:create-worktree", args)).toThrow("foom-error:operation-failed");
 
   await invoke("agents:scan", [true]);
   expect(workspace.scanAgents).toHaveBeenCalledWith(true);
-  expect(() => invoke("agents:scan", ["yes"])).toThrow("Invalid scan request");
+  expect(() => invoke("agents:scan", ["yes"])).toThrow("foom-error:operation-failed");
 });
 
 test("launch requests are validated and copied field by field", async () => {
@@ -190,7 +190,7 @@ test("launch requests are validated and copied field by field", async () => {
     { ...plain, rows: 301 },
     { ...plain, cols: 80.5 },
   ])
-    expect(() => invoke("agents:launch", [bad])).toThrow("Invalid launch request");
+    expect(() => invoke("agents:launch", [bad])).toThrow("foom-error:operation-failed");
 });
 
 test("feedback only applies to owned terminals and known actions", async () => {
@@ -207,7 +207,7 @@ test("feedback only applies to owned terminals and known actions", async () => {
     ["t1", "v1", "approved"],
     [1, "v1", "ignored"],
   ])
-    await expect(invoke("terminal:feedback", args)).rejects.toThrow("Invalid feedback");
+    await expect(invoke("terminal:feedback", args)).rejects.toThrow("foom-error:operation-failed");
 });
 
 test("state goes only to the app document for owned terminals", () => {
@@ -265,12 +265,12 @@ test("launch accepts names only and rejects malformed or injected payloads", asy
     { ...request, branch: "" },
     { ...request, run: "sh" },
   ])
-    expect(() => invoke("workspace:start", [bad])).toThrow("Invalid worktree launch");
+    expect(() => invoke("workspace:start", [bad])).toThrow("foom-error:operation-failed");
 });
 
 test("dirty removal uses main's trusted dialog and rejects renderer force flags", async () => {
-  expect(() => invoke("workspace:remove", [null])).toThrow("Invalid terminal ID");
-  expect(() => invoke("workspace:remove", ["foreign"])).toThrow("Unknown or foreign");
+  expect(() => invoke("workspace:remove", [null])).toThrow("foom-error:operation-failed");
+  expect(() => invoke("workspace:remove", ["foreign"])).toThrow("foom-error:operation-failed");
   requestDialog.mockResolvedValueOnce(false);
   await expect(invoke("workspace:remove", ["t1", true])).resolves.toBe(false);
   expect(requestDialog).toHaveBeenCalledWith({
@@ -469,7 +469,7 @@ test("Antigravity plugin IPC accepts only one fixed operation, never paths or CL
     [null],
     ["install;touch bad"],
   ])
-    expect(() => invoke("agents:agy-plugin", args)).toThrow("Invalid plugin request");
+    expect(() => invoke("agents:agy-plugin", args)).toThrow("foom-error:operation-failed");
 });
 
 test("panel facts validate exact arguments before authorizing paths", async () => {
@@ -481,7 +481,7 @@ test("panel facts validate exact arguments before authorizing paths", async () =
     [null, "/tree"],
     ["/repo", "a\0b"],
   ])
-    expect(() => invoke("workspace:panel-facts", args)).toThrow("Invalid panel request");
+    expect(() => invoke("workspace:panel-facts", args)).toThrow("foom-error:operation-failed");
   await invoke("workspace:panel-facts", ["/repo", "/tree"]);
   expect(workspace.panelFacts).toHaveBeenCalledWith("/repo", "/tree");
   expect(() =>
@@ -645,7 +645,7 @@ test("validates fixed setup action requests and uses the trusted dialog", async 
     ["claude", "bad/action"],
     ["claude", "install", true],
   ])
-    expect(() => invoke("agents:setup", args)).toThrow("Invalid setup request");
+    expect(() => invoke("agents:setup", args)).toThrow("foom-error:operation-failed");
   await invoke("agents:setup", ["claude", "install"]);
   const confirm = workspace.changeAgentSetup.mock.calls.at(-1)?.[2];
   if (!confirm) throw Error("Missing confirmation");
@@ -682,13 +682,54 @@ test("handoff links resolve from owned records and require trusted confirmation"
   ])
     expect(() => invoke("workspace:sidebar-command", [{ ...command, ...change }])).toThrow();
   handoffEntries.mockReturnValueOnce([]);
-  expect(() => invoke("workspace:sidebar-command", [command])).toThrow("unavailable");
+  expect(() => invoke("workspace:sidebar-command", [command])).toThrow(
+    "foom-error:operation-failed",
+  );
   handoffEntries.mockReturnValueOnce([{ seq: 1, links: ["file:///tmp/private"] }]);
-  expect(() => invoke("workspace:sidebar-command", [command])).toThrow("unavailable");
+  expect(() => invoke("workspace:sidebar-command", [command])).toThrow(
+    "foom-error:operation-failed",
+  );
   requestDialog.mockImplementationOnce(() => {
     handoffEntries.mockReturnValueOnce([]);
     return Promise.resolve(true);
   });
   await invoke("workspace:sidebar-command", [command]);
   expect(mock.openExternal).not.toHaveBeenCalled();
+});
+
+test("prune copies only repository and worktree and rejects extra authority fields", async () => {
+  const command = { kind: "prune-worktree", repository: "/repo", worktree: "/tree" };
+  const sidebar = vi.fn(() => Promise.resolve());
+  attached.dispose();
+  mock.handle.mockClear();
+  attached = attachWorkspace(
+    window,
+    { ...workspace, sidebarCommand: sidebar } as unknown as Workspace,
+    owns,
+    requestDialog,
+  );
+  await invoke("workspace:sidebar-command", [command]);
+  expect(sidebar).toHaveBeenCalledWith(command, expect.any(Function));
+  for (const invalid of [
+    { ...command, force: true },
+    { kind: "prune-worktree", repository: "/repo", unexpected: "/tree" },
+    { ...command, worktree: "" },
+    { ...command, repository: null },
+  ]) {
+    expect(() => invoke("workspace:sidebar-command", [invalid])).toThrow(
+      "foom-error:operation-failed",
+    );
+  }
+});
+
+test("workspace rejections contain only a selected code, never raw exception details", async () => {
+  const { ApplicationError } = await import("../../../../src/shared/application-errors");
+  workspace.createWorktree.mockRejectedValueOnce(new ApplicationError("worktree-prunable"));
+  await expect(invoke("workspace:create-worktree", ["/repo", "branch"])).rejects.toThrow(
+    "foom-error:worktree-prunable",
+  );
+  workspace.createWorktree.mockRejectedValueOnce(new Error("private path and credentials"));
+  await expect(invoke("workspace:create-worktree", ["/repo", "branch"])).rejects.toThrow(
+    /^foom-error:operation-failed$/u,
+  );
 });

@@ -52,7 +52,7 @@ export async function loadRecording(
     const fallback = await load(DEFAULT_SOUND.choices[kind]);
     return {
       ...fallback,
-      reason: `${error instanceof Error ? error.message : "Sound unavailable"}. Using the default sound.`,
+      reason: "Sound unavailable. Using the default sound.",
     };
   }
 }
