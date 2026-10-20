@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { git } from "../../../helpers/git.js";
 import { FAKE_GH } from "../../../helpers/forge-cli.js";
 import { ForgeRuntime } from "../../../../src/main/control/forge-runtime";
-import { forgeProvider } from "../../../../src/main/control/forge";
+import { forgeProvider } from "../../../helpers/legacy-forge";
 import { forgeValue } from "../../../../src/main/control/forge-mapping";
 import { executeForge, resolveForgeExecutable } from "../../../../src/main/control/forge-process";
 import { parseForgeManifest } from "../../../../src/shared/forge-manifest";
@@ -68,7 +68,6 @@ describe.each(["legacy", "manifest"] as const)("adoption integration parity: %s"
     runtime = new ForgeRuntime(
       () => ({ forges: { hostile: true }, forgeHosts: { "github.com": "hostile" } }),
       () => Promise.resolve(root),
-      "manifest",
     );
     // Even a renamed config manifest with its own state table cannot grant adoption authority.
     const manifest = parseForgeManifest(

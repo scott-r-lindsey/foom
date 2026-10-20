@@ -32,7 +32,7 @@ const invalidBatch = structuredClone(bundled);
 invalidBatch.operations.batchStatus.extra = true;
 assert.equal(validate(invalidBatch), false, "batch rejects unknown keys");
 const github = await read("github.json");
-const source = await readFile(new URL("../../src/main/control/forge.ts", import.meta.url), "utf8");
+const source = await readFile(new URL("../../tests/helpers/legacy-forge.ts", import.meta.url), "utf8");
 const sourceQuery = /const CHECK_QUERY = `([\s\S]*?)`;/.exec(source)?.[1];
 assert.equal(github.checks.fallback.query, sourceQuery);
 assert.equal((await readFile(new URL("required-checks.graphql", import.meta.url), "utf8")).trimEnd(), sourceQuery);

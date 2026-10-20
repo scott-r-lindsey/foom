@@ -13,7 +13,7 @@ It replaces the terminal tiles beside the persistent sidebar in the same window.
 Esc returns to the tiles and restores the same focused sidebar row.
 Selecting a terminal in the sidebar also leaves Settings; terminals keep running throughout.
 
-General offers **Show pull requests and checks**, defaulting to on when the GitHub CLI is installed and logged in on first use. The disclosure reads: “Foom uses your GitHub CLI to send repository and branch names to GitHub. It sends no terminal content.” Turning it off stops non-orchestrator polling. Foom stores no tokens and makes no forge writes.
+General offers **Show pull requests and checks**, defaulting to on when the GitHub CLI is installed and logged in on first use. The [shared forge disclosure](orchestration.md#orchestration-and-privacy) explains the selected CLI login and read-only metadata requests. Turning it off stops non-orchestrator polling. Foom stores no tokens and makes no forge writes.
 
 General offers **Restore sessions on launch**, on by default. Turning it on through agent-edited config requires Allow because it also permits restoring orchestrator control. General also offers **Auto-remove merged worktrees**, off by default and applying to all repositories.
 
@@ -22,8 +22,10 @@ switch, badge, source and host assignments. Valid config manifests load without
 approval; there is no Duplicate action. Copies start off with no hosts. Settings
 saves exact lowercase DNS hostnames against an enabled forge; manifests cannot
 assign hosts. GitHub defaults to `github.com`. Disabling preserves assignments.
-These profile preferences are preparatory: the existing GitHub provider still polls,
-and cards show declared executables with status “Not checked” until runtime integration.
+These preferences control production routing and polling. Disabling a forge stops
+its probes/polls and retires observations; declarations cannot claim hosts. Cards
+show declared executables with status “Not checked”; requests resolve the native
+executable and perform auth preflight through the main-owned lifecycle.
 
 General offers Foom’s folder or a location next to each repository for new worktrees, with an example
 destination. Changes apply to future creation; existing worktrees stay where they are.

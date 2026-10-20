@@ -11,7 +11,7 @@ export interface ForgeSampleContext {
   /** Main-owned canonical worktree identity, including branch/remote generation. */
   identity: string;
   /** Reinspect registration, remote, worktree identity and branch. Never supplied by IPC. */
-  validate(): Promise<void>;
+  validate(branches?: readonly string[]): Promise<void>;
 }
 export interface ForgeLifecycleOptions {
   /** Already discovered login PATH; relative/empty components are ignored. */
