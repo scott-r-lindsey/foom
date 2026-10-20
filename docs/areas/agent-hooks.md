@@ -33,3 +33,9 @@ Codex setup reports Not reviewed, Trusted · observed working, Declined or unava
 The fixed Windows Codex command uses `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand` with a UTF-16LE program quoting the installed script path and fixed `codex` argument. Encoding protects spaces, apostrophes and `$` through cmd.exe and PowerShell; it contains no credentials.
 
 Antigravity observers return `{}` before bounded stdin and detached one-second transport, and are inert without all launch credentials. Counter failure drops a report without blocking the agent. The Windows worker writes UTF-8 bytes to stdin and uses a native handle allowlist containing only its input pipe and NUL output, so it cannot inherit agent output handles. Native adapter tests do not establish real Windows CLI timing or trust behavior.
+
+External manifest channels (#635) expose [public protocol 1](../agent-plugins.md#user-authored-extensions-public-hook-protocol-1-635)
+for user-installed code extensions. `foom hook EVENT [--channel ID]` is a silent,
+bounded stdin client of this same receiver, with no pairing or control authority.
+External attachment creates no observer files or arguments and never edits agent
+configuration. Existing bundled adapters retain their compatibility behavior.

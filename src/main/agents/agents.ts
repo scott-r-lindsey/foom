@@ -238,6 +238,9 @@ export class AgentService {
     const binding = suppliedBinding
       ? {
           ...suppliedBinding,
+          get env() {
+            return suppliedBinding.env;
+          },
           dispose: () => {
             if (bindingDisposed) return;
             bindingDisposed = true;

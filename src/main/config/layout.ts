@@ -398,6 +398,26 @@ These are set in Foom's Settings window, not here. Tell the user exactly what to
 - Environment variables: Settings → Environment.
 - Repositories, the code folder and where worktrees are created: Settings.
 
+## User-installed code extensions
+
+For code-only extension APIs, draft a channel with observer transport \`external\`
+and empty arguments. Foom supplies \`FOOM_HOOK_PROTOCOL=1\`, \`FOOM_HOOK_URL\`,
+\`FOOM_SESSION\`, \`FOOM_TOKEN\`, \`FOOM_CHANNEL_<id>\` and a JSON array of attached
+external channel IDs in \`FOOM_HOOK_CHANNELS\`. The user's extension calls
+\`foom hook EVENT [--channel ID]\` with one JSON payload on stdin (64 KiB maximum).
+A single attached external channel is automatic. Map the event from the
+\`X-Foom-Event\` header and the conversation ID from the payload; use ordinary
+working/needs_input/classify cases and optional payload dedupe. Classification
+never directly announces Done. No observer assets or launch arguments are generated.
+
+Draft generic glue using a process spawn with an argument array, inherited launch
+environment and JSON stdin. The CLI is silent, inert outside Foom and uses only
+that launch's hook credential, revoked on exit. Never put credentials in files,
+source, logs or prompts. Give the user the draft and installation instructions for
+their agent's extension API; the user installs it themselves. Do not install it or
+edit their agent's global configuration. Validate the manifest with
+\`foom config validate .\`; screen probes do not verify external hook integration.
+
 ## Rules
 
 - Change Foom only by editing files in this folder and checking them with the
@@ -456,6 +476,7 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  * is unedited and is replaced on upgrade; anything else belongs to the user.
  */
 const GUIDE_HISTORY = [
+  "605ee909ea813509d2fb27d0069934efc5ea95467d1fdf8e9d020ef45e9e3600",
   "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
   "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
   "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
@@ -478,6 +499,7 @@ const GUIDE_HISTORY = [
 ];
 
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
+  "schemas/agent.schema.json": ["a75143842a1b3c12f56c68550f7b0b083246b20e60d9de1f8062b98c55131f5c"],
   ".gitignore": ["16b259efd54bdd1fdc2afc980f1dff1c76a76e23e4392d0fa0db7c751f504cf4"],
   "README.md": GUIDE_HISTORY,
   "AGENTS.md": GUIDE_HISTORY,
