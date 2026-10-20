@@ -51,6 +51,38 @@ test("board starts with live terminals only and focuses rows without opening", a
   await expect(row).toBeFocused();
 });
 
+test("the trailing add repository row opens the fixture folder chooser", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-add-repository-"));
+  removeAfterApps(context, root);
+  const repo = path.join(root, "added-repo");
+  await mkdir(repo);
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  const app = await launchApp(context, { fixture: "repository" });
+  const page = await boardPage(app);
+  const add = page.getByRole("button", { name: "Add repository", exact: true });
+  await expect(add).toHaveText("+");
+  await expect(page.locator(".sidebar-filter button")).toHaveCount(0);
+  await expect(page.locator(".board-list > :last-child")).toHaveAttribute(
+    "aria-label",
+    "Add repository",
+  );
+  await app.evaluate(({ dialog }, repo) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+  }, repo);
+  await add.click();
+  await expect(
+    page.getByRole("button", { name: "Actions for added-repo", exact: true }),
+  ).toBeVisible();
+  await expect(add).toHaveCount(1);
+  await page.getByLabel("Filter repositories and sessions").fill("added-repo");
+  await expect(add).toHaveCount(0);
+  await page.getByRole("button", { name: "Clear filter" }).click();
+  await expect(add).toBeVisible();
+  await page.getByRole("navigation", { name: "Terminal sidebar" }).press("End");
+  await expect(add).toBeFocused();
+  await assertAccessible(page);
+});
+
 test("the branch field creates a worktree by keyboard without launching; dirty removal confirms", {
   timeout: deadline(60000),
 }, async (context) => {

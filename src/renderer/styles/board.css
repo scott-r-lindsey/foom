@@ -363,6 +363,25 @@
   flex-shrink: 0;
   white-space: nowrap;
 }
+.sidebar-shell .sidebar-add-repository {
+  display: block;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  font: 12px var(--font-mono);
+}
+.sidebar-shell .sidebar-add-repository::before {
+  content: none;
+}
+.sidebar-add-repository:hover {
+  background: var(--surface);
+  color: var(--ink);
+}
 .sidebar-shell .board-list {
   flex: 1;
   padding: 4px 8px;

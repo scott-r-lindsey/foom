@@ -146,6 +146,8 @@ test("sidebar arrows wrap, focus stays in the sidebar, selection preserves atten
   const { board, buttons, key, dialog } = setup();
   expect(document.activeElement).toBe(buttons[0]);
   key("End");
+  expect(document.activeElement).toBe(dialog.querySelector('[aria-label="Add repository"]'));
+  key("ArrowUp");
   expect(document.activeElement).toBe(buttons[9]);
   act(() => {
     buttons[0]?.focus();

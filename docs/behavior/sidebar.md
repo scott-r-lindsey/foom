@@ -5,7 +5,10 @@ Decided user-visible behavior. Implementation owners and security rules: [file m
 ## Terminal sidebar
 
 The sidebar is a repository → worktree → session tree beside the terminal tiles.
-The header shows the wordmark, needs-you and working counts, a filter and Add repository.
+The header shows the wordmark, needs-you and working counts, and a filter.
+A quiet **+** row after the last repository group adds a repository, in keyboard
+list order. Its accessible name is **Add repository**; with no repositories this
+is also its visible label. The row is hidden while filtering and in the compact rail.
 Its panel-toggle button collapses the sidebar to a 64px rail at any width; Expand sidebar
 returns to the tree. View → Collapse sidebar / Expand sidebar and ⌘B on macOS or
 Ctrl+Shift+B on Windows/Linux do the same. Plain Ctrl+B stays with the terminal.
