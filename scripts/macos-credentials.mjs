@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { run } from "./macos-sign.mjs";
@@ -35,24 +35,38 @@ if (mode === "cleanup") {
   const password = randomBytes(32).toString("hex");
   mask(password);
   const certificate = join(directory, "certificate.p12");
-  await writeFile(certificate, Buffer.from(process.env.MACOS_CERT_P12, "base64"), { mode: 0o600 });
+  const p12 = Buffer.from(process.env.MACOS_CERT_P12, "base64");
+  // The encrypted-file fingerprint is intentionally visible for local comparison.
+  console.log(
+    `Decoded P12: ${p12.length} bytes; SHA-256: ${createHash("sha256").update(p12).digest("hex")}`,
+  );
+  assert.ok(p12.length > 0, "MACOS_CERT_P12 decoded to 0 bytes; check its base64 encoding");
+  assert.equal(p12[0], 0x30, "Decoded MACOS_CERT_P12 must start with an ASN.1 SEQUENCE (0x30)");
+  await writeFile(certificate, p12, { mode: 0o600 });
   await writeFile(join(directory, "AuthKey.p8"), process.env.APPLE_API_KEY, { mode: 0o600 });
   run("security", ["create-keychain", "-p", password, keychain]);
   await chmod(keychain, 0o600);
   run("security", ["set-keychain-settings", "-lut", "21600", keychain]);
   run("security", ["unlock-keychain", "-p", password, keychain]);
-  run("security", [
-    "import",
-    certificate,
-    "-k",
-    keychain,
-    "-P",
-    process.env.MACOS_CERT_PASSWORD,
-    "-T",
-    "/usr/bin/codesign",
-    "-T",
-    "/usr/bin/security",
-  ]);
+  try {
+    run("security", [
+      "import",
+      certificate,
+      "-k",
+      keychain,
+      "-P",
+      process.env.MACOS_CERT_PASSWORD,
+      "-T",
+      "/usr/bin/codesign",
+      "-T",
+      "/usr/bin/security",
+    ]);
+  } catch (error) {
+    console.error(
+      "Common causes: wrong MACOS_CERT_PASSWORD, or a .p12 exported without `openssl pkcs12 -export -legacy`.",
+    );
+    throw error;
+  }
   run("security", [
     "set-key-partition-list",
     "-S",

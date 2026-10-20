@@ -19,6 +19,7 @@ import {
   entitlementFor,
   notarizeApp,
   run,
+  redactOutput,
   signApp,
   signingArgs,
   signingOrder,
@@ -218,13 +219,13 @@ test("credential setup validates the team, restricts files and cleanup removes p
   const command = join(bin, "security");
   writeFileSync(
     command,
-    `#!${process.execPath}\nconst fs=require('node:fs');const args=process.argv.slice(2);fs.appendFileSync(${JSON.stringify(log)},JSON.stringify(args)+'\\n');if(args[0]==='create-keychain')fs.writeFileSync(args.at(-1),'fixture-keychain');if(args[0]==='find-identity')console.log('  1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "Developer ID Application: Fixture ('+(process.env.FIXTURE_TEAM||'TEAM')+')"\\n     1 valid identities found');\n`,
+    `#!${process.execPath}\nconst fs=require('node:fs');const args=process.argv.slice(2);fs.appendFileSync(${JSON.stringify(log)},JSON.stringify(args)+'\\n');if(args[0]==='create-keychain')fs.writeFileSync(args.at(-1),'fixture-keychain');if(args[0]==='import' && process.env.FIXTURE_IMPORT_FAIL){console.error('SecKeychainItemImport: MAC verification failed; password='+process.env.MACOS_CERT_PASSWORD);console.log('fixture import stdout; keychain='+args[args.indexOf('-k')+1]);process.exit(1);}if(args[0]==='find-identity')console.log('  1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "Developer ID Application: Fixture ('+(process.env.FIXTURE_TEAM||'TEAM')+')"\\n     1 valid identities found');\n`,
   );
   chmodSync(command, 0o755);
   const env = {
     PATH: bin,
     RUNNER_TEMP: root,
-    MACOS_CERT_P12: Buffer.from("fixture-certificate").toString("base64"),
+    MACOS_CERT_P12: Buffer.from("0fixture-certificate").toString("base64"),
     MACOS_CERT_PASSWORD: "fixture-password",
     APPLE_API_KEY: "fixture-private-key",
     APPLE_API_KEY_ID: "fixture-id",
@@ -239,9 +240,14 @@ test("credential setup validates the team, restricts files and cleanup removes p
   const setup = invoke("setup");
   assert.equal(setup.status, 0, setup.stderr);
   const directory = join(root, "foom-signing");
+  assert.ok(
+    setup.stdout.includes(
+      `Decoded P12: 20 bytes; SHA-256: ${createHash("sha256").update(Buffer.from("0fixture-certificate")).digest("hex")}`,
+    ),
+  );
   for (const name of ["certificate.p12", "AuthKey.p8", "identity.json", "signing.keychain-db"])
     assert.equal(statSync(join(directory, name)).mode & 0o777, 0o600);
-  assert.equal(readFileSync(join(directory, "certificate.p12"), "utf8"), "fixture-certificate");
+  assert.equal(readFileSync(join(directory, "certificate.p12"), "utf8"), "0fixture-certificate");
   const calls = readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
   const password = calls.find((args) => args[0] === "create-keychain")[2];
   assert.match(password, /^[a-f0-9]{64}$/);
@@ -258,6 +264,28 @@ test("credential setup validates the team, restricts files and cleanup removes p
   assert.equal(invoke("cleanup").status, 0);
   assert.equal(existsSync(directory), false);
   assert.equal(invoke("cleanup").status, 0, "cleanup tolerates setup that never started");
+  const failedImport = invoke("setup", { FIXTURE_IMPORT_FAIL: "1" });
+  assert.equal(failedImport.status, 1);
+  assert.match(failedImport.stderr, /SecKeychainItemImport: MAC verification failed/);
+  assert.match(failedImport.stderr, /fixture import stdout/);
+  assert.match(failedImport.stderr, /wrong MACOS_CERT_PASSWORD/);
+  assert.match(failedImport.stderr, /openssl pkcs12 -export -legacy/);
+  assert.ok(!failedImport.stderr.includes(env.MACOS_CERT_PASSWORD));
+  assert.ok(!failedImport.stderr.includes(join(directory, "signing.keychain-db")));
+  assert.equal(invoke("cleanup").status, 0);
+  for (const [certificate, message] of [
+    ["%%", /decoded to 0 bytes/],
+    [Buffer.from("not ASN.1").toString("base64"), /ASN.1 SEQUENCE \(0x30\)/],
+  ]) {
+    writeFileSync(log, "");
+    const invalid = invoke("setup", { MACOS_CERT_P12: certificate });
+    assert.equal(invalid.status, 1);
+    assert.match(invalid.stderr, message);
+    assert.match(invalid.stdout, /Decoded P12: \d+ bytes; SHA-256: [a-f0-9]{64}/);
+    assert.equal(readFileSync(log, "utf8"), "", "reject malformed P12 before keychain operations");
+    assert.equal(existsSync(join(directory, "certificate.p12")), false);
+    assert.equal(invoke("cleanup").status, 0);
+  }
 });
 
 test("signing enforces hardened fuse values and detects ASAR or embedded-integrity changes", async (t) => {
@@ -292,5 +320,75 @@ test("signing enforces hardened fuse values and detects ASAR or embedded-integri
       return execute(command);
     }),
     /Signing changed fuses or ASAR integrity/,
+  );
+});
+
+test("redacts sensitive argument values and environment credentials as literals without hiding tool diagnostics", () => {
+  const secrets = ["prefix", "prefix-longer", "punctuation.$[x]", "key-id-value", "issuer-value"];
+  const args = secrets.flatMap((value, index) => [
+    ["-p", "-P", "-k", "--key-id", "--issuer"][index],
+    value,
+  ]);
+  const env = {
+    MACOS_CERT_P12: "base64-value",
+    MACOS_CERT_PASSWORD: "env-password",
+    APPLE_API_KEY: "-----BEGIN PRIVATE KEY-----\nprivate-key-line\n-----END PRIVATE KEY-----",
+    APPLE_API_KEY_ID: "env-key-id",
+    APPLE_API_ISSUER: "env-issuer",
+    APPLE_TEAM_ID: "env-team",
+    GH_TOKEN: "env-token",
+    CUSTOM_SECRET: "env-secret",
+    EMPTY_SECRET: "",
+    UNDEFINED_SECRET: undefined,
+    PUBLIC_VALUE: "ordinary diagnostic",
+  };
+  const output = `ordinary diagnostic: ${[...secrets, ...Object.values(env).filter(Boolean), "private-key-line", secrets[1]].join("\n")}`;
+  const redacted = redactOutput(output, args, env);
+  for (const value of [
+    ...secrets,
+    ...Object.entries(env)
+      .filter(([name, value]) => name !== "PUBLIC_VALUE" && value)
+      .map(([_name, value]) => value),
+    "private-key-line",
+  ])
+    assert.ok(!redacted.includes(value));
+  assert.ok(redacted.startsWith("ordinary diagnostic:"));
+  assert.ok(!redacted.includes("-longer"), "overlapping credentials are redacted longest first");
+  assert.equal(redactOutput("message", ["-p", ""], {}), "message");
+  assert.equal(redactOutput("x", ["-p"], {}), "x");
+});
+
+test("run reports both redacted tool streams on failure without appending argv", (t) => {
+  const previous = process.env.FOOM_SIGNING_TEST_SECRET;
+  process.env.FOOM_SIGNING_TEST_SECRET = "fixture-env-secret";
+  t.after(() => {
+    if (previous === undefined) delete process.env.FOOM_SIGNING_TEST_SECRET;
+    else process.env.FOOM_SIGNING_TEST_SECRET = previous;
+  });
+  const program = `console.error('import rejected: fixture-password'); console.log('stdout detail: '+process.env.FOOM_SIGNING_TEST_SECRET); process.exit(1);`;
+  assert.throws(
+    () =>
+      run(process.execPath, [
+        "-e",
+        program,
+        "--",
+        "-P",
+        "fixture-password",
+        "argv-must-not-be-printed",
+      ]),
+    (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /import rejected: \[REDACTED\]/);
+      assert.match(error.message, /stdout detail: \[REDACTED\]/);
+      assert.ok(!error.message.includes("fixture-password"));
+      assert.ok(!error.message.includes("fixture-env-secret"));
+      assert.ok(!error.message.includes("argv-must-not-be-printed"));
+      assert.ok(!error.message.includes(program));
+      return true;
+    },
+  );
+  assert.equal(
+    run(process.execPath, ["-e", "process.stdout.write('successful tool output')"]),
+    "successful tool output",
   );
 });

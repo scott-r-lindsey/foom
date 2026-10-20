@@ -6,11 +6,35 @@ import { basename, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { FuseState, FuseV1Options, getCurrentFuseWire, pathToFuseFile } from "@electron/fuses";
 
-// Capture failures ourselves: execFile errors include argv, which may contain
-// certificate identities or API identifiers. Never echo commands or credentials.
+// Environment credentials include the six Release secrets and conventional CI
+// secret/token variables. Match literals, longest first, including PEM lines.
+export function redactOutput(output, args, env = process.env) {
+  const sensitiveFlags = new Set(["-p", "-P", "-k", "--key-id", "--issuer"]);
+  const values = [
+    ...args.filter((_value, index) => sensitiveFlags.has(args[index - 1])),
+    ...Object.entries(env)
+      .filter(([name]) => /SECRET|TOKEN|PASSWORD|PASSWD|KEY|ISSUER|TEAM_ID|CERT/i.test(name))
+      .map(([_name, value]) => value),
+  ].filter((value) => typeof value === "string" && value.length > 0);
+  const literals = [...new Set(values.flatMap((value) => [value, ...value.split(/\r?\n/)]))]
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+  return literals.length
+    ? output.replace(new RegExp(literals.map(RegExp.escape).join("|"), "g"), "[REDACTED]")
+    : output;
+}
+
+// Capture failures ourselves: execFile errors include argv. Include only the
+// tool's redacted output, never argv or the spawn error's command description.
 export function run(command, args) {
   const result = spawnSync(command, args, { encoding: "utf8" });
-  if (result.error || result.status !== 0) throw new Error(`${command} failed`);
+  if (result.error || result.status !== 0) {
+    const output = redactOutput(
+      [result.stderr, result.stdout].filter(Boolean).join("\n"),
+      args,
+    ).trim();
+    throw new Error(`${command} failed${output ? `:\n${output}` : ""}`);
+  }
   return `${result.stdout ?? ""}${result.stderr ?? ""}`;
 }
 
