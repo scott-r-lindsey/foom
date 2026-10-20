@@ -1,3 +1,4 @@
+import { forgeBranch, pullRequest } from "../../../../src/main/control/forge";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -6,13 +7,11 @@ import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { FAKE_GH } from "../../../helpers/forge-cli.js";
 import {
-  forgeBranch,
   forgeProvider,
   githubRepository,
-  pullRequest,
   requiredChecks,
   rollupChecks,
-} from "../../../../src/main/control/forge";
+} from "../../../helpers/legacy-forge";
 const pr = { number: 340, headSha: "a".repeat(40), state: "OPEN", requiredChecks: "pending" };
 const raw = {
   number: 340,

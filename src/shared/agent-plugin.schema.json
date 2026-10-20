@@ -632,6 +632,16 @@
       }
     },
     "observer": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/generatedObserver"
+        },
+        {
+          "$ref": "#/$defs/externalObserver"
+        }
+      ]
+    },
+    "generatedObserver": {
       "type": "object",
       "additionalProperties": false,
       "required": ["transport", "placement", "version", "response", "delivery", "timeoutMs"],
@@ -711,6 +721,16 @@
       "minLength": 1,
       "maxLength": 64,
       "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+    },
+    "externalObserver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transport"],
+      "properties": {
+        "transport": {
+          "const": "external"
+        }
+      }
     },
     "mapping": {
       "type": "object",

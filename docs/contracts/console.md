@@ -112,3 +112,12 @@ with `--prompt-interactive` support receives CLI guidance composed with initial
 prompt data; no MCP configuration is installed.
 
 Offline validation uses `foom config validate PATH`; see [the console ownership contract](../areas/control.md#control-plane).
+
+### Public hook client (#635)
+
+`foom hook EVENT [--channel ID]` dispatches before control discovery, pairing and
+JSON output handling. It reads at most 64 KiB of UTF-8 JSON stdin and sends only
+to the literal loopback hook URL using the environment's launch credential.
+Missing URL/session/token makes it immediately inert with exit 0 and no output,
+stdin read or network call. All outcomes are silent. See [protocol 1](../agent-plugins.md#user-authored-extensions-public-hook-protocol-1-635)
+for channel selection, exit codes and extension ownership.

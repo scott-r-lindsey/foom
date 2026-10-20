@@ -146,6 +146,7 @@ export function agentSchema(source = readFileSync(filename, "utf8")): Schema {
     const declaration = required(declarations.get(name));
     let definition: Schema;
     const unions: Record<string, () => Schema> = {
+      observer: () => ({ oneOf: [named("generatedObserver"), named("externalObserver")] }),
       testValue: () => {
         const result = ts.isFunctionDeclaration(declaration)
           ? declaration.body?.statements.find(ts.isReturnStatement)?.expression

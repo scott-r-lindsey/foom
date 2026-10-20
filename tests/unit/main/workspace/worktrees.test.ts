@@ -1,4 +1,4 @@
-import { forgeProvider } from "../../../../src/main/control/forge";
+import { forgeProvider } from "../../../helpers/legacy-forge";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
 import { git as execute } from "../../../helpers/git.js";

@@ -8,9 +8,13 @@ agents accept only version 2. The config scanner now uses this dispatcher for `a
 wrong-kind files and applies its existing contained-directory, bounded-read and
 watcher rules to both. Each kind has its own 50-file cap and ID namespace.
 
-The first #521 stage implements offline forge validation, a build-locked GitHub
-manifest and a transport-injected interpreter with parity tests. The second stage
-adds a declarative dynamic batch plan with the same parser and interpreter for
-bundled/config copies; it keeps all-check board counts separate from required-only
-conclusions. It grants no CLI,
-host assignment or enablement capability. Settings cards now expose validated manifests and profile-only enablement/host assignments; active-provider migration remains gated. The no-approval/no-Duplicate workflow applies to forge cards. See [current forge ownership](../areas/forge.md).
+Production forge selection uses the build-locked GitHub manifest and the same
+interpreter for bundled/config copies. Dynamic batch plans keep all-check board
+counts separate from required-only conclusions. Main owns bounded scheduling,
+read-only argv execution, auth/executable validation and checkout/ownership policy.
+Only the user's enabled `forgeHosts` assignments authorize routing; manifest host
+declarations grant none. The no-approval/no-Duplicate workflow also applies to
+forge cards. Recorded-fixture parity passed before the production legacy path was
+removed. Optional display enrichment/checks-meaning metadata remain under #521.
+
+See [current forge ownership](../areas/forge.md).

@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
-import { batchForge, parseBatch } from "../../../../src/main/control/forge-batch";
-import { forgeProvider } from "../../../../src/main/control/forge";
+import { batchForge, parseBatch } from "../../../helpers/legacy-forge-batch";
+import { forgeProvider } from "../../../helpers/legacy-forge";
 const sha = "a".repeat(40);
 const match = [{ branch: "feature" }];
 const bound = [{ branch: "feature", number: 12 }];
