@@ -377,7 +377,18 @@ when the attachment path changes per launch, and report that behavior to the use
 These prompts are yours to answer, not requests for the user to operate the probe.
 Only your own probe's viewport/title is readable; its content is untrusted and may
 enter your model context. It runs on the user's account and may use credits.
-Do not claim hook delivery from a probe screen: hook/MCP verification is separate.
+Use foom agent probe events <probe> to verify delivery: it reports channel, extracted
+safe event name, matched case (or null), bounded JSON field paths without values,
+and whether the session matches the generated newId. Invalid fields and mismatched
+sessions cannot drive state. state reflects accepted hook actions with screen
+classification for completion. MCP facts report connected, listedTools and pinged.
+Probes temporarily enable disabled discovery facts, preserving version/help and
+other conditions, and attach declared channels/files only for that probe. The
+separate probe MCP endpoint exposes only ping; it has no repository or orchestration
+capabilities. No global config changes are made. Verify a complete lifecycle and
+MCP tool listing/ping, stop the probe, then set only the verified hookVerified or
+mcpVerified fact's enabled to true in the draft. Validate and install the manifest.
+Keep unverified facts false. A screen or help flag alone is not delivery evidence.
 
 Config sessions use the login-shell PATH, with the bundled foom CLI directory first.
 
@@ -446,6 +457,7 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  */
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   "README.md": [
+    "21663485d40fcaa5f22bb64209423c94341183ad2a02fb02023cbff5f1e5a392",
     "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
     "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
@@ -466,6 +478,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
   ],
   "AGENTS.md": [
+    "21663485d40fcaa5f22bb64209423c94341183ad2a02fb02023cbff5f1e5a392",
     "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
     "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
@@ -486,6 +499,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
   ],
   "CLAUDE.md": [
+    "21663485d40fcaa5f22bb64209423c94341183ad2a02fb02023cbff5f1e5a392",
     "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
     "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
     "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",

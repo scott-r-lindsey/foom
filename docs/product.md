@@ -1020,8 +1020,8 @@ A config session can start and drive one probe at a time with its own bundled
 v2 manifest supplied with `--manifest`, in a fresh temporary Git repository made
 by Foom. It never uses a managed repository or worktree. User default arguments
 are not applied, and known bypass arguments and environment variables are refused.
-The probe receives the login-shell environment without Foom credentials or MCP
-grants. This is a working-directory boundary, not an OS sandbox: the real CLI
+The probe receives the login-shell environment without inherited Foom credentials or repository MCP
+grants. It receives isolated hook and ping-only MCP verification credentials. This is a working-directory boundary, not an OS sandbox: the real CLI
 runs on the user's account, can access files and network as that account, and may
 use credits. Enter is allowed, including at approval prompts.
 
@@ -1052,9 +1052,13 @@ The CLI provides `start <agent> [--manifest <path>] [--resume <conversationId>]`
 `send <probe> <text>` (text followed by Enter),
 `keys <probe> <esc|ctrl-c|enter|up|down|tab>`,
 `wait <probe> --quiet <seconds>` or `--timeout <seconds>`, `screen <probe>`,
-`state <probe>`, and `stop <probe>`, below `foom agent probe`. Screen and state
+`state <probe>`, `events <probe>`, and `stop <probe>`, below `foom agent probe`. Screen and state
 results are JSON. Quiet waits reset on output; timeout waits wait the requested
 elapsed time. Both are bounded by the probe's remaining lifetime.
 
-Captures, rule-test authoring, hook/MCP verification and guide automation are
-separate follow-on work (#592–#594).
+`events` reports bounded hook field paths and mapping facts without payload values,
+and whether its isolated MCP endpoint was connected, listed or pinged. Probe-only
+preparation enables disabled verification facts while preserving version/help gates;
+normal launches retain them. `state` reflects accepted hook actions. The probe MCP
+endpoint exposes only ping and cannot access repository or orchestration tools.
+Captures, rule-test authoring and guide automation are separate work (#592, #594).

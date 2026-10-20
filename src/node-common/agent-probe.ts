@@ -16,7 +16,7 @@ export type ProbeRequest =
   | { action: "send"; probe: string; text: string }
   | { action: "keys"; probe: string; key: keyof typeof PROBE_KEYS }
   | { action: "wait"; probe: string; quiet?: number; timeout?: number }
-  | { action: "screen" | "state" | "stop"; probe: string };
+  | { action: "screen" | "state" | "events" | "stop"; probe: string };
 const invalid = (): never => {
   throw new ControlError("invalid_request");
 };
@@ -97,6 +97,7 @@ export function probeRequest(input: unknown): ProbeRequest {
         ...(quiet === undefined ? { timeout: seconds } : { quiet: seconds }),
       };
     }
+    case "events":
     case "screen":
     case "state":
     case "stop":

@@ -8,6 +8,7 @@ import type { ConfigStatus } from "../../shared/foom-config";
 import type { TerminalSpec } from "../../shared/desktop";
 import type { AgentProvider } from "./providers/provider";
 import { evaluateRules } from "../evaluator/evaluator";
+import type { PreparedProbe } from "./probe-launch";
 import { prepareProbe, probeEnvironment, probeProvider, scratchRepository } from "./probe-launch";
 
 type Probe = {
@@ -17,6 +18,7 @@ type Probe = {
   provider?: AgentProvider;
   conversationId?: string | undefined;
   dispose?: () => void;
+  prepared?: PreparedProbe;
   timer?: ReturnType<typeof setTimeout>;
   stopping?: Promise<void>;
   cleaning?: Promise<void>;
@@ -136,6 +138,13 @@ export class AgentProbes {
     this.owned(token, probe);
     const id = probe.terminal;
     switch (request.action) {
+      case "events":
+        return (
+          probe.prepared?.events?.() ?? {
+            hooks: [],
+            mcp: { connected: false, listedTools: false, pinged: false },
+          }
+        );
       case "stop":
         await this.stop(probe);
         if (this.sessions.get(token) === probe) this.sessions.set(token, null);
@@ -169,11 +178,22 @@ export class AgentProbes {
             ...(lines === undefined ? {} : { lines }),
           })),
         );
+        const hook = probe.prepared?.hook?.();
+        const state =
+          hook?.action === "working"
+            ? "working"
+            : hook?.action === "needs_input"
+              ? "needs_input"
+              : hook?.action === "failed"
+                ? "failed"
+                : hook?.action === "ready"
+                  ? "quiet_ok"
+                  : verdict.state;
         const prefix = `rules:${probe.provider?.id ?? ""}:`;
         return {
-          state: verdict.state,
+          state,
           ruleId: verdict.signal.startsWith(prefix) ? verdict.signal.slice(prefix.length) : null,
-          hookEvent: null,
+          hookEvent: hook?.caseId ?? null,
           conversationId: probe.conversationId ?? null,
         };
       }
@@ -208,6 +228,7 @@ export class AgentProbes {
       probe.cwd = cwd;
       this.owned(token, probe);
       const prepared = await this.operations.prepare(provider, request, cwd, env);
+      probe.prepared = prepared;
       probe.dispose = () => {
         prepared.dispose();
       };

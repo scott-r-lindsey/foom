@@ -260,8 +260,18 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   const launch = JSON.parse(await readFile(details, "utf8"));
   assert.notEqual(launch.cwd, home);
   assert.notEqual(launch.cwd, path.join(home, ".foom/config"));
-  assert.deepEqual(launch.env, []);
-  assert.deepEqual(launch.args, []);
+  assert.deepEqual(
+    launch.env.sort(),
+    [
+      "FOOM_CHANNEL_lifecycle",
+      "FOOM_CONTROL_TOKEN",
+      "FOOM_HOOK_URL",
+      "FOOM_SESSION",
+      "FOOM_TOKEN",
+    ].sort(),
+  );
+  assert.equal(launch.args[0], "--plugin-dir");
+  assert.ok(path.isAbsolute(launch.args[1]));
   await page
     .getByRole("button", {
       name: "Actions for opencode · Probe in Foom config",
@@ -322,6 +332,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "OpenCode", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
+  await require("node:fs/promises").rm(attachment, { force: true });
   await page.evaluate(async () => {
     const repository = (await window.desktop.workspace()).repositories[0].path;
     await window.desktop.sidebarCommand({

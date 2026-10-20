@@ -1,7 +1,9 @@
 import type { AgentManifestV2, ManifestChannel } from "../../../shared/agent-manifest-v2";
 import { reduceV2, type V2HookState } from "./v2-events";
 import type { HookAgent, HookSignal } from "../../../shared/hooks";
+import type { ProbeHookObserver } from "../probe-events";
 export type HookSession = {
+  observe?: ProbeHookObserver | undefined;
   terminalId: string;
   agent: HookAgent;
   digest: Buffer;

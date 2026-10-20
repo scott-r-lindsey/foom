@@ -1850,3 +1850,35 @@ manifest capability, not the current profile's hooks preference or CLI installat
 
 The optional warning about bypass flags in CLI help is skipped: offline validation
 has no previously captured help output, and never runs a help probe.
+
+## Probe hook and MCP verification (#593)
+
+Config sessions can run `foom agent probe events <probe>` using the same private
+config-session credential as `config status`. Foreign, stopped and unknown probe
+IDs are unreadable. This returns up to 128 hook observations and MCP booleans
+`connected`, `listedTools`, and `pinged`. Each hook observation contains `channel`,
+`event` (a safe extracted event name or null), `caseId` (accepted mapping case or
+null), `paths`, and `sessionMatchesNewId`. Raw JSON values are discarded. Paths
+are limited to depth four, 128 per event and 256 characters each; unsafe keys,
+including controls and ambiguous separators, are omitted. Event names must be
+ASCII identifiers of at most 64 characters. No hook payload is logged or persisted.
+
+Only probe preparation temporarily enables disabled discovery facts. Version/help
+requirements and other conditions still apply; normal launches keep their gates.
+Declared hook channels and launch files can therefore be measured before setting
+`hookVerified` or `mcpVerified` to true. `probe state` reflects accepted working,
+ready, needs-input and failed hooks; completion hooks request screen classification.
+Rejected session IDs and malformed events cannot change live state.
+
+Each probe has a separate MCP listener and fresh credential. It exposes only `ping`,
+never control or orchestration tools, including when invoked by name. Existing MCP
+templates reference the probe credential through `FOOM_CONTROL_TOKEN`; this is not
+a control grant. Successful initialization records connected, tool listing records
+listedTools, and a successful ping tool call records pinged. Stop, exit, failed
+preparation and config-session revocation revoke both hook and MCP capabilities.
+No global agent settings are edited.
+
+Drive a full lifecycle with the fixture/CLI, inspect events and state, and test
+MCP tool listing/ping. Stop the probe, then enable only the facts actually verified
+in the draft manifest, validate it and install it. Keep unverified facts disabled;
+help output, a valid template or a screen alone does not verify delivery.

@@ -2295,9 +2295,9 @@ empty init template directory. Agent discovery and launches also use argument
 arrays. A supplied manifest is descriptor-bounded to 64 KiB, rejects final links
 and nonregular files, uses the strict v2 parser and must name the requested agent.
 It is captured immutably for that probe and never installed in the registry.
-The launch uses no user defaults, control/MCP grant or hook attachment. Known
+The launch uses no user defaults or repository control grant. Its isolated hook/MCP verification is described below. Known
 manifest bypass arguments and environment conditions are refused before PTY
-creation. Hooks and MCP verification are reserved for #593.
+creation. Hook and MCP verification use only probe-owned capabilities (#593).
 
 The fixed login-shell environment query uses `readLoginShell` with ignored stdin,
 a detached Unix session, bounded output and a deadline. Scratch Git initialization
@@ -2340,7 +2340,7 @@ honors this projection across execution events and drops it when main clears it.
 The fixture harness may inject a shorter delay; no config setting or renderer IPC
 can change it. A profile-only list of agent IDs records the terse first-probe credit
 note; it contains no terminal content or credential. Session persistence excludes
-probe rows. Captures and test rules (#592), verification (#593), and the guide
+probe rows. Captures and test rules (#592) and the guide
 workflow (#594) are deliberately outside this change.
 
 ### Config decisions and live launch catalogs (#591 follow-up)
@@ -2360,3 +2360,17 @@ from loaded provider identities, with absent enablement meaning enabled, matchin
 workspace launches. Preload accepts bounded syntactic via-provider commands; main
 still validates installed IDs and launch authority. MCP tools/list resolves the
 current registry for each request, including existing MCP sessions.
+
+### Probe verification (#593)
+
+Probe preparation clones the provider model and enables disabled discovery facts
+only in that clone. Normal launches retain their loaded gates. A private hook
+receiver reduces payloads through the same immutable channel mapping and retains
+only bounded field paths and match facts for the credential-owned `events` command;
+see [the verification contract](agent-plugins.md#probe-hook-and-mcp-verification-593).
+Accepted hook actions contribute to `state`; rejected or foreign sessions do not.
+A per-probe MCP listener implements initialization, listing and a single `ping`
+tool without importing or delegating to ControlService or the orchestration MCP
+server. Its fresh credential shares only the probe launch lifetime. Even explicitly
+named control/orchestration tools are refused. Metadata stays in memory until
+cleanup, never in session persistence or the renderer.

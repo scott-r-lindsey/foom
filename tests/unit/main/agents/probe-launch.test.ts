@@ -105,7 +105,7 @@ test("captures only a strict v2 manifest with matching identity", async () => {
   }
 });
 test.skipIf(process.platform === "win32")(
-  "launches only a fixture with no defaults, hooks or control and refuses bypass",
+  "launches only a fixture with isolated hooks and MCP credentials and refuses bypass",
   async () => {
     const command = join(root, "copilot");
     await writeFile(
@@ -137,11 +137,14 @@ test.skipIf(process.platform === "win32")(
     await expect(
       prepareProbe(metadataBypass, { action: "start", agent: "copilot" }, root, { PATH: root }),
     ).rejects.toThrow("bypass environment refused");
-    const prepare = vi.spyOn(provider, "prepareLaunch");
+
     const prepared = await prepareProbe(provider, { action: "start", agent: "copilot" }, root, {
       PATH: root,
     });
-    expect(prepare.mock.calls[0]?.slice(2)).toEqual([[], undefined, false, false]);
+    expect(prepared.events?.()).toEqual({
+      hooks: [],
+      mcp: { connected: false, listedTools: false, pinged: false },
+    });
     expect(prepared.spec).toMatchObject({
       cwd: root,
       replaceEnvironment: true,
@@ -160,15 +163,18 @@ test.skipIf(process.platform === "win32")(
         ),
       }),
     ).rejects.toThrow("bypass environment refused");
-    const dispose = vi.fn();
-    prepare.mockResolvedValueOnce({ args: ["--allow-all-tools"], mcp: false, dispose });
+    const bypass = {
+      ...provider,
+      model: {
+        ...provider.model,
+        launch: {
+          ...provider.model.launch,
+          arguments: { arguments: ["--allow-all-tools"], when: undefined },
+        },
+      },
+    };
     await expect(
-      prepareProbe(provider, { action: "start", agent: "copilot" }, root, { PATH: root }),
-    ).rejects.toThrow("bypass arguments refused");
-    expect(dispose).toHaveBeenCalledOnce();
-    prepare.mockResolvedValueOnce({ args: [], mcp: true, dispose });
-    await expect(
-      prepareProbe(provider, { action: "start", agent: "copilot" }, root, { PATH: root }),
+      prepareProbe(bypass, { action: "start", agent: "copilot" }, root, { PATH: root }),
     ).rejects.toThrow("bypass arguments refused");
     await writeFile(command, "#!/bin/sh\nexit 1\n", { mode: 0o700 });
     const final = await prepareProbe(
