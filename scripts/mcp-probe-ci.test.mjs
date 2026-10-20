@@ -168,10 +168,10 @@ test("green does not create an issue; API failures remain failures", async () =>
 });
 test("nightly probe runs independently with narrowly scoped permissions and no publish dependency", async () => {
   const workflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  const job = workflow.split("\n  mcp-probe:\n")[1].split("\n  nightly:\n")[0];
+  const job = workflow.split("\n  mcp-probe:\n")[1].split("\n  macos-sign:\n")[0];
   assert.match(
     job,
-    /if: github.event_name == 'schedule' \|\| github.event_name == 'workflow_dispatch'/,
+    /if: github.event_name == 'schedule' \|\| \(github.event_name == 'workflow_dispatch' && !inputs.check_macos_credentials\)/,
   );
   assert.doesNotMatch(job, /needs:|contents: write|secrets\.|continue-on-error|pull_request/);
   assert.match(job, /permissions:\n {6}contents: read\n {6}issues: write/);

@@ -192,3 +192,54 @@ See [Agent hooks](areas/agent-hooks.md) and [public hook protocol 1](agent-plugi
 ### Probe verification (#593)
 
 See [probe verification](areas/probes.md#probe-verification-593).
+
+## Packaging and macOS signing (#601)
+
+Forge owns one fresh production build before packaging. It seals ASAR and fuses,
+then invokes `scripts/macos-sign.mjs adhoc` on macOS, including PR CI. Every
+regular Mach-O file is discovered by its header and signed before its containing
+framework/helper/application bundle; symlink aliases are skipped. Developer ID
+signing never uses `--deep`. Strict verification does use `--deep`.
+
+The bundle identifier is `com.foom-term.foom`. Existing macOS installs previously
+used `com.foom.desktop`. Electron's default user-data path is based on the app
+name, so this identifier change keeps `~/Library/Application Support/Foom`.
+The safeStorage Keychain service remains based on the product name, but the
+changed signing identity/designated requirement can require Keychain access
+approval for the existing `Foom Safe Storage` item. Existing encrypted data is
+not migrated, copied or deleted by this change.
+
+After the Quality gate, a main-only `Release` environment job downloads the
+already-tested macOS ZIP, signs it with Developer ID and hardened runtime plus
+secure timestamp, notarizes through notarytool API-key mode, staples and verifies
+it. It preserves the ASAR bytes, embedded integrity record and hardened fuse
+values, and re-zips with `ditto -c -k --keepParent` without rebuilding. It must
+pass strict codesign verification, Gatekeeper assessment reporting `Notarized
+Developer ID`, and stapler validation. A separate publisher with contents write
+permission consumes that signed artifact alongside tested Linux/Windows ZIPs;
+the signing job has only contents read permission and no publication authority.
+
+The only Developer ID entitlement is `com.apple.security.cs.allow-jit` for
+Electron/V8 (main and helpers, including the utility host) and the Node 24 SEA
+console. node-pty's native addon is signed with the same team and needs no
+library-validation exception. Its spawn-helper and native observers need no
+entitlements. No unsigned executable-memory or sandbox-inheritance exception
+is granted. Ad-hoc runtime signatures additionally disable library validation
+because they lack a team identity; Developer ID signatures never do.
+
+Only `macos-sign` and `macos-credentials` declare `environment: Release` and can
+read `MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`,
+`APPLE_API_ISSUER`, and `APPLE_TEAM_ID`. Both are restricted to scheduled/opt-in
+manual main runs (credential checks are manual only). PR jobs have no secret
+references. Temporary mode-600 certificate/private-key files and a random-password
+keychain are removed in an `always()` step, even on failure. Required Apple CLI
+password/identifier arguments are allowed on these ephemeral runners, with env
+inputs, generated/derived masking, and no command tracing or credential logging.
+
+After merge, run CI on main with `check_macos_credentials: true` alone. This
+imports the certificate, requires exactly one Developer ID Application identity
+for the configured team, and runs `notarytool history`, without an application
+build or artifact upload. Once it passes, run CI on main with
+`publish_nightly: true` and credential checking disabled. These are human
+operations; neither is dispatched by the implementation. Windows remains unsigned
+(#665); versioned releases and auto-update are separate work.

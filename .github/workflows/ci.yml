@@ -24,6 +24,10 @@ on:
         description: Publish tested main packages to the rolling nightly prerelease
         type: boolean
         default: false
+      check_macos_credentials:
+        description: Check Release Apple credentials on main without building or uploading
+        type: boolean
+        default: false
       upload_packages:
         description: Upload unsigned development ZIPs (retained for 3 days)
         type: boolean
@@ -44,6 +48,7 @@ jobs:
   # Desktop jobs need only this fast job, so they start alongside static checks.
   changes:
     name: Change detection
+    if: github.event_name != 'workflow_dispatch' || !inputs.check_macos_credentials
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -63,6 +68,7 @@ jobs:
 
   checks:
     name: Static checks
+    if: github.event_name != 'workflow_dispatch' || !inputs.check_macos_credentials
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -89,6 +95,7 @@ jobs:
 
   unit:
     name: Unit tests and coverage
+    if: github.event_name != 'workflow_dispatch' || !inputs.check_macos_credentials
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -308,6 +315,15 @@ jobs:
       - name: Test packaged terminal host on macOS and Windows
         if: runner.os != 'Linux'
         run: pnpm run test:packaged
+      - name: Exercise tested-ZIP signing path ad-hoc without Apple credentials
+        if: runner.os == 'macOS'
+        run: |
+          zips=(out/make/zip/darwin/arm64/*.zip)
+          test "${#zips[@]}" -eq 1
+          node scripts/macos-sign.mjs adhoc-zip "${zips[0]}" "$RUNNER_TEMP/adhoc-signed"
+      - name: Remove ad-hoc ZIP signing scratch
+        if: always() && runner.os == 'macOS'
+        run: node scripts/macos-credentials.mjs cleanup
       - name: Upload native and packaged timing and process diagnostics
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -330,7 +346,7 @@ jobs:
 
   quality:
     name: Quality gate
-    if: always()
+    if: always() && !(github.event_name == 'workflow_dispatch' && inputs.check_macos_credentials)
     needs: [changes, checks, unit, desktop, platform]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -354,7 +370,7 @@ jobs:
 
   mcp-probe:
     name: Real CLI MCP probe
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.check_macos_credentials)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -408,12 +424,107 @@ jobs:
             }
             await reportIssue(github, context, report);
 
-  nightly:
-    name: Publish nightly
+
+  # Credential rule: P12 contents and .p8 private key travel only through env or
+  # mode-600 files in RUNNER_TEMP, removed by always() cleanup. Apple's required
+  # argv interfaces may receive API key ID/issuer/key path, signing identity/team,
+  # import password and random keychain password (including partition-list).
+  # Secrets enter through step env, never interpolation into run text. The runner
+  # is ephemeral and single-tenant. Mask generated passwords/derived identities;
+  # never enable shell tracing, command echoing or credential debug output.
+  macos-sign:
+    name: Sign and notarize tested macOS ZIP
     needs: [changes, quality]
     if: >-
       needs.quality.result == 'success' && needs.changes.outputs.desktop_required == 'true' &&
       github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_nightly && !inputs.check_macos_credentials))
+    runs-on: macos-15
+    timeout-minutes: 30
+    environment: Release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: Foom-macos-15
+          path: tested-macos
+      - name: Import Release credentials
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: node scripts/macos-credentials.mjs setup
+      - name: Sign, notarize, staple and verify the tested ZIP without rebuilding
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          zips=(tested-macos/*.zip)
+          test "${#zips[@]}" -eq 1
+          node scripts/macos-sign.mjs release "${zips[0]}" signed-macos
+      - name: Delete temporary keychain and credential files
+        if: always()
+        run: node scripts/macos-credentials.mjs cleanup
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Foom-macos-signed
+          path: signed-macos/*.zip
+          if-no-files-found: error
+          retention-days: 3
+
+  macos-credentials:
+    name: Check macOS Release credentials
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.check_macos_credentials
+    runs-on: macos-15
+    timeout-minutes: 10
+    environment: Release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Import and confirm exactly one Developer ID identity for the team
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: node scripts/macos-credentials.mjs setup
+      - name: List notary submissions without building or uploading
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: node scripts/macos-credentials.mjs check
+      - name: Delete temporary keychain and credential files
+        if: always()
+        run: node scripts/macos-credentials.mjs cleanup
+
+  nightly:
+    name: Publish nightly
+    needs: [changes, quality, macos-sign]
+    if: >-
+      needs.quality.result == 'success' && needs.macos-sign.result == 'success' &&
+      needs.changes.outputs.desktop_required == 'true' && github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_nightly))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -436,7 +547,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
-        run: gh run download "$RUN_ID" --name Foom-ubuntu-24.04 --name Foom-windows-2025 --name Foom-macos-15 --dir nightly-packages
+        run: gh run download "$RUN_ID" --name Foom-ubuntu-24.04 --name Foom-windows-2025 --name Foom-macos-signed --dir nightly-packages
       - name: Publish rolling prerelease
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:

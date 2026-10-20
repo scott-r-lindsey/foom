@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <!-- Electron V8 (including the utility host) and Node SEA require MAP_JIT. -->
+  <key>com.apple.security.cs.allow-jit</key><true/>
+  <!-- Ad-hoc binaries have no team identity; permit our re-signed native modules.
+       This exception is never used by Developer ID builds. -->
+  <key>com.apple.security.cs.disable-library-validation</key><true/>
+</dict></plist>

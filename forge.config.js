@@ -13,14 +13,17 @@ module.exports = {
       );
     },
     // Seal the finished bundle after fuses, ASAR creation and helper copying.
-    // This is ad-hoc signing only; no identity, keychain or notarization is used.
+    // Local/PR packages exercise the release signer with an ad-hoc identity.
+    // Developer ID signing happens later on the tested ZIP, never during a build.
     postPackage: async (_config, result) => {
       if (result.platform !== "darwin") return;
       const { execFileSync } = require("node:child_process");
       for (const output of result.outputPaths) {
         const app = require("node:path").join(output, "Foom.app");
-        execFileSync("codesign", ["--force", "--deep", "--sign", "-", app], { stdio: "inherit" });
-        execFileSync("codesign", ["--verify", "--deep", "--strict", app], { stdio: "inherit" });
+        execFileSync(process.execPath, ["scripts/macos-sign.mjs", "adhoc", app], {
+          cwd: __dirname,
+          stdio: "inherit",
+        });
       }
     },
     // The helper is a console Node SEA, never Electron's GUI executable.
@@ -35,7 +38,7 @@ module.exports = {
   packagerConfig: {
     asar: { unpack: "**/build/{observers,console}/**/*", unpackDir: "**/node_modules/node-pty/**" },
     executableName: "Foom",
-    appBundleId: "com.foom.desktop",
+    appBundleId: "com.foom-term.foom",
     // Include production dependencies; native PTY binaries and helpers must live outside ASAR.
     ignore: (file) =>
       !["", "/package.json", "/LICENSE", "/NOTICE"].includes(file) &&

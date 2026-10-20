@@ -315,12 +315,12 @@ test("nightly publication waits for the full gate and reuses companion job packa
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   const platform = workflow.split("\n  platform:\n")[1].split("\n  quality:\n")[0];
   const nightly = workflow.split("\n  nightly:\n")[1];
-  assert.match(nightly, /needs: \[changes, quality\]/);
+  assert.match(nightly, /needs: \[changes, quality, macos-sign\]/);
   assert.match(nightly, /needs\.quality\.result == 'success'/);
   assert.match(nightly, /needs\.changes\.outputs\.desktop_required == 'true'/);
   assert.match(
     nightly,
-    /gh run download "\$RUN_ID" --name Foom-ubuntu-24.04 --name Foom-windows-2025 --name Foom-macos-15/,
+    /gh run download "\$RUN_ID" --name Foom-ubuntu-24.04 --name Foom-windows-2025 --name Foom-macos-signed/,
   );
   assert.doesNotMatch(nightly, /pnpm run make/);
   assert.match(platform, /name: Foom-\$\{\{ matrix\.os \}\}/);
