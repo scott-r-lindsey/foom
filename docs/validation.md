@@ -44,7 +44,7 @@ Account owners should configure an Actions budget with **Stop usage when budget 
 
 Local `package` output goes to `out/`; `make` ZIPs go to `out/make/`. Build on each target OS. These are ad-hoc development artifacts on macOS and unsigned on Linux/Windows. Published macOS nightlies are Developer ID signed, notarized and stapled in the main-only `Release` job after the Quality gate; the publisher waits for its signed artifact. See [packaging and signing](architecture.md#packaging-and-macos-signing-601) for credentials, entitlements and the manual credential check. Windows signing remains #665; public versioned releases still need icons/installers and release configuration. The rolling nightly is a public prerelease, never Latest; its tag points to the tested commit. Publication reuses the tested ZIPs. CI stamps the version only in its disposable checkout, leaving the committed package and lockfile versions unchanged. A serialized publisher ignores duplicate or older commits. Versioned releases and auto-update remain out of scope.
 
-The independent Real CLI MCP probe runs on every scheduled and manual dispatch,
-including nights without changes to main. It is excluded from the Quality gate and
+The independent Real CLI MCP probe runs on every scheduled and manual dispatch
+except credential-only checks, including nights without changes to main. It is excluded from the Quality gate and
 nightly publication dependencies; its isolated real-CLI policy is documented in
 [AGENTS.md](../AGENTS.md#validation-and-delivery).
