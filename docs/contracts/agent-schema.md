@@ -17,7 +17,7 @@ security checks beyond JSON Schema. `examples/agent.json` is a generic starter;
 | Primitive | Definition |
 | --- | --- |
 | Manifest | Strict UTF-8 JSON, <=64 KiB original bytes, depth <=24, <=8192 total JSON nodes; no BOM |
-| ID | 1–40 lowercase ASCII letters/digits/hyphens, first letter; filename <id>.json; shell and bundled IDs reserved for config files |
+| ID | 1–40 lowercase ASCII letters/digits/hyphens, first letter; filename <id>.json; `shell`, `all`, `constructor`, `prototype` and bundled IDs (`claude`, `codex`, `agy`) reserved for config files |
 | Text | 1–4096 Unicode code units unless narrower below; no Cc/Cf/Co/Cs or U+2028/U+2029; literal rendered text |
 | Multiline template | <=16384 bytes each, LF and tab allowed; other hidden/control characters forbidden; aggregate template bytes <=32768 |
 | Argv | <=64 nonempty Text entries; <=256 expanded entries/65536 bytes per process invocation, each expanded entry <=20480 bytes (prompt may contain LF/tab); no shell evaluation |
