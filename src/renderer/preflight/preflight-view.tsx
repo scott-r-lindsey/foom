@@ -248,11 +248,7 @@ function PreflightContents({
       const update = await source.apply([...selection.selected]);
       setRepositories(update.repositories);
       if (update.failures.length) {
-        setError(
-          update.failures
-            .map((failure) => `${failure.path.split(/[\\/]/).at(-1) ?? ""}: ${failure.message}`)
-            .join(". "),
-        );
+        setError("Unable to update repositories.");
         restoreSelection(update.repositories);
         return false;
       }

@@ -5,7 +5,7 @@ import {
   useBackgroundErrors,
   captureErrorFocus,
 } from "./error-presentation";
-import type { ComponentProps } from "react";
+import type { ComponentProps, SetStateAction } from "react";
 import type { ReactNode } from "react";
 import {
   useCallback,
@@ -101,7 +101,11 @@ function BoardContents({
   const [prune, setPrune] =
     useState<Extract<SidebarCommand, { kind: "remove-worktree" | "prune-worktree" }>>();
   const actionOriginRef = useRef<Element | null>(null);
-  const [removeError, setRemoveError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const setRemoveError = useCallback((message: SetStateAction<string>) => {
+    setPrune(undefined);
+    setActionMessage(message);
+  }, []);
   const [logOpen, setLogOpen] = useState(false);
   const settingsOpen = Boolean(settingsView) || logOpen;
   const paneInactive = inactive || settingsOpen;
@@ -343,6 +347,7 @@ function BoardContents({
       setFocusRequest,
       reportBackground,
       clearBackground,
+      setRemoveError,
     ],
   );
   const initialSessionOpenedRef = useRef(false);
@@ -404,9 +409,9 @@ function BoardContents({
       })
       .catch((error: unknown) => {
         if (value.kind === "resume-id") throw error;
+        setRemoveError(errorMessage(error, commandFailures[value.kind]));
         if (value.kind === "remove-worktree" && applicationErrorCode(error) === "worktree-prunable")
           setPrune(value);
-        setRemoveError(errorMessage(error, commandFailures[value.kind]));
       });
   };
   const runSidebarCommand = useEffectEvent(command);
@@ -504,6 +509,7 @@ function BoardContents({
       source,
       inactive,
       focusedRow,
+      setRemoveError,
       selected,
       open,
       onSettings,
@@ -604,10 +610,10 @@ function BoardContents({
         }
       }}
     >
-      {removeError && (
+      {actionMessage && (
         <ActionError
           returnFocus={() => actionOriginRef.current}
-          message={removeError}
+          message={actionMessage}
           close={() => {
             setRemoveError("");
           }}

@@ -498,9 +498,7 @@ test("a refused or failed selection keeps you on Repositories with the reason", 
     failures: [{ path: "/home/me/code/app", message: "Has 1 worktree Foom made; remove it first" }],
   });
   fireEvent.click(button("Continue"));
-  expect((await screen.findByRole("alert")).textContent).toBe(
-    "app: Has 1 worktree Foom made; remove it first",
-  );
+  expect((await screen.findByRole("alert")).textContent).toBe("Unable to update repositories.");
   expect(screen.getByText("Where do you keep your code?")).toBeTruthy();
   source.apply.mockRejectedValueOnce(new Error("Choose repositories from the latest scan"));
   fireEvent.click(button("Continue"));
@@ -709,7 +707,7 @@ test("Settings rolls back refused repository changes and prevents leaving during
       failures: [{ path: "/home/me/code/app", message: "Repository unavailable" }],
     });
   });
-  expect(screen.getByRole("alert").textContent).toContain("Repository unavailable");
+  expect(screen.getByRole("alert").textContent).toBe("Unable to update repositories.");
   expect(screen.getByRole("checkbox", { name: /app/ })).toHaveProperty("checked", false);
   source.apply.mockRejectedValueOnce(new Error("Cannot write"));
   fireEvent.click(screen.getByRole("checkbox", { name: /app/ }));

@@ -1,3 +1,4 @@
+import { ApplicationError } from "../../../../src/shared/application-errors";
 import type { BoardCommand } from "../../../../src/shared/board-command";
 // @vitest-environment jsdom
 import { boardRows as sampleRows } from "../../../fixtures/board";
@@ -383,6 +384,15 @@ test("board opens the launcher without routing typing to shortcuts and reports r
   });
   expect(screen.getByRole("alert").textContent).toBe("Unable to remove worktree.");
   fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+  remove.mockRejectedValueOnce(new ApplicationError("worktree-prunable"));
+  fireEvent.click(screen.getByRole("button", { name: "Actions for fix/session-restore" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("menuitem", { name: "Delete worktree…" }));
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("alert").textContent).toBe("This worktree needs pruning.");
+  expect(screen.getByRole("button", { name: "Prune" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   remove.mockRejectedValueOnce("failure");
   fireEvent.click(screen.getByRole("button", { name: "Actions for fix/session-restore" }));
   await act(async () => {
@@ -390,6 +400,7 @@ test("board opens the launcher without routing typing to shortcuts and reports r
     await Promise.resolve();
   });
   expect(screen.getByRole("alert").textContent).toBe("Unable to remove worktree.");
+  expect(screen.queryByRole("button", { name: "Prune" })).toBeNull();
 });
 
 test("opens the action log from the app command and restores the terminal pane on close", async () => {
