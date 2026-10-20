@@ -53,6 +53,7 @@ test.each([
   ["terminal-host/example.ts", 'import { Terminal } from "@xterm/headless";'],
   ["shared/example.ts", 'import type { IParser } from "@xterm/xterm";'],
   ["shared/example.ts", 'export type { HostRequest } from "./terminal-host";'],
+  ["preload/example.ts", 'import { isBoardCommand } from "../shared/board-commands";'],
   ["preload/example.ts", 'import { contextBridge } from "electron";'],
   ["preload/example.ts", 'import type { DesktopApi } from "../shared/desktop";'],
   ["preload/example.ts", 'import { type DesktopApi } from "../shared/desktop";'],

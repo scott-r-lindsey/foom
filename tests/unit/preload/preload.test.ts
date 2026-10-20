@@ -1,3 +1,5 @@
+import { BOARD_ACTIONS } from "../../../src/shared/board-commands";
+import { createCommands } from "../../../src/main/window/commands";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { DesktopApi } from "../../../src/shared/desktop";
 const mock = vi.hoisted(() => ({
@@ -843,4 +845,32 @@ test("preview placement waits for board mount, expires stale requests and bounds
     expect(next).toHaveBeenCalledWith("new", expiresAt);
   });
   now.mockRestore();
+});
+
+test("every main board action crosses the preload, including a newly registered agent", async () => {
+  const api = await bridge();
+  const callback = vi.fn<(command: string) => void>();
+  api.onBoardCommand(callback);
+  const listener = mock.on.mock.calls.find(([channel]) => channel === "board:command")?.[1];
+  const board = vi.fn<(command: string) => void>();
+  const commands = createCommands("linux", true, { board, zoom: vi.fn(), native: vi.fn() }, [
+    { id: "new-provider", name: "New", mark: "NP" },
+  ]);
+  for (const command of commands) await command.run();
+  const emitted = board.mock.calls.map(([command]) => command);
+  expect(new Set(emitted)).toEqual(new Set([...BOARD_ACTIONS, "via-new-provider"]));
+  for (const command of emitted) listener?.({}, command);
+  expect(callback.mock.calls.map(([command]) => command)).toEqual(emitted);
+  for (const invalid of [
+    "via-",
+    "via-UPPER",
+    "via-a".padEnd(46, "a"),
+    "via-a\n",
+    "unknown",
+    null,
+    {},
+    1,
+  ])
+    listener?.({}, invalid);
+  expect(callback).toHaveBeenCalledTimes(emitted.length);
 });

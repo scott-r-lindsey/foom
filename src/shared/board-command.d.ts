@@ -1,33 +1,4 @@
 import type { AgentId } from "./agents";
-export type BoardCommand =
-  | `via-${AgentId}`
-  | "action-log"
-  | "sidebar"
-  | "toggle-sidebar"
-  | "next-waiting"
-  | "settings"
-  | "new-worktree"
-  | "add-repository"
-  | "tidy-tiles"
-  | "tile-1"
-  | "tile-2"
-  | "tile-3"
-  | "tile-4"
-  | "tile-5"
-  | "tile-6"
-  | "tile-7"
-  | "tile-8"
-  | "tile-9"
-  | "swap-left"
-  | "swap-right"
-  | "swap-up"
-  | "swap-down"
-  | "maximize"
-  | "left"
-  | "right"
-  | "up"
-  | "down"
-  | "split-right"
-  | "split-down"
-  | "close-tile"
-  | "hide-session";
+import type { BOARD_ACTIONS } from "./board-commands";
+
+export type BoardCommand = (typeof BOARD_ACTIONS)[number] | `via-${AgentId}`;

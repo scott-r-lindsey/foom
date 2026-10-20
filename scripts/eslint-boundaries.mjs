@@ -31,7 +31,7 @@ export const processBoundaries = {
       boundary: "{{from}} cannot import {{to}} code; use shared contracts and IPC.",
       browser: "{{from}} must stay browser-safe; {{module}} is a platform capability.",
       preload:
-        "Sandboxed preload runtime imports are limited to electron; use type-only shared contracts.",
+        "Sandboxed preload runtime imports are limited to electron and the bundled board-commands registry; use type-only shared contracts.",
     },
   },
   create(context) {
@@ -52,7 +52,14 @@ export const processBoundaries = {
         context.report({ node, messageId: "boundary", data: { from, to } });
         return;
       }
-      if (from === "preload" && !typeOnly && name !== "electron") {
+      if (
+        from === "preload" &&
+        !typeOnly &&
+        name !== "electron" &&
+        !(
+          local && resolve(dirname(filename), name) === resolve(sourceRoot, "shared/board-commands")
+        )
+      ) {
         context.report({ node, messageId: "preload" });
         return;
       }
