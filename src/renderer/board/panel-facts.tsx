@@ -76,6 +76,8 @@ const actionNames: Record<OrchestrationEntry["action"], string> = {
   remove_worktree: "Remove worktree",
   take_over: "You took over",
   reply: "Reviewed reply",
+  prompt: "Prompt",
+  send_keys: "Send keys",
 };
 const statusNames: Record<OrchestrationEntry["status"], string> = {
   pending_confirmation: "awaiting your confirmation",
@@ -94,7 +96,9 @@ function OrchestrationFacts({ view, source }: { view: OrchestrationView; source:
     return (
       <Fact label="Orchestrator">
         {parent ? `${parent.repository} › ${parent.branch}` : "Closed"}{" "}
-        <Sub>{view.takenOver ? "· You took over" : "· Can stop and read this session"}</Sub>
+        <Sub>
+          {view.takenOver ? "· You took over" : "· Can send input, stop and read this session"}
+        </Sub>
       </Fact>
     );
   }

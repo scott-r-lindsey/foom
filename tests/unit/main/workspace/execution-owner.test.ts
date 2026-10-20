@@ -52,7 +52,6 @@ function setup(agent = false) {
     refresh: vi.fn(),
     recheck: vi.fn(),
     exited: vi.fn(),
-    invalidateReply: vi.fn(),
     publishChildEvents: vi.fn(),
     waitingOn: () => waiting,
     unreadAt: () => unread,
@@ -103,7 +102,6 @@ test("classifies host tails and publishes committed verdicts with revisions and 
     timestamp: 123,
   });
   expect(deps.publishChildEvents).toHaveBeenCalledTimes(2);
-  expect(deps.invalidateReply).toHaveBeenCalled();
   await owner.quiet("t1");
   expect(deps.verdicts.commit).toHaveBeenCalledTimes(1);
 });

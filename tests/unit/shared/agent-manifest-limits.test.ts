@@ -11,7 +11,7 @@ const limits: readonly [unknown, (value: unknown, path: string) => unknown, stri
   [copilot.discovery.version, schema.version, "suffixes", 4],
   [claude.discovery.facts[0], schema.fact, "helpTokens", 8],
   [claude.launch.prompt, schema.prompt, "arguments", 64],
-  [claude.launch.toolPermissions, schema.tools, "names", 17],
+  [claude.launch.toolPermissions, schema.tools, "names", 18],
   [claude.launch.toolPermissions.merge, schema.merge, "flags", 8],
   [claude, schema.v2, "files", 16],
   [claude.hooks, schema.hooks, "channels", 8],

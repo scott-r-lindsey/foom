@@ -8,6 +8,8 @@ const actions: readonly string[] = [
   "stop",
   "close",
   "remove_worktree",
+  "prompt",
+  "send_keys",
   "reply",
 ];
 function hash(value: string): string {
@@ -87,6 +89,7 @@ export class Operations {
         updatedAt: now,
         reason: "intent",
         ...(proposal !== undefined ? { proposal } : {}),
+        ...(["prompt", "send_keys"].includes(action) ? { inputHash: hash(input) } : {}),
       },
     };
     // Reserve before awaiting disk, including failures: never retry an ambiguous intent.

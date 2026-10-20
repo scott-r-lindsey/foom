@@ -14,6 +14,8 @@ export interface ActionLogEntry {
   status: string;
   reason: string;
   proposal?: string;
+  /** SHA-256 of canonical action/input; child input is never retained as text. */
+  inputHash?: string;
 }
 export interface ActionLogQuery {
   search: string;

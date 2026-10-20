@@ -302,8 +302,9 @@ higher role, approval dismissal or permission/merge authority merely by sending
 messages. Main binds remote tokens to host/account/launch/repository/generation,
 checks the same service policy on every request, and owns trusted confirmations.
 There is no remote-to-local arbitrary command or URL proxy. Human terminal input
-is a distinct capability from agent follow-up; preserve the Reply gate and
-[child-follow-up](child-follow-up.md) constraints. Availability is not authority.
+is a distinct capability from agent follow-up. Apply the current
+[owned child input policy](../orchestration.md#child-input-629), which supersedes the
+earlier reply gate and follow-up restrictions. Availability is not authority.
 
 Bound/decode frames outside renderer authority; validate before allocation and
 main dispatch; keep terminal parsers and UI in their existing process boundaries.

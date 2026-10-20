@@ -1,10 +1,12 @@
 # Giving an orchestrator child a follow-up turn
 
 Research for [#336](https://github.com/scott-r-lindsey/foom/issues/336), checked
-2026-10-14. **Proposal only:** the [Reply gate](../orchestration.md#reply-gate)
-and current role grants remain unchanged. This document extends the existing
-[proposal](../orchestration.md#proposed-child-follow-up-channel-336) and
-[recorded spike](../../spikes/child-followup/README.md); it does not supersede them.
+2026-10-14. **Historical proposal, superseded by #629:** the current
+[child input policy](../orchestration.md#child-input-629) allows the granted
+orchestrator to send prompts and keys to its own children without per-message
+human approval, including permission and provider prompts. The idle-only,
+question-only and separate-grant restrictions below describe the earlier research,
+not current Foom behavior. See also the [recorded spike](../../spikes/child-followup/README.md).
 No application code was changed, real agent CLI (including help) or session was
 run, agent account was used, global configuration was changed, or real-agent probe
 was executed for this write-up. Public docs are moving
@@ -12,7 +14,7 @@ references, not proof that a locally installed version implements their interfac
 
 ## Problem and evidence
 
-#336 distinguishes a new task from an answer to a question. Today `reply` proposes
+#336 distinguishes a new task from an answer to a question. At the time of this research, `reply` proposed
 an answer to a classified question for human review; it cannot reopen a finished
 task. The issue records a capacity stall on #322 and cold children/worktrees for
 review and merge-conflict fixes on #319/#322 during 2026-10-12/13.
@@ -162,8 +164,8 @@ The transport must distinguish **new task**, **question answer**, **permission
 decision**, **credential input** and **protocol control**. Follow-up grants only
 the first. Reject when any question, approval, elicitation, background work or
 queued input remains unresolved; normal child permissions stay unchanged. Current
-`reply` still requires its human gate, and a follow-up must not rephrase an approval
-answer as a task to evade that gate.
+That proposal retained the human reply gate; #629 replaces it with scoped child
+input authority, including permission decisions.
 
 Main authenticates the current parent and checks repository, own-child relationship,
 invocation, canonical worktree, pinned conversation, expected execution revision

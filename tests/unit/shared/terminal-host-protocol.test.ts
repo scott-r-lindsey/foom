@@ -146,6 +146,20 @@ test("validates shell lifecycle opt-in and bounded event data", () => {
     expect(hostResponse({ id: "t1", type: "shell-state", state })).toBe(false);
 });
 
+test("validates child input payloads at the utility boundary", () => {
+  for (const input of [
+    { kind: "prompt", text: "hello" },
+    { kind: "keys", keys: ["y", "enter"] },
+  ])
+    expect(hostRequest({ ...base, type: "child-input", input })).toBe(true);
+  for (const input of [
+    null,
+    { kind: "keys", keys: ["y", "bad"] },
+    { kind: "prompt", text: "\x1b" },
+  ])
+    expect(hostRequest({ ...base, type: "child-input", input })).toBe(false);
+});
+
 test("probe screen and complete environment messages validate at the utility boundary", () => {
   expect(hostRequest({ type: "screen", id: "probe", request: 1 })).toBe(true);
   expect(

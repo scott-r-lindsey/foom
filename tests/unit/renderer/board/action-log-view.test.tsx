@@ -23,7 +23,10 @@ it("searches and filters, pages, refreshes, clears with confirmation and dispose
   delete metadata.proposal;
   const read = vi.fn(() =>
     Promise.resolve({
-      entries: [entry, { ...metadata, targetId: null, parentId: null, resultId: null }],
+      entries: [
+        entry,
+        { ...metadata, targetId: null, parentId: null, resultId: null, inputHash: "a".repeat(64) },
+      ],
       total: 201,
     }),
   );
@@ -39,6 +42,7 @@ it("searches and filters, pages, refreshes, clears with confirmation and dispose
   await view.findByText("201 matching events");
   expect(view.getByRole("searchbox")).toBe(document.activeElement);
   expect(view.getByText("[REDACTED TOKEN]")).toBeTruthy();
+  expect(view.getByText("a".repeat(64))).toBeTruthy();
   fireEvent.click(view.getByText("Older"));
   await waitFor(() => {
     expect(read).toHaveBeenLastCalledWith({ search: "", action: "", status: "", offset: 100 });

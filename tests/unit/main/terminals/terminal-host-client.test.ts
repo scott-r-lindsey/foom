@@ -100,9 +100,18 @@ test("brokers capabilities, snapshots, tails and exits over a validated transpor
     operation();
     child.reply();
   }
-  const reviewed = client.reply(id, "answer\r");
+  const reviewed = client.childInput(id, { kind: "prompt", text: "answer" });
+  expect(child.postMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ type: "child-input", id, input: { kind: "prompt", text: "answer" } }),
+  );
   child.reply();
   await reviewed;
+  const probeInput = client.reply(id, "y\r");
+  expect(child.postMessage).toHaveBeenLastCalledWith(
+    expect.objectContaining({ type: "write", id, data: "y\r" }),
+  );
+  child.reply();
+  await probeInput;
   const tail = client.tail(id, 2);
   child.reply(undefined, { lines: ["one", "two"] });
   expect(await tail).toEqual(["one", "two"]);

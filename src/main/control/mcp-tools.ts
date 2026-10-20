@@ -1,3 +1,4 @@
+import { CHILD_KEYS } from "../../shared/child-input";
 const tools = [
   {
     name: "whoami",
@@ -113,17 +114,33 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
       destructive: false,
     },
     {
-      name: "reply",
+      name: "prompt",
       description:
-        "Propose one plain-text answer to your child’s current question for human review in Foom. Never unattended; permission, credential, provider and unknown attention reject proposals. Obtain revision and verdictId from session_state. Poll operation_status; no retry after ambiguous delivery.",
+        "Send text and submit to your own child, honoring bracketed paste. Available while idle, done or working, without human review. At most 16 KiB UTF-8; no control characters except newline and tab. Poll operation_status after a lost response; never retry with a new key.",
       properties: {
         idempotencyKey: key,
         id,
-        revision: id,
-        verdictId: id,
-        text: { type: "string", maxLength: 4096 },
+        text: { type: "string", minLength: 1, maxLength: 16384 },
       },
-      required: ["idempotencyKey", "id", "revision", "verdictId", "text"],
+      required: ["idempotencyKey", "id", "text"],
+      readOnly: false,
+      destructive: true,
+    },
+    {
+      name: "send_keys",
+      description:
+        "Send 1–64 logical keys to your own child without human review, including answering permission, credential and provider prompts. Every key is validated before any bytes are written. Poll operation_status after a lost response; never retry with a new key.",
+      properties: {
+        idempotencyKey: key,
+        id,
+        keys: {
+          type: "array",
+          minItems: 1,
+          maxItems: 64,
+          items: { type: "string", enum: Object.keys(CHILD_KEYS) },
+        },
+      },
+      required: ["idempotencyKey", "id", "keys"],
       readOnly: false,
       destructive: true,
     },

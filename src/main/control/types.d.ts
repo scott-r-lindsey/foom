@@ -16,7 +16,15 @@ export interface ControlLaunch {
   /** Idempotent; preparation and the owning service may both revoke on failure. */
   dispose(): void;
 }
-export type Action = "create_worktree" | "launch" | "stop" | "close" | "remove_worktree" | "reply";
+export type Action =
+  | "create_worktree"
+  | "launch"
+  | "stop"
+  | "close"
+  | "remove_worktree"
+  | "prompt"
+  | "send_keys"
+  | "reply";
 export type Status =
   | "pending_confirmation"
   | "running"
@@ -36,6 +44,7 @@ export interface Operation {
   readonly updatedAt: string;
   readonly reason: Reason;
   readonly proposal?: string;
+  readonly inputHash?: string;
 }
 export interface StoredOperation {
   readonly actor: Principal;

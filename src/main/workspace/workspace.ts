@@ -1,3 +1,4 @@
+import type { ChildInput } from "../../shared/child-input";
 import type { ConfigStatus } from "../../shared/foom-config";
 import { AgentProbes } from "../agents/probes";
 import { ProbeHttp } from "../agents/probe-http";
@@ -84,6 +85,7 @@ export interface WorkspaceDependencies {
     kill(id: string): Promise<void>;
     stop(id: string): Promise<void>;
     tail(id: string, lines: number): Promise<string[]>;
+    childInput?(id: string, data: ChildInput): Promise<void>;
     reply?(id: string, data: string): Promise<void>;
     screen?(id: string): Promise<{ lines: string[]; title: string }>;
   };
@@ -331,9 +333,9 @@ export class Workspace {
         place: (id, parentId) => this.deps.placeChild?.(id, parentId),
         starting: (id) => this.sessions.isRestoring(id),
         reply: async (id, data) => {
-          if (!this.deps.terminals.reply) throw new Error("Reply adapter unavailable");
+          if (!this.deps.terminals.childInput) throw new Error("Child input adapter unavailable");
           this.input(id);
-          await this.deps.terminals.reply(id, data);
+          await this.deps.terminals.childInput(id, data);
         },
         reveal: (id) => this.deps.reveal?.(id),
         tail: (id, lines) => this.deps.terminals.tail(id, lines),
@@ -368,9 +370,6 @@ export class Workspace {
         this.revokeConfig(id);
         void this.probes?.exited(id).catch(() => undefined);
         this.persist();
-      },
-      invalidateReply: (id) => {
-        this.orchestration.invalidateReply(id);
       },
       publishChildEvents: () => {
         this.orchestration.childEvents.publish();
@@ -1347,13 +1346,6 @@ export class Workspace {
       await this.deps.copyText?.(command.worktree);
       return;
     }
-    if (command.kind === "reset-replies") {
-      const view = this.orchestration.view(command.id);
-      if (view?.role !== "child" || view.takenOver)
-        throw new Error("This session has no orchestrator");
-      this.orchestration.resetReplies(command.id);
-      return;
-    }
     if (command.kind === "take-over") {
       const operationId = randomUUID();
       await this.auditHuman("take_over", command.id, command.id, "running", operationId);
@@ -1805,7 +1797,6 @@ export class Workspace {
   hook(signal: HookSignal): Promise<void> {
     const id = this.hookKeys.get(signal.terminalId);
     if (!id) return Promise.resolve();
-    this.orchestration.invalidateReply(id);
     const entry = this.launched.get(id);
     if (
       entry &&

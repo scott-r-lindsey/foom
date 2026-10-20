@@ -41,6 +41,7 @@ beforeEach(async () => {
     restoreWorktree: () => Promise.resolve(undefined),
     stop: () => Promise.resolve(),
     close: () => Promise.resolve(),
+    reply: vi.fn(() => Promise.resolve()),
     tail: () => Promise.resolve(["ok"]),
     remove: () => Promise.resolve(false),
     dialog: () => Promise.resolve(false),
@@ -132,7 +133,7 @@ it("lists orchestration tools to agents but runs them only for the orchestrator"
   ])
     expect(listed).toContain(`"name":"${name}"`);
   expect(listed).toContain(`"name":"operation_status"`);
-  expect(listed).toContain(`"name":"reply"`);
+  expect(listed).toContain(`"name":"prompt"`);
   expect(listed).toContain('"pullRequest"');
   expect(listed).toContain('"oneOf"');
   expect(
@@ -149,7 +150,17 @@ it("lists orchestration tools to agents but runs them only for the orchestrator"
     agent: "claude",
   });
   expect(launched.structuredContent).toMatchObject({ status: "succeeded", resultId: "child" });
-  expect(await orchestrator.tool("reply", { id: "child", text: "y" })).toMatchObject({
+  expect(
+    await orchestrator.tool("prompt", { id: "child", text: "Follow up", idempotencyKey: "prompt" }),
+  ).toMatchObject({ structuredContent: { status: "succeeded" } });
+  expect(
+    await orchestrator.tool("send_keys", {
+      id: "child",
+      keys: ["y", "enter"],
+      idempotencyKey: "keys",
+    }),
+  ).toMatchObject({ structuredContent: { status: "succeeded" } });
+  expect(await orchestrator.tool("prompt", { id: "child", text: "y" })).toMatchObject({
     isError: true,
     content: [{ text: "invalid_request" }],
   });
@@ -214,7 +225,8 @@ it("a human transfer takes effect on the next call over each client's existing M
       grantedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/u) as unknown,
       tools: expect.arrayContaining([
         { name: "read_handoff", cli: "foom read-handoff" },
-        { name: "reply", cli: "foom reply" },
+        { name: "prompt", cli: "foom prompt" },
+        { name: "send_keys", cli: "foom send-keys" },
       ]) as unknown,
     },
   });
@@ -321,8 +333,8 @@ it("pins bounded server and discovery wording to the orchestration contract", as
   expect(typeof instructions).toBe("string");
   expect(instructions).toBe(doc.match(/\*\*Server instructions\*\*\n\n> ([^\n]+)/u)?.[1]);
   expect(String(instructions).length).toBeLessThanOrEqual(1600);
-  expect(instructions).toContain("reply only proposes an answer");
-  expect(instructions).toContain("the human approves it in Foom");
+  expect(instructions).toContain("Use prompt and send_keys");
+  expect(instructions).toContain("without human review");
   expect(instructions).not.toContain("Replies to children are unavailable");
   const descriptions = new Map(
     [...doc.matchAll(/^\| `([^`]+)` \| (.+) \|$/gmu)].map((match) => [match[1], match[2]]),
@@ -332,7 +344,8 @@ it("pins bounded server and discovery wording to the orchestration contract", as
   for (const name of [
     "whoami",
     "launch",
-    "reply",
+    "prompt",
+    "send_keys",
     "wait_for",
     "operation_status",
     "read_handoff",
@@ -350,8 +363,8 @@ it("pins bounded server and discovery wording to the orchestration contract", as
   expect(descriptions.get("read_handoff")).toContain(
     "you own integration and reporting to the human",
   );
-  expect(descriptions.get("reply")).toContain(
-    "permission, credential, provider and unknown attention reject proposals",
+  expect(descriptions.get("send_keys")).toContain(
+    "including answering permission, credential and provider prompts",
   );
   expect(descriptions.get("operation_status")).toContain("never retry with a new key");
 });
@@ -375,18 +388,8 @@ it("advertises only current capabilities with CLI fallbacks accepted by the real
     ["remove-worktree", "tree", "--idempotency-key", "key"],
     ["tail", "child"],
     ["wait-for", "child"],
-    [
-      "reply",
-      "child",
-      "--revision",
-      "rev",
-      "--verdict-id",
-      "verdict",
-      "--text",
-      "Answer",
-      "--idempotency-key",
-      "key",
-    ],
+    ["prompt", "child", "--text", "Answer", "--idempotency-key", "key"],
+    ["send-keys", "child", "--keys", "y,enter", "--idempotency-key", "keys"],
     ["read-handoff", "child"],
     ["operation-status", "--idempotency-key", "key"],
   ];

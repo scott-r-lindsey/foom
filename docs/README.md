@@ -65,7 +65,7 @@ The following are evidence or proposals, not current feature specifications:
 | [Herdr backend](herdr-backend.md) | Not adopted; retained decision and experiment record |
 | [Board startup investigation](board-startup-investigation.md) | Dated diagnostics and open investigation, not a workaround policy |
 | [Forge manifests](forge-plugins.md) | Proposed specification; implementation requires the recorded product decision |
-| [Child follow-up](research/child-follow-up.md) | Proposal only; the current reviewed-reply gate remains in orchestration |
+| [Child follow-up](research/child-follow-up.md) | Historical structured-runtime proposal; scoped PTY prompts and keys supersede its input restrictions (#629) |
 | [Remote machines](research/remote-machines.md) | Proposed architecture and prototype evidence; no shipped remote host |
 | [Mockups](mockups/README.md) | Read-only layout/interaction reference; product and architecture win on disagreement |
 | `../spikes/`, `../inspiration/` | Prototype evidence and read-only external reference, respectively; neither is application code |

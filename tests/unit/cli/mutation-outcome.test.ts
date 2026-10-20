@@ -6,7 +6,7 @@ import { run } from "../../../src/cli/cli";
 
 afterEach(() => vi.useRealTimers());
 
-it.each(["create_worktree", "launch", "stop", "close", "remove_worktree", "reply"])(
+it.each(["create_worktree", "launch", "stop", "close", "remove_worktree", "prompt", "send_keys"])(
   "%s reports an unknown outcome after timeout and recovers success using the same key",
   async (method) => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });

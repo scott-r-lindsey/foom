@@ -670,3 +670,34 @@ it("keeps completed-operation deduplication in memory after removing its snapsho
     "not_found",
   );
 });
+
+it.each(["prompt", "send_keys"] as const)(
+  "retains only a hash for %s input in the audit",
+  async (action) => {
+    const store = new ControlStore(directory);
+    const hash = "a".repeat(64);
+    await store.persist({
+      ...record,
+      fingerprint: hash,
+      operation: { ...record.operation, action, status: "succeeded", inputHash: hash },
+    });
+    const page = await store.read({ search: "", action, status: "", offset: 0 });
+    expect(page.entries[0]).toMatchObject({ action, inputHash: hash });
+    expect(page.entries[0]).not.toHaveProperty("proposal");
+    expect(await readdir(directory)).toEqual(["actions-0.jsonl"]);
+    const raw = await readFile(join(directory, "actions-0.jsonl"), "utf8");
+    expect(raw).toContain(hash);
+    expect(raw).not.toContain("text");
+    expect(raw).not.toContain('"keys"');
+  },
+);
+it("refuses malformed child input hashes", async () => {
+  const store = new ControlStore(directory);
+  await expect(
+    store.persist({
+      ...record,
+      fingerprint: "raw input",
+      operation: { ...record.operation, action: "prompt", inputHash: "raw input" },
+    }),
+  ).rejects.toThrow("unavailable");
+});

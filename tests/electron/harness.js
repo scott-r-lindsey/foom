@@ -946,16 +946,22 @@ record(path.basename(process.cwd()), JSON.stringify({
 }));
 process.stdout.write("FOOM_AGENT_READY\\r\\n");
 const isChild = path.basename(process.cwd()).startsWith("child-");
-if (isChild) process.stdout.write("Which file should I change?\\r\\n");
+if (isChild) process.stdout.write(process.env.TEST_CHILD_INPUT === "1"
+  ? "\\x1b[?2004h\\x1b]0;Claude Code\\x07Ready for follow-up.\\r\\n"
+  : "Which file should I change?\\r\\n");
 process.stdin.setRawMode(true);
 let input = "";
+let childTurns = 0;
 process.stdin.on("data", (key) => {
   if (key.toString() === "q") process.exit(0);
   if (isChild) {
     input += key.toString();
     if (input.includes("\\r")) {
-      record("reply-" + path.basename(process.cwd()), input);
-      process.stdout.write("FOOM_REPLY_RECEIVED\\r\\n");
+      childTurns++;
+      record("reply-" + path.basename(process.cwd()) + (childTurns === 1 ? "" : "-" + childTurns), input);
+      process.stdout.write(childTurns === 1
+        ? "FOOM_FOLLOWUP_ACTED\\r\\nAllow execution? (y/n)\\r\\n"
+        : "FOOM_PERMISSION_ACCEPTED\\r\\n");
       input = "";
     }
     return;

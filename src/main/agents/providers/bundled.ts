@@ -24,12 +24,12 @@ export const bundledProviders: readonly AgentProvider[] = [
   bundledProvider(
     claude,
     "claude",
-    "6ec204db4a3fa9bba4de6d546bbdf1ca719d98c52e8d7c9b56db45f736b4af74",
+    "1a4ed1e8af60f50023e00af0102417d3f09c1ebec695ee92946ff87ae0998d05",
   ),
   bundledProvider(
     codex,
     "codex",
-    "0516f60ea277d9edb45850f2060a9fe8ae20f1ff28bc89f20aa0e0a078285d5f",
+    "e5afbef90ce00779271cbebb22f0571f76446d16ef355674d7ebd8e9a3061c9d",
   ),
   bundledProvider(agy, "agy", "55686741f8b5f2b47df50f2fe429b6c6b01a319f0c46c41f28e35ce2be7094b7"),
 ];

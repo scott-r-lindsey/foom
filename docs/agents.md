@@ -109,7 +109,7 @@ User default allow rules are merged and deduplicated, including the `--allowed-t
 alias, equals forms and variadic/comma-separated lists. Managed policy and deny
 rules still win. No other MCP server or non-Foom tool receives an added grant.
 Orchestration tools are refused server-side until the human grants the role.
-`remove_worktree` and `reply` still need human confirmation in Foom (apart from
+`remove_worktree` still needs human confirmation in Foom (apart from
 the existing explicit opt-in merged-clean removal policy). No global config is
 edited. Launches
 without MCP retain their default arguments unchanged. See the
@@ -461,7 +461,8 @@ Codex uses the local bounded screen rules described in
 [orchestration](orchestration.md#provider-stalls-339). Capacity is backed by the
 child terminal message reported in #339; rate-limit and model-switch screens are
 backed by pinned upstream Codex render snapshots, not new authenticated model calls.
-These are untrusted attention evidence only and cannot authorize a reply.
+These are untrusted attention evidence only. Input authority comes from the granted
+orchestrator role and exact child ownership, including provider prompts (#629).
 The current Claude observers and Antigravity plugin have no verified provider-specific
 mapping. Their lifecycle completion/error signals and generic exit codes cannot
 distinguish capacity or rate limits. Detection for those adapters remains unsupported
