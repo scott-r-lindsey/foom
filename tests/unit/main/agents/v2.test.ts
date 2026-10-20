@@ -560,3 +560,37 @@ it("derives setup facts after status enrichment and re-probes before launch", as
     status.mockRestore();
   }
 });
+
+it("delivers a private MCP file through environment alone and omits unselected variables", async () => {
+  const m = model();
+  const when = required(m.launch.mcp).when;
+  required(m.launch.mcp).arguments = [];
+  m.launch.environment = [
+    { name: "AGENT_CONFIG", value: "{file:config/mcp.json}", when },
+    { name: "AGENT_MODE", value: "fixed", when: undefined },
+  ];
+  const validated = model(m);
+  const { prepared } = await launch(validated, {}, [], control);
+  expect(prepared.mcp).toBe(true);
+  expect(prepared.mcpArguments).toEqual([]);
+  const file = required(prepared.environment?.find((entry) => entry.name === "AGENT_CONFIG")).value;
+  expect(prepared.args).not.toContain(file);
+  expect(await readFile(file, "utf8")).toContain("Bearer ${FOOM_CONTROL_TOKEN}");
+  expect(await readFile(file, "utf8")).toContain("http://127.0.0.1:23456/mcp");
+  expect((await launch(validated)).prepared.environment).toEqual([
+    { name: "AGENT_MODE", value: "fixed" },
+  ]);
+});
+
+it("keeps an environment-selected data file when its separate MCP argv attachment is unavailable", async () => {
+  const m = model();
+  const file = required(m.files[0]);
+  file.content = '{"name":"launch data"}';
+  file.when = undefined;
+  m.launch.environment = [{ name: "AGENT_CONFIG", value: `{file:${file.name}}`, when: undefined }];
+  const { prepared } = await launch(model(m));
+  expect(prepared.mcp).toBe(false);
+  const path = required(prepared.environment?.[0]).value;
+  expect(await readFile(path, "utf8")).toBe('{"name":"launch data"}');
+  expect(prepared.args).not.toContain(path);
+});

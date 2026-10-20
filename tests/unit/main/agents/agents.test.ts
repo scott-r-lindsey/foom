@@ -1421,3 +1421,53 @@ it("disabled agents retain card identity but run no discovery or setup probes, a
     (await service.scan({ claude: true, codex: false, agy: false })).agents[0]?.path,
   ).not.toBeNull();
 });
+
+it("checks manifest environment after layering and rejects its bypass for children", async () => {
+  const { parseAgentManifest } = await import("../../../../src/shared/agent-plugin-parser");
+  const { v2Provider } = await import("../../../../src/main/agents/providers/v2");
+  const fixture = await import("../../../fixtures/agent-plugin-v2.json");
+  const parsed = parseAgentManifest(
+    JSON.stringify({
+      ...fixture.default,
+      files: [],
+      launch: {
+        ...fixture.default.launch,
+        mcp: undefined,
+        toolPermissions: undefined,
+        environment: [{ name: "FIXTURE_BYPASS", value: "manifest-value" }],
+      },
+    }),
+  );
+  replaceConfigProviders([v2Provider(parsed.model, () => Promise.resolve())]);
+  versions[parsed.model.id] = "fixture 1.2.3";
+  help = "--inline --prompt";
+  vi.stubEnv("FIXTURE_BYPASS", "");
+  const approve = vi.fn(() => Promise.resolve(true));
+  service = new AgentService(
+    { listWorktrees, launchIdentity },
+    { create },
+    prepare,
+    undefined,
+    new AgyPlugin(),
+    approve,
+  );
+  const result = await service.launch({
+    ...request,
+    agent: parsed.model.id,
+    environment: [[{ name: "FIXTURE_BYPASS", value: "user-value" }]],
+  });
+  expect(result.bypass).toBe(true);
+  expect(result.environment).toContain("FIXTURE_BYPASS");
+  expect(create.mock.calls.at(-1)?.[0].env?.["FIXTURE_BYPASS"]).toBe("manifest-value");
+  expect(JSON.stringify(approve.mock.calls)).toContain("FIXTURE_BYPASS: present-nonempty");
+  expect(JSON.stringify(approve.mock.calls)).not.toContain("manifest-value");
+  service.release(result.id);
+  await expect(
+    service.launch({
+      ...request,
+      agent: parsed.model.id,
+      control: { parentId: "parent" },
+      prompt: "task",
+    }),
+  ).rejects.toThrow("Unattended child");
+});

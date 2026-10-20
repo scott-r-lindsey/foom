@@ -259,12 +259,16 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
           values["mcpUrl"] = url.href;
           values["mcpName"] = `foom_${randomUUID().replaceAll("-", "")}`;
         }
+        const environment = (model.launch.environment ?? []).filter((entry) =>
+          selected(entry.when, facts),
+        );
         // Plugin-scope files are staged by setup actions (#433), never written per launch.
         const files = model.files.filter(
           (file) =>
             file.scope === "launch" &&
             selected(file.when, facts) &&
             (mcp ||
+              environment.some((entry) => entry.value === `{file:${file.name}}`) ||
               !model.launch.mcp?.arguments.some((arg) => arg.includes(`{file:${file.name}}`))),
         );
         if (files.length) {
@@ -360,6 +364,10 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
             finalArgs.splice(insertion, 0, tools.merge.output, ...permissions);
         }
         return {
+          environment: environment.map(({ name, value }) => ({
+            name,
+            value: expandV2(value, values),
+          })),
           args: boundedArguments(finalArgs),
           mcp,
           mcpArguments,

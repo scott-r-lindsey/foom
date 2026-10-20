@@ -4,6 +4,7 @@ import type { AgentHooks, AgentId, AgentInstallation, AgentLaunch } from "../../
 import type { prepareMcpLaunch } from "./mcp-launch";
 export interface PreparedLaunch {
   args: string[];
+  environment?: readonly { name: string; value: string }[];
   mcp: boolean;
   /** Selected attachment only, for isolated protocol probes using the real launch engine. */
   mcpArguments?: readonly string[];

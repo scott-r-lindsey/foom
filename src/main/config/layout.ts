@@ -318,7 +318,7 @@ concatenated shell syntax, or a generated command wrapped in another command.
 | --- | --- |
 | {hookDir} | hooks.channels[].arguments: generated launch directory |
 | {hookFile:NAME} | hooks.channels[].arguments: generated launch file |
-| {file:NAME} | launch.mcp.arguments only; not a hook file |
+| {file:NAME} | launch.mcp.arguments or a whole launch.environment[].value; not a hook argument |
 | {observerCommand:CHANNEL:json} / :toml | Entire command value in channel JSON/TOML or file content |
 | {observerArgv:CHANNEL:json} | Entire argv array value in channel JSON or file content |
 | {pluginDir} | setup action arguments for a persistent opt-in plugin, not per-launch hooks |
@@ -360,6 +360,20 @@ above before dropping a capability. A misplaced {file:NAME} is not evidence that
 hooks are unsupported. Fix the location or use {hookFile:NAME}/{hookDir}, then
 validate again. Keep verification facts disabled until actual hook delivery is
 verified; a valid template or a working screen alone does not verify hooks.
+
+For an agent with an environment-only config interface, use launch.environment:
+\`{"name":"AGENT_CONFIG","value":"{file:config/mcp.json}","when":{"all":[{"field":"control","op":"eq","value":true}]}}\`.
+This is an entry in an optional list (maximum eight), not an arbitrary environment
+map. Declare the launch file with matching conditions. For MCP, select launch.mcp
+with those same conditions; its arguments may be empty. Entries accept only whole
+owned file paths or nonempty fixed literals up to 128 characters. Names match
+[A-Za-z_][A-Za-z0-9_]* (maximum 64) and are unique ignoring case. Runtime/loader,
+shell, command selectors (including EDITOR/PAGER), code-loading paths, resolver
+overrides, TMPDIR, PATH/HOME, Git/SSH, proxy, credential and FOOM_ names are forbidden
+in any case. Values cannot contain other placeholders, inherited references, dollar or
+percent signs, backticks or controls. Validate before launch; diagnostics identify
+the rejected entry. Main applies entries after user Environment settings and
+checks bypass against the final environment on every launch.
 
 ## Probe workflow
 
@@ -476,7 +490,6 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  * is unedited and is replaced on upgrade; anything else belongs to the user.
  */
 const GUIDE_HISTORY = [
-  "605ee909ea813509d2fb27d0069934efc5ea95467d1fdf8e9d020ef45e9e3600",
   "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
   "a8b47bc1635e7c455333372a41c51659b7ed305d5584f2a3883edc53cb38f07d",
   "c8255169631ec679c29d78bd2ece6f88f1b6dc0fcf1b2a41d9683a07a60b0b03",
@@ -496,14 +509,22 @@ const GUIDE_HISTORY = [
   "2f3bbec98e63c33f243d4c267028fc2e19410df96b3d99783c8b0446080a54e0",
   "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
   "21663485d40fcaa5f22bb64209423c94341183ad2a02fb02023cbff5f1e5a392",
+  "605ee909ea813509d2fb27d0069934efc5ea95467d1fdf8e9d020ef45e9e3600",
+  "e48b62e33fa858b76b3dcfcda64f4ed8ef0656bc30b14ed272d6123b5f4d15c2",
+  "197ce9f5c8a83ae4d96a177e54086666d8ce1db64fd346f8de39f9fc1bea7d48",
+  "18550cdb4c2560df1c3d4c49b103560ae3a50a8cdc49251d62732100ea41c982",
 ];
 
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
-  "schemas/agent.schema.json": ["a75143842a1b3c12f56c68550f7b0b083246b20e60d9de1f8062b98c55131f5c"],
   ".gitignore": ["16b259efd54bdd1fdc2afc980f1dff1c76a76e23e4392d0fa0db7c751f504cf4"],
   "README.md": GUIDE_HISTORY,
   "AGENTS.md": GUIDE_HISTORY,
   "CLAUDE.md": GUIDE_HISTORY,
+  "schemas/agent.schema.json": [
+    "a75143842a1b3c12f56c68550f7b0b083246b20e60d9de1f8062b98c55131f5c",
+    "a093e326009c7ef7dc48f8517b8b814667bce6101fde9e1b8639a37b38a24949",
+    "648cead2a9d760fb80a48889b240441220d06f99b65d0f9213ec47045e2050a0",
+  ],
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [
     "7adeb4afdb505fdaeaf83ef3056e662f30ed502021c49adae30eb60e7bc17cca",

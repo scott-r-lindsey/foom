@@ -313,6 +313,14 @@ export function validateV2(manifest: AgentManifestV2): void {
   }
   for (const stage of ["arguments", "display", "resume", "mcp"] as const)
     condition(manifest.launch[stage]?.when, `$.launch.${stage}.when`, "launch", available);
+  const environmentNames = new Set<string>();
+  for (const [index, entry] of (manifest.launch.environment ?? []).entries()) {
+    const path = `$.launch.environment[${String(index)}]`;
+    const name = entry.name.toUpperCase();
+    if (environmentNames.has(name)) fail(`${path}.name`, "duplicate-environment");
+    environmentNames.add(name);
+    condition(entry.when, `${path}.when`, "launch", available);
+  }
   condition(manifest.launch.guidance?.when, "$.launch.guidance.when", "launch", available);
   if (manifest.launch.prompt?.requires)
     reference(manifest.launch.prompt.requires, "$.launch.prompt.requires", "launch", available);

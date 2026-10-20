@@ -32,8 +32,8 @@ secrets; error messages name variables, never values.
 
 Each launch is built in layers, each overriding the previous: the inherited
 environment (scrubbed of `npm_*`, `ELECTRON_*`, `FOOM_*` and `CLAUDECODE`), All
-sessions, the agent's own list, then Foom's reserved variables (control, hook and
-session variables). Shells get All sessions only. Main validates every variable again
+sessions, the agent's own list, selected bounded manifest launch entries (#636),
+then Foom's reserved variables (control, hook and session variables). Shells get All sessions only. Main validates every variable again
 at launch. Names match `^[A-Za-z_][A-Za-z0-9_]*$` and compare case-insensitively on
 Windows, where a layer reuses the inherited spelling. `FOOM_*`, `CLAUDECODE`, `TERM`,
 `COLORTERM` and `TERM_PROGRAM` are reserved; `LD_PRELOAD`, `LD_LIBRARY_PATH`,
