@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { open, readdir, readFile } from "node:fs/promises";
+import { open, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { FuseState, FuseV1Options, getCurrentFuseWire, pathToFuseFile } from "@electron/fuses";
@@ -133,6 +133,19 @@ export async function signApp(app, options, execute = run, snapshot = integrity)
         entitlements: entitlementFor(app, target, options.identity === "-"),
       }),
     );
+    if (target === join(app, "Contents/Resources/app.asar.unpacked/build/console/foom")) {
+      // Code signing changes the SEA's bytes. Refresh only its unpacked build
+      // metadata before the enclosing app seals resources; never rewrite ASAR.
+      const manifestPath = join(
+        app,
+        "Contents/Resources/app.asar.unpacked/build/console/manifest.json",
+      );
+      const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+      manifest.sha256 = createHash("sha256")
+        .update(await readFile(target))
+        .digest("hex");
+      await writeFile(manifestPath, JSON.stringify(manifest));
+    }
   }
   execute("codesign", ["--verify", "--deep", "--strict", "--verbose=2", app]);
   assert.deepEqual(await snapshot(app, execute), before, "Signing changed fuses or ASAR integrity");

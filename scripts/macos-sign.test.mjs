@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import {
   chmodSync,
@@ -41,6 +42,10 @@ function fixture(t) {
     writeFileSync(join(app, name), Buffer.from("cffaedfe00000000", "hex"));
   }
   writeFileSync(join(app, "Contents/Resources/app.asar"), "not executable");
+  writeFileSync(
+    join(app, "Contents/Resources/app.asar.unpacked/build/console/manifest.json"),
+    JSON.stringify({ version: "fixture", sha256: "before signing" }),
+  );
   return { root, app, paths };
 }
 
@@ -62,8 +67,23 @@ test("signs every Mach-O inside out, ignores symlink aliases and grants only run
   await signApp(
     app,
     { identity: "Developer ID Application: Fixture (TEAM)", keychain: "/temporary/keychain" },
-    (command, args) => calls.push([command, args]),
+    (command, args) => {
+      calls.push([command, args]);
+      if (args.at(-1) === join(app, paths[5]))
+        writeFileSync(join(app, paths[5]), "fixture changed by signing");
+    },
     async () => ({ fuses: "unchanged", archive: "unchanged" }),
+  );
+  assert.equal(
+    JSON.parse(
+      readFileSync(
+        join(app, "Contents/Resources/app.asar.unpacked/build/console/manifest.json"),
+        "utf8",
+      ),
+    ).sha256,
+    createHash("sha256")
+      .update(readFileSync(join(app, paths[5])))
+      .digest("hex"),
   );
   assert.equal(calls.length, order.length + 1);
   assert.deepEqual(calls.at(-1), [

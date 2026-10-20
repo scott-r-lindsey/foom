@@ -213,7 +213,9 @@ After the Quality gate, a main-only `Release` environment job downloads the
 already-tested macOS ZIP, signs it with Developer ID and hardened runtime plus
 secure timestamp, notarizes through notarytool API-key mode, staples and verifies
 it. It preserves the ASAR bytes, embedded integrity record and hardened fuse
-values, and re-zips with `ditto -c -k --keepParent` without rebuilding. It must
+values, and re-zips with `ditto -c -k --keepParent` without rebuilding. Signing refreshes
+the unpacked console manifest SHA-256 before sealing the containing app, because
+the SEA code signature changes its bytes; the ASAR archive is never rewritten. It must
 pass strict codesign verification, Gatekeeper assessment reporting `Notarized
 Developer ID`, and stapler validation. A separate publisher with contents write
 permission consumes that signed artifact alongside tested Linux/Windows ZIPs;
