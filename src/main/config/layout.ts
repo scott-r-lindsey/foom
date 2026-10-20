@@ -368,8 +368,9 @@ map. Declare the launch file with matching conditions. For MCP, select launch.mc
 with those same conditions; its arguments may be empty. Entries accept only whole
 owned file paths or nonempty fixed literals up to 128 characters. Names match
 [A-Za-z_][A-Za-z0-9_]* (maximum 64) and are unique ignoring case. Runtime/loader,
-shell, PATH/HOME, Git/SSH, proxy, credential and FOOM_ names are forbidden in any
-case. Values cannot contain other placeholders, inherited references, dollar or
+shell, command selectors (including EDITOR/PAGER), code-loading paths, resolver
+overrides, TMPDIR, PATH/HOME, Git/SSH, proxy, credential and FOOM_ names are forbidden
+in any case. Values cannot contain other placeholders, inherited references, dollar or
 percent signs, backticks or controls. Validate before launch; diagnostics identify
 the rejected entry. Main applies entries after user Environment settings and
 checks bypass against the final environment on every launch.
@@ -489,6 +490,7 @@ const GUIDE_HISTORY = [
   "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
   "21663485d40fcaa5f22bb64209423c94341183ad2a02fb02023cbff5f1e5a392",
   "605ee909ea813509d2fb27d0069934efc5ea95467d1fdf8e9d020ef45e9e3600",
+  "e48b62e33fa858b76b3dcfcda64f4ed8ef0656bc30b14ed272d6123b5f4d15c2",
 ];
 
 export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {

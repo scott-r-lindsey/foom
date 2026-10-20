@@ -198,7 +198,7 @@ export function launchEnvironment(v: unknown, p: string) {
   const d = object(v, p, ["name", "value"], ["when"]);
   const name = envName(d["name"], `${p}.name`);
   if (
-    /^(?:LD_|DYLD_|NODE_|PYTHON|PERL5|RUBY|GIT_|SSH_|AWS_|GITHUB_|GH_|FOOM_|ELECTRON_)/iu.test(
+    /^(?:LD_|DYLD_|NODE_|BUN_|DENO_|NPM_CONFIG_|YARN_|PNPM_|LUA_|PYTHON|PERL5|RUBY|GIT_|SSH_|AWS_|GITHUB_|GH_|FOOM_|ELECTRON_)/iu.test(
       name,
     ) ||
     /TOKEN|SECRET|KEY|PASSWORD|PROXY/iu.test(name) ||
@@ -215,6 +215,20 @@ export function launchEnvironment(v: unknown, p: string) {
       "IFS",
       "ZDOTDIR",
       "PROMPT_COMMAND",
+      "EDITOR",
+      "VISUAL",
+      "PAGER",
+      "BROWSER",
+      "MANPAGER",
+      "LESSOPEN",
+      "LESSCLOSE",
+      "PERLLIB",
+      "GCONV_PATH",
+      "LOCPATH",
+      "HOSTALIASES",
+      "RES_OPTIONS",
+      "LOCALDOMAIN",
+      "TMPDIR",
       "CLAUDECODE",
       "TERM",
       "COLORTERM",

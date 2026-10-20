@@ -376,5 +376,6 @@ For CLIs that accept a configuration path through the environment, declare
 Declare that launch file with matching conditions and select `launch.mcp` with
 those conditions; its `arguments` may be empty for an environment-only attachment.
 Up to eight entries may carry whole owned file paths or short fixed literals.
-Names exclude runtime injection, proxy, credential and Foom variables; values
-never expand the inherited environment. See the [complete rules and diagnostics](contracts/agent-launch.md#per-launch-manifest-environment-636).
+Names exclude runtime injection, command selectors (such as `EDITOR` and `PAGER`),
+code-loading paths, resolver overrides, `TMPDIR`, proxy, credential and Foom
+variables; values never expand the inherited environment. See the [complete rules and diagnostics](contracts/agent-launch.md#per-launch-manifest-environment-636).
