@@ -2270,7 +2270,7 @@ test("merged cleanup opens checking, continues hidden, reopens progress and stop
       .getBuiltinModule("node:module")
       .createRequire(app.getAppPath() + "/package.json");
     const { WorktreeService } = load("./build/main/workspace/worktrees.js");
-    const { Workspace } = load("./build/main/workspace/workspace.js");
+    const { WorkspaceContext: Workspace } = load("./build/main/workspace/workspace-context.js");
     const fetch = WorktreeService.prototype.mergedDefault;
     const remove = Workspace.prototype.removeTree;
     const gate = new Promise((resolve) => {
