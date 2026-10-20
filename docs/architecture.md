@@ -67,7 +67,8 @@ Directories expose the process boundaries above, with features grouped within ma
 ```text
 src/
   main/
-    main.ts           # application composition and lifecycle
+    main.ts           # application entry point
+    wiring/           # application lifecycle/security, window and workspace composition
     profile.ts        # profile selection, launch identity and environment scrub
     window/           # appearance and window scaling
     terminals/        # terminal IPC capabilities and utility-process client
@@ -109,6 +110,8 @@ The browser-safe `shared/terminal-colors.ts` runs in both the host and renderer;
 `shared/terminal-host-protocol.ts` validates messages between main and host.
 
 Within those features:
+
+- `main/wiring/application.ts` keeps app-scoped bindings, startup/store initialization, settings publication, window ordering, trusted-dialog routing and quit lifecycle. It also keeps privileged scheme registration, the local asset allowlist and session permission denial together. `window.ts` wires each sandboxed board and its IPC/features; `workspace.ts` connects terminals, forge tracking, hooks and control once. Feature wiring receives live application bindings through the declaration in `application-wiring.d.ts`; IPC sender validation remains in the window router and feature IPC modules.
 
 - `preflight-view.tsx` coordinates navigation, scans, persistence, errors, heading focus and launch. Welcome, agents, repositories and readiness render in their own `*-step.tsx` modules; they receive state and actions from the coordinator. The welcome step shows instead of tells: `welcome-noise.tsx` tiles ten made-up terminals like a window manager, then folds them into ten lights, one of which needs you. `welcome-noise-output.ts` generates their output: colored, bursty, with streamed prose and per-agent status lines, and each light follows its own terminal's output rate. It is decorative (`aria-hidden`) and shows its final frame under reduced motion.
 - `board.ts` contains production board helpers. `sample-rows.ts` holds development fixture rows and is imported only by the sample source and tests.
