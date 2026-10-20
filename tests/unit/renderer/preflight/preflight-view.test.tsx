@@ -988,3 +988,30 @@ test("editing recent days in first run saves without rescanning or clearing sele
   expect(screen.getByRole("checkbox", { name: "old" })).toHaveProperty("checked", false);
   expect(source.scan).toHaveBeenCalledTimes(1);
 });
+
+test("a Settings action failure dismisses inside the Settings frame without closing Settings", async () => {
+  const initial = setupState({ setupComplete: true });
+  const source = fake(initial);
+  const close = vi.fn();
+  render(
+    <Preflight
+      source={source}
+      initial={initial}
+      settingsMode
+      onClose={close}
+      onLaunched={vi.fn()}
+    />,
+  );
+  fireEvent.click(button("Appearance"));
+  source.save.mockRejectedValueOnce(
+    new Error("Error invoking remote method 'setup:save': Error: private details"),
+  );
+  fireEvent.click(screen.getByLabelText("Dark"));
+  expect((await screen.findByRole("dialog", { name: "Action failed" })).textContent).toContain(
+    "Unable to update settings.",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+  expect(screen.queryByRole("dialog", { name: "Action failed" })).toBeNull();
+  expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
+  expect(close).not.toHaveBeenCalled();
+});

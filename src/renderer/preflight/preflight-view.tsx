@@ -5,6 +5,7 @@ import {
   BackgroundErrorMark,
   useBackgroundErrors,
 } from "../board/error-presentation";
+import { SettingsFrame } from "./settings-frame";
 import { ForgesSettings } from "./forges-settings";
 import { TerminalFontPicker } from "./terminal-font-picker";
 import { message } from "./message";
@@ -33,19 +34,6 @@ import { WorktreeLocationControls } from "./worktrees-step";
 import { ReadinessStep } from "./readiness-step";
 import type { CodeSelection, Scanning } from "./repository-picker";
 import type { SetupSource } from "./setup-source.d";
-
-const SETTINGS_SECTIONS = [
-  { step: 11, label: "General" },
-  { step: 1, label: "Agents" },
-  { step: 12, label: "Forges" },
-  { step: 10, label: "Environment" },
-  { step: 2, label: "Repositories" },
-  { step: 5, label: "Appearance" },
-  { step: 6, label: "Terminal" },
-  { step: 7, label: "Themes" },
-  { step: 8, label: "Sound" },
-  { step: 9, label: "Foom config" },
-];
 
 /**
  * Shared setup coordinator for the first-run countdown and Settings. After setup,
@@ -633,59 +621,19 @@ function PreflightContents({
 
   if (settingsMode)
     return (
-      <section className="settings-view" aria-label="Settings">
-        <button
-          type="button"
-          className="settings-close"
-          aria-label="Close settings (Esc)"
-          title="Close settings (Esc)"
-          disabled={applying}
-          onClick={onClose}
-        >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M5 5 19 19M19 5 5 19" stroke="currentColor" strokeWidth="2" />
-          </svg>
-        </button>
-        <nav className="settings-sections" aria-label="Settings sections">
-          <h2>Settings</h2>
-          {SETTINGS_SECTIONS.filter(
-            (entry) =>
-              ((entry.step !== 9 && entry.step !== 12) || source.config) &&
-              (entry.step !== 10 || source.environment),
-          ).map((entry) => (
-            <button
-              key={entry.step}
-              type="button"
-              aria-current={entry.step === step ? "page" : undefined}
-              aria-label={entry.label}
-              disabled={applying}
-              onClick={() => {
-                go(entry.step);
-              }}
-            >
-              {entry.label}
-            </button>
-          ))}
-        </nav>
-        <div className="settings-stage">
-          <div className="settings-inner">
-            <fieldset className="settings-controls" disabled={applying}>
-              <legend className="visually-hidden">
-                {SETTINGS_SECTIONS.find((entry) => entry.step === step)?.label}
-              </legend>
-              {content}
-            </fieldset>
-            {error && (
-              <ActionError
-                message={error}
-                close={() => {
-                  setError(undefined);
-                }}
-              />
-            )}
-          </div>
-        </div>
-      </section>
+      <SettingsFrame
+        source={source}
+        step={step}
+        applying={applying}
+        onClose={onClose}
+        go={go}
+        error={error}
+        dismissError={() => {
+          setError(undefined);
+        }}
+      >
+        {content}
+      </SettingsFrame>
     );
 
   return (

@@ -1,53 +1,18 @@
-import { app, session, shell, WebContentsView } from "electron";
+import type { HostedPreview } from "./hosted-preview";
+import { createPartition, createPreviewView, navigationAllowed } from "./partition";
+import { shell } from "electron";
 import type { BrowserWindow, Session, WebContents } from "electron";
 import type { PreviewBounds, PreviewRecord, PreviewSnapshot } from "../../shared/previews";
-import { canonicalRoot, readInside, readPreview } from "./contained-files";
+import { canonicalRoot, readInside } from "./contained-files";
 import type { DialogContent } from "../../shared/confirmation";
-import { externalLink, pathnameFor, previewCsp, responseHeaders } from "./policy";
-import { markdownAsset, markdownPage } from "./markdown";
+import { externalLink } from "./policy";
 import type { PreviewRegistry } from "./registry";
 import { previewPath } from "./registry";
 import { PreviewWatcher, scrollPosition } from "./watcher";
 
-interface HostedPreview {
-  id: string;
-  view: WebContentsView;
-  partition: Session;
-  bounds: PreviewBounds;
-  snapshot?: string;
-  snapshotVersion?: number;
-  painted?: boolean;
-  capturePending?: boolean;
-  captureAgain?: boolean;
-  refreshTimer?: ReturnType<typeof setTimeout>;
-  coverTimer?: ReturnType<typeof setTimeout>;
-  coverExpired?: boolean;
-  loaded: boolean;
-  navigated: boolean;
-  previouslyLoaded: boolean;
-  attached: boolean;
-  clicked: boolean;
-  restoreFocus: boolean;
-  replacementTimer?: ReturnType<typeof setTimeout>;
-  nextReplacementAt: number;
-  scroll: [number, number] | undefined;
-  readingScroll?: boolean;
-}
 const RECREATION_INTERVAL_MS = 250;
 const HANDOFF_DEADLINE_MS = 1500;
 const EMPTY_BOUNDS: PreviewBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
-export function requestAllowed(url: string, origin: string, network = false): boolean {
-  return (
-    (network && /^(https|wss):/.test(url)) ||
-    /^(data|blob):/.test(url) ||
-    "pathname" in pathnameFor(url, origin)
-  );
-}
-export function navigationAllowed(url: string, origin: string): boolean {
-  const parsed = pathnameFor(url, origin);
-  return "pathname" in parsed && /\.(md|markdown)$/i.test(parsed.pathname);
-}
-
 /** One host per board window. No page or IPC capability can focus a preview. */
 export class PreviewHost {
   private readonly moving = new Map<string, { target: PreviewHost; done: Promise<void> }>();
@@ -222,56 +187,11 @@ export class PreviewHost {
   }
   private create(record: PreviewRecord, root: string): HostedPreview {
     const origin = `foom-preview://${record.id}`;
-    const partition = session.fromPartition(`preview-${record.id}`, { cache: false });
-    partition.setPermissionRequestHandler((_contents, _permission, callback) => {
-      callback(false);
-    });
-    partition.setPermissionCheckHandler(() => false);
-    partition.setDevicePermissionHandler(() => false);
-    partition.on("will-download", (event) => {
-      event.preventDefault();
-    });
-    partition.webRequest.onBeforeRequest((details, callback) => {
-      callback({ cancel: !requestAllowed(details.url, origin, record.network) });
-    });
     const watcher = new PreviewWatcher(root, () => {
       void this.reload(record.id);
     });
     this.watchers.set(record.id, watcher);
-    partition.protocol.handle("foom-preview", (request) => {
-      const asset = markdownAsset(request.url, origin);
-      if (asset)
-        return new Response(new Uint8Array(asset.body), { headers: responseHeaders(asset.type) });
-      const result = readPreview(
-        root,
-        request.url,
-        origin,
-        (file) => {
-          watcher.record(file);
-        },
-        record.network,
-      );
-      if (result.status === 200 && result.type.startsWith("text/markdown")) {
-        return new Response(markdownPage(result.body.toString("utf8")), {
-          headers: {
-            ...result.headers,
-            "content-type": "text/html; charset=utf-8",
-            "content-security-policy": previewCsp(result.type, record.network),
-          },
-        });
-      }
-      return new Response(
-        result.status === 200
-          ? new Uint8Array(result.body)
-          : result.status === 404
-            ? "File not found. Waiting for it to appear."
-            : "Preview file unavailable",
-        {
-          status: result.status,
-          headers: result.headers,
-        },
-      );
-    });
+    const partition = createPartition(record, root, watcher);
     const pathname = record.relativePath.split("/").map(encodeURIComponent).join("/");
     return this.createView(record, partition, `${origin}/${pathname}`, { ...EMPTY_BOUNDS });
   }
@@ -285,21 +205,7 @@ export class PreviewHost {
     scroll?: [number, number],
   ): HostedPreview {
     const origin = `foom-preview://${record.id}`;
-    const view = new WebContentsView({
-      webPreferences: {
-        session: partition,
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-        nodeIntegrationInWorker: false,
-        nodeIntegrationInSubFrames: false,
-        disableDialogs: true,
-        navigateOnDragDrop: false,
-        webviewTag: false,
-        devTools: !app.isPackaged,
-        spellcheck: false,
-      },
-    });
+    const view = createPreviewView(partition);
     const entry: HostedPreview = {
       id: record.id,
       view,

@@ -51,6 +51,8 @@ backoff for transient external sharing locks. It never unlinks the destination;
 exhaustion removes the temporary file, reports a fixed error naming the config
 file, and retains the existing file, applied values and pending approval.
 
+`config/service.ts` keeps approval baselines, held settings and theme changes, trusted argument disclosure, and decision revalidation together. `config/files.ts` owns bounded reads, directory containment and atomic replacement; `config/catalog.ts` owns theme path discovery and agent and forge manifest discovery, validation and reload.
+
 **Live reload.** Main watches `settings.json`, `themes/` and `terminal-themes/`,
 waits 250 ms after the last event and scans serially. When `themes` or
 `terminal-themes` is replaced, the root watcher resubscribes to it. Reads refuse
