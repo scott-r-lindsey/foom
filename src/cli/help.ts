@@ -58,7 +58,7 @@ const commandHelp = [
       "send PROBE TEXT",
       "keys PROBE esc|ctrl-c|enter|up|down|tab",
       "wait PROBE --quiet SECONDS|--timeout SECONDS",
-      "screen PROBE",
+      "screen PROBE [--save working|blocked|idle|other]",
       "state PROBE",
       "stop PROBE",
     ],
@@ -66,7 +66,10 @@ const commandHelp = [
   },
   {
     prefix: "foom ",
-    commands: ["config status [--json] (config sessions only, read-only)"],
+    commands: [
+      "config status [--json] (config sessions only, read-only)",
+      "config test-rules AGENT_ID [--json] (config sessions only, local screen rules)",
+    ],
     suffix: "",
   },
   {

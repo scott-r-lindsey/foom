@@ -1,75 +1,50 @@
-# Documentation map
+# Documentation
 
-Start here after the repository [quick start](../README.md). Read
-[AGENTS.md](../AGENTS.md) before contributing, then [product](product.md) for the
-user experience and [architecture](architecture.md) for process and security rules.
-For a UI change, also read [brand](brand.md) and the matching
-[mockup README](mockups/README.md).
+Start with the repository [quick start](../README.md), then [AGENTS.md](../AGENTS.md)
+and the [file map](map.md). The map names source owners and the short area rules
+and behavior to read before a change. Read protocol sections only when changing
+that surface; a terminal fix does not require reading all settings or control docs.
 
 ## Authority and maintenance
 
-| Question | Authoritative document |
+| Question | Authority |
 | --- | --- |
-| What should the user experience? | [Product](product.md) |
-| Which process owns a capability, and what must it validate? | [Architecture](architecture.md) |
-| How must contributors implement, test and deliver changes? | [AGENTS.md](../AGENTS.md) |
-| How do local build tools and commands work? | [Development](development.md) |
-| How does CI validate and package the app? | [Validation, CI and packages](validation.md) |
-| How are Electron suites, shards and fixtures organized? | [Electron layout/sharding](electron-shards.md), [fixtures](electron-fixtures.md) |
-| What are the interface color, type and theme rules? | [Brand](brand.md) |
-| What is the control-plane protocol? | [Orchestration](orchestration.md), with implementation ownership in [architecture](architecture.md#control-plane) |
-| What can agent manifests express? | [Agent plugin format](agent-plugins.md), with loading/trust in its [trust model](agent-plugins.md#trust-model) |
-| How do I open an unsigned nightly? | [Nightly opening](nightly-opening.md) |
+| Who owns a file or capability, and what should I read? | [File map](map.md) |
+| What should the user experience? | [Area behavior](product.md) → `behavior/` |
+| Which process owns it and what must it validate? | [Area implementation rules](architecture.md) → `areas/` |
+| What are the detailed wire formats? | [Agent manifests](agent-plugins.md), [control plane](orchestration.md) → `contracts/` |
+| How must contributors implement, test and deliver? | [AGENTS.md](../AGENTS.md) |
+| How do local tools and CI work? | [Development](development.md), [validation](validation.md), [Electron sharding](electron-shards.md), [fixtures](electron-fixtures.md) |
+| What are the color, type and theme rules? | [Brand](brand.md) |
+| How do I open unsigned nightly builds? | [Nightly opening](nightly-opening.md) |
 
-Keep each fact in the document that owns it and link from summaries. README is
-orientation, not a second policy manual. AGENTS.md owns contributor requirements;
-the development and validation guides explain their tooling. Product owns behavior,
-architecture owns implementation/security decisions, and detailed protocol docs
-own wire formats and feature contracts. These responsibilities complement each
-other; a protocol or research note cannot override a product or security decision.
+Keep a fact in its owning area and link to it. Entry points are navigation, not
+additional policy. Behavior owns product decisions; implementation rules own
+process/security decisions; detailed contracts own protocol fields. Research and
+mockups cannot override a decided rule. A changed decision needs its own PR and
+matching docs. Correct a stale description against source/tests without silently
+recasting an apparent implementation defect as intended behavior.
 
-Implemented claims should agree with source, tests and configuration on the branch.
-If they disagree, check the implementation before correcting the documentation.
-A change to an established product/security decision needs its own PR and matching
-doc updates; an apparent code defect should be reported rather than silently
-recast as intended behavior. Keep links and entry-point summaries current when
-moving material. Future changes belong under an explicit **Proposed**, **Target**
-or **Future** label and an issue, rather than an unqualified present-tense claim.
+Area rules and behavior describe current decisions. Explicitly labelled proposed,
+target or future material is unimplemented and must name an issue. Required area
+reading should stay a few hundred lines; split by responsibility rather than
+appending migration diaries. Put dated versions, measurements, payload captures,
+test counts and migration history in the issue or implementation PR, with a link
+from the relevant rule. Evidence does not establish cross-platform support beyond
+its recorded run. The former monoliths retain navigation anchors for old links.
 
-## Architecture entry points
+## Research and read-only references
 
-Architecture retains the core rules and feature details at their existing anchors:
+[Agent signal evidence](agents.md) links issue records. [Agent marks](agent-marks.md),
+[activity traces](activity-trace.md), [preview spike](previews.md),
+[agent preview spike](agent-previews.md), [editing](editing.md),
+[Herdr experiment](herdr-backend.md), and [board investigation](board-startup-investigation.md)
+are historical findings, not required area reading. [Forge manifests](forge-plugins.md)
+contain a staged specification: use [current forge ownership](areas/forge.md) for
+activation status. [Copilot](research/copilot-manifest.md) is an unverified draft,
+with [verification gates](research/agent-verification.md), not a supported agent.
+[Child follow-up](research/child-follow-up.md) is superseded for PTY input by #629;
+[remote machines](research/remote-machines.md) remains proposed.
 
-- [Profiles](architecture.md#application-profiles), [process model](architecture.md#process-model), [source layout](architecture.md#source-layout) and [security defaults](architecture.md#security-defaults).
-- [Renderer](architecture.md#renderer), [terminal host](architecture.md#terminals), [IPC contract](architecture.md#ipc-contract) and [confirmations](architecture.md#confirmations).
-- [Worktrees](architecture.md#worktrees), [agent launch](architecture.md#agent-discovery-and-launch), [control plane](architecture.md#control-plane) and [saved conversations](architecture.md#saved-conversations).
-- [Settings](architecture.md#settings-and-setup), [config folder](architecture.md#foom-config-environment-84), [theme files](architecture.md#custom-theme-files-205), [sounds](architecture.md#recorded-sounds) and [previews](architecture.md#previews).
-- [Evaluator](architecture.md#evaluator-pipeline) and the short [local classification overview](inference.md).
-
-## Current behavior, proposals and evidence
-
-Product and architecture describe established decisions and implemented behavior
-unless a passage explicitly marks a target or future change. Orchestration combines
-an implemented protocol with evidence and a clearly labelled proposed child
-follow-up channel. Agent plugin v2 parsing, launch, hooks and setup are implemented;
-its Copilot examples and forge extension remain drafts with shipping gates.
-
-The following are evidence or proposals, not current feature specifications:
-
-| Material | Status and current reference |
-| --- | --- |
-| [Agent signals](agents.md) | Dated CLI measurements plus integration notes; use architecture for current launch/restore policy |
-| [Agent marks](agent-marks.md) | Dated vendor research; current badge presentation is in product |
-| [Preview spike](previews.md), [agent preview spike](agent-previews.md) | Historical prototype findings; shipped behavior is in product and architecture |
-| [Editing](editing.md) | Research and proposed follow-ups; no built-in editor contract |
-| [Herdr backend](herdr-backend.md) | Not adopted; retained decision and experiment record |
-| [Board startup investigation](board-startup-investigation.md) | Dated diagnostics and open investigation, not a workaround policy |
-| [Forge manifests](forge-plugins.md) | Proposed specification; implementation requires the recorded product decision |
-| [Child follow-up](research/child-follow-up.md) | Historical structured-runtime proposal; scoped PTY prompts and keys supersede its input restrictions (#629) |
-| [Remote machines](research/remote-machines.md) | Proposed architecture and prototype evidence; no shipped remote host |
-| [Mockups](mockups/README.md) | Read-only layout/interaction reference; product and architecture win on disagreement |
-| `../spikes/`, `../inspiration/` | Prototype evidence and read-only external reference, respectively; neither is application code |
-
-Measurement versions and historical test counts describe their recorded runs, not
-promises about current releases. Preserve that evidence; add a status note and link
-to current behavior when later implementation supersedes a recommendation.
+[Mockups](mockups/README.md), `../inspiration/` and `../spikes/` remain references.
+Do not edit mockups or inspiration while implementing an area change.
