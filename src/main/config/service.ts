@@ -1,20 +1,17 @@
+import { ConfigCatalog } from "./catalog";
+import { ConfigFiles, decode, ignore, settle } from "./files";
 import { githubManifest } from "../control/forge-manifests";
 import type { LoadedForgeManifest } from "./plugins";
-import { parsePluginManifest } from "../../shared/plugin-parser";
-import { AgentManifestError } from "../../shared/agent-manifest";
-import { v2Provider } from "../agents/providers/v2";
 import type { AgentProvider } from "../agents/providers/registry";
-import { randomUUID } from "node:crypto";
-import { constants, watch } from "node:fs";
-import { lstat, mkdir, open, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { watch } from "node:fs";
+import type { rename } from "node:fs/promises";
+import { lstat, mkdir } from "node:fs/promises";
 import {
   hasBypassArgument,
   parseAgentDefaults,
   recoverAgentDefaults,
 } from "../agents/default-arguments";
 import type { DialogContent } from "../../shared/confirmation";
-import { setTimeout as sleep } from "node:timers/promises";
 import type { ConfigSettings } from "../../shared/config";
 import { parseSettingsFile } from "../../shared/config-files";
 import type { ConfigStatus } from "../../shared/foom-config";
@@ -26,9 +23,6 @@ import { ThemeValidationError, validThemeFile } from "../../shared/theme-validat
 import { argumentChanges, argumentDisclosure, effective, weakenings } from "./approval";
 import type { EffectiveConfig, Weakening } from "./approval";
 import { OWNED_FILES, SETTINGS_FILE, THEME_FOLDERS, digest, refreshable } from "./layout";
-
-const MAX_FILE = 65536;
-const MAX_THEMES = 50;
 
 export interface ConfigServiceDependencies {
   root: string;
@@ -57,11 +51,6 @@ export interface ConfigServiceDependencies {
   rename?: typeof rename;
 }
 
-type LoadedPlugin = { text: string } & (
-  | { kind: "agent"; provider: AgentProvider }
-  | { kind: "forge"; forge: LoadedForgeManifest }
-);
-
 interface Applied {
   text: string;
   values: ConfigSettings;
@@ -75,16 +64,6 @@ const DEFAULTS: Applied = {
 
 interface Pending extends Applied {
   weak: Weakening[];
-}
-
-/** Rejections that only mean "unavailable"; the caller falls back. */
-const ignore = (): undefined => undefined;
-async function settle<T, F>(promise: Promise<T>, fallback: F): Promise<T | F> {
-  try {
-    return await promise;
-  } catch {
-    return fallback;
-  }
 }
 
 const watchFolder = (directory: string, listener: (file: string | null) => void) => {
@@ -101,44 +80,6 @@ function invalid(error: unknown): string {
   return error instanceof ThemeValidationError
     ? `${error.path}: ${error.reason}${error.detail ? `: ${error.detail}` : ""}`
     : "$: unreadable";
-}
-
-/** Reads a direct regular file without following links; null when it does not exist. */
-async function readConfigFile(path: string): Promise<Buffer | null> {
-  const before = await lstat(path).catch((error: unknown) => {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
-    throw new ThemeValidationError("$", "unreadable");
-  });
-  if (!before) return null;
-  if (!before.isFile()) throw new ThemeValidationError("$", "unsafe-file");
-  if (before.size > MAX_FILE) throw new ThemeValidationError("$", "too-large");
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => {
-    throw new ThemeValidationError("$", "unsafe-file");
-  });
-  try {
-    const info = await file.stat();
-    if (!info.isFile() || info.ino !== before.ino || info.dev !== before.dev)
-      throw new ThemeValidationError("$", "unsafe-file");
-    const bytes = Buffer.alloc(MAX_FILE + 1);
-    let count = 0;
-    while (count < bytes.length) {
-      const { bytesRead } = await file.read(bytes, count, bytes.length - count, count);
-      if (!bytesRead) break;
-      count += bytesRead;
-    }
-    if (count > MAX_FILE) throw new ThemeValidationError("$", "too-large");
-    return bytes.subarray(0, count);
-  } finally {
-    await file.close();
-  }
-}
-
-function decode(bytes: Uint8Array): string {
-  try {
-    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
-  } catch {
-    throw new ThemeValidationError("$", "malformed-json");
-  }
 }
 
 function themeKind(path: string): ThemeKind | undefined {
@@ -158,7 +99,6 @@ function themeKind(path: string): ThemeKind | undefined {
 export class ConfigService {
   private applied: Applied = DEFAULTS;
   private pending: Pending | null = null;
-  private loadedPlugins = new Map<string, LoadedPlugin>();
   private appliedThemes = new Map<string, { text: string; parsed: ParsedThemeFile }>();
   private heldThemes = new Map<string, { text: string; previous: string | null }>();
   /** Each rejected file: the digest of the bytes rejected and a fixed reason. */
@@ -171,7 +111,12 @@ export class ConfigService {
   private closed = false;
   private started = false;
 
-  constructor(private readonly deps: ConfigServiceDependencies) {}
+  private readonly files: ConfigFiles;
+  private readonly plugins: ConfigCatalog;
+  constructor(private readonly deps: ConfigServiceDependencies) {
+    this.files = new ConfigFiles(deps);
+    this.plugins = new ConfigCatalog(this.files, this.rejected, () => this.closed, deps);
+  }
 
   get folder(): string {
     return this.deps.root;
@@ -181,67 +126,6 @@ export class ConfigService {
     const next = this.queue.catch(ignore).then(work);
     this.queue = next;
     return next;
-  }
-
-  private path(relative: string): string {
-    return join(this.deps.root, ...relative.split("/"));
-  }
-
-  /**
-   * Whether a folder inside the config root is a real directory at its expected place.
-   * `O_NOFOLLOW` guards only the last path component, so a `themes` link to another
-   * directory must be refused before reading, writing or removing anything in it.
-   */
-  private async contained(folder: string): Promise<boolean> {
-    if (!folder) return true;
-    try {
-      const info = await lstat(this.path(folder));
-      if (!info.isDirectory()) return false;
-      const root = await realpath(this.deps.root);
-      return (await realpath(this.path(folder))) === join(root, ...folder.split("/"));
-    } catch {
-      return false;
-    }
-  }
-
-  private async read(relative: string): Promise<Buffer | null> {
-    if (!(await this.contained(dirname(relative).replace(/^\.$/, ""))))
-      throw new ThemeValidationError("$", "unsafe-file");
-    return readConfigFile(this.path(relative));
-  }
-
-  /** Atomic replacement inside the folder; the temporary name is hidden from the catalogs. */
-  private async writeFile(relative: string, content: Uint8Array | string): Promise<void> {
-    const target = this.path(relative);
-    await mkdir(dirname(target), { recursive: true });
-    if (!(await this.contained(dirname(relative).replace(/^\.$/, ""))))
-      throw new Error("A Foom config folder is redirected outside the config folder");
-    const temporary = join(dirname(target), `.foom-${randomUUID()}.tmp`);
-    try {
-      await writeFile(temporary, content, { flag: "wx", mode: 0o644 });
-      // Windows scanners can briefly deny replacement even after our readers close.
-      // Five attempts, at most 375 ms of backoff; never unlink the existing target.
-      for (let attempt = 0; ; attempt++) {
-        try {
-          await (this.deps.rename ?? rename)(temporary, target);
-          break;
-        } catch (error) {
-          if (
-            (this.deps.platform ?? process.platform) !== "win32" ||
-            !(error instanceof Error) ||
-            !("code" in error) ||
-            (error.code !== "EPERM" && error.code !== "EBUSY") ||
-            attempt === 4
-          )
-            throw new Error(`Unable to replace ${relative}. The change was not applied.`, {
-              cause: error,
-            });
-          await sleep(25 * 2 ** attempt);
-        }
-      }
-    } finally {
-      await rm(temporary, { force: true });
-    }
   }
 
   /**
@@ -280,14 +164,14 @@ export class ConfigService {
       "forges",
       ...SOUND_KINDS.map((kind) => `sounds/${kind}`),
     ])
-      await mkdir(this.path(folder), { recursive: true });
+      await mkdir(this.files.path(folder), { recursive: true });
     for (const [relative, content] of Object.entries(OWNED_FILES)) {
-      const current = await this.read(relative).catch(ignore);
+      const current = await this.files.read(relative).catch(ignore);
       if (current !== undefined && refreshable(relative, current))
-        await this.writeFile(relative, content);
+        await this.files.writeFile(relative, content);
     }
     let migrated: Applied | undefined;
-    if ((await this.read(SETTINGS_FILE).catch(ignore)) === null) {
+    if ((await this.files.read(SETTINGS_FILE).catch(ignore)) === null) {
       // Portable palette objects predate theme files and cannot be expressed in this file.
       const values: ConfigSettings = {};
       for (const [key, value] of Object.entries(legacy ?? {})) {
@@ -303,13 +187,13 @@ export class ConfigService {
       }
       const text = `${JSON.stringify({ kind: "settings", ...values }, null, 2)}\n`;
       parseSettingsFile(text);
-      await this.writeFile(SETTINGS_FILE, text);
+      await this.files.writeFile(SETTINGS_FILE, text);
       migrated = { text, values };
     }
     this.applied = (await this.baseline(migrated)) ?? DEFAULTS;
     if (!migrated && legacy?.agentArguments) {
       // Trust only the profile's arguments, not other edits made while Foom was closed.
-      const bytes = await this.read(SETTINGS_FILE);
+      const bytes = await this.files.read(SETTINGS_FILE);
       if (!bytes) throw new Error("Cannot migrate agent arguments without settings");
       const text = decode(bytes);
       const values = parseSettingsFile(text);
@@ -320,7 +204,7 @@ export class ConfigService {
       if (values.agentArguments === undefined) {
         const migratedText = `${JSON.stringify({ kind: "settings", ...values, agentArguments: legacy.agentArguments }, null, 2)}\n`;
         parseSettingsFile(migratedText);
-        await this.writeFile(SETTINGS_FILE, migratedText);
+        await this.files.writeFile(SETTINGS_FILE, migratedText);
       }
       // Keep a recoverable approved baseline even when the working file has a held edit.
       await this.recordBaseline(this.applied.text);
@@ -349,7 +233,7 @@ export class ConfigService {
     const known = this.deps.baseline.get();
     if (!known) return undefined;
     const candidates: Uint8Array[] = [];
-    const working = await settle(this.read(SETTINGS_FILE), null);
+    const working = await settle(this.files.read(SETTINGS_FILE), null);
     if (working) candidates.push(working);
     const copy = this.deps.appliedText?.get();
     if (copy) candidates.push(Buffer.from(copy));
@@ -363,23 +247,6 @@ export class ConfigService {
       }
     }
     return undefined;
-  }
-
-  /** At most 50 eligible names per theme folder, sorted. */
-  private async themePaths(): Promise<string[]> {
-    const paths: string[] = [];
-    for (const folder of Object.values(THEME_FOLDERS)) {
-      if (!(await this.contained(folder))) continue;
-      const names = await settle(readdir(this.path(folder)), [] as string[]);
-      paths.push(
-        ...names
-          .filter((name) => validThemeFile(name))
-          .sort()
-          .slice(0, MAX_THEMES)
-          .map((name) => `${folder}/${name}`),
-      );
-    }
-    return paths;
   }
 
   private startWatching(): void {
@@ -402,7 +269,7 @@ export class ConfigService {
     try {
       this.watchers.set(
         folder,
-        (this.deps.watch ?? watchFolder)(this.path(folder), (file) => {
+        (this.deps.watch ?? watchFolder)(this.files.path(folder), (file) => {
           if (relevant(file)) this.schedule();
         }),
       );
@@ -438,7 +305,7 @@ export class ConfigService {
     await this.scanPlugins();
     // Known names too, so a removed theme clears its applied, held or rejected state.
     const themes = new Set([
-      ...(await this.themePaths()),
+      ...(await this.plugins.themePaths()),
       ...this.appliedThemes.keys(),
       ...this.heldThemes.keys(),
       ...[...this.rejected.keys()].filter((path) => themeKind(path) !== undefined),
@@ -447,102 +314,8 @@ export class ConfigService {
     this.publish();
   }
 
-  private async pluginPaths(): Promise<string[]> {
-    const paths: string[] = [];
-    for (const folder of ["agents", "forges"]) {
-      if (!(await this.contained(folder))) continue;
-      const names = await readdir(this.path(folder)).catch(() => []);
-      paths.push(
-        ...names
-          .filter((name) => /^[a-z][a-z0-9-]{0,39}\.json$/u.test(name))
-          .sort()
-          .slice(0, 50)
-          .map((name) => `${folder}/${name}`),
-      );
-    }
-    return paths;
-  }
-
-  /** A valid manifest loads as read; an edit reloads it and an invalid file is rejected whole. */
   private async scanPlugins(): Promise<void> {
-    const eligible = new Set(await this.pluginPaths());
-    const paths = new Set([
-      ...eligible,
-      ...this.loadedPlugins.keys(),
-      ...[...this.rejected.keys()].filter(
-        (file) => file.startsWith("agents/") || file.startsWith("forges/"),
-      ),
-    ]);
-    const active: AgentProvider[] = [];
-    const forges: LoadedForgeManifest[] = [];
-    for (const file of paths) {
-      if (!eligible.has(file)) {
-        this.loadedPlugins.delete(file);
-        this.rejected.delete(file);
-        continue;
-      }
-      let bytes: Buffer | null;
-      try {
-        bytes = await this.read(file);
-      } catch {
-        this.loadedPlugins.delete(file);
-        this.reject(file, "unreadable", "$: unsafe-file");
-        continue;
-      }
-      if (!bytes) {
-        this.loadedPlugins.delete(file);
-        this.rejected.delete(file);
-        continue;
-      }
-      let text: string;
-      let loaded: ReturnType<typeof parsePluginManifest>;
-      try {
-        text = decode(bytes);
-        loaded = parsePluginManifest(text);
-        const folder = loaded.kind === "agent" ? "agents" : "forges";
-        if (!file.startsWith(`${folder}/`)) throw new AgentManifestError("$", "invalid-kind");
-        const identifier = loaded.kind === "agent" ? loaded.plugin.model.id : loaded.plugin.id;
-        if (file !== `${folder}/${identifier}.json`)
-          throw new AgentManifestError("$.id", "filename-mismatch");
-      } catch (error) {
-        this.loadedPlugins.delete(file);
-        this.reject(
-          file,
-          digest(bytes),
-          error instanceof AgentManifestError ? error.message : "$: invalid-manifest",
-        );
-        continue;
-      }
-      this.rejected.delete(file);
-      const hash = digest(bytes);
-      const previous = this.loadedPlugins.get(file);
-      // A launch/sample binds the bytes it was offered; edits wait for the next scan.
-      const validate = async () => {
-        const current = await this.read(file);
-        if (
-          this.closed ||
-          this.loadedPlugins.get(file) !== entry ||
-          !current ||
-          digest(current) !== hash
-        )
-          throw new Error("Agent or forge plugin changed. Try again.");
-      };
-      let entry: LoadedPlugin;
-      if (previous?.text === text) entry = previous;
-      else if (loaded.kind === "agent")
-        entry = {
-          kind: "agent",
-          text,
-          provider: v2Provider(loaded.plugin.model, validate),
-        };
-      else
-        entry = { kind: "forge", text, forge: { manifest: loaded.plugin, digest: hash, validate } };
-      this.loadedPlugins.set(file, entry);
-      if (entry.kind === "agent") active.push(entry.provider);
-      else forges.push(entry.forge);
-    }
-    this.deps.applyForges?.(forges);
-    this.deps.applyPlugins?.(active);
+    await this.plugins.scanPlugins();
     const defaults = this.applied.values.agentArguments;
     if (defaults) {
       const recovered = recoverAgentDefaults(defaults);
@@ -556,7 +329,7 @@ export class ConfigService {
   private async scanSettings(): Promise<void> {
     let bytes: Buffer | null;
     try {
-      bytes = await this.read(SETTINGS_FILE);
+      bytes = await this.files.read(SETTINGS_FILE);
     } catch (error) {
       this.reject(SETTINGS_FILE, invalid(error), invalid(error));
       return;
@@ -612,7 +385,7 @@ export class ConfigService {
       // The library reads before joining this queue. A config scan may already
       // have reviewed a newer edit, so an old snapshot must not clear its hold
       // or replace the profile's approval baseline.
-      const bytes = await settle(this.read(file), null);
+      const bytes = await settle(this.files.read(file), null);
       if (!bytes || decode(bytes) !== text) return this.appliedThemes.get(file)?.parsed;
       const accepted = await this.reviewThemeValue(file, text, parsed);
       this.publish();
@@ -678,7 +451,7 @@ export class ConfigService {
     const file = `themes/${after.interfaceTheme.slice(5)}`;
     let parsed = this.appliedThemes.get(file)?.parsed;
     try {
-      const bytes = await this.read(file);
+      const bytes = await this.files.read(file);
       if (!bytes) return [];
       parsed = parseThemeFile(decode(bytes), "theme");
     } catch {
@@ -702,7 +475,7 @@ export class ConfigService {
     if (!kind) return;
     let bytes: Buffer | null;
     try {
-      bytes = await this.read(relative);
+      bytes = await this.files.read(relative);
     } catch (error) {
       this.heldThemes.delete(relative);
       this.reject(relative, invalid(error), invalid(error));
@@ -740,7 +513,7 @@ export class ConfigService {
           badge: githubManifest.badge,
           executables: githubManifest.executables,
         },
-        ...[...this.loadedPlugins].flatMap(([file, entry]) =>
+        ...[...this.plugins.loadedPlugins].flatMap(([file, entry]) =>
           entry.kind === "forge"
             ? [
                 {
@@ -815,7 +588,7 @@ export class ConfigService {
     } catch {
       throw new Error("This setting cannot be stored in the Foom config folder");
     }
-    await this.writeFile(SETTINGS_FILE, text);
+    await this.files.writeFile(SETTINGS_FILE, text);
     await this.applyValues(text, values);
     this.publish();
   }
@@ -835,7 +608,7 @@ export class ConfigService {
         const [file, proposal] = held;
         if (id !== digest(file + proposal.text))
           throw new Error("The change was replaced. Review it again.");
-        const bytes = await settle(this.read(file), null);
+        const bytes = await settle(this.files.read(file), null);
         if (!bytes || decode(bytes) !== proposal.text) {
           await this.scan();
           throw new Error("The file changed. Review the new change.");
@@ -844,14 +617,14 @@ export class ConfigService {
           await this.acceptTheme(file, proposal.text, parseThemeFile(proposal.text, "theme"));
         else if (proposal.previous === null)
           await this.writeSettings({ interfaceTheme: this.deps.defaults.interfaceTheme });
-        else await this.writeFile(file, proposal.previous);
+        else await this.files.writeFile(file, proposal.previous);
         this.heldThemes.delete(file);
         await this.scan();
         this.deps.onThemeDecision?.();
         return this.status();
       }
       if (id !== digest(pending.text)) throw new Error("The change was replaced. Review it again.");
-      const bytes = await settle(this.read(SETTINGS_FILE), null);
+      const bytes = await settle(this.files.read(SETTINGS_FILE), null);
       if (!bytes || bytes.toString("utf8") !== pending.text) {
         await this.scan();
         throw new Error("The file changed. Review the new change.");
@@ -863,7 +636,7 @@ export class ConfigService {
           if (!(await this.deps.confirmArguments?.(argumentDisclosure(before, after))))
             return this.status();
           // The dialog can remain open while an agent replaces the proposal.
-          const current = await settle(this.read(SETTINGS_FILE), null);
+          const current = await settle(this.files.read(SETTINGS_FILE), null);
           if (!current || decode(current) !== pending.text) {
             await this.scan();
             throw new Error("The file changed. Review the new change.");
@@ -878,7 +651,7 @@ export class ConfigService {
         }
         await this.applyValues(pending.text, pending.values);
       } else {
-        await this.writeFile(SETTINGS_FILE, this.applied.text);
+        await this.files.writeFile(SETTINGS_FILE, this.applied.text);
         this.pending = null;
       }
       this.publish();

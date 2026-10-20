@@ -807,3 +807,40 @@ it("keeps repository cadence across chunks with active, settled and absent PRs",
   await h.tracker.poll();
   expect(h.batch).toHaveBeenLastCalledWith([{ branch: second.branch, number: 340 }]);
 });
+
+it("backs off the entire repository after a failed chunk and hides unsampled stale observations", async () => {
+  let capacity = 2;
+  const h = batched(20000, () => capacity);
+  const second = { ...tree, path: join(root, "second"), branch: "other" };
+  h.tracker.sync(tree.repository, [tree, second]);
+  h.tracker.setEnabled(true);
+  h.result(
+    new Map([
+      [tree.branch, h.observation],
+      [second.branch, h.observation],
+    ]),
+  );
+  await h.tracker.poll();
+  h.advance(1000);
+  await h.tracker.poll();
+  capacity = 1;
+  h.result(undefined);
+  h.advance(20000);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(3);
+  expect(h.tracker.read(tree.repository, tree.path)).toBeUndefined();
+  expect(h.tracker.read(tree.repository, second.path)).toBeUndefined();
+  h.advance(59999);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(3);
+  h.advance(1);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(4);
+  h.advance(119999);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(4);
+  h.advance(1);
+  h.result(new Map());
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenCalledTimes(5);
+});

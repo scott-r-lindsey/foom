@@ -7,6 +7,7 @@ test("probe CLI grammar and main validation agree", () => {
       ["start", "copilot", "--manifest", "draft.json", "--resume", "abc-123"],
       { action: "start", agent: "copilot", manifest: "draft.json", resume: "abc-123" },
     ],
+    [["screen", id, "--save", "idle"], { action: "screen", probe: id, save: "idle" }],
     [["start", "codex"], { action: "start", agent: "codex" }],
     [["send", id, "approve"], { action: "send", probe: id, text: "approve" }],
     [["wait", id, "--quiet", "0.5"], { action: "wait", probe: id, quiet: 0.5 }],
@@ -62,4 +63,24 @@ test("rejects extra flags, controls, foreign ID formats and malformed runtime va
     { action: "wait", probe: id, timeout: "1" },
   ])
     expect(() => probeRequest(value)).toThrow("invalid_request");
+});
+
+test("capture labels and test-rule agent IDs reject paths and unknown runtime fields", () => {
+  for (const save of ["working", "blocked", "idle", "other"])
+    expect(probeRequest({ action: "screen", probe: id, save })).toEqual({
+      action: "screen",
+      probe: id,
+      save,
+    });
+  expect(probeRequest({ action: "test-rules", agent: "codex" })).toEqual({
+    action: "test-rules",
+    agent: "codex",
+  });
+  for (const save of ["done", "../idle", "a.b", "idle/other", "x".repeat(100), 1])
+    expect(() => probeRequest({ action: "screen", probe: id, save })).toThrow("invalid_request");
+  for (const agent of ["../other", "a.b", "x".repeat(41), "shell", null])
+    expect(() => probeRequest({ action: "test-rules", agent })).toThrow("invalid_request");
+  expect(() => probeRequest({ action: "test-rules", agent: "codex", manifest: "draft" })).toThrow(
+    "invalid_request",
+  );
 });

@@ -420,3 +420,14 @@ it("uses selected enabled manifests for neutral auth preflight without sending p
   expect(h.discover).not.toHaveBeenCalled();
   expect(executeForge).not.toHaveBeenCalled();
 });
+
+it("cancels shutdown without notifying crashed or disposed board observers", async () => {
+  const h = harness();
+  const changed = vi.fn(() => {
+    throw new Error("Disposed board");
+  });
+  h.runtime.onInvalidate = changed;
+  await expect(h.runtime.close()).resolves.toBeUndefined();
+  expect(changed).not.toHaveBeenCalled();
+  expect(await h.runtime.provider(remote, getContext)).toBeUndefined();
+});

@@ -51,7 +51,8 @@ export class ForgeRuntime {
   invalidate(): void {
     this.revision++;
     this.lifecycle?.invalidate();
-    this.onInvalidate?.();
+    // Shutdown still retires work, but must not publish into crashed/disposed boards.
+    if (!this.closed) this.onInvalidate?.();
   }
 
   readonly provider: ForgeProviderFactory = async (url, getContext) => {

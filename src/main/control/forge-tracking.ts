@@ -359,7 +359,7 @@ export class ForgeTracking {
     const matches = requests.slice(0, Math.max(1, size));
     const keys = new Set(matches.map((request) => JSON.stringify(request)));
     const selected = rows.filter((entry) => keys.has(JSON.stringify(match(entry))));
-    const revisions = new Map(selected.map((entry) => [entry, entry.refresh]));
+    const revisions = new Map(rows.map((entry) => [entry, entry.refresh]));
     const result = await provider.batch?.(matches).catch(() => undefined);
     if (this.stopped() || generation !== this.generation || this.pauses.size > 0) return;
     const remaining = rows.filter((entry) => !selected.includes(entry) && entry.available);
@@ -380,7 +380,11 @@ export class ForgeTracking {
               entry.pr.requiredChecks === "unknown"),
         ));
     const hasMatches = result && (result.size > 0 || remaining.some((entry) => entry.pr));
-    for (const entry of selected) {
+    // A failed chunk is a failed repository read. Preserve the shared backoff and
+    // hide every stale observation instead of letting a due suffix retry next tick.
+    const failures = result ? 0 : Math.min(Math.max(...rows.map((entry) => entry.failures)) + 1, 5);
+    for (const entry of rows) entry.failures = failures;
+    for (const entry of result ? selected : rows) {
       if (this.entries.get(entry.path) !== entry || (!this.enabled && !entry.orchestrator))
         continue;
       const previous = entry.available ? JSON.stringify([entry.pr, entry.board]) : undefined;
@@ -400,7 +404,6 @@ export class ForgeTracking {
         entry.board = pr.board;
       }
       entry.remote = remote;
-      entry.failures = result ? 0 : Math.min(entry.failures + 1, 5);
       entry.due =
         this.now() +
         (discovered

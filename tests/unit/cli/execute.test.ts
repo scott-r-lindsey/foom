@@ -186,3 +186,58 @@ it("reads live config status only through the config-session credential", async 
   expect(await execute(["config", "status"], "1", io(), {}, "/foom")).toBe(3);
   expect(await execute(["config", "status", "allow"], "1", io(), env, "/foom")).toBe(2);
 });
+
+it("test-rules uses config credentials, reports expected/actual/rule and exits nonzero for mismatches", async () => {
+  const env = {
+    FOOM_CONFIG_TOKEN: "a".repeat(64),
+    FOOM_CONFIG_URL: "http://127.0.0.1:1234/probe/v1",
+  };
+  for (const passed of [true, false]) {
+    const result = {
+      agentId: "codex",
+      passed,
+      captures: [
+        {
+          file: "captures/codex/idle-1.json",
+          expected: "idle",
+          actual: "working",
+          ruleId: "busy",
+          passed,
+        },
+      ],
+    };
+    vi.mocked(exchange).mockResolvedValueOnce({ result });
+    const output = io();
+    expect(await execute(["config", "test-rules", "codex"], "1", output, env, "/foom")).toBe(
+      passed ? 0 : 1,
+    );
+    expect(output.out).toHaveBeenCalledWith(
+      '"captures/codex/idle-1.json": expected "idle", got "working", rule "busy"\n',
+    );
+    vi.mocked(exchange).mockResolvedValueOnce({ result });
+    const json = io();
+    expect(
+      await execute(["config", "test-rules", "codex", "--json"], "1", json, env, "/foom"),
+    ).toBe(passed ? 0 : 1);
+    expect(json.out).toHaveBeenCalledWith(JSON.stringify({ result }) + "\n");
+  }
+  expect(await execute(["config", "test-rules", "codex"], "1", io(), {}, "/foom")).toBe(3);
+  expect(await execute(["config", "test-rules", "codex", "extra"], "1", io(), env, "/foom")).toBe(
+    2,
+  );
+  vi.mocked(exchange).mockResolvedValueOnce({ result: {} });
+  expect(await execute(["config", "test-rules", "codex"], "1", io(), env, "/foom")).toBe(4);
+  const output = io();
+  expect(
+    await execute(
+      ["agent", "probe", "screen", "a".repeat(64), "--save", "done"],
+      "1",
+      output,
+      env,
+      "/foom",
+    ),
+  ).toBe(2);
+  expect(output.error).toHaveBeenCalledWith(
+    expect.stringContaining("Use --save idle or --save other"),
+  );
+});

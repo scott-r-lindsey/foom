@@ -369,7 +369,9 @@ hostile manifest cannot relax Foom's fork, same-repository or advertised
 default-branch refusals. No real forge CLI or network is used.
 
 The scheduler measures exact expanded requests, sends one bounded prefix per
-serial tick and leaves unsampled work due. Minima only slow regular polling;
+serial tick and leaves unsampled work due. A failed chunk hides the repository’s
+stale observations and applies shared repository backoff, so its unsampled suffix
+cannot immediately retry the failed read. Minima only slow regular polling;
 discovery binding still follows on the next tick. Separate display enrichment and
 checks-meaning metadata remain follow-up work under #521.
 
