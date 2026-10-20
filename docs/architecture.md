@@ -2316,7 +2316,7 @@ manifest content and model responses remain untrusted data.
 
 A validated host `screen` request carries a terminal ID. The utility process flushes
 its headless parser and reads exactly the active viewport at `baseY`, including
-alternate screens, plus the bounded OSC title. It does not return scrollback.
+alternate screens, plus the bounded OSC title and actual terminal columns/rows. It does not return scrollback.
 Only main's probe broker exposes this result to the config CLI. The renderer keeps
 its existing typed terminal capabilities and attachment ordering.
 
@@ -2340,8 +2340,10 @@ honors this projection across execution events and drops it when main clears it.
 The fixture harness may inject a shorter delay; no config setting or renderer IPC
 can change it. A profile-only list of agent IDs records the terse first-probe credit
 note; it contains no terminal content or credential. Session persistence excludes
-probe rows. Captures and test rules (#592), verification (#593), and the guide
-workflow (#594) are deliberately outside this change.
+probe rows. Capture persistence and replay (#592) are described in
+[agent plugins](agent-plugins.md#saved-screen-rule-regressions-592). Replay compares
+raw rule states via the live matcher; idle does not imply Done. Verification (#593)
+and the guide workflow (#594) remain separate.
 
 ### Config decisions and live launch catalogs (#591 follow-up)
 
