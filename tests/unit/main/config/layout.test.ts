@@ -80,3 +80,45 @@ test("schema accepts complete v2 manifests with files, MCP, health and setup", (
   expect(() => parseAgentManifest(copilot)).not.toThrow();
   expect(validate(JSON.parse(copilot)), JSON.stringify(validate.errors)).toBe(true);
 });
+
+test("every worked guide attachment validates on its first pass", async () => {
+  const { default: claude } = await import("../../../fixtures/agent-plugins-v2/claude.json");
+  const guide = OWNED_FILES["AGENTS.md"] ?? "";
+  const blocks: unknown[] = [...guide.matchAll(/```json\n([\s\S]*?)\n```/gu)].map((match) => {
+    const value: unknown = JSON.parse(match[1] ?? "");
+    return value;
+  });
+  const args = (flag: string) => blocks.find((block) => Array.isArray(block) && block[0] === flag);
+  const files = blocks.find((block) => Array.isArray(block) && typeof block[0] === "object");
+  const fileContent = guide.match(/Declare that file[\s\S]*?`([^`]+)`/u)?.[1];
+  for (const [flag, attached] of [
+    ["--settings", []],
+    ["-c", []],
+    ["--hooks", [{ name: "hooks.json", scope: "launch", format: "json", content: fileContent }]],
+    ["--plugin-dir", files],
+  ]) {
+    const draft = structuredClone(claude);
+    const channel = draft.hooks.channels[0];
+    if (!channel) throw Error("Missing fixture channel");
+    channel.when = { all: [{ field: "hooksEnabled", op: "eq", value: true }] };
+    Reflect.set(channel, "arguments", args(String(flag)));
+    if (flag === "-c") {
+      channel.id = "notify";
+      channel.observer.transport = "argv-last";
+      Reflect.set(draft.execution, "completionChannels", ["notify"]);
+    }
+    Reflect.deleteProperty(draft.launch, "mcp");
+    Reflect.deleteProperty(draft.launch, "toolPermissions");
+    Reflect.set(
+      draft,
+      "files",
+      Array.isArray(attached)
+        ? attached.map((file: unknown) => {
+            if (typeof file !== "object" || file === null) throw Error("Invalid guide file");
+            return { ...file, when: channel.when };
+          })
+        : attached,
+    );
+    expect(() => parseAgentManifest(JSON.stringify(draft), "bundled"), String(flag)).not.toThrow();
+  }
+});

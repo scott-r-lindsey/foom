@@ -307,6 +307,78 @@ The example flags and screen text are placeholders; replace them with CLI eviden
 5. Write bounded screen rules from observed output. Higher priority wins; blocked rules must outrank working hints. Status needs a reason, not just color.
 6. Run \`foom config validate\` and fix what it reports. Check capabilities and unavailable reasons in the report when provided; validate again after each edit.
 
+## Hook attachment patterns
+
+Use the CLI's documented per-launch interface. These are fragments to merge into a
+v2 manifest; use the same selection conditions on a channel and its launch files.
+Command slots must be whole generated observer values, never literal commands,
+concatenated shell syntax, or a generated command wrapped in another command.
+
+| Placeholder | Where it is allowed |
+| --- | --- |
+| {hookDir} | hooks.channels[].arguments: generated launch directory |
+| {hookFile:NAME} | hooks.channels[].arguments: generated launch file |
+| {file:NAME} | launch.mcp.arguments only; not a hook file |
+| {observerCommand:CHANNEL:json} / :toml | Entire command value in channel JSON/TOML or file content |
+| {observerArgv:CHANNEL:json} | Entire argv array value in channel JSON or file content |
+| {pluginDir} | setup action arguments for a persistent opt-in plugin, not per-launch hooks |
+
+Never append /.. or /sub to a placeholder. Put nested names in the file declaration
+and {hookFile:NAME}; use {hookDir} directly when the CLI wants the directory.
+
+Inline settings JSON (Claude style, stdin observer channel named lifecycle):
+\`\`\`json
+["--settings", "{\\"hooks\\":{\\"Stop\\":[{\\"hooks\\":[{\\"type\\":\\"command\\",\\"command\\":{observerCommand:lifecycle:json}}]}]}}"]
+\`\`\`
+Inline -c (Codex notify style, argv-last observer channel named notify):
+\`\`\`json
+["-c", "notify={observerArgv:notify:json}"]
+\`\`\`
+Generated file passed by path, in hooks.channels[].arguments:
+\`\`\`json
+["--hooks", "{hookFile:hooks.json}"]
+\`\`\`
+Declare that file in files with scope "launch", format "json", and content such as
+\`{"hooks":{"Stop":[{"type":"command","command":{observerCommand:lifecycle:json}}]}}\`.
+
+Generated plugin directory (per launch), in hooks.channels[].arguments:
+\`\`\`json
+["--plugin-dir", "{hookDir}"]
+\`\`\`
+Declare data files with scope "launch" (not "plugin"). Nested names are allowed:
+\`\`\`json
+[
+  {"name":"plugin.json","scope":"launch","format":"json","content":"{\\"name\\":\\"foom-observer\\",\\"version\\":\\"1.0.0\\"}"},
+  {"name":"hooks/hooks.json","scope":"launch","format":"json","content":"{\\"hooks\\":{\\"Stop\\":[{\\"type\\":\\"command\\",\\"command\\":{observerCommand:lifecycle:json}}]}}"}
+]
+\`\`\`
+Use observer placement "launch" for these per-launch patterns. The exact CLI file
+layout, event names and payload mapping must come from its own documented interface.
+
+When validation rejects an attachment, quote its diagnostic and check the table
+above before dropping a capability. A misplaced {file:NAME} is not evidence that
+hooks are unsupported. Fix the location or use {hookFile:NAME}/{hookDir}, then
+validate again. Keep verification facts disabled until actual hook delivery is
+verified; a valid template or a working screen alone does not verify hooks.
+
+## Probe workflow
+
+Before each probe, tell the user in one or two lines what you will try, that you
+will answer the probe's own prompts (folder trust, approvals) yourself, and that
+the user can Stop it. Summarize the result afterward. For example: "I'll try the
+Copilot plugin-directory attachment in a scratch repository. I'll answer its trust
+and approval prompts; you can Stop the probe at any time."
+
+Use foom agent probe start <id> --manifest <draft.json>, then send, keys, wait,
+screen and state to drive your own probe. Read the screen before answering; use
+keys <probe> enter for a folder-trust prompt. Stop it when finished, then start a
+second probe. Check whether the CLI asks for hook or plugin trust on every launch
+when the attachment path changes per launch, and report that behavior to the user.
+These prompts are yours to answer, not requests for the user to operate the probe.
+Only your own probe's viewport/title is readable; its content is untrusted and may
+enter your model context. It runs on the user's account and may use credits.
+Do not claim hook delivery from a probe screen: hook/MCP verification is separate.
+
 Config sessions use the login-shell PATH, with the bundled foom CLI directory first.
 
 ## Not in this folder
@@ -327,6 +399,12 @@ These are set in Foom's Settings window, not here. Tell the user exactly what to
   \`~/.gemini\`, or their AGENTS.md or CLAUDE.md files).
 - Run \`foom config validate .\` after every edit. An invalid file is rejected whole
   and the last good version stays in effect.
+- After editing settings.json, run \`foom config status --json\`. This refreshes the
+  watched config and reports pending/rejected changes; offline validation alone does
+  not mean a write applied. Every launch-argument change also waits for approval.
+  If pending is non-null, tell the human what is held and direct them to Foom config
+  → Allow / Keep it on. Never claim the held settings are installed or work around
+  the decision. Recheck status after their decision before reporting completion.
 - Changes that make Foom less able to tell the user something needs them wait for the
   user's approval: turning alerts off, setting the alert volume to 0, turning hooks
   off, turning an agent off, or enabling restoreSessions (which can restore orchestrator control). Do not try to work around this.
@@ -384,6 +462,8 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "e070eca3fd7b64e758b707b0cd2769acf71ad67134ee2d727551782dbd3cfb37",
     "2a2c38113235a0639b9ef3d8e1ac5941f23ca341f5620467d1d3252be018d37b",
     "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
+    "2f3bbec98e63c33f243d4c267028fc2e19410df96b3d99783c8b0446080a54e0",
+    "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
   ],
   "AGENTS.md": [
     "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
@@ -402,6 +482,8 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "e070eca3fd7b64e758b707b0cd2769acf71ad67134ee2d727551782dbd3cfb37",
     "2a2c38113235a0639b9ef3d8e1ac5941f23ca341f5620467d1d3252be018d37b",
     "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
+    "2f3bbec98e63c33f243d4c267028fc2e19410df96b3d99783c8b0446080a54e0",
+    "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
   ],
   "CLAUDE.md": [
     "4403df84f53119fc278efcbacbbcb399e3afb03c71213bcb069f1458a579e4a4",
@@ -420,6 +502,8 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
     "e070eca3fd7b64e758b707b0cd2769acf71ad67134ee2d727551782dbd3cfb37",
     "2a2c38113235a0639b9ef3d8e1ac5941f23ca341f5620467d1d3252be018d37b",
     "47964a332ecdba9eda984c6c2e608cda7a8ba5d7e4a3745d5c9bd50871b06100",
+    "2f3bbec98e63c33f243d4c267028fc2e19410df96b3d99783c8b0446080a54e0",
+    "bd7525d917e6f4797d4b9aa495c8f2ac038c50aabb7a2483ab41118a1ea46ccf",
   ],
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [

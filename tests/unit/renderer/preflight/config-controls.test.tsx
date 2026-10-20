@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { ConfigControls } from "../../../../src/renderer/preflight/config-controls";
+import { ConfigControls, ConfigDecision } from "../../../../src/renderer/preflight/config-controls";
 import type { ConfigStatus } from "../../../../src/shared/foom-config";
 
 afterEach(cleanup);
@@ -110,7 +110,9 @@ test("failures are shown, nothing is listed when all is well, and unmount unsubs
     fireEvent.click(screen.getByRole("button", { name: "Open folder" }));
     await Promise.resolve();
   });
-  expect(screen.getByRole("alert").textContent).toBe("Unable to update Foom config.");
+  expect(screen.getAllByRole("alert").map((element) => element.textContent)).toContain(
+    "Unable to update Foom config.",
+  );
   view.unmount();
   expect(config.listening()).toBe(false);
 });
@@ -120,4 +122,31 @@ test("an unavailable folder reports it", async () => {
   config.status.mockRejectedValue(new Error("no"));
   render(<ConfigControls config={config} />);
   expect((await screen.findByRole("alert")).textContent).toBe("Foom config is unavailable.");
+});
+
+test("the shared decision keeps errors actionable and blocks concurrent clicks", async () => {
+  const pending = {
+    id: "digest",
+    file: "settings.json",
+    action: "change arguments",
+    detail: "agentArguments.opencode",
+  };
+  let reject: ((reason: unknown) => void) | undefined;
+  const decide = vi.fn(
+    () =>
+      new Promise<ConfigStatus>((_resolve, fail) => {
+        reject = fail;
+      }),
+  );
+  render(<ConfigDecision pending={pending} decide={decide} />);
+  act(() => {
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+  });
+  expect(screen.getByRole("button", { name: "Keep it on" }).hasAttribute("disabled")).toBe(true);
+  await act(async () => {
+    reject?.("nope");
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("alert").textContent).toBe("Unable to update Foom config.");
+  expect(screen.getByRole("button", { name: "Keep it on" }).hasAttribute("disabled")).toBe(false);
 });

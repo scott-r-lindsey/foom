@@ -159,3 +159,16 @@ test("validates child input payloads at the utility boundary", () => {
   ])
     expect(hostRequest({ ...base, type: "child-input", input })).toBe(false);
 });
+
+test("probe screen and complete environment messages validate at the utility boundary", () => {
+  expect(hostRequest({ type: "screen", id: "probe", request: 1 })).toBe(true);
+  expect(
+    hostResponse({ type: "result", id: "probe", request: 1, lines: ["visible"], title: "title" }),
+  ).toBe(true);
+  expect(hostResponse({ type: "result", id: "probe", request: 1, lines: [], title: 5 })).toBe(
+    false,
+  );
+  expect(
+    hostResponse({ type: "result", id: "probe", request: 1, lines: [], title: "x".repeat(4097) }),
+  ).toBe(false);
+});

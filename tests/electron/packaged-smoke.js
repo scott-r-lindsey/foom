@@ -149,6 +149,9 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       "--remote-debugging-port=0",
       `--user-data-dir=${profile}`,
       "--mute-audio",
+      // The smoke inspects DOM cells; dedicated Electron tests cover software WebGL.
+      "--disable-gpu",
+      "--disable-software-rasterizer",
       ...(process.platform === "darwin" ? ["--use-mock-keychain"] : []),
     ],
     {

@@ -57,7 +57,6 @@ beforeEach(() => {
         close: vi.fn(async () => {}),
         setRole,
       }),
-    acknowledgeNotifier: vi.fn(async () => {}),
     worktrees: {
       branches: vi.fn(),
       canAutoRemove: vi.fn(() => Promise.resolve(false)),
@@ -1078,7 +1077,7 @@ it.each(["shell", "home", "config", "missing", "missing-repository", "no-convers
 );
 
 it.each([false, true])(
-  "does not grant notifier consent during automatic restore (config=%s)",
+  "starts Codex without notifier consent during automatic restore (config=%s)",
   async (config) => {
     const { readSessions } = await import("../../../../src/main/workspace/session-store");
     scanned = {
@@ -1096,8 +1095,6 @@ it.each([false, true])(
       ],
     };
     deps.config = { root: "/config", cliDirectory: "/cli", check: () => Promise.resolve() };
-    const acknowledge = vi.fn(() => Promise.resolve());
-    deps.acknowledgeNotifier = acknowledge;
     const location = config ? "/config" : repo.path;
     const saved = readSessions([
       {
@@ -1116,13 +1113,13 @@ it.each([false, true])(
       save: () => Promise.resolve(),
       flush: () => Promise.resolve(),
     };
+    launch.mockResolvedValueOnce({ id: "codex", attention: "evaluator" });
     const workspace = new Workspace(deps);
     await workspace.restore();
     await workspace.restartSaved();
-    expect(launch).not.toHaveBeenCalled();
-    expect(acknowledge).not.toHaveBeenCalled();
+    expect(launch).toHaveBeenCalledOnce();
     expect(workspace.snapshot().terminals).toMatchObject([
-      { exited: true, conversationId: "saved-codex" },
+      { exited: false, conversationId: "saved-codex" },
     ]);
     await workspace.dispose();
   },
@@ -1197,7 +1194,7 @@ it("sends child input through the workspace path and tracks input/output revisio
   );
   tail.mockResolvedValue(["Which file should I change?"]);
   const reply = vi.fn(async (_id: string, _data: ChildInput) => {});
-  deps.terminals.reply = reply;
+  deps.terminals.childInput = reply;
   await workspace.quiet("child");
   const { SessionMetadata } = await import("../../../../src/main/control/metadata");
   const metadata = new SessionMetadata(() => workspace.snapshot().terminals);

@@ -554,3 +554,33 @@ it("rejects shell punctuation in header event names and fixed observer command s
     '{"hooks":{"Stop":[{"type":"command","command":{observerCommand:lifecycle.Stop;exec:json}}]}}';
   expect(() => parse(JSON.stringify(draft))).toThrow("dangling-reference");
 });
+
+it.each([
+  ["{file:plugin.json}/..", "placeholder-path-arithmetic"],
+  ["{hookDir}/sub", "placeholder-path-arithmetic"],
+  ["{x}/..", "placeholder-path-arithmetic"],
+  ["{x}/sub", "placeholder-path-arithmetic"],
+  ["{hookDir}\\sub", "placeholder-path-arithmetic"],
+  ["{file:plugin.json}", "placeholder-not-allowed-here"],
+  ["{prompt}", "placeholder-not-allowed-here"],
+])("explains misplaced hook attachment %s without dropping hooks", (argument, reason) => {
+  const source = changed(copilot, "hooks.channels.0.arguments", ["--plugin-dir", argument]);
+  try {
+    parse(source);
+    throw Error("Expected rejection");
+  } catch (error) {
+    expect(error).toBeInstanceOf(AgentManifestError);
+    expect(error).toMatchObject({ path: "$.hooks.channels[0].arguments[1]", reason });
+    expect(error).toHaveProperty("detail", expect.stringContaining("{hookDir}"));
+    expect(error).toHaveProperty("detail", expect.stringContaining("{hookFile:NAME}"));
+  }
+});
+
+it("detects path suffixes after an earlier authorization substitution", () => {
+  const source = changed(
+    claude,
+    "files.1.content",
+    '{"Authorization":"Bearer ${FOOM_CONTROL_TOKEN}","path":{mcpUrl:json}/sub}',
+  );
+  expect(() => parse(source)).toThrow("placeholder-path-arithmetic");
+});

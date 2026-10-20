@@ -93,29 +93,32 @@ export class SessionOwner {
   }
 
   private records(): StoredSession[] {
-    return this.deps.terminals().map((entry) => {
-      const role = this.deps.orchestration.view(entry.id);
-      const identity = this.repositoryIdentities.get(entry.repository);
-      const saved = this.restoring.has(entry.id) ? this.saved.get(entry.id) : undefined;
-      return {
-        ...entry,
-        handoffs: this.deps.orchestration.handoffs.entries(entry.id),
-        ...(saved?.orchestrator ? { orchestrator: saved.orchestrator } : {}),
-        ...(saved?.parentId ? { parentId: saved.parentId } : {}),
-        running: this.restoring.has(entry.id) || !entry.exited,
-        ...(role?.role === "orchestrator" && role.active && identity !== undefined
-          ? {
-              orchestrator: {
-                identity,
-                history: role.history,
-                worktrees: this.deps.orchestration.ownedWorktrees(entry.id),
-                uncertain: this.deps.orchestration.uncertainWorktrees(entry.id),
-              },
-            }
-          : {}),
-        ...(role?.role === "child" && !role.takenOver ? { parentId: role.parentId } : {}),
-      };
-    });
+    return this.deps
+      .terminals()
+      .filter((entry) => !entry.probe)
+      .map((entry) => {
+        const role = this.deps.orchestration.view(entry.id);
+        const identity = this.repositoryIdentities.get(entry.repository);
+        const saved = this.restoring.has(entry.id) ? this.saved.get(entry.id) : undefined;
+        return {
+          ...entry,
+          handoffs: this.deps.orchestration.handoffs.entries(entry.id),
+          ...(saved?.orchestrator ? { orchestrator: saved.orchestrator } : {}),
+          ...(saved?.parentId ? { parentId: saved.parentId } : {}),
+          running: this.restoring.has(entry.id) || !entry.exited,
+          ...(role?.role === "orchestrator" && role.active && identity !== undefined
+            ? {
+                orchestrator: {
+                  identity,
+                  history: role.history,
+                  worktrees: this.deps.orchestration.ownedWorktrees(entry.id),
+                  uncertain: this.deps.orchestration.uncertainWorktrees(entry.id),
+                },
+              }
+            : {}),
+          ...(role?.role === "child" && !role.takenOver ? { parentId: role.parentId } : {}),
+        };
+      });
   }
 
   persist(): void {

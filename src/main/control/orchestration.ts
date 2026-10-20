@@ -574,7 +574,14 @@ export class Orchestration {
           if (this.parent(actor) !== parent || !this.own(parent, id))
             throw new ControlError("not_found");
           const row = this.host.terminals().find((row) => row.id === id);
-          if (!row || row.repository !== actor.repository) throw new ControlError("not_found");
+          if (
+            !row ||
+            row.config ||
+            row.probe ||
+            row.kind !== "agent" ||
+            row.repository !== actor.repository
+          )
+            throw new ControlError("not_found");
           if (this.own(parent, id)?.exited || row.exited || this.host.starting?.(id))
             throw new ControlError("conflict");
         };

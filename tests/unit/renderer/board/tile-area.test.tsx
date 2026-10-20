@@ -1372,3 +1372,32 @@ test.each(["html", "markdown"] as const)(
     expect(screen.getByRole("alert").textContent).toContain("Unable to move tile");
   },
 );
+
+test("probe chrome names its driver and keeps prompt feedback off the probe", async () => {
+  const { data, screen } = setup();
+  const [driver, probe] = data.getSnapshot();
+  if (!driver || !probe) throw Error("Missing fixture sessions");
+  act(() => {
+    data.update(driver.id, { agent: "Fixture driver", config: true });
+    data.update(probe.id, {
+      agent: "Fixture probe",
+      config: true,
+      probe: true,
+      probeOwner: driver.id,
+      state: "needs_input",
+      reason: "Trust folder?",
+    });
+  });
+  fireEvent.click(
+    screen.getByText("Fixture probe · Probe", { exact: true }).closest(".board-row") ??
+      document.body,
+  );
+  await act(async () => {});
+  const label = screen.container.querySelector(".probe-driver");
+  expect(label?.textContent).toBe("Probe · Fixture driver");
+  expect(label?.closest(".terminal-tile")?.querySelector(".tile-attention")).toBeNull();
+  act(() => {
+    data.update(driver.id, { agent: "Renamed fixture driver" });
+  });
+  expect(label?.textContent).toBe("Probe · Renamed fixture driver");
+});

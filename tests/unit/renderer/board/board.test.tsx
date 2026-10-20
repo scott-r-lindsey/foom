@@ -347,7 +347,6 @@ test("board opens the launcher without routing typing to shortcuts and reports r
           repositories: [],
           agents: [installation("claude")],
           hooks: true,
-          acknowledged: false,
           enabled: { claude: true, codex: true, agy: true },
         }),
       addRepository: () => Promise.resolve(null),

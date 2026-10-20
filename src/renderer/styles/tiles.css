@@ -70,6 +70,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.tile-title .probe-driver {
+  max-width: 45%;
+  color: var(--muted);
+}
 .tile-name {
   flex-shrink: 0;
   max-width: 35%;
@@ -290,4 +294,12 @@
   pointer-events: none;
   user-select: none;
   object-fit: fill;
+}
+
+.probe-note {
+  margin: 0;
+  padding: 5px 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font: 11px / 1.4 var(--font-mono);
 }

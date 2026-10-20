@@ -656,6 +656,13 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
               "const userInfo = os.userInfo;",
               `os.userInfo = (...args) => ({ ...userInfo(...args), shell: ${JSON.stringify(isolated.SHELL)} });`,
             ]),
+        ...(options.probeWaitingMs === undefined
+          ? []
+          : [
+              `const workspaceModule = require(${JSON.stringify(path.join(entry, "build/main/workspace/workspace.js"))});`,
+              `const ProductionWorkspace = workspaceModule.Workspace;`,
+              `workspaceModule.Workspace = class extends ProductionWorkspace { constructor(deps) { super({ ...deps, probeWaitingMs: ${JSON.stringify(options.probeWaitingMs)} }); } };`,
+            ]),
         `app.setPath("home", ${JSON.stringify(options.home)});`,
         `app.setAppPath(${JSON.stringify(entry)});`,
         `require(${JSON.stringify(path.join(entry, "build/main/main.js"))});`,
@@ -679,6 +686,16 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
       args: [
         entry,
         ...profile.args,
+        // Existing pixel/cursor assertions exercise the DOM fallback. The WebGL
+        // boundary tests request SwiftShader, or native Metal on macOS; hardware probes
+        // add no GPU switches. No shipped app flags are changed.
+        ...(options.renderer === "webgl"
+          ? process.platform === "darwin"
+            ? ["--use-gl=angle", "--use-angle=metal"]
+            : ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
+          : options.renderer === "hardware"
+            ? []
+            : ["--disable-gpu", "--disable-software-rasterizer"]),
         ...(traceStartup
           ? [
               "--enable-logging=file",

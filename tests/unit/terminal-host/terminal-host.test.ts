@@ -16,6 +16,7 @@ const mock = vi.hoisted(() => {
     setTheme: vi.fn(),
     acknowledge: vi.fn(),
     tail: vi.fn(),
+    screen: vi.fn(),
     dispose: vi.fn(),
     shutdown: vi.fn<() => Promise<void>>(),
     onExit: vi.fn<(id: string, code: number) => void>(),
@@ -34,6 +35,7 @@ vi.mock("../../../src/terminal-host/terminal-manager", () => ({
     setTheme = mock.setTheme;
     acknowledge = mock.acknowledge;
     tail = mock.tail;
+    screen = mock.screen;
     dispose = mock.dispose;
     shutdown = mock.shutdown;
     constructor(onExit: (id: string, code: number) => void, events: TerminalTelemetry) {
@@ -213,4 +215,18 @@ test("dispatches only valid logical child input to owned terminals", async () =>
   });
   await message({ type: "child-input", id: "unknown", request: 4, input });
   expect(mock.childInput).toHaveBeenCalledTimes(1);
+});
+
+test("returns only the host screen and title through the ID-scoped response", async () => {
+  await message({ type: "create", id: "probe", request: 1, spec });
+  mock.screen.mockResolvedValue({ lines: ["visible"], title: "title" });
+  await message({ type: "screen", id: "probe", request: 2 });
+  expect(mock.screen).toHaveBeenCalledWith("probe");
+  expect(port.postMessage).toHaveBeenCalledWith({
+    type: "result",
+    id: "probe",
+    request: 2,
+    lines: ["visible"],
+    title: "title",
+  });
 });

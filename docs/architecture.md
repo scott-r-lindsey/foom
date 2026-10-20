@@ -56,7 +56,8 @@ Production packages use ASAR and hardened Electron fuses and include compiled
 application files, package metadata and production dependencies. Native node-pty
 binaries and spawn helpers are unpacked. Windows uses node-pty's bundled ConPTY
 DLL; RunAsNode stays disabled. Main owns secrets and uses Electron `safeStorage`;
-Foom sends no terminal content to a model or network service. See [secrets](#secrets)
+Foom sends no terminal content to a model or network service except screens of
+config-owned agent probes requested by their owning config session (#591). See [secrets](#secrets)
 and [control-plane privacy](orchestration.md#output-privacy-and-visibility).
 
 ## Source layout
@@ -423,13 +424,13 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `workspace:worktrees` | renderer → main (invoke) | added repository path → worktrees |
 | `workspace:branches` | renderer → main (invoke) | repository path → `{ head, local: [{ name, worktree }], remote, remoteBranches }` from refs already present; never fetches |
 | `workspace:create-worktree` | renderer → main (invoke) | repository path, branch, optional `root` / `adjacent` (default: configured) → worktree plus `outcome`: `new`, `existing`, `origin` or `open`; launches nothing |
-| `workspace:start` | renderer → main (invoke) | `{ repository, branch, run, acknowledgeNotifierReplacement }` → terminal ID or null on cancellation; the board no longer uses it |
+| `workspace:start` | renderer → main (invoke) | `{ repository, branch, run }` → terminal ID or null on cancellation; the board no longer uses it |
 | `confirmation:scrim` | main → requesting board | boolean visibility only; cosmetic dimming, no dialog content or approval capability |
 | `confirmation:size` | trusted renderer → main | finite positive `{ width, height }` in CSS pixels; exact trusted main frame, URL and pending request required; zoomed and clamped to parent content and display work area |
 | `confirmation:answer` | trusted renderer → main | request ID and boolean; exact trusted window, main frame, URL and pending ID required |
 | `workspace:remove` | renderer → main (invoke) | terminal ID → boolean; main owns confirmation and dirty-file inspection |
 | `agents:scan` | renderer → main (invoke) | `refresh` → `{ warning, agents }` (no PATH) |
-| `agents:launch` | renderer → main (invoke) | `{ agent, repository, worktree, cols, rows, acknowledgeNotifierReplacement? }` → `{ id, attention }` or null on cancellation |
+| `agents:launch` | renderer → main (invoke) | `{ agent, repository, worktree, cols, rows }` → `{ id, attention }` or null on cancellation |
 | `setup:state` | renderer → main (invoke) | → `{ settings, themes?, worktreeRoot }` |
 | `setup:save` | renderer → main (invoke) | settings patch (known fields only) → state |
 | `setup:changed` | main → renderer | setup state after a successful settings save or zoom shortcut |
@@ -702,9 +703,9 @@ PowerShell 6+ and set an empty default proxy on 5.1, so hooks reach the loopback
 receiver behind any proxy. That change made the Windows Codex observer `codex-v2.ps1`
 (POSIX stays v1) and the Antigravity plugin version 2.
 
-`setHooksEnabled(false)` disables hook attachment for subsequent launches. A main-process integration supplies a fresh `AgentHooks` binding per launch, with a Claude stdin adapter command, a Codex argv adapter command, session credentials, and a cleanup callback. Claude settings attach prompt, tool, Stop, PermissionRequest, and Notification observer hooks as inline JSON in `--settings`; Codex 0.161+ receives stable lifecycle definitions and keeps `-c notify=[...]` until completion hooks are observed working. Older supported Codex versions receive notify only. No settings files are created in the user's HOME or workspace. Codex notifier fallback requires `acknowledgeNotifierReplacement` after the UI discloses that the user's notifier is replaced for this invocation. Confirmed lifecycle hooks remove that override and disclosure on later launches. `release(terminalId)` must be called on exit/kill to revoke credentials and free the worktree; `dispose()` releases all bindings during shutdown after terminals are stopped. Spawn failures clean up immediately.
+`setHooksEnabled(false)` disables hook attachment for subsequent launches. A main-process integration supplies a fresh `AgentHooks` binding per launch, with a Claude stdin adapter command, a Codex argv adapter command, session credentials, and a cleanup callback. Claude settings attach prompt, tool, Stop, PermissionRequest, and Notification observer hooks as inline JSON in `--settings`; Codex 0.161+ receives stable lifecycle definitions and keeps `-c notify=[...]` until completion hooks are observed working. Older supported Codex versions receive notify only. No settings files are created in the user's HOME or workspace. Codex notifier fallback attaches per launch without a warning or confirmation. Confirmed lifecycle hooks remove that override on later launches. `release(terminalId)` must be called on exit/kill to revoke credentials and free the worktree; `dispose()` releases all bindings during shutdown after terminals are stopped. Spawn failures clean up immediately.
 
-`src/main/workspace/workspace.ts` connects these services in main. It scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/main/agents/providers/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity uses a separately installed opt-in observer plugin; only its Foom launches receive fresh hook credentials. Preflight's settings reach the workspace through `configure`: the hooks setting calls `setHooksEnabled`, and launching an agent that preflight turned off is refused. Launched agents and worktree shells appear immediately in stable repository groups on the board. Checkout launchers disclose Codex notifier replacement before the first hooked Codex launch; main persists `codexNotifierAcknowledged` in settings and reuses it for later launches.
+`src/main/workspace/workspace.ts` connects these services in main. It scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/main/agents/providers/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity uses a separately installed opt-in observer plugin; only its Foom launches receive fresh hook credentials. Preflight's settings reach the workspace through `configure`: the hooks setting calls `setHooksEnabled`, and launching an agent that preflight turned off is refused. Launched agents and worktree shells appear immediately in stable repository groups on the board. Board, application-menu config and restored Codex sessions attach the notify fallback without notifier consent. Stored legacy `codexNotifierAcknowledged` values are ignored.
 
 ## Control plane
 
@@ -947,10 +948,21 @@ result caching and explicit invalidation. It revalidates registry membership, ex
 manifest bytes, executable identity and the main-owned worktree context before
 execution and publication, including cached reads. CLI diagnostics never escape
 this boundary; consumers receive only fixed execution states and mapped metadata.
-Runtime wiring of settings and lifecycle, large-request scheduling within manifest
-bounds and persistence remain integration work. The interpreter now supports declarative dynamic batch
-AST composition and check-count reduction with old/new offline parity tests;
-activation remains gated on the remaining scheduling and runtime integration.
+`ForgeRuntime` now wires the config scanner’s registry callback and profile
+settings invalidation to tracking and adoption, with discovered login PATH supplied
+by main. Its internal constructor selection defaults to the old provider; there
+is no user-visible switch. Only parity tests select manifests. Host routing uses
+only enabled entries in the user’s `forgeHosts` assignments, never manifest host
+claims or inferred fallback. Registry/settings changes cancel samples and retire
+tracking observations and number bindings. Main-owned lazy context closures
+revalidate registration, filesystem identity, branch and remote at the lifecycle
+boundary; tracking additionally guards publication with a selection generation.
+Legacy selection does not discover executables or evaluate manifest contexts.
+Large-request scheduling within manifest bounds (including slowdown-only minima),
+optional display/checks-meaning metadata, versioned persistence and production
+activation/removal of the old provider remain integration work. The interpreter
+supports declarative dynamic batch AST composition and check-count reduction with old/new offline parity tests;
+activation remains gated on the remaining scheduling, metadata and persistence work.
 #516's adaptive cadence and dynamic check-count batches are unchanged.
 
 Foom also reads PR and check status for board checkouts and orchestrator-owned child
@@ -1088,7 +1100,10 @@ required: the orchestrator is authorized to answer those prompts.
 `prompt` accepts up to 16 KiB UTF-8 text, rejecting control characters except newline
 and tab; `send_keys` validates all 1–64 logical keys against a fixed allowlist before
 any bytes are written. Main uses the existing workspace input/reply path, carrying
-a typed logical payload through terminal IPC and the host client. Both main and
+a typed logical payload through the main-only `childInput` terminal capability
+and host client. Config probes retain their separate credential-scoped broker
+and raw input capability; orchestrator input rejects config sessions and probes
+even if an ownership record were to name one. Both main and
 the utility host validate IDs and payloads. The host uses its headless xterm's
 bracketed-paste mode to wrap prompt text and appends one submit, or encodes the
 validated keys in order, then uses the existing terminal write path. No renderer
@@ -1137,7 +1152,6 @@ Theme IDs are checked syntactically, without opening any other file or profile.
 | Excluded key | Reason |
 | --- | --- |
 | `agentBypassAcknowledged` | Records human consent to bypass mode |
-| `codexNotifierAcknowledged` | Records human consent to notifier replacement |
 | `setupComplete` | Records human setup progress |
 | `codeFolder`, `worktreeLocation` | Select filesystem paths or placement |
 | `environment` | Variables reach every agent launch, like `agentArguments`, and may hold secrets; set only through Settings (#215) |
@@ -1218,7 +1232,7 @@ Requests POST JSON to `/hooks`, with `X-Foom-Session` and `Authorization` contai
 
 The first supported event pins the agent session/thread ID for that launch. Subsequent events must match; Codex also requires a turn ID. Only `{ terminalId, action, signal, conversationId }` escapes the receiver. The validated conversation ID is saved locally by Workspace and is not forwarded into evaluation. PermissionRequest and `permission_prompt` produce `needs_input`; Stop, `idle_prompt`, and Codex `agent-turn-complete` produce `classify`. No event directly sets Done. Agent text, paths, tool inputs, and Codex `input-messages` are discarded, never logged, executed, or forwarded to the evaluator. Classification still uses only the redacted terminal tail.
 
-The hook command cannot run Node from the packaged app because the RunAsNode fuse is disabled. `src/main/agents/providers/v2-observers.ts` generates observer scripts from each manifest channel for stdin or the CLI's final JSON argument: POSIX `sh` plus `curl`, and Windows PowerShell plus `Invoke-WebRequest`. The launcher writes the returned source to a private launch directory, invokes POSIX files with `sh` or Windows files with `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, supplies the launch environment, and removes the files afterward. On Windows it first runs the generated script in probe mode; a missing interpreter or enforced policy that blocks the script rejects launch with an error and cleans up the script. The execution policy applies only to that PowerShell invocation; user and machine settings are unchanged. Codex's configured notify argument array must end at the script's configured arguments so the CLI can append its JSON argument. Payloads remain data throughout; scripts emit no output or approval decisions, have a three-second HTTP timeout, and exit successfully even when the receiver is unavailable. Per-launch settings and notify attachment, tool availability checks, and notifier-replacement disclosure belong to #12.
+The hook command cannot run Node from the packaged app because the RunAsNode fuse is disabled. `src/main/agents/providers/v2-observers.ts` generates observer scripts from each manifest channel for stdin or the CLI's final JSON argument: POSIX `sh` plus `curl`, and Windows PowerShell plus `Invoke-WebRequest`. The launcher writes the returned source to a private launch directory, invokes POSIX files with `sh` or Windows files with `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, supplies the launch environment, and removes the files afterward. On Windows it first runs the generated script in probe mode; a missing interpreter or enforced policy that blocks the script rejects launch with an error and cleans up the script. The execution policy applies only to that PowerShell invocation; user and machine settings are unchanged. Codex's configured notify argument array must end at the script's configured arguments so the CLI can append its JSON argument. Payloads remain data throughout; scripts emit no output or approval decisions, have a three-second HTTP timeout, and exit successfully even when the receiver is unavailable. Per-launch settings and notify attachment, tool availability checks, and notify fallback belong to #12.
 
 ## Saved conversations
 
@@ -1356,7 +1370,8 @@ value in existing schemas for compatibility.
 ## Secrets
 
 Use Electron `safeStorage` for any secret Foom stores; never store plaintext or expose
-secrets to the renderer. Foom sends no terminal content to models or network services.
+secrets to the renderer. Terminal content stays local except the explicit
+config-owned probe screen capability described below.
 On profile load, `SettingsStore` drops legacy `inference` and `inferenceTimeoutMs`
 fields and atomically saves the migrated settings. It deletes the three fixed
 `inference-{anthropic,openai,google}.key` ciphertext files and strictly UUID-named
@@ -1404,6 +1419,40 @@ input-to-render probes on another terminal, plus final flood byte counts. The
 fixture uses the DOM renderer and retains sandboxing. Measurements are machine-
 and workload-specific; record the report and interpretation in the PR rather
 than treating frame timings as portable pass/fail thresholds.
+
+### WebGL renderer (#620)
+
+Visible terminal controllers load matching `@xterm/addon-webgl` 0.19.0 after xterm
+6.0.0 opens and before the visible grid is fitted/attached. Each mounted shell
+still owns one xterm. A page-local budget permits at most 12 visible WebGL addons;
+overflow uses DOM and can claim a free slot on a later attachment. Hidden views
+dispose their addon; unmount also disposes xterm and subscriptions. Initialization
+failure or the addon's context-loss notification permanently selects DOM for that
+controller. Recovery preserves the xterm, scrollback, PTY and attachment token;
+it never resets or reattaches. The controller refits and resizes the same view
+because DOM/WebGL cell-width rounding differs. Parser and view backpressure are
+unchanged and independent of GPU resources.
+
+The [evaluation and raw reports](../spikes/xterm-webgl/README.md) include functional
+SwiftShader assertions, a 16-context exhaustion probe and 18 occupied tiles with
+12 actual WebGL2 contexts and six DOM fallbacks. Six saved visual pairs cover
+palettes, selection, cursor, fonts, font sizes and interface zoom. Logical content
+and colors match; rasterization and fitted columns differ, particularly at small
+font sizes. No sandbox, CSP or asset-allowlist changes are needed: the existing
+renderer bundle contains GLSL strings and creates in-memory glyph atlases, with
+no new protocol URLs, worker, WASM, eval or network assets.
+
+The one authorized inactive-window hardware session used an NVIDIA RTX 3060,
+driver 580.178.04, with no added GPU switches. For four/nine streaming tiles over
+eight seconds, WebGL reduced renderer task time from 2.325/2.693 s to 0.943/1.706 s
+(59%/37%), layout CPU by 97%/95% and paint CPU by 93%/89%. rAF p95 remained near
+16.7 ms, with no long tasks in either mode and isolated 33 ms WebGL intervals.
+Combined board/GPU working sets were about 60/20 MiB lower. These measurements
+justify enabling WebGL for CPU headroom; they do not establish presentation/input
+latency or marginal GPU memory. Reports include dimensions, normalized grids,
+GPU/driver information and memory attribution limits. SwiftShader timings are
+never performance evidence; the initial failed-context reports measured only DOM.
+
 ## Recorded sounds
 
 `shared/sound.d.ts` defines four kinds and path-free `{source, file}` choices.
@@ -1490,12 +1539,9 @@ menus. Main derives their availability from discovery and saved agent switches;
 the board reports config-launch availability separately from tile availability,
 so Settings can stay open while choosing an agent. Preflight disables these routes. Availability refreshes on menu reads, execution, window
 focus and settings updates. The preload accepts only the three fixed route IDs.
-The board dispatches the existing `config-launch` command with `origin: "menu"`,
+The board dispatches the existing `config-launch` command,
 awaits the source's refreshed inventory, and opens the newly created config session
-through normal session selection. This optional, validated origin changes
-only notifier confirmation presentation: main uses a trusted disclosure dialog
-for menu launches and keeps click-again for sidebar launches. It grants no consent
-and cannot change the executable, directory or launch policy.
+through normal session selection. Menu and sidebar launches use the same launch policy without notifier confirmation.
 
 The renderer reuses RowMenu's keyboard navigation, portal and dismissal behavior.
 RowMenu renders a submenu as a nested portal anchored to its item: the top-level
@@ -1646,7 +1692,7 @@ ACLs may include only the current user, SYSTEM and local Administrators; new hea
 files remain protected and current-user-only. A corrupt/stale private record cannot
 restore older trusted data. A fingerprint of the six definitions invalidates cached health when the
 installed observer path/version changes. Only observed startup + prompt + Stop
-permits later launches to omit `notify` and its disclosure. A review screen or missing
+permits later launches to omit `notify`. A review screen or missing
 prompt callbacks in the current execution turn restores the fallback for subsequent
 launches. Prompt and Stop observations are scoped to execution turns: notify is
 ignored only when Stop completed that same turn. An attached notify fallback can
@@ -1662,9 +1708,8 @@ mapping and health engine as config plugins (#435). The build generates
 stable installed observers with the existing filenames and serialized commands.
 Only bundled provenance selects installed assets and the existing exact-definition
 profile health file; copied config manifests use their own private stable paths
-and observations. The legacy notifier acknowledgement is reused only through a
-separate build-owned digest for an equivalent disclosure/effect, never through
-manifest-declared authority. See [bundled delivery](agent-plugins.md#bundled-manifest-delivery-434).
+and observations. The bundled Codex notify channel has no disclosure; legacy notifier acknowledgements
+are ignored. User manifests retain the generic v2 channel `disclosure` mechanism. See [bundled delivery](agent-plugins.md#bundled-manifest-delivery-434).
 
 
 ### Antigravity plugin ownership
@@ -2140,7 +2185,7 @@ The heading is retained for existing links; config manifests no longer require a
 
 `main/agents/providers/provider.d.ts` declares the single `AgentProvider` contract.
 Claude, Codex and Antigravity register through the build-locked bundled manifest loader. The bundled loader uses the same strict parser and immutable v2 engine as config providers; JSON cannot claim its origin. See [bundled delivery and compatibility](agent-plugins.md#bundled-manifest-delivery-434) for digest/version rules, unchanged settings/consents and observer ABI differences. The shared engine owns discovery gates, launch argv, MCP attachment, observer selection and hook payload reduction. Workspace uses capability metadata rather than comparing
-agent IDs. Shared built-in policy metadata is browser-safe. Main emits generic observed-health and notifier-selection facts to the renderer; config manifests cannot grant themselves build provenance or migrated profile consent. Agent identities can now be strings, but runtime IPC accepts only IDs in
+agent IDs. Shared built-in policy metadata is browser-safe. Main emits generic observed-health and notifier-selection facts to the renderer; config manifests cannot grant themselves build provenance. Agent identities can now be strings, but runtime IPC accepts only IDs in
 main's current loaded provider registry. Config providers cannot register a
 built-in ID or duplicate another provider. Built-in orchestration restore checks
 remain unchanged. v2 config plugins may declare restore capability, but a grant
@@ -2205,10 +2250,104 @@ keeps at most 100 lists across provider absence, including encrypted secret valu
 The same editor serves global Environment and individual cards. `agentHooks` is a
 profile-only boolean map: an explicit false selects screen rules for that agent,
 and the global hooks switch takes precedence. Preferences apply on future launches,
-including notifier disclosure gating. Default arguments save on blur through the
+without notifier consent. Default arguments save on blur through the
 existing main-owned bypass disclosure and acknowledgement.
 
 Disabled agents remain configurable: discovery resolves their executable on PATH
 without running CLI discovery or setup probes. Agents cards refresh discovery on
 entry and config changes, keeping missing switches Off without saving a preference.
 Enablement changes invalidate workspace discovery caches.
+
+
+## Config-owned probe capability (#591)
+
+Main issues a fresh 256-bit `FOOM_CONFIG_TOKEN` and loopback `FOOM_CONFIG_URL` per
+config launch, including shells and resumed sessions. These are independent of
+repository control tokens. They are delivered only in that process's environment,
+never via renderer IPC, profile persistence, discovery files, pairing or MCP.
+The bundled CLI validates commands before sending bounded JSON to `/probe/v1`.
+The separate main listener requires a bearer credential, loopback peer, exact Host,
+POST, JSON and no Origin. Main validates the payload again, rejects unknown keys,
+and accepts only named control keys, bounded prompt text (LF and TAB allowed), validated
+agent/conversation IDs, and finite positive wait durations of at most 600 seconds.
+
+`AgentProbes` reserves one slot per credential before asynchronous preparation.
+Its random 256-bit probe ID resolves only within that credential's slot, never
+through the general terminal inventory. Foreign, unknown and stopped IDs produce
+the same `not_found` refusal. Every read rechecks ownership after awaiting the
+terminal host. Exit revokes the config credential and stops its probe. The hard
+10-minute timer covers preparation as well as interactive use; failed preparation,
+stop, exit and quit release processes, launch files and scratch repositories.
+Probes use the regular terminal host's process teardown and process audit.
+
+Main creates the scratch directory and runs Git with fixed argument arrays,
+all inherited `GIT_*` variables removed, global/system config disabled, and an
+empty init template directory. Agent discovery and launches also use argument
+arrays. A supplied manifest is descriptor-bounded to 64 KiB, rejects final links
+and nonregular files, uses the strict v2 parser and must name the requested agent.
+It is captured immutably for that probe and never installed in the registry.
+The launch uses no user defaults, control/MCP grant or hook attachment. Known
+manifest bypass arguments and environment conditions are refused before PTY
+creation. Hooks and MCP verification are reserved for #593.
+
+The fixed login-shell environment query uses `readLoginShell` with ignored stdin,
+a detached Unix session, bounded output and a deadline. Scratch Git initialization
+and fixed CLI metadata reads use the same isolation and process-group cleanup,
+so none can acquire the launching terminal or stop Foom through shell job control.
+The interactive CLI gets its own PTY through the ordinary terminal host. The
+probe's inspected environment strips Foom/Electron/parent-agent variables and
+inherited Git overrides. `replaceEnvironment` is a main-only terminal spec option:
+the utility host passes the complete supplied environment instead of merging its
+own inherited environment back into it. Shared fixed PTY metadata (`TERM`,
+`COLORTERM`, `TERM_PROGRAM`) is included in main’s bypass inspection and used by
+the host from the same constants. Renderer requests cannot select this
+option. The scratch repository is not a filesystem, account or network sandbox;
+Enter at approval prompts is deliberately permitted. Agent output, screens,
+manifest content and model responses remain untrusted data.
+
+A validated host `screen` request carries a terminal ID. The utility process flushes
+its headless parser and reads exactly the active viewport at `baseY`, including
+alternate screens, plus the bounded OSC title. It does not return scrollback.
+Only main's probe broker exposes this result to the config CLI. The renderer keeps
+its existing typed terminal capabilities and attachment ordering.
+
+Probe rows live under Foom config with a text Probe mark and the usual Stop/input
+controls. Main publishes only the driver's terminal ID as `probeOwner`; the
+renderer resolves its current editable session name for a quiet **Probe · driver**
+header label. Probe screen/title evidence bypasses normal terminal attention
+publication; prompt classification remains available to the owning config CLI.
+The sound controller excludes probe rows.
+
+`ProbeAttention` uses the named `PROBE_WAITING_MS` (60 seconds), an injected clock
+and cancellable timers. A continuously blocked screen starts one budget; repeated
+output/classification cannot postpone it. Input resets the budget; resumed screen
+progress and Stop cancel it. Stale screen reads after input/output/revocation are
+ignored. Expiry projects a fixed `Probe waiting` reminder onto the owning config
+session, preserving its own real question/permission attention. This is main-owned
+presentation, not an evaluator verdict or execution transition. Dismissal (or a
+fresh driver working transition) settles that blocked episode until probe input or
+resumed progress. No probe prompt becomes a human permission request. The renderer
+honors this projection across execution events and drops it when main clears it.
+The fixture harness may inject a shorter delay; no config setting or renderer IPC
+can change it. A profile-only list of agent IDs records the terse first-probe credit
+note; it contains no terminal content or credential. Session persistence excludes
+probe rows. Captures and test rules (#592), verification (#593), and the guide
+workflow (#594) are deliberately outside this change.
+
+### Config decisions and live launch catalogs (#591 follow-up)
+
+The config panel and Settings share the held-change decision component. Both name
+main's held digest through the existing validated `config:decide` IPC; argument
+approval still requires the main-owned trusted disclosure. Main publishes decision
+status to all windows. The config-session-only `foom config status` command uses
+the existing per-session credential, authenticates before reading and again after
+awaiting ConfigService.refresh(), and has no decision or settings-write authority.
+The guide requires checking it and explaining held settings to the human.
+
+After a changed provider registry finishes discovery, main publishes setup changes
+and refreshes workspace and application menus. Board launch options subscribe to
+setup changes, discarding stale asynchronous results. Application routes are rebuilt
+from loaded provider identities, with absent enablement meaning enabled, matching
+workspace launches. Preload accepts bounded syntactic via-provider commands; main
+still validates installed IDs and launch authority. MCP tools/list resolves the
+current registry for each request, including existing MCP sessions.

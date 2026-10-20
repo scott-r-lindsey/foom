@@ -162,7 +162,7 @@ Codex then draws inline, so normal terminal scrollback is available to wheel scr
 and evaluator tails. Missing/failed help probes omit the flag. Launch arguments remain
 an array, and no global configuration is changed.
 
-The installed CLI documents `-c key=value` as an invocation override with TOML values. Pass an argument array such as `["-c", "notify=[\"/absolute/foom-notify\"]"]`; do not pass a shell command string. This replaces the effective notify command for this launch, so Foom must disclose that an existing notifier is displaced or explicitly compose it. It does not edit the user's config.
+The installed CLI documents `-c key=value` as an invocation override with TOML values. Pass an argument array such as `["-c", "notify=[\"/absolute/foom-notify\"]"]`; do not pass a shell command string. This replaces the effective notify command for this launch, and Foom attaches it without warning or confirmation (#633). It does not edit the user's config.
 
 The documented external notification event is `agent-turn-complete`. The notify program receives one JSON argument appended after its configured arguments, **not stdin**. `tui.notifications` can include `approval-requested`, but that is a separate terminal-notification mechanism and does not add approval callbacks to `notify`. [Notification contract](https://learn.chatgpt.com/docs/config-file/config-advanced#notifications)
 
@@ -477,7 +477,7 @@ specification for launch blocks, channels, setup and files.
 Main uses one `AgentProvider` interface for discovery, executable names, resume,
 MCP attachment, hook selection and launch argv. Claude Code, Codex and Antigravity
 are registered built-in providers. All three now run the shared v2 engine from a build-locked bundled JSON manifest; [delivery and compatibility](agent-plugins.md#bundled-manifest-delivery-434) describes the generic infrastructure and migration. Their version floors, argument ordering,
-notifier disclosure, observed hook health and opt-in lifecycle plugin are unchanged.
+observed hook health and opt-in lifecycle plugin are unchanged; the Codex notify fallback attaches without confirmation (#633).
 Valid v2 config copies can express the same declarative capabilities and load
 without manifest approval. Launch disclosures and setup confirmations still apply;
 copies do not inherit profile consents or observed hook health.

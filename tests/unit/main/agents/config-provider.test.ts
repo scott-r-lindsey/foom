@@ -57,7 +57,6 @@ it("exposes config providers to discovery choices and checkout launchers", () =>
       {
         agents: [installation],
         repositories: [],
-        acknowledged: false,
         enabled: setupState().settings.agents,
         hooks: true,
       },

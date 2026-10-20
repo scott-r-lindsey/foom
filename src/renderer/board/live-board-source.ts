@@ -70,7 +70,9 @@ export function createAppSource(): BoardSource {
     waitingOn: state.waitingOn,
     reason: state.waitingOn
       ? `Waiting on ${String(state.waitingOn)}`
-      : `${state.reason} · ${state.signal}`,
+      : state.signal === "probe:waiting"
+        ? state.reason
+        : `${state.reason} · ${state.signal}`,
     verdictId: state.verdictId,
     waitingSince:
       !state.waitingOn && state.state === "needs_input"
@@ -90,7 +92,12 @@ export function createAppSource(): BoardSource {
     const saved = snapshotStates.get(id);
     const live = current(event) ? event : undefined;
     const snapshot = current(saved) ? saved : undefined;
-    if (snapshot?.signal === "orchestration:unread") return snapshot;
+    if (
+      live?.signal === "probe:waiting" ||
+      snapshot?.signal === "probe:waiting" ||
+      snapshot?.signal === "orchestration:unread"
+    )
+      return snapshot;
     // A refreshed projection can clear Waiting without a new verdict. Preserve
     // event precedence for distinct verdicts that happen within the same millisecond.
     const sameVerdict =
@@ -111,19 +118,20 @@ export function createAppSource(): BoardSource {
     const execution = executions.get(row.id);
     if (!execution) return row;
     const currentVerdict = currentState(row.id) !== undefined;
-    const state =
-      currentState(row.id)?.signal === "orchestration:unread"
-        ? "needs_input"
-        : execution.phase === "working"
-          ? "working"
-          : execution.phase === "blocked"
-            ? currentVerdict
-              ? row.state
-              : "needs_input"
-            : (execution.phase === "starting" || execution.phase === "idle") &&
-                (!currentVerdict || row.state === "working")
-              ? "quiet_ok"
-              : row.state;
+    const state = ["orchestration:unread", "probe:waiting"].includes(
+      currentState(row.id)?.signal ?? "",
+    )
+      ? "needs_input"
+      : execution.phase === "working"
+        ? "working"
+        : execution.phase === "blocked"
+          ? currentVerdict
+            ? row.state
+            : "needs_input"
+          : (execution.phase === "starting" || execution.phase === "idle") &&
+              (!currentVerdict || row.state === "working")
+            ? "quiet_ok"
+            : row.state;
     return {
       ...row,
       execution,
@@ -216,6 +224,9 @@ export function createAppSource(): BoardSource {
               `⏣ ${checkout?.head?.slice(0, 7) ?? "Unknown"}`),
         home: entry.home === true,
         config: entry.config === true,
+        probe: entry.probe === true,
+        ...(entry.probeOwner ? { probeOwner: entry.probeOwner } : {}),
+        probeNote: entry.probeNote === true,
         startedAt: entry.startedAt,
         exitCode: entry.exitCode,
         foregroundProgram: entry.foregroundProgram ?? "",
@@ -431,6 +442,7 @@ export function createAppSource(): BoardSource {
     homeShell: () => home,
     config: {
       status: () => window.desktop.configStatus(),
+      decide: (decision, id) => window.desktop.decideConfig(decision, id),
       subscribe: (listener) => window.desktop.onConfigChange(listener),
       openFolder: () => window.desktop.openConfigFolder(),
     },
@@ -490,6 +502,7 @@ export function createAppSource(): BoardSource {
       snapshot(await window.desktop.workspace());
     },
     worktrees: {
+      subscribe: (listener) => window.desktop.onSetupChange(listener),
       confirmations: window.desktop.confirmations,
       load: async () => {
         const [workspace, scan, setup] = await Promise.all([
@@ -502,7 +515,6 @@ export function createAppSource(): BoardSource {
           agents: scan.agents,
           enabled: setup.settings.agents,
           hooks: setup.settings.hooks,
-          acknowledged: setup.settings.codexNotifierAcknowledged,
         };
       },
       addRepository: () => window.desktop.addRepository(),

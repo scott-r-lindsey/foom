@@ -1,0 +1,59 @@
+{
+  "rgbTolerance": 32,
+  "comparisons": [
+    {
+      "case": "dark-default",
+      "pixels": 110000,
+      "differentPixelsTolerance32": 5369,
+      "differentFraction": 0.048809090909090906,
+      "domColumns": 98,
+      "webglColumns": 103,
+      "logicalContentAndThemeMatch": true
+    },
+    {
+      "case": "dark-zoom150",
+      "pixels": 247500,
+      "differentPixelsTolerance32": 10984,
+      "differentFraction": 0.04437979797979798,
+      "domColumns": 98,
+      "webglColumns": 103,
+      "logicalContentAndThemeMatch": true
+    },
+    {
+      "case": "dracula-large",
+      "pixels": 110000,
+      "differentPixelsTolerance32": 4660,
+      "differentFraction": 0.04236363636363636,
+      "domColumns": 68,
+      "webglColumns": 69,
+      "logicalContentAndThemeMatch": true
+    },
+    {
+      "case": "geist-font",
+      "pixels": 110000,
+      "differentPixelsTolerance32": 7020,
+      "differentFraction": 0.06381818181818182,
+      "domColumns": 86,
+      "webglColumns": 92,
+      "logicalContentAndThemeMatch": true
+    },
+    {
+      "case": "light-selection",
+      "pixels": 110000,
+      "differentPixelsTolerance32": 5302,
+      "differentFraction": 0.0482,
+      "domColumns": 98,
+      "webglColumns": 103,
+      "logicalContentAndThemeMatch": true
+    },
+    {
+      "case": "light-small80",
+      "pixels": 70400,
+      "differentPixelsTolerance32": 2457,
+      "differentFraction": 0.03490056818181818,
+      "domColumns": 137,
+      "webglColumns": 165,
+      "logicalContentAndThemeMatch": true
+    }
+  ]
+}

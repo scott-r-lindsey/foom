@@ -313,7 +313,6 @@ test("worktree launch and removal have dedicated channels", async () => {
     repository: "/r",
     branch: "feature",
     run: "shell" as const,
-    acknowledgeNotifierReplacement: false,
   };
   await api.startWorktree(request);
   await api.removeWorktree("t1");
@@ -566,6 +565,7 @@ test("preload accepts menu board commands and rejects unknown values", async () 
     "via-claude",
     "via-codex",
     "via-agy",
+    "via-opencode",
     "tidy-tiles",
     "action-log",
   ])
@@ -573,7 +573,7 @@ test("preload accepts menu board commands and rejects unknown values", async () 
   listener?.({}, "reload");
   listener?.({}, {});
   listener?.({}, "preset-grid");
-  expect(callback).toHaveBeenCalledTimes(7);
+  expect(callback).toHaveBeenCalledTimes(8);
   off();
 });
 

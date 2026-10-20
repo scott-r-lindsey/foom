@@ -1544,6 +1544,41 @@ describe("owned child prompt and keys", () => {
     await expect(h.mutate("prompt", { id: cross.id, text: "yes" })).rejects.toThrow("forbidden");
     expect(h.host.reply).not.toHaveBeenCalled();
   });
+  it.each([{ config: true }, { probe: true }, { kind: "shell" as const }])(
+    "refuses config/probe/non-agent sessions even with a matching ownership record: %j",
+    async (flags) => {
+      const h = harness();
+      const child = await h.child("scoped-input");
+      const row = h.rows.get(child.id);
+      if (!row) throw new Error("missing child");
+      h.rows.set(child.id, { ...row, ...flags });
+      h.rows.set("config-probe", {
+        ...row,
+        id: "config-probe",
+        config: true,
+        probe: true,
+        probeOwner: "parent",
+      });
+      h.rows.set("config-driver", { ...row, id: "config-driver", config: true });
+      const before = h.persist.mock.calls.length;
+      for (const id of [child.id, "config-probe", "config-driver", "unknown"]) {
+        await expect(h.mutate("prompt", { id, text: "follow up" })).rejects.toThrow("not_found");
+        await expect(h.mutate("send_keys", { id, keys: ["y", "enter"] })).rejects.toThrow(
+          "not_found",
+        );
+      }
+      expect(h.persist.mock.calls.length).toBe(before);
+      expect(h.host.reply).not.toHaveBeenCalled();
+      const owned = await h.child("normal-child");
+      expect(await h.mutate("prompt", { id: owned.id, text: "follow up" })).toMatchObject({
+        status: "succeeded",
+      });
+      expect(await h.mutate("send_keys", { id: owned.id, keys: ["enter"] })).toMatchObject({
+        status: "succeeded",
+      });
+      expect(h.host.reply).toHaveBeenCalledTimes(2);
+    },
+  );
   it("rejects malformed payloads before audit intent or any write", async () => {
     const h = harness();
     const { id } = await h.child("validation");

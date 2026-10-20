@@ -26,8 +26,10 @@ export interface TerminalControl
   create(spec: TerminalSpec): Promise<string>;
   kill(id: string): Promise<void>;
   tail(id: string, lines: number): Promise<string[]>;
+  screen(id: string): Promise<{ lines: string[]; title: string }>;
   owns(id: string): boolean;
-  reply(id: string, data: ChildInput): Promise<void>;
+  reply(id: string, data: string): Promise<void>;
+  childInput(id: string, data: ChildInput): Promise<void>;
 }
 
 /** The app window owns capabilities for multiple independent main-owned sessions. */
@@ -326,10 +328,18 @@ export function attachTerminal(
     },
     stop: (id: string) => manager.stop(id),
     tail: (id: string, lines: number) => manager.tail(id, lines),
-    reply: async (id: string, data: ChildInput) => {
+    screen: async (id: string) => {
+      if (!owned.has(id)) throw new Error("Unknown terminal");
+      return manager.screen(id);
+    },
+    reply: async (id: string, data: string) => {
+      if (!owned.has(id)) throw new Error("Unknown terminal");
+      await manager.reply(id, data);
+    },
+    childInput: async (id: string, data: ChildInput) => {
       if (!owned.has(id)) throw new Error("Unknown terminal");
       if (!isChildInput(data)) throw new Error("Invalid child input");
-      await manager.reply(id, data);
+      await manager.childInput(id, data);
     },
     owns: (id: string) => owned.has(id),
     get runningCount() {

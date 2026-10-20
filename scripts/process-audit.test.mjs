@@ -200,11 +200,13 @@ test("probe guard records and blocks a short-lived outside CLI before it can exe
   const log = path.join(root, "guard.log");
   await writeFile(cli, "This must never execute");
   const guard = path.resolve("tests/electron/agent-isolation.js");
-  const program = `require(${JSON.stringify(guard)}).guardAgentProbes([], ${JSON.stringify(log)});
-    try { require("node:child_process").execFile(${JSON.stringify(cli)}, ["plugin", "list"]); }
-    catch (error) { if (error.message.includes("Agent outside test fixtures")) process.exit(0); }
-    process.exit(1);`;
-  execFileSync(process.execPath, ["-e", program]);
+  for (const method of ["execFile", "spawn"]) {
+    const program = `require(${JSON.stringify(guard)}).guardAgentProbes([], ${JSON.stringify(log)});
+      try { require("node:child_process")[${JSON.stringify(method)}](${JSON.stringify(cli)}, ["plugin", "list"]); }
+      catch (error) { if (error.message.includes("Agent outside test fixtures")) process.exit(0); }
+      process.exit(1);`;
+    execFileSync(process.execPath, ["-e", program]);
+  }
   assert.match(await readFile(log, "utf8"), /Agent outside test fixtures/);
 });
 

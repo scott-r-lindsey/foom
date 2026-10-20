@@ -1,3 +1,6 @@
+import { ProbeNotices } from "./agents/probe-notices";
+import { ForgeRuntime } from "./control/forge-runtime";
+import { loginPath } from "./agents/agents";
 import { runForge } from "./control/forge";
 import { setupOffers } from "./agents/setup-offers";
 import { replaceConfigProviders, providerRevision } from "./agents/providers/registry";
@@ -82,6 +85,10 @@ const ownsProfile = app.requestSingleInstanceLock();
 
 export let worktrees: WorktreeService;
 let settings: SettingsStore;
+const forgeRuntime = new ForgeRuntime(
+  () => settings.get(),
+  async () => (await loginPath()).path,
+);
 let environment: EnvironmentStore;
 let themes: ThemeLibrary;
 let config: ConfigService;
@@ -89,6 +96,7 @@ let configRoot: string;
 let disposeThemes = () => {};
 /** A validated config file changed: every window re-applies, including interface size. */
 function configApplied() {
+  forgeRuntime.configure();
   const next = settings.get();
   if (initialized) workspace.configure(next);
   for (const entry of windows.values()) entry.applySettings(next);
@@ -421,7 +429,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       const current = settings.get();
       return current.setupComplete
         ? report.agents
-            .filter((agent) => agent.path && current.agents[agent.id])
+            .filter((agent) => agent.path && current.agents[agent.id] !== false)
             .map((agent) => agent.id)
         : [];
     },
@@ -498,8 +506,12 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       () => {
         workspace.refresh();
       },
+      forgeRuntime.provider,
     ).catch(() => undefined);
     if (forge) {
+      forgeRuntime.onInvalidate = () => {
+        forge.invalidate();
+      };
       powerMonitor.on("suspend", () => {
         forge.pause("sleep", true);
       });
@@ -552,6 +564,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
         notice.show();
       };
     }
+    const probeNotices = new ProbeNotices(app.getPath("userData"));
     workspace = new Workspace({
       openExternal: (url) => shell.openExternal(url),
       pluginStagingRoot: app.getPath("userData"),
@@ -570,12 +583,11 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       acknowledgeAgyPluginOffer: async () => {
         await settings.update({ agyPluginOfferAnswered: true });
       },
-      acknowledgeNotifier: async () => {
-        await settings.update({ codexNotifierAcknowledged: true });
-      },
       // Local rules classify each terminal; the log stores verdict metadata only.
       verdicts: new VerdictLog(app.getPath("userData")),
       config: {
+        status: () => config.refresh(),
+        probeNotice: probeNotices.first.bind(probeNotices),
         root: configRoot,
         cliDirectory: path.join(__dirname, "../console").replace("app.asar", "app.asar.unpacked"),
         check: async () => {
@@ -761,6 +773,7 @@ async function buildWindow(savedSize?: Size, saved?: WindowPlacement, initialSes
       },
     },
     apply: (next) => {
+      forgeRuntime.configure();
       workspace.configure(next);
       applyThemeSettings(next);
       // Resize before zooming, including windows other than the requesting one.
@@ -942,6 +955,7 @@ async function performQuit() {
       throw error;
     }
     // Terminals have stopped: revoke every hook credential and stop listening.
+    await forgeRuntime.close();
     await workspace.dispose();
     await terminals.dispose();
     try {
@@ -997,7 +1011,12 @@ if (!ownsProfile) {
     .whenReady()
     .then(async () => {
       configRoot = path.join(app.getPath("home"), ".foom", "config");
-      worktrees = await WorktreeService.open(app.getPath("userData"), undefined, [configRoot]);
+      worktrees = await WorktreeService.open(
+        app.getPath("userData"),
+        undefined,
+        [configRoot],
+        forgeRuntime.provider,
+      );
       settings = await SettingsStore.open(app.getPath("userData"));
       const placements = await loadPlacements(app.getPath("userData"));
       const legacy = settings.legacyConfig();
@@ -1027,6 +1046,9 @@ if (!ownsProfile) {
           get: (file) => settings.themeDigest(file),
           set: (file, value) => settings.setThemeDigest(file, value),
         },
+        applyForges: (plugins) => {
+          forgeRuntime.replace(plugins);
+        },
         applyPlugins: (providers) => {
           const before = providerRevision();
           replaceConfigProviders(providers);
@@ -1035,6 +1057,7 @@ if (!ownsProfile) {
               .scanAgents(true)
               .then(() => {
                 workspace.refresh();
+                publishSettings();
               })
               .catch(() => {
                 console.error("Unable to refresh agent plugins");

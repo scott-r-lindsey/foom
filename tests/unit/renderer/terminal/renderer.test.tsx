@@ -63,6 +63,7 @@ const mock = vi.hoisted(() => {
   const options: ITerminalOptions = {};
   return {
     options,
+    webglFallback: vi.fn<(callback: () => void) => void>(),
     dark: true,
     cols: 80,
     rows: 24,
@@ -133,6 +134,12 @@ vi.mock("@xterm/xterm", () => ({
       registerOscHandler: mock.osc,
       registerDcsHandler: vi.fn(),
     };
+  },
+}));
+vi.mock("../../../../src/renderer/terminal/webgl-renderer", () => ({
+  createWebglRenderer: (_terminal: unknown, fallback: () => void) => {
+    mock.webglFallback(fallback);
+    return { visible: vi.fn(), dispose: vi.fn() };
   },
 }));
 vi.mock("@xterm/addon-fit", () => ({
@@ -1265,4 +1272,20 @@ test("sidebar dragging defers all terminal fits until release and ignores duplic
   expect(mock.resize).toHaveBeenCalledExactlyOnceWith("dragging-sidebar", 60, 24);
   controller.dispose();
   board.remove();
+});
+
+test("renderer fallback refits the attached grid without resetting or reattaching", async () => {
+  const controller = createShell(document.createElement("div"), vi.fn());
+  await waitFor(() => {
+    expect(mock.focus).toHaveBeenCalled();
+  });
+  const fitCount = mock.fit.mock.calls.length;
+  const attaches = mock.attach.mock.calls.length;
+  const resets = mock.reset.mock.calls.length;
+  mock.webglFallback.mock.calls[0]?.[0]();
+  expect(mock.fit).toHaveBeenCalledTimes(fitCount + 1);
+  expect(mock.resize).toHaveBeenLastCalledWith("one", 80, 24);
+  expect(mock.attach).toHaveBeenCalledTimes(attaches);
+  expect(mock.reset).toHaveBeenCalledTimes(resets);
+  controller.dispose();
 });

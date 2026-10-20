@@ -109,7 +109,6 @@ beforeEach(async () => {
   };
   deps = {
     agentPluginDirectory: await mkdtemp(join(tmpdir(), "foom-health-")),
-    acknowledgeNotifier: vi.fn(async () => {}),
     worktrees: {
       canAutoRemove: vi.fn(() => Promise.resolve(false)),
       panelFacts: vi.fn(),
@@ -726,7 +725,6 @@ const start = {
   repository: repo.path,
   branch: "feature",
   run: "shell" as const,
-  acknowledgeNotifierReplacement: false,
 };
 
 test("shells get only the All sessions layer; agents get their layers and record names", async () => {
@@ -780,7 +778,7 @@ test("launches multiple shells in a managed worktree", async () => {
   await workspace.dispose();
 });
 
-test("creates missing worktrees at the configured location and persists Codex acknowledgement once", async () => {
+test("creates missing worktrees at the configured location and launches Codex without consent", async () => {
   const listing = vi
     .spyOn(deps.worktrees, "listWorktrees")
     .mockResolvedValueOnce([])
@@ -794,22 +792,16 @@ test("creates missing worktrees at the configured location and persists Codex ac
   await workspace.startWorktree({
     ...start,
     run: "codex",
-    acknowledgeNotifierReplacement: true,
   });
   expect(vi.mocked(deps.worktrees.createWorktree)).toHaveBeenCalledWith(repo.path, "feature", {
     location: "adjacent",
   });
-  expect(vi.spyOn(deps, "acknowledgeNotifier")).toHaveBeenCalledOnce();
-  expect(agents.launch).toHaveBeenCalledWith(
-    expect.objectContaining({ agent: "codex", acknowledgeNotifierReplacement: true }),
-  );
+  expect(agents.launch).toHaveBeenCalledWith(expect.objectContaining({ agent: "codex" }));
   await workspace.exited("t1", 0);
   await workspace.startWorktree({
     ...start,
     run: "codex",
-    acknowledgeNotifierReplacement: true,
   });
-  expect(vi.spyOn(deps, "acknowledgeNotifier")).toHaveBeenCalledOnce();
   expect(listing).toHaveBeenCalled();
   await workspace.dispose();
 });
@@ -1181,7 +1173,7 @@ test("main checkout supports shells and confirms a second agent; cancellation cr
   await workspace.sidebarCommand({ ...command, run: "shell" }, confirm);
   expect(workspace.snapshot().terminals).toHaveLength(3);
 });
-test("sidebar Codex launches disclose notifier replacement, persist consent and serialize while confirming", async () => {
+test("sidebar Codex launches start without notifier consent", async () => {
   const workspace = new Workspace(deps);
   agents.scan.mockResolvedValue({
     ...scan,
@@ -1195,28 +1187,10 @@ test("sidebar Codex launches disclose notifier replacement, persist consent and 
     worktree: tree.path,
     run: "codex",
   } as const;
-  await workspace.sidebarCommand(command, () => Promise.resolve(false));
-  expect(agents.launch).not.toHaveBeenCalled();
-  let resolve: ((answer: boolean) => void) | undefined;
-  const starting = workspace.sidebarCommand(
-    command,
-    () =>
-      new Promise((answer) => {
-        resolve = answer;
-      }),
-  );
-  await vi.waitFor(() => {
-    expect(resolve).toBeTypeOf("function");
-  });
-  await expect(workspace.sidebarCommand(command, () => Promise.resolve(true))).rejects.toThrow(
-    "busy",
-  );
-  resolve?.(true);
-  await starting;
-  expect(vi.spyOn(deps, "acknowledgeNotifier")).toHaveBeenCalledOnce();
-  expect(agents.launch).toHaveBeenCalledWith(
-    expect.objectContaining({ acknowledgeNotifierReplacement: true }),
-  );
+  const confirm = vi.fn(() => Promise.resolve(false));
+  await workspace.sidebarCommand(command, confirm);
+  expect(confirm).not.toHaveBeenCalled();
+  expect(agents.launch).toHaveBeenCalledWith(expect.objectContaining({ agent: "codex" }));
 });
 test("stop preserves a session and Close only removes exited sessions, never a worktree", async () => {
   const workspace = await launched();
@@ -1322,7 +1296,6 @@ function startRepositoryOperation(
       repository: repo.path,
       branch: "feature",
       run: entry === "worktree-shell" ? "shell" : "claude",
-      acknowledgeNotifierReplacement: false,
     });
   return workspace.sidebarCommand(
     {
@@ -2472,7 +2445,6 @@ async function codexWorkspace() {
     worktree: tree.path,
     cols: 80,
     rows: 24,
-    acknowledgeNotifierReplacement: true,
   });
   const hooks = await prepare?.("codex");
   if (!hooks) throw new Error("Missing hook binding");
@@ -3231,7 +3203,11 @@ test("config sessions run in the config folder with the bundled CLI", async () =
     expect.objectContaining({
       cwd: "/home/.foom/config",
       shellIntegration: true,
-      env: { PATH: expect.stringMatching(/^\/app\/console[:;]\/login\/bin$/) as unknown },
+      env: expect.objectContaining({
+        PATH: expect.stringMatching(/^\/app\/console[:;]\/login\/bin$/) as unknown,
+        FOOM_CONFIG_TOKEN: expect.stringMatching(/^[a-f0-9]{64}$/u) as unknown,
+        FOOM_CONFIG_URL: expect.stringMatching(/^http:\/\/127\.0\.0\.1:/u) as unknown,
+      }) as unknown,
     }),
   );
   expect(workspace.snapshot().terminals[0]).toMatchObject({
@@ -3428,9 +3404,7 @@ test("config launches refuse when the folder is unavailable or turned-off agents
   expect(copy).toHaveBeenCalledWith("/home/.foom/config");
 });
 
-test("config Codex launches ask for the notifier acknowledgement first", async () => {
-  const acknowledge = vi.fn(async () => {});
-  deps.acknowledgeNotifier = acknowledge;
+test("config Codex launches start without notifier consent", async () => {
   deps.config = configDep();
   agents.scan.mockResolvedValue({
     ...scan,
@@ -3439,17 +3413,10 @@ test("config Codex launches ask for the notifier acknowledgement first", async (
     ],
   });
   const workspace = new Workspace(deps);
-  await workspace.sidebarCommand({ kind: "config-launch", run: "codex" }, () =>
-    Promise.resolve(false),
-  );
-  expect(agents.launch).not.toHaveBeenCalled();
-  await workspace.sidebarCommand({ kind: "config-launch", run: "codex" }, () =>
-    Promise.resolve(true),
-  );
-  expect(acknowledge).toHaveBeenCalled();
-  expect(agents.launch).toHaveBeenCalledWith(
-    expect.objectContaining({ agent: "codex", acknowledgeNotifierReplacement: true }),
-  );
+  const confirm = vi.fn(() => Promise.resolve(false));
+  await workspace.sidebarCommand({ kind: "config-launch", run: "codex" }, confirm);
+  expect(confirm).not.toHaveBeenCalled();
+  expect(agents.launch).toHaveBeenCalledWith(expect.objectContaining({ agent: "codex" }));
 });
 
 test("restores config sessions only for the current config folder", async () => {
@@ -4076,5 +4043,167 @@ test("agent idle and exit request a forge refresh without reading terminal conte
     expect(recheck).toHaveBeenCalledWith(tree.path);
   } finally {
     await forge.close();
+  }
+});
+
+test("config credentials create visible transient probes and revoke them on owner exit", async () => {
+  const { exchange } = await import("../../../../src/cli/client");
+  const launch = await import("../../../../src/main/agents/probe-launch");
+  const scratch = await mkdtemp(join(tmpdir(), "foom-workspace-probe-"));
+  vi.spyOn(launch, "probeEnvironment").mockResolvedValue({ PATH: "fixture" });
+  vi.spyOn(launch, "scratchRepository").mockResolvedValue(scratch);
+  vi.spyOn(launch, "probeProvider").mockResolvedValue(agentProvider("claude"));
+  vi.spyOn(launch, "prepareProbe").mockResolvedValue({
+    spec: { command: "fixture", args: [], cwd: scratch, cols: 80, rows: 24 },
+    dispose: vi.fn(),
+    conversationId: "probe-conversation",
+  });
+  deps.config = { ...configDep(), probeNotice: vi.fn(() => Promise.resolve(true)) };
+  deps.placeChild = vi.fn();
+  const create = vi
+    .spyOn(deps.terminals, "create")
+    .mockResolvedValueOnce("owner")
+    .mockResolvedValueOnce("probe-terminal");
+  deps.terminals.screen = vi.fn(() =>
+    Promise.resolve({ lines: ["Continue? (y/n)"], title: "probe" }),
+  );
+  const reply = vi.fn(() => Promise.resolve());
+  deps.terminals.reply = reply;
+  const save = vi.fn<(records: unknown) => Promise<void>>(() => Promise.resolve());
+  deps.sessions = { load: () => Promise.resolve([]), save, flush: () => Promise.resolve() };
+  const workspace = new Workspace(deps);
+  try {
+    await workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, () =>
+      Promise.resolve(false),
+    );
+    const env = create.mock.calls[0]?.[0].env;
+    const token = env?.["FOOM_CONFIG_TOKEN"];
+    const url = env?.["FOOM_CONFIG_URL"];
+    if (!token || !url) throw Error("Missing config capability");
+    const result = await exchange(url, { action: "start", agent: "claude" }, token);
+    if (
+      typeof result !== "object" ||
+      result === null ||
+      !("result" in result) ||
+      typeof result.result !== "object" ||
+      result.result === null ||
+      !("probe" in result.result)
+    )
+      throw Error("Missing probe");
+    const probe = result.result.probe;
+    expect(workspace.snapshot().terminals.find((row) => row.probe)).toMatchObject({
+      id: "probe-terminal",
+      config: true,
+      probeNote: true,
+      probeOwner: "owner",
+      conversationId: "probe-conversation",
+    });
+    expect(deps.placeChild).toHaveBeenCalledWith("probe-terminal", "owner");
+    await exchange(url, { action: "send", probe, text: "yes" }, token);
+    expect(reply).toHaveBeenCalledWith("probe-terminal", "yes\r");
+    await exchange(url, { action: "screen", probe }, token);
+    workspace.input("probe-terminal");
+    vi.useFakeTimers();
+    await workspace.quiet("probe-terminal");
+    await workspace.evidence("probe-terminal", { title: "probe", progress: null });
+    await vi.advanceTimersByTimeAsync(59999);
+    expect(
+      workspace.snapshot().terminals.find((row) => row.id === "owner")?.state?.reason,
+    ).not.toBe("Probe waiting");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(workspace.snapshot().terminals.find((row) => row.id === "owner")?.state).toMatchObject({
+      reason: "Probe waiting",
+      signal: "probe:waiting",
+      state: "needs_input",
+    });
+    expect(workspace.snapshot().terminals.find((row) => row.probe)?.state?.state).not.toBe(
+      "needs_input",
+    );
+    await workspace.feedback("owner", null, "ignored");
+    expect(workspace.snapshot().terminals.find((row) => row.id === "owner")?.state?.reason).toBe(
+      "Probe waiting",
+    );
+    await workspace.feedback("owner", null, "dismissed");
+    expect(
+      workspace.snapshot().terminals.find((row) => row.id === "owner")?.state?.reason,
+    ).not.toBe("Probe waiting");
+    await workspace.quiet("probe-terminal");
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(
+      workspace.snapshot().terminals.find((row) => row.id === "owner")?.state?.reason,
+    ).not.toBe("Probe waiting");
+    workspace.input("probe-terminal");
+    await workspace.quiet("probe-terminal");
+    await vi.advanceTimersByTimeAsync(60000);
+    workspace.input("probe-terminal");
+    expect(
+      workspace.snapshot().terminals.find((row) => row.id === "owner")?.state?.reason,
+    ).not.toBe("Probe waiting");
+    vi.useRealTimers();
+    await workspace.exited("owner", 0);
+    await vi.waitFor(() => {
+      expect(workspace.snapshot().terminals.some((row) => row.probe)).toBe(false);
+    });
+    expect(await exchange(url, { action: "screen", probe }, token)).toEqual({
+      error: "unauthorized",
+    });
+    for (const [records] of save.mock.calls)
+      expect(records).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ probe: true })]),
+      );
+  } finally {
+    vi.useRealTimers();
+    await workspace.dispose();
+    await rm(scratch, { recursive: true, force: true });
+  }
+});
+
+test("a probe revoked during its first-note write cannot resurrect a tile", async () => {
+  const { exchange } = await import("../../../../src/cli/client");
+  const launch = await import("../../../../src/main/agents/probe-launch");
+  const scratch = await mkdtemp(join(tmpdir(), "foom-probe-note-race-"));
+  vi.spyOn(launch, "probeEnvironment").mockResolvedValue({ PATH: "fixture" });
+  vi.spyOn(launch, "scratchRepository").mockResolvedValue(scratch);
+  vi.spyOn(launch, "probeProvider").mockResolvedValue(agentProvider("claude"));
+  vi.spyOn(launch, "prepareProbe").mockResolvedValue({
+    spec: { command: "fixture", args: [], cwd: scratch, cols: 80, rows: 24 },
+    dispose: vi.fn(),
+  });
+  let finish: ((first: boolean) => void) | undefined;
+  const notice = vi.fn(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  deps.config = { ...configDep(), probeNotice: notice };
+  const create = vi
+    .spyOn(deps.terminals, "create")
+    .mockResolvedValueOnce("owner")
+    .mockResolvedValueOnce("probe-terminal");
+  const workspace = new Workspace(deps);
+  try {
+    await workspace.sidebarCommand({ kind: "config-launch", run: "shell" }, () =>
+      Promise.resolve(false),
+    );
+    const env = create.mock.calls[0]?.[0].env;
+    const token = env?.["FOOM_CONFIG_TOKEN"];
+    const url = env?.["FOOM_CONFIG_URL"];
+    if (!token || !url) throw Error("Missing config capability");
+    const starting = exchange(url, { action: "start", agent: "claude" }, token);
+    await vi.waitFor(() => {
+      expect(notice).toHaveBeenCalledOnce();
+    });
+    await workspace.exited("owner", 0);
+    await vi.waitFor(() => {
+      expect(workspace.snapshot().terminals.some((row) => row.id === "probe-terminal")).toBe(false);
+    });
+    finish?.(true);
+    expect(await starting).toEqual({ error: "not_found" });
+    expect(workspace.snapshot().terminals.some((row) => row.probe)).toBe(false);
+  } finally {
+    finish?.(true);
+    await workspace.dispose();
+    await rm(scratch, { recursive: true, force: true });
   }
 });

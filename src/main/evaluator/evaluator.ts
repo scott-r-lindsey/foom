@@ -1,3 +1,4 @@
+import type { AgentRule } from "./agent-rule-types";
 import { agentProviders } from "../agents/providers/registry";
 import { detectAgent } from "./agent-rules";
 import type { EvaluationInput, Verdict } from "../../shared/evaluator";
@@ -30,7 +31,7 @@ function verdict(
 }
 
 /** Quiet-time rules only. No output is executed, interpreted as instructions, or sent out. */
-export function evaluateRules(input: EvaluationInput): Verdict {
+export function evaluateRules(input: EvaluationInput, rules?: AgentRule[]): Verdict {
   // Exit is final: a delayed hook must not resurrect an exited terminal.
   if (input.exitCode !== undefined && Number.isSafeInteger(input.exitCode)) {
     return input.exitCode === 0
@@ -49,7 +50,7 @@ export function evaluateRules(input: EvaluationInput): Verdict {
     );
   const detected =
     input.agent && input.evidence
-      ? detectAgent(input.agent, input.evidence, input.tail)
+      ? detectAgent(input.agent, input.evidence, input.tail, rules)
       : undefined;
   if (detected?.state === "blocked") {
     const blocked = verdict(

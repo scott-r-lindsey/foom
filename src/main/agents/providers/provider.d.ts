@@ -11,7 +11,6 @@ export interface PreparedLaunch {
   dispose(): void;
 }
 export interface AgentProvider {
-  readonly legacyChannelConsent?: boolean;
   readonly origin?: "bundled" | "config";
   readonly model: AgentManifestV2;
   setupFacts?(

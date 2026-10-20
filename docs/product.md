@@ -183,7 +183,8 @@ reachable. In the rail the dock hides; config sessions join the compact session 
 rejections with a magenta square dot; its accessible name includes these statuses.
 Held config changes count in “N need you” and the app badge.
 
-The panel shows the folder path (copyable), Approval with **Needs you**, Rejected
+The panel shows the folder path (copyable), Approval with **Needs you** and its
+**Allow / Keep it on** decision, Rejected
 and Sessions. Multiple config sessions can run at a time. No worktree is created, and the session's `PATH`
 includes the bundled `foom` CLI.
 
@@ -355,13 +356,10 @@ when removing a repository. Removing a worktree keeps its branch.
 
 Launching an agent in a checkout with another running agent changes the launcher
 to **Click again for multiple agents here**. Shell launches need no sharing confirmation.
-A Codex launch using the notifier fallback also requires **Click again to replace notifier**
-when the notifier replacement has not already been acknowledged. Application-menu
-config launches use a trusted dialog with the same disclosure because that menu
-closes on selection. After trusted lifecycle
-hooks have been observed working, later launches keep the user's notifier and omit
-that disclosure. Setup shows hook health and directs review to Codex's own `/hooks` screen. Creating a
-worktree launches nothing, so the disclosure stays with the launchers.
+Foom attaches Codex's notifier fallback per launch without a warning or confirmation.
+After trusted lifecycle hooks have been observed working, later launches keep the
+user's notifier. Setup shows hook health and directs review to Codex's own `/hooks`
+screen.
 
 Decisions with content use a separate trusted Foom window. Removing a dirty
 worktree lists the exact uncommitted status from Git and offers **Cancel** and
@@ -952,7 +950,12 @@ applies live; an invalid file is rejected whole and the previous version stays i
 effect. Changes that would make Foom less able to say something
 needs you (turning alerts off, alert or master volume 0, master mute, hooks off, or turning an agent off)
 wait in an amber banner, such as "An agent wants to turn off the needs-you sound",
-with **Allow** and **Keep it on**. Keep it on restores the file.
+with **Allow** and **Keep it on** in both the Foom config panel and Settings →
+Foom config. Selecting the dock's Needs you opens that decision, even after the
+config session closes. A decision on either surface clears it everywhere.
+Keep it on restores the file. Config agents read `foom config status --json` after
+settings edits and tell the human when a write is held; validation alone does not
+mean the settings applied.
 
 `agentArguments` in settings.json contains literal lists keyed by provider ID,
 including the required `claude`, `codex` and `agy` entries. Every file-originated argument change waits for Allow, including removing
@@ -961,6 +964,10 @@ after lists, one argument per line, and names known bypass flags. Accepting also
 records bypass acknowledgement. Settings edits write the same file directly and
 retain their existing bypass disclosure. Running sessions keep their arguments;
 new, resumed and restored launches use the approved defaults.
+
+Valid agent manifests load without approval. Their installation, edits and removal
+refresh every board launch menu and the application menu without visiting Settings.
+MCP launch tool lists use the current provider registry.
 
 Below the folder, the section shows only what needs the user now: a held change,
 or each rejected file with its reason. When all is well it shows nothing more.
@@ -985,7 +992,7 @@ trusted dialogs attach to the window that requested them.
 
 Each window saves its display, normal bounds, maximized state, interface size and
 tile tree and sidebar collapse choice. At launch Foom restores those windows. Missing displays fall back to the
-primary display and bounds are clamped to its work area. After showing all windows, Foom restarts sessions that were running at quit (or their last known state before a crash), up to three launches at a time. Shells use their saved checkout or home; agents resume only with a saved conversation ID. Missing checkouts keep exited rows with the Worktree removed label. Failed launches retain their conversations for retry. If Codex needs new consent to replace its notifier, the row stays exited for manual Resume. Restores use current defaults, fresh credentials and reserved conversation selectors, and skip the shared-checkout warning. Turning Restore sessions on launch off restores every row exited. Closing a window removes it from the saved
+primary display and bounds are clamped to its work area. After showing all windows, Foom restarts sessions that were running at quit (or their last known state before a crash), up to three launches at a time. Shells use their saved checkout or home; agents resume only with a saved conversation ID. Missing checkouts keep exited rows with the Worktree removed label. Failed launches retain their conversations for retry. Codex restore attaches its notifier fallback without confirmation. Restores use current defaults, fresh credentials and reserved conversation selectors, and skip the shared-checkout warning. Turning Restore sessions on launch off restores every row exited. Closing a window removes it from the saved
 window set. Interface size is independent per window; other settings are shared.
 The attention badge counts sessions once for the app. One window plays app sounds,
 with attention suppression following the focused terminal in any window.
@@ -1005,3 +1012,49 @@ result until execution starts. Other shells use output patterns and process exit
 The quiet debounce preserves the current state; there is no separate Checking state. Agent Working follows
 lifecycle evidence, never silence or output volume. A supported turn-end signal
 stops Working immediately; classification determines the result.
+
+## Config agent probe terminals (#591)
+
+A config session can start and drive one probe at a time with its own bundled
+`foom agent probe` CLI capability. A probe runs an installed agent, or a validated
+v2 manifest supplied with `--manifest`, in a fresh temporary Git repository made
+by Foom. It never uses a managed repository or worktree. User default arguments
+are not applied, and known bypass arguments and environment variables are refused.
+The probe receives the login-shell environment without Foom credentials or MCP
+grants. This is a working-directory boundary, not an OS sandbox: the real CLI
+runs on the user's account, can access files and network as that account, and may
+use credits. Enter is allowed, including at approval prompts.
+
+The probe appears under Foom config with normal terminal input and Stop. Its tile
+header quietly names its driver: **Probe · <config session name>**, following the
+session's editable name. The probe's own prompts never show Needs you or Not
+attention and never chime. The config agent answers its probe's prompts.
+If the probe stays blocked without input for about 60 seconds, its config session
+shows **Probe waiting**. An existing question or permission prompt on that session
+keeps its own reason. Probe input, resumed progress, Stop or dismissal clears the
+reminder; dismissal settles the current blocked episode. The person can still type
+into or Stop the probe. Before each probe, the config agent explains its plan,
+that it answers trust/approval prompts itself, and that the person can Stop it;
+afterward it summarizes the result. The first probe of each agent ID has a terse, one-time inline note:
+“Runs the real CLI on your account. May use credits.” No dialog is shown.
+Probes are never restored. They stop after ten minutes, when their owning config
+session exits, or when Foom quits; Foom removes the scratch repository after the
+process stops.
+
+Foom sends no terminal content to models or network services, with one exception:
+a config session can request the current visible screen and OSC title of a probe
+it started. That output enters the config agent's context and may go to its model
+provider. No scrollback is exposed. Other sessions, including other config
+sessions' probes, remain unreadable through this capability. Probe IDs are random
+and bound to the calling config session's private credential.
+
+The CLI provides `start <agent> [--manifest <path>] [--resume <conversationId>]`,
+`send <probe> <text>` (text followed by Enter),
+`keys <probe> <esc|ctrl-c|enter|up|down|tab>`,
+`wait <probe> --quiet <seconds>` or `--timeout <seconds>`, `screen <probe>`,
+`state <probe>`, and `stop <probe>`, below `foom agent probe`. Screen and state
+results are JSON. Quiet waits reset on output; timeout waits wait the requested
+elapsed time. Both are bounded by the probe's remaining lifetime.
+
+Captures, rule-test authoring, hook/MCP verification and guide automation are
+separate follow-on work (#592–#594).

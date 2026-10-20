@@ -1,6 +1,37 @@
+import { AgentManifestError } from "./agent-manifest";
 import type { AgentManifestV2, ManifestCondition, ManifestFile } from "./agent-manifest-v2";
 import { fail, isRecord } from "./agent-manifest-values";
 import { dataContainer, validateCommandSlots } from "./agent-manifest-container";
+
+const placeholders: Readonly<Record<string, readonly string[]>> = {
+  prompt: ["prompt"],
+  conversationId: ["resume"],
+  newId: ["newId"],
+  hookDir: ["channel"],
+  hookFile: ["channel"],
+  file: ["mcp"],
+  pluginDir: ["setup"],
+  tool: ["tools"],
+  mcpName: ["mcp", "file"],
+  mcpUrl: ["mcp", "file"],
+  observerCommand: ["channel", "file"],
+  observerArgv: ["channel", "file"],
+  observerVersion: ["file"],
+};
+const allowedPlaceholders: Readonly<Record<string, string>> = {
+  arguments: "none",
+  display: "none",
+  fixed: "none",
+  prompt: "{prompt}",
+  resume: "{conversationId}",
+  newId: "{newId}",
+  tools: "{tool}",
+  channel:
+    "{hookDir}, {hookFile:NAME}, {observerCommand:CHANNEL:json|toml}, {observerArgv:CHANNEL:json}",
+  mcp: "{file:NAME}, {mcpName[:json|toml]}, {mcpUrl[:json|toml]}",
+  setup: "{pluginDir}",
+  file: "{observerCommand:CHANNEL:json|toml}, {observerArgv:CHANNEL:json}, {mcpName:json|toml}, {mcpUrl:json|toml} (MCP files), {observerVersion:CHANNEL} (plugin JSON metadata)",
+};
 
 function identity(value: unknown): string {
   return JSON.stringify(value);
@@ -74,7 +105,21 @@ export function validateTemplates(manifest: AgentManifestV2): void {
       fail(path, "environment-reference");
     result = result.replace(
       /\{([A-Za-z][A-Za-z0-9]*)(?::([^{}\n]*))?\}/gu,
-      (_match: string, name: string, detail: string | undefined) => {
+      (match: string, name: string, detail: string | undefined, offset: number, input: string) => {
+        const locations = placeholders[name];
+        const allowed = `Allowed here: ${allowedPlaceholders[location] ?? "none"}.`;
+        if (/^[\\/]/u.test(input.slice(offset + match.length)))
+          throw new AgentManifestError(
+            path,
+            "placeholder-path-arithmetic",
+            `Use a whole generated path; do not append /.. or /sub. ${allowed}`,
+          );
+        if (locations && !locations.includes(location))
+          throw new AgentManifestError(
+            path,
+            "placeholder-not-allowed-here",
+            `${name} is allowed only in ${locations.join(" or ")}. ${allowed}`,
+          );
         const parts = detail?.split(":") ?? [];
         if (["prompt", "conversationId", "newId", "hookDir", "pluginDir", "tool"].includes(name)) {
           const allowed =

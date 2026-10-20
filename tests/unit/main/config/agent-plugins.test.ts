@@ -189,7 +189,6 @@ it.each(["claude", "codex", "agy"])(
     expect(status.agentPlugins).toEqual([]);
     const provider = agentProvider(`${id}-custom`);
     expect(provider.origin).not.toBe("bundled");
-    expect(provider.legacyChannelConsent).not.toBe(true);
     await writeFile(file, `${text} `);
     await expect(provider.validate?.()).rejects.toThrow("changed");
   },

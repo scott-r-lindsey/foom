@@ -245,19 +245,6 @@ export class AgentService {
           },
         }
       : undefined;
-    const notify = agentProvider(agent.id).needsNotifier(agent, binding);
-    if (
-      provider.origin === "bundled" &&
-      attach &&
-      notify &&
-      !(provider.legacyChannelConsent && request.acknowledgeNotifierReplacement)
-    ) {
-      binding?.dispose();
-      throw new Error(
-        provider.model.hooks?.channels.find((channel) => channel.disclosure)?.disclosure?.text ??
-          "Channel replacement requires acknowledgement.",
-      );
-    }
     let control: ControlLaunch | undefined;
     let prepared: PreparedLaunch | undefined;
     try {
@@ -292,11 +279,7 @@ export class AgentService {
       const replacement = [...(binding?.v2?.channels.values() ?? [])].find(
         (channel) => channel.disclosure,
       );
-      if (
-        provider.origin === "bundled" &&
-        replacement?.disclosure &&
-        !(provider.legacyChannelConsent && request.acknowledgeNotifierReplacement)
-      )
+      if (provider.origin === "bundled" && replacement?.disclosure)
         throw new Error(replacement.disclosure.text);
       if (
         request.control &&
@@ -312,7 +295,7 @@ export class AgentService {
         base: baseEnvironment,
         path: scan.path,
         pathFirst: config ?? control?.env["FOOM_CLI_DIRECTORY"],
-        foom: { ...control?.env, ...binding?.env },
+        foom: { ...control?.env, ...binding?.env, ...request.configEnvironment },
       });
       const finalEnvironment = { ...baseEnvironment, ...environment.env };
       // The host inherits OS names such as ProgramFiles(x86) itself. IPC accepts

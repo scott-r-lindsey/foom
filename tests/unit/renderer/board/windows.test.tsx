@@ -1,3 +1,4 @@
+import type { LaunchOptions } from "../../../../src/renderer/board/board-source.d";
 import type { BoardCommand } from "../../../../src/shared/board-command";
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
@@ -272,7 +273,6 @@ test("a cancelled config menu launch preserves the full layout and focus", async
   expect(source.sidebarCommand).toHaveBeenCalledWith({
     kind: "config-launch",
     run: "claude",
-    origin: "menu",
   });
   const saved = loadLayout(localStorage, `${TILE_STORAGE}.test-window`);
   expect(saved.tree).toEqual(layout.tree);
@@ -303,4 +303,69 @@ test("sidebar collapse saves per window with tile changes and survives remount",
   expect(restored.getByRole("button", { name: "Expand sidebar" })).toBeTruthy();
   f.command("split-right");
   expect(loadLayout(localStorage, `${TILE_STORAGE}.test-window`).sidebarCollapsed).toBe(true);
+});
+
+test("launch menus follow catalog publications and discard stale loads", async () => {
+  const f = fixture();
+  const base: LaunchOptions = {
+    repositories: [],
+    agents: [],
+    enabled: {},
+    hooks: false,
+  };
+  let changed: (() => void) | undefined;
+  const off = vi.fn();
+  const load = vi.fn<() => Promise<LaunchOptions>>().mockResolvedValue({ ...base, agents: [] });
+  const source = {
+    ...f.source,
+    worktrees: {
+      addRepository: () => Promise.resolve(null),
+      branches: () =>
+        Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
+      create: () => Promise.reject(new Error("Unused fixture creation")),
+      remove: () => Promise.resolve(false),
+      load,
+      subscribe: (listener: () => void) => {
+        changed = listener;
+        return off;
+      },
+    },
+  };
+  const view = render(<Board source={source} />);
+  await act(async () => {});
+  fireEvent.click(view.container.querySelector(".config-gear") ?? document.body);
+  expect(view.queryByRole("menuitem", { name: /^Via OpenCode$/ })).toBeNull();
+  let old: ((value: LaunchOptions) => void) | undefined;
+  load.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        old = resolve;
+      }),
+  );
+  act(() => changed?.());
+  load.mockResolvedValue({
+    ...base,
+    agents: [
+      {
+        id: "opencode",
+        name: "OpenCode",
+        path: "/fixture/opencode",
+        version: "1",
+        hooks: false,
+        reason: "",
+      },
+    ],
+  });
+  await act(async () => {
+    changed?.();
+    await Promise.resolve();
+  });
+  expect(view.getByRole("menuitem", { name: /^Via OpenCode$/ })).toBeTruthy();
+  await act(async () => {
+    old?.({ ...base, agents: [] });
+    await Promise.resolve();
+  });
+  expect(view.getByRole("menuitem", { name: /^Via OpenCode$/ })).toBeTruthy();
+  view.unmount();
+  expect(off).toHaveBeenCalledOnce();
 });

@@ -41,13 +41,20 @@ vi.mock("../../../../src/main/terminals/terminal-host-client", async () => {
       tail(id: string, lines: number) {
         return this.manager.tail(id, lines);
       }
+      screen(id: string) {
+        return this.manager.screen(id);
+      }
       detach(id: string) {
         this.manager.detach(id);
       }
       write(id: string, data: string) {
         this.manager.write(id, data);
       }
-      async reply(id: string, data: ChildInput) {
+      async reply(id: string, data: string) {
+        this.manager.write(id, data);
+        await Promise.resolve();
+      }
+      async childInput(id: string, data: ChildInput) {
         this.manager.childInput(id, data);
         await Promise.resolve();
       }
@@ -1316,9 +1323,9 @@ test("ConPTY ignores queued native operations after kill while preserving final 
 test("the main-only child input capability checks terminal ownership and submits text", async () => {
   const id = await create();
   await expect(
-    terminalControl.reply("unknown", { kind: "prompt", text: "answer" }),
+    terminalControl.childInput("unknown", { kind: "prompt", text: "answer" }),
   ).rejects.toThrow("Unknown terminal");
-  await terminalControl.reply(id, { kind: "prompt", text: "answer" });
+  await terminalControl.childInput(id, { kind: "prompt", text: "answer" });
   expect(ptys[0]?.write).toHaveBeenCalledWith("answer\r");
 });
 
@@ -1339,4 +1346,30 @@ test("child input uses host paste mode, validates before writing, and refuses ex
   expect(() => {
     manager.childInput(id, { kind: "keys", keys: ["enter"] });
   }).toThrow("Terminal unavailable");
+});
+
+test("the main-only probe screen capability checks ownership", async () => {
+  await expect(terminalControl.screen("unknown")).rejects.toThrow("Unknown terminal");
+  const id = await terminalControl.create({
+    command: "fixture",
+    args: [],
+    cwd: "/tmp",
+    cols: 80,
+    rows: 24,
+  });
+  const screen = await terminalControl.screen(id);
+  expect(screen.lines).toHaveLength(24);
+  expect(screen.title).toBe("");
+  expect(mock.handle.mock.calls.some(([channel]) => channel === "terminal:screen")).toBe(false);
+});
+
+test("probe raw input remains separate from validated orchestrator child input", async () => {
+  const id = await create();
+  await expect(terminalControl.reply("unknown", "y\r")).rejects.toThrow("Unknown terminal");
+  await terminalControl.reply(id, "y\r");
+  expect(ptys[0]?.write).toHaveBeenCalledExactlyOnceWith("y\r");
+  await expect(terminalControl.childInput(id, { kind: "prompt", text: "\x1b" })).rejects.toThrow(
+    "Invalid child input",
+  );
+  expect(ptys[0]?.write).toHaveBeenCalledTimes(1);
 });
