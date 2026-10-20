@@ -1,12 +1,4 @@
-import { applicationErrorCode, errorMessage } from "../../shared/application-errors";
-import {
-  ActionError,
-  ErrorPresentation,
-  useBackgroundErrors,
-  captureErrorFocus,
-} from "./error-presentation";
-import type { ComponentProps, SetStateAction } from "react";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode, SetStateAction } from "react";
 import {
   useCallback,
   useEffect,
@@ -16,12 +8,21 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { applicationErrorCode, errorMessage } from "../../shared/application-errors";
+import type { WindowAudioState } from "../../shared/windows";
 import type { PreviewSummary, SidebarCommand } from "../../shared/workspace";
 import type { SetupSource } from "../preflight/setup-source.d";
+import { createSoundController } from "../sound/sound-controller";
+import { createAudioSink } from "../sound/web-audio";
 import { ActionLog } from "./action-log-view";
-import { nextWaiting } from "./board";
-import type { BoardSource, LaunchOptions } from "./board-source.d";
+import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
+import {
+  ActionError,
+  captureErrorFocus,
+  ErrorPresentation,
+  useBackgroundErrors,
+} from "./error-presentation";
 import { SidebarControls } from "./sidebar-controls";
 import { repositoryKey, rowRepository, rowWorktree, worktreeKey } from "./sidebar-model";
 import { createPreferencesStore, renameSession } from "./sidebar-preferences";
@@ -30,21 +31,16 @@ import { TileArea } from "./tile-area";
 import {
   contentId,
   leaves,
-  neighbor,
   placeContent,
   placeSession,
   sessionId,
-  swapTiles,
   terminals,
-  tidyTiles,
   TILE_STORAGE,
 } from "./tiles";
 import type { TileDrag } from "./tiles.d";
+import { useBoardCommands } from "./use-board-commands";
+import { useBoardOptions } from "./use-board-options";
 import { useBoardTiles } from "./use-board-tiles";
-
-import type { WindowAudioState } from "../../shared/windows";
-import { createSoundController } from "../sound/sound-controller";
-import { createAudioSink } from "../sound/web-audio";
 
 import { useBoardActivity } from "./use-board-activity";
 const commandFailures: Readonly<Record<SidebarCommand["kind"], string>> = {
@@ -151,25 +147,7 @@ function BoardContents({
   );
   const revealRef = useRef<(row: BoardRow) => void>(undefined);
   const newWorktreeRef = useRef<(repository?: string) => boolean>(undefined);
-  const [options, setOptions] = useState<LaunchOptions>();
-  useEffect(() => {
-    let revision = 0;
-    const load = () => {
-      const request = ++revision;
-      void source.worktrees?.load().then(
-        (next) => {
-          if (request === revision) setOptions(next);
-        },
-        () => {},
-      );
-    };
-    const unsubscribe = source.worktrees?.subscribe?.(load);
-    load();
-    return () => {
-      revision++;
-      unsubscribe?.();
-    };
-  }, [source, inactive, settingsOpen]);
+  const options = useBoardOptions(source, inactive, settingsOpen);
   const save = (next: typeof preferences) => {
     try {
       preferencesStore.save(preferences, next);
@@ -414,113 +392,27 @@ function BoardContents({
           setPrune(value);
       });
   };
-  const runSidebarCommand = useEffectEvent(command);
-  useEffect(
-    () =>
-      source.subscribeCommands?.((command) => {
-        if (inactive) return;
-        if (command.startsWith("via-")) {
-          void runSidebarCommand({ kind: "config-launch", run: command.slice(4) });
-        } else if (command === "toggle-sidebar") {
-          toggleSidebarRef.current?.();
-        } else if (command === "action-log") {
-          if (source.actionLog) {
-            onCloseSettings?.();
-            setLogOpen(true);
-          }
-        } else if (command === "settings") {
-          setLogOpen(false);
-          onSettings?.();
-        } else if (
-          command === "add-repository" ||
-          (command === "new-worktree" &&
-            !settingsOpen &&
-            // The focused tile's repository, else the sidebar's top one; else add one.
-            !newWorktreeRef.current?.(
-              focusedRow && !focusedRow.home && !focusedRow.config
-                ? rowRepository(focusedRow)
-                : undefined,
-            ))
-        ) {
-          void source.worktrees?.addRepository().catch(() => {
-            setRemoveError("Unable to add repository.");
-          });
-        } else if (command === "sidebar") {
-          const button = selected ? buttonsRef.current.get(selected) : undefined;
-          (button ?? sidebarRef.current)?.focus();
-        } else if (command === "next-waiting") {
-          const next = nextWaiting(source.getSnapshot());
-          if (next) open(next, true);
-        } else if (!settingsOpen) {
-          const current = layoutRef.current;
-          if (command === "tidy-tiles") {
-            changeLayout(tidyTiles(current));
-          } else if (
-            command === "swap-left" ||
-            command === "swap-right" ||
-            command === "swap-up" ||
-            command === "swap-down"
-          ) {
-            const direction = {
-              "swap-left": "left",
-              "swap-right": "right",
-              "swap-up": "up",
-              "swap-down": "down",
-            } as const;
-            changeLayout(
-              swapTiles(current, current.focused, neighbor(current, direction[command])),
-            );
-            setFocusRequest((value) => value + 1);
-          } else if (command.startsWith("tile-")) {
-            const tile = terminals(current.tree)[Number(command.slice(5)) - 1];
-            if (tile) {
-              setFocusRequest((value) => value + 1);
-              changeLayout({
-                ...current,
-                focused: tile.id,
-                maximized: current.maximized ? tile.id : null,
-              });
-            }
-          } else if (
-            command === "left" ||
-            command === "right" ||
-            command === "up" ||
-            command === "down"
-          ) {
-            setFocusRequest((value) => value + 1);
-            const focused = neighbor(current, command);
-            changeLayout({ ...current, focused, maximized: current.maximized ? focused : null });
-          } else
-            tileAction(
-              current.focused,
-              command === "split-right"
-                ? "right"
-                : command === "split-down"
-                  ? "down"
-                  : command === "hide-session"
-                    ? "hide"
-                    : command === "close-tile"
-                      ? "close"
-                      : "maximize",
-            );
-        }
-      }),
-    [
-      source,
-      inactive,
-      focusedRow,
-      setRemoveError,
-      selected,
-      open,
-      onSettings,
-      onCloseSettings,
-      settingsOpen,
-      tileAction,
-      changeLayout,
-      layoutRef,
-      setFocusRequest,
-    ],
-  );
+  useBoardCommands({
+    source,
+    inactive,
+    focusedRow,
+    setRemoveError,
+    selected,
+    open,
+    onSettings,
+    onCloseSettings,
+    settingsOpen,
+    tileAction,
+    changeLayout,
+    layoutRef,
+    setFocusRequest,
+    toggleSidebarRef,
+    newWorktreeRef,
+    sidebarRef,
+    buttonsRef,
+    setLogOpen,
+    command,
+  });
   useEffect(() => {
     void source.appMenu
       ?.setView({

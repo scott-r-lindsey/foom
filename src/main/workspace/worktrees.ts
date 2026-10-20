@@ -1,17 +1,9 @@
-import { ApplicationError } from "../../shared/application-errors";
-import type { ForgeProviderFactory } from "../control/forge.d";
-import { UncertainEffect } from "../control/orchestration-mutations";
-import { forgeBranch, pullRequest } from "../control/forge";
-import { ControlError } from "../../node-common/control-validation";
-import { fetchAdvertisedDefault } from "./fetch-default";
-import type { GitPanelFacts } from "../../shared/panel";
-import { inventoryWatchPaths } from "./inventory-watch";
 import { randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
-import { lstat, mkdir, readFile, realpath, rename, rm, rmdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep, parse } from "node:path";
-import { promisify } from "node:util";
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { ApplicationError } from "../../shared/application-errors";
+import type { GitPanelFacts } from "../../shared/panel";
 import type {
   BranchInventory,
   CreatedWorktree,
@@ -19,113 +11,25 @@ import type {
   Repository,
   Worktree,
 } from "../../shared/worktrees";
-
-const execute = promisify(execFile);
-
-async function git(cwd: string, args: string[], timeout = 30_000, input?: string): Promise<string> {
-  // Ignore inherited repository selectors: the validated cwd selects the repository.
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
-  );
-  const operation = execute("git", args, {
-    cwd,
-    env: { ...env, GIT_TERMINAL_PROMPT: "0" },
-    timeout,
-    encoding: "utf8",
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  operation.child.stdin?.end(input);
-  const { stdout } = await operation;
-  return stdout;
-}
-
-function validatePath(path: string): void {
-  if (!path || path.includes("\0")) throw new Error("Invalid path");
-}
-
-/** Whether `path` is `root` or inside it. */
-function within(root: string, path: string): boolean {
-  const child = relative(root, path);
-  return child === "" || (child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child));
-}
-
-function assertInside(root: string, path: string): void {
-  const child = relative(root, path);
-  if (!child || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) {
-    throw new Error("Worktree path must stay inside its allowed root");
-  }
-}
-
-// Walk one component at a time so an existing symlink cannot redirect mkdir
-// outside the allowed root, even when the remaining parent directories are new.
-async function prepareParent(root: string, path: string): Promise<void> {
-  assertInside(root, path);
-  let current = root;
-  for (const part of relative(root, dirname(path)).split(sep).filter(Boolean)) {
-    current = join(current, part);
-    await mkdir(current, { recursive: true });
-    const canonical = await realpath(current);
-    assertInside(root, canonical);
-    if (canonical !== current) throw new Error("Worktree parent has been redirected");
-  }
-  // Reject an existing destination, including empty directories and symlinks.
-  await mkdir(path);
-}
-
-// Bind confirmation to both the filesystem entries and Git's per-worktree metadata.
-// Birth time distinguishes recreated entries even when the filesystem reuses an inode.
-async function worktreeIdentity(path: string): Promise<string> {
-  const gitDirectory = await realpath(
-    (await git(path, ["rev-parse", "--absolute-git-dir"])).slice(0, -1),
-  );
-  const entries = await Promise.all(
-    [path, join(path, ".git"), gitDirectory].map(async (entry) => {
-      const stat = await lstat(entry, { bigint: true });
-      return [stat.dev, stat.ino, stat.birthtimeNs].map(String);
-    }),
-  );
-  return JSON.stringify([gitDirectory, entries]);
-}
-
-/** The repository's remote: origin, or its only remote. */
-function pickRemote(output: string): string | undefined {
-  const remotes = output.trim().split("\n").filter(Boolean);
-  const remote = remotes.includes("origin")
-    ? "origin"
-    : remotes.length === 1
-      ? remotes[0]
-      : undefined;
-  // A remote name becomes part of a ref pattern and an argument; refuse anything unusual.
-  return remote && !remote.startsWith("-") && !/[\0-\x20\x7f~^:?*[\\]/u.test(remote)
-    ? remote
-    : undefined;
-}
-
-/** Ref names under `prefix`, without it. Git output is bounded before it reaches the renderer. */
-function refNames(output: string, prefix: string): string[] {
-  return (
-    output
-      .split("\n")
-      .filter((line) => line.startsWith(prefix) && line.length - prefix.length <= 255)
-      .map((line) => line.slice(prefix.length))
-      // Git refuses control characters and spaces in ref names; drop anything else it lists.
-      .filter((name) => name && !/[\0-\x20\x7f]/u.test(name))
-      .slice(0, 5000)
-  );
-}
-
-function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function absolutePath(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    !value.includes("\0") &&
-    isAbsolute(value) &&
-    resolve(value) === value
-  );
-}
+import { pullRequest } from "../control/forge";
+import type { ForgeProviderFactory } from "../control/forge.d";
+import { fetchAdvertisedDefault } from "./fetch-default";
+import { inventoryWatchPaths } from "./inventory-watch";
+import {
+  absolutePath,
+  adoptWorktree,
+  assertInside,
+  createWorktree,
+  forgeProviderFor,
+  git,
+  pickRemote,
+  readPanelFacts,
+  record,
+  refNames,
+  validatePath,
+  within,
+  worktreeIdentity,
+} from "./worktree-operations";
 
 /** Main-process service. Git membership authorizes management; managed records creation history. */
 export class WorktreeService {
@@ -507,25 +411,14 @@ export class WorktreeService {
   }
 
   private async forgeProviderFor(repository: string, path: string, remote: string) {
-    return this.provider(remote, async () => {
-      const identity = await this.launchIdentity(repository, path);
-      const branch = (await this.listWorktrees(repository)).find(
-        (row) => row.path === path,
-      )?.branch;
-      return {
-        identity: JSON.stringify([repository, path, identity, branch, remote]),
-        validate: async () => {
-          this.repository(repository);
-          if (
-            (await this.launchIdentity(repository, path)) !== identity ||
-            (await this.listWorktrees(repository)).find((row) => row.path === path)?.branch !==
-              branch ||
-            (await this.forgeRemote(repository)) !== remote
-          )
-            throw new Error("Forge worktree changed");
-        },
-      };
-    });
+    return forgeProviderFor(
+      this,
+      this.provider,
+      this.repository.bind(this),
+      repository,
+      path,
+      remote,
+    );
   }
 
   /** Only main-owned unused checkouts can be reused; no caller supplies a remote or path. */
@@ -537,234 +430,36 @@ export class WorktreeService {
     location: "root" | "adjacent" = "root",
   ): Promise<{ path: string; branch: string; identity: string }> {
     this.repository(repositoryPath);
-    const remote = await git(repositoryPath, ["config", "--get", "remote.origin.url"]).catch(
-      () => undefined,
+    return adoptWorktree(
+      this,
+      this.forgeProviderFor.bind(this),
+      repositoryPath,
+      number,
+      unused,
+      revalidate,
+      location,
     );
-    const head =
-      remote === undefined
-        ? undefined
-        : await (
-            await this.forgeProviderFor(repositoryPath, repositoryPath, remote.trim())
-          )?.resolve?.(number);
-    if (!head) throw new ControlError("forge_unavailable");
-    if (head.state !== "OPEN") throw new ControlError("pr_not_open");
-    if (!head.sameRepository) throw new ControlError("pr_from_fork");
-    const branch = head.branch;
-    if (!forgeBranch(branch)) throw new ControlError("invalid_branch");
-    await this.validateBranch(repositoryPath, branch).catch(() => {
-      throw new ControlError("invalid_branch");
-    });
-    const advertised = await git(repositoryPath, [
-      "ls-remote",
-      "--symref",
-      "--",
-      "origin",
-      "HEAD",
-    ]).catch(() => {
-      throw new ControlError("forge_unavailable");
-    });
-    const defaultBranch = /^ref: refs\/heads\/([^\n\t]+)\tHEAD$/mu.exec(advertised)?.[1];
-    if (!defaultBranch) throw new ControlError("forge_unavailable");
-    if (branch === defaultBranch) throw new ControlError("default_branch");
-    const checkedOut = (await this.listWorktrees(repositoryPath)).filter(
-      (tree) => tree.branch === branch,
-    );
-    if (checkedOut.length > 1) throw new ControlError("branch_in_use");
-    const existing = checkedOut[0];
-    if (existing) {
-      const owned = unused.find((tree) => tree.path === existing.path);
-      if (
-        !owned ||
-        !existing.managed ||
-        existing.bare ||
-        existing.locked ||
-        existing.prunable ||
-        (await this.launchIdentity(repositoryPath, existing.path).catch(() => undefined)) !==
-          owned.identity
-      )
-        throw new ControlError("branch_in_use");
-      revalidate(existing.path, branch);
-      await git(repositoryPath, [
-        "fetch",
-        "--no-tags",
-        "--",
-        "origin",
-        `+refs/heads/${branch}:refs/remotes/origin/${branch}`,
-      ]);
-      revalidate(existing.path, branch);
-      if (
-        (await this.launchIdentity(repositoryPath, existing.path).catch(() => undefined)) !==
-        owned.identity
-      )
-        throw new ControlError("branch_in_use");
-      await this.fastForwardAdoptedBranch(
-        repositoryPath,
-        branch,
-        async () => {
-          revalidate(existing.path, branch);
-          const current = (await this.listWorktrees(repositoryPath)).filter(
-            (tree) => tree.branch === branch,
-          );
-          if (current.length !== 1 || current[0]?.path !== existing.path)
-            throw new ControlError("branch_in_use");
-          if (
-            (await this.launchIdentity(repositoryPath, existing.path).catch(() => undefined)) !==
-            owned.identity
-          )
-            throw new ControlError("branch_in_use");
-        },
-        existing.path,
-      );
-      await git(repositoryPath, [
-        "branch",
-        "--set-upstream-to",
-        `refs/remotes/origin/${branch}`,
-        "--",
-        branch,
-      ]);
-      await git(repositoryPath, ["config", `branch.${branch}.pushRemote`, "origin"]);
-      return { path: existing.path, branch, identity: owned.identity };
-    }
-    revalidate(undefined, branch);
-    await git(repositoryPath, [
-      "fetch",
-      "--no-tags",
-      "--",
-      "origin",
-      `+refs/heads/${branch}:refs/remotes/origin/${branch}`,
-    ]);
-    revalidate(undefined, branch);
-    await this.fastForwardAdoptedBranch(repositoryPath, branch, () => {
-      revalidate(undefined, branch);
-    });
-    try {
-      const { path } = await this.createWorktree(repositoryPath, branch, {
-        location,
-        trackOrigin: true,
-      });
-      await git(repositoryPath, ["config", `branch.${branch}.pushRemote`, "origin"]);
-      return { path, branch, identity: await this.launchIdentity(repositoryPath, path) };
-    } catch (error) {
-      if (error instanceof ControlError) throw error;
-      const trees = await this.listWorktrees(repositoryPath).catch(() => undefined);
-      if (!trees || trees.some((tree) => tree.branch === branch)) throw new UncertainEffect();
-      throw error;
-    }
   }
 
-  /** Advance only by ancestry; Git also guards against concurrent local ref changes. */
-  private async fastForwardAdoptedBranch(
-    repository: string,
-    branch: string,
-    revalidate: () => void | Promise<void>,
-    checkout?: string,
-  ): Promise<void> {
-    const localRef = `refs/heads/${branch}`;
-    const local = (
-      await git(repository, ["branch", "--list", "--format=%(objectname)", "--", branch])
-    ).trim();
-    if (!local) return;
-    const target = (
-      await git(repository, ["rev-parse", "--verify", `refs/remotes/origin/${branch}`])
-    ).trim();
-    if (local === target) return;
-    await git(repository, ["merge-base", "--is-ancestor", local, target]).catch(
-      (error: unknown) => {
-        if (record(error) && error["code"] === 1) throw new ControlError("branch_diverged");
-        throw error;
-      },
-    );
-    await revalidate();
-    if (checkout) {
-      await git(checkout, ["merge", "--ff-only", "--no-edit", target]);
-    } else {
-      // Unlike branch -f/update-ref, a non-forced fetch refuses both a concurrent
-      // divergence and a branch that has become checked out in another worktree.
-      await git(repository, [
-        "fetch",
-        "--no-tags",
-        "--no-write-fetch-head",
-        "--",
-        ".",
-        `${target}:${localRef}`,
-      ]);
-    }
-  }
-
-  /**
-   * Creates a checkout for a validated branch: an existing local branch, a branch on
-   * the remote tracking it, and otherwise a new branch from HEAD. A branch that is already
-   * checked out is reported, not added again.
-   */
+  /** Create or reuse a checkout after validating the repository and branch. */
   async createWorktree(
     repositoryPath: string,
     branch: string,
     options: CreateWorktreeOptions = {},
   ): Promise<CreatedWorktree> {
-    const repository = this.repository(repositoryPath);
-    await this.validateBranch(repositoryPath, branch);
-    const checkedOut = (await this.listWorktrees(repository.path)).find(
-      (tree) => tree.branch === branch,
-    );
-    if (checkedOut) {
-      if (options.trackOrigin) throw new ControlError("branch_in_use");
-      if (options.newBranch) throw new Error("Branch already exists");
-      return { path: checkedOut.path, outcome: "open" };
-    }
-    const location = options.location ?? "root";
-    const configuredRoot = location === "adjacent" ? dirname(repository.path) : this.root;
-    await mkdir(configuredRoot, { recursive: true });
-    const root = await realpath(configuredRoot);
-    const path =
-      location === "adjacent"
-        ? resolve(root, `${repository.name}-${branch}`)
-        : resolve(root, repository.name, branch);
-    assertInside(root, path);
-    const exists = await git(repository.path, [
-      "branch",
-      "--list",
-      "--format=%(refname)",
-      "--",
+    return createWorktree(
+      {
+        root: this.root,
+        managed: this.managed,
+        repository: this.repository.bind(this),
+        validateBranch: this.validateBranch.bind(this),
+        listWorktrees: this.listWorktrees.bind(this),
+        save: this.save.bind(this),
+      },
+      repositoryPath,
       branch,
-    ]);
-    if (exists && options.newBranch) throw new Error("Branch already exists");
-    const remote = options.trackOrigin
-      ? "origin"
-      : exists || options.newBranch
-        ? undefined
-        : pickRemote(await git(repository.path, ["remote"]));
-    const tracked = `refs/remotes/${remote ?? ""}/${branch}`;
-    const onRemote =
-      remote !== undefined &&
-      (await git(repository.path, ["for-each-ref", "--format=%(refname)", "--", tracked]))
-        .split("\n")
-        .includes(tracked);
-    if (options.trackOrigin && !onRemote) throw new Error("PR branch unavailable");
-    if (options.trackOrigin && exists)
-      await git(repository.path, ["branch", "--set-upstream-to", tracked, "--", branch]);
-    await prepareParent(root, path);
-    try {
-      // The full remote ref avoids ambiguity with a local branch named like `origin/x`.
-      await git(repository.path, [
-        "worktree",
-        "add",
-        ...(exists ? [] : onRemote ? ["--track", "-b", branch] : ["-b", branch]),
-        "--",
-        path,
-        ...(exists ? [branch] : onRemote ? [tracked] : []),
-      ]);
-    } catch (error) {
-      // Only remove the empty directory we reserved; never recursively delete on failure.
-      await rmdir(path).catch(() => undefined);
-      throw error;
-    }
-    this.managed.set(path, {
-      repository: repository.path,
-      root,
-      identity: await worktreeIdentity(path),
-    });
-    await this.save();
-    return { path, outcome: exists ? "existing" : onRemote ? "origin" : "new" };
+      options,
+    );
   }
 
   private readonly panelCache = new Map<
@@ -789,70 +484,9 @@ export class WorktreeService {
     const key = `${repository}\0${worktree}`;
     const cached = this.panelCache.get(key);
     if (cached?.identity === identity && Date.now() - cached.time < 3000) return cached.result;
-    const result = this.readPanelFacts(repository, worktree);
+    const result = readPanelFacts(this.fetchFacts, repository, worktree);
     this.panelCache.set(key, { identity, time: Date.now(), result });
     return result;
-  }
-
-  private async readPanelFacts(repository: string, worktree: string): Promise<GitPanelFacts> {
-    const read = (args: string[]) => git(worktree, args, 3000).catch(() => null);
-    const remoteName = pickRemote((await read(["remote"])) ?? "");
-    const [status, upstream, log, remote, localDefault, fetchPath] = await Promise.all([
-      read(["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=normal"]),
-      read(["rev-list", "--left-right", "--count", "HEAD...@{upstream}", "--"]),
-      read(["log", "-1", "--format=%H%x00%s%x00%ct", "--"]),
-      remoteName ? read(["remote", "get-url", "--", remoteName]) : null,
-      remoteName ? read(["symbolic-ref", "--quiet", `refs/remotes/${remoteName}/HEAD`]) : null,
-      read(["rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD"]),
-    ]);
-    let changes: number | null = null;
-    if (status !== null) {
-      changes = 0;
-      const records = status.split("\0");
-      for (let index = 0; index < records.length; index++) {
-        const record = records[index];
-        if (!record) continue;
-        changes++;
-        if (/[RC]/u.test(record.slice(0, 2))) index++;
-      }
-    }
-    const counts = upstream?.trim().match(/^(\d+)\s+(\d+)$/u);
-    const [hash, subject, seconds] = log?.trim().split("\0") ?? [];
-    const fetch = this.fetchFacts.get(repository);
-    const localFetch =
-      fetchPath && isAbsolute(fetchPath.trim())
-        ? await lstat(fetchPath.trim()).then(
-            (stat) => (stat.isFile() ? stat.mtimeMs : null),
-            () => null,
-          )
-        : null;
-    const prefix = `refs/remotes/${remoteName ?? ""}/`;
-    const localBranch = localDefault?.startsWith(prefix)
-      ? localDefault.trim().slice(prefix.length)
-      : null;
-    let merged: boolean | null = null;
-    if (fetch?.head && !fetch.failed && hash && /^[a-f0-9]{40,64}$/u.test(hash)) {
-      const tree = await read(["rev-parse", `${fetch.head}^{tree}`]);
-      const merge = await read(["merge-tree", "--write-tree", fetch.head, hash]);
-      if (tree !== null && merge !== null) merged = tree.trim() === merge.trim();
-    }
-    return {
-      changes,
-      upstream: counts ? { ahead: Number(counts[1]), behind: Number(counts[2]) } : null,
-      commit:
-        hash &&
-        subject !== undefined &&
-        seconds &&
-        /^[a-f0-9]{40,64}$/u.test(hash) &&
-        /^\d+$/u.test(seconds)
-          ? { hash, subject: subject.slice(0, 500), timestamp: Number(seconds) * 1000 }
-          : null,
-      remote: remote?.trim().slice(0, 4096) || null,
-      defaultBranch: fetch?.branch ?? localBranch,
-      lastFetch: fetch?.time ?? localFetch,
-      fetchFailed: fetch?.failed ?? false,
-      merged,
-    };
   }
 
   private readonly mergeDefaults = new Map<string, { time: number; result: Promise<string> }>();
