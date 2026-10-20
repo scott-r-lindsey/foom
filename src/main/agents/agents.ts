@@ -291,7 +291,7 @@ export class AgentService {
       const args = prepared.args;
       const baseEnvironment = inheritedEnvironment();
       const environment = buildLaunchEnvironment({
-        layers: request.environment ?? [],
+        layers: [...(request.environment ?? []), prepared.environment ?? []],
         base: baseEnvironment,
         path: scan.path,
         pathFirst: config ?? control?.env["FOOM_CLI_DIRECTORY"],

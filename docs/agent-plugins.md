@@ -367,3 +367,14 @@ This disabled draft is retained here because `tests/unit/main/config/layout.test
 ### Saved screen-rule regressions (#592)
 
 See [saved screen-rule regressions](contracts/agent-report.md#saved-screen-rule-regressions-592).
+
+## Per-launch environment (#636)
+
+For CLIs that accept a configuration path through the environment, declare
+`launch.environment` entries such as
+`{"name":"AGENT_CONFIG","value":"{file:config/mcp.json}","when":{"all":[{"field":"control","op":"eq","value":true}]}}`.
+Declare that launch file with matching conditions and select `launch.mcp` with
+those conditions; its `arguments` may be empty for an environment-only attachment.
+Up to eight entries may carry whole owned file paths or short fixed literals.
+Names exclude runtime injection, proxy, credential and Foom variables; values
+never expand the inherited environment. See the [complete rules and diagnostics](contracts/agent-launch.md#per-launch-manifest-environment-636).

@@ -360,6 +360,9 @@ export function v2Provider(input: AgentManifestV2, validate: () => Promise<void>
             finalArgs.splice(insertion, 0, tools.merge.output, ...permissions);
         }
         return {
+          environment: (model.launch.environment ?? [])
+            .filter((entry) => selected(entry.when, facts))
+            .map(({ name, value }) => ({ name, value: expandV2(value, values) })),
           args: boundedArguments(finalArgs),
           mcp,
           mcpArguments,

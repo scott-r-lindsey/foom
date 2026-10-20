@@ -302,8 +302,8 @@
       "anyOf": [
         {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 63
+          "maximum": 63,
+          "minimum": 0
         },
         {
           "type": "string",
@@ -336,7 +336,6 @@
         },
         {
           "type": "array",
-          "maxItems": 16,
           "items": {
             "anyOf": [
               {
@@ -355,7 +354,8 @@
                 "type": "null"
               }
             ]
-          }
+          },
+          "maxItems": 16
         }
       ]
     },
@@ -399,6 +399,14 @@
         },
         "mcp": {
           "$ref": "#/$defs/block"
+        },
+        "environment": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/launchEnvironment"
+          },
+          "maxItems": 8,
+          "minItems": 0
         },
         "toolPermissions": {
           "$ref": "#/$defs/tools"
@@ -484,6 +492,31 @@
           "enum": ["whitespace", "whitespace-comma", "whitespace-comma-parentheses"]
         }
       }
+    },
+    "launchEnvironment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/envName"
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
+        }
+      }
+    },
+    "envName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
     },
     "tools": {
       "type": "object",
@@ -979,12 +1012,6 @@
           "type": "boolean"
         }
       }
-    },
-    "envName": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 64,
-      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
     },
     "conversation": {
       "type": "object",

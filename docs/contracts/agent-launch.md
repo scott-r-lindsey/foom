@@ -31,7 +31,7 @@ Allowed placeholders, with no recursion or environment interpolation by Foom:
 | {newId} | conversation.newId argv only; generated UUID, new launches only |
 | {hookDir}, {hookFile:NAME} | hooks.channels[].arguments only; whole owned launch directory/file path. Nested NAME is allowed; declare scope "launch" files |
 | {pluginDir} | setup action argv only; owned persistent plugin staging directory |
-| {file:NAME} | launch.mcp.arguments only; owned launch file. For hooks use {hookFile:NAME} or {hookDir} |
+| {file:NAME} | launch.mcp.arguments or an entire launch.environment[].value; owned launch file. For hooks use {hookFile:NAME} or {hookDir} |
 | {observerCommand:CHANNEL:json}, {observerCommand:CHANNEL:toml} | File content or channel attachment; engine quotes the entire fixed command for JSON/TOML |
 | {observerArgv:CHANNEL:json} | JSON array value, File or channel attachment |
 | {mcpName}, {mcpUrl}, {tool} | MCP file/argv; tool only toolPermissions arguments; JSON/TOML string positions require :json/:toml suffix |
@@ -73,7 +73,7 @@ handler/shell/source members reject. A command type requires a command member.
 TOML uses the full TOML data parser with depth/node checks; dates and nonfinite
 numbers reject. Typed observer-version substitution must occupy a native numeric
 slot. Observer-command slots select stdin channels; observer-argv slots select
-argv-last channels. MCP files must be referenced by the MCP block and their
+argv-last channels. MCP files must be referenced by the MCP block or a launch environment entry whose condition implies the MCP block, and their
 conditions must imply that block's selection. Literal environment expansion is
 accepted only in those MCP files. URL slots require the complete generated
 mcpUrl value; Authorization requires the exact bearer environment reference, and
@@ -183,3 +183,29 @@ a failed write does not. Renderer requests cannot set acknowledgement themselves
 Rows show a neutral ◇ Bypass label based on the arguments at launch. This does not
 infer policy from global settings or every possible combination of arguments.
 `--allow-dangerously-skip-permissions` alone does not enable bypass mode.
+
+## Per-launch manifest environment (#636)
+
+`launch.environment` is an optional list of at most eight `{name,value,when?}`
+entries. Names match `^[A-Za-z_][A-Za-z0-9_]*$`, maximum 64 characters,
+and must be unique ignoring case. Values are either a whole `{file:NAME}`
+reference to a declared launch file or a fixed nonempty literal of at most 128
+characters. No controls, other placeholders, interpolation, dollar signs,
+percent signs or backticks are accepted. A variable's condition must imply its
+file's condition; plugin-scope files cannot be referenced.
+
+Names are refused ignoring case for prefixes `LD_`, `DYLD_`, `NODE_`, `PYTHON`,
+`PERL5`, `RUBY`, `GIT_`, `SSH_`, `AWS_`, `GITHUB_`, `GH_`, `FOOM_`, `ELECTRON_`;
+any name containing `TOKEN`, `SECRET`, `KEY`, `PASSWORD` or `PROXY`; and the exact
+names `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`, `JDK_JAVA_OPTIONS`, `PATH`, `HOME`,
+`SHELL`, `BASH_ENV`, `ENV`, `PS4`, `IFS`, `ZDOTDIR`, `PROMPT_COMMAND`, `CLAUDECODE`,
+`TERM`, `COLORTERM`, `TERM_PROGRAM`, `CONSTRUCTOR`, `PROTOTYPE`, `__PROTO__`.
+The manifest cannot obtain inherited values or set credentials.
+
+Main selects entries after discovery and hook facts, expands only owned file
+paths and layers these values after user Environment lists and before Foom's
+reserved launch variables. Windows reuses existing variable spelling. Session
+metadata records names only. Bypass inspection and disclosure use the final
+environment, including manifest entries; unattended children and probes refuse
+matching bypass values. Probe discovery receives no manifest launch environment.
+Validation reports the entry's exact path and reason through `foom config validate`.

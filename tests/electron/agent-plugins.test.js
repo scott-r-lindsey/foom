@@ -35,6 +35,8 @@ test("a manifest-only v2 fixture agent loads from the config folder, reloads edi
   await writeFile(
     script,
     `require("node:fs").writeFileSync(process.env.TEST_ARGV, JSON.stringify(process.argv.slice(2)));
+require("node:fs").writeFileSync(process.env.TEST_ARGV + ".mcp", require("node:fs").readFileSync(process.env.AGENT_CONFIG));
+require("node:fs").writeFileSync(process.env.TEST_ARGV + ".env", process.env.AGENT_CONFIG);
 process.stdin.on('data', async () => {
   if (!process.env.FOOM_TOKEN) return;
   const payload = { session_id: 'fixture-hook-conversation', hook_event_name: 'PermissionRequest' };
@@ -100,8 +102,15 @@ process.stdin.resume();`,
       arguments: { arguments: [script, "$(literal)", "--yolo"] },
       display: undefined,
       prompt: { arguments: ["--prompt", "{prompt}"] },
+      environment: [
+        {
+          name: "AGENT_CONFIG",
+          value: "{file:config/mcp.json}",
+          when: { all: [{ field: "control", op: "eq", value: true }] },
+        },
+      ],
       mcp: {
-        arguments: ["--mcp", "{file:config/mcp.json}"],
+        arguments: [],
         when: { all: [{ field: "control", op: "eq", value: true }] },
       },
     },
@@ -214,14 +223,19 @@ process.stdin.resume();`,
     .toEqual(["$(literal)", "--yolo"]);
   {
     const args = JSON.parse(await readFile(output, "utf8"));
-    assert.ok(args.includes("--mcp"));
+    assert.ok(!args.includes("--mcp"));
     assert.equal(
       args.filter((arg) => /^mcp__foom_.*__(open_preview|list_previews|close_preview)$/u.test(arg))
         .length,
       3,
     );
-    const mcp = args[args.indexOf("--mcp") + 1];
+    const mcp = await readFile(output + ".env", "utf8");
+    assert.ok(!args.includes(mcp));
     assert.ok((await readFile(mcp, "utf8")).includes("Bearer ${FOOM_CONTROL_TOKEN}"));
+    const received = JSON.parse(await readFile(output + ".mcp", "utf8"));
+    const servers = Object.values(received.mcpServers);
+    assert.equal(servers.length, 1);
+    assert.match(servers[0].url, /^http:\/\/127\.0\.0\.1:[0-9]+\/mcp$/u);
     assert.ok(args.at(-1).includes("Foom provides a workspace CLI"));
   }
   const snapshot = await page.evaluate(() => window.desktop.workspace());

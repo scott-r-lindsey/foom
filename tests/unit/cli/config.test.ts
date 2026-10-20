@@ -403,3 +403,35 @@ test("CLI emits sanitized capabilities and non-failing warnings in text and JSON
   expect(out).toHaveBeenCalledWith(expect.stringContaining("Warning: No attention signal"));
   expect(JSON.stringify(out.mock.calls)).not.toContain("FIXTURE_BYPASS");
 });
+
+test("offline config validation reports each launch environment entry diagnostic", async () => {
+  const { default: manifest } = await import("../../fixtures/agent-plugin-v2.json");
+  const root = await fixture();
+  for (const [entry, path, reason] of [
+    [
+      { name: "NODE_OPTIONS", value: "private" },
+      "$.launch.environment[0].name",
+      "reserved-environment",
+    ],
+    [
+      { name: "AGENT_CONFIG", value: "$HOME" },
+      "$.launch.environment[0].value",
+      "environment-reference",
+    ],
+    [
+      { name: "AGENT_CONFIG", value: "{file:missing}" },
+      "$.launch.environment[0].value",
+      "dangling-reference",
+    ],
+  ] as const) {
+    const file = await put(
+      root,
+      "agent.json",
+      JSON.stringify({ ...manifest, launch: { ...manifest.launch, environment: [entry] } }),
+    );
+    expect(await validateConfig(file)).toMatchObject({
+      code: 1,
+      problems: [{ file: "agent.json", path, reason: "invalid-value", detail: reason }],
+    });
+  }
+});

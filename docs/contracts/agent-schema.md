@@ -34,7 +34,7 @@ security checks beyond JSON Schema. `examples/agent.json` is a generic starter;
 | kind, version | Required literals agent, 2 |
 | id, name, badge, executables | Required ID, Text <=40, [A-Z0-9]{1,4}, 1–8 basenames <=64 [A-Za-z0-9][A-Za-z0-9_.-]* excluding .cmd/.bat/.ps1 |
 | discovery | Required `{version?,facts}`; version `{prefix,suffixes,minimum?}`; prefix/suffixes Text or empty, <=4 suffixes, minimum three safe nonnegative integers; facts <=16 `{id,enabled?,minimum?,helpTokens?,when?}`; enabled boolean defaults true, false is a hard verification gate |
-| launch | Required `{order,arguments?,display?,resume?,prompt?,guidance?,mcp?,toolPermissions?}` |
+| launch | Required `{order,arguments?,display?,resume?,prompt?,guidance?,mcp?,toolPermissions?,environment?}` |
 | files? | <=16 File records |
 | hooks? | `{channels}`; 1–8 Channel records |
 | reservedArguments, bypassArguments, bypassEnvironment | Required matcher arrays (may be empty); environment <=16 records |
@@ -55,3 +55,6 @@ with no minimum/help requirement can depend on setup state. Facts are booleans.
 Engine facts are `hooksEnabled`, `control`, `configGreeting`, `hasPrompt`, `resume`,
 `healthTrusted`, `setupState`, and `channelAttached:ID` for an earlier hook channel. The latter is evaluated at preparation time, false when absent; discovery cannot depend on it. Missing health is represented by healthTrusted=false. Other facts use declared IDs. healthTrusted is observed
 health only. Each declaration without a minimum does not require a parsed version unless discovery.version.minimum is set; this preserves help-only inline/guidance gates. Failed help/version makes its dependent requirements false. Independent status-only facts can still succeed after a resolved executable and successful setup probe, preserving agy enrichment when help/version failed.
+
+`launch.environment` accepts up to eight `{name,value,when?}` entries; see the
+[per-launch environment bounds and security rules](agent-launch.md#per-launch-manifest-environment-636).

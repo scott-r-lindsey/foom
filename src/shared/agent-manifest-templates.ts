@@ -9,7 +9,7 @@ const placeholders: Readonly<Record<string, readonly string[]>> = {
   newId: ["newId"],
   hookDir: ["channel"],
   hookFile: ["channel"],
-  file: ["mcp"],
+  file: ["mcp", "environment"],
   pluginDir: ["setup"],
   tool: ["tools"],
   mcpName: ["mcp", "file"],
@@ -19,6 +19,7 @@ const placeholders: Readonly<Record<string, readonly string[]>> = {
   observerVersion: ["file"],
 };
 const allowedPlaceholders: Readonly<Record<string, string>> = {
+  environment: "whole {file:NAME} or a fixed literal",
   arguments: "none",
   display: "none",
   fixed: "none",
@@ -87,7 +88,12 @@ export function validateTemplates(manifest: AgentManifestV2): void {
     const numericObservers = new Set<string>();
     const mcpFile =
       file?.scope === "launch" &&
-      manifest.launch.mcp?.arguments.some((arg) => arg.includes(`{file:${file.name}}`));
+      manifest.launch.mcp &&
+      (manifest.launch.mcp.arguments.some((arg) => arg.includes(`{file:${file.name}}`)) ||
+        manifest.launch.environment?.some(
+          (entry) =>
+            entry.value === `{file:${file.name}}` && implies(entry.when, manifest.launch.mcp?.when),
+        ));
     if (
       (source.includes("{mcpName") ||
         source.includes("{mcpUrl") ||
@@ -138,7 +144,10 @@ export function validateTemplates(manifest: AgentManifestV2): void {
           return "FOOM_VALUE";
         }
         if (name === "hookFile" || name === "file") {
-          if (parts.length !== 1 || location !== (name === "file" ? "mcp" : "channel"))
+          if (
+            parts.length !== 1 ||
+            !(name === "file" ? ["mcp", "environment"].includes(location) : location === "channel")
+          )
             fail(path, "unknown-placeholder");
           const target = manifest.files.find((entry) => entry.name === parts[0]);
           if (!target || target.scope !== "launch") fail(path, "dangling-reference");
@@ -273,6 +282,8 @@ export function validateTemplates(manifest: AgentManifestV2): void {
     const block = manifest.launch[stage];
     if (block) check(block.arguments, stage, `$.launch.${stage}`, block.when);
   }
+  for (const [index, entry] of (manifest.launch.environment ?? []).entries())
+    expand(entry.value, "environment", `$.launch.environment[${String(index)}].value`, entry.when);
   if (manifest.launch.prompt) {
     const args = manifest.launch.prompt.arguments;
     if (
