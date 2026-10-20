@@ -83,6 +83,11 @@ const commandHelp = [
     commands: ["--version", "--help"],
     suffix: "",
   },
+  {
+    prefix: "Observers: foom ",
+    commands: ["hook EVENT [--channel ID]"],
+    suffix: " reads bounded JSON on stdin; silent and inert outside Foom.",
+  },
 ];
 
 export function help(): string {

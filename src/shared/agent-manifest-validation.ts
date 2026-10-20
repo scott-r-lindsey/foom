@@ -157,6 +157,8 @@ export function validateV2(manifest: AgentManifestV2): void {
     const path = `$.hooks.channels[${String(index)}]`;
     const owner = `channel:${channel.id}`;
     condition(channel.when, `${path}.when`, owner, available, ["facts"], earlier);
+    if (channel.observer.transport === "external" && channel.arguments.length !== 0)
+      fail(path, "incompatible-combination");
     const mapping = channel.mapping;
     if (
       mapping.event.source === "header" &&

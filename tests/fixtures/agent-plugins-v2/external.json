@@ -1,0 +1,116 @@
+{
+  "kind": "agent",
+  "version": 2,
+  "id": "foom-test-agent",
+  "name": "External fixture",
+  "badge": "V2",
+  "executables": ["foom-test-agent"],
+  "discovery": {
+    "facts": []
+  },
+  "launch": {
+    "order": [
+      "arguments",
+      "resume",
+      "defaults",
+      "display",
+      "guidance",
+      "mcp",
+      "hooks",
+      "tools",
+      "prompt"
+    ],
+    "resume": {
+      "arguments": ["--resume", "{conversationId}"]
+    }
+  },
+  "files": [],
+  "reservedArguments": [],
+  "bypassArguments": [],
+  "bypassEnvironment": [],
+  "conversation": {
+    "resumePin": "requested-on-paste",
+    "restoreControl": false
+  },
+  "resumePaste": [
+    {
+      "command": "foom-test-agent",
+      "selector": "--resume"
+    }
+  ],
+  "attention": {
+    "minimumEngineVersion": 1,
+    "rules": [
+      {
+        "id": "working",
+        "state": "working",
+        "priority": 100,
+        "region": "title",
+        "match": {
+          "contains": ["Working"]
+        },
+        "reason": "Agent is working"
+      }
+    ]
+  },
+  "execution": {
+    "completion": "attached",
+    "completionChannels": ["lifecycle"]
+  },
+  "hooks": {
+    "channels": [
+      {
+        "id": "lifecycle",
+        "when": {
+          "all": [
+            {
+              "field": "hooksEnabled",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        },
+        "observer": {
+          "transport": "external"
+        },
+        "arguments": [],
+        "mapping": {
+          "session": {
+            "source": "payload",
+            "path": ["conversationId"]
+          },
+          "event": {
+            "source": "header",
+            "path": ["X-Foom-Event"]
+          },
+          "dedupe": {
+            "source": "payload",
+            "path": ["id"]
+          },
+          "cases": [
+            {
+              "id": "Ready",
+              "event": "Ready",
+              "action": "ready"
+            },
+            {
+              "id": "Working",
+              "event": "Working",
+              "action": "working"
+            },
+            {
+              "id": "Permission",
+              "event": "Permission",
+              "action": "needs_input"
+            },
+            {
+              "id": "Stop",
+              "event": "Stop",
+              "action": "classify"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

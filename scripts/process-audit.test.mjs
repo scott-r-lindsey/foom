@@ -266,3 +266,48 @@ test("smoke checkpoints survive abrupt worker exit without recording environment
   assert.equal(typeof rows[1].resources, "object");
   assert.deepEqual(rows[1].nativeModules, []);
 });
+
+test("agent guard compares native Windows aliases and still rejects outside targets", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const { runInNewContext } = await import("node:vm");
+  const { createRequire } = await import("node:module");
+  const require = createRequire(import.meta.url);
+  const source = await readFile(
+    new URL("../tests/electron/agent-isolation.js", import.meta.url),
+    "utf8",
+  );
+  const short = path.win32.join("C:\\Users", "RUNNER~1", "Temp", "fixture");
+  const canonical = short.replace("RUNNER~1", "runneradmin");
+  const outside = `${canonical}-other`;
+  // The JS realpath implementation can retain a Windows short-name spelling.
+  // Native executable discovery expands it; model both spellings on every OS.
+  const realpathSync = (file) => file;
+  realpathSync.native = (file) =>
+    file.endsWith("codex.exe")
+      ? path.win32.join(outside, "codex.exe")
+      : file.replace("RUNNER~1", "runneradmin");
+  const module = { exports: {} };
+  runInNewContext(source, {
+    module,
+    require: (name) =>
+      name === "node:path"
+        ? path.win32
+        : name === "node:fs"
+          ? { ...fs, realpathSync }
+          : require(name),
+  });
+  const { assertFixtureAgent } = module.exports;
+  assertFixtureAgent(path.win32.join(canonical, "gh.exe"), [short]);
+  assertFixtureAgent(path.win32.join(short, "gh.exe"), [canonical]);
+  assert.throws(
+    () => assertFixtureAgent(path.win32.join(outside, "gh.exe"), [short]),
+    /Agent outside test fixtures/,
+  );
+  // A canonicalized escaping symlink must remain outside, even through an alias.
+  assert.throws(
+    () => assertFixtureAgent(path.win32.join(short, "codex.exe"), [short]),
+    /Agent outside test fixtures/,
+  );
+});

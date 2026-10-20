@@ -73,7 +73,7 @@ under the existing launch/removal locks. Git and processes use argument arrays.
 | `operation_status` | Orchestrator or authorized human CLI grant, own operations only | Exactly one of operation ID or idempotency key; returns the operation record described below, never child output |
 
 `create_worktree({ pullRequest: N, idempotencyKey })` (#337) uses the #340
-forge provider and the user's read-only `gh` login to resolve the PR head. Main
+selected forge manifest and the user's existing CLI login to resolve the PR head. Main
 selects `origin`; the API accepts no remote, branch override or path. Both
 `isCrossRepository` and `headRepositoryOwner` must establish the selected repository:
 a fork is refused even when its branch name also exists locally. Fixed refusal

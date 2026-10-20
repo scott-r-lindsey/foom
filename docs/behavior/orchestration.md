@@ -101,15 +101,17 @@ file contents, diffs or echoed input, and redaction cannot catch every secret.
 The Make orchestrator dialog discloses this data path. The agent's own tools and provider
 settings continue to govern its other data access.
 
-Forge manifests are being introduced in stages (#521). The first stage loads and validates
-manifest data and tests a shared interpreter without changing the active provider
-or polling. A second stage adds offline dynamic-batch interpretation and parity
-for board counts and required-check conclusions; runtime enablement remains pending. When integration activates forge selection, the disclosure will read:
-“Foom uses your selected forge CLI and its existing login to read PR or merge request
-and CI metadata. It sends repository/project, branch and PR/MR identifiers in
-read-only status requests. Foom does not send terminal content, store forge tokens,
-change CLI login/configuration, or write to the forge.” The current GitHub runtime
-and disclosure remain in place until that integration is complete.
+Forge manifests now drive production tracking, adoption and merged-PR hints. The
+bundled GitHub manifest preserves current PR/check behavior and adaptive polling;
+config copies use the same engine. Only enabled, explicitly assigned hosts are
+queried. Manifest minima can slow regular polls, while discovery binding keeps its
+one-second follow-up. Optional separate display enrichment and checks-meaning
+metadata remain follow-up work under #521.
+
+The disclosure reads: “Foom uses your selected forge CLI and its existing login to
+read PR or merge request and CI metadata. It sends repository/project, branch and
+PR/MR identifiers in read-only status requests. Foom does not send terminal content,
+store forge tokens, change CLI login/configuration, or write to the forge.”
 
 Foom also reads PR and check status for board checkouts and orchestrator-owned child
 worktrees through a main-owned forge provider. GitHub is supported through your

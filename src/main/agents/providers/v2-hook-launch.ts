@@ -50,6 +50,7 @@ export async function prepareV2Hooks(
         const options = channel.observer;
 
         env[`FOOM_CHANNEL_${channel.id.replaceAll("-", "_")}`] = channel.id;
+        if (options.transport === "external") continue;
         if (options.sequence) {
           const order = join(directory, `${channel.id}.order`);
           await writeOwnedFile(order, "0");
@@ -129,12 +130,22 @@ export async function prepareV2Hooks(
       }
       launch = receiver.register(key, model.id, { channels: v2.channels, state: v2.state });
       Object.assign(env, launch.env);
+      env["FOOM_HOOK_PROTOCOL"] = "1";
       const health = await observerHealth(model, stableDirectory ?? scratch, installed, windows);
       v2.runtime = new V2ExecutionHooks(model, v2.channels, health);
       return {
         observerCommand: "",
         observerArgv: [],
-        env,
+        get env() {
+          return {
+            ...env,
+            FOOM_HOOK_CHANNELS: JSON.stringify(
+              [...v2.channels.values()]
+                .filter((channel) => channel.observer.transport === "external")
+                .map((channel) => channel.id),
+            ),
+          };
+        },
         v2,
         bind: (terminal) => {
           if (!disposed) bind(key, terminal);
