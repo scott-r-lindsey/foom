@@ -1395,6 +1395,40 @@ input-to-render probes on another terminal, plus final flood byte counts. The
 fixture uses the DOM renderer and retains sandboxing. Measurements are machine-
 and workload-specific; record the report and interpretation in the PR rather
 than treating frame timings as portable pass/fail thresholds.
+
+### WebGL renderer (#620)
+
+Visible terminal controllers load matching `@xterm/addon-webgl` 0.19.0 after xterm
+6.0.0 opens and before the visible grid is fitted/attached. Each mounted shell
+still owns one xterm. A page-local budget permits at most 12 visible WebGL addons;
+overflow uses DOM and can claim a free slot on a later attachment. Hidden views
+dispose their addon; unmount also disposes xterm and subscriptions. Initialization
+failure or the addon's context-loss notification permanently selects DOM for that
+controller. Recovery preserves the xterm, scrollback, PTY and attachment token;
+it never resets or reattaches. The controller refits and resizes the same view
+because DOM/WebGL cell-width rounding differs. Parser and view backpressure are
+unchanged and independent of GPU resources.
+
+The [evaluation and raw reports](../spikes/xterm-webgl/README.md) include functional
+SwiftShader assertions, a 16-context exhaustion probe and 18 occupied tiles with
+12 actual WebGL2 contexts and six DOM fallbacks. Six saved visual pairs cover
+palettes, selection, cursor, fonts, font sizes and interface zoom. Logical content
+and colors match; rasterization and fitted columns differ, particularly at small
+font sizes. No sandbox, CSP or asset-allowlist changes are needed: the existing
+renderer bundle contains GLSL strings and creates in-memory glyph atlases, with
+no new protocol URLs, worker, WASM, eval or network assets.
+
+The one authorized inactive-window hardware session used an NVIDIA RTX 3060,
+driver 580.178.04, with no added GPU switches. For four/nine streaming tiles over
+eight seconds, WebGL reduced renderer task time from 2.325/2.693 s to 0.943/1.706 s
+(59%/37%), layout CPU by 97%/95% and paint CPU by 93%/89%. rAF p95 remained near
+16.7 ms, with no long tasks in either mode and isolated 33 ms WebGL intervals.
+Combined board/GPU working sets were about 60/20 MiB lower. These measurements
+justify enabling WebGL for CPU headroom; they do not establish presentation/input
+latency or marginal GPU memory. Reports include dimensions, normalized grids,
+GPU/driver information and memory attribution limits. SwiftShader timings are
+never performance evidence; the initial failed-context reports measured only DOM.
+
 ## Recorded sounds
 
 `shared/sound.d.ts` defines four kinds and path-free `{source, file}` choices.

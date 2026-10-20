@@ -1,0 +1,320 @@
+{
+  "actualRenderer": "dom",
+  "viewport": {
+    "width": 1152,
+    "height": 720,
+    "devicePixelRatio": 1
+  },
+  "requestedRenderer": "dom",
+  "tiles": 4,
+  "gpu": {
+    "features": {
+      "2d_canvas": "disabled_software",
+      "direct_rendering_display_compositor": "disabled_off_ok",
+      "gpu_compositing": "disabled_software",
+      "multiple_raster_threads": "disabled_off",
+      "opengl": "disabled_off",
+      "rasterization": "disabled_software",
+      "raw_draw": "disabled_off_ok",
+      "skia_graphite": "disabled_off",
+      "trees_in_viz": "disabled_off",
+      "video_decode": "disabled_software",
+      "video_encode": "disabled_software",
+      "vulkan": "disabled_off",
+      "webgl": "disabled_off",
+      "webgpu": "disabled_off",
+      "webgpu_on_vk_via_gl_interop": "disabled_off",
+      "webnn": "disabled_off"
+    },
+    "info": {
+      "error": "Error: GPU access not allowed. Reason: GPU access is disabled due to frequent crashes."
+    }
+  },
+  "renderer": {
+    "available": false
+  },
+  "addonStates": [],
+  "grids": [
+    {
+      "width": 396,
+      "height": 320
+    },
+    {
+      "width": 396,
+      "height": 320
+    },
+    {
+      "width": 396,
+      "height": 320
+    },
+    {
+      "width": 396,
+      "height": 320
+    }
+  ],
+  "durationMs": 8002.69999961853,
+  "frames": 481,
+  "frameP50Ms": 16.699999999999818,
+  "frameP95Ms": 16.700000000000728,
+  "frameMaxMs": 16.80000000000109,
+  "longTasks": 0,
+  "longTaskMs": 0,
+  "maxLongTaskMs": 0,
+  "TaskDuration": 2.890101,
+  "ScriptDuration": 0.961112,
+  "LayoutDuration": 0.413685,
+  "RecalcStyleDuration": 0.34866299999999995,
+  "LayoutCount": 537,
+  "RecalcStyleCount": 906,
+  "paintMs": 308.6250000000001,
+  "paintEvents": 2398,
+  "memory": {
+    "idle": {
+      "metrics": {
+        "Timestamp": 2875447.585136,
+        "AudioHandlers": 2,
+        "AudioWorkletProcessors": 0,
+        "Documents": 2,
+        "Frames": 1,
+        "JSEventListeners": 2220,
+        "LayoutObjects": 2327,
+        "MediaKeySessions": 0,
+        "MediaKeys": 0,
+        "Nodes": 2775,
+        "Resources": 10,
+        "ContextLifecycleStateObservers": 8,
+        "V8PerContextDatas": 3,
+        "WorkerGlobalScopes": 0,
+        "UACSSResources": 0,
+        "RTCPeerConnections": 0,
+        "ResourceFetchers": 2,
+        "AdSubframes": 0,
+        "DetachedScriptStates": 0,
+        "ArrayBufferContents": 219,
+        "LayoutCount": 0,
+        "RecalcStyleCount": 0,
+        "LayoutDuration": 0,
+        "RecalcStyleDuration": 0,
+        "DevToolsCommandDuration": 0.000009,
+        "ScriptDuration": 0,
+        "V8CompileDuration": 0,
+        "TaskDuration": 0.000012,
+        "TaskOtherDuration": 0.000003,
+        "ThreadTime": 0.000056,
+        "ProcessTime": 0,
+        "JSHeapUsedSize": 10206952,
+        "JSHeapTotalSize": 18735104,
+        "FirstMeaningfulPaint": 0,
+        "DomContentLoaded": 2875444.753065,
+        "NavigationStart": 2875444.650186
+      },
+      "dom": {
+        "documents": 2,
+        "nodes": 2775,
+        "jsEventListeners": 2220
+      },
+      "processes": [
+        {
+          "type": "Browser",
+          "board": false,
+          "memory": {
+            "workingSetSize": 202796,
+            "peakWorkingSetSize": 202796
+          }
+        },
+        {
+          "type": "GPU",
+          "board": false,
+          "memory": {
+            "workingSetSize": 183672,
+            "peakWorkingSetSize": 183672
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 82284,
+            "peakWorkingSetSize": 82284
+          }
+        },
+        {
+          "type": "Tab",
+          "board": true,
+          "memory": {
+            "workingSetSize": 214108,
+            "peakWorkingSetSize": 214108
+          }
+        },
+        {
+          "type": "Tab",
+          "board": false,
+          "memory": {
+            "workingSetSize": 99072,
+            "peakWorkingSetSize": 99072
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 72732,
+            "peakWorkingSetSize": 72732
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 115316,
+            "peakWorkingSetSize": 115316
+          }
+        }
+      ]
+    },
+    "streaming": {
+      "metrics": {
+        "Timestamp": 2875456.763906,
+        "AudioHandlers": 2,
+        "AudioWorkletProcessors": 0,
+        "Documents": 1,
+        "Frames": 1,
+        "JSEventListeners": 544,
+        "LayoutObjects": 836,
+        "MediaKeySessions": 0,
+        "MediaKeys": 0,
+        "Nodes": 1368,
+        "Resources": 10,
+        "ContextLifecycleStateObservers": 8,
+        "V8PerContextDatas": 3,
+        "WorkerGlobalScopes": 0,
+        "UACSSResources": 0,
+        "RTCPeerConnections": 0,
+        "ResourceFetchers": 1,
+        "AdSubframes": 0,
+        "DetachedScriptStates": 0,
+        "ArrayBufferContents": 40112,
+        "LayoutCount": 685,
+        "RecalcStyleCount": 1101,
+        "LayoutDuration": 0.475862,
+        "RecalcStyleDuration": 0.410278,
+        "DevToolsCommandDuration": 0.003223,
+        "ScriptDuration": 1.28964,
+        "V8CompileDuration": 0,
+        "TaskDuration": 3.526195,
+        "TaskOtherDuration": 1.347192,
+        "ThreadTime": 3.529121,
+        "ProcessTime": 0,
+        "JSHeapUsedSize": 19098844,
+        "JSHeapTotalSize": 76931072,
+        "FirstMeaningfulPaint": 0,
+        "DomContentLoaded": 2875444.753065,
+        "NavigationStart": 2875444.650186
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 1448,
+        "jsEventListeners": 544
+      },
+      "processes": [
+        {
+          "type": "Browser",
+          "board": false,
+          "memory": {
+            "workingSetSize": 214064,
+            "peakWorkingSetSize": 214064
+          }
+        },
+        {
+          "type": "GPU",
+          "board": false,
+          "memory": {
+            "workingSetSize": 180928,
+            "peakWorkingSetSize": 183004
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 82720,
+            "peakWorkingSetSize": 82720
+          }
+        },
+        {
+          "type": "Tab",
+          "board": true,
+          "memory": {
+            "workingSetSize": 357516,
+            "peakWorkingSetSize": 357516
+          }
+        },
+        {
+          "type": "Tab",
+          "board": false,
+          "memory": {
+            "workingSetSize": 100204,
+            "peakWorkingSetSize": 100204
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 73428,
+            "peakWorkingSetSize": 73428
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 184920,
+            "peakWorkingSetSize": 184920
+          }
+        },
+        {
+          "type": "Utility",
+          "board": false,
+          "memory": {
+            "workingSetSize": 51496,
+            "peakWorkingSetSize": 51496
+          }
+        }
+      ]
+    }
+  },
+  "versions": {
+    "node": "24.21.0",
+    "acorn": "8.18.0",
+    "ada": "4.0.0",
+    "amaro": "1.1.11",
+    "ares": "1.34.8",
+    "brotli": "1.2.0",
+    "cldr": "48.0",
+    "icu": "78.2",
+    "llhttp": "9.4.3",
+    "merve": "1.2.2",
+    "modules": "149",
+    "napi": "10",
+    "nbytes": "0.1.4",
+    "ncrypto": "0.0.1",
+    "nghttp2": "1.70.0",
+    "nghttp3": "",
+    "ngtcp2": "",
+    "openssl": "0.0.0",
+    "simdjson": "4.6.7",
+    "simdutf": "7.7.0",
+    "sqlite": "3.53.4",
+    "tz": "2025c",
+    "undici": "7.29.1",
+    "unicode": "17.0",
+    "uv": "1.52.1",
+    "uvwasi": "0.0.23",
+    "v8": "15.2.124.28-electron.0",
+    "zlib": "1.3.2.1-motley",
+    "zstd": "1.6.0",
+    "electron": "44.4.5",
+    "chrome": "152.0.7977.130"
+  }
+}

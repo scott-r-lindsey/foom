@@ -1,0 +1,7 @@
+{
+  "checks": {
+    "guardedFixtureStarted": true,
+    "realWebglContext": true,
+    "showInactivePolicyInstalled": true
+  }
+}
