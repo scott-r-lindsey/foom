@@ -66,11 +66,14 @@ if (mode === "cleanup") {
   const matches = [
     ...identities.matchAll(/\b([A-Fa-f0-9]{40}) "(Developer ID Application: [^"\r\n]+)"/g),
   ];
+  // Mask every derived identity before assertions can include tool output.
+  for (const match of matches) {
+    mask(match[1]);
+    mask(match[2]);
+  }
   assert.equal(matches.length, 1, "Expected exactly one Developer ID Application identity");
   assert.match(identities, /\b1 valid identities found/);
   assert.ok(matches[0][2].endsWith(` (${process.env.APPLE_TEAM_ID})`), "Certificate team mismatch");
-  mask(matches[0][1]);
-  mask(matches[0][2]);
   console.log(identities);
   await writeFile(
     join(directory, "identity.json"),
