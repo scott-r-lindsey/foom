@@ -152,7 +152,7 @@ test.skipIf(process.platform === "win32")(
       env: { PATH: root, TERM: "xterm-256color", COLORTERM: "truecolor", TERM_PROGRAM: "Foom" },
       command,
     });
-    prepared.dispose();
+    await prepared.dispose();
     await expect(
       prepareProbe(provider, { action: "start", agent: "copilot" }, root, { PATH: "relative" }),
     ).rejects.toThrow("executable unavailable");
@@ -184,7 +184,7 @@ test.skipIf(process.platform === "win32")(
       root,
       { PATH: root },
     );
-    final.dispose();
+    await final.dispose();
     await access(command);
   },
 );

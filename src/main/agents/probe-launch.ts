@@ -13,7 +13,7 @@ export interface PreparedProbe {
     mcp: { connected: boolean; listedTools: boolean; pinged: boolean };
   };
   hook?(): HookSignal | undefined;
-  dispose(): void;
+  dispose(): void | Promise<void>;
 }
 import { TERMINAL_ENVIRONMENT } from "../../shared/terminal-environment";
 import { constants } from "node:fs";
@@ -230,11 +230,11 @@ export async function prepareProbe(
       ...(prepared.conversationId === undefined ? {} : { conversationId: prepared.conversationId }),
       events: () => ({ hooks: structuredClone(hooks), mcp: endpoint.snapshot() }),
       hook: () => signal,
-      dispose: () => {
+      dispose: async () => {
         launch.dispose();
-        attached.dispose();
         endpoint.close();
-        void receiver.close();
+        await receiver.close();
+        await attached.disposeAndWait();
       },
     };
   } catch (error) {
@@ -242,6 +242,7 @@ export async function prepareProbe(
     binding?.dispose();
     mcp?.close();
     await receiver.close();
+    await binding?.disposeAndWait();
     throw error;
   }
 }

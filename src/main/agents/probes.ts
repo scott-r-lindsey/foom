@@ -20,7 +20,7 @@ type Probe = {
   provider?: AgentProvider;
   conversationId?: string | undefined;
   agentVersion?: string;
-  dispose?: () => void;
+  dispose?: () => void | Promise<void>;
   prepared?: PreparedProbe;
   timer?: ReturnType<typeof setTimeout>;
   stopping?: Promise<void>;
@@ -271,9 +271,7 @@ export class AgentProbes {
       this.owned(token, probe);
       const prepared = await this.operations.prepare(provider, request, cwd, env);
       probe.prepared = prepared;
-      probe.dispose = () => {
-        prepared.dispose();
-      };
+      probe.dispose = () => prepared.dispose();
       probe.agentVersion = prepared.agentVersion ?? "";
       probe.conversationId = request.resume ?? prepared.conversationId;
       this.owned(token, probe);
@@ -371,7 +369,7 @@ export class AgentProbes {
       this.backend.removed(probe.terminal);
       delete probe.terminal;
     }
-    probe.dispose?.();
+    await probe.dispose?.();
     if (probe.cwd) await rm(probe.cwd, { recursive: true, force: true });
   }
 }

@@ -103,7 +103,7 @@ const fs = require('node:fs');
     if (events) events.hooks.length = 0;
     expect(prepared.events?.().hooks).toHaveLength(8);
   } finally {
-    prepared?.dispose();
+    await prepared?.dispose();
     await rm(root, { recursive: true, force: true });
   }
 });

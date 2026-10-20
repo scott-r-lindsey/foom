@@ -507,3 +507,31 @@ test("saving refuses a backend screen without actual dimensions", async () => {
     await f.probes.close();
   }
 });
+
+test("stop awaits attachment cleanup before deleting the scratch repository", async () => {
+  const f = await fixture();
+  const disposed = Promise.withResolvers<undefined>();
+  const dispose = vi.fn(() => disposed.promise);
+  f.operations.prepare.mockImplementation(() =>
+    Promise.resolve({
+      spec: { command: "/fixture/claude", args: [], cwd: f.cwd, cols: 80, rows: 24 },
+      dispose,
+      agentVersion: "1.2.3",
+      conversationId: "conversation",
+    }),
+  );
+  try {
+    const probe = await f.start();
+    const stopping = f.probes.call(f.token, { action: "stop", probe });
+    await vi.waitFor(() => {
+      expect(dispose).toHaveBeenCalledOnce();
+    });
+    await expect(access(f.cwd)).resolves.toBeUndefined();
+    disposed.resolve(undefined);
+    await stopping;
+    await expect(access(f.cwd)).rejects.toThrow();
+  } finally {
+    disposed.resolve(undefined);
+    await f.probes.close();
+  }
+});
