@@ -1,3 +1,7 @@
+import {
+  ErrorPresentation,
+  BackgroundErrorMark,
+} from "../../../../src/renderer/board/error-presentation";
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { readFile } from "node:fs/promises";
@@ -142,16 +146,19 @@ function setup(
   const back = vi.fn();
   const created = vi.fn();
   const view = render(
-    <BranchField
-      repository="/repos/foom"
-      source={{ branches, create }}
-      back={back}
-      created={created}
-    />,
+    <ErrorPresentation>
+      <BackgroundErrorMark row="repository:/repos/foom" />
+      <BranchField
+        repository="/repos/foom"
+        source={{ branches, create }}
+        back={back}
+        created={created}
+      />
+    </ErrorPresentation>,
   );
   const input = view.getByLabelText("Branch for the new worktree");
   if (!(input instanceof HTMLInputElement)) throw new Error("The field is not an input");
-  const status = () => view.getByRole("status");
+  const status = () => view.getByRole("status", { name: "Branch status" });
   const ghost = () => view.container.querySelector(".branch-ghost")?.textContent ?? "";
   return { ...view, input, status, ghost, back, created, branches, create };
 }
@@ -227,7 +234,7 @@ test("Enter disables the field while main works and creates without launching", 
   expect(view.created).toHaveBeenCalledWith({ path: "/trees/remote", outcome: "origin" });
 });
 
-test("a failure shows git's message and re-enables the field", async () => {
+test("a failure shows a fixed message and re-enables the field", async () => {
   const create = vi.fn(() =>
     Promise.reject(
       new Error(
@@ -246,9 +253,10 @@ test("a failure shows git's message and re-enables the field", async () => {
     await Promise.resolve();
   });
   expect(view.input.disabled).toBe(false);
+  expect(document.activeElement).toBe(view.getByRole("dialog", { name: "Action failed" }));
+  expect(view.getByRole("alert").textContent).toBe("Unable to create the worktree.");
+  fireEvent.click(view.getByRole("button", { name: "Dismiss" }));
   expect(document.activeElement).toBe(view.input);
-  expect(view.status().textContent).toBe("fatal: cannot lock ref");
-  expect(view.status().hasAttribute("data-invalid")).toBe(true);
   expect(view.created).not.toHaveBeenCalled();
   fireEvent.change(view.input, { target: { value: "codex/newer" } });
   expect(view.status().textContent).toBe("new, from main");
@@ -257,7 +265,7 @@ test("a failure shows git's message and re-enables the field", async () => {
     fireEvent.keyDown(view.input, { key: "Enter" });
     await Promise.resolve();
   });
-  expect(view.status().textContent).toBe("Unable to create the worktree.");
+  expect(view.getByRole("alert").textContent).toBe("Unable to create the worktree.");
 });
 
 test("without branch data the field still creates and says why completions are missing", async () => {
@@ -267,7 +275,7 @@ test("without branch data the field still creates and says why completions are m
   });
   expect(view.ghost()).toBe("feat/ ⇥");
   fireEvent.change(view.input, { target: { value: "topic" } });
-  expect(view.status().textContent).toBe("not a repository");
+  expect(view.getByText("Unable to read branch completions.")).toBeTruthy();
   fireEvent.change(view.input, { target: { value: "-x" } });
   expect(view.status().textContent).toBe("Can't start with -");
   fireEvent.change(view.input, { target: { value: "topic" } });

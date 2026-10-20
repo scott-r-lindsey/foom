@@ -381,18 +381,15 @@ test("board opens the launcher without routing typing to shortcuts and reports r
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete worktree…" }));
     await Promise.resolve();
   });
-  expect(screen.getByRole("alert").textContent).toBe("Worktree changed");
+  expect(screen.getByRole("alert").textContent).toBe("Unable to remove worktree.");
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   remove.mockRejectedValueOnce("failure");
-  await act(async () => {
-    await Promise.resolve();
-    fireEvent.click(screen.getByRole("button", { name: "Actions for fix/session-restore" }));
-    await Promise.resolve();
-  });
+  fireEvent.click(screen.getByRole("button", { name: "Actions for fix/session-restore" }));
   await act(async () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete worktree…" }));
     await Promise.resolve();
   });
-  expect(screen.getByRole("alert").textContent).toBe("Unable to update workspace.");
+  expect(screen.getByRole("alert").textContent).toBe("Unable to remove worktree.");
 });
 
 test("opens the action log from the app command and restores the terminal pane on close", async () => {

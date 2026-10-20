@@ -1,3 +1,10 @@
+import type { ComponentProps } from "react";
+import {
+  ActionError,
+  ErrorPresentation,
+  BackgroundErrorMark,
+  useBackgroundErrors,
+} from "../board/error-presentation";
 import { ForgesSettings } from "./forges-settings";
 import { TerminalFontPicker } from "./terminal-font-picker";
 import { message } from "./message";
@@ -44,7 +51,14 @@ const SETTINGS_SECTIONS = [
  * Shared setup coordinator for the first-run countdown and Settings. After setup,
  * `onClose` opens every step and lets Escape return without launching again.
  */
-export function Preflight({
+export function Preflight(props: ComponentProps<typeof PreflightContents>) {
+  return (
+    <ErrorPresentation>
+      <PreflightContents {...props} />
+    </ErrorPresentation>
+  );
+}
+function PreflightContents({
   source,
   initial,
   onLaunched,
@@ -67,6 +81,7 @@ export function Preflight({
   const [repositories, setRepositories] = useState<readonly Repository[]>([]);
   const [code, setCode] = useState<CodeSelection>();
   const [codeScanning, setCodeScanning] = useState<Scanning>();
+  const { report: reportFailure, clear } = useBackgroundErrors();
   const [error, setError] = useState<string>();
   const [applying, setApplying] = useState(false);
   const [launching, setLaunching] = useState(false);
@@ -139,19 +154,32 @@ export function Preflight({
   useEffect(() => {
     // Until the first scan answers, every agent shows as "Looking…".
     let live = true;
-    const failed = (caught: unknown) => {
-      if (live) setError(message(caught));
-    };
-    source.scanAgents(false).then((next) => {
-      if (live) setReport(next);
-    }, failed);
-    source.repositories().then((next) => {
-      if (live) setRepositories(next);
-    }, failed);
+    source.scanAgents(false).then(
+      (next) => {
+        if (live) {
+          setReport(next);
+          clear("setup-agents");
+        }
+      },
+      () => {
+        if (live) reportFailure("setup-agents", "Unable to load agent settings.");
+      },
+    );
+    source.repositories().then(
+      (next) => {
+        if (live) {
+          setRepositories(next);
+          clear("setup-repositories");
+        }
+      },
+      () => {
+        if (live) reportFailure("setup-repositories", "Unable to load repositories.");
+      },
+    );
     return () => {
       live = false;
     };
-  }, [source]);
+  }, [source, reportFailure, clear]);
   // A zoom shortcut changes settings in main; keep the controls in step.
   useEffect(() => source.subscribe(receiveState), [source, receiveState]);
   useEffect(() => {
@@ -259,8 +287,9 @@ export function Preflight({
       let saved: SetupState | undefined;
       try {
         saved = await source.save({ sound: nextSound });
-      } catch (caught) {
-        setError(message(caught));
+        clear("sound-preferences");
+      } catch {
+        reportFailure("sound-preferences", "Unable to save sound preferences.");
         saved = await source.state().catch(() => undefined);
       }
       nextSound = takeQueued();
@@ -651,9 +680,12 @@ export function Preflight({
               {content}
             </fieldset>
             {error && (
-              <p className="preflight-error" role="alert">
-                {error}
-              </p>
+              <ActionError
+                message={error}
+                close={() => {
+                  setError(undefined);
+                }}
+              />
             )}
           </div>
         </div>
@@ -697,6 +729,7 @@ export function Preflight({
           ))}
         </ol>
         <div className="preflight-rail-foot">
+          <BackgroundErrorMark />
           <AppearanceControls settings={state.settings} catalog={state.themes} onChange={save} />
           {onClose && (
             <button type="button" className="preflight-close" onClick={onClose}>
@@ -711,9 +744,12 @@ export function Preflight({
             <div className="preflight-inner" ref={innerRef}>
               {content}
               {error && (
-                <p className="preflight-error" role="alert">
-                  {error}
-                </p>
+                <ActionError
+                  message={error}
+                  close={() => {
+                    setError(undefined);
+                  }}
+                />
               )}
             </div>
           </div>

@@ -1,3 +1,4 @@
+import { ActionError } from "./error-presentation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppMenuApi, AppMenuEntry, CommandItem, ShortcutGroup } from "../../shared/app-menu";
 import { Chevron, RowMenu } from "./row-menu";
@@ -184,7 +185,14 @@ export function AppMenu({
           }}
         />
       )}
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <ActionError
+          message={error}
+          close={() => {
+            setError("");
+          }}
+        />
+      )}
     </>
   );
 }

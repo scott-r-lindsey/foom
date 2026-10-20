@@ -253,7 +253,7 @@ test.each([new Error("broken"), "broken"])(
       render(<Shell />);
     });
     await waitFor(() => {
-      expect(document.querySelector("#status")?.textContent).toBe("Unable to start shell: broken");
+      expect(document.querySelector("#status")?.textContent).toBe("Unable to start shell");
     });
     expect(document.querySelector<HTMLButtonElement>("#restart")?.disabled).toBe(false);
   },
@@ -432,9 +432,7 @@ test.each([new Error("unavailable"), "unavailable"])(
     await waitFor(() => {
       expect(button?.disabled).toBe(false);
     });
-    expect(document.querySelector("#status")?.textContent).toBe(
-      "Unable to change terminal view: unavailable",
-    );
+    expect(document.querySelector("#status")?.textContent).toBe("Unable to change terminal view");
     mock.attach.mockRejectedValueOnce(error);
     await settle(() => {
       button?.click();
@@ -545,9 +543,7 @@ test.each(["startup", "reopen", "hide"])(
     await waitFor(() => {
       expect(restart?.disabled).toBe(false);
     });
-    expect(document.querySelector("#status")?.textContent).toBe(
-      "Unable to start shell: spawn failed",
-    );
+    expect(document.querySelector("#status")?.textContent).toBe("Unable to start shell");
   },
 );
 
@@ -784,7 +780,7 @@ test("failed live attachment detaches and reports the error; later selection can
   await controller.open("broken");
   expect(mock.detach).toHaveBeenLastCalledWith("broken");
   expect(update).toHaveBeenLastCalledWith(
-    expect.objectContaining({ visible: false, status: "Unable to open terminal: attach failed" }),
+    expect.objectContaining({ visible: false, status: "Unable to open terminal" }),
   );
   await controller.open("healthy");
   expect(mock.attach).toHaveBeenLastCalledWith("healthy");

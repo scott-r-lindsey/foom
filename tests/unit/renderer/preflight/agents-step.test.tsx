@@ -1,10 +1,35 @@
+import type { ReactNode } from "react";
+import type { RenderOptions } from "@testing-library/react";
+import {
+  ErrorPresentation,
+  BackgroundErrorMark,
+} from "../../../../src/renderer/board/error-presentation";
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as renderView,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { AgentsStep } from "../../../../src/renderer/preflight/agents-step";
 import type { ConfigStatus } from "../../../../src/shared/foom-config";
 import type { SetupSource } from "../../../../src/renderer/preflight/setup-source.d";
 import { installation, report, setupState } from "../../../fixtures/setup";
+
+const render = (ui: ReactNode, options?: RenderOptions) =>
+  renderView(ui, {
+    ...options,
+    wrapper: ({ children }) => (
+      <ErrorPresentation>
+        {children}
+        <BackgroundErrorMark />
+      </ErrorPresentation>
+    ),
+  });
 
 afterEach(cleanup);
 const pending: ConfigStatus = {
@@ -147,7 +172,7 @@ test("status errors and late rejections are handled", async () => {
   const f = fixture();
   f.config.status.mockRejectedValueOnce(Error("Config unavailable"));
   const view = render(<AgentsStep {...f.props} />);
-  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Config unavailable");
+  expect(await screen.findByText("Unable to load agent settings.")).toBeTruthy();
   view.unmount();
   let fail: (reason: Error) => void = () => {};
   f.config.status.mockImplementation(
@@ -235,7 +260,10 @@ test("setup controls request main's fixed action and refresh status, with failur
   });
   change.mockRejectedValueOnce(Error("Setup changed"));
   fireEvent.click(button);
-  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Setup changed");
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    "Unable to update settings.",
+  );
 });
 
 test.each(["claude", "custom"])(

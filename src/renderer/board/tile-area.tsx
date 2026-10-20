@@ -1,3 +1,5 @@
+import { ActionError, useBackgroundErrors } from "./error-presentation";
+import { errorMessage } from "../../shared/application-errors";
 import { OrchestrationMark } from "./orchestration-mark";
 import type { PreviewSummary } from "../../shared/workspace";
 import { TileMenu } from "./tile-menu";
@@ -117,6 +119,7 @@ function Tile({
   select: () => void;
   action: (action: TileAction) => void;
 }) {
+  const { report, clear } = useBackgroundErrors();
   const [view] = useState(() => source.createView?.());
   const [error, setError] = useState("");
   const [menu, setMenu] = useState<{ anchor: HTMLElement; point?: { x: number; y: number } }>();
@@ -177,12 +180,26 @@ function Tile({
           height: bounds.height,
           visible: !inactive && !behind && bounds.width > 0 && bounds.height > 0,
         })
+        .then(() => {
+          clear(`preview-bounds:${id}`);
+        })
         .catch(() => {
-          setError("Unable to display preview.");
+          report(`preview-bounds:${id}`, "Unable to display preview.", id);
         });
     };
     reportRef.current();
-  }, [source, preview?.id, inactive, behind, rect.x, rect.y, rect.width, rect.height]);
+  }, [
+    source,
+    preview?.id,
+    inactive,
+    behind,
+    rect.x,
+    rect.y,
+    rect.width,
+    rect.height,
+    clear,
+    report,
+  ]);
   const lastFocusRef = useRef(0);
   useEffect(() => {
     if (focusRequest === lastFocusRef.current) return;
@@ -371,7 +388,7 @@ function Tile({
                   void source.previews
                     ?.network?.(preview.id, !preview.network)
                     .catch((error: unknown) => {
-                      setError(error instanceof Error ? error.message : "Network change failed");
+                      setError(errorMessage(error, "Network change failed"));
                     });
                 }
               : undefined
@@ -414,7 +431,14 @@ function Tile({
         </>
       )}
       {preview && <div className="tile-shell" ref={previewRef} />}
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <ActionError
+          message={error}
+          close={() => {
+            setError("");
+          }}
+        />
+      )}
       {view && (
         <div className="tile-shell" hidden={!row || row.kind === "sample"}>
           <TerminalView

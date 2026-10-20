@@ -255,7 +255,7 @@ test("sidebar refuses deletion of a running shell and enables it after exit, pre
         window.desktop.sidebarCommand({ kind: "remove-worktree", repository, worktree }),
       { repository: repo, worktree: external },
     ),
-    /A session is running in this worktree/u,
+    /foom-error:operation-failed/u,
   );
   await expect(page.locator(".board-confirmation-scrim")).toHaveCount(0);
   assert.equal(await readFile(dirty, "utf8"), "keep until confirmed");
@@ -1411,7 +1411,7 @@ test("external Git changes refresh inventory and retain sessions in removed work
         window.desktop.sidebarCommand({ kind: "launch", repository, worktree, run: "shell" }),
       { repository: repo, worktree: external },
     ),
-    /Worktree was removed/,
+    /foom-error:operation-failed/,
   );
   git("checkout", "-b", "topic/renamed");
   await expect(page.locator(".tree-checkout-branch")).toHaveText("topic/renamed");
@@ -2930,4 +2930,105 @@ test("sidebar border resizes live, persists per window and refits the terminal o
   await expect.poll(savedWidth).toBe(300);
   await expect(handle).toHaveAttribute("aria-valuenow", "300");
   await assertAccessible(page);
+});
+
+test("background layout failures preserve terminal focus and typed input", async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  const input = page.locator(".xterm-helper-textarea");
+  await expect(input).toBeFocused();
+  await page.keyboard.type("echo FOOM_");
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    window.restoreErrorTestStorage = () => {
+      Storage.prototype.setItem = original;
+    };
+    Storage.prototype.setItem = () => {
+      throw new Error("private path and raw details");
+    };
+  });
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .webContents.send("board:command", "tidy-tiles");
+  });
+  await expect(page.getByRole("button", { name: "Show failure" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Action failed" })).toHaveCount(0);
+  await expect(input).toBeFocused();
+  await page.keyboard.type("BACKGROUND_FOCUS");
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(async () =>
+      page.evaluate(async () => {
+        const { terminals } = await window.desktop.workspace();
+        return (await window.desktop.tail(terminals[0].id, 100)).some(
+          (line) => line.trim() === "FOOM_BACKGROUND_FOCUS",
+        );
+      }),
+    )
+    .toBe(true);
+  await page.evaluate(() => {
+    window.restoreErrorTestStorage();
+    delete window.restoreErrorTestStorage;
+  });
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .webContents.send("board:command", "tidy-tiles");
+  });
+  await expect(page.getByRole("button", { name: "Show failure" })).toHaveCount(0);
+});
+
+test("prunable removal offers a coded modal; Enter is inert, Escape restores focus, and Prune keeps the branch", async (context) => {
+  const app = await launchApp(context, { fixture: "repository" });
+  const page = await boardPage(app);
+  const repository = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories[0].path,
+  );
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "initial",
+    ],
+    { cwd: repository },
+  );
+  const tree = await page.evaluate(async () => {
+    const { repositories } = await window.desktop.workspace();
+    return window.desktop.createWorktree(repositories[0].path, "error-prune-test", "root");
+  });
+  const { rm } = require("node:fs/promises");
+  await rm(path.join(tree.path, ".git"));
+  await page.getByRole("button", { name: "Actions for error-prune-test", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
+  const modal = page.getByRole("dialog", { name: "Action failed" });
+  await expect(modal).toBeVisible();
+  await expect(modal.getByRole("alert")).toHaveText("This worktree needs pruning.");
+  await expect(modal).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(modal).toBeVisible();
+  await expect(modal.getByRole("button", { name: "Prune" })).not.toBeFocused();
+  await assertAccessible(page);
+  await page.screenshot({ path: path.join("test-results", "error-modal.png") });
+  await page.keyboard.press("Escape");
+  await expect(modal).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "error-prune-test", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Actions for error-prune-test", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
+  await modal.getByRole("button", { name: "Prune" }).click();
+  await expect(modal).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Actions for error-prune-test", exact: true }),
+  ).toHaveCount(0);
+  const branches = await page.evaluate(async () => {
+    const { repositories } = await window.desktop.workspace();
+    return window.desktop.branches(repositories[0].path);
+  });
+  assert.ok(branches.local.some((branch) => branch.name === "error-prune-test"));
+  await assert.rejects(readFile(path.join(tree.path, ".git")), { code: "ENOENT" });
 });

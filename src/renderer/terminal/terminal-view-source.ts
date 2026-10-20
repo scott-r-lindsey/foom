@@ -19,10 +19,10 @@ export function createTerminalView(
   };
   const listeners = new Set<() => void>();
   const run = (operation: () => Promise<void>) =>
-    schedule(operation).catch((error: unknown) => {
+    schedule(operation).catch(() => {
       snapshot = {
         ...snapshot,
-        status: `Unable to update terminal view: ${error instanceof Error ? error.message : String(error)}`,
+        status: "Unable to update terminal view.",
       };
       for (const listener of listeners) listener();
     });

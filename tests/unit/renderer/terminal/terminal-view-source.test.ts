@@ -109,7 +109,7 @@ test("queued opens recheck inventory and failed operations report status without
   const listener = vi.fn();
   view.subscribe(listener);
   await expect(view.hide()).resolves.toBeUndefined();
-  expect(view.getSnapshot().status).toContain("connection closed");
+  expect(view.getSnapshot().status).toBe("Unable to update terminal view.");
   expect(listener).toHaveBeenCalled();
   unmount();
   await queue.catch(() => {});

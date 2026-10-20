@@ -1,3 +1,4 @@
+import { ActionError, useBackgroundErrors } from "../board/error-presentation";
 import { useEffect, useRef, useState } from "react";
 import type { SettingsPatch } from "../../shared/setup";
 import type {
@@ -28,6 +29,7 @@ export function SoundControls({
   const [reasons, setReasons] = useState<Partial<Record<SoundKind, string | undefined>>>({});
   const [error, setError] = useState("");
   const [credits, setCredits] = useState("");
+  const { report, clear } = useBackgroundErrors();
   const sinkRef = useRef<AudioSink>(undefined);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const stop = () => {
@@ -42,10 +44,13 @@ export function SoundControls({
     });
     void window.desktop.sounds.list().then(
       (list) => {
-        if (active) setEntries(list);
+        if (active) {
+          setEntries(list);
+          clear("sound-catalog");
+        }
       },
       () => {
-        if (active) setError("Unable to list sounds");
+        if (active) report("sound-catalog", "Unable to list sounds.");
       },
     );
     return () => {
@@ -54,7 +59,7 @@ export function SoundControls({
       sinkRef.current?.dispose();
       sinkRef.current = undefined;
     };
-  }, []);
+  }, [report, clear]);
   useEffect(() => {
     sinkRef.current?.configure(settings.choices);
   }, [settings.choices]);
@@ -229,7 +234,14 @@ export function SoundControls({
         Add audio files to working, done, needs-you or refusal, then reopen Sound to refresh the
         choices.
       </p>
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <ActionError
+          message={error}
+          close={() => {
+            setError("");
+          }}
+        />
+      )}
       <details>
         <summary
           onClick={() => {

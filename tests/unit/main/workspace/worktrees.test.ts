@@ -198,7 +198,7 @@ describe("creation and listing", () => {
     );
     await service.removeWorktree(repo, path);
     expect(await service.listWorktrees(repo)).toHaveLength(1);
-    await expect(service.removeWorktree(repo, path, true)).rejects.toThrow("main checkout");
+    await expect(service.removeWorktree(repo, path, true)).rejects.toThrow("worktree-missing");
     expect(await git("branch", "--list", "feature/one")).toContain("feature/one");
   });
   it("starts new branches from HEAD and reports what it did", async () => {
@@ -309,7 +309,7 @@ describe("creation and listing", () => {
     expect(await service.listWorktrees(repo)).toContainEqual(
       expect.objectContaining({ path: external, branch: null, locked: true, managed: false }),
     );
-    await expect(service.removeWorktree(repo, external, true)).rejects.toThrow("main checkout");
+    await expect(service.removeWorktree(repo, external, true)).rejects.toThrow("worktree-locked");
     await git("worktree", "unlock", external);
     await rm(external, { recursive: true });
     expect(await service.listWorktrees(repo)).toContainEqual(
@@ -423,8 +423,8 @@ describe("safe removal", () => {
     await mkdir(other);
     await execute(["init"], { cwd: other });
     await service.addRepository(other);
-    await expect(service.removeWorktree(other, path, true)).rejects.toThrow("main checkout");
-    await expect(service.removeWorktree(repo, repo, true)).rejects.toThrow("main checkout");
+    await expect(service.removeWorktree(other, path, true)).rejects.toThrow("worktree-missing");
+    await expect(service.removeWorktree(repo, repo, true)).rejects.toThrow("worktree-main");
     await expect(service.removeWorktree(repo, "\0")).rejects.toThrow("Invalid path");
     await fresh.removeWorktree(repo, path);
     await expect(realpath(path)).rejects.toThrow();
@@ -472,7 +472,7 @@ it("invalidates ownership when metadata disappears", async () => {
   expect(await service.listWorktrees(repo)).toContainEqual(
     expect.objectContaining({ path, managed: false }),
   );
-  await expect(service.removeWorktree(repo, path, true)).rejects.toThrow("main checkout");
+  await expect(service.removeWorktree(repo, path, true)).rejects.toThrow("worktree-prunable");
 });
 
 it("preserves ownership across ordinary branch and file changes", async () => {
@@ -669,7 +669,7 @@ it("reports dirty filenames for registered, unlocked linked worktrees", async ()
   expect(await service.changes(repo, tree)).toBe("");
   await writeFile(join(tree, "notes.txt"), "uncommitted");
   expect(await service.changes(repo, tree)).toBe("?? notes.txt\0");
-  await expect(service.changes(repo, repo)).rejects.toThrow("main checkout");
+  await expect(service.changes(repo, repo)).rejects.toThrow("worktree-main");
   await git("worktree", "lock", tree);
   await expect(service.changes(repo, tree)).rejects.toThrow("locked");
 });
@@ -754,7 +754,7 @@ it("rejects replacement external worktrees even when their dirty filenames match
 it("rejects main, missing, locked, prunable, bare and unrelated removal targets", async () => {
   const path = join(temporary, "external");
   await git("worktree", "add", "-b", "external", path);
-  await expect(service.removalIdentity(repo, repo)).rejects.toThrow("main checkout");
+  await expect(service.removalIdentity(repo, repo)).rejects.toThrow("worktree-main");
   await expect(service.removalIdentity(repo, temporary)).rejects.toThrow("missing");
   await expect(service.removalIdentity(repo, "\0")).rejects.toThrow("Invalid path");
   const identity = await service.removalIdentity(repo, path);
@@ -767,7 +767,9 @@ it("rejects main, missing, locked, prunable, bare and unrelated removal targets"
     listing.mockResolvedValueOnce(
       inventory.map((tree) => (tree.path === path ? { ...tree, ...flags } : tree)),
     );
-    await expect(service.removalIdentity(repo, path)).rejects.toThrow("main checkout");
+    await expect(service.removalIdentity(repo, path)).rejects.toThrow(
+      flags.prunable ? "worktree-prunable" : "worktree-missing",
+    );
   }
   listing.mockRestore();
   await service.addRepository(path);
@@ -1395,4 +1397,115 @@ it("reads the unambiguous forge remote locally without fetching", async () => {
   expect(await service.forgeRemote(repo)).toBe("https://github.com/fixture/offline.git");
   await git("remote", "add", "second", "https://example.invalid/other");
   expect(await service.forgeRemote(repo)).toBeUndefined();
+});
+
+describe("pruning stale worktrees", () => {
+  it(
+    "prunes only the named repository, removes its recorded leftover folder and keeps branches",
+    usingFixture(async () => {
+      const { path } = await service.createWorktree(repo, "stale");
+      await writeFile(join(path, "leftover"), "leftover");
+      await rm(join(path, ".git"));
+      await expect(service.removalIdentity(repo, path)).rejects.toThrow("worktree-prunable");
+      const other = join(temporary, "other-repo");
+      await mkdir(other);
+      await execute(["init", "-b", "main"], { cwd: other });
+      await execute(
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "init",
+        ],
+        { cwd: other },
+      );
+      const otherTree = join(temporary, "other-tree");
+      await execute(["worktree", "add", "-b", "other", otherTree], { cwd: other });
+      await rm(otherTree, { recursive: true });
+      await service.pruneWorktree(repo, path);
+      await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await git("branch", "--list", "stale")).toContain("stale");
+      expect((await service.listWorktrees(repo)).map((tree) => tree.path)).toEqual([repo]);
+      expect((await execute(["worktree", "list", "--porcelain"], { cwd: other })).stdout).toContain(
+        otherTree,
+      );
+    }),
+  );
+
+  it(
+    "prunes a missing folder without deleting anything else",
+    usingFixture(async () => {
+      const { path } = await service.createWorktree(repo, "gone");
+      await rm(path, { recursive: true });
+      await service.pruneWorktree(repo, path);
+      expect(await service.listWorktrees(repo)).toHaveLength(1);
+      expect(await git("branch", "--list", "gone")).toContain("gone");
+    }),
+  );
+
+  it(
+    "refuses unknown repositories, unrecorded paths, live, locked and main checkouts",
+    usingFixture(async () => {
+      const { path } = await service.createWorktree(repo, "live");
+      await expect(service.pruneWorktree(temporary, path)).rejects.toThrow("not been added");
+      for (const target of [repo, root, path])
+        await expect(service.pruneWorktree(repo, target)).rejects.toThrow("prune-unsafe");
+      await git("worktree", "lock", path);
+      await rm(join(path, ".git"));
+      await expect(service.pruneWorktree(repo, path)).rejects.toThrow("prune-unsafe");
+      expect(await git("worktree", "list", "--porcelain")).toContain(path);
+    }),
+  );
+
+  it(
+    "refuses recorded paths outside the managed root",
+    usingFixture(async () => {
+      const path = join(temporary, "external");
+      await git("worktree", "add", "-b", "external", path);
+      await rm(join(path, ".git"));
+      await writeFile(join(path, "keep"), "keep");
+      await expect(service.pruneWorktree(repo, path)).rejects.toThrow("prune-unsafe");
+      expect(await readFile(join(path, "keep"), "utf8")).toBe("keep");
+      expect(await git("worktree", "list", "--porcelain")).toContain(path);
+    }),
+  );
+
+  it(
+    "refuses any .git entry, even when Git reports the checkout as prunable",
+    usingFixture(async () => {
+      const { path } = await service.createWorktree(repo, "still-git");
+      const inventory = await service.listWorktrees(repo);
+      vi.spyOn(service, "listWorktrees").mockResolvedValue(
+        inventory.map((tree) => ({ ...tree, prunable: tree.path === path })),
+      );
+      await expect(service.pruneWorktree(repo, path)).rejects.toThrow("prune-unsafe");
+      await rm(join(path, ".git"));
+      await mkdir(join(path, ".git"));
+      await expect(service.pruneWorktree(repo, path)).rejects.toThrow("prune-unsafe");
+    }),
+  );
+
+  it(
+    "refuses symlinked folders and parent components",
+    usingFixture(async () => {
+      const { path } = await service.createWorktree(repo, "linked");
+      await rm(join(path, ".git"));
+      const moved = join(temporary, "moved");
+      await rename(path, moved);
+      await symlink(moved, path, process.platform === "win32" ? "junction" : "dir");
+      await expect(service.pruneWorktree(repo, path)).rejects.toThrow("prune-unsafe");
+      await rm(path);
+      await rename(moved, path);
+      const parent = dirname(path);
+      const movedParent = join(temporary, "moved-parent");
+      await rename(parent, movedParent);
+      await symlink(movedParent, parent, process.platform === "win32" ? "junction" : "dir");
+      await expect(service.pruneWorktree(repo, path)).rejects.toThrow("prune-unsafe");
+      expect(await git("worktree", "list", "--porcelain")).toContain(path);
+    }),
+  );
 });

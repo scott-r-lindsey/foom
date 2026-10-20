@@ -1,3 +1,6 @@
+import { repositoryKey } from "./sidebar-model";
+import { ActionError, useBackgroundErrors } from "./error-presentation";
+import { errorMessage } from "../../shared/application-errors";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { BranchInventory, CreateOutcome, Worktree } from "../../shared/worktrees";
 import type { WorktreeSource } from "./board-source.d";
@@ -6,9 +9,7 @@ import { branchCandidates, branchOutcome, normalizeBranch, pendingText } from ".
 const EMPTY: BranchInventory = { head: null, local: [], remote: null, remoteBranches: [] };
 
 function message(error: unknown): string {
-  return error instanceof Error
-    ? error.message.replace(/^Error invoking remote method '[^']+': Error: /u, "")
-    : "Unable to create the worktree.";
+  return errorMessage(error, "Unable to create the worktree.");
 }
 
 /**
@@ -27,6 +28,7 @@ export function BranchField({
   back: () => void;
   created: (worktree: Worktree & { outcome: CreateOutcome }) => void;
 }) {
+  const { report, clear } = useBackgroundErrors();
   const statusId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const caretRef = useRef<number | null>(null);
@@ -35,24 +37,30 @@ export function BranchField({
   const [data, setData] = useState<BranchInventory>();
   const [pending, setPending] = useState<string>();
   const [failure, setFailure] = useState<string>();
-  const [unavailable, setUnavailable] = useState<string>();
   useEffect(() => {
     let active = true;
     source.branches(repository).then(
       (next) => {
-        if (active) setData(next);
+        if (active) {
+          setData(next);
+          clear(`branches:${repository}`);
+        }
       },
-      (error: unknown) => {
+      () => {
         if (!active) return;
         // Completions are a convenience: the field still works, and main still validates.
         setData(EMPTY);
-        setUnavailable(message(error));
+        report(
+          `branches:${repository}`,
+          "Unable to read branch completions.",
+          repositoryKey(repository),
+        );
       },
     );
     return () => {
       active = false;
     };
-  }, [source, repository]);
+  }, [source, repository, clear, report]);
   useLayoutEffect(() => {
     if (caretRef.current === null) return;
     inputRef.current?.setSelectionRange(caretRef.current, caretRef.current);
@@ -61,8 +69,8 @@ export function BranchField({
   // Runs after the panel's own layout effect, which focuses its first command, and again
   // when a failure re-enables the field.
   useEffect(() => {
-    if (!pending) inputRef.current?.focus();
-  }, [pending]);
+    if (!pending && !failure) inputRef.current?.focus();
+  }, [pending, failure]);
   const inventory = data ?? EMPTY;
   const candidates = data ? branchCandidates(inventory, text) : [];
   const candidate = candidates[pick % Math.max(1, candidates.length)];
@@ -84,16 +92,18 @@ export function BranchField({
       setPending(undefined);
     });
   };
-  const line =
-    pending !== undefined
-      ? { text: pending, kind: "pending" }
-      : failure
-        ? { text: failure, kind: "invalid" }
-        : unavailable && !invalid
-          ? { text: unavailable, kind: "invalid" }
-          : outcome;
+  const line = pending !== undefined ? { text: pending, kind: "pending" } : outcome;
   return (
     <div className="branch-field">
+      {failure && (
+        <ActionError
+          returnFocus={() => inputRef.current}
+          message={failure}
+          close={() => {
+            setFailure(undefined);
+          }}
+        />
+      )}
       <div className="branch-box" data-invalid={invalid || undefined}>
         {candidate && (
           <span className="branch-ghost" aria-hidden="true">
@@ -145,6 +155,7 @@ export function BranchField({
       <div
         id={statusId}
         className="branch-status"
+        aria-label="Branch status"
         role="status"
         data-kind={line?.kind}
         data-invalid={line?.kind === "invalid" || undefined}

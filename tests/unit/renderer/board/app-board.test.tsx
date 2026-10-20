@@ -361,7 +361,7 @@ test("explicit shell launch serializes duplicate requests and keeps failures ret
   expect(mock.create).toHaveBeenCalledTimes(3);
   mock.create.mockRejectedValueOnce("offline");
   await source.shell?.restart();
-  expect(source.getSnapshot()[0]?.reason).toContain("offline");
+  expect(source.getSnapshot()[0]?.reason).toBe("Unable to start shell.");
   const kills = mock.kill.mock.calls.length;
   await source.shell?.restart();
   expect(source.getSnapshot()[0]?.id).toBe("real-id");
@@ -427,12 +427,13 @@ test("board starts empty, launches into a tile, and Settings keeps its view moun
   await settle();
   expect(screen.queryByRole("region", { name: "Settings" })).toBeNull();
   expect(document.activeElement?.className).toBe("board-row");
-  const error = vi.spyOn(console, "error").mockImplementation(() => {});
   mock.setupState.mockRejectedValueOnce(new Error("gone"));
   fireEvent.click(screen.container.querySelector(".config-gear") ?? document.body);
   fireEvent.click(screen.getByRole("menuitem", { name: /^Settings/ }));
   await settle();
-  expect(error).toHaveBeenCalledWith("Unable to load setup:", expect.any(Error));
+  expect(screen.getByRole("alert").textContent).toBe("Unable to open Settings.");
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+  expect(screen.queryByRole("dialog", { name: "Action failed" })).toBeNull();
 });
 test("feedback failure is visible and retry leaves main in charge of attention", async () => {
   mock.workspace.mockResolvedValue({ repositories: [], terminals: [agent("a", verdict("a"))] });
@@ -975,7 +976,7 @@ test("failed and cancelled menu config launches leave Settings available", async
     mock.command?.("via-claude");
   });
   await settle();
-  expect(screen.getByText("Agent is no longer installed")).toBeTruthy();
+  expect(screen.getByText("Unable to launch Foom config.")).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
   act(() => {
     mock.command?.("via-codex");

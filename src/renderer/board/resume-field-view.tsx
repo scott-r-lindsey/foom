@@ -1,3 +1,5 @@
+import { ActionError } from "./error-presentation";
+import { errorMessage } from "../../shared/application-errors";
 import { useConfirmation } from "./use-confirmation";
 import type { ConfirmationClient } from "../../shared/confirmation";
 import { useEffect, useRef, useState } from "react";
@@ -26,6 +28,7 @@ export function ResumeField({
   const confirmationRef = useRef<HTMLButtonElement>(null);
   const [text, setText] = useState("");
   const [choice, setChoice] = useState<AgentId>();
+  const [operationError, setOperationError] = useState("");
   const [failed, setFailed] = useState(false);
   const confirmation = useConfirmation(confirmations);
   const pending = confirmation.pending;
@@ -49,8 +52,9 @@ export function ResumeField({
     }
     try {
       await confirmation.run(() => launch(agent, parsed.id), done);
-    } catch {
+    } catch (error) {
       setFailed(true);
+      setOperationError(errorMessage(error, "Unable to resume conversation."));
     }
   };
   return (
@@ -68,6 +72,15 @@ export function ResumeField({
         }
       }}
     >
+      {operationError && (
+        <ActionError
+          message={operationError}
+          returnFocus={() => inputRef.current}
+          close={() => {
+            setOperationError("");
+          }}
+        />
+      )}
       <input
         ref={inputRef}
         aria-label="Conversation ID or resume command"

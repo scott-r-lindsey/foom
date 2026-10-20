@@ -1,3 +1,4 @@
+import { ApplicationError } from "../../shared/application-errors";
 import type { ForgeProviderFactory } from "../control/forge.d";
 import { UncertainEffect } from "../control/orchestration-mutations";
 import { forgeBranch, legacyForgeProvider, pullRequest } from "../control/forge";
@@ -9,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { lstat, mkdir, readFile, realpath, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep, parse } from "node:path";
 import { promisify } from "node:util";
 import type {
   BranchInventory,
@@ -386,14 +387,10 @@ export class WorktreeService {
     validatePath(path);
     const trees = await this.listWorktrees(repositoryPath);
     const tree = trees.find((item) => item.path === path);
-    if (
-      !tree ||
-      tree.bare ||
-      tree.locked ||
-      tree.prunable ||
-      (!allowMain && path === repositoryPath)
-    )
-      throw new Error("Worktree is missing, locked, prunable, or is the main checkout");
+    if (!allowMain && path === repositoryPath) throw new ApplicationError("worktree-main");
+    if (!tree || tree.bare) throw new ApplicationError("worktree-missing");
+    if (tree.locked) throw new ApplicationError("worktree-locked");
+    if (tree.prunable) throw new ApplicationError("worktree-prunable");
     if ((await realpath(path)) !== path) throw new Error("Worktree path has been redirected");
     const commonDirectory = async (cwd: string) =>
       realpath(
@@ -406,6 +403,50 @@ export class WorktreeService {
     if ((!allowMain && gitDirectory === common) || (await commonDirectory(path)) !== common)
       throw new Error("Worktree is not a linked checkout of this repository");
     return worktreeIdentity(path);
+  }
+
+  /** Prune only Git's recorded checkout; no caller-selected recursive deletion. */
+  async pruneWorktree(repositoryPath: string, path: string): Promise<void> {
+    this.repository(repositoryPath);
+    const tree = (await this.listWorktrees(repositoryPath)).find((entry) => entry.path === path);
+    if (!tree || !tree.prunable || tree.locked || tree.bare || path === repositoryPath)
+      throw new ApplicationError("prune-unsafe");
+    const checkFolder = async (): Promise<string | undefined> => {
+      try {
+        assertInside(this.root, tree.path);
+        // Check every component, including the root's ancestors and the final folder.
+        let current = parse(tree.path).root;
+        for (const part of relative(current, tree.path).split(sep)) {
+          current = join(current, part);
+          const entry = await lstat(current, { bigint: true }).catch((error: unknown) => {
+            if (record(error) && error["code"] === "ENOENT") return undefined;
+            throw error;
+          });
+          if (!entry) return undefined;
+          if (entry.isSymbolicLink() || !entry.isDirectory()) throw new Error("Unsafe folder");
+        }
+        const root = await realpath(this.root);
+        const canonical = await realpath(tree.path);
+        assertInside(root, canonical);
+        if (canonical !== tree.path) throw new Error("Redirected folder");
+        const gitEntry = await lstat(join(tree.path, ".git")).catch((error: unknown) => {
+          if (record(error) && error["code"] === "ENOENT") return undefined;
+          throw error;
+        });
+        if (gitEntry) throw new Error("Git entry remains");
+        const entry = await lstat(tree.path, { bigint: true });
+        return [entry.dev, entry.ino, entry.birthtimeNs].map(String).join(":");
+      } catch {
+        throw new ApplicationError("prune-unsafe");
+      }
+    };
+    const identity = await checkFolder();
+    await git(repositoryPath, ["worktree", "prune"]);
+    // Recheck after the subprocess; prune must never turn a new checkout into a deletion.
+    if ((await checkFolder()) !== identity) throw new ApplicationError("prune-unsafe");
+    if (identity !== undefined) await rm(tree.path, { recursive: true });
+    this.managed.delete(tree.path);
+    await this.save();
   }
 
   private async checkRemovalIdentity(

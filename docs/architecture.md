@@ -2369,3 +2369,32 @@ from loaded provider identities, with absent enablement meaning enabled, matchin
 workspace launches. Preload accepts bounded syntactic via-provider commands; main
 still validates installed IDs and launch authority. MCP tools/list resolves the
 current registry for each request, including existing MCP sessions.
+
+### Coded capability errors
+
+The window IPC router catches synchronous and asynchronous capability failures after
+validating the sender; feature handlers validate payloads. Workspace IPC also
+sanitizes failures when attached directly.
+Only `ApplicationError` can select a code from the closed shared declaration in
+`shared/application-error.d.ts`; other exceptions become `operation-failed`.
+The rejection carries only `foom-error:<code>`. The renderer recognizes the exact
+code, with at most Electron's standard invocation wrapper, and maps it to a fixed
+sentence. Unknown or malformed errors get an operation-specific fixed fallback.
+No runtime import was added to the sandboxed preload.
+
+`error-presentation.tsx` owns presentation: an in-board `<dialog>` for user actions
+and operation-keyed background marks. The dialog initially focuses itself, never
+a fix button, and restores the previous connected focus target on dismissal.
+Background publication mounts no dialog and makes no focus request. Each success
+clears only its operation's mark. The trusted confirmation renderer is separate.
+
+`prune-worktree` is a validated sidebar command naming a registered repository and
+its recorded checkout path. Main refuses sessions in that checkout. WorktreeService
+requires a current unlocked prunable Git entry, rejects the main checkout, and
+checks the leftover folder before running fixed `git worktree prune` arguments
+through `execFile` in that repository. It checks every path component with `lstat`,
+canonical containment strictly under the managed root and absence of any `.git`
+entry. It rechecks the folder's identity after Git returns before removing only
+that folder. Missing folders need no deletion. Branches are never deleted. As
+with normal removal, this does not isolate filesystem entries from another local
+process replacing them concurrently.

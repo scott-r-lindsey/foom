@@ -128,6 +128,7 @@ test("macOS gets the same wordmark button; failed or stale loads don't open", as
   view.rerender(<AppMenu api={f.api} />);
   fireEvent.click(screen.getByRole("button"));
   await screen.findByRole("alert");
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   let resolve: (items: AppMenuEntry[]) => void = () => {};
   vi.mocked(f.api.commands).mockReturnValue(
     new Promise((done) => {
@@ -177,6 +178,8 @@ test("restores the original input selection before dispatch and reports command 
   fireEvent.click(screen.getByRole("menuitem", { name: /^Settings…/ }));
   expect(screen.queryByRole("menu")).toBeNull();
   await screen.findByRole("alert");
+  expect(document.activeElement).toBe(screen.getByRole("dialog", { name: "Action failed" }));
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   expect(document.activeElement).toBe(input);
   view.unmount();
 });
@@ -387,13 +390,15 @@ test("the Size row is one stop, steps without closing and shows main's size", as
   // Interface size changes resize the window; the menu repositions instead of closing.
   fireEvent(window, new Event("resize"));
   expect(screen.getByRole("menu", { name: "Foom" })).toBe(menu);
+  fireEvent.pointerEnter(screen.getByRole("group", { name: /^Size/ }));
   vi.mocked(f.api.execute).mockRejectedValueOnce(new Error("Unavailable"));
   fireEvent.click(smaller);
   expect(await screen.findByRole("alert")).toHaveProperty(
     "textContent",
     "Unable to run Smaller interface.",
   );
-  fireEvent.pointerEnter(screen.getByRole("group", { name: /^Size/ }));
+  expect(screen.queryByRole("menu", { name: "Foom" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
 });
 test("the shortcut sheet shows main's columns and returns focus when dismissed", async () => {
   const f = fixture();

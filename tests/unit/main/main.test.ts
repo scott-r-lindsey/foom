@@ -1795,9 +1795,13 @@ test("menu agent availability comes from installation and saved settings", async
     '"id":"via-codex","label":"Via Codex","shortcut":"","enabled":false',
   );
   settings = { ...settings, agents: { ...settings.agents, claude: false } };
-  await expect(invokeWindow(0, "app-menu:execute", "via-claude")).rejects.toThrow("Unavailable");
+  await expect(invokeWindow(0, "app-menu:execute", "via-claude")).rejects.toThrow(
+    "foom-error:operation-failed",
+  );
   settings = { ...settings, setupComplete: false, agents: { ...settings.agents, claude: true } };
-  await expect(invokeWindow(0, "app-menu:execute", "via-claude")).rejects.toThrow("Unavailable");
+  await expect(invokeWindow(0, "app-menu:execute", "via-claude")).rejects.toThrow(
+    "foom-error:operation-failed",
+  );
 });
 
 test("preview hosts validate registered worktrees, notify the board, reconcile and close", async () => {
