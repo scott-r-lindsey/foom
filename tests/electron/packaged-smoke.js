@@ -46,6 +46,16 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       );
     }
   }
+  if (process.platform === "darwin") {
+    assert.equal(
+      execFileSync(
+        "/usr/libexec/PlistBuddy",
+        ["-c", "Print :CFBundleIdentifier", path.join(root, "Foom.app/Contents/Info.plist")],
+        { encoding: "utf8" },
+      ).trim(),
+      "com.foom-term.foom",
+    );
+  }
   const resources =
     process.platform === "darwin"
       ? path.join(root, "Foom.app", "Contents", "Resources")
