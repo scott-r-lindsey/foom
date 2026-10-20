@@ -7,7 +7,7 @@ Concurrent children and wait-for IDs follow Settings → General (default 4, ran
 Human/script access: add --repository ABSOLUTE_PATH [--profile PROFILE]. Approve pairing in Foom.
 foom pair --repository ABSOLUTE_PATH [--profile PROFILE] reads JSON argv arrays, one per line, for ten minutes.
 foom --install-cli BIN_DIRECTORY | --uninstall-cli BIN_DIRECTORY (Windows: directory optional)
-Config sessions only: foom agent probe start ID [--manifest PATH] [--resume CONVERSATION_ID] | send PROBE TEXT | keys PROBE esc|ctrl-c|enter|up|down|tab | wait PROBE --quiet SECONDS|--timeout SECONDS | screen PROBE | state PROBE | events PROBE | stop PROBE
-foom config status [--json] (config sessions only, read-only)
+Config sessions only: foom agent probe start ID [--manifest PATH] [--resume CONVERSATION_ID] | send PROBE TEXT | keys PROBE esc|ctrl-c|enter|up|down|tab | wait PROBE --quiet SECONDS|--timeout SECONDS | screen PROBE [--save working|blocked|idle|other] | state PROBE | events PROBE | stop PROBE
+foom config status [--json] (config sessions only, read-only) | config test-rules AGENT_ID [--json] (config sessions only, local screen rules)
 foom config validate PATH [--json] (offline, read-only)
 foom --version | --help

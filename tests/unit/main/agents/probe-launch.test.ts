@@ -141,6 +141,7 @@ test.skipIf(process.platform === "win32")(
     const prepared = await prepareProbe(provider, { action: "start", agent: "copilot" }, root, {
       PATH: root,
     });
+    expect(prepared.agentVersion).toBe("0.0.1");
     expect(prepared.events?.()).toEqual({
       hooks: [],
       mcp: { connected: false, listedTools: false, pinged: false },

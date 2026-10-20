@@ -50,6 +50,7 @@ port.on("message", (event: { data: unknown }) => {
   void (async () => {
     let lines: string[] = [];
     let title: string | undefined;
+    let size: { cols: number; rows: number } | undefined;
     if (message.type === "shutdown") {
       await manager.shutdown();
       owned.clear();
@@ -94,6 +95,7 @@ port.on("message", (event: { data: unknown }) => {
           const screen = await manager.screen(id);
           lines = screen.lines;
           title = screen.title;
+          size = { cols: screen.cols, rows: screen.rows };
           break;
         }
         case "tail":
@@ -101,7 +103,14 @@ port.on("message", (event: { data: unknown }) => {
           break;
       }
     }
-    send({ type: "result", id, request, lines, ...(title === undefined ? {} : { title }) });
+    send({
+      type: "result",
+      id,
+      request,
+      lines,
+      ...(title === undefined ? {} : { title }),
+      ...size,
+    });
   })().catch(() => {
     send({ type: "error", id, request });
   });

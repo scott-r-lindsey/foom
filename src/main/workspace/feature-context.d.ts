@@ -1,0 +1,153 @@
+import type { WorkspaceContext } from "./workspace-context";
+
+/** Feature methods see only the capabilities named by their interface. */
+export type ExecutionEventsContext = Pick<
+  WorkspaceContext,
+  | "queues"
+  | "executionOwner"
+  | "closed"
+  | "probes"
+  | "probeIds"
+  | "launched"
+  | "hookKeys"
+  | "persist"
+  | "deps"
+  | "revokeConfig"
+  | "agents"
+  | "orchestration"
+  | "refresh"
+  | "configTokens"
+>;
+
+export type AgentSetupContext = Pick<
+  WorkspaceContext,
+  | "scannedProviders"
+  | "scanned"
+  | "agents"
+  | "enabled"
+  | "deps"
+  | "scanAgents"
+  | "launchAbort"
+  | "hooksEnabled"
+  | "agentHooks"
+  | "closed"
+  | "agyPlugin"
+>;
+
+export type WorktreeLaunchContext = Pick<
+  WorkspaceContext,
+  | "launched"
+  | "executionOwner"
+  | "withRepository"
+  | "worktrees"
+  | "busyWorktrees"
+  | "deps"
+  | "confirmAgentLaunch"
+  | "launchAgent"
+  | "enabled"
+  | "scanAgents"
+  | "defaultArguments"
+  | "agents"
+  | "sessions"
+  | "now"
+  | "persist"
+  | "refresh"
+  | "addWorktree"
+  | "location"
+  | "startShell"
+  | "shellEnvironment"
+  | "replacementVersion"
+  | "resumeStarts"
+  | "known"
+  | "startExisting"
+  | "orchestration"
+  | "queues"
+>;
+
+export type ConfigLaunchContext = Pick<
+  WorkspaceContext,
+  | "configTokens"
+  | "probes"
+  | "executionOwner"
+  | "revokeConfig"
+  | "closed"
+  | "deps"
+  | "refresh"
+  | "probeIds"
+  | "input"
+  | "launched"
+  | "now"
+  | "removed"
+  | "probeHttp"
+  | "ensureProbeOpen"
+  | "configCredential"
+  | "startShell"
+  | "bindConfig"
+  | "enabled"
+  | "scanAgents"
+  | "queues"
+  | "defaultArguments"
+  | "agents"
+  | "persist"
+>;
+
+export type SidebarCommandsContext = Pick<
+  WorkspaceContext,
+  | "homeFacts"
+  | "deps"
+  | "worktrees"
+  | "cleanup"
+  | "closed"
+  | "resumeId"
+  | "startHomeShell"
+  | "startConfig"
+  | "auditHuman"
+  | "orchestration"
+  | "control"
+  | "makeOrchestrator"
+  | "revokeOrchestrator"
+  | "busySessions"
+  | "launched"
+  | "executionOwner"
+  | "startExisting"
+  | "snapshot"
+  | "removed"
+  | "known"
+  | "removeRepository"
+  | "refresh"
+>;
+
+export type OrchestrationCommandsContext = Pick<
+  WorkspaceContext,
+  | "launched"
+  | "initializeControl"
+  | "control"
+  | "orchestration"
+  | "sessions"
+  | "executionOwner"
+  | "deps"
+  | "auditHuman"
+  | "revokeOrchestrator"
+  | "withRepository"
+  | "busyWorktrees"
+  | "location"
+  | "refresh"
+  | "worktrees"
+  | "launchAgent"
+>;
+
+export type RepositoryOperationsContext = Pick<
+  WorkspaceContext,
+  | "deps"
+  | "closed"
+  | "known"
+  | "removingRepositories"
+  | "repositoryOperations"
+  | "location"
+  | "withRepository"
+  | "busyWorktrees"
+  | "addWorktree"
+  | "refresh"
+  | "launched"
+  | "cleanup"
+>;

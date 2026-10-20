@@ -1,5 +1,6 @@
 import { ControlError, exact, object } from "./control-validation";
 import { validAgentId } from "../shared/providers/catalog";
+import type { CaptureState } from "../shared/probe-capture";
 import { conversationId } from "../shared/conversation";
 
 export const PROBE_KEYS = {
@@ -12,11 +13,13 @@ export const PROBE_KEYS = {
 };
 export type ProbeRequest =
   | { action: "config-status" }
+  | { action: "test-rules"; agent: string }
+  | { action: "screen"; probe: string; save?: CaptureState }
   | { action: "start"; agent: string; manifest?: string; resume?: string }
   | { action: "send"; probe: string; text: string }
   | { action: "keys"; probe: string; key: keyof typeof PROBE_KEYS }
   | { action: "wait"; probe: string; quiet?: number; timeout?: number }
-  | { action: "screen" | "state" | "events" | "stop"; probe: string };
+  | { action: "state" | "events" | "stop"; probe: string };
 const invalid = (): never => {
   throw new ControlError("invalid_request");
 };
@@ -26,6 +29,11 @@ export function probeRequest(input: unknown): ProbeRequest {
   if (action === "config-status") {
     exact(value, ["action"]);
     return { action };
+  }
+  if (action === "test-rules") {
+    exact(value, ["action", "agent"]);
+    if (!validAgentId(value["agent"])) return invalid();
+    return { action, agent: value["agent"] };
   }
   if (action === "start") {
     exact(value, ["action", "agent", "manifest", "resume"]);
@@ -97,8 +105,20 @@ export function probeRequest(input: unknown): ProbeRequest {
         ...(quiet === undefined ? { timeout: seconds } : { quiet: seconds }),
       };
     }
+    case "screen": {
+      exact(value, ["action", "probe", "save"]);
+      const save = value["save"];
+      if (
+        save !== undefined &&
+        save !== "working" &&
+        save !== "blocked" &&
+        save !== "idle" &&
+        save !== "other"
+      )
+        return invalid();
+      return { action, probe, ...(save === undefined ? {} : { save }) };
+    }
     case "events":
-    case "screen":
     case "state":
     case "stop":
       exact(value, ["action", "probe"]);
@@ -136,6 +156,8 @@ export function probeCommand(words: readonly string[]): ProbeRequest {
       [rest[0] === "--quiet" ? "quiet" : "timeout"]: Number(rest[1]),
     });
   }
+  if (action === "screen" && rest.length === 2 && rest[0] === "--save")
+    return probeRequest({ action, probe: id, save: rest[1] });
   if (rest.length) return invalid();
   return probeRequest({ action, probe: id });
 }

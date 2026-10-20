@@ -1,3 +1,5 @@
+import { saveCapture, testCaptureRules } from "../../node-common/probe-captures";
+import { agentProvider } from "./providers/registry";
 import { ProbeAttention, PROBE_WAITING_MS } from "./probe-attention";
 import { randomBytes, randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
@@ -17,6 +19,7 @@ type Probe = {
   cwd?: string;
   provider?: AgentProvider;
   conversationId?: string | undefined;
+  agentVersion?: string;
   dispose?: () => void;
   prepared?: PreparedProbe;
   timer?: ReturnType<typeof setTimeout>;
@@ -33,7 +36,7 @@ export interface ProbeBackend {
   stop(id: string): Promise<void>;
   kill(id: string): Promise<void>;
   reply(id: string, data: string): Promise<void>;
-  screen(id: string): Promise<{ lines: string[]; title: string }>;
+  screen(id: string): Promise<{ lines: string[]; title: string; cols?: number; rows?: number }>;
   show(
     id: string,
     agent: string,
@@ -131,6 +134,25 @@ export class AgentProbes {
       if (!this.sessions.has(token)) throw new ControlError("unauthorized");
       return status;
     }
+    if (request.action === "test-rules") {
+      const provider = agentProvider(request.agent);
+      await provider.validate?.();
+      const active = () => {
+        if (!this.sessions.has(token)) throw new ControlError("unauthorized");
+      };
+      active();
+      const report = await testCaptureRules(
+        this.root,
+        request.agent,
+        provider.model.attention.rules.map(({ lines, ...rule }) => ({
+          ...rule,
+          ...(lines === undefined ? {} : { lines }),
+        })),
+        active,
+      );
+      active();
+      return report;
+    }
     if (request.action === "start") return this.start(token, request);
     const probe = this.sessions.get(token);
     if (!probe || probe.id !== request.probe || !probe.terminal)
@@ -165,7 +187,27 @@ export class AgentProbes {
       case "state": {
         const screen = await this.backend.screen(id);
         this.owned(token, probe);
-        if (request.action === "screen") return screen;
+        if (request.action === "screen") {
+          if (!request.save) return screen;
+          const capture = await saveCapture(
+            this.root,
+            {
+              version: 1,
+              agentId: probe.provider?.id ?? "",
+              agentVersion: probe.agentVersion ?? "",
+              expected: request.save,
+              lines: screen.lines,
+              title: screen.title,
+              cols: screen.cols ?? 0,
+              rows: screen.rows ?? 0,
+            },
+            () => {
+              this.owned(token, probe);
+            },
+          );
+          this.owned(token, probe);
+          return { capture };
+        }
         const verdict = evaluateRules(
           {
             terminalId: id,
@@ -232,6 +274,7 @@ export class AgentProbes {
       probe.dispose = () => {
         prepared.dispose();
       };
+      probe.agentVersion = prepared.agentVersion ?? "";
       probe.conversationId = request.resume ?? prepared.conversationId;
       this.owned(token, probe);
       // Reserve the host ID before create can yield, so expiry can stop a pending spawn.

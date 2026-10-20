@@ -153,7 +153,7 @@ vi.mock("../../../src/main/window/window-placement", () => ({
 
 vi.mock("../../../src/main/sounds/ipc", () => ({ attachSounds: vi.fn(() => vi.fn()) }));
 vi.mock("../../../src/main/window/attention-badge", () => ({ updateAttention: vi.fn() }));
-import type { WorkspaceDependencies } from "../../../src/main/workspace/workspace";
+import type { WorkspaceDependencies } from "../../../src/main/workspace/workspace-types";
 import type { DialogContent } from "../../../src/shared/confirmation";
 vi.mock("../../../src/main/confirmations/trusted-dialog", () => ({
   TrustedDialog: class {

@@ -26,7 +26,7 @@ export interface TerminalControl
   create(spec: TerminalSpec): Promise<string>;
   kill(id: string): Promise<void>;
   tail(id: string, lines: number): Promise<string[]>;
-  screen(id: string): Promise<{ lines: string[]; title: string }>;
+  screen(id: string): Promise<{ lines: string[]; title: string; cols?: number; rows?: number }>;
   owns(id: string): boolean;
   reply(id: string, data: string): Promise<void>;
   childInput(id: string, data: ChildInput): Promise<void>;

@@ -6,6 +6,7 @@ import { prepareV2Hooks } from "./providers/v2-hook-launch";
 
 export interface PreparedProbe {
   spec: TerminalSpec;
+  agentVersion?: string;
   conversationId?: string;
   events?(): {
     hooks: ProbeHookEvent[];
@@ -216,6 +217,7 @@ export async function prepareProbe(
     const attached = binding;
     const endpoint = mcp;
     return {
+      agentVersion: installation.version ?? "",
       spec: {
         command,
         args: prepared.args,
