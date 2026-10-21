@@ -16,6 +16,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import {
+  testedZip,
+  releaseSecretNames,
   entitlementFor,
   notarizeApp,
   run,
@@ -271,7 +273,7 @@ test("credential setup validates the team, restricts files and cleanup removes p
   assert.match(failedImport.stderr, /wrong MACOS_CERT_PASSWORD/);
   assert.match(failedImport.stderr, /openssl pkcs12 -export -legacy/);
   assert.ok(!failedImport.stderr.includes(env.MACOS_CERT_PASSWORD));
-  assert.ok(!failedImport.stderr.includes(join(directory, "signing.keychain-db")));
+  assert.ok(failedImport.stderr.includes(join(directory, "signing.keychain-db")));
   assert.equal(invoke("cleanup").status, 0);
   for (const [certificate, message] of [
     ["%%", /decoded to 0 bytes/],
@@ -325,31 +327,33 @@ test("signing enforces hardened fuse values and detects ASAR or embedded-integri
 
 test("redacts sensitive argument values and environment credentials as literals without hiding tool diagnostics", () => {
   const secrets = ["prefix", "prefix-longer", "punctuation.$[x]", "key-id-value", "issuer-value"];
-  const args = secrets.flatMap((value, index) => [
-    ["-p", "-P", "-k", "--key-id", "--issuer"][index],
-    value,
-  ]);
+  const args = [
+    "set-key-partition-list",
+    ...secrets.flatMap((value, index) => [
+      ["-k", "-P", "-k", "--key-id", "--issuer"][index],
+      value,
+    ]),
+  ];
   const env = {
     MACOS_CERT_P12: "base64-value",
     MACOS_CERT_PASSWORD: "env-password",
-    APPLE_API_KEY: "-----BEGIN PRIVATE KEY-----\nprivate-key-line\n-----END PRIVATE KEY-----",
+    APPLE_API_KEY:
+      "-----BEGIN PRIVATE KEY-----\nprivate-key-line-long-enough\n-----END PRIVATE KEY-----",
     APPLE_API_KEY_ID: "env-key-id",
     APPLE_API_ISSUER: "env-issuer",
     APPLE_TEAM_ID: "env-team",
-    GH_TOKEN: "env-token",
-    CUSTOM_SECRET: "env-secret",
     EMPTY_SECRET: "",
     UNDEFINED_SECRET: undefined,
     PUBLIC_VALUE: "ordinary diagnostic",
   };
-  const output = `ordinary diagnostic: ${[...secrets, ...Object.values(env).filter(Boolean), "private-key-line", secrets[1]].join("\n")}`;
-  const redacted = redactOutput(output, args, env);
+  const output = `ordinary diagnostic: ${[...secrets, ...Object.values(env).filter(Boolean), "private-key-line-long-enough", secrets[1]].join("\n")}`;
+  const redacted = redactOutput(output, args, env, "security");
   for (const value of [
     ...secrets,
     ...Object.entries(env)
       .filter(([name, value]) => name !== "PUBLIC_VALUE" && value)
       .map(([_name, value]) => value),
-    "private-key-line",
+    "private-key-line-long-enough",
   ])
     assert.ok(!redacted.includes(value));
   assert.ok(redacted.startsWith("ordinary diagnostic:"));
@@ -359,20 +363,20 @@ test("redacts sensitive argument values and environment credentials as literals 
 });
 
 test("run reports both redacted tool streams on failure without appending argv", (t) => {
-  const previous = process.env.FOOM_SIGNING_TEST_SECRET;
-  process.env.FOOM_SIGNING_TEST_SECRET = "fixture-env-secret";
+  const previous = process.env.APPLE_API_KEY_ID;
+  process.env.APPLE_API_KEY_ID = "fixture-env-secret";
   t.after(() => {
-    if (previous === undefined) delete process.env.FOOM_SIGNING_TEST_SECRET;
-    else process.env.FOOM_SIGNING_TEST_SECRET = previous;
+    if (previous === undefined) delete process.env.APPLE_API_KEY_ID;
+    else process.env.APPLE_API_KEY_ID = previous;
   });
-  const program = `console.error('import rejected: fixture-password'); console.log('stdout detail: '+process.env.FOOM_SIGNING_TEST_SECRET); process.exit(1);`;
+  const program = `console.error('import rejected: fixture-password'); console.log('stdout detail: '+process.env.APPLE_API_KEY_ID); process.exit(1);`;
   assert.throws(
     () =>
       run(process.execPath, [
         "-e",
         program,
         "--",
-        "-P",
+        "--key-id",
         "fixture-password",
         "argv-must-not-be-printed",
       ]),
@@ -391,4 +395,60 @@ test("run reports both redacted tool streams on failure without appending argv",
     run(process.execPath, ["-e", "process.stdout.write('successful tool output')"]),
     "successful tool output",
   );
+});
+
+test("tested ZIP discovery handles downloaded artifact paths and rejects zero or multiple ZIPs", async (t) => {
+  const { root } = fixture(t);
+  const download = join(root, "tested-macos");
+  const nested = join(download, "zip/darwin/arm64");
+  mkdirSync(nested, { recursive: true });
+  await assert.rejects(testedZip(download), /Expected exactly one tested ZIP.*found 0/);
+  const zip = join(nested, "Foom-darwin-arm64-0.1.0.zip");
+  writeFileSync(zip, "tested archive");
+  mkdirSync(join(download, "directory.zip"));
+  writeFileSync(join(download, "report.txt"), "not a zip");
+  assert.equal(await testedZip(download), zip);
+  writeFileSync(join(download, "extra.zip"), "ambiguous archive");
+  await assert.rejects(testedZip(download), /Expected exactly one tested ZIP.*found 2/);
+});
+
+test("ditto ZIP paths, keychain paths and unrelated environment values remain in diagnostics", () => {
+  const path = "/runner/tested-macos/*.zip";
+  const env = {
+    GITHUB_TOKEN: "unrelated-token",
+    SOME_KEY_PATH: path,
+    CERT_PATH: "/runner/certificate.p12",
+    APPLE_API_KEY:
+      "-----BEGIN PRIVATE KEY-----\nlong-private-material-line\nabc\n-----END PRIVATE KEY-----",
+  };
+  const diagnostic = `ditto: ${path}: No such file or directory`;
+  assert.equal(redactOutput(diagnostic, ["-x", "-k", path, "/unpacked"], env, "ditto"), diagnostic);
+  assert.equal(
+    redactOutput("abc unrelated-token /runner/certificate.p12", [], env),
+    "abc unrelated-token /runner/certificate.p12",
+  );
+  assert.equal(redactOutput("long-private-material-line", [], env), "[REDACTED]");
+  assert.equal(
+    redactOutput("/runner/keychain", ["import", "cert", "-k", "/runner/keychain"], {}, "security"),
+    "/runner/keychain",
+  );
+  for (const action of ["create-keychain", "unlock-keychain"]) {
+    assert.equal(
+      redactOutput("random-password", [action, "-p", "random-password"], {}, "security"),
+      "[REDACTED]",
+    );
+  }
+  for (const name of releaseSecretNames) {
+    assert.equal(redactOutput("release-secret", [], { [name]: "release-secret" }), "[REDACTED]");
+  }
+});
+
+test("PR ad-hoc signing downloads the same artifact and uses the release ZIP discovery", () => {
+  const workflow = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
+  const platform = workflow.split("\n  platform:\n")[1].split("\n  quality:\n")[0];
+  assert.match(platform, /runner.os == 'macOS' \|\|/);
+  assert.match(platform, /name: Foom-\$\{\{ matrix.os \}\}\n {10}path: out\/make\/\*\*\/\*\.zip/);
+  assert.match(platform, /name: Foom-macos-15\n {10}path: tested-macos/);
+  assert.match(platform, /macos-sign.mjs adhoc-zip tested-macos/);
+  assert.match(workflow, /macos-sign.mjs release tested-macos/);
 });

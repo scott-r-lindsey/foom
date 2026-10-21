@@ -221,6 +221,14 @@ Developer ID`, and stapler validation. A separate publisher with contents write
 permission consumes that signed artifact alongside tested Linux/Windows ZIPs;
 the signing job has only contents read permission and no publication authority.
 
+PR macOS CI uploads and downloads the tested ZIP artifact before exercising the
+same signing path ad-hoc. Both modes recursively require exactly one ZIP in the
+download directory: the `out/make/**/*.zip` upload retains `zip/darwin/arm64/`
+under the artifact root. Missing or ambiguous ZIPs fail before unpacking. Failure
+output masks only the six Release secret values, their PEM lines longer than 16
+characters, and command-specific password/identifier arguments. ZIP and keychain
+file paths remain visible; `ditto -k` is an archive option, not a password flag.
+
 The only Developer ID entitlement is `com.apple.security.cs.allow-jit` for
 Electron/V8 (main and helpers, including the utility host) and the Node 24 SEA
 console. node-pty's native addon is signed with the same team and needs no
