@@ -325,7 +325,8 @@ test("About rocket replays launch by mouse and keyboard without changing setup",
   const initial = await page.evaluate(async () => (await window.desktop.setupState()).settings);
   const captureTime = new Date("2026-10-21T12:00:00Z");
   await page.clock.install({ time: captureTime });
-  await page.clock.pauseAt(captureTime);
+  // Installing the clock starts it; leave room for Windows transport latency.
+  await page.clock.pauseAt(new Date(captureTime.getTime() + 3_600_000));
   await mkdir("test-results/replay-686", { recursive: true });
   for (const reducedMotion of ["no-preference", "reduce"]) {
     await page.emulateMedia({ reducedMotion });
