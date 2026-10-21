@@ -643,8 +643,11 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await tabTo(page, "Launch");
   await page.keyboard.press("Enter");
 
-  // Reduced motion shows a still frame, then the board.
+  // Reduced motion holds its still frame until the user continues.
   await page.getByText("Takeoff was faster than expected.").waitFor();
+  await expect(page.getByText("Click or press Esc to continue")).toBeVisible();
+  await page.locator(".launch canvas").click();
+  await expect(page.getByRole("dialog", { name: "Launch", exact: true })).toHaveCount(0);
   await launchCheckoutShell(app, page);
   const shellRow = page.locator(".board-row[data-kind='shell']");
   await shellRow.waitFor({ timeout: deadline(10000) });

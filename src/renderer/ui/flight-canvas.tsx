@@ -11,9 +11,11 @@ export function prefersReducedMotion(): boolean {
 export function FlightCanvas({
   launch = false,
   reduced = false,
+  initialElapsedMs = 0,
 }: {
   launch?: boolean;
   reduced?: boolean;
+  initialElapsedMs?: number;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -45,7 +47,7 @@ export function FlightCanvas({
       canvas.width = Math.round(w * ratio);
       canvas.height = Math.round(h * ratio);
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-      draw(ctx, w, h, performance.now() - start, P, launch, reduced);
+      draw(ctx, w, h, performance.now() - start + initialElapsedMs, P, launch, reduced);
       if (!reduced && !paused) frame = requestAnimationFrame(tick);
     };
     const stop = () => {
@@ -65,6 +67,6 @@ export function FlightCanvas({
       window.removeEventListener("blur", stop);
       window.removeEventListener("focus", resume);
     };
-  }, [launch, reduced]);
+  }, [initialElapsedMs, launch, reduced]);
   return <canvas ref={ref} className="flight-canvas" aria-hidden="true" />;
 }
