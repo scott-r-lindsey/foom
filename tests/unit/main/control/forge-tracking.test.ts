@@ -873,13 +873,15 @@ it("persists checks meaning and hides restored data until fresh validation", asy
   expect(restored.read(tree.repository, tree.path)?.checksMeaning).toBe("head-pipeline");
 });
 
-it("revalidates stored display URLs against the sampled remote on open", async () => {
+it("revalidates stored display URLs against the routed host on open", async () => {
+  let routedHost: string | undefined = "github.com";
   let url: string | undefined = "https://github.com/o/r/pull/340";
   const tracker = new ForgeTracking(
     directory,
     () => Promise.resolve("git@github.com:o/r.git"),
     () => {},
     () => ({
+      ...(routedHost === undefined ? {} : { routedHost }),
       lookup: () => Promise.resolve(undefined),
       batch: () =>
         Promise.resolve(
@@ -912,4 +914,9 @@ it("revalidates stored display URLs against the sampled remote on open", async (
     await tracker.poll();
     expect(tracker.readUrl(tree.repository, tree.path)).toBeUndefined();
   }
+  routedHost = undefined;
+  url = "https://github.com/o/r/pull/340";
+  tracker.recheck(tree.path);
+  await tracker.poll();
+  expect(tracker.readUrl(tree.repository, tree.path)).toBeUndefined();
 });

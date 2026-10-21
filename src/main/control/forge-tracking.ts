@@ -9,6 +9,8 @@ interface Entry extends ForgeWorktree {
   binding?: string;
   restored?: boolean;
   board?: BoardPullRequest;
+  /** Fresh observation provenance; never restored from disk or sent to the renderer. */
+  routedHost?: string;
   orchestrator: boolean;
   refresh: number;
   followUp?: boolean;
@@ -246,10 +248,7 @@ export class ForgeTracking {
   readUrl(repository: string, path: string): string | undefined {
     const entry = this.entries.get(path);
     const board = this.readBoard(repository, path);
-    const host = entry?.remote
-      ?.match(/^(?:https:\/\/|ssh:\/\/git@|git@)([A-Za-z0-9.-]+)[/:]/u)?.[1]
-      ?.toLowerCase();
-    return host ? forgeWebUrl(board?.url, host) : undefined;
+    return entry?.routedHost ? forgeWebUrl(board?.url, entry.routedHost) : undefined;
   }
 
   read(repository: string, path: string): PullRequest | undefined {
@@ -408,6 +407,8 @@ export class ForgeTracking {
         const { board, ...metadata } = pr;
         entry.pr = metadata;
         entry.board = board;
+        if (provider.routedHost === undefined) delete entry.routedHost;
+        else entry.routedHost = provider.routedHost;
       }
       entry.remote = remote;
       entry.due =

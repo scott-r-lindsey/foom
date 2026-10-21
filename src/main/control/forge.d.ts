@@ -24,6 +24,8 @@ export interface ForgeObservation extends PullRequest {
   board: BoardPullRequest;
 }
 export interface ForgeProvider {
+  /** Main-owned host selected by routing, never derived from display output. */
+  routedHost?: string;
   /** Stable manifest/remote provenance for durable numeric bindings. */
   binding?: string;
   acceptLegacyBinding?: boolean;

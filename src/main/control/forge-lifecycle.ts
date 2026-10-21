@@ -238,6 +238,7 @@ export class ForgeLifecycle {
       }
     };
     return {
+      routedHost: selection.remote.host,
       available: async () =>
         (await sample(["auth"], new Map<string, { until: number; value: object }>(), () =>
           Promise.resolve({}),

@@ -47,6 +47,7 @@ export function manifestForgeProvider(
     return reduceForgeChecks(value, plan.result, candidate.headSha, candidate.number);
   }
   return {
+    routedHost: remote.host,
     minimumIntervalMs: manifest.minimumIntervalSeconds * 1000,
     batchSize: (matches) => manifestBatchSize(manifest, remote, matches),
     ...(manifest.operations.batchStatus

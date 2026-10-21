@@ -465,8 +465,10 @@ participates in revisions/event cursors and is persisted with observations. Lega
 records may omit it until refreshed. The checkout panel labels the relevant
 conclusion “Required checks”, “Head pipeline” or “Commit status”, separately from
 the existing all-check counts. PR marks include the inert title in their tooltip;
-the existing main-owned link action revalidates HTTPS and the sampled routed host. No check meaning or
-conclusion grants merge authority. `none` means a verified empty relevant set,
+the existing main-owned link action revalidates HTTPS against the routed host saved
+with the fresh observation. It never reparses the raw Git remote. This host stays
+main-only, is not restored from disk, and applies equally to board and child rows.
+No check meaning or conclusion grants merge authority. `none` means a verified empty relevant set,
 never that the user may merge; unknown is never success.
 
 GitHub maps failed/cancelled to failure, unfinished to pending, neutral/skipped to
