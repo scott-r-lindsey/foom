@@ -166,6 +166,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
               {
                 loop: review,
                 validate: () => {
+                  operations.lookup(actor, { operationId: operation.operationId });
                   this.parent(actor);
                 },
               },

@@ -32,7 +32,7 @@ if (isChild) {
     if (!fs.existsSync(file)) return;
     clearInterval(timer);
     const command = JSON.parse(fs.readFileSync(file, "utf8"));
-    const hook = await fetch(process.env.FOOM_HOOK_URL, { method: "POST", headers: { Authorization: process.env.FOOM_TOKEN, "X-Foom-Session": process.env.FOOM_SESSION, "X-Foom-Event": "Stop", "X-Foom-Sequence": "1", "Content-Type": "application/json" }, body: JSON.stringify({ session_id: reviewer ? "review-" + step : "author-conversation", hook_event_name: "Stop" }) });
+    const hook = await fetch(process.env.FOOM_HOOK_URL, { method: "POST", headers: { Authorization: process.env.FOOM_TOKEN, "X-Foom-Session": process.env.FOOM_SESSION, "X-Foom-Event": "Stop", "X-Foom-Channel": "lifecycle", "X-Foom-Sequence": "1", "Content-Type": "application/json" }, body: JSON.stringify({ session_id: reviewer ? "review-" + step : "author-conversation", hook_event_name: "Stop" }) });
     if (hook.status !== 204) { record("hook-error", String(hook.status)); process.exit(2); }
     const send = () => fetch(process.env.FOOM_CONTROL_URL, { method: "POST", headers: { Authorization: "Bearer " + process.env.FOOM_CONTROL_TOKEN, "Content-Type": "application/json" }, body: JSON.stringify({ version: 1, instanceId: process.env.FOOM_CONTROL_INSTANCE, method: "handoff", params: { status: command.status ?? "done", summary: "Fixture " + step, idempotencyKey: step, ...(command.review ? { review: command.review } : {}) } }) });
     let response;
@@ -187,7 +187,9 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red"]) {
       assert.equal(existsSync(`${credentials}.review-1`), false);
     } else {
       await expect.poll(() => existsSync(`${credentials}.review-1`)).toBe(true);
-      await expect(row.locator('[data-review-phase="reviewing"]')).toContainText("Reviewing 1/");
+      await expect(row.locator('[data-review-phase="reviewing"]')).toHaveText(
+        `Reviewing 1/${scenario === "cap" ? 1 : 3}`,
+      );
       await shot("reviewing");
       const findings = {
         verdict: "findings",
@@ -201,13 +203,15 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red"]) {
       });
       if (scenario === "fix") {
         await expect.poll(() => existsSync(`${credentials}.fix`)).toBe(true);
-        await expect(row.locator('[data-review-phase="fixing"]')).toContainText("Fixing 1/3");
+        await expect(row.locator('[data-review-phase="fixing"]')).toHaveText("Fixing 1/3");
         await shot("fixing");
         const resumed = JSON.parse(await readFile(`${credentials}.fix`, "utf8"));
         assert.equal(resumed.args[resumed.args.indexOf("--resume") + 1], "author-conversation");
         assert.ok(resumed.args.at(-1).includes("Quoted review notes (JSON)"));
         await go("fix");
         await expect.poll(() => existsSync(`${credentials}.review-2`)).toBe(true);
+        await expect(row.locator('[data-review-phase="reviewing"]')).toHaveText("Reviewing 2/3");
+        await shot("reviewing-2");
         await go("review-2", { review: { verdict: "clean" } });
       }
       await expect

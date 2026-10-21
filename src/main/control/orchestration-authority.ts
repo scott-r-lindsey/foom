@@ -440,7 +440,9 @@ export class OrchestrationAuthority {
     if (!tree || !author || !state) throw new ControlError("not_found");
     if (this.running(parent) + parent.starting >= this.childLimit()) return undefined;
     const agent = reviewer ? state.agent : author.agent;
+    let operation: Operation | undefined;
     const validate = () => {
+      if (operation) operations.lookup(actor, { operationId: operation.operationId });
       this.parent(actor);
       const current = this.reviews.view(authorId);
       if (
@@ -461,7 +463,6 @@ export class OrchestrationAuthority {
     };
     validate();
     parent.starting++;
-    let operation: Operation | undefined;
     const label = this.label(authorId);
     try {
       operation = await operations.begin(

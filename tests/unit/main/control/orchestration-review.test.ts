@@ -181,3 +181,22 @@ describe("orchestration review authority and reservations", () => {
     h.orchestration.disposeUnreadChildren();
   });
 });
+
+it("rechecks the live grant at the final spawn boundary even if ownership metadata remains", async () => {
+  const h = fixture();
+  const id = await h.launch();
+  let spawned = false;
+  h.host.launch.mockImplementationOnce((...args) => {
+    // Stand in for asynchronous provider preparation, after the durable intent.
+    h.grant.dispose();
+    args[6]?.validate();
+    spawned = true;
+    return Promise.resolve("unexpected");
+  });
+  h.report(id);
+  h.exit(id);
+  await h.sync();
+  expect(spawned).toBe(false);
+  expect(h.orchestration.reviews.view(id)).toMatchObject({ reason: "launch failed" });
+  h.orchestration.disposeUnreadChildren();
+});
