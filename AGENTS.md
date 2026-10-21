@@ -107,3 +107,18 @@ job has issues write permission; it has no contents write permission. Failures
 fail the job and create/update the single `mcp-probe` issue with validated versions
 and fixed assertion names, never terminal/model content. Recovery comments on the
 same issue. It is excluded from the Quality gate and nightly publishing dependencies.
+
+Notarization submits the ZIP and DMG without waiting in the submit command, then
+polls with timestamped submission IDs and statuses every 30 seconds. Invalid or
+Rejected submissions print Apple's issues log summary. Both submissions share a
+120-minute deadline defined in `scripts/macos-sign.mjs`; failures include all
+returned IDs and their last statuses. Each notarytool command is bounded to one
+minute (or the remaining budget). The signing job allows 150 minutes for this
+budget plus setup, signing, image creation, verification and credential cleanup.
+Main-push signing remains necessary: the tag workflow consumes signed artifacts
+from a successful same-commit main-push run and never rebuilds or signs on tags.
+Consequently each desktop-required main push can hold a macOS runner for that
+budget, and superseding main runs can cancel in-flight submissions. Restricting
+signing to nightlies needs a separate release-preparation artifact contract.
+Real notarization is verified by the user after merge with `publish_nightly`;
+PR tests use fixture Apple tools and no Release credentials.

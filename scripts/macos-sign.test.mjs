@@ -15,11 +15,15 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
+import { inspect } from "node:util";
 import {
   testedZip,
   releaseSecretNames,
   entitlementFor,
   notarizeApp,
+  notarizationSession,
+  notarizationDeadlineMs,
+  signDmg,
   run,
   redactOutput,
   signApp,
@@ -164,7 +168,7 @@ test("fixture codesign and xcrun exercise notarize API-key arguments, stapling a
     const file = join(bin, name);
     writeFileSync(
       file,
-      `#!${process.execPath}\nconst {appendFileSync}=require('node:fs');\nconst args=process.argv.slice(2);\nappendFileSync(${JSON.stringify(log)},JSON.stringify([${JSON.stringify(name)},args])+'\\n');\nif (${JSON.stringify(name)} === 'xcrun' && args[0] === 'notarytool' && args[1] === 'submit') console.log(JSON.stringify({id:'fixture-id',status:'Accepted'}));\nif (${JSON.stringify(name)} === 'spctl') console.log(process.env.FIXTURE_ASSESSMENT || 'source=Notarized Developer ID');\n`,
+      `#!${process.execPath}\nconst {appendFileSync}=require('node:fs');\nconst args=process.argv.slice(2);\nappendFileSync(${JSON.stringify(log)},JSON.stringify([${JSON.stringify(name)},args])+'\\n');\nif (${JSON.stringify(name)} === 'xcrun' && args[0] === 'notarytool' && ['submit','info'].includes(args[1])) console.log(JSON.stringify({id:'fixture-id',status:'Accepted'}));\nif (${JSON.stringify(name)} === 'spctl') console.log(process.env.FIXTURE_ASSESSMENT || 'source=Notarized Developer ID');\n`,
     );
     chmodSync(file, 0o755);
   }
@@ -189,7 +193,6 @@ test("fixture codesign and xcrun exercise notarize API-key arguments, stapling a
     credentials.appleApiKeyId,
     "--issuer",
     credentials.appleApiIssuer,
-    "--wait",
     "--output-format",
     "json",
   ]);
@@ -445,7 +448,7 @@ test("ad-hoc signing failures preserve hyphens and paths while Developer ID hash
     redactOutput(`${diagnostic}; identity=${identity}`, ["--sign", identity], {}, "codesign"),
     `${diagnostic}; identity=[REDACTED]`,
   );
-  for (const flag of ["--sign", "--key-id", "--issuer", "-P", "-p", "-k"]) {
+  for (const flag of ["--sign", "--key", "--key-id", "--issuer", "-P", "-p", "-k"]) {
     for (const value of ["-", "ab", "abc"]) {
       assert.equal(
         redactOutput(`${diagnostic}; ${value}`, ["create-keychain", flag, value], {}, "security"),
@@ -551,4 +554,184 @@ test("PR ad-hoc signing downloads the same artifact and uses the release ZIP dis
   assert.match(platform, /name: Foom-macos-15\n {10}path: tested-macos/);
   assert.match(platform, /macos-sign.mjs adhoc-zip tested-macos/);
   assert.match(workflow, /macos-sign.mjs release tested-macos/);
+});
+
+test("fixture notarytool polls ZIP/DMG, summarizes rejection, redacts diagnostics and bounds the shared deadline", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { root, app } = fixture(t);
+  const bin = join(root, "notary-bin");
+  mkdirSync(bin);
+  const callsFile = join(root, "notary-calls.jsonl");
+  const countFile = join(root, "info-count");
+  const credentials = {
+    identity: "fixture-signing-identity",
+    keychain: "fixture-keychain",
+    appleApiKey: "fixture-api-key-path",
+    appleApiKeyId: "fixture-api-key-id",
+    appleApiIssuer: "fixture-api-issuer",
+  };
+  const secret = Object.values(credentials).slice(2).join(" ");
+  for (const name of ["xcrun", "codesign", "spctl", "ditto"]) {
+    const file = join(bin, name);
+    writeFileSync(
+      file,
+      `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(callsFile)}, JSON.stringify([${JSON.stringify(name)}, args])+'\\n');
+if (${JSON.stringify(name)} === 'spctl') console.log('source=Notarized Developer ID');
+if (${JSON.stringify(name)} === 'xcrun' && args[0] === 'notarytool') {
+  const mode = process.env.FIXTURE_NOTARY_MODE;
+  if (mode === 'error') { console.error(${JSON.stringify(secret)}); process.exit(1); }
+  if (mode === 'malformed') { console.log(${JSON.stringify(secret)}); process.exit(0); }
+  if (args[1] === 'submit') console.log(JSON.stringify({id: mode === 'secret-id' ? ${JSON.stringify(secret)} : 'id-' + require('node:path').basename(args[2])}));
+  if (args[1] === 'info') {
+    const count = fs.existsSync(${JSON.stringify(countFile)}) ? Number(fs.readFileSync(${JSON.stringify(countFile)},'utf8')) : 0;
+    fs.writeFileSync(${JSON.stringify(countFile)}, String(count+1));
+    console.log(JSON.stringify({status: mode === 'slow' && count < 2 || mode === 'deadline' ? 'In Progress' : mode === 'invalid' ? 'Invalid' : mode === 'rejected' ? 'Rejected' : 'Accepted'}));
+  }
+  if (args[1] === 'log') console.log(JSON.stringify({statusSummary:'Invalid signature '+${JSON.stringify(secret)},issues:[{severity:'error',path:'Foom.app',message:'fixture issue '+${JSON.stringify(secret)}}]}));
+}
+`,
+    );
+    chmodSync(file, 0o755);
+  }
+  const previous = { ...process.env };
+  t.after(() => {
+    process.env = previous;
+  });
+  process.env.PATH = bin;
+  const calls = () =>
+    readFileSync(callsFile, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
+  for (const mode of [
+    "accepted",
+    "slow",
+    "invalid",
+    "rejected",
+    "deadline",
+    "error",
+    "malformed",
+    "secret-id",
+  ]) {
+    process.env.FIXTURE_NOTARY_MODE = mode;
+    writeFileSync(callsFile, "");
+    rmSync(countFile, { force: true });
+    const messages = [];
+    let time = 0;
+    const session = notarizationSession({
+      deadlineMs: 100,
+      pollMs: 30,
+      now: () => time,
+      wait: async (ms) => {
+        time += ms;
+      },
+      log: (message) => messages.push(message),
+    });
+    const execute = (command, args, options) => {
+      if (args[0] === "notarytool") {
+        assert.equal(options.killSignal, "SIGKILL");
+        assert.ok(options.timeout > 0 && options.timeout <= 100);
+        assert.ok(!args.includes("--wait"));
+      }
+      return run(command, args); // Clock is simulated; fixture startup uses real wall time.
+    };
+    const action = () => notarizeApp(app, credentials, execute, session);
+    if (["accepted", "slow", "secret-id"].includes(mode)) {
+      await action();
+      await signDmg("signed.dmg", credentials, execute, session);
+      const trace = calls();
+      for (const target of [app, "signed.dmg"]) {
+        const stapleIndex = trace.findIndex(
+          ([, args]) => args[0] === "stapler" && args[1] === "staple" && args[2] === target,
+        );
+        assert.ok(stapleIndex > trace.findIndex(([, args]) => args[1] === "info"));
+      }
+      assert.match(messages.join("\n"), /Accepted/);
+      if (mode === "slow") {
+        assert.equal(time, 60);
+        assert.equal(messages.filter((line) => line.endsWith("In Progress")).length, 2);
+      }
+    } else {
+      await assert.rejects(action, (error) => {
+        messages.push(inspect(error));
+        return true;
+      });
+      assert.ok(!calls().some(([, args]) => args[0] === "stapler"));
+      if (["invalid", "rejected"].includes(mode)) {
+        assert.ok(calls().some(([, args]) => args[1] === "log"));
+        assert.match(messages.join("\n"), /fixture issue/);
+      }
+      if (mode === "deadline") {
+        assert.equal(time, 100);
+        assert.match(messages.join("\n"), /deadline exceeded.*id-Foom.zip \(In Progress\)/);
+      }
+    }
+    assert.match(messages[0], /^\[1970-01-01T00:00:00.000Z\]/);
+    for (const value of Object.values(credentials).slice(2))
+      assert.ok(!messages.join("\n").includes(value));
+  }
+  // The second artifact uses the first artifact's remaining budget and reports
+  // both IDs, including the accepted ZIP, when it expires.
+  process.env.FIXTURE_NOTARY_MODE = "accepted";
+  let time = 0;
+  const messages = [];
+  const shared = notarizationSession({
+    deadlineMs: 10,
+    pollMs: 5,
+    now: () => time,
+    wait: async (ms) => {
+      time += ms;
+    },
+    log: (line) => messages.push(line),
+  });
+  const unboundedFixture = (command, args) => run(command, args);
+  await notarizeApp(app, credentials, unboundedFixture, shared);
+  process.env.FIXTURE_NOTARY_MODE = "deadline";
+  await assert.rejects(
+    signDmg("signed.dmg", credentials, unboundedFixture, shared),
+    /deadline exceeded.*id-Foom.zip \(Accepted\).*id-signed.dmg \(In Progress\)/,
+  );
+  assert.equal(time, 10);
+});
+
+test("notarization job leaves overhead beyond the single shared 120-minute budget", () => {
+  assert.equal(notarizationDeadlineMs, 120 * 60 * 1000);
+  const job = readFileSync(".github/workflows/ci.yml", "utf8")
+    .split("\n  macos-sign:\n")[1]
+    .split("\n  macos-credentials:\n")[0];
+  const minutes = Number(job.match(/timeout-minutes: (\d+)/)[1]);
+  assert.ok(minutes >= notarizationDeadlineMs / 60_000 + 30);
+});
+
+test("stalled notarytool commands are killed with bounded, redacted diagnostics", async () => {
+  assert.throws(
+    () =>
+      run(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+        timeout: 50,
+        killSignal: "SIGKILL",
+      }),
+    /timed out/,
+  );
+  let time = 0;
+  const messages = [];
+  const session = notarizationSession({
+    deadlineMs: 10,
+    now: () => time,
+    log: (line) => messages.push(line),
+  });
+  const credentials = {
+    appleApiKey: "fixture-key",
+    appleApiKeyId: "fixture-id",
+    appleApiIssuer: "fixture-issuer",
+  };
+  await assert.rejects(
+    session("slow.zip", credentials, (_command, args) => {
+      if (args[1] === "submit") return JSON.stringify({ id: "stalled-id" });
+      time = 10;
+      throw new Error("xcrun timed out fixture-key fixture-id fixture-issuer");
+    }),
+    /deadline exceeded.*submissions: slow.zip: stalled-id \(Submitted\)/,
+  );
+  for (const value of Object.values(credentials)) assert.ok(!messages.join("\n").includes(value));
 });
