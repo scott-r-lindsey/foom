@@ -6,6 +6,7 @@ import type * as Fs from "node:fs/promises";
 import type { AgentId } from "../../../../src/shared/agents";
 import { afterEach, expect, test, vi } from "vitest";
 import { EventEmitter } from "node:events";
+import { join } from "node:path";
 import type { BrowserWindow, MenuItemConstructorOptions } from "electron";
 const mock = vi.hoisted(() => ({
   read: vi.fn(() => Promise.resolve("Bundled license text")),
@@ -103,7 +104,7 @@ function fixture(platform: NodeJS.Platform = "linux", defaults = false) {
 }
 test("validates each sender and command ID, projects data only and disposes handlers", async () => {
   const f = fixture();
-  for (const channel of ["list", "shortcuts", "execute", "view", "version"]) {
+  for (const channel of ["list", "shortcuts", "execute", "view", "version", "legal"]) {
     for (const event of [
       { sender: {}, senderFrame: f.frame },
       { sender: f.contents, senderFrame: null },
@@ -400,32 +401,38 @@ test("publishes newly installed config launch routes and removes them live", asy
   }
 });
 
-test("About publishes versions and bundled license commands accept no paths", async () => {
+test("About publishes versions and legal commands only notify the board", async () => {
   const f = fixture();
   expect(await f.call("version")).toEqual({ app: "1", electron: process.versions.electron });
   await f.call("execute", "about");
   expect(f.contents.send).toHaveBeenCalledWith("board:command", "about");
   for (const id of ["licenses", "notices"]) {
     await f.call("execute", id);
-    await vi.waitFor(() => {
-      expect(mock.message).toHaveBeenCalledWith(
-        f.window,
-        expect.objectContaining({ detail: "Bundled license text" }),
-      );
-    });
+    expect(f.contents.send).toHaveBeenCalledWith("app-menu:legal", id);
   }
-  expect(mock.read).toHaveBeenCalledWith(
-    expect.stringContaining("THIRD_PARTY_NOTICES.txt"),
-    "utf8",
-  );
-  mock.read.mockRejectedValueOnce(new Error("missing"));
-  await f.call("execute", "notices");
-  await vi.waitFor(() => {
-    expect(mock.message).toHaveBeenCalledWith(
-      f.window,
-      expect.objectContaining({ message: "Unable to read bundled notices." }),
-    );
-  });
+  expect(mock.read).not.toHaveBeenCalled();
+  expect(mock.message).not.toHaveBeenCalled();
   await expect(f.call("execute", "../../LICENSE")).rejects.toThrow("Unavailable");
+  f.attached.dispose();
+});
+
+test("legal reads accept only fixed bundled IDs and propagate unavailable files", async () => {
+  const f = fixture();
+  for (const id of [null, {}, "../../LICENSE", "github", "LICENSE"])
+    await expect(f.call("legal", id)).rejects.toThrow("Invalid legal document");
+  expect(mock.read).not.toHaveBeenCalled();
+  for (const [id, file] of [
+    ["licenses", "LICENSE"],
+    ["notices", "build/THIRD_PARTY_NOTICES.txt"],
+  ]) {
+    await expect(f.call("legal", id)).resolves.toBe("Bundled license text");
+    expect(mock.read).toHaveBeenLastCalledWith(join(process.cwd(), file ?? ""), "utf8");
+  }
+  for (const text of ["", "x".repeat(1_048_577)]) {
+    mock.read.mockResolvedValueOnce(text);
+    await expect(f.call("legal", "notices")).rejects.toThrow("Invalid bundled legal text");
+  }
+  mock.read.mockRejectedValueOnce(new Error("missing"));
+  await expect(f.call("legal", "notices")).rejects.toThrow("missing");
   f.attached.dispose();
 });

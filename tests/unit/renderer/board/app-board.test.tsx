@@ -1,6 +1,6 @@
 import { agent, mock, settle, verdict } from "./app-board-fixture";
 // @vitest-environment jsdom
-import { act, fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import { App } from "../../../../src/renderer/app";
 import { createAppSource } from "../../../../src/renderer/board/live-board-source";
@@ -229,4 +229,62 @@ test("the application owns and disposes preview composition independently of til
   expect(cover).toHaveBeenCalledWith(false);
   delete window.desktop.previews;
   Reflect.deleteProperty(document, "getAnimations");
+});
+
+test.each([
+  ["licenses", "Licenses"],
+  ["notices", "Third-party notices"],
+] as const)("application re-presents %s above About on every request", async (id, title) => {
+  const shown = vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (
+    this: HTMLDialogElement,
+  ) {
+    this.setAttribute("open", "");
+  });
+  vi.spyOn(HTMLDialogElement.prototype, "close").mockImplementation(function (
+    this: HTMLDialogElement,
+  ) {
+    this.removeAttribute("open");
+  });
+  let receive: (id: "licenses" | "notices") => void = () => {};
+  const off = vi.fn();
+  vi.mocked(window.desktop.appMenu.onLegal).mockImplementation((callback) => {
+    receive = callback;
+    return off;
+  });
+  const commands = new Set<Parameters<typeof window.desktop.onBoardCommand>[0]>();
+  vi.spyOn(window.desktop, "onBoardCommand").mockImplementation((listener) => {
+    commands.add(listener);
+    return () => {
+      commands.delete(listener);
+    };
+  });
+  vi.mocked(window.desktop.appMenu.version).mockResolvedValue({ app: "1", electron: "1" });
+  const view = render(<App />);
+  await settle();
+  act(() => {
+    receive(id);
+  });
+  await settle();
+  const first = view.getByRole("dialog", { name: title });
+  act(() => {
+    for (const command of commands) command("about");
+  });
+  await settle();
+  const about = view.getByRole("dialog", { name: "About Foom" });
+  expect(shown.mock.contexts.at(-1)).toBe(about);
+  vi.mocked(window.desktop.appMenu.execute).mockImplementation(() => {
+    receive(id);
+    return Promise.resolve();
+  });
+  fireEvent.click(view.getByRole("button", { name: title }));
+  await settle();
+  const reopened = view.getByRole("dialog", { name: title });
+  expect(reopened).not.toBe(first);
+  expect(shown.mock.contexts.at(-1)).toBe(reopened);
+  expect(view.getByText("Bundled legal text")).toBeTruthy();
+  fireEvent.click(within(reopened).getByRole("button", { name: "Close" }));
+  expect(view.queryByRole("dialog", { name: title })).toBeNull();
+  expect(view.getByRole("dialog", { name: "About Foom" })).toBe(about);
+  view.unmount();
+  expect(off).toHaveBeenCalledOnce();
 });

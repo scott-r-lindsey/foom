@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentId } from "../../shared/agents";
 import type { WindowIpc } from "./window-ipc";
-import { app, Menu, dialog, ipcMain, shell } from "electron";
+import { app, Menu, ipcMain, shell } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
 import {
   createCommands,
@@ -42,25 +42,7 @@ export function attachAppMenu(
         break;
       case "licenses":
       case "notices":
-        void readFile(
-          join(app.getAppPath(), id === "licenses" ? "LICENSE" : "build/THIRD_PARTY_NOTICES.txt"),
-          "utf8",
-        )
-          .then((detail) =>
-            dialog.showMessageBox(window, {
-              title: id === "licenses" ? "Licenses" : "Third-party notices",
-              message: id === "licenses" ? "Foom · Apache-2.0" : "Third-party notices",
-              detail,
-              buttons: ["OK"],
-            }),
-          )
-          .catch(() =>
-            dialog.showMessageBox(window, {
-              title: "Licenses",
-              message: "Unable to read bundled notices.",
-              buttons: ["OK"],
-            }),
-          );
+        contents.send("app-menu:legal", id);
         break;
       case "shortcuts":
         contents.send("app-menu:shortcuts");
@@ -229,6 +211,16 @@ export function attachAppMenu(
     )
       throw new Error("Untrusted app menu sender");
   };
+  ipc.handle("app-menu:legal", async (event, id: unknown) => {
+    trusted(event);
+    if (id !== "licenses" && id !== "notices") throw new Error("Invalid legal document");
+    const text = await readFile(
+      join(app.getAppPath(), id === "licenses" ? "LICENSE" : "build/THIRD_PARTY_NOTICES.txt"),
+      "utf8",
+    );
+    if (!text || text.length > 1_048_576) throw new Error("Invalid bundled legal text");
+    return text;
+  });
   ipc.handle("app-menu:version", (event) => {
     trusted(event);
     return { app: app.getVersion(), electron: process.versions.electron };
@@ -261,6 +253,7 @@ export function attachAppMenu(
       disposed = true;
       generation++;
       window.removeListener("focus", focus);
+      ipc.removeHandler("app-menu:legal");
       ipc.removeHandler("app-menu:version");
       ipc.removeHandler("app-menu:view");
       ipc.removeHandler("app-menu:list");

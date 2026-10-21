@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { readFile } = require("node:fs/promises");
 const { deadline, expect } = require("./test-policy.js");
-const { boardPage, launchApp, launchCheckoutShell } = require("./harness.js");
+const { assertAccessible, boardPage, launchApp, launchCheckoutShell } = require("./harness.js");
 
 test("shared board startup restores a native-hidden CDP-visible board and delivers frames", {
   timeout: deadline(45_000),
@@ -315,4 +315,81 @@ test("About command opens the in-board art dialog and its anchored note", {
   await expect(dialog).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
+});
+
+test("bundled notices and licenses scroll and dismiss from About and menu commands", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  const about = page.getByRole("dialog", { name: "About Foom", exact: true });
+  for (const route of ["about", "menu"]) {
+    if (route === "about") {
+      await page.evaluate(() => window.desktop.appMenu.execute("about"));
+      await expect(about).toBeVisible();
+    }
+    for (const [id, title, file] of [
+      ["licenses", "Licenses", "LICENSE"],
+      ["notices", "Third-party notices", "build/THIRD_PARTY_NOTICES.txt"],
+    ]) {
+      if (route === "about") await about.getByRole("button", { name: title, exact: true }).click();
+      else if (process.platform === "darwin") {
+        await app.evaluate(({ Menu }, id) => {
+          const menu = Menu.getApplicationMenu();
+          const item = menu.getMenuItemById(id);
+          item.click();
+        }, id);
+      } else {
+        // Both native Help entries use this same main-owned command registry.
+        await page.evaluate((id) => window.desktop.appMenu.execute(id), id);
+      }
+      const dialog = page.getByRole("dialog", { name: title, exact: true });
+      await expect(dialog).toBeVisible();
+      if (route === "menu") {
+        await page.evaluate(() => window.desktop.appMenu.execute("about"));
+        await expect(about).toBeVisible();
+        await about.getByRole("button", { name: title, exact: true }).click();
+        // The same document must re-enter the top layer above the newer About modal.
+        await expect(dialog.locator("pre")).toBeFocused();
+      }
+      const text = dialog.locator("pre");
+      const bundled = await readFile(path.join(__dirname, "../..", file), "utf8");
+      await expect(text).toHaveText(bundled);
+      if (route === "about") await assertAccessible(page);
+      await text.focus();
+      await text.hover();
+      await page.mouse.wheel(0, 1_000_000);
+      await expect
+        .poll(() =>
+          text.evaluate(
+            (element) =>
+              element.scrollHeight > element.clientHeight &&
+              Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop) <= 1,
+          ),
+        )
+        .toBe(true);
+      await page.keyboard.press("Escape");
+      await expect(dialog).toHaveCount(0);
+      await expect(about).toBeVisible();
+      await expect(about.getByRole("button", { name: title, exact: true })).toBeFocused();
+      if (route === "menu") {
+        await page.keyboard.press("Escape");
+        await expect(about).toHaveCount(0);
+      }
+    }
+    if (route === "about") {
+      await page.keyboard.press("Escape");
+      await expect(about).toHaveCount(0);
+    }
+  }
+  await page.evaluate(() => window.desktop.appMenu.execute("notices"));
+  const notices = page.getByRole("dialog", { name: "Third-party notices", exact: true });
+  await expect(notices).toBeVisible();
+  await page.mouse.click(2, 2);
+  await expect(notices).toHaveCount(0);
+  await page.evaluate(() => window.desktop.appMenu.execute("licenses"));
+  const licenses = page.getByRole("dialog", { name: "Licenses", exact: true });
+  await expect(licenses).toBeVisible();
+  await licenses.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(licenses).toHaveCount(0);
 });
