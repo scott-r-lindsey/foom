@@ -54,7 +54,7 @@
     "@types/react-dom": "19.3.0",
     "@vitest/coverage-v8": "5.0.2",
     "ajv": "8.20.0",
-    "electron": "44.4.5",
+    "electron": "44.9.3",
     "esbuild": "0.28.2",
     "eslint": "10.11.0",
     "eslint-plugin-react-hooks": "7.1.1",
