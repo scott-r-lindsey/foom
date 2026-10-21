@@ -48,10 +48,15 @@ rolls the rocket along the flat-then-vertical brand curve, leaving a glowing
 trail past the black Eclipse hole and exiting through the top. Stars radiate
 from the hole toward the viewer, accelerating over about 1.5 seconds and
 remaining fast beneath the top-left wordmark and “Takeoff was faster than
-expected.” The overlay finishes at 4300 ms. Escape, Enter, Space or a click
-skips it; “Press Esc to skip” remains visible. Reduced motion instead holds
-one final still frame, with trail, rocket near the top, short static streaks
-and title, for 1200 ms. Art uses hole, space-ink, accent and accent-deep tokens.
+expected.” At 3900 ms the rocket is gone, stars are at full speed and the title
+is shown. Hold that state for 10 seconds with the starfield still animating,
+then fade out over 200 ms. Escape, Enter, Space or a click anywhere finishes
+immediately, exactly once, during the animation, hold or fade; “Click or press
+Esc to continue” remains visible. Reduced motion instead holds one final still
+frame, with trail, rocket near the top, short static streaks and title, for
+10 seconds, then finishes without a fade; any click or key dismisses it.
+The drawing loop and sequence timers stop on dismissal or unmount. Art uses
+hole, space-ink, accent and accent-deep tokens.
 
 ## Bundled manual
 

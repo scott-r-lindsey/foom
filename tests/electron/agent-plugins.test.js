@@ -177,7 +177,9 @@ process.stdin.resume();`,
   const card = page
     .locator(".agent-card")
     .filter({ has: page.getByRole("heading", { name: "Fixture agent", exact: true }) });
-  await expect(card).toContainText("agents/foom-test-agent.json");
+  await expect(
+    card.getByRole("img", { name: "Foom config · agents/foom-test-agent.json", exact: true }),
+  ).toHaveAttribute("title", "Foom config · agents/foom-test-agent.json");
   await expect(card.getByRole("button", { name: "Review…", exact: true })).toHaveCount(0);
   await expect
     .poll(async () =>
@@ -386,7 +388,9 @@ else process.exit(2);
   const card = page
     .locator(".agent-card")
     .filter({ has: page.getByRole("heading", { name: "Setup fixture", exact: true }) });
-  await expect(card).toContainText("agents/foom-test-agent.json");
+  await expect(
+    card.getByRole("img", { name: "Foom config · agents/foom-test-agent.json", exact: true }),
+  ).toHaveAttribute("title", "Foom config · agents/foom-test-agent.json");
   const rescan = async (state) => {
     const report = await page.evaluate(() => window.desktop.scanAgents(true));
     assert.equal(
