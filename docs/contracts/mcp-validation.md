@@ -39,6 +39,35 @@ Closed issues are reopened on regression. The job serializes issue updates, has
 issues write and contents read only, and neither publishes nor blocks nightly
 packages. Setup/API failures remain job failures; no raw logs are uploaded.
 
+### Deferred-tool probe correction (#259)
+
+Claude Code 2.1.304 enabled tool search by default behind `ANTHROPIC_BASE_URL`
+gateways. The synthetic endpoint previously expected Foom definitions in the first
+model request and returned completion when none appeared. With 2.1.306, a local
+credential-free reproduction authenticated initialization and listing, but that
+first request contained `ToolSearch` and `DeferredToolPlaceholder` instead of Foom
+definitions, so no `tools/call` followed. This was a synthetic-model limitation,
+not evidence of an authentication, protocol, tool-prefix or approval regression.
+The earlier 2.1.296 initialize failure recorded on #259 was a deliberate acceptance
+test failure, followed by recovery; it is not the same regression.
+
+The synthetic responder now requests a bounded Foom tool search when definitions
+are deferred, then calls the discovered per-launch `whoami` and `open_preview`.
+It stops after an empty search so administrator refusal cannot cause a search
+loop. Upfront definitions remain supported. All authenticated initialize/list/call,
+identity, preview, existing-server coexistence, configuration preservation and
+managed-policy refusal assertions remain required. No production MCP authentication,
+tokens, launch configuration or permission grants change, and tool search stays at
+the client's default. Fixture tests cover deferred discovery, upfront definitions
+and empty discovery without executing real CLIs.
+
+Sources: [Claude Code changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#21304),
+[gateway tool search](https://code.claude.com/docs/en/mcp#tool-search-through-an-llm-gateway).
+To verify in CI, manually run **Actions → CI → Run workflow** on the PR branch with
+`claude_version=2.1.306` (or `latest`) and `codex_version=latest`, leaving publishing
+disabled. The Real CLI MCP probe should pass both clients; PR CI alone does not run
+that independent nightly/manual probe.
+
 For each attached launch, main waits up to 30 seconds after binding the terminal
 for its first successful authenticated MCP request. The session panel shows
 **Connecting…**, then **Connected**, or **Not connected** after the deadline.
