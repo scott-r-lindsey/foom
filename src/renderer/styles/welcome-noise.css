@@ -72,7 +72,8 @@
 .welcome-noise:not([data-phase="noise"]) .welcome-sidebar {
   opacity: 1;
 }
-.welcome-sidebar .board-light[data-moving="true"] {
+.welcome-noise .welcome-sidebar .board-light[data-moving="true"] {
+  --activity: var(--welcome-level);
   opacity: var(--welcome-level);
   transform: scale(calc(0.85 + var(--welcome-level) * 0.3));
   transition:
@@ -84,7 +85,7 @@
     display: none;
   }
   .welcome-noise .welcome-sidebar,
-  .welcome-noise .board-light {
+  .welcome-noise .welcome-sidebar .board-light[data-moving="true"] {
     transition: none;
     transform: none;
   }
