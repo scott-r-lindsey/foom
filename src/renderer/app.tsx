@@ -24,8 +24,14 @@ export function App() {
   );
 }
 function AppContents() {
-  const [legal, setLegal] = useState<LegalDocument>();
-  useEffect(() => window.desktop.appMenu.onLegal(setLegal), []);
+  const [legal, setLegal] = useState<{ id: LegalDocument; version: number }>();
+  useEffect(
+    () =>
+      window.desktop.appMenu.onLegal((id) => {
+        setLegal((current) => ({ id, version: (current?.version ?? 0) + 1 }));
+      }),
+    [],
+  );
   const [about, setAbout] = useState(false);
   const [actionError, setActionError] = useState(false);
   const [source] = useState(() =>
@@ -88,8 +94,8 @@ function AppContents() {
       )}
       {legal && (
         <LegalDialog
-          key={legal}
-          id={legal}
+          key={legal.version}
+          id={legal.id}
           menu={window.desktop.appMenu}
           close={() => {
             setLegal(undefined);

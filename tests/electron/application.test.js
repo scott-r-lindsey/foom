@@ -345,6 +345,13 @@ test("bundled notices and licenses scroll and dismiss from About and menu comman
       }
       const dialog = page.getByRole("dialog", { name: title, exact: true });
       await expect(dialog).toBeVisible();
+      if (route === "menu") {
+        await page.evaluate(() => window.desktop.appMenu.execute("about"));
+        await expect(about).toBeVisible();
+        await about.getByRole("button", { name: title, exact: true }).click();
+        // The same document must re-enter the top layer above the newer About modal.
+        await expect(dialog.locator("pre")).toBeFocused();
+      }
       const text = dialog.locator("pre");
       const bundled = await readFile(path.join(__dirname, "../..", file), "utf8");
       await expect(text).toHaveText(bundled);
@@ -363,9 +370,11 @@ test("bundled notices and licenses scroll and dismiss from About and menu comman
         .toBe(true);
       await page.keyboard.press("Escape");
       await expect(dialog).toHaveCount(0);
-      if (route === "about") {
-        await expect(about).toBeVisible();
-        await expect(about.getByRole("button", { name: title, exact: true })).toBeFocused();
+      await expect(about).toBeVisible();
+      await expect(about.getByRole("button", { name: title, exact: true })).toBeFocused();
+      if (route === "menu") {
+        await page.keyboard.press("Escape");
+        await expect(about).toHaveCount(0);
       }
     }
     if (route === "about") {
