@@ -1073,3 +1073,52 @@ test("readiness is lazy, git blocks launch, optional forge failures link to sett
   fireEvent.click(button("Back to Go / no-go"));
   await screen.findByText("gh auth login");
 });
+
+test("Environment context opens Agents and restores its heading focus", async () => {
+  const initial = setupState({ setupComplete: true });
+  const environment = {
+    lists: { all: [], claude: [], codex: [], agy: [] },
+    windows: false,
+    secrets: true,
+  };
+  const source = {
+    ...fake(initial),
+    environment: {
+      environmentState: () => Promise.resolve(environment),
+      saveEnvironment: () => Promise.resolve(environment),
+      removeEnvironment: () => Promise.resolve(environment),
+      readShellEnvironment: () => Promise.resolve([]),
+      importEnvironment: () => Promise.resolve(environment),
+    },
+  } satisfies SetupSource;
+  render(<Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />);
+  fireEvent.click(button("Environment"));
+  const hint = await screen.findByText(/Added to every shell and agent Foom starts/);
+  fireEvent.click(within(hint).getByRole("button", { name: "Agents" }));
+  expect(screen.getByRole("heading", { name: "Agents" })).toBe(document.activeElement);
+  expect(
+    within(screen.getByRole("navigation", { name: "Settings sections" }))
+      .getByRole("button", { name: "Agents" })
+      .getAttribute("aria-current"),
+  ).toBe("page");
+});
+
+test("Session panel color choices save immediately and follow the saved selection", async () => {
+  const initial = setupState({ setupComplete: true });
+  const source = fake(initial);
+  render(<Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />);
+  fireEvent.click(button("Appearance"));
+  expect(screen.getByRole("img", { name: "Session panel preview" })).toBeTruthy();
+  for (const [name, value] of [
+    ["Subtle", "subtle"],
+    ["Plain", "plain"],
+    ["Vivid", "vivid"],
+  ] as const) {
+    const radio = screen.getByRole("radio", { name });
+    fireEvent.click(radio);
+    await waitFor(() => {
+      expect(source.save).toHaveBeenLastCalledWith({ panelColor: value });
+      expect(radio).toHaveProperty("checked", true);
+    });
+  }
+});
