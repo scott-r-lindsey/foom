@@ -224,6 +224,35 @@ export async function notarizeApp(app, credentials, execute = run) {
   execute("xcrun", ["stapler", "validate", app]);
 }
 
+export function signDmg(
+  dmg,
+  { identity, keychain, appleApiKey, appleApiKeyId, appleApiIssuer },
+  execute = run,
+) {
+  execute("codesign", ["--force", "--sign", identity, "--timestamp", "--keychain", keychain, dmg]);
+  execute("codesign", ["--verify", "--strict", dmg]);
+  const submission = JSON.parse(
+    execute("xcrun", [
+      "notarytool",
+      "submit",
+      dmg,
+      "--key",
+      appleApiKey,
+      "--key-id",
+      appleApiKeyId,
+      "--issuer",
+      appleApiIssuer,
+      "--wait",
+      "--output-format",
+      "json",
+    ]),
+  );
+  assert.equal(submission.status, "Accepted", "DMG notarization was not accepted");
+  execute("xcrun", ["stapler", "staple", dmg]);
+  execute("xcrun", ["stapler", "validate", dmg]);
+  execute("spctl", ["-a", "-t", "open", "--context", "context:primary-signature", "-vv", dmg]);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [mode, input, output] = process.argv.slice(2);
   if (mode === "adhoc" && input && !output) {
@@ -251,6 +280,31 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       });
     await mkdir(resolve(output), { recursive: true });
     run("ditto", ["-c", "-k", "--keepParent", app, join(resolve(output), basename(zip))]);
+    // Build the image from the exact signed/stapled app, never the ad-hoc DMG.
+    // PRs exercise the same maker after the artifact download without credentials.
+    const { default: MakerDMG } = await import("./maker-dmg.cjs");
+    const maker = new MakerDMG();
+    await maker.prepareConfig(process.arch);
+    const version = run("/usr/libexec/PlistBuddy", [
+      "-c",
+      "Print :CFBundleShortVersionString",
+      join(app, "Contents/Info.plist"),
+    ]).trim();
+    const [dmg] = await maker.make({
+      dir: unpack,
+      makeDir: resolve(output),
+      appName: "Foom",
+      packageJSON: { version },
+      targetArch: process.arch,
+    });
+    if (mode === "release")
+      signDmg(dmg, {
+        identity,
+        keychain,
+        appleApiKey: join(directory, "AuthKey.p8"),
+        appleApiKeyId: process.env.APPLE_API_KEY_ID,
+        appleApiIssuer: process.env.APPLE_API_ISSUER,
+      });
   } else
     throw new Error("Expected adhoc APP or release/adhoc-zip ARTIFACT_DIRECTORY OUTPUT_DIRECTORY");
 }

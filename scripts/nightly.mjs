@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { globSync, readFileSync, writeFileSync } from "node:fs";
+import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export function nightlyRequested(event, ref, input) {
@@ -41,13 +42,33 @@ export function assets(directory, info) {
   const files = globSync(`${directory}/**/*.zip`);
   const platforms = ["darwin-arm64", "linux-x64", "win32-x64"];
   if (files.length !== 3) throw new Error("Expected exactly three nightly ZIPs");
-  return platforms.map((platform) => {
+  const zips = platforms.map((platform) => {
     const matches = files.filter((file) => file.endsWith(`-${platform}-${info.version}.zip`));
     if (matches.length !== 1) throw new Error(`Missing or duplicate ${platform} nightly ZIP`);
     const data = readFileSync(matches[0]);
     if (data.length < 4 || data.readUInt32LE(0) !== 0x04034b50) throw new Error("Invalid ZIP");
     return { name: `Foom-nightly-${info.day}-${info.short}-${platform}.zip`, data };
   });
+  const installers = globSync(`${directory}/**/*`).filter(
+    (file) => /\.(dmg|deb|rpm|exe|nupkg)$/.test(file) || basename(file) === "RELEASES",
+  );
+  for (const pattern of [/\.dmg$/, /\.deb$/, /\.rpm$/, /\.exe$/, /-full\.nupkg$/, /[/\\]RELEASES$/])
+    if (installers.filter((file) => pattern.test(file)).length !== 1)
+      throw new Error("Missing or duplicate nightly installer");
+  if (installers.length !== 6) throw new Error("Unexpected nightly installers");
+  const nameFor = (file) =>
+    `Foom-nightly-${info.day}-${info.short}-${basename(file).replaceAll(" ", "-")}`;
+  const nupkg = installers.find((file) => file.endsWith("-full.nupkg"));
+  return [
+    ...zips,
+    ...installers.map((file) => ({
+      name: nameFor(file),
+      data:
+        basename(file) === "RELEASES"
+          ? Buffer.from(readFileSync(file, "utf8").replaceAll(basename(nupkg), nameFor(nupkg)))
+          : readFileSync(file),
+    })),
+  ];
 }
 
 export function checksums(packages) {

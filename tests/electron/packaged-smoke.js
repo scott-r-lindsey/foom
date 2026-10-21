@@ -28,7 +28,9 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
 }, async (context) => {
   checkpoint("test started", { test: context.name });
   context.after(() => checkpoint("test hooks reached", { test: context.name }));
-  const root = path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
+  const root =
+    process.env.FOOM_PACKAGED_ROOT ??
+    path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
   const executable =
     process.platform === "darwin"
       ? path.join(root, "Foom.app", "Contents", "MacOS", "Foom")
@@ -518,7 +520,9 @@ test("packaged console helper runs without Node from relocated Unicode paths", a
   context.after(() => checkpoint("test hooks reached", { test: context.name }));
   const { copyFileSync, chmodSync } = require("node:fs");
   const { createHash } = require("node:crypto");
-  const root = path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
+  const root =
+    process.env.FOOM_PACKAGED_ROOT ??
+    path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
   const resources =
     process.platform === "darwin"
       ? path.join(root, "Foom.app/Contents/Resources")
@@ -563,7 +567,9 @@ test("packaged CLI PATH setup is explicit, non-clobbering and reversible", async
   context.after(() => checkpoint("test hooks reached", { test: context.name }));
   const { copyFileSync, cpSync, chmodSync, readlinkSync, renameSync } = require("node:fs");
   const { spawnSync } = require("node:child_process");
-  const root = path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
+  const root =
+    process.env.FOOM_PACKAGED_ROOT ??
+    path.join(__dirname, "../..", "out", `Foom-${process.platform}-${process.arch}`);
   const resources =
     process.platform === "darwin"
       ? path.join(root, "Foom.app/Contents/Resources")

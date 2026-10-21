@@ -24,3 +24,11 @@ the child app's sessions. Bash lifecycle integration uses an invocation-private
 startup file and non-exported shell callbacks, not environment credentials.
 Per-launch agent settings remain scoped to command arguments; user configuration
 and unrelated environment variables are unchanged.
+
+## Windows installer callbacks
+
+Packaged Windows launches handle Squirrel install/update/uninstall/obsolete
+callbacks before profile selection, locks or stores. Install/update creates the
+Foom shortcut through the adjacent fixed `Update.exe`; uninstall removes it.
+Each callback quits after the helper finishes (including failures). Normal
+launches continue through the existing profile and single-instance lifecycle.

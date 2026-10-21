@@ -72,6 +72,15 @@ function fixture(context) {
       `nightly-packages/Foom-${platform}-${info.version}.zip`,
       Buffer.from([0x50, 0x4b, 3, 4, 1]),
     );
+  for (const name of [
+    "Foom.dmg",
+    "foom.deb",
+    "foom.rpm",
+    "Foom Setup.exe",
+    "foom-full.nupkg",
+    "RELEASES",
+  ])
+    writeFileSync(join("nightly-packages", name), "fixture installer");
   return {
     info,
     context: {
@@ -117,19 +126,19 @@ function api(previous, failure) {
 test("complete asset set is validated before publication; hashes cover exact bytes", async (t) => {
   const { info, context } = fixture(t);
   const packages = assets("nightly-packages", info);
-  assert.equal(packages.length, 3);
+  assert.equal(packages.length, 9);
   assert.match(checksums(packages), /^[a-f0-9]{64} {2}Foom-nightly-/);
-  assert.equal(checksums(packages).split("\n").filter(Boolean).length, 3);
+  assert.equal(checksums(packages).split("\n").filter(Boolean).length, 9);
   rmSync(`nightly-packages/Foom-linux-x64-${info.version}.zip`);
   const mock = api();
   await assert.rejects(publish({ ...mock, context }), /three nightly/);
   assert.deepEqual(mock.calls, []);
 });
-test("first nightly uploads three ZIPs and checksums then publishes a non-latest prerelease", async (t) => {
+test("first nightly uploads ZIPs, installers and checksums then publishes a non-latest prerelease", async (t) => {
   const { context } = fixture(t);
   const mock = api();
   await publish({ ...mock, context });
-  assert.equal(mock.calls.filter(([name]) => name === "uploadReleaseAsset").length, 4);
+  assert.equal(mock.calls.filter(([name]) => name === "uploadReleaseAsset").length, 10);
   const final = mock.calls.at(-1);
   assert.equal(final[0], "updateRelease");
   assert.equal(final[1].draft, false);
@@ -316,4 +325,17 @@ test("an interrupted first publish resumes its draft even when the tag endpoint 
   await publish({ ...mock, context });
   assert.ok(!mock.calls.some(([name]) => name === "createRelease"));
   assert.equal(mock.calls.find(([name]) => name === "updateRelease")[1].release_id, 7);
+});
+
+test("nightly installers have immutable commit names and RELEASES references the renamed nupkg", (t) => {
+  const { info } = fixture(t);
+  writeFileSync("nightly-packages/RELEASES", "fixture-sha1 foom-full.nupkg 42\n");
+  const packages = assets("nightly-packages", info);
+  const nupkg = packages.find((asset) => asset.name.endsWith(".nupkg"));
+  const releases = packages.find((asset) => asset.name.endsWith("-RELEASES"));
+  assert.ok(nupkg.name.includes(info.short));
+  assert.equal(releases.data.toString(), `fixture-sha1 ${nupkg.name} 42\n`);
+  assert.equal(nupkg.data.toString(), "fixture installer");
+  rmSync("nightly-packages/foom.rpm");
+  assert.throws(() => assets("nightly-packages", info), /nightly installer/);
 });

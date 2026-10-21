@@ -41,3 +41,9 @@ test("a failed production build stops packaging instead of reusing stale output"
     (error) => error === failure,
   );
 });
+
+test("the directly used Squirrel toolchain loads offline with its required dependencies", () => {
+  const installer = require("electron-winstaller");
+  assert.equal(typeof installer.createWindowsInstaller, "function");
+  assert.equal(manifest.devDependencies["electron-winstaller"], "5.4.4");
+});
