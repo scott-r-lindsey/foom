@@ -352,3 +352,18 @@ test("probe prompts never chime; their config driver's reminder can", async () =
   expect(f.sink.alert).toHaveBeenCalledWith("needs-you", expect.any(Number));
   f.dispose();
 });
+
+test("working and quiet boards need no audio poll until an alert is pending", async () => {
+  const f = await fixture();
+  expect(vi.getTimerCount()).toBe(0);
+  f.source.update("a", { state: "done" });
+  expect(vi.getTimerCount()).toBe(1);
+  vi.advanceTimersByTime(1000);
+  expect(f.sink.alert).toHaveBeenCalledExactlyOnceWith("done", 0.5);
+  expect(vi.getTimerCount()).toBe(0);
+  f.source.update("b", { state: "needs_input" });
+  expect(vi.getTimerCount()).toBe(1);
+  f.source.update("b", { state: "quiet_ok" });
+  expect(vi.getTimerCount()).toBe(0);
+  f.dispose();
+});

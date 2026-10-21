@@ -240,7 +240,7 @@ test("empty boards remain usable", () => {
   board.dispose();
 });
 
-test("activity updates brightness without replacing rows or rerendering React", () => {
+test("activity updates brightness without replacing rows or rerendering React", async () => {
   const rows = sampleRows(Date.now());
   const source = createSampleSource(rows);
   const renders = vi.fn();
@@ -270,7 +270,10 @@ test("activity updates brightness without replacing rows or rerendering React", 
     vi.advanceTimersByTime(1000);
   });
   expect(renders).not.toHaveBeenCalled();
-  fireEvent.change(filter, { target: { value: "" } });
+  await act(async () => {
+    fireEvent.change(filter, { target: { value: "" } });
+    await Promise.resolve();
+  });
   act(() => {
     vi.advanceTimersByTime(1000);
   });
@@ -534,4 +537,49 @@ test("agent placement uses existing space, preserves focus, rejects stale arriva
   await expect(arrival("preview", Date.now() + 5000)).resolves.toBe("existing");
   view.unmount();
   expect(off).toHaveBeenCalled();
+});
+
+test("an idle board sleeps after settling and wakes for activity and wait labels", () => {
+  const fixture = sampleRows(Date.now())[1];
+  if (!fixture) throw new Error("Missing fixture");
+  const source = createSampleSource([{ ...fixture, kind: "shell", rate: 0 }]);
+  const view = render(<Board source={source} />);
+  act(() => {
+    vi.advanceTimersByTime(12000);
+  });
+  expect(vi.getTimerCount()).toBe(0);
+  const light = view.container.querySelector<HTMLElement>(".board-light");
+  const idle = view.container.innerHTML;
+  act(() => {
+    vi.advanceTimersByTime(60000);
+  });
+  expect(view.container.innerHTML).toBe(idle);
+  source.setActivity(fixture.id, 4000);
+  act(() => {
+    vi.advanceTimersByTime(1000);
+  });
+  expect(Number(light?.style.getPropertyValue("--activity"))).toBeGreaterThan(0.99);
+  source.setActivity(fixture.id, 0);
+  act(() => {
+    vi.advanceTimersByTime(12000);
+  });
+  expect(light?.style.getPropertyValue("--activity")).toBe("0");
+  expect(vi.getTimerCount()).toBe(0);
+  act(() => {
+    source.update(fixture.id, { state: "needs_input", waitingSince: Date.now() });
+  });
+  act(() => {
+    vi.advanceTimersByTime(2000);
+  });
+  expect(view.container.querySelector(".board-wait")?.textContent).toBe("2s");
+  act(() => {
+    source.update(fixture.id, { state: "quiet_ok" });
+  });
+  act(() => {
+    vi.advanceTimersByTime(1000);
+  });
+  expect(vi.getTimerCount()).toBe(0);
+  view.unmount();
+  source.setActivity(fixture.id, 4000);
+  expect(vi.getTimerCount()).toBe(0);
 });
