@@ -451,6 +451,8 @@ test("menu commands and Dock navigation use the same board placement and report 
   const dispose = vi.fn();
   source.appMenu = {
     platform: "darwin",
+    legal: vi.fn(),
+    onLegal: vi.fn(),
     version: vi.fn(),
     setView,
     commands: vi.fn().mockResolvedValue([]),

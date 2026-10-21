@@ -7,6 +7,8 @@ import type { AppMenuApi } from "../../../src/shared/app-menu";
 import { canvasContext } from "./flight-canvas-fixture";
 
 const menu: AppMenuApi = {
+  legal: vi.fn(),
+  onLegal: vi.fn(),
   version: vi.fn(() =>
     Promise.resolve({ app: "0.1.0-nightly.20261021+abcdef0", electron: "44.4.5" }),
   ),

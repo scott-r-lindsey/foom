@@ -1,3 +1,5 @@
+import { LegalDialog } from "./about/legal-dialog";
+import type { LegalDocument } from "../shared/app-menu";
 import { AboutDialog } from "./about/about-dialog";
 import { ActionError, ErrorPresentation } from "./board/error-presentation";
 import { attachPreviewComposition } from "./board/preview-composition";
@@ -22,6 +24,14 @@ export function App() {
   );
 }
 function AppContents() {
+  const [legal, setLegal] = useState<{ id: LegalDocument; version: number }>();
+  useEffect(
+    () =>
+      window.desktop.appMenu.onLegal((id) => {
+        setLegal((current) => ({ id, version: (current?.version ?? 0) + 1 }));
+      }),
+    [],
+  );
   const [about, setAbout] = useState(false);
   const [actionError, setActionError] = useState(false);
   const [source] = useState(() =>
@@ -79,6 +89,16 @@ function AppContents() {
           menu={window.desktop.appMenu}
           close={() => {
             setAbout(false);
+          }}
+        />
+      )}
+      {legal && (
+        <LegalDialog
+          key={legal.version}
+          id={legal.id}
+          menu={window.desktop.appMenu}
+          close={() => {
+            setLegal(undefined);
           }}
         />
       )}
