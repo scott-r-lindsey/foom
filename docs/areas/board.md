@@ -100,3 +100,18 @@ Workspace refresh also synchronizes their projection before broadcasting a snaps
 read acknowledgements synchronize first so a queued notification cannot resurrect an
 already-read event. Both bounded and blocking waits acknowledge at entry and on
 return. Workspace disposal unsubscribes the reminder observer and cancels its timer.
+
+## Idle rendering (#697)
+
+A settled board schedules no recurring light, wait-label or sound polling work.
+Activity wakes the DOM-only light controller; its 50 ms envelope clock stops once
+rates and brightness reach zero and the eight-second trace has drained. A tiny
+release remainder below 0.0001 becomes zero. Flat traces and unchanged brightness
+are written only when their DOM value changes. Source changes and light remounts
+wake the controller, including filtering and relaunches, without React activity
+state. Unmount removes the source subscriptions, structure observer and clock.
+Wait labels schedule only their next visible seconds/minutes boundary while a
+mounted row needs input. Audio polls only while an alert or reminder is pending.
+Active relationship waves, cleanup sweeps, output and blinking terminal cursors
+still represent changing content; reduced-motion and native background-painting
+policy remain unchanged. See [renderer rules](renderer.md) for that policy.

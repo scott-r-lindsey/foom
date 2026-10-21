@@ -21,6 +21,7 @@ export function createSoundController(
   let loaded = false;
   let settingsRevision = 0;
   let lastAlert = -Infinity;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const working = new Set<string>();
   const consumed = new Map<string, string>();
   const verdicts = new Map<
@@ -73,7 +74,7 @@ export function createSoundController(
     if (!settings.alerts || soundVolume(settings, "alert") === 0) sink.silenceAlerts();
     tick();
   };
-  const tick = () => {
+  const play = () => {
     if (!loaded) return;
     const time = now();
     sink.working(settings.working && working.size > 0 ? 1 : 0, soundVolume(settings, "working"));
@@ -103,8 +104,26 @@ export function createSoundController(
       if (verdict.state === "done") consumed.set(id, verdict.key);
     }
   };
+  const tick = () => {
+    clearTimeout(timer);
+    play();
+    // Only unsettled alerts and attention reminders need a clock. Working audio
+    // is a sink-owned loop and source/settings events update it directly.
+    if (
+      loaded &&
+      [...verdicts.values()].some(
+        (verdict) =>
+          verdict.state === "needs_input" ||
+          (verdict.state === "done" && Number.isFinite(verdict.next)),
+      )
+    )
+      timer = setTimeout(tick, 100);
+  };
   updateRows();
-  const offRows = source.subscribe(updateRows);
+  const offRows = source.subscribe(() => {
+    updateRows();
+    tick();
+  });
   const offSetup = setup.subscribe((state) => {
     settingsRevision++;
     apply(state.settings.sound);
@@ -118,10 +137,9 @@ export function createSoundController(
       if (!disposed && revision === settingsRevision) apply(DEFAULT_SOUND);
     },
   );
-  const timer = setInterval(tick, 100);
   const dispose = () => {
     disposed = true;
-    clearInterval(timer);
+    clearTimeout(timer);
     offRows();
     offSetup();
     sink.dispose();

@@ -39,3 +39,24 @@ no new protocol URLs, worker, WASM, eval or network assets.
 Performance measurements and hardware/driver limits: [#620](https://github.com/scott-r-lindsey/foom/issues/620) and [raw reports](../../spikes/xterm-webgl/README.md).
 
 Performance evidence does not establish presentation/input latency or marginal GPU memory. Reports must state dimensions, normalized grids, GPU/driver and memory attribution limits. SwiftShader timings and failed-context DOM runs are not hardware WebGL performance evidence.
+
+## Idle-quiet board (#697)
+
+Terminal output does not justify unrelated board polling. After activity and trace
+history settle, the board's light, wait-label and audio controllers sleep until
+source or DOM structure events require work. A mounted terminal's intentional
+cursor blink and live output remain independent of that rule. Preserve PTY parser
+and attachment backpressure; measurements must show a main-process forwarding
+bottleneck before changing output IPC batching.
+
+`pnpm run build` followed by
+`MEASURE_LABEL=after xvfb-run -a node --test tests/electron/idle-measurement.js`
+records idle and five-stream traces plus CPU summaries under `test-results/`.
+It uses the isolated Electron fixture harness, six visible DOM terminal tiles in
+an 1800×1200 window, 22 seconds of settling, and ten key-to-DOM-echo probes in the
+sixth tile. Each of five streams writes 100 78-byte lines every 20 ms for 16 seconds.
+CPU is the delta of Electron's cumulative process CPU time divided by elapsed
+wall time (100% is one core). Tracing and Playwright add overhead. This fixture
+explicitly disables GPU acceleration to keep DOM echo observable; GPU-process
+CPU is software-compositor evidence, not hardware WebGL performance or physical
+key-to-photon latency. Intentional cursor blinking remains in the idle trace.
