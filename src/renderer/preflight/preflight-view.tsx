@@ -1,3 +1,4 @@
+import { useReadiness } from "./use-readiness";
 import type { ComponentProps } from "react";
 import {
   ActionError,
@@ -67,6 +68,11 @@ function PreflightContents({
   const [report, setReport] = useState<AgentReport>();
   const [scanning, setScanning] = useState(false);
   const [repositories, setRepositories] = useState<readonly Repository[]>([]);
+  const readiness = useReadiness(
+    source,
+    step === 3 || step === 12,
+    JSON.stringify([state.settings.forges, state.settings.forgeHosts, repositories]),
+  );
   const [code, setCode] = useState<CodeSelection>();
   const [codeScanning, setCodeScanning] = useState<Scanning>();
   const { report: reportFailure, clear } = useBackgroundErrors();
@@ -236,9 +242,19 @@ function PreflightContents({
       const update = await source.apply([...selection.selected]);
       setRepositories(update.repositories);
       if (update.failures.length) {
-        setError("Unable to update repositories.");
+        setError(
+          update.failures.some(
+            (failure) =>
+              failure.message === "Git is unavailable. Install Git and recheck on Go / no-go.",
+          )
+            ? "Git is unavailable. Install Git and recheck on Go / no-go."
+            : "Unable to update repositories.",
+        );
         restoreSelection(update.repositories);
-        return false;
+        return update.failures.every(
+          (failure) =>
+            failure.message === "Git is unavailable. Install Git and recheck on Go / no-go.",
+        );
       }
       return true;
     } catch (caught) {
@@ -297,7 +313,15 @@ function PreflightContents({
   };
   const launch = async () => {
     try {
-      receiveState(await source.save({ setupComplete: true }));
+      receiveState(
+        await source.save({
+          setupComplete: true,
+          showPullRequests:
+            state.settings.showPullRequests ??
+            readiness.report?.forges.some((forge) => forge.status === "ready") ??
+            false,
+        }),
+      );
       setLaunching(true);
     } catch (caught) {
       setError(message(caught));
@@ -479,6 +503,7 @@ function PreflightContents({
         headingRef={headingRef}
         settings={state.settings}
         source={source}
+        readiness={readiness}
         save={async (patch) => {
           receiveState(await source.save(patch));
         }}
@@ -574,6 +599,7 @@ function PreflightContents({
         report={report}
         repositories={repositories}
         go={go}
+        readiness={readiness}
       />
     );
   }
@@ -613,10 +639,25 @@ function PreflightContents({
         <button
           type="button"
           className="primary"
-          disabled={!pollRows(state, report, repositories).every((row) => row.go)}
+          disabled={
+            !pollRows(state, report, repositories).every((row) => row.go) ||
+            readiness.report?.git !== "ready" ||
+            readiness.busy
+          }
           onClick={() => void launch()}
         >
           Launch
+        </button>
+      </div>
+    ) : step === 12 && !settingsMode ? (
+      <div className="preflight-nav">
+        <button
+          type="button"
+          onClick={() => {
+            go(3);
+          }}
+        >
+          Back to Go / no-go
         </button>
       </div>
     ) : null;

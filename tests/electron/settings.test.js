@@ -610,7 +610,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await expect(
     page.getByRole("navigation", { name: "Preflight steps" }).locator("ol button"),
   ).toHaveCount(4);
-  await expect(page.locator(".preflight-poll")).not.toContainText("Worktrees");
+  await expect(page.locator(".preflight-poll").first()).not.toContainText("Worktrees");
   await expect(page.getByRole("button", { name: "Launch" })).toBeDisabled();
   await page.getByRole("button", { name: "Fix" }).click();
 

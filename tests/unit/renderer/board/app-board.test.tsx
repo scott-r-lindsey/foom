@@ -88,6 +88,13 @@ test("first run still performs setup before opening the board, without a Preflig
       disconnect() {}
     },
   );
+  window.desktop.checkReadiness = vi.fn(() =>
+    Promise.resolve({
+      git: "ready" as const,
+      platform: "linux" as const,
+      forges: [],
+    }),
+  );
   mock.setupState.mockResolvedValue(setupState());
   const screen = render(<App />);
   await settle();

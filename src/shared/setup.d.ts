@@ -1,3 +1,4 @@
+import type { ReadinessReport } from "./readiness";
 import type { ThemeCatalog, ThemeKind } from "./theme-file";
 import type { InterfaceThemeChoice } from "./interface-theme";
 import type { SoundSettings } from "./sound";
@@ -101,6 +102,7 @@ export interface SetupState {
 }
 
 export interface SetupApi {
+  checkReadiness(): Promise<ReadinessReport>;
   listTerminalFonts(refresh?: boolean): Promise<readonly string[]>;
   listThemes(): Promise<ThemeCatalog>;
   openThemesFolder(kind: ThemeKind): Promise<void>;

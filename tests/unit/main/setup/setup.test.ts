@@ -330,3 +330,34 @@ test("new scans classify activity using the configured recent repository days", 
   expect(narrower?.repositories.find((repo) => repo.name === "busy")?.recent).toBe(false);
   expect(narrower?.repositories.find((repo) => repo.name === "busy")?.added).toBe(true);
 });
+
+test("git guards repository selection and completion without forge probes", async () => {
+  const gitReadiness = vi.fn(() =>
+    Promise.resolve({
+      git: "not-installed" as const,
+      platform: "linux" as const,
+      forges: [],
+    }),
+  );
+  const readiness = vi.fn(() =>
+    Promise.resolve({
+      git: "ready" as const,
+      platform: "linux" as const,
+      forges: [],
+    }),
+  );
+  deps.gitReadiness = gitReadiness;
+  deps.readiness = readiness;
+  const setup = new Setup(deps);
+  // This guard only accepts main's last scan.
+  pick.mockResolvedValue("/code");
+  await setup.scanCode(null, () => {});
+  expect(await setup.applyRepositories(["/code/new"])).toMatchObject({
+    failures: [{ message: "Git is unavailable. Install Git and recheck on Go / no-go." }],
+  });
+  await expect(setup.save({ setupComplete: true })).rejects.toThrow("Git is unavailable");
+  expect(readiness).not.toHaveBeenCalled();
+  await expect(setup.readiness()).resolves.toMatchObject({ git: "ready" });
+  delete deps.readiness;
+  expect(() => setup.readiness()).toThrow("Readiness unavailable");
+});

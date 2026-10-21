@@ -16,8 +16,13 @@ default-branch refusal remain TypeScript policy.
 `ForgeRuntime` connects the catalog, profile settings and discovered login PATH to
 tracking, adoption and merged-PR hints. Only enabled entries in the user's exact
 `forgeHosts` assignments authorize routing; declarations cannot claim hosts or
-trigger fallback. Settings cards show declared executables with “Not checked”;
-runtime requests perform native resolution and mandatory auth preflight. Disabled
+trigger fallback. Settings cards show declared executables; the host status list uses the same
+`ForgeRuntime.hostStatus` path as first-run T-0. Each bounded, host-only sample
+uses `ForgeLifecycle` in a disposable neutral directory, with registry/settings
+revalidation and no PR queries. Results contain only fixed readiness categories.
+Only hosts from registered repositories’ local remotes are checked; disabled or
+unassigned hosts perform no discovery or auth probes. Runtime requests perform
+native resolution and mandatory auth preflight. Disabled
 or unassigned manifests perform no discovery/probes. First-use board enablement
 uses host-only auth preflight through this same lifecycle.
 

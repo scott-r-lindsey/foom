@@ -98,3 +98,15 @@ registered repositories. Scans in Settings start from existing registrations;
 preflight continues to suggest recent repositories and save when leaving the step.
 
 Repositories come from the user's code folder (one, saved as `codeFolder`). Main offers common folders under home (`~/code`, `~/src`, `~/projects` and similar) that hold repositories, each with a count from a quick scan (the same walk, stopped at 5,000 folders), or shows the native picker; then `src/main/setup/code-scan.ts` walks the folder breadth first with live progress: at most three levels and 20,000 folders (reporting when it stopped early), never following symbolic links, skipping hidden folders, `node_modules`, `Library`, `AppData`, `Applications` and Foom's worktree folder, stopping at each repository, and skipping `.git` files (linked worktrees and submodules). Last activity comes from the modification times of `.git/logs/HEAD`, `.git/index` and `.git/HEAD`, without running git; activity within `recentRepositoryDays` (default 30, integer 1–365) preselects a repository, as does already being added. The Repositories day count is editable inline by typing or wheel, clamped to 1–365. The renderer reclassifies the retained timestamps without rescanning and preserves all selections. The renderer may add or remove only paths from main's latest scan; leaving the step applies the selection, and a refusal (for example a repository with Foom-made worktrees) keeps the user on the step with the reason. `pnpm run start:fresh` runs the app with a throwaway profile to test first run.
+
+
+### Git and forge readiness (#675)
+
+`setup:readiness` accepts no arguments, validates the registered main-frame sender,
+and returns fixed Git/forge statuses, a platform enum and DNS hostnames only.
+Preload validates the response without exposing paths, versions or CLI output.
+Main resolves Git on the discovered login PATH and runs bounded, shell-free
+`--version` and local remote-config reads against registered repositories.
+T-0 and Settings → Forges share this service and `ForgeRuntime.hostStatus`.
+No forge probe runs before T-0 during first run. Git alone also guards repository
+selection and setup completion; these guards never probe forge CLIs.

@@ -61,8 +61,10 @@ Hostnames must be exact lowercase ASCII DNS names, bounded to 253 characters; UR
 port, wildcard, IP, trailing-dot and unsafe-key spellings are rejected in main.
 These preferences cannot be set in config `settings.json` or manifests. The
 renderer only displays and submits them through sender-validated setup IPC.
-Cards show declared executable names and “Not checked”; polling performs native
-resolution and auth checks only for an enabled, explicitly assigned provider.
+Cards show declared executable names. First-run T-0 and Settings → Forges share
+host readiness through the main-owned lifecycle, checking only hosts from selected
+repositories’ local remotes and only enabled, explicitly assigned providers.
+Readiness never runs PR queries or login commands and never publishes diagnostics.
 There is no Duplicate action (removed for agents in #538); a hand-made
 config copy of a built-in starts with no enablement, host assignments or
 cached observations. Disabling a card preserves settings

@@ -1,3 +1,4 @@
+import { checkReadiness } from "../setup/readiness";
 import { app, BrowserWindow, dialog, nativeTheme, screen, session } from "electron";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
@@ -215,6 +216,13 @@ export async function buildWindow(
     confirmations.refresh();
   };
   const setup = new Setup({
+    readiness: () =>
+      checkReadiness(
+        wiring.worktrees.listRepositories().map((repo) => repo.path),
+        (host) => wiring.forgeRuntime.hostStatus(host),
+      ),
+    gitReadiness: () =>
+      checkReadiness([], wiring.forgeRuntime.hostStatus.bind(wiring.forgeRuntime)),
     themes: () => wiring.themes.snapshot(),
     forgeIds: () =>
       (wiring.config.status().forgePlugins ?? [])
