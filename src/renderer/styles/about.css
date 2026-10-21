@@ -1,0 +1,104 @@
+.about-dialog {
+  width: min(540px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  overflow: visible;
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px var(--raised-shadow);
+}
+.about-dialog::backdrop {
+  background: color-mix(in srgb, var(--hole) 65%, transparent);
+}
+.about-art {
+  position: relative;
+  height: min(380px, calc(100vh - 110px));
+  overflow: hidden;
+  border-radius: 12px 12px 0 0;
+}
+.about-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, var(--bg) 0%, transparent 55%);
+}
+.about-text {
+  position: absolute;
+  left: 20px;
+  bottom: 16px;
+  right: 20px;
+  display: grid;
+  gap: 4px;
+}
+.about-text .wordmark {
+  font: 40px / 1 var(--font-display);
+}
+.about-by {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+}
+.about-note-button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 11px;
+}
+.about-version {
+  min-height: 16px;
+  color: var(--muted);
+  font: 12px var(--font-mono);
+}
+.about-voice {
+  margin: 8px 0 0;
+  font: 14px var(--font-voice);
+}
+.about-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 20px 14px;
+  border-top: 1px solid var(--line);
+}
+.about-footer button {
+  font-size: 12px;
+}
+.about-footer > button:last-child {
+  margin-left: auto;
+}
+.about-footer .about-link {
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  padding: 0;
+}
+.about-note {
+  position: absolute;
+  width: min(280px, calc(100% - 195px));
+  min-width: 0;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.about-note p {
+  margin: 0 0 8px;
+}
+.about-note .about-signature {
+  margin: 0;
+  font-family: var(--font-voice);
+  color: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .about-note {
+    animation: none;
+  }
+}
+
+.about-note:focus {
+  outline: none;
+}

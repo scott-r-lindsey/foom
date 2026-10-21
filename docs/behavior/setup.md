@@ -24,3 +24,16 @@ re-center over 180 milliseconds (immediately with reduced motion). Back, Continu
 Launch stay in a footer at the bottom of the window, outside the scrolling content.
 
 The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–300%, so a presenter can zoom Foom alone without changing OS scaling; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Interface size applies immediately to all windows, their confirmations and previews. Each window grows and shrinks from its own remembered 100% size; only the window where you changed zoom follows the pointer. Terminal font size is separate and lives in Settings → Terminal. Launch opens the board. The board starts empty. A repository’s **New worktree** action creates a Git worktree for the branch, or focuses the checkout that already has it regardless of which tool created it, and launches nothing; checkout panels launch sessions. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
+
+### Flight-path launch
+
+After All stations go, the deep-space overlay counts 3, 2, 1 at 0, 700 and
+1400 ms. Ignition at 1 adds white/violet flame and vapor. Liftoff at 2100 ms
+rolls the rocket along the flat-then-vertical brand curve, leaving a glowing
+trail past the black Eclipse hole and exiting through the top. Stars radiate
+from the hole toward the viewer, accelerating over about 1.5 seconds and
+remaining fast beneath the top-left wordmark and “Takeoff was faster than
+expected.” The overlay finishes at 4300 ms. Escape, Enter, Space or a click
+skips it; “Press Esc to skip” remains visible. Reduced motion instead holds
+one final still frame, with trail, rocket near the top, short static streaks
+and title, for 1200 ms. Art uses hole, space-ink, accent and accent-deep tokens.

@@ -77,3 +77,9 @@ its controller locally; known lifecycle actions hide
 its view before revoking the capability. A hidden controller never detaches a
 later owner's attachment. View queue failures become status text and cleanup
 still disposes controllers. Main continues to reject unknown and foreign IDs.
+
+About dispatches the validated `about` board action, including from the macOS
+menu; windowless macOS About opens a board first. The app-menu bridge also
+provides `version()` via trusted `app-menu:version`, returning only bounded app
+and Electron version strings. The existing command execution route owns fixed
+Licenses, notices and source actions; it accepts no renderer file path or URL.

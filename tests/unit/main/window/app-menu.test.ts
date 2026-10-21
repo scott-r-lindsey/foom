@@ -2,11 +2,13 @@ import { replaceConfigProviders } from "../../../../src/main/agents/providers/re
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import pluginFixture from "../../../fixtures/agent-plugin-v2.json";
+import type * as Fs from "node:fs/promises";
 import type { AgentId } from "../../../../src/shared/agents";
 import { afterEach, expect, test, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import type { BrowserWindow, MenuItemConstructorOptions } from "electron";
 const mock = vi.hoisted(() => ({
+  read: vi.fn(() => Promise.resolve("Bundled license text")),
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
   menu: vi.fn(),
   quit: vi.fn(),
@@ -17,6 +19,10 @@ const mock = vi.hoisted(() => ({
   message: vi.fn(),
   packaged: false,
 }));
+vi.mock("node:fs/promises", async (original) => ({
+  ...(await original<typeof Fs>()),
+  readFile: mock.read,
+}));
 vi.mock("electron", () => ({
   app: {
     get isPackaged() {
@@ -26,6 +32,7 @@ vi.mock("electron", () => ({
     showAboutPanel: mock.about,
     hide: mock.hide,
     getVersion: () => "1",
+    getAppPath: () => process.cwd(),
     setAboutPanelOptions: vi.fn(),
   },
   Menu: {
@@ -96,7 +103,7 @@ function fixture(platform: NodeJS.Platform = "linux", defaults = false) {
 }
 test("validates each sender and command ID, projects data only and disposes handlers", async () => {
   const f = fixture();
-  for (const channel of ["list", "shortcuts", "execute", "view"]) {
+  for (const channel of ["list", "shortcuts", "execute", "view", "version"]) {
     for (const event of [
       { sender: {}, senderFrame: f.frame },
       { sender: f.contents, senderFrame: null },
@@ -164,7 +171,7 @@ test("dispatches native actions, zoom failures and keyboard gestures", async () 
     await f.call("execute", id);
   expect(mock.quit).toHaveBeenCalledOnce();
   expect(f.window.close).toHaveBeenCalledOnce();
-  expect(mock.about).toHaveBeenCalledOnce();
+  expect(mock.about).not.toHaveBeenCalled();
   expect(mock.external).toHaveBeenCalledWith("https://github.com/scott-r-lindsey/foom");
   expect(f.contents.send).toHaveBeenCalledWith("board:command", "sidebar");
   expect(f.contents.send).toHaveBeenCalledWith("board:command", "add-repository");
@@ -291,9 +298,9 @@ test("windowless macOS menu keeps native New Window and Quit accelerators withou
   );
   expect(items.map((item) => item.label)).toEqual(["About Foom", "Quit Foom", "New Window"]);
   for (const item of items) item.click?.({} as Electron.MenuItem, undefined, {});
-  expect(mock.about).toHaveBeenCalledOnce();
+  expect(mock.about).not.toHaveBeenCalled();
   expect(mock.quit).toHaveBeenCalledOnce();
-  expect(open).toHaveBeenCalledOnce();
+  expect(open).toHaveBeenCalledTimes(2);
   expect(
     items
       .filter((item) => item.accelerator)
@@ -385,4 +392,34 @@ test("publishes newly installed config launch routes and removes them live", asy
     replaceConfigProviders([]);
     f.attached.dispose();
   }
+});
+
+test("About publishes versions and bundled license commands accept no paths", async () => {
+  const f = fixture();
+  expect(await f.call("version")).toEqual({ app: "1", electron: process.versions.electron });
+  await f.call("execute", "about");
+  expect(f.contents.send).toHaveBeenCalledWith("board:command", "about");
+  for (const id of ["licenses", "notices"]) {
+    await f.call("execute", id);
+    await vi.waitFor(() => {
+      expect(mock.message).toHaveBeenCalledWith(
+        f.window,
+        expect.objectContaining({ detail: "Bundled license text" }),
+      );
+    });
+  }
+  expect(mock.read).toHaveBeenCalledWith(
+    expect.stringContaining("THIRD_PARTY_NOTICES.txt"),
+    "utf8",
+  );
+  mock.read.mockRejectedValueOnce(new Error("missing"));
+  await f.call("execute", "notices");
+  await vi.waitFor(() => {
+    expect(mock.message).toHaveBeenCalledWith(
+      f.window,
+      expect.objectContaining({ message: "Unable to read bundled notices." }),
+    );
+  });
+  await expect(f.call("execute", "../../LICENSE")).rejects.toThrow("Unavailable");
+  f.attached.dispose();
 });

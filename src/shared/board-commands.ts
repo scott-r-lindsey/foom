@@ -65,6 +65,7 @@ export const BOARD_COMMANDS = [
 /** Commands without a tile shortcut still cross the same validated bridge. */
 export const BOARD_ACTIONS = [
   ...BOARD_COMMANDS.map(({ id }) => id),
+  "about",
   "action-log",
   "toggle-sidebar",
   "new-worktree",

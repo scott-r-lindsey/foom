@@ -266,3 +266,53 @@ test("renderer bundle contains production React without a Node process dependenc
     /react(?:-dom-client)?\.development|Download the React DevTools|not wrapped in act/,
   );
 });
+
+test("About command opens the in-board art dialog and its anchored note", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.evaluate(() => window.desktop.appMenu.execute("about"));
+  const dialog = page.getByRole("dialog", { name: "About Foom", exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("By Scott Lindsey")).toBeVisible();
+  await expect(dialog.getByText("Nothing needs you. Yet.")).toBeVisible();
+  await expect(dialog.locator(".about-version")).toContainText("Electron");
+  assert.equal(
+    await dialog.locator("canvas").evaluate((canvas) => {
+      const ctx = canvas.getContext("2d");
+      return (
+        canvas.width > 0 &&
+        canvas.height > 0 &&
+        ctx
+          .getImageData(0, 0, canvas.width, canvas.height)
+          .data.some((value, index) => index % 4 === 3 && value > 0)
+      );
+    }),
+    true,
+    "Reduced-motion art paints after the modal has real dimensions",
+  );
+  const bounds = await dialog.boundingBox();
+  const viewport =
+    page.viewportSize() ??
+    (await page.evaluate(() => ({ width: innerWidth, height: innerHeight })));
+  assert.ok(bounds && bounds.width > 250 && bounds.height > 200);
+  assert.ok(
+    bounds.x >= 0 &&
+      bounds.y >= 0 &&
+      bounds.x + bounds.width <= viewport.width &&
+      bounds.y + bounds.height <= viewport.height,
+  );
+  const button = dialog.getByRole("button", { name: "A note from Scott" });
+  await button.click();
+  const note = dialog.getByRole("dialog", { name: "A note from Scott" });
+  await expect(note).toBeVisible();
+  await expect(note.getByText("— Scott")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(note).toHaveCount(0);
+  await expect(button).toBeFocused();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+});

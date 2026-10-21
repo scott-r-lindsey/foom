@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { AgentId } from "../../shared/agents";
 import type { WindowIpc } from "./window-ipc";
 import { app, Menu, dialog, ipcMain, shell } from "electron";
@@ -34,21 +36,27 @@ export function attachAppMenu(
       case "quit":
         app.quit();
         break;
-      case "about":
-        app.showAboutPanel();
-        break;
       case "licenses":
-        void dialog
-          .showMessageBox(window, {
-            title: "Third-party licenses",
-            message: "Foom includes open-source software.",
-            detail:
-              "Third-party license notices are bundled with Foom. The source repository lists its open-source dependencies and font licenses.",
-            buttons: ["OK", "Open source repository"],
-          })
-          .then(({ response }) => {
-            if (response === 1) void shell.openExternal("https://github.com/scott-r-lindsey/foom");
-          });
+      case "notices":
+        void readFile(
+          join(app.getAppPath(), id === "licenses" ? "LICENSE" : "build/THIRD_PARTY_NOTICES.txt"),
+          "utf8",
+        )
+          .then((detail) =>
+            dialog.showMessageBox(window, {
+              title: id === "licenses" ? "Licenses" : "Third-party notices",
+              message: id === "licenses" ? "Foom · Apache-2.0" : "Third-party notices",
+              detail,
+              buttons: ["OK"],
+            }),
+          )
+          .catch(() =>
+            dialog.showMessageBox(window, {
+              title: "Licenses",
+              message: "Unable to read bundled notices.",
+              buttons: ["OK"],
+            }),
+          );
         break;
       case "shortcuts":
         contents.send("app-menu:shortcuts");
@@ -116,11 +124,6 @@ export function attachAppMenu(
     },
     agentProviders(),
   );
-  app.setAboutPanelOptions({
-    applicationName: "Foom",
-    applicationVersion: app.getVersion(),
-    copyright: "Licensed under Apache-2.0",
-  });
   const refresh = () => {
     // Background boards also publish layout/settings state. Their commands must
     // never replace the native menu belonging to the focused macOS window.
@@ -221,6 +224,10 @@ export function attachAppMenu(
     )
       throw new Error("Untrusted app menu sender");
   };
+  ipc.handle("app-menu:version", (event) => {
+    trusted(event);
+    return { app: app.getVersion(), electron: process.versions.electron };
+  });
   ipc.handle("app-menu:list", async (event) => {
     trusted(event);
     await refreshAgents();
@@ -249,6 +256,7 @@ export function attachAppMenu(
       disposed = true;
       generation++;
       window.removeListener("focus", focus);
+      ipc.removeHandler("app-menu:version");
       ipc.removeHandler("app-menu:view");
       ipc.removeHandler("app-menu:list");
       ipc.removeHandler("app-menu:shortcuts");
@@ -258,7 +266,7 @@ export function attachAppMenu(
 }
 
 /** Native accelerators remain available when macOS has no board to receive keys. */
-export function showWindowlessMenu(openWindow: () => void): void {
+export function showWindowlessMenu(openWindow: (about?: boolean) => void): void {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       {
@@ -268,7 +276,7 @@ export function showWindowlessMenu(openWindow: () => void): void {
             id: "about",
             label: "About Foom",
             click: () => {
-              app.showAboutPanel();
+              openWindow(true);
             },
           },
           {
@@ -290,7 +298,9 @@ export function showWindowlessMenu(openWindow: () => void): void {
             label: "New Window",
             accelerator: "Command+N",
             registerAccelerator: true,
-            click: openWindow,
+            click: () => {
+              openWindow();
+            },
           },
         ],
       },

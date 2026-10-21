@@ -24,7 +24,12 @@ export interface ShortcutGroup {
   lead: string;
   rows: readonly ShortcutRow[];
 }
+export interface AppVersion {
+  app: string;
+  electron: string;
+}
 export interface AppMenuApi {
+  version: () => Promise<AppVersion>;
   readonly platform: string;
   setView: (state: {
     available: boolean;

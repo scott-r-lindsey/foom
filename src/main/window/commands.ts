@@ -117,7 +117,10 @@ export function createCommands(
       ...extra,
     });
   };
-  add("about", "About Foom", "Foom");
+  add("about", "About Foom", "Foom", [], () => {
+    actions.board("about");
+  });
+  add("notices", "Third-party notices", "Help");
   for (const agent of agents)
     add(
       `via-${agent.id}`,
