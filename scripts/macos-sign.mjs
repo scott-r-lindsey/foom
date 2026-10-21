@@ -6,17 +6,35 @@ import { basename, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { FuseState, FuseV1Options, getCurrentFuseWire, pathToFuseFile } from "@electron/fuses";
 
-// Environment credentials include the six Release secrets and conventional CI
-// secret/token variables. Match literals, longest first, including PEM lines.
-export function redactOutput(output, args, env = process.env) {
-  const sensitiveFlags = new Set(["-p", "-P", "-k", "--key-id", "--issuer"]);
+// Only Release credentials are secrets; workflow paths and unrelated environment
+// values remain useful diagnostics. Short PEM fragments must not mask ordinary text.
+export const releaseSecretNames = [
+  "MACOS_CERT_P12",
+  "MACOS_CERT_PASSWORD",
+  "APPLE_API_KEY",
+  "APPLE_API_KEY_ID",
+  "APPLE_API_ISSUER",
+  "APPLE_TEAM_ID",
+];
+export function redactOutput(output, args, env = process.env, command = "") {
+  const sensitiveFlags = new Set(["--key-id", "--issuer"]);
+  if (basename(command) === "security") {
+    sensitiveFlags.add("-P");
+    if (["create-keychain", "unlock-keychain"].includes(args[0])) sensitiveFlags.add("-p");
+    if (args[0] === "set-key-partition-list") sensitiveFlags.add("-k");
+  }
   const values = [
     ...args.filter((_value, index) => sensitiveFlags.has(args[index - 1])),
-    ...Object.entries(env)
-      .filter(([name]) => /SECRET|TOKEN|PASSWORD|PASSWD|KEY|ISSUER|TEAM_ID|CERT/i.test(name))
-      .map(([_name, value]) => value),
+    ...releaseSecretNames.map((name) => env[name]),
   ].filter((value) => typeof value === "string" && value.length > 0);
-  const literals = [...new Set(values.flatMap((value) => [value, ...value.split(/\r?\n/)]))]
+  const literals = [
+    ...new Set(
+      values.flatMap((value) => [
+        value,
+        ...value.split(/\r?\n/).filter((line) => line.length > 16),
+      ]),
+    ),
+  ]
     .filter(Boolean)
     .sort((left, right) => right.length - left.length);
   return literals.length
@@ -32,10 +50,29 @@ export function run(command, args) {
     const output = redactOutput(
       [result.stderr, result.stdout].filter(Boolean).join("\n"),
       args,
+      process.env,
+      command,
     ).trim();
     throw new Error(`${command} failed${output ? `:\n${output}` : ""}`);
   }
   return `${result.stdout ?? ""}${result.stderr ?? ""}`;
+}
+
+// Artifact uploads preserve the path below out/make's first wildcard (zip/darwin/arm64).
+// Share discovery between release signing and the PR ad-hoc artifact round trip.
+export async function testedZip(directory) {
+  const root = resolve(directory);
+  const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  const zips = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".zip"))
+    .map((entry) => join(entry.parentPath, entry.name))
+    .sort();
+  assert.equal(
+    zips.length,
+    1,
+    `Expected exactly one tested ZIP under ${root}; found ${zips.length}${zips.length ? `: ${zips.join(", ")}` : ""}`,
+  );
+  return zips[0];
 }
 
 const magic = new Set([
@@ -189,6 +226,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (mode === "adhoc" && input && !output) {
     await signApp(resolve(input), { identity: "-" });
   } else if (["release", "adhoc-zip"].includes(mode) && input && output) {
+    const zip = await testedZip(input);
     const { mkdir } = await import("node:fs/promises");
     const directory = join(process.env.RUNNER_TEMP, "foom-signing");
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -198,7 +236,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         : { identity: "-" };
     const unpack = join(directory, "unpacked");
     await mkdir(unpack);
-    run("ditto", ["-x", "-k", resolve(input), unpack]);
+    run("ditto", ["-x", "-k", zip, unpack]);
     assert.deepEqual(await readdir(unpack), ["Foom.app"]);
     const app = join(unpack, "Foom.app");
     await signApp(app, { identity, keychain });
@@ -209,6 +247,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         appleApiIssuer: process.env.APPLE_API_ISSUER,
       });
     await mkdir(resolve(output), { recursive: true });
-    run("ditto", ["-c", "-k", "--keepParent", app, join(resolve(output), basename(input))]);
-  } else throw new Error("Expected adhoc APP or release/adhoc-zip TESTED_ZIP OUTPUT_DIRECTORY");
+    run("ditto", ["-c", "-k", "--keepParent", app, join(resolve(output), basename(zip))]);
+  } else
+    throw new Error("Expected adhoc APP or release/adhoc-zip ARTIFACT_DIRECTORY OUTPUT_DIRECTORY");
 }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { run } from "./macos-sign.mjs";
+import { releaseSecretNames, run } from "./macos-sign.mjs";
 
 const directory = join(process.env.RUNNER_TEMP, "foom-signing");
 const keychain = join(directory, "signing.keychain-db");
@@ -20,14 +20,7 @@ if (mode === "cleanup") {
     await rm(directory, { recursive: true, force: true });
   }
 } else if (mode === "setup") {
-  for (const name of [
-    "MACOS_CERT_P12",
-    "MACOS_CERT_PASSWORD",
-    "APPLE_API_KEY",
-    "APPLE_API_KEY_ID",
-    "APPLE_API_ISSUER",
-    "APPLE_TEAM_ID",
-  ]) {
+  for (const name of releaseSecretNames) {
     assert.ok(process.env[name], `Missing ${name}`);
     mask(process.env[name]);
   }

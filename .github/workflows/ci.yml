@@ -315,12 +315,26 @@ jobs:
       - name: Test packaged terminal host on macOS and Windows
         if: runner.os != 'Linux'
         run: pnpm run test:packaged
+      - name: Upload unsigned development package
+        if: >-
+          runner.os == 'macOS' || ((github.event_name == 'workflow_dispatch' && inputs.upload_packages) ||
+          (github.ref == 'refs/heads/main' && (github.event_name == 'schedule' ||
+          (github.event_name == 'workflow_dispatch' && inputs.publish_nightly))))
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: Foom-${{ matrix.os }}
+          path: out/make/**/*.zip
+          if-no-files-found: error
+          retention-days: 3
+      - name: Download tested macOS artifact for ad-hoc signing
+        if: runner.os == 'macOS'
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v4
+        with:
+          name: Foom-macos-15
+          path: tested-macos
       - name: Exercise tested-ZIP signing path ad-hoc without Apple credentials
         if: runner.os == 'macOS'
-        run: |
-          zips=(out/make/zip/darwin/arm64/*.zip)
-          test "${#zips[@]}" -eq 1
-          node scripts/macos-sign.mjs adhoc-zip "${zips[0]}" "$RUNNER_TEMP/adhoc-signed"
+        run: node scripts/macos-sign.mjs adhoc-zip tested-macos "$RUNNER_TEMP/adhoc-signed"
       - name: Remove ad-hoc ZIP signing scratch
         if: always() && runner.os == 'macOS'
         run: node scripts/macos-credentials.mjs cleanup
@@ -330,17 +344,6 @@ jobs:
         with:
           name: platform-results-${{ matrix.os }}
           path: test-results/
-          if-no-files-found: error
-          retention-days: 3
-      - name: Upload unsigned development package
-        if: >-
-          ((github.event_name == 'workflow_dispatch' && inputs.upload_packages) ||
-          (github.ref == 'refs/heads/main' && (github.event_name == 'schedule' ||
-          (github.event_name == 'workflow_dispatch' && inputs.publish_nightly))))
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: Foom-${{ matrix.os }}
-          path: out/make/**/*.zip
           if-no-files-found: error
           retention-days: 3
 
@@ -470,10 +473,7 @@ jobs:
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-        run: |
-          zips=(tested-macos/*.zip)
-          test "${#zips[@]}" -eq 1
-          node scripts/macos-sign.mjs release "${zips[0]}" signed-macos
+        run: node scripts/macos-sign.mjs release tested-macos signed-macos
       - name: Delete temporary keychain and credential files
         if: always()
         run: node scripts/macos-credentials.mjs cleanup
