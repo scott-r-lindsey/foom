@@ -437,6 +437,31 @@ test("redacts sensitive argument values and environment credentials as literals 
   assert.equal(redactOutput("x", ["-p"], {}), "x");
 });
 
+test("ad-hoc signing failures preserve hyphens and paths while Developer ID hashes are redacted", () => {
+  const diagnostic = "codesign: /runner/tested-macos/Foom-helper: code-object is not signed-at-all";
+  assert.equal(redactOutput(diagnostic, ["--sign", "-"], {}, "codesign"), diagnostic);
+  const identity = "0123456789ABCDEF0123456789ABCDEF01234567";
+  assert.equal(
+    redactOutput(`${diagnostic}; identity=${identity}`, ["--sign", identity], {}, "codesign"),
+    `${diagnostic}; identity=[REDACTED]`,
+  );
+  for (const flag of ["--sign", "--key-id", "--issuer", "-P", "-p", "-k"]) {
+    for (const value of ["-", "ab", "abc"]) {
+      assert.equal(
+        redactOutput(`${diagnostic}; ${value}`, ["create-keychain", flag, value], {}, "security"),
+        `${diagnostic}; ${value}`,
+      );
+    }
+  }
+  // All six configured secrets stay covered without an argv length threshold.
+  for (const name of releaseSecretNames)
+    assert.equal(redactOutput("abc", [], { [name]: "abc" }), "[REDACTED]");
+  assert.equal(
+    redactOutput("abcd", ["unlock-keychain", "-p", "abcd"], {}, "security"),
+    "[REDACTED]",
+  );
+});
+
 test("run reports both redacted tool streams on failure without appending argv", (t) => {
   const previous = process.env.APPLE_API_KEY_ID;
   process.env.APPLE_API_KEY_ID = "fixture-env-secret";

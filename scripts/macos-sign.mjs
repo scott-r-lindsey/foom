@@ -24,7 +24,10 @@ export function redactOutput(output, args, env = process.env, command = "") {
     if (args[0] === "set-key-partition-list") sensitiveFlags.add("-k");
   }
   const values = [
-    ...args.filter((_value, index) => sensitiveFlags.has(args[index - 1])),
+    // Short argv values (especially the ad-hoc identity "-") would erase common
+    // characters in diagnostics. Real Release env secrets remain covered below,
+    // even if an import password is short; generated keychain passwords are long.
+    ...args.filter((value, index) => sensitiveFlags.has(args[index - 1]) && value.length >= 4),
     ...releaseSecretNames.map((name) => env[name]),
   ].filter((value) => typeof value === "string" && value.length > 0);
   const literals = [
