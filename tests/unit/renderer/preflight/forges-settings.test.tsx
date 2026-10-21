@@ -270,3 +270,24 @@ test("rejected definitions never display a valid manifest's host authority", asy
   ).toBeNull();
   expect(screen.getByText("broken · Unavailable")).toBeTruthy();
 });
+
+test.each([true, false])(
+  "config source icon does not toggle a forge that is %s",
+  async (enabled) => {
+    const f = fixture();
+    const forges = { github: true, custom: enabled };
+    render(<ForgesSettings {...f.props} settings={setupState({ forges }).settings} />);
+    const card = await screen.findByRole("region", { name: "Custom forge" });
+    const toggle = within(card).getByRole("switch");
+    expect(toggle).toHaveProperty("checked", enabled);
+    fireEvent.click(within(card).getByRole("img", { name: "Foom config · forges/custom.json" }));
+    expect(toggle).toHaveProperty("checked", enabled);
+    expect(f.props.save).not.toHaveBeenCalled();
+    fireEvent.click(toggle);
+    await waitFor(() => {
+      expect(f.props.save).toHaveBeenCalledExactlyOnceWith({
+        forges: { ...forges, custom: !enabled },
+      });
+    });
+  },
+);

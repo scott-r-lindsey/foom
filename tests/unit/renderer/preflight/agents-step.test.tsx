@@ -361,3 +361,39 @@ test("capability chips explain supported capabilities and omit unsupported ones"
   ).toHaveLength(0);
   expect(screen.queryByText("Unavailable")).toBeNull();
 });
+
+test.each([true, false])("config source icon does not toggle an agent that is %s", (enabled) => {
+  const f = fixture();
+  const agents = { claude: enabled, codex: true, agy: true };
+  render(
+    <AgentsStep
+      {...f.props}
+      state={setupState({ agents })}
+      source={undefined}
+      report={report({ ...installation("claude"), source: "agents/custom.json" })}
+    />,
+  );
+  const card = screen.getByRole("region", { name: "Claude Code" });
+  const toggle = within(card).getByRole("switch");
+  expect(toggle).toHaveProperty("checked", enabled);
+  fireEvent.click(within(card).getByRole("img", { name: "Foom config · agents/custom.json" }));
+  expect(toggle).toHaveProperty("checked", enabled);
+  expect(f.save).not.toHaveBeenCalled();
+  fireEvent.click(toggle);
+  expect(f.save).toHaveBeenCalledExactlyOnceWith({ agents: { ...agents, claude: !enabled } });
+});
+
+test("an installed agent without supported capabilities has no capabilities row", () => {
+  const f = fixture();
+  render(
+    <AgentsStep
+      {...f.props}
+      source={undefined}
+      report={report({ ...installation("codex"), mcp: false, resume: false, inline: false })}
+    />,
+  );
+  const card = screen.getByRole("region", { name: "Codex" });
+  expect(within(card).getByRole("switch")).toHaveProperty("checked", true);
+  expect(within(card).queryByText("Capabilities")).toBeNull();
+  expect(card.querySelector(".agent-capabilities")).toBeNull();
+});

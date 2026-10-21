@@ -50,7 +50,10 @@
   color: var(--muted);
   font: 11px var(--font-mono);
 }
-.agent-toggle {
+.agent-card-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-left: auto;
 }
 .agent-path {

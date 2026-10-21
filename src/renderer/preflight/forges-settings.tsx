@@ -99,22 +99,24 @@ export function ForgesSettings({
                 <span className="agent-version">
                   {forge.reason ? "Rejected" : enabled ? "Readiness by host" : "Turned off"}
                 </span>
-                <label className="agent-toggle">
+                <div className="agent-card-controls">
                   {forge.file && <PluginSourceIcon file={forge.file} />}
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    aria-label={forge.name}
-                    checked={!forge.reason && enabled}
-                    disabled={busy || Boolean(forge.reason)}
-                    onChange={(event) => {
-                      void persist({
-                        forges: { ...settings.forges, [forge.id]: event.target.checked },
-                      });
-                    }}
-                  />
-                  {!forge.reason && enabled ? "On" : "Off"}
-                </label>
+                  <label className="agent-toggle">
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      aria-label={forge.name}
+                      checked={!forge.reason && enabled}
+                      disabled={busy || Boolean(forge.reason)}
+                      onChange={(event) => {
+                        void persist({
+                          forges: { ...settings.forges, [forge.id]: event.target.checked },
+                        });
+                      }}
+                    />
+                    {!forge.reason && enabled ? "On" : "Off"}
+                  </label>
+                </div>
                 <code className="agent-path">{forge.executables.join(", ")}</code>
               </div>
               {forge.reason && (

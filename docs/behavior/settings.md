@@ -96,9 +96,11 @@ variables. See [the launch environment](../areas/agent-launch.md#launch-environm
 
 Agents and Forges show built-in plugins without a source mark. A config plugin
 has a puzzle-piece icon beside its On/Off switch, named and titled
-“Foom config · <file>”. Rejected plugins retain a visible “Rejected · launch blocked”
+“Foom config · <file>”. The icon is informational: clicking it leaves the
+switch unchanged. Rejected plugins retain a visible “Rejected · launch blocked”
 line and reason. Agent capabilities appear as compact MCP, Resume and Inline chips
-only when supported; blocked agents have none. Their tooltips and accessible names
+only when supported; blocked agents have none. The Capabilities row is omitted
+when no chips apply. Their tooltips and accessible names
 explain orchestration, reopening conversations and scrollback respectively.
 
 Environment shows one hint above the rows: “Added to every shell and agent Foom

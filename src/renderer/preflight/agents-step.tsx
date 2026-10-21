@@ -122,6 +122,19 @@ export function AgentsStep({
           const enabled = installed && !blocked && state.settings.agents[id] !== false;
           const policy = builtinAgent(id);
           const sourceFile = plugin?.file ?? agent?.source;
+          const capabilities = [
+            { label: "MCP", available: agent?.mcp, hint: "Foom can orchestrate this agent" },
+            {
+              label: "Resume",
+              available: agent?.resume ?? Boolean(policy),
+              hint: "Reopen past conversations",
+            },
+            {
+              label: "Inline",
+              available: agent?.inline,
+              hint: "Runs in scrollback; wheel scrolls history",
+            },
+          ].filter((capability) => capability.available);
           const supportsHooks =
             agent?.hooks ||
             Boolean(agent?.setup) ||
@@ -153,20 +166,22 @@ export function AgentsStep({
                           ? "Turned off"
                           : "Version unknown")}
                 </span>
-                <label className="agent-toggle">
+                <div className="agent-card-controls">
                   {sourceFile && <PluginSourceIcon file={sourceFile} />}
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    aria-label={name}
-                    checked={enabled}
-                    disabled={!installed || blocked}
-                    onChange={(event) => {
-                      save({ agents: { ...state.settings.agents, [id]: event.target.checked } });
-                    }}
-                  />
-                  {enabled ? "On" : "Off"}
-                </label>
+                  <label className="agent-toggle">
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      aria-label={name}
+                      checked={enabled}
+                      disabled={!installed || blocked}
+                      onChange={(event) => {
+                        save({ agents: { ...state.settings.agents, [id]: event.target.checked } });
+                      }}
+                    />
+                    {enabled ? "On" : "Off"}
+                  </label>
+                </div>
                 <code className="agent-path">{agent?.path ?? command}</code>
               </div>
               {!missing && (
@@ -276,39 +291,21 @@ export function AgentsStep({
                       )}
                     </div>
                   </div>
-                  {!blocked && (
+                  {!blocked && capabilities.length > 0 && (
                     <div className="agent-setting">
                       <span className="agent-label">Capabilities</span>
                       <div className="agent-capabilities">
-                        {[
-                          {
-                            label: "MCP",
-                            available: agent?.mcp,
-                            hint: "Foom can orchestrate this agent",
-                          },
-                          {
-                            label: "Resume",
-                            available: agent?.resume ?? Boolean(policy),
-                            hint: "Reopen past conversations",
-                          },
-                          {
-                            label: "Inline",
-                            available: agent?.inline,
-                            hint: "Runs in scrollback; wheel scrolls history",
-                          },
-                        ]
-                          .filter((capability) => capability.available)
-                          .map(({ label, hint }) => (
-                            <span
-                              key={label}
-                              className="agent-capability"
-                              role="group"
-                              title={hint}
-                              aria-label={hint}
-                            >
-                              {label}
-                            </span>
-                          ))}
+                        {capabilities.map(({ label, hint }) => (
+                          <span
+                            key={label}
+                            className="agent-capability"
+                            role="group"
+                            title={hint}
+                            aria-label={hint}
+                          >
+                            {label}
+                          </span>
+                        ))}
                       </div>
                     </div>
                   )}
