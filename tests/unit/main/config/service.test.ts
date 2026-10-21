@@ -361,3 +361,16 @@ test("a replaced theme folder gets a new watcher", async () => {
     expect(f.service.status().rejected[0]?.file).toBe("themes/again.json");
   });
 });
+
+test("child placement file changes apply live without approval and Settings writes the same key", async () => {
+  const f = await fixture();
+  await f.service.initialize({});
+  for (const showNewChildren of [false, true]) {
+    await f.write("settings.json", JSON.stringify({ kind: "settings", showNewChildren }));
+    await f.service.refresh();
+    expect(f.service.status().pending).toBeNull();
+    expect(f.applied.at(-1)?.showNewChildren).toBe(showNewChildren);
+  }
+  await f.service.write({ showNewChildren: false });
+  expect(JSON.parse(await f.read("settings.json"))).toMatchObject({ showNewChildren: false });
+});

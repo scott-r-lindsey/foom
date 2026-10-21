@@ -14,6 +14,7 @@ export interface Settings {
   hooks: boolean;
   agentHooks?: Readonly<Record<string, boolean>>;
   restoreSessions: boolean;
+  showNewChildren: boolean;
   /** Starting, running and stopping children per orchestrator, integer 1–16. */
   concurrentChildren: number;
   /** Git activity window in days, integer 1–365, default 30. */

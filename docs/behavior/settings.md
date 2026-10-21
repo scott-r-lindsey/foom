@@ -17,8 +17,14 @@ General offers **Show pull requests and checks**, defaulting to on when an enabl
 
 General offers **Restore sessions on launch**, on by default. Turning it on through agent-edited config requires Allow because it also permits restoring orchestrator control. General also offers **Auto-remove merged worktrees**, off by default and applying to all repositories.
 
+General also offers **Show new children on the board**, on by default. It applies
+to new orchestrator child launches only; existing tiles and restored children stay
+as they are. Off keeps new children in the sidebar, where they retain attention
+and can be opened normally. The config-folder key `showNewChildren` is a plain
+display preference and applies without Allow in either direction.
+
 Forges shows bundled and config manifests in the same card layout, with an On/Off
-switch, badge, source and host assignments. Valid config manifests load without
+switch, badge and host assignments. Valid config manifests load without
 approval; there is no Duplicate action. Copies start off with no hosts. Settings
 saves exact lowercase DNS hostnames against an enabled forge; manifests cannot
 assign hosts. GitHub defaults to `github.com`. Disabling preserves assignments.
@@ -43,8 +49,8 @@ To customize a built-in agent, copy its bundled manifest into the config folder'
 `agents/` folder with a new ID and name (see [agent plugins](../contracts/agent-trust.md#customizing-a-built-in-agent)).
 Settings offers no action for it. Like any valid config plugin, the copy loads as
 soon as Foom reads it. Both built-in and copy can remain on, or the built-in can be turned off.
-Each installed agent's card groups attention, MCP/resume/inline facts, default
-arguments, its environment editor, and plugin source. Hooks/Screen rules
+Each installed agent's card groups attention, capability chips, default
+arguments and its environment editor. Hooks/Screen rules
 appears only for agents with hook support; the global Attach hooks switch still
 wins. Per-agent attention preferences apply to future launches. Changes apply immediately and persist. A repository scan in Settings
 starts with the already-added repositories checked; toggling a selection saves it
@@ -94,8 +100,24 @@ proxy and certificate variables and adds only the ones picked. A session's panel
 lists the names Foom set, never values. The config folder cannot set environment
 variables. See [the launch environment](../areas/agent-launch.md#launch-environment-215).
 
-Settings → Appearance also offers **Panel color: Vivid / Subtle / Plain**,
-with Vivid as the default. It scales header, mark, command-column, chip-fill and
+Agents and Forges show built-in plugins without a source mark. A config plugin
+has a puzzle-piece icon beside its On/Off switch, named and titled
+“Foom config · <file>”. The icon is informational: clicking it leaves the
+switch unchanged. Rejected plugins retain a visible “Rejected · launch blocked”
+line and reason. Agent capabilities appear as compact MCP, Resume and Inline chips
+only when supported; blocked agents have none. The Capabilities row is omitted
+when no chips apply. Their tooltips and accessible names
+explain orchestration, reopening conversations and scrollback respectively.
+
+Environment shows one hint above the rows: “Added to every shell and agent Foom
+starts. Agent-specific variables are under Agents. Running sessions keep theirs.”
+Agents opens the Agents tab.
+
+Settings → Appearance groups mode and interface size together, with a separate
+**Session panel color: Vivid / Subtle / Plain** group and a miniature live session
+panel beside the control (below it in narrow layouts). The preview uses real panel
+styles and reflects contrast overrides.
+Vivid is the default. It scales header, mark, command-column, chip-fill and
 glow decoration only. Status text and outlines retain color and words. High
 Contrast and `prefers-contrast: more` force Plain and full-strength chip outlines.
 Decoration uses highlight; Working continues to use accent.

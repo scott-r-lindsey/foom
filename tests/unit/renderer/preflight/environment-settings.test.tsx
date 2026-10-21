@@ -22,7 +22,7 @@ const corp = state({
   claude: [{ name: "HTTPS_PROXY", value: null, secret: true }],
 });
 
-function source(initial = corp) {
+function source(initial = corp, onAgents?: () => void) {
   const api = {
     environmentState: vi.fn<EnvironmentApi["environmentState"]>().mockResolvedValue(initial),
     saveEnvironment: vi.fn<EnvironmentApi["saveEnvironment"]>().mockResolvedValue(initial),
@@ -33,6 +33,7 @@ function source(initial = corp) {
   render(
     <EnvironmentSettings
       source={api}
+      {...(onAgents ? { onAgents } : {})}
       headingRef={null}
       scopes={["all", "claude", "codex", "agy"]}
     />,
@@ -292,4 +293,15 @@ test("a plugin scope without a display label falls back to its provider ID", asy
   view.rerender(<EnvironmentSettings source={api} scopes={["fixture"]} />);
   expect(await screen.findByRole("heading", { name: "Environment" })).toBeTruthy();
   expect(screen.getByRole("region", { name: "fixture" })).toBeTruthy();
+});
+
+test("the global context links to agent settings", async () => {
+  const onAgents = vi.fn();
+  source(corp, onAgents);
+  const link = await screen.findByRole("button", { name: "Agents" });
+  expect(link.closest("p")?.textContent).toBe(
+    "Added to every shell and agent Foom starts. Agent-specific variables are under Agents. Running sessions keep theirs.",
+  );
+  fireEvent.click(link);
+  expect(onAgents).toHaveBeenCalledOnce();
 });
