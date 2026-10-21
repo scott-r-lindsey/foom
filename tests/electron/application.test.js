@@ -2,7 +2,7 @@ const { assertBundledTerminalFonts } = require("./font-checks.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { readFile } = require("node:fs/promises");
+const { readFile, mkdir } = require("node:fs/promises");
 const { deadline, expect } = require("./test-policy.js");
 const { boardPage, launchApp, launchCheckoutShell } = require("./harness.js");
 
@@ -315,4 +315,72 @@ test("About command opens the in-board art dialog and its anchored note", {
   await expect(dialog).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
+});
+
+test("About rocket replays launch by mouse and keyboard without changing setup", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  const initial = await page.evaluate(async () => (await window.desktop.setupState()).settings);
+  const captureTime = new Date("2026-10-21T12:00:00Z");
+  await page.clock.install({ time: captureTime });
+  await page.clock.pauseAt(captureTime);
+  await mkdir("test-results/replay-686", { recursive: true });
+  for (const reducedMotion of ["no-preference", "reduce"]) {
+    await page.emulateMedia({ reducedMotion });
+    await page.evaluate(() => window.desktop.appMenu.execute("about"));
+    const about = page.getByRole("dialog", { name: "About Foom", exact: true });
+    const rocket = about.getByRole("button", { name: "Replay launch" });
+    await expect(rocket).toHaveCSS("cursor", "crosshair");
+    await expect(about.locator(".about-art")).toHaveCSS("cursor", "default");
+    if (reducedMotion === "reduce") {
+      await rocket.focus();
+      await rocket.press("Enter");
+    } else {
+      await rocket.click();
+    }
+    const launch = page.getByRole("dialog", { name: "Launch", exact: true });
+    await expect(launch).toBeVisible();
+    await expect(launch).toHaveAttribute(
+      "data-phase",
+      reducedMotion === "reduce" ? "liftoff" : "3",
+    );
+    if (reducedMotion === "no-preference") {
+      for (const [label, time] of [
+        ["start", 0],
+        ["mid", 250],
+        ["end", 500],
+      ]) {
+        await page.locator(".launch-replay-scene").evaluate((element, currentTime) => {
+          const animation = element.getAnimations()[0];
+          animation.pause();
+          animation.currentTime = currentTime;
+        }, time);
+        await page.screenshot({ path: `test-results/replay-686/iris-${label}.png` });
+      }
+      await page.clock.runFor(4500);
+      await expect(about).not.toBeVisible();
+      await expect(launch).toHaveAttribute("data-phase", "liftoff");
+      await page.screenshot({ path: "test-results/replay-686/launch.png", animations: "disabled" });
+      await page.clock.runFor(9400);
+      await expect(launch).toHaveAttribute("data-fading", "true");
+      await page.clock.runFor(200);
+    } else {
+      await page.clock.runFor(200);
+      await expect(about).not.toBeVisible();
+      await launch.press("Escape");
+    }
+    await expect(launch).toHaveCount(0);
+    await expect(about).toHaveCount(0);
+    assert.deepEqual(
+      await page.evaluate(async () => (await window.desktop.setupState()).settings),
+      initial,
+    );
+    await expect(page.locator(".board-workspace")).toBeVisible();
+  }
+  await page.evaluate(() => window.desktop.appMenu.execute("about"));
+  await page.getByRole("button", { name: "Replay launch" }).press("Space");
+  await page.getByRole("dialog", { name: "Launch", exact: true }).press("Enter");
+  await expect(page.locator(".launch-replay")).toHaveCount(0);
 });
