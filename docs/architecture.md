@@ -242,14 +242,20 @@ read `MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID
 `APPLE_API_ISSUER`, and `APPLE_TEAM_ID`. Both are restricted to scheduled/opt-in
 manual main runs (credential checks are manual only). PR jobs have no secret
 references. Temporary mode-600 certificate/private-key files and a random-password
-keychain are removed in an `always()` step, even on failure. Required Apple CLI
+keychain are removed in an `always()` step, even on failure. Setup snapshots the
+user keychain search list before creating the temporary keychain, then prepends it
+while preserving existing entries. Cleanup restores the original list before
+deleting the temporary keychain, including after partial setup failures. The
+default keychain stays unchanged. Setup signs and strictly verifies a disposable
+copy of `/usr/bin/true` with the imported identity and timestamping disabled, so
+private-key lookup failures surface before application signing. Required Apple CLI
 password/identifier arguments are allowed on these ephemeral runners, with env
 inputs, generated/derived masking, and no command tracing or credential logging.
 
 After merge, run CI on main with `check_macos_credentials: true` alone. This
 imports the certificate, requires exactly one Developer ID Application identity
-for the configured team, and runs `notarytool history`, without an application
-build or artifact upload. Once it passes, run CI on main with
+for the configured team, proves signing with the disposable binary, and runs
+`notarytool history`, without an application build or artifact upload. Once it passes, run CI on main with
 `publish_nightly: true` and credential checking disabled. These are human
 operations; neither is dispatched by the implementation. Windows remains unsigned
 (#665); versioned releases and auto-update are separate work.
