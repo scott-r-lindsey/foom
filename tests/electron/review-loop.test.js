@@ -27,6 +27,9 @@ if (isChild) {
   const step = reviewer ? (fs.existsSync(path.join(process.env.TEST_REVIEW_ROOT, "review-1.finished")) ? "review-2" : "review-1") : resumed ? "fix" : "build";
   record(step, JSON.stringify({ args, controlUrl: process.env.FOOM_CONTROL_URL, controlToken: process.env.FOOM_CONTROL_TOKEN, instanceId: process.env.FOOM_CONTROL_INSTANCE }));
   process.stdin.on("data", () => { record("unexpected-input", "PTY input received"); process.exit(2); });
+  const fixtureError = error => { record("fixture-error", error instanceof Error ? error.message : String(error)); process.exit(2); };
+  process.on("uncaughtException", fixtureError);
+  process.on("unhandledRejection", fixtureError);
   const timer = setInterval(async () => {
     const file = path.join(process.env.TEST_REVIEW_ROOT, step + ".go");
     if (!fs.existsSync(file)) return;
@@ -58,7 +61,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red"]) {
     timeout: deadline(90000),
     skip: process.platform === "win32" && "The fake agent is a POSIX script",
   }, async (context) => {
-    const { chmod, mkdir, readFile, symlink, writeFile } = require("node:fs/promises");
+    const { chmod, mkdir, readFile, rename, symlink, writeFile } = require("node:fs/promises");
     const { existsSync } = require("node:fs");
     const root = await mkdtemp(path.join(tmpdir(), "foom-forge-adopt-"));
     removeAfterApps(context, root);
@@ -163,30 +166,54 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red"]) {
     const authorId = result.resultId;
     const row = page.locator(`[data-drag-session="${authorId}"]`);
     const state = async () => (await call("session_state", { id: authorId })).review;
+    const fixtureErrors = async () => {
+      const errors = [];
+      for (const suffix of ["hook-error", "handoff-error", "fixture-error", "unexpected-input"]) {
+        const file = `${credentials}.${suffix}`;
+        if (existsSync(file)) errors.push(`${suffix}: ${await readFile(file, "utf8")}`);
+      }
+      return errors;
+    };
+    const waitStep = async (step) => {
+      await expect
+        .poll(async () => {
+          const errors = await fixtureErrors();
+          return errors.length
+            ? errors.join("; ")
+            : existsSync(`${credentials}.${step}`)
+              ? "ready"
+              : "waiting";
+        })
+        .toBe("ready");
+    };
     const shot = async (name) => {
       await page.screenshot({ path: `test-results/review-loop-${scenario}-${name}.png` });
     };
     await expect(row.locator('[data-review-phase="building"]')).toHaveText("Building");
     await shot("building");
-    await expect.poll(() => existsSync(`${credentials}.build`)).toBe(true);
+    await waitStep("build");
     await expect
       .poll(
         async () => (await call("session_state", { id: authorId })).pullRequest?.requiredChecks,
         { timeout: deadline(15000) },
       )
       .toBe(scenario === "red" ? "failure" : "success");
-    const go = (step, command = {}) =>
-      writeFile(path.join(root, step + ".go"), JSON.stringify(command));
+    const go = async (step, command = {}) => {
+      const file = path.join(root, step + ".go");
+      await writeFile(file + ".tmp", JSON.stringify(command));
+      await rename(file + ".tmp", file);
+    };
     await go("build", scenario === "blocked" ? { status: "blocked" } : {});
     if (["blocked", "red"].includes(scenario)) {
       await expect.poll(async () => (await state())?.phase).toBe("escalated");
+      assert.deepEqual(await fixtureErrors(), []);
       assert.equal(
         (await state()).reason,
         scenario === "blocked" ? "author blocked" : "checks not green",
       );
       assert.equal(existsSync(`${credentials}.review-1`), false);
     } else {
-      await expect.poll(() => existsSync(`${credentials}.review-1`)).toBe(true);
+      await waitStep("review-1");
       await expect(row.locator('[data-review-phase="reviewing"]')).toHaveText(
         `Reviewing 1/${scenario === "cap" ? 1 : 3}`,
       );
@@ -202,14 +229,14 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red"]) {
         edit: scenario === "edit",
       });
       if (scenario === "fix") {
-        await expect.poll(() => existsSync(`${credentials}.fix`)).toBe(true);
+        await waitStep("fix");
         await expect(row.locator('[data-review-phase="fixing"]')).toHaveText("Fixing 1/3");
         await shot("fixing");
         const resumed = JSON.parse(await readFile(`${credentials}.fix`, "utf8"));
         assert.equal(resumed.args[resumed.args.indexOf("--resume") + 1], "author-conversation");
         assert.ok(resumed.args.at(-1).includes("Quoted review notes (JSON)"));
         await go("fix");
-        await expect.poll(() => existsSync(`${credentials}.review-2`)).toBe(true);
+        await waitStep("review-2");
         await expect(row.locator('[data-review-phase="reviewing"]')).toHaveText("Reviewing 2/3");
         await shot("reviewing-2");
         await go("review-2", { review: { verdict: "clean" } });
@@ -221,7 +248,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red"]) {
       if (scenario === "cap") assert.equal((await state()).reason, "round cap");
     }
     await shot("finished");
-    assert.equal(existsSync(`${credentials}.unexpected-input`), false);
+    assert.deepEqual(await fixtureErrors(), []);
     await assertAccessible(page);
   });
 }

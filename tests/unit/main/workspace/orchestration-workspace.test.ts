@@ -2001,6 +2001,13 @@ it.each([false, true])(
       });
     });
     expect(snapshot).toHaveBeenCalledWith(deps.worktrees, repo.path, child.path, "identity");
+    expect(deps.placeChild).toHaveBeenLastCalledWith("child-2", "parent");
+    workspace.configure({
+      hooks: false,
+      agents: { claude: true, codex: true, agy: true },
+      showNewChildren: false,
+    });
+    vi.mocked(deps.placeChild)?.mockClear();
     if (resumeFails) launch.mockRejectedValueOnce(new Error("Resume failed"));
     report("child-2", 1, {
       verdict: "findings",
@@ -2040,6 +2047,7 @@ it.each([false, true])(
         waiting: false,
       });
     });
+    expect(deps.placeChild).not.toHaveBeenCalled();
     report("child-3", 1, { verdict: "clean" });
     await workspace.exited("child-3", 0);
     await vi.waitFor(() => {

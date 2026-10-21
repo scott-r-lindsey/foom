@@ -207,6 +207,8 @@ The author hands off after its PR's required checks are green and exits. Foom
 launches a reviewer in that checkout, then resumes the author's conversation with
 quoted findings when fixes are needed. Only one step runs in a checkout at a time.
 Reviewers consume the orchestrator's existing child slots and wait if full.
+New reviewer placement follows Show new children on the board; author resumes
+keep their existing tile. Neither step takes keyboard focus.
 The sidebar and tile show Building, Reviewing 2/3, Fixing 2/3, Review clean, or
 Escalated with a fixed reason. Every participant's handoffs remain available to
 the orchestrator. Clean also raises attention: the orchestrator verifies the

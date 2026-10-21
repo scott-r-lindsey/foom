@@ -62,6 +62,8 @@ on #690; there is no parentless-agent handoff capability.
 The author keeps one PR, waits for green required checks, hands off `done`, then
 exits. Main verifies an open PR and a successful (or empty) required-check set
 whose head matches local HEAD before launching a reviewer in the same checkout.
+It rechecks the observed PR/check facts after capacity waits and immediately before
+spawning, so a newly red or changed head cannot pass on an earlier green result.
 Missing, pending, red, unknown or mismatched-head checks escalate without review.
 The reviewer gets a fixed brief: reproduced correctness/security bugs only, no
 style nits or edits, then a structured verdict handoff and process exit. Main
@@ -81,6 +83,8 @@ and raises a readable event for the parent. Clean still requires the orchestrato
 final verification and merge decision. Foom never merges or makes forge writes.
 
 Reviewers are ordinary owned children and consume the existing per-parent budget.
+New reviewer placement follows the same General → Show new children on the board
+preference as initial children, without taking focus; author resumes retain their tile.
 Each transition reserves a slot before asynchronous work, waits when full, and
 rechecks ownership and cancellation immediately before spawning. Handoffs remain
 readable under each participant's ID. State is exposed in session metadata and

@@ -1,5 +1,19 @@
 import type { ReviewOptions, ReviewReason, ReviewState, ReviewVerdict } from "../../shared/review";
 import type { ReviewLoop, ReviewLoopHost } from "./review-loops.d";
+import type { PullRequest } from "./forge.d";
+
+function green(
+  checks: PullRequest | undefined,
+  head: string | undefined,
+  number?: number,
+): checks is PullRequest {
+  return (
+    checks?.state === "OPEN" &&
+    checks.headSha === head &&
+    (checks.requiredChecks === "success" || checks.requiredChecks === "none") &&
+    (number === undefined || checks.number === number)
+  );
+}
 
 export const AUTHOR_REVIEW_BRIEF =
   "Foom will run a sequential review after you finish. Keep one PR. Wait for its required checks to be green, handoff done, then exit the agent process. Report blocked or failed if you cannot fix red checks. Do not launch or prompt a reviewer yourself.";
@@ -43,6 +57,20 @@ export class ReviewLoops {
 
   attach(id: string, authorId: string): void {
     this.participants.set(id, authorId);
+  }
+
+  /** Recheck after capacity waits and again at the main-owned spawn boundary. */
+  reviewReady(authorId: string): boolean {
+    const loop = this.loops.get(authorId);
+    if (!loop || loop.state.phase !== "reviewing") return false;
+    if (
+      loop.number === undefined ||
+      !green(this.host.checks(authorId), loop.snapshot?.head, loop.number)
+    ) {
+      this.finish(loop, "checks not green");
+      return false;
+    }
+    return true;
   }
 
   restore(id: string, saved: ReviewState): void {
@@ -128,6 +156,7 @@ export class ReviewLoops {
     // Persist the boundary before launch. Restore always escalates saved loops.
     await this.host.save();
     if (this.finished(loop)) return;
+    if (loop.state.phase === "reviewing" && !this.reviewReady(loop.state.authorId)) return;
     const id = await this.host.step(
       loop.state.authorId,
       loop.state.phase === "reviewing",
@@ -211,13 +240,7 @@ export class ReviewLoops {
       const snapshot = await this.host.snapshot(loop.state.authorId);
       if (this.finished(loop)) return;
       const checks = this.host.checks(loop.state.authorId);
-      if (
-        !checks ||
-        checks.state !== "OPEN" ||
-        checks.headSha !== snapshot.head ||
-        (checks.requiredChecks !== "success" && checks.requiredChecks !== "none") ||
-        (loop.number !== undefined && loop.number !== checks.number)
-      ) {
+      if (!green(checks, snapshot.head, loop.number)) {
         this.finish(loop, "checks not green");
         return;
       }

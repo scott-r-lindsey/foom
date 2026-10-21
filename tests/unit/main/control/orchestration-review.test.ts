@@ -52,6 +52,7 @@ describe("orchestration review authority and reservations", () => {
     h.exit(id);
     await h.sync();
     expect(h.orchestration.reviews.view(id)).toMatchObject({ phase: "reviewing" });
+    expect(h.host.place).toHaveBeenLastCalledWith("child-2", "parent");
     expect(h.orchestration.view("child-2")).toEqual({
       role: "child",
       parentId: "parent",
@@ -198,5 +199,28 @@ it("rechecks the live grant at the final spawn boundary even if ownership metada
   await h.sync();
   expect(spawned).toBe(false);
   expect(h.orchestration.reviews.view(id)).toMatchObject({ reason: "launch failed" });
+  h.orchestration.disposeUnreadChildren();
+});
+
+it("refuses a reviewer if known checks turn red during provider preparation", async () => {
+  const h = fixture();
+  const id = await h.launch();
+  let spawned = false;
+  h.host.launch.mockImplementationOnce((...args) => {
+    h.host.forge.read.mockReturnValue({
+      number: 7,
+      headSha: "head",
+      state: "OPEN",
+      requiredChecks: "failure",
+    });
+    args[6]?.validate();
+    spawned = true;
+    return Promise.resolve("unexpected");
+  });
+  h.report(id);
+  h.exit(id);
+  await h.sync();
+  expect(spawned).toBe(false);
+  expect(h.orchestration.reviews.view(id)).toMatchObject({ reason: "checks not green" });
   h.orchestration.disposeUnreadChildren();
 });

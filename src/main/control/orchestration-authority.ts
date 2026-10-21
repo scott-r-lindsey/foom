@@ -444,6 +444,7 @@ export class OrchestrationAuthority {
     const validate = () => {
       if (operation) operations.lookup(actor, { operationId: operation.operationId });
       this.parent(actor);
+      if (reviewer && !this.reviews.reviewReady(authorId)) throw new ControlError("conflict");
       const current = this.reviews.view(authorId);
       if (
         this.own(parent, authorId) !== child ||
@@ -497,9 +498,11 @@ export class OrchestrationAuthority {
       else child.exited ||= this.early.delete(id);
       this.reviews.attach(id, authorId);
       const current = this.reviews.view(authorId);
-      if (!parent.active || current?.phase !== state.phase || current.round !== state.round)
-        await this.host.stop(id);
+      const cancelled =
+        !parent.active || current?.phase !== state.phase || current.round !== state.round;
+      if (cancelled) await this.host.stop(id);
       this.changed();
+      if (reviewer && !cancelled) this.host.place?.(id, actor.terminalId);
       await this.finish(actor, parent, operations, operation, label, "succeeded", id);
       return id;
     } catch (error) {

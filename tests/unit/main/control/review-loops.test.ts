@@ -280,3 +280,29 @@ it("escalates nonzero exits and restores metadata without spawning", async () =>
   expect(g.loop.unread("saved")).toBe(1000);
   expect(g.host.step).not.toHaveBeenCalled();
 });
+
+it("refuses review when checks turn red while waiting for capacity or persistence", async () => {
+  const red = {
+    number: 7,
+    state: "OPEN" as const,
+    headSha: "head",
+    requiredChecks: "failure" as const,
+  };
+  const h = fixture();
+  expect(h.loop.reviewReady("unknown")).toBe(false);
+  expect(h.loop.reviewReady("author")).toBe(false);
+  vi.mocked(h.host.step).mockResolvedValueOnce(undefined);
+  await h.authorDone();
+  h.setChecks(red);
+  await h.sync();
+  expect(h.loop.view("author")).toMatchObject({ reason: "checks not green" });
+  expect(h.host.step).toHaveBeenCalledTimes(1);
+  const f = fixture();
+  vi.mocked(f.host.save).mockImplementationOnce(() => {
+    f.setChecks(red);
+    return Promise.resolve();
+  });
+  await f.authorDone();
+  expect(f.host.step).not.toHaveBeenCalled();
+  expect(f.loop.view("author")).toMatchObject({ reason: "checks not green" });
+});
