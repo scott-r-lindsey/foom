@@ -114,6 +114,7 @@ test("owned files refresh only when missing or matching an earlier Foom version"
       "agentArguments",
       "hooks",
       "restoreSessions",
+      "showNewChildren",
       "concurrentChildren",
       "recentRepositoryDays",
     ].sort(),
@@ -290,4 +291,15 @@ test("config plugin arguments and disabling require review, including removal of
     { label: "fixture before", arguments: true, items: ["--model", "literal model"] },
     { label: "fixture after", arguments: true, items: ["(no arguments)"] },
   ]);
+});
+
+test("child placement is a display preference in either direction", () => {
+  const off = effective(base, { showNewChildren: false });
+  expect(weakenings(base, off)).toEqual([]);
+  expect(weakenings(off, base)).toEqual([]);
+  expect(describe(base, off)).toBe("Show new children on the board off");
+  const schema = JSON.parse(OWNED_FILES["schemas/settings.schema.json"] ?? "{}") as {
+    properties: Record<string, unknown>;
+  };
+  expect(schema.properties["showNewChildren"]).toEqual({ type: "boolean", default: true });
 });

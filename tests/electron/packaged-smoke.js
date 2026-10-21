@@ -305,7 +305,10 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     await expect(
       manualPage.getByRole("heading", { name: "User manual", exact: true }),
     ).toBeVisible();
-    const bundledManual = extractFile(archive, "build/manual/manual.html").toString("utf8");
+    const bundledManual = extractFile(
+      archive,
+      path.join("build", "manual", "manual.html"),
+    ).toString("utf8");
     assert.ok(bundledManual.includes('data-command="shortcuts"'));
     assert.ok(!bundledManual.includes("<!-- SHORTCUTS -->"));
     await page.evaluate((id) => window.desktop.previews.close(id), manualId);

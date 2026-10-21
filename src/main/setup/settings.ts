@@ -28,6 +28,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   agyPluginOfferAnswered: false,
   hooks: true,
   restoreSessions: true,
+  showNewChildren: true,
   concurrentChildren: 4,
   recentRepositoryDays: 30,
   unreadChildMinutes: 5,

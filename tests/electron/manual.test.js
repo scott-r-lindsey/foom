@@ -15,6 +15,9 @@ test("Help Manual opens a contained offline guide and focuses the existing tile"
     await page.locator(".wordmark-menu").click();
     await page.getByRole("menuitem", { name: "Help", exact: true }).press("ArrowRight");
     await expect(page.getByRole("menuitem", { name: "Manual", exact: true })).toBeVisible();
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
   };
   await openMenu();
   await page.getByRole("menuitem", { name: "Manual", exact: true }).click();

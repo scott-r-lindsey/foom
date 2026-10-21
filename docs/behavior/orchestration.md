@@ -171,7 +171,14 @@ initial prompts. It retains at most 30 days and five 10 MiB files and can be cle
 
 ### Child board placement and close (#377)
 
-A newly orchestrator-launched child fills the board's landing spot, then an empty
+Settings → General offers **Show new children on the board**, on by default
+(`showNewChildren` in the Foom config folder). When off, new child launches send no
+placement event: children appear only under their checkout in the sidebar, with
+the child glyph, attention halo and reason, and remain included in attention counts.
+Opening a child from the sidebar places it like any human open. Changing the
+setting leaves existing tiles and restored children alone.
+
+With the setting on, a newly orchestrator-launched child fills the board's landing spot, then an empty
 space, otherwise follows sidebar placement (add a column or replace the least
 recently focused non-attention tile). Placement targets the parent's board window,
 or the current board if the parent is hidden, without focusing the window, tile

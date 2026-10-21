@@ -552,6 +552,16 @@ function PreflightContents({
           requests. Foom does not send terminal content, store forge tokens, change CLI
           login/configuration, or write to the forge.
         </p>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={state.settings.showNewChildren}
+            onChange={(event) => {
+              save({ showNewChildren: event.target.checked });
+            }}
+          />
+          <span>Show new children on the board</span>
+        </label>
         <label className="concurrent-children">
           Concurrent children per orchestrator
           <input

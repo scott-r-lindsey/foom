@@ -66,11 +66,24 @@ await build({
 
 // Bundle the read-only guide and project shortcuts from the compiled command registry.
 const { manualShortcuts } = await import("../build/main/window/manual-shortcuts.js");
+const { createCommands } = await import("../build/main/window/commands.js");
+const shortcuts = ["darwin", "linux"]
+  .map((platform) =>
+    manualShortcuts(
+      createCommands(platform, false, {
+        board: () => undefined,
+        native: () => undefined,
+        zoom: () => Promise.resolve(),
+      }),
+      platform,
+    ),
+  )
+  .join("\n");
 await cp(join(root, "src/manual"), join(root, "build/manual"), { recursive: true });
 const manual = await readFile(join(root, "src/manual/manual.html"), "utf8");
 await writeFile(
   join(root, "build/manual/manual.html"),
-  manual.replace("<!-- SHORTCUTS -->", manualShortcuts()),
+  manual.replace("<!-- SHORTCUTS -->", shortcuts),
 );
 for (const font of ["geist.ttf", "geist-mono.ttf"]) {
   await copyFile(join(root, "src/renderer/fonts", font), join(root, "build/manual", font));
