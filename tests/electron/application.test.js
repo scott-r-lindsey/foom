@@ -350,7 +350,8 @@ test("bundled notices and licenses scroll and dismiss from About and menu comman
       await expect(text).toHaveText(bundled);
       if (route === "about") await assertAccessible(page);
       await text.focus();
-      await page.keyboard.press(process.platform === "darwin" ? "Meta+End" : "Control+End");
+      await text.hover();
+      await page.mouse.wheel(0, 1_000_000);
       await expect
         .poll(() =>
           text.evaluate(
