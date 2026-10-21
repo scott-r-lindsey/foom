@@ -48,9 +48,11 @@ The round (?) opens a note beside its button in the same raised, notched surface
 as row menus. Escape or an outside press closes the note and returns focus to (?).
 Escape with no note, or Close, dismisses About and restores its previous focus.
 The footer's Licenses and Third-party notices use fixed registry commands to read
-the bundled LICENSE and build/THIRD_PARTY_NOTICES.txt into the existing native
-message dialog; Source opens the fixed GitHub repository URL. No renderer path
-or URL is accepted. Third-party licenses remains a menu alias for Licenses.
+the bundled LICENSE and build/THIRD_PARTY_NOTICES.txt into a themed, read-only
+modal with a scrollable text region and a fixed Close footer. Escape, a click
+outside, or Close dismisses the text view and restores focus to its opener; About
+stays open underneath. The macOS Help menu uses the same view. Source opens the
+fixed GitHub repository URL. No renderer path or URL is accepted. Third-party licenses remains a menu alias for Licenses.
 On macOS with no board, About creates a board before opening the in-board dialog.
 
 **Keyboard shortcuts** (Command+/ or Ctrl+Shift+/) opens a sheet of the current
