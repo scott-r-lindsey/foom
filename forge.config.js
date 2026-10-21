@@ -71,6 +71,7 @@ module.exports = {
       config: {
         options: {
           bin: "Foom",
+          desktopTemplate: require("node:path").join(__dirname, "scripts/foom.desktop.ejs"),
           maintainer: "Foom contributors",
           homepage: "https://github.com/scott-r-lindsey/foom",
         },
@@ -82,6 +83,7 @@ module.exports = {
       config: {
         options: {
           bin: "Foom",
+          desktopTemplate: require("node:path").join(__dirname, "scripts/foom.desktop.ejs"),
           homepage: "https://github.com/scott-r-lindsey/foom",
           specTemplate: require("node:path").join(__dirname, "scripts/foom-rpm.spec.ejs"),
         },

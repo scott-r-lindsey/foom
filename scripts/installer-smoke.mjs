@@ -50,7 +50,7 @@ for (const kind of kinds) {
       assert.equal(readlinkSync(join(scratch, "usr/bin/foom")), "../lib/foom/Foom");
       assert.match(
         readFileSync(join(scratch, "usr/share/applications/foom.desktop"), "utf8"),
-        /Exec=foom/,
+        /^Exec=\/usr\/lib\/foom\/Foom %U$/m,
       );
     }
     execFileSync(process.execPath, ["scripts/electron-tests.mjs", "--packaged"], {

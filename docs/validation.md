@@ -74,7 +74,9 @@ on Linux). It extracts deb/rpm into temporary directories, mounts DMG read-only
 and copies its app into scratch, and extracts Squirrel's full nupkg payload on
 Windows. Every extracted application runs the same packaged native PTY, fuse,
 ASAR, console and fixture-isolation checks. Linux also verifies its desktop entry
-and executable symlink. These tests exercise installed payload layouts without
+and executable symlink. Desktop entries launch `/usr/lib/foom/Foom` directly so
+a user-installed console helper named `foom` on PATH cannot shadow the GUI.
+These tests exercise installed payload layouts without
 installing packages system-wide, running Setup.exe, writing /Applications or
 modifying a developer's profile. They do not claim to verify an interactive
 installer UI or Windows registry integration.
