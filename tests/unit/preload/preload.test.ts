@@ -924,3 +924,27 @@ test("readiness only publishes fixed categories and bounded DNS hostnames", asyn
     await expect(api.checkReadiness()).rejects.toThrow("Invalid readiness response");
   }
 });
+
+test("legal bridge validates fixed IDs, bounded text, notifications and disposal", async () => {
+  const api = await bridge();
+  for (const id of [null, {}, "../../LICENSE", "github"]) {
+    await expect(Reflect.apply(api.appMenu.legal, undefined, [id])).rejects.toThrow(
+      "Invalid legal document",
+    );
+  }
+  expect(mock.invoke).not.toHaveBeenCalled();
+  for (const value of [null, {}, 1, "", "x".repeat(1_048_577)]) {
+    mock.invoke.mockResolvedValue(value);
+    await expect(api.appMenu.legal("notices")).rejects.toThrow("Invalid bundled legal text");
+  }
+  mock.invoke.mockResolvedValue("<script>inert legal text</script>");
+  await expect(api.appMenu.legal("licenses")).resolves.toBe("<script>inert legal text</script>");
+  expect(mock.invoke).toHaveBeenLastCalledWith("app-menu:legal", "licenses");
+  const callback = vi.fn();
+  const off = api.appMenu.onLegal(callback);
+  const listener = mock.on.mock.calls.find(([channel]) => channel === "app-menu:legal")?.[1];
+  for (const id of [null, {}, "../../LICENSE", "licenses", "notices"]) listener?.({}, id);
+  expect(callback.mock.calls).toEqual([["licenses"], ["notices"]]);
+  off();
+  expect(mock.removeListener).toHaveBeenCalledWith("app-menu:legal", listener);
+});

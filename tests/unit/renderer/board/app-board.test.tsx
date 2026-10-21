@@ -230,3 +230,34 @@ test("the application owns and disposes preview composition independently of til
   delete window.desktop.previews;
   Reflect.deleteProperty(document, "getAnimations");
 });
+
+test("application subscribes to legal menu requests and dismisses the text view", async () => {
+  vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (
+    this: HTMLDialogElement,
+  ) {
+    this.setAttribute("open", "");
+  });
+  vi.spyOn(HTMLDialogElement.prototype, "close").mockImplementation(function (
+    this: HTMLDialogElement,
+  ) {
+    this.removeAttribute("open");
+  });
+  let receive: (id: "licenses" | "notices") => void = () => {};
+  const off = vi.fn();
+  vi.mocked(window.desktop.appMenu.onLegal).mockImplementation((callback) => {
+    receive = callback;
+    return off;
+  });
+  const view = render(<App />);
+  await settle();
+  act(() => {
+    receive("notices");
+  });
+  await settle();
+  expect(view.getByRole("dialog", { name: "Third-party notices" })).toBeTruthy();
+  expect(view.getByText("Bundled legal text")).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Close" }));
+  expect(view.queryByRole("dialog", { name: "Third-party notices" })).toBeNull();
+  view.unmount();
+  expect(off).toHaveBeenCalledOnce();
+});

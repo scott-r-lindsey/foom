@@ -28,7 +28,10 @@ export interface AppVersion {
   app: string;
   electron: string;
 }
+export type LegalDocument = "licenses" | "notices";
 export interface AppMenuApi {
+  legal: (id: LegalDocument) => Promise<string>;
+  onLegal: (callback: (id: LegalDocument) => void) => () => void;
   version: () => Promise<AppVersion>;
   readonly platform: string;
   setView: (state: {

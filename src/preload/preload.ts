@@ -341,6 +341,22 @@ const desktop: DesktopApi = {
   },
   isDevelopment: process.argv.includes("--foom-development"),
   appMenu: {
+    legal: async (id: unknown) => {
+      if (id !== "licenses" && id !== "notices") throw new Error("Invalid legal document");
+      const text: unknown = await ipcRenderer.invoke("app-menu:legal", id);
+      if (typeof text !== "string" || !text || text.length > 1_048_576)
+        throw new Error("Invalid bundled legal text");
+      return text;
+    },
+    onLegal(callback) {
+      const listener = (_event: IpcRendererEvent, id: unknown) => {
+        if (id === "licenses" || id === "notices") callback(id);
+      };
+      ipcRenderer.on("app-menu:legal", listener);
+      return () => {
+        ipcRenderer.removeListener("app-menu:legal", listener);
+      };
+    },
     version: async () => {
       const value: unknown = await ipcRenderer.invoke("app-menu:version");
       if (

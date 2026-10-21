@@ -130,6 +130,19 @@ beforeEach(() => {
   Object.defineProperty(window, "desktop", {
     configurable: true,
     value: {
+      appMenu: {
+        platform: "linux",
+        version: vi.fn(),
+        legal: vi.fn(() => Promise.resolve("Bundled legal text")),
+        onLegal: vi.fn(() => () => {}),
+        setView: vi.fn(() => Promise.resolve()),
+        commands: vi.fn(() => Promise.resolve([])),
+        shortcuts: vi.fn(() => Promise.resolve([])),
+        execute: vi.fn(),
+        onOpen: vi.fn(() => () => {}),
+        onShortcuts: vi.fn(() => () => {}),
+        onSession: vi.fn(() => () => {}),
+      },
       sounds: {
         list: () => Promise.resolve([]),
         read: () => Promise.resolve({ error: "unavailable" }),
