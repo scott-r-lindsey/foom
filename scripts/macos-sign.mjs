@@ -17,7 +17,7 @@ export const releaseSecretNames = [
   "APPLE_TEAM_ID",
 ];
 export function redactOutput(output, args, env = process.env, command = "") {
-  const sensitiveFlags = new Set(["--key-id", "--issuer"]);
+  const sensitiveFlags = new Set(["--key-id", "--issuer", "--sign"]);
   if (basename(command) === "security") {
     sensitiveFlags.add("-P");
     if (["create-keychain", "unlock-keychain"].includes(args[0])) sensitiveFlags.add("-p");

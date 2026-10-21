@@ -27,6 +27,23 @@ import {
   signingOrder,
 } from "./macos-sign.mjs";
 
+import { parseKeychains } from "./macos-credentials.mjs";
+
+test("keychain search-list parsing preserves paths, spaces, order and escaped quotes", () => {
+  assert.deepEqual(
+    parseKeychains(
+      '    "/Users/runner/login.keychain-db"\n    "/path with spaces/other.keychain-db"\n',
+    ),
+    ["/Users/runner/login.keychain-db", "/path with spaces/other.keychain-db"],
+  );
+  assert.deepEqual(parseKeychains(""), []);
+  assert.deepEqual(parseKeychains(String.raw`    "/path/with\"quote\\slash"`), [
+    '/path/with"quote\\slash',
+  ]);
+  for (const output of ["unquoted", '"relative"', '"/unterminated', '"/ok" garbage'])
+    assert.throws(() => parseKeychains(output));
+});
+
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), "foom-sign-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -221,9 +238,15 @@ test("credential setup validates the team, restricts files and cleanup removes p
   const command = join(bin, "security");
   writeFileSync(
     command,
-    `#!${process.execPath}\nconst fs=require('node:fs');const args=process.argv.slice(2);fs.appendFileSync(${JSON.stringify(log)},JSON.stringify(args)+'\\n');if(args[0]==='create-keychain')fs.writeFileSync(args.at(-1),'fixture-keychain');if(args[0]==='import' && process.env.FIXTURE_IMPORT_FAIL){console.error('SecKeychainItemImport: MAC verification failed; password='+process.env.MACOS_CERT_PASSWORD);console.log('fixture import stdout; keychain='+args[args.indexOf('-k')+1]);process.exit(1);}if(args[0]==='find-identity')console.log('  1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "Developer ID Application: Fixture ('+(process.env.FIXTURE_TEAM||'TEAM')+')"\\n     1 valid identities found');\n`,
+    `#!${process.execPath}\nconst fs=require('node:fs');const args=process.argv.slice(2);fs.appendFileSync(${JSON.stringify(log)},JSON.stringify(args)+'\\n');if(args[0]==='list-keychains' && !args.includes('-s'))console.log('    "/Users/runner/login.keychain-db"\\n    "/path with spaces/other.keychain-db"');if(args[0]==='list-keychains' && args.includes('-s') && process.env.FIXTURE_LIST_FAIL)process.exit(1);if(args[0]==='create-keychain')fs.writeFileSync(args.at(-1),'fixture-keychain');if(args[0]==='import' && process.env.FIXTURE_IMPORT_FAIL){console.error('SecKeychainItemImport: MAC verification failed; password='+process.env.MACOS_CERT_PASSWORD);console.log('fixture import stdout; keychain='+args[args.indexOf('-k')+1]);process.exit(1);}if(args[0]==='find-identity')console.log('  1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "Developer ID Application: Fixture ('+(process.env.FIXTURE_TEAM||'TEAM')+')"\\n     1 valid identities found');\n`,
   );
   chmodSync(command, 0o755);
+  const codesign = join(bin, "codesign");
+  writeFileSync(
+    codesign,
+    `#!${process.execPath}\nconst fs=require('node:fs');const args=process.argv.slice(2);fs.appendFileSync(${JSON.stringify(log)},JSON.stringify(['codesign',...args])+'\\n');if(process.env.FIXTURE_SIGN_FAIL){console.error('The specified item could not be found in the keychain. '+args[args.indexOf('--sign')+1]);process.exit(1);}\n`,
+  );
+  chmodSync(codesign, 0o755);
   const env = {
     PATH: bin,
     RUNNER_TEMP: root,
@@ -247,10 +270,39 @@ test("credential setup validates the team, restricts files and cleanup removes p
       `Decoded P12: 20 bytes; SHA-256: ${createHash("sha256").update(Buffer.from("0fixture-certificate")).digest("hex")}`,
     ),
   );
-  for (const name of ["certificate.p12", "AuthKey.p8", "identity.json", "signing.keychain-db"])
+  for (const name of [
+    "certificate.p12",
+    "AuthKey.p8",
+    "identity.json",
+    "signing.keychain-db",
+    "search-list.json",
+  ])
     assert.equal(statSync(join(directory, name)).mode & 0o777, 0o600);
   assert.equal(readFileSync(join(directory, "certificate.p12"), "utf8"), "0fixture-certificate");
   const calls = readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
+  const original = ["/Users/runner/login.keychain-db", "/path with spaces/other.keychain-db"];
+  assert.deepEqual(calls[0], ["list-keychains", "-d", "user"]);
+  assert.deepEqual(
+    calls.find((args) => args[0] === "list-keychains" && args.includes("-s")),
+    ["list-keychains", "-d", "user", "-s", join(directory, "signing.keychain-db"), ...original],
+  );
+  assert.deepEqual(
+    calls.filter((args) => args[0] === "codesign"),
+    [
+      [
+        "codesign",
+        "--force",
+        "--sign",
+        "A".repeat(40),
+        "--keychain",
+        join(directory, "signing.keychain-db"),
+        "--timestamp=none",
+        join(directory, "codesign-probe"),
+      ],
+      ["codesign", "--verify", "--strict", join(directory, "codesign-probe")],
+    ],
+  );
+  assert.ok(!existsSync(join(directory, "codesign-probe")));
   const password = calls.find((args) => args[0] === "create-keychain")[2];
   assert.match(password, /^[a-f0-9]{64}$/);
   assert.ok(setup.stdout.includes(`::add-mask::${password}`));
@@ -258,6 +310,9 @@ test("credential setup validates the team, restricts files and cleanup removes p
   assert.ok(calls.some((args) => args[0] === "import" && args.includes("fixture-password")));
   assert.equal(invoke("cleanup").status, 0);
   assert.equal(existsSync(directory), false);
+  const cleaned = readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
+  assert.deepEqual(cleaned.at(-2), ["list-keychains", "-d", "user", "-s", ...original]);
+  assert.deepEqual(cleaned.at(-1), ["delete-keychain", join(directory, "signing.keychain-db")]);
   assert.equal(invoke("setup", { FIXTURE_TEAM: "OTHER" }).status, 1);
   assert.ok(
     existsSync(join(directory, "AuthKey.p8")),
@@ -275,6 +330,26 @@ test("credential setup validates the team, restricts files and cleanup removes p
   assert.ok(!failedImport.stderr.includes(env.MACOS_CERT_PASSWORD));
   assert.ok(failedImport.stderr.includes(join(directory, "signing.keychain-db")));
   assert.equal(invoke("cleanup").status, 0);
+  const failedProbe = invoke("setup", { FIXTURE_SIGN_FAIL: "1" });
+  assert.equal(failedProbe.status, 1);
+  assert.match(failedProbe.stderr, /setup signing probe failed/);
+  assert.match(failedProbe.stderr, /specified item could not be found/);
+  assert.ok(!failedProbe.stderr.includes("A".repeat(40)));
+  assert.ok(!existsSync(join(directory, "identity.json")));
+  assert.ok(!existsSync(join(directory, "codesign-probe")));
+  assert.equal(invoke("cleanup").status, 0);
+  const failedList = invoke("setup", { FIXTURE_LIST_FAIL: "1" });
+  assert.equal(failedList.status, 1);
+  assert.equal(invoke("cleanup").status, 0, "restore original list after setup list update fails");
+  const partialCalls = readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
+  assert.deepEqual(partialCalls.at(-2), ["list-keychains", "-d", "user", "-s", ...original]);
+  assert.equal(invoke("setup").status, 0);
+  assert.equal(invoke("cleanup", { FIXTURE_LIST_FAIL: "1" }).status, 1);
+  assert.equal(existsSync(directory), false, "delete keychain and secrets even if restore fails");
+  assert.equal(
+    JSON.parse(readFileSync(log, "utf8").trim().split("\n").at(-1))[0],
+    "delete-keychain",
+  );
   for (const [certificate, message] of [
     ["%%", /decoded to 0 bytes/],
     [Buffer.from("not ASN.1").toString("base64"), /ASN.1 SEQUENCE \(0x30\)/],
