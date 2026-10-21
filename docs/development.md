@@ -99,3 +99,10 @@ The macOS signer pins `@electron/notarize` at 3.1.2. A transitive
 `pnpm.overrides.vite` pin to 8.3.3 fixes GHSA-698v-4r3x-3vcv in Vitest's
 Vite dependency. It satisfies Vitest 5's Vite peer range; frozen installation,
 `pnpm run audit` and the full check/coverage runs validate the override.
+
+`electron-winstaller` is pinned directly at 5.4.4 because the Windows packaging
+hook uses its bundled tools. Keeping it required also prevents pnpm's hoisted
+optional-platform graph from dropping its legacy glob dependency on clean
+Windows installs. Validate dependency loading with a clean Windows-target
+optional-dependency install, plus the native Windows maker and smoke tests.
+Its lifecycle script stays disabled; Forge selects the bundled host 7-Zip files.
