@@ -83,7 +83,7 @@
   grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
 }
 .settings-controls .appearance {
-  max-width: 360px;
+  max-width: none;
 }
 .settings-controls .check {
   display: flex;
