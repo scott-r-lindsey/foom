@@ -482,7 +482,15 @@ function PreflightContents({
       </>
     );
   } else if (step === 10 && settingsMode && source.environment) {
-    content = <EnvironmentSettings source={source.environment} headingRef={headingRef} />;
+    content = (
+      <EnvironmentSettings
+        source={source.environment}
+        headingRef={headingRef}
+        onAgents={() => {
+          go(1);
+        }}
+      />
+    );
   } else if (step === 9 && source.config) {
     content = (
       <>
@@ -552,6 +560,16 @@ function PreflightContents({
           requests. Foom does not send terminal content, store forge tokens, change CLI
           login/configuration, or write to the forge.
         </p>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={state.settings.showNewChildren}
+            onChange={(event) => {
+              save({ showNewChildren: event.target.checked });
+            }}
+          />
+          <span>Show new children on the board</span>
+        </label>
         <label className="concurrent-children">
           Concurrent children per orchestrator
           <input

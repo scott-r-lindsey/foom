@@ -13,6 +13,7 @@ export function setupState(
       setupComplete: false,
       hooks: true,
       restoreSessions: true,
+      showNewChildren: true,
       concurrentChildren: 4,
       recentRepositoryDays: 30,
       unreadChildMinutes: 5,

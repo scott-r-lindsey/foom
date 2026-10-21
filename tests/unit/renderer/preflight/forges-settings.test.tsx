@@ -109,12 +109,14 @@ test("cards show source and rejection, start copies off, and submit main-owned p
   const f = fixture();
   render(<ForgesSettings {...f.props} />);
   const github = await screen.findByRole("region", { name: "GitHub" });
-  expect(within(github).getByText("Built-in")).toBeTruthy();
+  expect(within(github).queryByRole("img")).toBeNull();
+  expect(screen.queryByText("Plugin source")).toBeNull();
   expect(within(github).getByText("Readiness by host")).toBeTruthy();
   expect(within(github).getByRole("switch").hasAttribute("checked")).toBe(true);
   expect(screen.queryByRole("button", { name: /Duplicate|Approve/ })).toBeNull();
   const custom = screen.getByRole("region", { name: "Custom forge" });
-  expect(within(custom).getByText("forges/custom.json")).toBeTruthy();
+  const icon = within(custom).getByRole("img", { name: "Foom config · forges/custom.json" });
+  expect(icon.getAttribute("title")).toBe("Foom config · forges/custom.json");
   expect(within(custom).getByRole("textbox").hasAttribute("disabled")).toBe(true);
   expect(screen.getByText("$: invalid-manifest")).toBeTruthy();
   expect(
@@ -268,3 +270,24 @@ test("rejected definitions never display a valid manifest's host authority", asy
   ).toBeNull();
   expect(screen.getByText("broken · Unavailable")).toBeTruthy();
 });
+
+test.each([true, false])(
+  "config source icon does not toggle a forge that is %s",
+  async (enabled) => {
+    const f = fixture();
+    const forges = { github: true, custom: enabled };
+    render(<ForgesSettings {...f.props} settings={setupState({ forges }).settings} />);
+    const card = await screen.findByRole("region", { name: "Custom forge" });
+    const toggle = within(card).getByRole("switch");
+    expect(toggle).toHaveProperty("checked", enabled);
+    fireEvent.click(within(card).getByRole("img", { name: "Foom config · forges/custom.json" }));
+    expect(toggle).toHaveProperty("checked", enabled);
+    expect(f.props.save).not.toHaveBeenCalled();
+    fireEvent.click(toggle);
+    await waitFor(() => {
+      expect(f.props.save).toHaveBeenCalledExactlyOnceWith({
+        forges: { ...forges, custom: !enabled },
+      });
+    });
+  },
+);

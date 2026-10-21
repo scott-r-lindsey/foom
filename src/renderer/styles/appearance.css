@@ -90,3 +90,50 @@
     display: none;
   }
 }
+
+.appearance-group {
+  display: grid;
+  gap: 12px;
+  max-width: 360px;
+}
+.appearance-panel-group {
+  display: grid;
+  gap: 20px;
+  margin-top: 18px;
+}
+.appearance-panel-group > .appearance-mode {
+  width: 240px;
+  max-width: 100%;
+}
+.session-panel-preview.row-menu {
+  position: relative;
+  inset: auto;
+  width: 340px;
+  max-width: 100%;
+  box-sizing: border-box;
+  animation: none;
+  z-index: auto;
+  min-width: 0;
+  pointer-events: none;
+}
+.session-panel-preview .panel-body {
+  grid-template-columns: 110px minmax(0, 1fr);
+}
+.session-panel-preview .preview-command {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+}
+.session-panel-preview::before {
+  display: none;
+}
+.preflight-rail .session-panel-preview {
+  display: none;
+}
+@media (min-width: 1200px) {
+  .settings-controls .appearance-panel-group {
+    grid-template-columns: minmax(180px, 240px) minmax(0, 340px);
+    align-items: start;
+  }
+}

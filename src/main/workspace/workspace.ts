@@ -46,6 +46,7 @@ export class Workspace {
           | "worktreeLocation"
           | "agentArguments"
           | "agentHooks"
+          | "showNewChildren"
           | "restoreSessions"
           | "concurrentChildren"
           | "unreadChildMinutes"

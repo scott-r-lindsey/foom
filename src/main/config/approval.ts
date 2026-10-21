@@ -77,6 +77,7 @@ const LABELS: Record<ConfigSetting, string> = {
   agentArguments: "Agent launch arguments",
   hooks: "Hooks",
   restoreSessions: "Restore sessions on launch",
+  showNewChildren: "Show new children on the board",
   concurrentChildren: "Concurrent children per orchestrator",
   recentRepositoryDays: "Recent repository days",
 };
