@@ -1,7 +1,7 @@
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, realpath, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = process.getBuiltinModule("node:os");
 const { deadline, expect } = require("./test-policy.js");
 const { boardPage, launchApp, removeAfterApps, assertAccessible } = require("./harness.js");
@@ -12,7 +12,7 @@ test("first-run git and selected forge hosts share lazy readiness and recover on
   skip: process.platform === "win32",
   timeout: deadline(60_000),
 }, async (context) => {
-  const root = await mkdtemp(path.join(tmpdir(), "foom-readiness-"));
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-readiness-")));
   removeAfterApps(context, root);
   const bin = path.join(root, "bin");
   const home = path.join(root, "home");
