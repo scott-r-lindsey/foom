@@ -61,5 +61,7 @@ hole, space-ink, accent and accent-deep tokens.
 ## Bundled manual
 
 After setup first completes, the board opens the bundled HTML manual once.
-The saved setup-complete state prevents automatic reopening on later launches.
+This offer is shared across all windows in the profile. Closing it before another
+setup window completes or saves preferences does not reopen it. The saved
+setup-complete state prevents automatic reopening on later launches.
 Closing the manual does not change setup; Help → Manual opens it again.

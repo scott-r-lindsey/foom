@@ -154,6 +154,7 @@ export async function buildWindow(
     const host = existing?.[1] ?? previewHost;
     const id = host.openManual();
     const target = wiring.windows.get(owner)?.window;
+    if (target?.isMinimized()) target.restore();
     target?.show();
     target?.focus();
     target?.webContents.send("board:command", "manual");
@@ -252,7 +253,6 @@ export async function buildWindow(
     previewHost.refresh();
     confirmations.refresh();
   };
-  let setupComplete = wiring.settings.get().setupComplete;
   const setup = new Setup({
     readiness: () =>
       checkReadiness(
@@ -296,9 +296,7 @@ export async function buildWindow(
       },
     },
     apply: (next) => {
-      const firstCompletion = !setupComplete && next.setupComplete;
-      setupComplete = next.setupComplete;
-      if (firstCompletion) manualPending = true;
+      if (next.setupComplete && wiring.claimSetupManual()) manualPending = true;
       wiring.forgeRuntime.configure();
       wiring.workspace.configure(next);
       wiring.applyThemeSettings(next);
