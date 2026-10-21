@@ -1,3 +1,4 @@
+import { PluginSourceIcon } from "./plugin-source-icon";
 import { ForgeReadinessRows } from "./forge-readiness";
 import type { useReadiness } from "./use-readiness";
 import { ActionError, useBackgroundErrors } from "../board/error-presentation";
@@ -99,6 +100,7 @@ export function ForgesSettings({
                   {forge.reason ? "Rejected" : enabled ? "Readiness by host" : "Turned off"}
                 </span>
                 <label className="agent-toggle">
+                  {forge.file && <PluginSourceIcon file={forge.file} />}
                   <input
                     type="checkbox"
                     role="switch"
@@ -115,19 +117,11 @@ export function ForgesSettings({
                 </label>
                 <code className="agent-path">{forge.executables.join(", ")}</code>
               </div>
-              <div className="agent-setting">
-                <span className="agent-label">Plugin source</span>
-                <span>
-                  {forge.file ? (
-                    <>
-                      Foom config · <code>{forge.file}</code>
-                    </>
-                  ) : (
-                    "Built-in"
-                  )}
-                </span>
-              </div>
-              {forge.reason && <p className="preflight-error">{forge.reason}</p>}
+              {forge.reason && (
+                <p className="preflight-error">
+                  <span>Rejected · launch blocked</span> · <span>{forge.reason}</span>
+                </p>
+              )}
               <div className="agent-setting">
                 <span className="agent-label">Hosts</span>
                 <div>

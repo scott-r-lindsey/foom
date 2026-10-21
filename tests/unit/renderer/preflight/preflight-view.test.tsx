@@ -841,8 +841,9 @@ test("agent settings report capability-gated MCP availability and policy limits"
   fireEvent.click(button("Start preflight"));
   const claude = await screen.findByRole("region", { name: "Claude Code" });
   const codex = screen.getByRole("region", { name: "Codex" });
-  expect(within(claude).getAllByText("Available").length).toBeGreaterThan(0);
-  expect(within(codex).getAllByText("Unavailable").length).toBeGreaterThan(0);
+  expect(within(claude).getByLabelText("Foom can orchestrate this agent")).toBeTruthy();
+  expect(within(codex).queryByLabelText("Foom can orchestrate this agent")).toBeNull();
+  expect(screen.queryByText("Unavailable")).toBeNull();
 });
 
 test.each([

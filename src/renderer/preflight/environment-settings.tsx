@@ -89,12 +89,14 @@ export function EnvironmentSettings({
   scope: selectedScope,
   scopes = ["all"],
   label,
+  onAgents,
 }: {
   source: EnvironmentApi;
   headingRef?: Ref<HTMLHeadingElement>;
   scope?: EnvironmentScope;
   scopes?: readonly EnvironmentScope[];
   label?: string;
+  onAgents?: () => void;
 }) {
   const [state, setState] = useState<EnvironmentState>();
   const [lists, setLists] = useState<Drafts>();
@@ -416,6 +418,15 @@ export function EnvironmentSettings({
             Import from login shell
           </button>
         </div>
+      )}
+      {!selectedScope && onAgents && (
+        <p className="appearance-hint">
+          Added to every shell and agent Foom starts. Agent-specific variables are under{" "}
+          <button type="button" className="link" onClick={onAgents}>
+            Agents
+          </button>
+          . Running sessions keep theirs.
+        </p>
       )}
       {selectedScope && (
         <span className="environment-status" role="status">

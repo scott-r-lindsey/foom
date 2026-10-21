@@ -109,12 +109,14 @@ test("cards show source and rejection, start copies off, and submit main-owned p
   const f = fixture();
   render(<ForgesSettings {...f.props} />);
   const github = await screen.findByRole("region", { name: "GitHub" });
-  expect(within(github).getByText("Built-in")).toBeTruthy();
+  expect(within(github).queryByRole("img")).toBeNull();
+  expect(screen.queryByText("Plugin source")).toBeNull();
   expect(within(github).getByText("Readiness by host")).toBeTruthy();
   expect(within(github).getByRole("switch").hasAttribute("checked")).toBe(true);
   expect(screen.queryByRole("button", { name: /Duplicate|Approve/ })).toBeNull();
   const custom = screen.getByRole("region", { name: "Custom forge" });
-  expect(within(custom).getByText("forges/custom.json")).toBeTruthy();
+  const icon = within(custom).getByRole("img", { name: "Foom config · forges/custom.json" });
+  expect(icon.getAttribute("title")).toBe("Foom config · forges/custom.json");
   expect(within(custom).getByRole("textbox").hasAttribute("disabled")).toBe(true);
   expect(screen.getByText("$: invalid-manifest")).toBeTruthy();
   expect(

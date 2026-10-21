@@ -482,7 +482,15 @@ function PreflightContents({
       </>
     );
   } else if (step === 10 && settingsMode && source.environment) {
-    content = <EnvironmentSettings source={source.environment} headingRef={headingRef} />;
+    content = (
+      <EnvironmentSettings
+        source={source.environment}
+        headingRef={headingRef}
+        onAgents={() => {
+          go(1);
+        }}
+      />
+    );
   } else if (step === 9 && source.config) {
     content = (
       <>

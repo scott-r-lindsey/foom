@@ -62,13 +62,13 @@
 .agent-setting {
   display: grid;
   grid-template-columns: 130px minmax(0, 1fr);
+  align-items: baseline;
   gap: 12px;
   margin-top: 16px;
   font-size: 12px;
 }
 .agent-label {
   color: var(--muted);
-  padding-top: 4px;
 }
 .agent-facts {
   display: flex;
@@ -193,4 +193,29 @@
 .agent-toggle input[role="switch"]:focus-visible {
   outline: 2px solid var(--highlight);
   outline-offset: 3px;
+}
+
+.plugin-source-icon {
+  display: inline-flex;
+  color: var(--muted);
+}
+.agent-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.agent-capability {
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--badge-fill);
+  color: var(--badge-ink);
+  font: 11px var(--font-mono);
+}
+/* Textareas expose their bottom edge as a baseline; align their first text line. */
+.agent-setting:has(textarea) {
+  align-items: start;
+}
+.agent-setting:has(textarea) > .agent-label {
+  padding-top: 6px;
+  line-height: 1.6;
 }
