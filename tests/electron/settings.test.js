@@ -671,6 +671,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     setupComplete: true,
     hooks: true,
     restoreSessions: true,
+    showNewChildren: true,
     concurrentChildren: 4,
     recentRepositoryDays: 30,
     unreadChildMinutes: 5,

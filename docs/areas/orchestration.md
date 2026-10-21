@@ -43,7 +43,7 @@ removal or revocation of the parent ends its authority, aborts pending removal
 dialogs and frees the slot; children keep running. Snapshots carry a main-computed `orchestration`
 view (role, children, last 20 actions); validated session metadata retains bounded history across restart. `take-over` is a sidebar
 command that removes the orchestrator's stop, close, tail and wait access to that child.
-New child launches send a background placement event to the parent's board (or the
+With `showNewChildren` enabled (the default), new child launches send a background placement event to the parent's board (or the
 current board when hidden). The renderer queues it until inventory arrives, uses
 sidebar placement without replacing the current tile, and preserves focus. Restore
 sends no placement event. `close` accepts only owned, exited children and delegates

@@ -17,6 +17,12 @@ General offers **Show pull requests and checks**, defaulting to on when an enabl
 
 General offers **Restore sessions on launch**, on by default. Turning it on through agent-edited config requires Allow because it also permits restoring orchestrator control. General also offers **Auto-remove merged worktrees**, off by default and applying to all repositories.
 
+General also offers **Show new children on the board**, on by default. It applies
+to new orchestrator child launches only; existing tiles and restored children stay
+as they are. Off keeps new children in the sidebar, where they retain attention
+and can be opened normally. The config-folder key `showNewChildren` is a plain
+display preference and applies without Allow in either direction.
+
 Forges shows bundled and config manifests in the same card layout, with an On/Off
 switch, badge, source and host assignments. Valid config manifests load without
 approval; there is no Duplicate action. Copies start off with no hosts. Settings
