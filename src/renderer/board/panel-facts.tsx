@@ -289,9 +289,23 @@ export function PanelFacts({
           {subject.tree.pullRequest && (
             <>
               <Fact label="Pull request">
-                #{subject.tree.pullRequest.number} · {subject.tree.pullRequest.title}
+                #{subject.tree.pullRequest.number}
+                {subject.tree.pullRequest.title && ` · ${subject.tree.pullRequest.title}`}
               </Fact>
               <Fact label="PR state">{subject.tree.pullRequest.state.toLowerCase()}</Fact>
+              {subject.tree.pullRequest.checksMeaning && (
+                <Fact
+                  label={
+                    {
+                      required: "Required checks",
+                      "head-pipeline": "Head pipeline",
+                      "commit-status": "Commit status",
+                    }[subject.tree.pullRequest.checksMeaning]
+                  }
+                >
+                  {subject.tree.pullRequest.requiredChecks ?? "unknown"}
+                </Fact>
+              )}
               <Fact label="Checks">
                 {subject.tree.pullRequest.checks
                   ? `${String(subject.tree.pullRequest.checks.passed)} passed · ${String(subject.tree.pullRequest.checks.failed)} failed · ${String(subject.tree.pullRequest.checks.pending)} running`

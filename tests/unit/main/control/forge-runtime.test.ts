@@ -75,7 +75,9 @@ it("defaults to manifests and requires main-owned context before discovery", asy
   const h = harness();
   expect(await h.runtime.provider(remote)).toBeUndefined();
   expect(h.discover).not.toHaveBeenCalled();
-  expect(await h.runtime.provider(remote, getContext)).toHaveProperty("batch");
+  const provider = await h.runtime.provider(remote, getContext);
+  expect(provider).toHaveProperty("batch");
+  expect(provider).toHaveProperty("routedHost", "github.com");
   expect(h.discover).toHaveBeenCalledOnce();
   await h.runtime.close();
   expect(await h.runtime.provider(remote, getContext)).toBeUndefined();
@@ -283,6 +285,13 @@ it.each(["legacy", "manifest"])("matches recorded tracking fixtures through %s",
     headSha: head,
     state: "OPEN",
     requiredChecks: "none",
+    ...(mode === "manifest"
+      ? {
+          checksMeaning: "required",
+          title: "Recorded fixture",
+          url: `https://github.com/cli/cli/pull/${String(number)}`,
+        }
+      : {}),
   });
   expect(tracker.readBoard(tree.repository, tree.path)).toEqual({
     number,
@@ -290,7 +299,14 @@ it.each(["legacy", "manifest"])("matches recorded tracking fixtures through %s",
     url: `https://github.com/cli/cli/pull/${String(number)}`,
     state: "OPEN",
     checks: { passed: 7, failed: 0, pending: 0 },
+    ...(mode === "manifest"
+      ? { checksMeaning: "required", requiredChecks: "none", sourceName: "cli/cli" }
+      : {}),
   });
+  if (mode === "manifest")
+    expect(tracker.readUrl(tree.repository, tree.path)).toBe(
+      `https://github.com/cli/cli/pull/${String(number)}`,
+    );
   expect(reads).toBeGreaterThan(1);
 });
 

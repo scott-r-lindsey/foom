@@ -21,6 +21,7 @@ test("board forge inventory validates checkout identity and opens only main-owne
     checks: null,
   };
   const read = vi.spyOn(forge, "readBoard").mockReturnValue(board);
+  const readUrl = vi.spyOn(forge, "readUrl").mockReturnValue(board.url);
   const open = vi.fn(() => Promise.resolve());
   deps.openExternal = open;
   const workspace = new Workspace(deps);
@@ -46,6 +47,7 @@ test("board forge inventory validates checkout identity and opens only main-owne
     );
     expect(open).toHaveBeenCalledExactlyOnceWith(board.url);
     read.mockReturnValue(undefined);
+    readUrl.mockReturnValue(undefined);
     await expect(
       workspace.sidebarCommand(
         { kind: "open-pull-request", repository: repo.path, worktree: tree.path },
@@ -93,6 +95,79 @@ test("agent idle and exit request a forge refresh without reading terminal conte
     recheck.mockClear();
     await workspace.exited("t1", 0);
     expect(recheck).toHaveBeenCalledWith(tree.path);
+  } finally {
+    await forge.close();
+  }
+});
+
+test.each([
+  ["https://user@github.com/o/r.git", "github.com"],
+  ["ssh://user@host/o/r", "host"],
+  ["ssh://git@host:2222/o/r", "host"],
+  ["https://GITHUB.COM/o/r.git", "github.com"],
+  ["https://github.com./o/r.git", "github.com"],
+  ["git@host-alias:o/r.git", "github.com"],
+])("board PR link uses routed host for remote spelling %s", async (remote, routedHost) => {
+  const { ForgeTracking } = await import("../../../../src/main/control/forge-tracking");
+  const root = deps.agentPluginDirectory;
+  if (!root) throw new Error("Missing fixture directory");
+  const validatedUrl = `https://${routedHost}/o/r/pull/12`;
+  let url = validatedUrl;
+  // Inject routing's result to isolate link opening from the remote parser's grammar.
+  // Unsupported remotes must still be refused by production routing, never by a second parser here.
+  const forge = new ForgeTracking(
+    root,
+    () => Promise.resolve(remote),
+    () => {},
+    () => ({
+      routedHost,
+      lookup: () => Promise.resolve(undefined),
+      batch: () =>
+        Promise.resolve(
+          new Map([
+            [
+              tree.branch,
+              {
+                number: 12,
+                headSha: "a".repeat(40),
+                state: "OPEN",
+                requiredChecks: "success",
+                board: { number: 12, title: "Fixture PR", url, state: "OPEN", checks: null },
+              },
+            ],
+          ]),
+        ),
+    }),
+  );
+  deps.forge = forge;
+  const open = vi.fn(() => Promise.resolve());
+  deps.openExternal = open;
+  const workspace = new Workspace(deps);
+  try {
+    workspace.configure({
+      hooks: true,
+      agents: { claude: true, codex: true, agy: true },
+      showPullRequests: true,
+    });
+    // Inventory sync creates a board-only checkout entry, with no child/session tracking.
+    await workspace.sidebarInventory();
+    await forge.poll();
+    expect(forge.readBoard(repo.path, tree.path)?.url).toBe(validatedUrl);
+    await workspace.sidebarCommand(
+      { kind: "open-pull-request", repository: repo.path, worktree: tree.path },
+      () => Promise.resolve(false),
+    );
+    expect(open).toHaveBeenCalledExactlyOnceWith(validatedUrl);
+    url = "https://off-host.example/o/r/pull/12";
+    forge.recheck(tree.path);
+    await forge.poll();
+    await expect(
+      workspace.sidebarCommand(
+        { kind: "open-pull-request", repository: repo.path, worktree: tree.path },
+        () => Promise.resolve(false),
+      ),
+    ).rejects.toThrow("Pull request unavailable");
+    expect(open).toHaveBeenCalledTimes(1);
   } finally {
     await forge.close();
   }

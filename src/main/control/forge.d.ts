@@ -4,6 +4,10 @@ export interface PullRequest {
   number: number;
   headSha: string;
   mergeCommit?: string;
+  checksMeaning?: "required" | "head-pipeline" | "commit-status";
+  title?: string;
+  url?: string;
+  sourceName?: string;
   state: "OPEN" | "CLOSED" | "MERGED";
   requiredChecks: "pending" | "success" | "failure" | "none" | "unknown";
 }
@@ -20,6 +24,8 @@ export interface ForgeObservation extends PullRequest {
   board: BoardPullRequest;
 }
 export interface ForgeProvider {
+  /** Main-owned host selected by routing, never derived from display output. */
+  routedHost?: string;
   /** Stable manifest/remote provenance for durable numeric bindings. */
   binding?: string;
   acceptLegacyBinding?: boolean;
@@ -48,7 +54,10 @@ export interface ForgeResponse {
   stderr: string;
 }
 /** Main supplies bounded execFile-style execution; the interpreter never spawns. */
-export type ForgeTransport = (argv: readonly string[]) => Promise<ForgeResponse>;
+export type ForgeTransport = (
+  argv: readonly string[],
+  optionalDisplay?: boolean,
+) => Promise<ForgeResponse>;
 export interface ForgeRemote {
   host: string;
   project: string;

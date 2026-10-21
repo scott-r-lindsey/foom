@@ -271,6 +271,14 @@ it("changes metadata revision on PR conclusion while narrowing untrusted fields"
   expect(metadata.read(actor, "sessions", {})).toMatchObject({
     sessions: [{ pullRequest: { number: 340 } }],
   });
+  h.advance(30000);
+  h.result({ ...pending, requiredChecks: "success", checksMeaning: "commit-status" });
+  await h.tracker.poll();
+  const meaning = metadata.read(actor, "session_state", { id: "child" });
+  expect(meaning).not.toEqual(after);
+  expect(meaning).toMatchObject({
+    pullRequest: { checksMeaning: "commit-status", requiredChecks: "success" },
+  });
   const hostile = new SessionMetadata(
     () => [row],
     () => ({ ...pending, number: "340" }),
@@ -843,4 +851,72 @@ it("backs off the entire repository after a failed chunk and hides unsampled sta
   h.result(new Map());
   await h.tracker.poll();
   expect(h.batch).toHaveBeenCalledTimes(5);
+});
+
+it("persists checks meaning and hides restored data until fresh validation", async () => {
+  const h = harness();
+  h.result({ ...pending, checksMeaning: "head-pipeline" });
+  h.tracker.track(tree);
+  await h.tracker.poll();
+  expect(h.tracker.read(tree.repository, tree.path)?.checksMeaning).toBe("head-pipeline");
+  await h.tracker.close();
+  const saved: unknown = JSON.parse(await readFile(join(directory, "forge.json"), "utf8"));
+  expect(saved).toMatchObject({
+    version: 1,
+    entries: [{ pr: { checksMeaning: "head-pipeline" } }],
+  });
+  const restored = new ForgeTracking(directory, h.inspect, h.changed, h.provider);
+  trackers.push(restored);
+  await restored.load();
+  expect(restored.read(tree.repository, tree.path)).toBeUndefined();
+  await restored.poll();
+  expect(restored.read(tree.repository, tree.path)?.checksMeaning).toBe("head-pipeline");
+});
+
+it("revalidates stored display URLs against the routed host on open", async () => {
+  let routedHost: string | undefined = "github.com";
+  let url: string | undefined = "https://github.com/o/r/pull/340";
+  const tracker = new ForgeTracking(
+    directory,
+    () => Promise.resolve("git@github.com:o/r.git"),
+    () => {},
+    () => ({
+      ...(routedHost === undefined ? {} : { routedHost }),
+      lookup: () => Promise.resolve(undefined),
+      batch: () =>
+        Promise.resolve(
+          new Map([
+            [
+              tree.branch,
+              {
+                ...pending,
+                board: {
+                  number: 340,
+                  state: "OPEN",
+                  checks: null,
+                  ...(url === undefined ? {} : { url }),
+                },
+              },
+            ],
+          ]),
+        ),
+    }),
+  );
+  trackers.push(tracker);
+  tracker.setEnabled(true);
+  tracker.track(tree);
+  await tracker.poll();
+  expect(tracker.readUrl(tree.repository, tree.path)).toBe(url);
+  expect(tracker.readUrl("other", tree.path)).toBeUndefined();
+  for (const value of ["https://other.org/pr/1", "javascript:alert(1)", undefined]) {
+    url = value;
+    tracker.recheck(tree.path);
+    await tracker.poll();
+    expect(tracker.readUrl(tree.repository, tree.path)).toBeUndefined();
+  }
+  routedHost = undefined;
+  url = "https://github.com/o/r/pull/340";
+  tracker.recheck(tree.path);
+  await tracker.poll();
+  expect(tracker.readUrl(tree.repository, tree.path)).toBeUndefined();
 });
