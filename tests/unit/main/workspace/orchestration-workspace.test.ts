@@ -355,88 +355,93 @@ it.each([
   },
 );
 
-it("creates fresh branches and launches children with the user's defaults and no confirmation", async () => {
-  const workspace = new Workspace(deps);
-  workspace.configure({
-    hooks: false,
-    agents: { claude: true, codex: true, agy: true },
-    agentArguments: { claude: ["--model", "opus"], codex: [], agy: [] },
-  });
-  await orchestrate(workspace);
-  expect(launch.mock.calls[0]?.[0].defaultArguments).toEqual(["--model", "opus"]);
-  const operations = new Operations(
-    () => Promise.resolve(),
-    () => undefined,
-  );
-  const actor = principal();
-  const tree = (await workspace.orchestration.call(
-    actor,
-    "create_worktree",
-    { idempotencyKey: "a", branch: "feature" },
-    operations,
-  )) as Operation;
-  expect(deps.worktrees.createWorktree).toHaveBeenCalledWith(repo.path, "feature", {
-    location: "root",
-    newBranch: true,
-  });
-  launch.mockResolvedValueOnce({ id: "child", attention: "evaluator" });
-  confirm.mockClear();
-  const started = (await workspace.orchestration.call(
-    actor,
-    "launch",
-    { idempotencyKey: "b", worktreeId: tree.resultId, agent: "claude", prompt: "Write tests" },
-    operations,
-  )) as Operation;
-  expect(started).toMatchObject({ status: "succeeded", resultId: "child" });
-  expect(deps.placeChild).toHaveBeenCalledWith("child", "parent");
-  expect(confirm).not.toHaveBeenCalled();
-  expect(launch).toHaveBeenLastCalledWith(
-    expect.objectContaining({
-      worktree: child.path,
-      defaultArguments: ["--model", "opus"],
-      sharedCheckout: false,
-      mainCheckout: false,
-      control: { parentId: "parent" },
-      prompt: "Write tests",
-    }),
-  );
-  const row = workspace.snapshot().terminals.find((entry) => entry.id === "child");
-  expect(row).toMatchObject({
-    launchFlags: ["--model", "opus"],
-    bypass: false,
-    orchestration: { role: "child", parentId: "parent", takenOver: false },
-  });
-  await workspace.orchestration.call(actor, "tail", { id: "child" }, operations);
-  expect(tail).toHaveBeenCalledWith("child", 80);
-  await workspace.orchestration.call(
-    actor,
-    "stop",
-    { idempotencyKey: "c", id: "child" },
-    operations,
-  );
-  expect(stop).toHaveBeenCalledWith("child");
-  await workspace.sidebarCommand({ kind: "take-over", id: "child" }, confirm);
-  expect(
-    workspace.snapshot().terminals.find((entry) => entry.id === "child")?.orchestration,
-  ).toMatchObject({
-    takenOver: true,
-  });
-  await expect(
-    workspace.sidebarCommand({ kind: "take-over", id: "parent" }, confirm),
-  ).rejects.toThrow("no orchestrator");
-  await workspace.exited("child", 0);
-  // A taken-over child cannot be closed by its former parent, even after exit.
-  await expect(
-    workspace.orchestration.call(
+it.each([true, false])(
+  "launches children with defaults and no confirmation (board placement: %s)",
+  async (showNewChildren) => {
+    const workspace = new Workspace(deps);
+    workspace.configure({
+      hooks: false,
+      agents: { claude: true, codex: true, agy: true },
+      agentArguments: { claude: ["--model", "opus"], codex: [], agy: [] },
+      showNewChildren,
+    });
+    await orchestrate(workspace);
+    expect(launch.mock.calls[0]?.[0].defaultArguments).toEqual(["--model", "opus"]);
+    const operations = new Operations(
+      () => Promise.resolve(),
+      () => undefined,
+    );
+    const actor = principal();
+    const tree = (await workspace.orchestration.call(
       actor,
-      "close",
-      { id: "child", idempotencyKey: "refused-close" },
+      "create_worktree",
+      { idempotencyKey: "a", branch: "feature" },
       operations,
-    ),
-  ).rejects.toThrow("forbidden");
-  workspace.removed("child");
-  expect(workspace.snapshot().terminals.some((entry) => entry.id === "child")).toBe(false);
-});
+    )) as Operation;
+    expect(deps.worktrees.createWorktree).toHaveBeenCalledWith(repo.path, "feature", {
+      location: "root",
+      newBranch: true,
+    });
+    launch.mockResolvedValueOnce({ id: "child", attention: "evaluator" });
+    confirm.mockClear();
+    const started = (await workspace.orchestration.call(
+      actor,
+      "launch",
+      { idempotencyKey: "b", worktreeId: tree.resultId, agent: "claude", prompt: "Write tests" },
+      operations,
+    )) as Operation;
+    expect(started).toMatchObject({ status: "succeeded", resultId: "child" });
+    if (showNewChildren) expect(deps.placeChild).toHaveBeenCalledWith("child", "parent");
+    else expect(deps.placeChild).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(launch).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        worktree: child.path,
+        defaultArguments: ["--model", "opus"],
+        sharedCheckout: false,
+        mainCheckout: false,
+        control: { parentId: "parent" },
+        prompt: "Write tests",
+      }),
+    );
+    const row = workspace.snapshot().terminals.find((entry) => entry.id === "child");
+    expect(row).toMatchObject({
+      launchFlags: ["--model", "opus"],
+      bypass: false,
+      orchestration: { role: "child", parentId: "parent", takenOver: false },
+    });
+    await workspace.orchestration.call(actor, "tail", { id: "child" }, operations);
+    expect(tail).toHaveBeenCalledWith("child", 80);
+    await workspace.orchestration.call(
+      actor,
+      "stop",
+      { idempotencyKey: "c", id: "child" },
+      operations,
+    );
+    expect(stop).toHaveBeenCalledWith("child");
+    await workspace.sidebarCommand({ kind: "take-over", id: "child" }, confirm);
+    expect(
+      workspace.snapshot().terminals.find((entry) => entry.id === "child")?.orchestration,
+    ).toMatchObject({
+      takenOver: true,
+    });
+    await expect(
+      workspace.sidebarCommand({ kind: "take-over", id: "parent" }, confirm),
+    ).rejects.toThrow("no orchestrator");
+    await workspace.exited("child", 0);
+    // A taken-over child cannot be closed by its former parent, even after exit.
+    await expect(
+      workspace.orchestration.call(
+        actor,
+        "close",
+        { id: "child", idempotencyKey: "refused-close" },
+        operations,
+      ),
+    ).rejects.toThrow("forbidden");
+    workspace.removed("child");
+    expect(workspace.snapshot().terminals.some((entry) => entry.id === "child")).toBe(false);
+  },
+);
 
 it("removes an orchestrator worktree only through the trusted dialog", async () => {
   const workspace = new Workspace(deps);

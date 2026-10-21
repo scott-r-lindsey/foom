@@ -740,3 +740,23 @@ test.each([1, 2])(
     );
   },
 );
+
+test("new child placement defaults on and round-trips a boolean", async () => {
+  expect(DEFAULT_SETTINGS.showNewChildren).toBe(true);
+  for (const showNewChildren of [false, true])
+    expect(parseSettingsPatch({ showNewChildren })).toEqual({ showNewChildren });
+  for (const value of [null, 0, 1, "false", {}, []])
+    expect(() => parseSettingsPatch({ showNewChildren: value })).toThrow();
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  await store.update({ showNewChildren: false });
+  expect((await SettingsStore.open(dir)).get().showNewChildren).toBe(false);
+  const writer = vi.fn();
+  await store.attachConfig(writer, { showNewChildren: false }, null);
+  await store.update({ showNewChildren: true });
+  expect(writer).toHaveBeenCalledWith({ showNewChildren: true });
+  store.setConfig({ showNewChildren: false });
+  expect(store.get().showNewChildren).toBe(false);
+  store.setConfig({});
+  expect(store.get().showNewChildren).toBe(true);
+});

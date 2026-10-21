@@ -21,6 +21,7 @@ export const CONFIG_SETTINGS = [
   "agentArguments",
   "hooks",
   "restoreSessions",
+  "showNewChildren",
   "concurrentChildren",
   "recentRepositoryDays",
 ] as const;
@@ -38,6 +39,8 @@ export function parseConfigSettings(value: unknown): ConfigSettings {
     else if (key === "terminalFont" && isTerminalFont(entry)) result.terminalFont = entry;
     else if (key === "terminalTheme") result.terminalTheme = parseTerminalThemeChoice(entry);
     else if (key === "sound") result.sound = parseSoundSettings(entry);
+    else if (key === "showNewChildren" && typeof entry === "boolean")
+      result.showNewChildren = entry;
     else if (key === "restoreSessions" && typeof entry === "boolean")
       result.restoreSessions = entry;
     else if (
