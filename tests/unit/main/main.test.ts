@@ -1,3 +1,11 @@
+const forgeHostStatus = vi.hoisted(() => vi.fn(() => Promise.resolve("ready" as const)));
+const readinessCheck = vi.hoisted(() =>
+  vi.fn((repositories: readonly string[], status: (host: string) => Promise<string>) => {
+    const result = { git: "ready", platform: "linux", forges: [] };
+    return repositories.length ? status("github.com").then(() => result) : Promise.resolve(result);
+  }),
+);
+vi.mock("../../../src/main/setup/readiness", () => ({ checkReadiness: readinessCheck }));
 import type * as ForgeRuntimeModule from "../../../src/main/control/forge-runtime";
 import type { WorkspaceTerminal } from "../../../src/shared/workspace";
 import { DEFAULT_SETTINGS } from "../../../src/main/setup/settings";
@@ -7,6 +15,7 @@ vi.mock("../../../src/main/control/forge-runtime", async (original) => {
   return {
     ForgeRuntime: class extends actual.ForgeRuntime {
       override available = forgeAvailable;
+      override hostStatus = forgeHostStatus;
     },
   };
 });
@@ -486,7 +495,9 @@ const mock = vi.hoisted(() => {
         Settings,
         "colorMode" | "interfaceScale" | "interfaceTheme" | "forges" | "forgeHosts"
       > &
-        Partial<Pick<Settings, "agentBypassAcknowledged" | "showPullRequests">> => ({
+        Partial<
+          Pick<Settings, "agentBypassAcknowledged" | "showPullRequests" | "setupComplete">
+        > => ({
         forges: { github: true },
         forgeHosts: { "github.com": "github" },
         showPullRequests: false,
@@ -1251,6 +1262,11 @@ test("Settings repository selection uses workspace lifecycle guards", async () =
   const code = mock.setup.deps?.code;
   if (!code) throw new Error("Missing setup code dependency");
   expect(code.worktrees.listRepositories()).toEqual([repository]);
+  await mock.setup.deps?.readiness?.();
+  await mock.setup.deps?.gitReadiness?.();
+  expect(readinessCheck).toHaveBeenCalledWith([repository.path], expect.any(Function));
+  expect(readinessCheck).toHaveBeenCalledWith([], expect.any(Function));
+  expect(forgeHostStatus).toHaveBeenCalledOnce();
   await expect(code.worktrees.addRepository(repository.path)).resolves.toEqual(repository);
   expect(mock.workspace.addRepository).toHaveBeenCalledWith(repository.path);
   await expect(code.worktrees.removeRepository(repository.path)).rejects.toThrow("Close");
@@ -2185,7 +2201,9 @@ test("preview popout creates a window, transfers the host record and requests pl
 });
 
 test("forge default probes GitHub CLI login once unless the preference was already saved", async () => {
-  const get = vi.spyOn(mock.settingsStore, "get").mockReturnValue({ ...DEFAULT_SETTINGS });
+  const get = vi
+    .spyOn(mock.settingsStore, "get")
+    .mockReturnValue({ ...DEFAULT_SETTINGS, setupComplete: true });
   try {
     forgeAvailable.mockResolvedValueOnce(true);
     await start();
@@ -2196,7 +2214,9 @@ test("forge default probes GitHub CLI login once unless the preference was alrea
   }
 });
 test("missing or logged-out gh defaults board tracking off", async () => {
-  const get = vi.spyOn(mock.settingsStore, "get").mockReturnValue({ ...DEFAULT_SETTINGS });
+  const get = vi
+    .spyOn(mock.settingsStore, "get")
+    .mockReturnValue({ ...DEFAULT_SETTINGS, setupComplete: true });
   try {
     forgeAvailable.mockResolvedValueOnce(false);
     await start();
@@ -2204,6 +2224,11 @@ test("missing or logged-out gh defaults board tracking off", async () => {
   } finally {
     get.mockRestore();
   }
+});
+test("first run defers forge probes until the readiness step", async () => {
+  vi.spyOn(mock.settingsStore, "get").mockReturnValue({ ...DEFAULT_SETTINGS });
+  await start();
+  expect(forgeAvailable).not.toHaveBeenCalled();
 });
 test("forge lifecycle pauses on power events and completion notifications honor preferences", async () => {
   let settings = { ...DEFAULT_SETTINGS, showPullRequests: true };
@@ -2304,6 +2329,8 @@ test("pass notifications use current execution evidence rather than stale verdic
 });
 
 test("wires the forge catalog and shares the manifest selector between tracking and adoption", async () => {
+  const agents = await import("../../../src/main/agents/agents");
+  vi.spyOn(agents, "loginPath").mockResolvedValue({ path: "/fixture/bin", warning: null });
   await start();
   const provider = forgeMock.open.mock.calls[0]?.[3];
   expect(provider).toEqual(expect.any(Function));

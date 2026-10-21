@@ -1,3 +1,4 @@
+import type { ReadinessReport } from "../../shared/readiness";
 import type { ThemeKind } from "../../shared/theme-file";
 import type { EnvironmentApi } from "../../shared/environment";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
@@ -15,6 +16,7 @@ import type { ConfigStatus } from "../../shared/foom-config";
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
+  checkReadiness?(): Promise<ReadinessReport>;
   listTerminalFonts?(refresh?: boolean): Promise<readonly string[]>;
   openThemesFolder(kind: ThemeKind): Promise<void>;
   state(): Promise<SetupState>;

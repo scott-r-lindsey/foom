@@ -1,3 +1,4 @@
+import type { ReadinessReport } from "../../shared/readiness";
 import type { ThemeCatalog } from "../../shared/theme-file";
 import { hasBypassArgument } from "../agents/default-arguments";
 import type { AgentId } from "../../shared/agents";
@@ -16,6 +17,8 @@ import type {
 import type { WorktreeService } from "../workspace/worktrees";
 
 export interface SetupDependencies {
+  gitReadiness?: () => Promise<ReadinessReport>;
+  readiness?: () => Promise<ReadinessReport>;
   themes?: () => ThemeCatalog;
   /** IDs from the validated main-owned catalog, never manifest host declarations. */
   forgeIds?: () => readonly string[];
@@ -52,6 +55,11 @@ export class Setup {
     this.deps.apply(this.deps.store.get());
   }
 
+  readiness() {
+    if (!this.deps.readiness) throw new Error("Readiness unavailable");
+    return this.deps.readiness();
+  }
+
   state(): Promise<SetupState> {
     return Promise.resolve({
       ...(this.deps.themes ? { themes: this.deps.themes() } : {}),
@@ -74,6 +82,12 @@ export class Setup {
     if (patch.colorMode !== undefined && patch.interfaceTheme === undefined)
       patch.interfaceTheme = "follow";
     const before = this.deps.store.get();
+    if (
+      patch.setupComplete === true &&
+      this.deps.gitReadiness &&
+      (await this.deps.gitReadiness()).git !== "ready"
+    )
+      throw new Error("Git is unavailable. Install Git and recheck on Go / no-go.");
     if (patch.forgeHosts) {
       const enabled = patch.forges ?? before.forges;
       const ids = this.deps.forgeIds?.() ?? ["github"];
@@ -170,6 +184,17 @@ export class Setup {
       !selected.every((path): path is string => typeof path === "string" && this.scanned.has(path))
     )
       throw new Error("Choose repositories from the latest scan");
+    if (selected.length && this.deps.gitReadiness) {
+      const report = await this.deps.gitReadiness();
+      if (report.git !== "ready")
+        return {
+          repositories: this.deps.code.worktrees.listRepositories(),
+          failures: selected.map((path: string) => ({
+            path,
+            message: "Git is unavailable. Install Git and recheck on Go / no-go.",
+          })),
+        };
+    }
     const wanted = new Set<string>(selected);
     const { worktrees } = this.deps.code;
     const added = new Set(worktrees.listRepositories().map((entry) => entry.path));

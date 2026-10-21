@@ -3,6 +3,7 @@ import type { SetupSource } from "./setup-source.d";
 export function createSetupSource(): SetupSource {
   const desktop = window.desktop;
   return {
+    checkReadiness: () => desktop.checkReadiness(),
     listTerminalFonts: (refresh) => desktop.listTerminalFonts(refresh),
     openThemesFolder: (kind) => desktop.openThemesFolder(kind),
     state: () => desktop.setupState(),

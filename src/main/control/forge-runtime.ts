@@ -1,3 +1,5 @@
+import type { ForgeReadiness } from "../../shared/readiness";
+import { resolveForgeExecutable } from "./forge-process";
 import type { Settings } from "../../shared/setup";
 import type { LoadedForgeManifest } from "../config/plugins";
 import type { ForgeProviderFactory } from "./forge.d";
@@ -21,6 +23,7 @@ export class ForgeRuntime {
   private readonly retiring = new Set<Promise<void>>();
   private preferences = "";
   private closed = false;
+  private readonly readiness = new Set<ForgeLifecycle>();
   onInvalidate?: () => void;
 
   constructor(
@@ -51,6 +54,7 @@ export class ForgeRuntime {
   invalidate(): void {
     this.revision++;
     this.lifecycle?.invalidate();
+    for (const lifecycle of this.readiness) lifecycle.invalidate();
     // Shutdown still retires work, but must not publish into crashed/disposed boards.
     if (!this.closed) this.onInvalidate?.();
   }
@@ -114,6 +118,53 @@ export class ForgeRuntime {
     return provider;
   };
 
+  /** Host-only auth, shared by T-0 and Settings. Isolated samples cannot race tracker state. */
+  async hostStatus(host: string): Promise<ForgeReadiness> {
+    if (this.closed) return "unavailable";
+    this.configure();
+    const preferences = this.settings();
+    const plugin = this.plugins.find((entry) => entry.manifest.id === preferences.forgeHosts[host]);
+    if (!plugin || preferences.forges[plugin.manifest.id] !== true) return "unassigned";
+    const remote = forgeRemote(`https://${host}/foom/auth`, plugin.manifest.remote.namespace);
+    if (!remote) return "unassigned";
+    const revision = this.revision;
+    try {
+      await plugin.validate();
+    } catch {
+      return "unavailable";
+    }
+    const path = await this.discoverPath().catch(() => undefined);
+    if (path === undefined || revision !== this.revision) return "unavailable";
+    try {
+      await resolveForgeExecutable(plugin.manifest.executables, path);
+    } catch {
+      return "not-installed";
+    }
+    const lifecycle = new ForgeLifecycle({ ...this.options, cacheMs: 0, path });
+    lifecycle.replace([plugin]);
+    this.readiness.add(lifecycle);
+    try {
+      const provider = lifecycle.provider({
+        plugin,
+        remote,
+        context: {
+          identity: `readiness:${host}`,
+          validate: () => {
+            this.configure();
+            if (this.closed || revision !== this.revision)
+              throw new Error("Forge selection changed");
+            return Promise.resolve();
+          },
+        },
+      });
+      if (await provider.available?.()) return "ready";
+      return lifecycle.state() === "unauthenticated" ? "not-signed-in" : "unavailable";
+    } finally {
+      await lifecycle.close();
+      this.readiness.delete(lifecycle);
+    }
+  }
+
   /** Neutral host-only auth preflight. The placeholder project is never sent to the CLI. */
   async available(): Promise<boolean> {
     for (const host of Object.keys(this.settings().forgeHosts)) {
@@ -131,6 +182,10 @@ export class ForgeRuntime {
   async close(): Promise<void> {
     this.closed = true;
     this.invalidate();
-    await Promise.all([...this.retiring, this.lifecycle?.close()]);
+    await Promise.all([
+      ...this.retiring,
+      this.lifecycle?.close(),
+      ...[...this.readiness].map((lifecycle) => lifecycle.close()),
+    ]);
   }
 }

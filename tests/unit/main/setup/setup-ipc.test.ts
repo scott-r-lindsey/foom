@@ -17,6 +17,7 @@ const contents = { mainFrame: frame, isDestroyed: vi.fn(() => false), send: vi.f
 const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame };
 const setup = {
+  readiness: vi.fn(() => "readiness"),
   state: vi.fn(() => "state"),
   save: vi.fn(() => "saved"),
   codeSuggestions: vi.fn(() => "suggestions"),
@@ -43,6 +44,7 @@ test("every channel rejects untrusted senders", () => {
   const channels = mock.handle.mock.calls.map(([name]) => name);
   expect(channels).toEqual([
     "setup:terminal-fonts",
+    "setup:readiness",
     "setup:state",
     "setup:save",
     "setup:code-suggestions",
@@ -147,4 +149,9 @@ test("font enumeration accepts only an optional boolean refresh flag", async () 
   expect(Array.isArray(await invoke("setup:terminal-fonts"))).toBe(true);
   expect(Array.isArray(await invoke("setup:terminal-fonts", [true]))).toBe(true);
   expect(Array.isArray(await invoke("setup:terminal-fonts", [false]))).toBe(true);
+});
+
+test("readiness accepts no payload and only the trusted frame", () => {
+  expect(invoke("setup:readiness")).toBe("readiness");
+  expect(() => invoke("setup:readiness", [{}])).toThrow("Invalid readiness request");
 });

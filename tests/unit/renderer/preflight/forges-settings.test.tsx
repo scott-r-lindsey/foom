@@ -110,7 +110,7 @@ test("cards show source and rejection, start copies off, and submit main-owned p
   render(<ForgesSettings {...f.props} />);
   const github = await screen.findByRole("region", { name: "GitHub" });
   expect(within(github).getByText("Built-in")).toBeTruthy();
-  expect(within(github).getByText("Not checked")).toBeTruthy();
+  expect(within(github).getByText("Readiness by host")).toBeTruthy();
   expect(within(github).getByRole("switch").hasAttribute("checked")).toBe(true);
   expect(screen.queryByRole("button", { name: /Duplicate|Approve/ })).toBeNull();
   const custom = screen.getByRole("region", { name: "Custom forge" });
