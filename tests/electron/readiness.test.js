@@ -52,6 +52,18 @@ if(args.includes('logged-out.example')&&JSON.parse(fs.readFileSync(${JSON.string
   await writeFile(path.join(config, "gitlab.json"), JSON.stringify(manifest));
   const app = await launchApp(context, { fixture: "first-run", home, env: { PATH: bin } });
   const page = await boardPage(app);
+  const fixtureShell = path.join(root, "fixture-login-shell");
+  await writeFile(
+    fixtureShell,
+    `#!/bin/sh\nexport PATH='${bin.replaceAll("'", "'\\''")}'\nexec /bin/bash --noprofile --norc -c "$2"\n`,
+    { mode: 0o755 },
+  );
+  await app.evaluate((_electron, shell) => {
+    const os = process.getBuiltinModule("node:os");
+    const original = os.userInfo;
+    os.userInfo = (...args) => ({ ...original(...args), shell });
+  }, fixtureShell);
+
   assert.equal(await readFile(log, "utf8"), "", "No startup auth probe");
   await page.getByRole("button", { name: "Start preflight", exact: true }).click();
   await page.getByRole("button", { name: "Continue", exact: true }).click();

@@ -888,6 +888,9 @@ test("readiness only publishes fixed categories and bounded DNS hostnames", asyn
   for (const value of [
     null,
     { ...valid, git: "private output" },
+    { ...valid, git: ["ready"] },
+    { ...valid, platform: ["linux"] },
+    { ...valid, forges: [{ host: "github.com", status: ["ready"] }] },
     { ...valid, platform: "freebsd" },
     { ...valid, extra: "secret" },
     { ...valid, forges: [{ host: "bad host", status: "ready" }] },

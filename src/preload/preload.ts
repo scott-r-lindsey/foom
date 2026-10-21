@@ -18,8 +18,10 @@ function readinessReport(value: unknown): value is ReadinessReport {
   return (
     object(value) &&
     Object.keys(value).length === 3 &&
-    ["ready", "not-installed", "invalid-version", "unavailable"].includes(String(value["git"])) &&
-    ["macos", "windows", "linux"].includes(String(value["platform"])) &&
+    typeof value["git"] === "string" &&
+    ["ready", "not-installed", "invalid-version", "unavailable"].includes(value["git"]) &&
+    typeof value["platform"] === "string" &&
+    ["macos", "windows", "linux"].includes(value["platform"]) &&
     Array.isArray(value["forges"]) &&
     value["forges"].length <= 1000 &&
     value["forges"].every(
@@ -32,8 +34,9 @@ function readinessReport(value: unknown): value is ReadinessReport {
         /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(
           entry["host"],
         ) &&
+        typeof entry["status"] === "string" &&
         ["ready", "not-installed", "not-signed-in", "unavailable", "unassigned"].includes(
-          String(entry["status"]),
+          entry["status"],
         ),
     )
   );

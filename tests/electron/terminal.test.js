@@ -440,6 +440,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "listTerminalFonts",
           "listThemes",
           "openThemesFolder",
+          "checkReadiness",
           "setupState",
           "saveSetup",
           "environmentState",
