@@ -106,6 +106,13 @@ function button(name: string | RegExp) {
 }
 
 beforeEach(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   Object.defineProperty(window, "desktop", {
     configurable: true,
     value: {
@@ -124,6 +131,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  vi.unstubAllGlobals();
   cleanup();
 });
 

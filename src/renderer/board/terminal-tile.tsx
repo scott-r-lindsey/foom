@@ -25,6 +25,28 @@ import { landingSpace } from "./tiles";
 
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
 
+/** Shared title-bar state mark; illustration callers supply no live subscriptions. */
+export function TileLight({
+  row,
+  lightRef,
+}: {
+  row: BoardRow;
+  lightRef?: React.Ref<HTMLSpanElement>;
+}) {
+  return (
+    <span
+      ref={lightRef}
+      data-light-state={lightState(row)}
+      data-moving={movingLight(row)}
+      data-exited={Boolean(row.exited)}
+      className="board-light"
+      style={{ "--light-opacity": light(row).opacity } as CSSProperties}
+      role="img"
+      aria-label={light(row).label}
+    />
+  );
+}
+
 function TerminalView({
   view,
   session,
@@ -251,16 +273,7 @@ export function Tile({
           {row && (
             <>
               <h2 className="visually-hidden">{`${row.repository} › ${rowWorktree(row) === rowRepository(row) ? "Main checkout" : row.branch} › ${sessionName(row, preferences)}`}</h2>
-              <span
-                ref={lightRef}
-                data-light-state={lightState(row)}
-                data-moving={movingLight(row)}
-                data-exited={Boolean(row.exited)}
-                className="board-light"
-                style={{ "--light-opacity": light(row).opacity } as CSSProperties}
-                role="img"
-                aria-label={light(row).label}
-              />
+              <TileLight row={row} lightRef={lightRef} />
               {row.state === "waiting" && (
                 <span className="session-waiting">{light(row).label}</span>
               )}

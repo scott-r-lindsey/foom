@@ -886,11 +886,11 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
       .poll(
         () =>
           page
-            .locator(".noise-tile")
+            .locator(".welcome-sidebar")
             .evaluateAll((tiles) => tiles.map((tile) => getComputedStyle(tile).backgroundColor)),
         { message: "Row backgrounds must switch with text" },
       )
-      .toEqual(Array(10).fill(surface));
+      .toEqual([surface]);
   }
   await page.emulateMedia({ colorScheme: null });
   const dark = () => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches);
