@@ -64,6 +64,18 @@ await build({
   outfile: fileURLToPath(new URL("../build/renderer/renderer.js", import.meta.url)),
 });
 
+// Bundle the read-only guide and project shortcuts from the compiled command registry.
+const { manualShortcuts } = await import("../build/main/window/manual-shortcuts.js");
+await cp(join(root, "src/manual"), join(root, "build/manual"), { recursive: true });
+const manual = await readFile(join(root, "src/manual/manual.html"), "utf8");
+await writeFile(
+  join(root, "build/manual/manual.html"),
+  manual.replace("<!-- SHORTCUTS -->", manualShortcuts()),
+);
+for (const font of ["geist.ttf", "geist-mono.ttf"]) {
+  await copyFile(join(root, "src/renderer/fonts", font), join(root, "build/manual", font));
+}
+
 // One browser-only runtime shared by every isolated Markdown preview.
 await build({
   entryPoints: [join(root, "src/renderer/preview/runtime.ts")],

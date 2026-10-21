@@ -129,15 +129,36 @@ export async function buildWindow(
     nativeTheme.removeListener("updated", updateBackground);
   });
 
-  const openWindow = (about = false) => {
+  const openWindow = (about: boolean | "manual" = false) => {
     void wiring
       .createWindow()
-      .then((created) => {
-        if (about) created.webContents.send("board:command", "about");
+      .then(async (created) => {
+        if (about === "manual") {
+          const host = wiring.previewHosts.get(created.id);
+          if (!host) return;
+          const id = host.openManual();
+          await wiring.previewPlacements.get(created.id)?.place(id);
+          host.focusManual(id);
+        } else if (about) created.webContents.send("board:command", "about");
       })
       .catch((error: unknown) => {
         console.error("Unable to open window:", error);
       });
+  };
+  let manualPending = false;
+  const openManual = async () => {
+    const existing = [...wiring.previewHosts.entries()].find(([, host]) =>
+      [...host.registry.records.values()].some((record) => record.bundled === "manual"),
+    );
+    const owner = existing?.[0] ?? window.id;
+    const host = existing?.[1] ?? previewHost;
+    const id = host.openManual();
+    const target = wiring.windows.get(owner)?.window;
+    target?.show();
+    target?.focus();
+    target?.webContents.send("board:command", "manual");
+    await wiring.previewPlacements.get(owner)?.place(id);
+    host.focusManual(id);
   };
   const appMenu = attachAppMenu(
     window,
@@ -154,6 +175,14 @@ export async function buildWindow(
             .filter((agent) => agent.path && current.agents[agent.id] !== false)
             .map((agent) => agent.id)
         : [];
+    },
+    openManual,
+    () => {
+      if (!manualPending) return;
+      manualPending = false;
+      void openManual().catch(() => {
+        console.warn("Unable to open manual");
+      });
     },
   );
   wiring.newWindowCommand = appMenu.newWindow;
@@ -176,6 +205,9 @@ export async function buildWindow(
       if (!window.webContents.isDestroyed()) window.webContents.send("workspace:changed");
     },
     (content, signal) => confirmations.request(content, signal),
+    app.isPackaged
+      ? path.join(process.resourcesPath, "app.asar.unpacked/build/manual")
+      : path.join(__dirname, "../../manual"),
   );
   wiring.previewHosts.set(window.id, previewHost);
   await previewHost.restore();
@@ -220,6 +252,7 @@ export async function buildWindow(
     previewHost.refresh();
     confirmations.refresh();
   };
+  let setupComplete = wiring.settings.get().setupComplete;
   const setup = new Setup({
     readiness: () =>
       checkReadiness(
@@ -263,6 +296,9 @@ export async function buildWindow(
       },
     },
     apply: (next) => {
+      const firstCompletion = !setupComplete && next.setupComplete;
+      setupComplete = next.setupComplete;
+      if (firstCompletion) manualPending = true;
       wiring.forgeRuntime.configure();
       wiring.workspace.configure(next);
       wiring.applyThemeSettings(next);

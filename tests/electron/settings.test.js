@@ -645,6 +645,45 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
 
   // Reduced motion shows a still frame, then the board.
   await page.getByText("Takeoff was faster than expected.").waitFor();
+  await expect(page.locator(".tile-title").filter({ hasText: "manual.html" })).toHaveCount(1);
+  const firstManual = (await page.evaluate(() => window.desktop.sidebarInventory())).previews.find(
+    (entry) => entry.worktree === "foom:manual",
+  );
+  assert.ok(firstManual);
+  if (process.env.FOOM_MANUAL_SCREENSHOTS === "1" && process.platform === "linux") {
+    await mkdir("screenshots-680", { recursive: true });
+    const handle = await app.evaluate(({ BrowserWindow }) => {
+      const board = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      board.setBounds({ x: 0, y: 0, width: 1240, height: 850 });
+      return board.getNativeWindowHandle().readUInt32LE();
+    });
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await expect
+        .poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors))
+        .toBe(mode === "dark");
+      await page.waitForFunction(() => innerWidth === 1240 && innerHeight === 850);
+      await page.waitForFunction((mode) => {
+        const canvas = document.querySelector("canvas.preview-snapshot");
+        return (
+          canvas?.getContext("2d").getImageData(0, 0, 1, 1).data[0] === (mode === "dark" ? 5 : 243)
+        );
+      }, mode);
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
+      require("node:child_process").execFileSync("import", [
+        "-window",
+        String(handle),
+        `screenshots-680/first-run-${mode}.png`,
+      ]);
+    }
+    await page.evaluate(() => window.desktop.saveSetup({ colorMode: "system" }));
+  }
+
+  await page.evaluate((id) => window.desktop.previews.close(id), firstManual.id);
   await launchCheckoutShell(app, page);
   const shellRow = page.locator(".board-row[data-kind='shell']");
   await shellRow.waitFor({ timeout: deadline(10000) });
@@ -756,6 +795,13 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     home: path.join(root, "home"),
   });
   const reopenedPage = await boardPage(reopened);
+  assert.equal(
+    (await reopenedPage.evaluate(() => window.desktop.sidebarInventory())).previews.filter(
+      (entry) => entry.worktree === "foom:manual",
+    ).length,
+    0,
+  );
+
   await openSettingsScreen(reopenedPage);
   await reopenedPage.getByRole("button", { name: "General", exact: true }).click();
   await expect(reopenedPage.getByRole("radio", { name: /Put them next to/ })).toBeChecked();

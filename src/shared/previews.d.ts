@@ -3,6 +3,7 @@ export interface PreviewRecord {
   worktree: string;
   relativePath: string;
   network: boolean;
+  bundled?: "manual";
   agentOpened?: true;
   openedBy?: { terminalId: string; agent: string };
 }
