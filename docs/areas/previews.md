@@ -96,6 +96,17 @@ until removal finishes, including opens awaiting registry persistence. External
 removal closes previews when workspace inventory refreshes; on Windows, close
 preview tiles first because directory watches can block external deletion.
 
+The test-only `tests/electron/preview-move-measurement.js` benchmark records board
+load, validation, release, registry writes, placement, preview load and snapshot
+timings, Git spawn counts for moves/launches/sidebar refresh/worktree creation,
+and main-loop delay in JUnit diagnostics. Run it after a build with
+`xvfb-run -a node --require ./tests/helpers/setup.js --test --test-reporter=junit tests/electron/preview-move-measurement.js`.
+It uses 0, 5 and 15 streaming fixture agents, isolated profiles and the standard
+agent guard/process audit. It adds no production tracing and records no terminal
+content. Move validation still runs before and after source cleanup; identity
+bookkeeping uses the fresh in-process metadata reads described in
+[worktrees](worktrees.md).
+
 An unfocused preview never acquires keyboard focus on open, reload or navigation. Main loads
 it detached and attaches only after `did-finish-load`, when its board rectangle is
 visible. Main-frame reloads and allowed navigation replace the old native
