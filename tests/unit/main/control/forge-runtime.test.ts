@@ -16,7 +16,11 @@ import { privateDirectory } from "../../../../src/node-common/private-files";
 vi.mock("../../../../src/main/control/forge-process", () => ({
   executeForge: vi.fn(),
   resolveForgeExecutable: vi.fn(),
-  ForgeExecutionError: class extends Error {},
+  ForgeExecutionError: class extends Error {
+    constructor(readonly state: string) {
+      super(state);
+    }
+  },
 }));
 const roots: string[] = [];
 const runtimes: ForgeRuntime[] = [];
@@ -75,7 +79,9 @@ it("defaults to manifests and requires main-owned context before discovery", asy
   const h = harness();
   expect(await h.runtime.provider(remote)).toBeUndefined();
   expect(h.discover).not.toHaveBeenCalled();
-  expect(await h.runtime.provider(remote, getContext)).toHaveProperty("batch");
+  const provider = await h.runtime.provider(remote, getContext);
+  expect(provider).toHaveProperty("batch");
+  expect(provider).toHaveProperty("routedHost", "github.com");
   expect(h.discover).toHaveBeenCalledOnce();
   await h.runtime.close();
   expect(await h.runtime.provider(remote, getContext)).toBeUndefined();
@@ -283,6 +289,13 @@ it.each(["legacy", "manifest"])("matches recorded tracking fixtures through %s",
     headSha: head,
     state: "OPEN",
     requiredChecks: "none",
+    ...(mode === "manifest"
+      ? {
+          checksMeaning: "required",
+          title: "Recorded fixture",
+          url: `https://github.com/cli/cli/pull/${String(number)}`,
+        }
+      : {}),
   });
   expect(tracker.readBoard(tree.repository, tree.path)).toEqual({
     number,
@@ -290,7 +303,14 @@ it.each(["legacy", "manifest"])("matches recorded tracking fixtures through %s",
     url: `https://github.com/cli/cli/pull/${String(number)}`,
     state: "OPEN",
     checks: { passed: 7, failed: 0, pending: 0 },
+    ...(mode === "manifest"
+      ? { checksMeaning: "required", requiredChecks: "none", sourceName: "cli/cli" }
+      : {}),
   });
+  if (mode === "manifest")
+    expect(tracker.readUrl(tree.repository, tree.path)).toBe(
+      `https://github.com/cli/cli/pull/${String(number)}`,
+    );
   expect(reads).toBeGreaterThan(1);
 });
 
@@ -430,4 +450,47 @@ it("cancels shutdown without notifying crashed or disposed board observers", asy
   await expect(h.runtime.close()).resolves.toBeUndefined();
   expect(changed).not.toHaveBeenCalled();
   expect(await h.runtime.provider(remote, getContext)).toBeUndefined();
+});
+
+it("reports host-only auth through the lifecycle without probing unassigned or disabled hosts", async () => {
+  const h = harness();
+  expect(await h.runtime.hostStatus("gitlab.com")).toBe("unassigned");
+  expect(h.discover).not.toHaveBeenCalled();
+  expect(await h.runtime.hostStatus("github.com")).toBe("ready");
+  expect(vi.mocked(executeForge).mock.calls.map((call) => call[1])).toEqual([
+    ["auth", "status", "--hostname", "github.com"],
+  ]);
+  vi.mocked(executeForge).mockResolvedValue({
+    code: 1,
+    stdout: "secret output",
+    stderr: "not logged in",
+  });
+  expect(await h.runtime.hostStatus("github.com")).toBe("not-signed-in");
+  vi.mocked(resolveForgeExecutable).mockRejectedValue(new Error("private path"));
+  expect(await h.runtime.hostStatus("github.com")).toBe("not-installed");
+  h.settings({ forges: { github: false }, forgeHosts: { "github.com": "github" } });
+  expect(await h.runtime.hostStatus("github.com")).toBe("unassigned");
+  await h.runtime.close();
+  expect(await h.runtime.hostStatus("github.com")).toBe("unavailable");
+});
+it("does not publish readiness after settings change or failed PATH discovery", async () => {
+  const h = harness();
+  h.discover.mockRejectedValueOnce(new Error("private shell diagnostic"));
+  expect(await h.runtime.hostStatus("github.com")).toBe("unavailable");
+  vi.mocked(executeForge).mockImplementationOnce(() => {
+    h.settings({ forges: { github: false }, forgeHosts: { "github.com": "github" } });
+    return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+  });
+  expect(await h.runtime.hostStatus("github.com")).toBe("unavailable");
+});
+
+it("refuses readiness discovery when selected manifest bytes no longer validate", async () => {
+  const h = harness();
+  const manifest = parseForgeManifest(JSON.stringify({ ...github, id: "invalid-copy" }));
+  const validate = vi.fn(() => Promise.reject(new Error("changed bytes")));
+  h.runtime.replace([{ manifest, digest: "changed", validate }]);
+  h.settings({ forges: { "invalid-copy": true }, forgeHosts: { "github.com": "invalid-copy" } });
+  expect(await h.runtime.hostStatus("github.com")).toBe("unavailable");
+  expect(h.discover).not.toHaveBeenCalled();
+  expect(resolveForgeExecutable).not.toHaveBeenCalled();
 });

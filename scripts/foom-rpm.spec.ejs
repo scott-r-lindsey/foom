@@ -1,0 +1,26 @@
+# Electron and the Node SEA are finalized binaries: RPM post-processing must
+# preserve their bytes (including SEA's embedded payload and native prebuilds).
+%global __os_install_post %{nil}
+%define _binary_payload w<%= compressionLevel %>.xzdio
+Name: <%= name %>
+Version: <%= version %>
+Release: <%= revision %>%{?dist}
+Summary: <%= description %>
+License: <%= license %>
+URL: <%= homepage %>
+Requires: <%= requires.join(', ') %>
+AutoReqProv: no
+
+%description
+<%= productDescription %>
+
+%install
+mkdir -p %{buildroot}/usr/
+cp -r usr/* %{buildroot}/usr/
+
+%files
+/usr/bin/<%= name %>
+/usr/lib/<%= name %>/
+/usr/share/applications/<%= name %>.desktop
+/usr/share/doc/<%= name %>/
+/usr/share/pixmaps/<%= name %>.png

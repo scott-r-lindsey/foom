@@ -27,8 +27,11 @@ export function PullRequestMark({ pr, open }: { pr: BoardPullRequest; open: () =
       type="button"
       className="pull-request"
       data-status={status}
-      title={`Pull request #${String(pr.number)} · ${status}`}
+      title={[`Pull request #${String(pr.number)} · ${status}`, pr.title]
+        .filter(Boolean)
+        .join(" · ")}
       aria-label={`Pull request #${String(pr.number)} · ${status}`}
+      disabled={!pr.url}
       onClick={(event) => {
         event.stopPropagation();
         void open().catch(() => {});

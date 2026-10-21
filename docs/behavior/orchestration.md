@@ -105,8 +105,8 @@ Forge manifests now drive production tracking, adoption and merged-PR hints. The
 bundled GitHub manifest preserves current PR/check behavior and adaptive polling;
 config copies use the same engine. Only enabled, explicitly assigned hosts are
 queried. Manifest minima can slow regular polls, while discovery binding keeps its
-one-second follow-up. Optional separate display enrichment and checks-meaning
-metadata remain follow-up work under #521.
+one-second follow-up. Optional separate display reads cannot change verified PR/check status.
+Session metadata includes the validated checks meaning, persisted with observations.
 
 The disclosure reads: “Foom uses your selected forge CLI and its existing login to
 read PR or merge request and CI metadata. It sends repository/project, branch and

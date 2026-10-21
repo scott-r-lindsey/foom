@@ -1,3 +1,4 @@
+import type { ReadinessReport } from "../../../../src/shared/readiness";
 import {
   ErrorPresentation,
   BackgroundErrorMark,
@@ -60,6 +61,13 @@ function fake(initial: SetupState, scan: AgentReport = all) {
     return Promise.resolve(state);
   };
   return {
+    checkReadiness: vi.fn<() => Promise<ReadinessReport>>(() =>
+      Promise.resolve({
+        git: "ready" as const,
+        platform: "linux" as const,
+        forges: [],
+      }),
+    ),
     openThemesFolder: vi.fn(async () => {}),
     state: vi.fn(() => Promise.resolve(state)),
     save: vi.fn((patch: SettingsPatch) =>
@@ -106,6 +114,13 @@ function button(name: string | RegExp) {
 }
 
 beforeEach(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   Object.defineProperty(window, "desktop", {
     configurable: true,
     value: {
@@ -124,6 +139,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  vi.unstubAllGlobals();
   cleanup();
 });
 
@@ -320,10 +336,10 @@ test("first run walks every step, saves each choice, and launches", async () => 
   fireEvent.click(button("Back"));
   expect(screen.getByText("Where do you keep your code?")).toBeTruthy();
   fireEvent.click(button("Continue"));
-  expect(screen.getByText("All stations go.")).toBeTruthy();
+  expect(await screen.findByText("All stations go.")).toBeTruthy();
   fireEvent.click(button("Launch"));
   const launch = await screen.findByRole("dialog", { name: "Launch" });
-  expect(source.save).toHaveBeenLastCalledWith({ setupComplete: true });
+  expect(source.save).toHaveBeenLastCalledWith({ setupComplete: true, showPullRequests: false });
   // Reduced motion shows a still frame; Escape skips it.
   expect(within(launch).getByText("Takeoff was faster than expected.")).toBeTruthy();
   fireEvent.keyDown(launch, { key: "Escape" });
@@ -355,7 +371,9 @@ test("with no agents installed, go / no-go holds and links back to each fix", as
   for (let step = 0; step < 2; step++) fireEvent.click(button("Continue"));
   expect(screen.getByText("Hold. Something needs fixing.")).toBeTruthy();
   expect(button("Launch")).toHaveProperty("disabled", true);
-  expect(screen.getAllByText("NO-GO")).toHaveLength(2);
+  await waitFor(() => {
+    expect(screen.getAllByText("NO-GO")).toHaveLength(2);
+  });
   fireEvent.click(screen.getAllByRole("button", { name: "Fix" })[1] as HTMLElement);
   expect(screen.getByText("Where do you keep your code?")).toBeTruthy();
   fireEvent.click(button(/Go \/ no-go/));
@@ -937,7 +955,10 @@ test.each(["root", "adjacent"] as const)(
     fireEvent.click(button("Launch"));
     await screen.findByRole("dialog", { name: "Launch" });
     expect((await source.state()).settings.worktreeLocation).toBe(worktreeLocation);
-    expect(source.save).toHaveBeenCalledExactlyOnceWith({ setupComplete: true });
+    expect(source.save).toHaveBeenCalledExactlyOnceWith({
+      setupComplete: true,
+      showPullRequests: false,
+    });
     view.unmount();
     render(
       <Preflight
@@ -1014,4 +1035,40 @@ test("a Settings action failure dismisses inside the Settings frame without clos
   expect(screen.queryByRole("dialog", { name: "Action failed" })).toBeNull();
   expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
   expect(close).not.toHaveBeenCalled();
+});
+
+test("readiness is lazy, git blocks launch, optional forge failures link to settings and recheck recovers", async () => {
+  const source = fake(setupState());
+  const check = vi.fn<() => Promise<ReadinessReport>>();
+  source.checkReadiness = check;
+  check.mockResolvedValue({ git: "not-installed", platform: "linux", forges: [] });
+  render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
+  await screen.findByText("Start preflight");
+  expect(check).not.toHaveBeenCalled();
+  fireEvent.click(button("Start preflight"));
+  await screen.findByText("3 agents ready");
+  fireEvent.click(button("Continue"));
+  expect(check).not.toHaveBeenCalled();
+  fireEvent.click(button("Continue"));
+  await screen.findByText(/Git is not installed/);
+  expect(button("Launch")).toHaveProperty("disabled", true);
+  check.mockResolvedValue({
+    git: "ready",
+    platform: "linux",
+    forges: [
+      { host: "github.com", status: "not-signed-in" },
+      { host: "gitlab.com", status: "not-installed" },
+      { host: "unknown.example", status: "unassigned" },
+      { host: "ready.example", status: "ready" },
+      { host: "offline.example", status: "unavailable" },
+    ],
+  });
+  fireEvent.click(button("Recheck"));
+  await screen.findByText("gh auth login");
+  expect(screen.getByText(/Not installed/)).toBeTruthy();
+  expect(screen.getByText(/PR status is unavailable for this host/)).toBeTruthy();
+  fireEvent.click(screen.getAllByRole("button", { name: "Settings → Forges" })[0] as HTMLElement);
+  await screen.findByRole("heading", { name: "Forges" });
+  fireEvent.click(button("Back to Go / no-go"));
+  await screen.findByText("gh auth login");
 });

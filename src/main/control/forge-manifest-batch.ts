@@ -2,7 +2,7 @@ import type { ForgeManifest, ForgeBatchPlan, ForgeCheckResult } from "../../shar
 import type { ForgeMatch, ForgeObservation, ForgeRemote, ForgeTransport } from "./forge.d";
 import { expandForgeBatchQuery } from "../../shared/forge-batch-query";
 import { expandForgeArguments, forgeJson } from "./forge-execution";
-import { forgeBranch, pullRequest } from "./forge";
+import { forgeBranch, forgeTitle, forgeWebUrl, pullRequest } from "./forge";
 import { forgeProject, forgeValue, reduceForgeChecks } from "./forge-mapping";
 
 function checkCounts(value: unknown, result: ForgeCheckResult, head: string, number: number) {
@@ -80,36 +80,36 @@ function parseManifestBatch(
           : undefined,
       requiredChecks: "unknown",
     });
-    const title = manifest.mapping.title ? forgeValue(row, manifest.mapping.title) : undefined;
-    if (
-      !pr ||
-      typeof title !== "string" ||
-      title.length > 1024 ||
-      /[\p{Cc}\p{Cf}]/u.test(title) ||
-      (match.number === undefined && pr.state !== "OPEN")
-    )
-      return undefined;
-    const url = expandForgeArguments([plan.webUrl], { ...remote, number: pr.number })[0];
-    if (!url || url.length > 4096 || !url.startsWith(`https://${remote.host}/`)) return undefined;
-    const parsed = new URL(url);
-    if (
-      parsed.protocol !== "https:" ||
-      parsed.hostname !== remote.host ||
-      parsed.username ||
-      parsed.password ||
-      parsed.port
-    )
-      return undefined;
+    if (!pr || (match.number === undefined && pr.state !== "OPEN")) return undefined;
+    const title = manifest.mapping.title
+      ? forgeTitle(forgeValue(row, manifest.mapping.title))
+      : undefined;
+    let url: string | undefined;
+    try {
+      url = forgeWebUrl(
+        expandForgeArguments([plan.webUrl], { ...remote, number: pr.number })[0],
+        remote.host,
+      );
+    } catch {
+      // An oversized display template cannot suppress verified checks.
+    }
+    const requiredChecks =
+      match.number === undefined
+        ? "unknown"
+        : reduceForgeChecks(row, plan.checks, pr.headSha, pr.number);
     observations.set(match.branch, {
       ...pr,
-      requiredChecks:
-        match.number === undefined
-          ? "unknown"
-          : reduceForgeChecks(row, plan.checks, pr.headSha, pr.number),
+      requiredChecks,
+      checksMeaning: manifest.checks.meaning,
+      ...(title === undefined ? {} : { title }),
+      ...(url === undefined ? {} : { url }),
       board: {
         number: pr.number,
-        title,
-        url,
+        ...(title === undefined ? {} : { title }),
+        ...(url === undefined ? {} : { url }),
+        sourceName: source,
+        checksMeaning: manifest.checks.meaning,
+        requiredChecks,
         state: pr.state,
         checks: checkCounts(row, plan.checks, pr.headSha, pr.number),
       },

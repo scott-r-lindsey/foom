@@ -1,3 +1,5 @@
+import { ForgeReadinessRows } from "./forge-readiness";
+import type { useReadiness } from "./use-readiness";
 import type { SetupState } from "../../shared/setup";
 import type { AgentReport } from "../../shared/workspace";
 import type { Repository } from "../../shared/worktrees";
@@ -10,14 +12,16 @@ export function ReadinessStep({
   report,
   repositories,
   go,
+  readiness,
 }: StepHeading & {
+  readiness: ReturnType<typeof useReadiness>;
   state: SetupState;
   report: AgentReport | undefined;
   repositories: readonly Repository[];
   go: (step: number) => void;
 }) {
   const rows = pollRows(state, report, repositories);
-  const allGo = rows.every((row) => row.go);
+  const allGo = rows.every((row) => row.go) && readiness.report?.git === "ready";
 
   return (
     <>
@@ -31,6 +35,33 @@ export function ReadinessStep({
           : "Fix the no-go items below. Each one links back to its step."}
       </p>
       <ul className="preflight-poll">
+        <li data-go={readiness.report?.git === "ready"} data-checking={readiness.busy}>
+          <span className="preflight-system">Git</span>
+          <span className="preflight-detail">
+            {readiness.busy
+              ? "Checking…"
+              : readiness.report?.git === "ready"
+                ? "Ready"
+                : readiness.report?.git === "not-installed"
+                  ? "Git is not installed on your login PATH."
+                  : readiness.report?.git === "invalid-version"
+                    ? "Git returned an invalid version. Repair your Git installation."
+                    : "Unable to check Git. Check your installation and recheck."}
+            {readiness.report && readiness.report.git !== "ready" && (
+              <>
+                {" "}
+                {readiness.report.platform === "macos"
+                  ? "Install Xcode Command Line Tools: xcode-select --install."
+                  : readiness.report.platform === "windows"
+                    ? "Install Git for Windows from git-scm.com."
+                    : "Install Git with your distribution’s package manager (for example, apt install git)."}
+              </>
+            )}
+          </span>
+          <span className="preflight-pill">
+            {readiness.busy ? "CHECKING" : readiness.report?.git === "ready" ? "GO" : "NO-GO"}
+          </span>
+        </li>
         {rows.map((row) => (
           <li key={row.system} data-go={row.go}>
             <span className="preflight-system">{row.system}</span>
@@ -55,6 +86,17 @@ export function ReadinessStep({
           </li>
         ))}
       </ul>
+      <button type="button" disabled={readiness.busy} onClick={readiness.recheck}>
+        Recheck
+      </button>
+      <ForgeReadinessRows
+        commands={readiness.commands}
+        assignments={state.settings.forgeHosts}
+        report={readiness.report}
+        openSettings={() => {
+          go(12);
+        }}
+      />
     </>
   );
 }

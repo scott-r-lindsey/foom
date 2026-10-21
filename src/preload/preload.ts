@@ -1,3 +1,4 @@
+import type { ReadinessReport } from "../shared/readiness";
 import { isBoardCommand } from "../shared/board-commands";
 import type { PreviewPlacement, PreviewSnapshot } from "../shared/previews";
 import type { WindowView, WindowAudioState } from "../shared/windows";
@@ -13,6 +14,34 @@ const states = ["needs_input", "done", "failed", "quiet_ok", "working"];
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+function readinessReport(value: unknown): value is ReadinessReport {
+  return (
+    object(value) &&
+    Object.keys(value).length === 3 &&
+    typeof value["git"] === "string" &&
+    ["ready", "not-installed", "invalid-version", "unavailable"].includes(value["git"]) &&
+    typeof value["platform"] === "string" &&
+    ["macos", "windows", "linux"].includes(value["platform"]) &&
+    Array.isArray(value["forges"]) &&
+    value["forges"].length <= 1000 &&
+    value["forges"].every(
+      (entry: unknown) =>
+        object(entry) &&
+        Object.keys(entry).length === 2 &&
+        typeof entry["host"] === "string" &&
+        entry["host"].length <= 253 &&
+        !/^\d+(?:\.\d+){3}$/u.test(entry["host"]) &&
+        /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(
+          entry["host"],
+        ) &&
+        typeof entry["status"] === "string" &&
+        ["ready", "not-installed", "not-signed-in", "unavailable", "unassigned"].includes(
+          entry["status"],
+        ),
+    )
+  );
+}
+
 /** Main is trusted, but the renderer still receives only well-formed state. */
 function terminalState(value: unknown): value is TerminalState {
   return (
@@ -500,6 +529,11 @@ const desktop: DesktopApi = {
   listTerminalFonts: (refresh = false) => ipcRenderer.invoke("setup:terminal-fonts", refresh),
   listThemes: () => ipcRenderer.invoke("theme:list"),
   openThemesFolder: (kind) => ipcRenderer.invoke("theme:open-folder", kind),
+  checkReadiness: async () => {
+    const value: unknown = await ipcRenderer.invoke("setup:readiness");
+    if (!readinessReport(value)) throw new Error("Invalid readiness response");
+    return value;
+  },
   setupState: () => ipcRenderer.invoke("setup:state"),
   saveSetup: (patch) => ipcRenderer.invoke("setup:save", patch),
   environmentState: () => ipcRenderer.invoke("environment:state"),

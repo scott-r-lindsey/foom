@@ -1,4 +1,9 @@
-import { forgeBranch, pullRequest } from "../../../../src/main/control/forge";
+import {
+  forgeBranch,
+  forgeTitle,
+  forgeWebUrl,
+  pullRequest,
+} from "../../../../src/main/control/forge";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -676,4 +681,20 @@ it("maps and validates optional merge commits without granting malformed hints",
   expect(
     await forgeProvider("git@github.com:o/r.git", runner)?.lookup("child-one"),
   ).toBeUndefined();
+});
+
+it("validates persisted checks meaning and narrows optional display metadata", () => {
+  for (const checksMeaning of ["required", "head-pipeline", "commit-status"]) {
+    expect(pullRequest({ ...pr, checksMeaning })).toEqual({ ...pr, checksMeaning });
+  }
+  for (const checksMeaning of ["mergeable", null, 1])
+    expect(pullRequest({ ...pr, checksMeaning })).toEqual(pr);
+  expect(
+    pullRequest({ ...pr, title: "hi\u202e", sourceName: "repo\u0000", url: "javascript:alert(1)" }),
+  ).toEqual({ ...pr, title: "hi", sourceName: "repo" });
+  expect(forgeTitle(null)).toBeUndefined();
+  expect(forgeWebUrl("https://github.com/pr/1", "other.org")).toBeUndefined();
+  expect(forgeWebUrl("https://invalid..host/pr/1", "github.com")).toBeUndefined();
+  expect(forgeWebUrl("https://- /")).toBeUndefined();
+  expect(forgeWebUrl("https://999.999.999.999/")).toBeUndefined();
 });

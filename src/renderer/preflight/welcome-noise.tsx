@@ -1,7 +1,10 @@
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { TileLight } from "../board/terminal-tile";
 import { AgentBadge } from "../board/agent-badge";
+import { agentBadges } from "../board/sidebar-model";
+import { WelcomeSidebar, welcomeRows, NEEDS_YOU, DONE } from "./welcome-sidebar";
 import { prefersReducedMotion } from "./launch-sequence";
-import { type Agent, Feed, type Line, TICK_MS } from "./welcome-noise-output";
+import { Feed, type Line, TICK_MS } from "./welcome-noise-output";
 
 type Phase = "noise" | "calm" | "settled";
 type TileStyle = CSSProperties & {
@@ -14,20 +17,8 @@ type TileStyle = CSSProperties & {
 };
 
 /** Ten made-up agents. One will need you; one will finish. */
-export const AGENTS = [
-  ["feat/sidebar-tree", "Claude Code"],
-  ["fix/resume-exited", "Codex"],
-  ["feat/soundscapes", "Claude Code"],
-  ["fix/esc-passthrough", "Codex"],
-  ["docs/licenses", "Antigravity"],
-  ["feat/themes", "Claude Code"],
-  ["fix/wheel-scroll", "Codex"],
-  ["chore/fonts", "Claude Code"],
-  ["feat/validate-config", "Antigravity"],
-  ["test/removal-race", "Codex"],
-] as const satisfies readonly (readonly [string, Agent])[];
-export const NEEDS_YOU = 3;
-export const DONE = 7;
+export const AGENTS = welcomeRows.map((row) => [row.branch, row.agent] as const);
+export { NEEDS_YOU, DONE };
 /** Tiled like a window manager, in percent: x, y, width, height. */
 export const LAYOUT = [
   [0, 0, 40, 56],
@@ -66,6 +57,42 @@ export function NoiseToCalm({ random = Math.random }: { random?: () => number })
   const [feeds] = useState(() => AGENTS.map(([, agent]) => new Feed(agent, random)));
   const [views, setViews] = useState(() => feeds.map((feed) => feed.view()));
   const phaseRef = useRef(phase);
+  const stageRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = stageRef.current;
+    const sidebar = element?.querySelector<HTMLElement>(".welcome-sidebar");
+    if (!element || !sidebar) return;
+    const measure = () => {
+      const fit = Math.min(
+        0.8,
+        element.clientHeight / Math.max(1, sidebar.offsetHeight),
+        element.clientWidth / Math.max(1, sidebar.offsetWidth),
+      );
+      element.style.setProperty("--sidebar-scale", String(fit));
+      const stage = element.getBoundingClientRect();
+      const scale = stage.width / element.offsetWidth || 1;
+      for (const tile of element.querySelectorAll<HTMLElement>(".noise-tile")) {
+        const row = element.querySelector<HTMLElement>(
+          `[data-welcome-session="${tile.dataset["session"] ?? ""}"] .board-row`,
+        );
+        if (!row) continue;
+        const target = row.getBoundingClientRect();
+        tile.style.setProperty("--target-x", `${String((target.x - stage.x) / scale)}px`);
+        tile.style.setProperty("--target-y", `${String((target.y - stage.y) / scale)}px`);
+        tile.style.setProperty("--target-w", `${String(target.width / scale)}px`);
+        tile.style.setProperty("--target-h", `${String(target.height / scale)}px`);
+      }
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    observer.observe(sidebar);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
   useEffect(() => {
     if (reduced) return;
     const move = (next: Phase) => {
@@ -92,8 +119,10 @@ export function NoiseToCalm({ random = Math.random }: { random?: () => number })
   }, [reduced, feeds]);
 
   return (
-    <div className="welcome-noise" data-phase={phase} aria-hidden="true">
-      {AGENTS.map(([branch, agent], index) => {
+    <div ref={stageRef} className="welcome-noise" data-phase={phase} aria-hidden="true" inert>
+      <WelcomeSidebar settled={phase === "settled"} views={views} reduced={reduced} />
+      {welcomeRows.map((row, index) => {
+        const { branch, agent } = row;
         const current = state(phase, index);
         const view = views[index];
         const [x, y, w, h] = LAYOUT[index] ?? [0, 0, 0, 0];
@@ -106,14 +135,22 @@ export function NoiseToCalm({ random = Math.random }: { random?: () => number })
           "--h": h,
         };
         return (
-          <div key={branch} className="noise-tile" data-state={current} style={style}>
+          <div
+            key={row.id}
+            className="noise-tile"
+            data-session={row.id}
+            data-state={current}
+            style={style}
+          >
             <div className="noise-title">
-              <span className="noise-light" />
-              <AgentBadge mark={agent === "Claude Code" ? "CC" : agent === "Codex" ? "CX" : "AG"} />
-              <span className="noise-location">foom › {branch}</span>
+              <TileLight row={{ ...row, state: current }} />
+              <AgentBadge mark={agentBadges.get(agent)} />
+              <span className="noise-location">
+                {row.repository} › {branch}
+              </span>
               <span className="noise-tile-menu">{index + 1}⌄</span>
               <span>□</span>
-              <span>×</span>
+              <span>−</span>
             </div>
             <pre className="noise-output">
               {view?.lines.map((line) => (
@@ -127,14 +164,6 @@ export function NoiseToCalm({ random = Math.random }: { random?: () => number })
                 </span>
               )}
             </pre>
-            <div className="noise-row">
-              <span className="noise-light" />
-              <AgentBadge mark={agent === "Claude Code" ? "CC" : agent === "Codex" ? "CX" : "AG"} />
-              <span className="noise-branch">{branch}</span>
-              <span className="noise-agent">
-                {current === "needs_input" ? "needs you" : current === "done" ? "done" : "working"}
-              </span>
-            </div>
           </div>
         );
       })}

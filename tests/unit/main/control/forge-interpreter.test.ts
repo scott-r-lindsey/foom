@@ -137,8 +137,8 @@ it("preserves old/new argv and observations for derived same-repository fixtures
     const oldRun = vi.fn(async (args: readonly string[]) => (await run(args)).stdout);
     const old = await forgeProvider("https://github.com/cli/cli", oldRun)?.lookup(branch);
     const newRun = vi.fn(async (args: readonly string[]) => run(args));
-    expect(await provider(newRun).lookup(branch)).toEqual(old);
-    expect(newRun.mock.calls).toEqual(oldRun.mock.calls);
+    expect(await provider(newRun).lookup(branch)).toEqual({ ...old, checksMeaning: "required" });
+    expect(newRun.mock.calls.slice(0, -1)).toEqual(oldRun.mock.calls);
   }
 });
 
@@ -513,7 +513,10 @@ it("maps and hex-validates mergeCommit with legacy lookup parity and refuses con
       "https://github.com/cli/cli",
       async (args) => (await run(args)).stdout,
     )?.lookup("feature", row.number, "all");
-    expect(await provider(run).lookup("feature", row.number, "all")).toEqual(current);
+    expect(await provider(run).lookup("feature", row.number, "all")).toEqual({
+      ...current,
+      checksMeaning: "required",
+    });
     if (typeof oid === "string" && /^[a-f0-9]{40,64}$/u.test(oid))
       expect(current?.mergeCommit).toBe(oid);
     else expect(current?.mergeCommit).toBeUndefined();
@@ -534,5 +537,84 @@ it("maps and hex-validates mergeCommit with legacy lookup parity and refuses con
       ? forgeProvider("https://github.com/cli/cli", async (args) => (await run(args)).stdout)
       : provider(run);
     expect(await p?.lookup("feature", row.number, "all")).toBeUndefined();
+  }
+});
+
+it("enriches only the verified candidate and treats hostile display as optional inert text", async () => {
+  const display = {
+    ...row,
+    title: "<script>Hi</script>\u0000\u202e\ue000\u2028",
+    url: "https://github.com/cli/cli/pull/14700",
+    headRepository: { name: "cli" },
+  };
+  const lookup = (patch: object) =>
+    provider(async (args, optional) => {
+      if (optional) return reply({ ...display, ...patch });
+      return reply(args[1] === "checks" ? [{ bucket: "fail" }] : args[1] === "list" ? [row] : row);
+    }).lookup("feature");
+  expect(await lookup({})).toMatchObject({
+    title: "<script>Hi</script>",
+    url: display.url,
+    sourceName: "cli",
+    requiredChecks: "failure",
+    checksMeaning: "required",
+  });
+  for (const patch of [
+    { number: 99 },
+    { headRefOid: "b".repeat(40) },
+    { state: "MERGED" },
+    { headRefName: "other" },
+    { isCrossRepository: true },
+    { headRepositoryOwner: null },
+  ]) {
+    const result = await lookup(patch);
+    expect(result).toMatchObject({
+      number: row.number,
+      headSha: row.headRefOid,
+      state: "OPEN",
+      requiredChecks: "failure",
+    });
+    expect(result).not.toHaveProperty("title");
+    expect(result).not.toHaveProperty("url");
+  }
+  for (const url of [
+    "https://github.com.evil/pr/1",
+    "javascript:alert(1)",
+    "http://github.com/pr/1",
+    "https://github.com:443/pr/1",
+    "https://u@github.com/pr/1",
+    "https://github.com/\u202e",
+    "https://github.com\\evil/pr/1",
+    "x".repeat(4097),
+  ]) {
+    const result = await lookup({ url });
+    expect(result?.url).toBeUndefined();
+    expect(result?.requiredChecks).toBe("failure");
+  }
+  expect((await lookup({ title: "x".repeat(1025) }))?.title).toBeUndefined();
+  expect((await lookup({ title: "x".repeat(1024) }))?.title).toHaveLength(1024);
+  const result = await provider(async (args, optional) => {
+    if (optional) throw new Error("Display unavailable");
+    return reply(args[1] === "checks" ? [] : args[1] === "list" ? [row] : row);
+  }).lookup("feature");
+  expect(result).toMatchObject({ requiredChecks: "none", checksMeaning: "required" });
+});
+
+it("carries every validated checks meaning and supports manifests without display", async () => {
+  for (const meaning of ["required", "head-pipeline", "commit-status"] as const) {
+    const manifest = parseForgeManifest(
+      JSON.stringify({
+        ...github,
+        id: "copy",
+        operations: { ...github.operations, display: undefined },
+        checks: { ...github.checks, meaning },
+      }),
+    );
+    const run = vi.fn(async (args: readonly string[]) =>
+      reply(args[1] === "checks" ? [] : args[1] === "list" ? [row] : row),
+    );
+    const result = await manifestForgeProvider(manifest, remote, run).lookup("feature");
+    expect(result).toMatchObject({ checksMeaning: meaning, requiredChecks: "none" });
+    expect(run).toHaveBeenCalledTimes(3);
   }
 });

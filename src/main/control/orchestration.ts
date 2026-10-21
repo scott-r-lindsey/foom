@@ -48,7 +48,7 @@ interface SessionEventFacts {
   state: string;
   reason: string;
   handoff?: { seq: number; status: string };
-  pullRequest?: { number: number; state: string; requiredChecks: string };
+  pullRequest?: { number: number; state: string; requiredChecks: string; checksMeaning?: string };
 }
 
 /** Long-wait cursor: lifecycle, handoff and PR facts, never output or input counters. */
@@ -63,6 +63,7 @@ function eventCursor(row: SessionEventFacts): string {
         row.pullRequest?.number ?? null,
         row.pullRequest?.state ?? null,
         row.pullRequest?.requiredChecks ?? null,
+        row.pullRequest?.checksMeaning ?? null,
       ]),
     )
     .digest("hex");

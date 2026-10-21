@@ -218,12 +218,12 @@ the unpacked console manifest SHA-256 before sealing the containing app, because
 the SEA code signature changes its bytes; the ASAR archive is never rewritten. It must
 pass strict codesign verification, Gatekeeper assessment reporting `Notarized
 Developer ID`, and stapler validation. A separate publisher with contents write
-permission consumes that signed artifact alongside tested Linux/Windows ZIPs;
+permission consumes that signed artifact alongside tested Linux/Windows installers and ZIPs;
 the signing job has only contents read permission and no publication authority.
 
 PR macOS CI uploads and downloads the tested ZIP artifact before exercising the
 same signing path ad-hoc. Both modes recursively require exactly one ZIP in the
-download directory: the `out/make/**/*.zip` upload retains `zip/darwin/arm64/`
+download directory: the `out/make/` upload retains `zip/darwin/arm64/`
 under the artifact root. Missing or ambiguous ZIPs fail before unpacking. Failure
 output masks only the six Release secret values, their PEM lines longer than 16
 characters, and command-specific password/identifier arguments. ZIP and keychain
@@ -239,17 +239,25 @@ because they lack a team identity; Developer ID signatures never do.
 
 Only `macos-sign` and `macos-credentials` declare `environment: Release` and can
 read `MACOS_CERT_P12`, `MACOS_CERT_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`,
-`APPLE_API_ISSUER`, and `APPLE_TEAM_ID`. Both are restricted to scheduled/opt-in
-manual main runs (credential checks are manual only). PR jobs have no secret
+`APPLE_API_ISSUER`, and `APPLE_TEAM_ID`. Signing runs on desktop-required main pushes and scheduled/opt-in main runs;
+credential checks are manual main runs only. PR jobs have no secret
 references. Temporary mode-600 certificate/private-key files and a random-password
-keychain are removed in an `always()` step, even on failure. Required Apple CLI
+keychain are removed in an `always()` step, even on failure. Setup snapshots the
+user keychain search list before creating the temporary keychain, then prepends it
+while preserving existing entries. Cleanup restores the original list before
+deleting the temporary keychain, including after partial setup failures. The
+default keychain stays unchanged. Setup signs and strictly verifies a disposable
+copy of `/usr/bin/true` with the imported identity and timestamping disabled, so
+private-key lookup failures surface before application signing. Required Apple CLI
 password/identifier arguments are allowed on these ephemeral runners, with env
 inputs, generated/derived masking, and no command tracing or credential logging.
 
 After merge, run CI on main with `check_macos_credentials: true` alone. This
 imports the certificate, requires exactly one Developer ID Application identity
-for the configured team, and runs `notarytool history`, without an application
-build or artifact upload. Once it passes, run CI on main with
+for the configured team, proves signing with the disposable binary, and runs
+`notarytool history`, without an application build or artifact upload. Once it passes, run CI on main with
 `publish_nightly: true` and credential checking disabled. These are human
 operations; neither is dispatched by the implementation. Windows remains unsigned
-(#665); versioned releases and auto-update are separate work.
+(#665) and its installers ship on the nightly channel only. See
+[installer validation and draft release procedure](validation.md#installers-and-versioned-drafts-602)
+for DMG notarization and tag publication. Auto-update remains #603.

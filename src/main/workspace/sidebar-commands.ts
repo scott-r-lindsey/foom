@@ -89,9 +89,9 @@ export async function sidebarCommand(
   }
   if (command.kind === "open-pull-request") {
     await this.deps.worktrees.launchIdentity(command.repository, command.worktree);
-    const pr = this.deps.forge?.readBoard(command.repository, command.worktree);
-    if (!pr) throw new Error("Pull request unavailable");
-    await this.deps.openExternal?.(pr.url);
+    const url = this.deps.forge?.readUrl(command.repository, command.worktree);
+    if (!url) throw new Error("Pull request unavailable");
+    await this.deps.openExternal?.(url);
     return;
   }
   if (command.kind === "copy-worktree-path") {

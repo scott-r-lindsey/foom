@@ -14,10 +14,12 @@ preflight and bounded batch scheduler. GitHub's 20/120-second adaptive cadence,
 one-second discovery follow-up and fleet budgets are preserved. GitLab #522 still
 requires authenticated public-project evidence.
 
-Optional separate display enrichment and checks-meaning metadata remain under
-#521. The current board batch fields retain GitHub parity. Persistence now uses a
-versioned envelope and binds saved numeric IDs to manifest digest and selected
-remote; adding future display/meaning fields remains follow-up work.
+Optional separate display reads now enrich single-PR samples only after the final
+identity/ownership recheck. Board batches retain their existing query and counts,
+with optional display fields isolated from status validation. Invalid display never
+removes a verified PR or changes checks. Validated checks-meaning metadata is
+published and persisted in the version-1 observation envelope, alongside bindings
+to manifest digest and selected remote.
 
 A forge is a second manifest **kind** in the [existing plugin system](agent-plugins.md),
 not another plugin architecture. Built-ins are bundled JSON. A valid config copy
@@ -59,8 +61,10 @@ Hostnames must be exact lowercase ASCII DNS names, bounded to 253 characters; UR
 port, wildcard, IP, trailing-dot and unsafe-key spellings are rejected in main.
 These preferences cannot be set in config `settings.json` or manifests. The
 renderer only displays and submits them through sender-validated setup IPC.
-Cards show declared executable names and “Not checked”; polling performs native
-resolution and auth checks only for an enabled, explicitly assigned provider.
+Cards show declared executable names. First-run T-0 and Settings → Forges share
+host readiness through the main-owned lifecycle, checking only hosts from selected
+repositories’ local remotes and only enabled, explicitly assigned providers.
+Readiness never runs PR queries or login commands and never publishes diagnostics.
 There is no Duplicate action (removed for agents in #538); a hand-made
 config copy of a built-in starts with no enablement, host assignments or
 cached observations. Disabling a card preserves settings
@@ -372,8 +376,14 @@ The scheduler measures exact expanded requests, sends one bounded prefix per
 serial tick and leaves unsampled work due. A failed chunk hides the repository’s
 stale observations and applies shared repository backoff, so its unsampled suffix
 cannot immediately retry the failed read. Minima only slow regular polling;
-discovery binding still follows on the next tick. Separate display enrichment and
-checks-meaning metadata remain follow-up work under #521.
+discovery binding still follows on the next tick. Single-PR display reads use the
+manifest's optional separate command; identity, head, state and ownership must still
+match. Display command failures, including timeout/auth failure, omit enrichment
+without changing status. Registry, executable or checkout invalidation still retires
+the whole sample. The display command has a separate ten-second deadline after the
+status sample's ten-second budget; cancellation still kills and reaps its process tree.
+Board batches keep one query and derive optional title/source/URL from that verified
+response, without per-PR processes or changes to batch sizing/cadence.
 
 ## JSON mapping and check reduction
 
@@ -451,10 +461,16 @@ rows means none. No invalid/partial result can become a green result.
 | `head-pipeline` | GitLab MR head pipeline at the sampled SHA; not approvals, external status checks, mergeability, merge trains or all branch protection |
 | `commit-status` | Gitea/Forgejo aggregate commit statuses when no reliable required subset is exposed; never label it required |
 
-Keep `requiredChecks` for existing MCP compatibility. Follow-up work under #521 adds a
-validated `checksMeaning` discriminator to metadata/UI and labels it “Required checks”, “Head
-pipeline” or “Commit status”. Persist it with observations. No check meaning or
-conclusion grants merge authority. `none` means a verified empty relevant set,
+Keep `requiredChecks` for existing MCP compatibility. The validated optional
+`checksMeaning` discriminator accompanies it in session metadata (including MCP),
+participates in revisions/event cursors and is persisted with observations. Legacy
+records may omit it until refreshed. The checkout panel labels the relevant
+conclusion “Required checks”, “Head pipeline” or “Commit status”, separately from
+the existing all-check counts. PR marks include the inert title in their tooltip;
+the existing main-owned link action revalidates HTTPS against the routed host saved
+with the fresh observation. It never reparses the raw Git remote. This host stays
+main-only, is not restored from disk, and applies equally to board and child rows.
+No check meaning or conclusion grants merge authority. `none` means a verified empty relevant set,
 never that the user may merge; unknown is never success.
 
 GitHub maps failed/cancelled to failure, unfinished to pending, neutral/skipped to

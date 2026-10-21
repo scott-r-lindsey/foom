@@ -1,3 +1,5 @@
+import { ForgeReadinessRows } from "./forge-readiness";
+import type { useReadiness } from "./use-readiness";
 import { ActionError, useBackgroundErrors } from "../board/error-presentation";
 import { useEffect, useState } from "react";
 import type { ConfigStatus } from "../../shared/foom-config";
@@ -12,7 +14,9 @@ export function ForgesSettings({
   settings,
   source,
   save,
+  readiness,
 }: StepHeading & {
+  readiness?: ReturnType<typeof useReadiness>;
   settings: Settings;
   source: SetupSource;
   save: (patch: SettingsPatch) => Promise<void>;
@@ -59,6 +63,19 @@ export function ForgesSettings({
           Forges
         </h2>
       </header>
+      {readiness && (
+        <>
+          <ForgeReadinessRows
+            report={readiness.report}
+            commands={readiness.commands}
+            assignments={settings.forgeHosts}
+          />
+          {readiness.error && <p>Unable to check readiness. Recheck to try again.</p>}
+          <button type="button" disabled={readiness.busy} onClick={readiness.recheck}>
+            Recheck
+          </button>
+        </>
+      )}
       {error && (
         <ActionError
           message={error}
@@ -79,7 +96,7 @@ export function ForgesSettings({
                 <AgentBadge mark={forge.badge} />
                 <h3>{forge.name}</h3>
                 <span className="agent-version">
-                  {forge.reason ? "Rejected" : enabled ? "Not checked" : "Turned off"}
+                  {forge.reason ? "Rejected" : enabled ? "Readiness by host" : "Turned off"}
                 </span>
                 <label className="agent-toggle">
                   <input

@@ -896,3 +896,31 @@ test("validates bounded application and Electron versions", async () => {
     electron: "44.4.5",
   });
 });
+
+test("readiness only publishes fixed categories and bounded DNS hostnames", async () => {
+  const api = await bridge();
+  const valid = {
+    git: "ready",
+    platform: "linux",
+    forges: [{ host: "github.com", status: "not-signed-in" }],
+  };
+  mock.invoke.mockResolvedValue(valid);
+  await expect(api.checkReadiness()).resolves.toEqual(valid);
+  expect(mock.invoke).toHaveBeenCalledWith("setup:readiness");
+  for (const value of [
+    null,
+    { ...valid, git: "private output" },
+    { ...valid, git: ["ready"] },
+    { ...valid, platform: ["linux"] },
+    { ...valid, forges: [{ host: "github.com", status: ["ready"] }] },
+    { ...valid, platform: "freebsd" },
+    { ...valid, extra: "secret" },
+    { ...valid, forges: [{ host: "bad host", status: "ready" }] },
+    { ...valid, forges: [{ host: "github.com", status: "private" }] },
+    { ...valid, forges: [{ host: "github.com", status: "ready", stderr: "secret" }] },
+    { ...valid, forges: Array(1001).fill({ host: "github.com", status: "ready" }) },
+  ]) {
+    mock.invoke.mockResolvedValue(value);
+    await expect(api.checkReadiness()).rejects.toThrow("Invalid readiness response");
+  }
+});

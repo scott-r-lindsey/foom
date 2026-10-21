@@ -15,6 +15,7 @@ read-only argv execution, auth/executable validation and checkout/ownership poli
 Only the user's enabled `forgeHosts` assignments authorize routing; manifest host
 declarations grant none. The no-approval/no-Duplicate workflow also applies to
 forge cards. Recorded-fixture parity passed before the production legacy path was
-removed. Optional display enrichment/checks-meaning metadata remain under #521.
+removed. Optional display enrichment cannot change verified status; checks-meaning metadata
+is published and persisted with observations.
 
 See [current forge ownership](../areas/forge.md).

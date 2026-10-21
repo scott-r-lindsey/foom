@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
   AGENTS,
@@ -9,8 +9,22 @@ import {
   NoiseToCalm,
 } from "../../../../src/renderer/preflight/welcome-noise";
 
+import { SidebarRepositorySection } from "../../../../src/renderer/board/sidebar-repository-section";
+import { SidebarWorktreeSection } from "../../../../src/renderer/board/sidebar-worktree-section";
+import { SidebarSessionRow } from "../../../../src/renderer/board/sidebar-session-row";
+import { WelcomeSidebar } from "../../../../src/renderer/preflight/welcome-sidebar";
+vi.mock("../../../../src/renderer/board/sidebar-repository-section", { spy: true });
+vi.mock("../../../../src/renderer/board/sidebar-worktree-section", { spy: true });
+vi.mock("../../../../src/renderer/board/sidebar-session-row", { spy: true });
 let reduced = false;
 beforeEach(() => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   vi.useFakeTimers();
   reduced = false;
   Object.defineProperty(window, "matchMedia", {
@@ -21,6 +35,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 const tiles = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>(".noise-tile")];
@@ -38,12 +53,12 @@ test("ten terminals fold into lights, then one needs you and one is done", () =>
   expect(container.querySelector(".noise-output .tone-accent")).not.toBeNull();
   expect(container.querySelectorAll(".noise-status")).toHaveLength(AGENTS.length);
   expect(container.querySelectorAll(".noise-title .board-agent")).toHaveLength(AGENTS.length);
-  expect(container.querySelectorAll(".noise-title .noise-light")).toHaveLength(AGENTS.length);
-  expect(container.querySelectorAll(".noise-row .board-agent")).toHaveLength(AGENTS.length);
+  expect(container.querySelectorAll(".noise-title .board-light")).toHaveLength(AGENTS.length);
+  expect(container.querySelectorAll(".welcome-sidebar .board-agent")).toHaveLength(AGENTS.length);
   expect(container.querySelector(".noise-title")?.textContent).toContain(
-    "CCfoom › feat/sidebar-tree",
+    "CClumen-garden › feat/tide-map",
   );
-  expect(container.querySelector(".noise-row")?.textContent).toContain("working");
+  expect(container.querySelector(".welcome-sidebar .board-row")?.textContent).toContain("Working");
   act(() => {
     vi.advanceTimersByTime(3000);
   });
@@ -54,9 +69,13 @@ test("ten terminals fold into lights, then one needs you and one is done", () =>
   expect(stage(container)?.getAttribute("data-phase")).toBe("settled");
   const settled = tiles(container);
   expect(settled[NEEDS_YOU]?.getAttribute("data-state")).toBe("needs_input");
-  expect(settled[NEEDS_YOU]?.textContent).toContain("needs you");
+  expect(container.querySelector('[data-welcome-session="welcome-3"]')?.textContent).toContain(
+    "Needs you",
+  );
   expect(settled[DONE]?.getAttribute("data-state")).toBe("done");
-  expect(settled[DONE]?.textContent).toContain("done");
+  expect(container.querySelector('[data-welcome-session="welcome-7"]')?.textContent).toContain(
+    "Done",
+  );
   expect(settled.filter((tile) => tile.getAttribute("data-state") === "working")).toHaveLength(8);
 });
 
@@ -99,4 +118,53 @@ test("unmounting stops the timers", () => {
   expect(vi.getTimerCount()).toBe(3);
   unmount();
   expect(vi.getTimerCount()).toBe(0);
+});
+
+test("the illustration uses the real repository, worktree and session presentations with inert handlers", async () => {
+  const { container } = render(<NoiseToCalm />);
+  expect(SidebarRepositorySection).toHaveBeenCalled();
+  expect(SidebarWorktreeSection).toHaveBeenCalled();
+  expect(SidebarSessionRow).toHaveBeenCalled();
+  expect(container.querySelectorAll(".repository-row")).toHaveLength(2);
+  expect(container.querySelectorAll(".worktree-row")).toHaveLength(4);
+  expect(container.querySelectorAll(".session-entry")).toHaveLength(10);
+  expect(stage(container)?.hasAttribute("inert")).toBe(true);
+  expect(container.querySelector(".sidebar-add-repository")?.textContent).toBe("+");
+  const repository = vi.mocked(SidebarRepositorySection).mock.calls.at(-1)?.[0];
+  const worktree = vi.mocked(SidebarWorktreeSection).mock.calls.at(-1)?.[0];
+  const session = vi.mocked(SidebarSessionRow).mock.calls.at(-1)?.[0];
+  expect(repository).toBeDefined();
+  repository?.toggle();
+  worktree?.toggle();
+  await worktree?.openPullRequest();
+  session?.open(session.row);
+  expect(container.querySelectorAll("[role=dialog], input")).toHaveLength(0);
+  fireEvent(window, new Event("resize"));
+});
+
+test("the display source remains self contained without feed output", () => {
+  const { container } = render(<WelcomeSidebar settled views={[]} reduced={false} />);
+  expect(container.querySelector("[data-welcome-session]")?.getAttribute("style")).toContain(
+    "--welcome-level: 1",
+  );
+});
+
+test("fold destinations follow the rendered session geometry on resize", () => {
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(900);
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+    x: 10,
+    y: 20,
+    width: 450,
+    height: 40,
+    top: 20,
+    left: 10,
+    right: 460,
+    bottom: 60,
+    toJSON: () => ({}),
+  });
+  const { container } = render(<NoiseToCalm />);
+  expect(tiles(container)[0]?.style.getPropertyValue("--target-w")).toBe("900px");
+  container.querySelector("[data-welcome-session]")?.remove();
+  fireEvent(window, new Event("resize"));
+  vi.restoreAllMocks();
 });

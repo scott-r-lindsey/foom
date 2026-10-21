@@ -65,7 +65,10 @@ export async function initializeWorkspace(
     await setupOffers.load(app.getPath("userData"));
     if (wiring.settings.get().agyPluginOfferAnswered && !setupOffers.answered("agy"))
       await setupOffers.answer("agy");
-    if (wiring.settings.get().showPullRequests === undefined) {
+    if (
+      wiring.settings.get().setupComplete &&
+      wiring.settings.get().showPullRequests === undefined
+    ) {
       const loggedIn = await wiring.forgeRuntime.available();
       await wiring.settings.update({ showPullRequests: loggedIn });
     }

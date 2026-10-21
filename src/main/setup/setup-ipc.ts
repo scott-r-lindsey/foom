@@ -42,6 +42,13 @@ export function attachSetup(
         return listTerminalFonts(args[0] === true);
       },
     ],
+    [
+      "setup:readiness",
+      (...args) => {
+        if (args.length) throw new Error("Invalid readiness request");
+        return setup.readiness();
+      },
+    ],
     ["setup:state", () => setup.state()],
     [
       "setup:save",

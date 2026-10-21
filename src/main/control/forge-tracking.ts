@@ -2,13 +2,15 @@ import type { BoardPullRequest } from "../../shared/forge";
 import { lstat, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { atomicPrivate, privateDirectory, verifyPrivate } from "../../node-common/private-files";
-import { forgeBranch, pullRequest } from "./forge";
+import { forgeBranch, forgeWebUrl, pullRequest } from "./forge";
 import type { ForgeProvider, ForgeProviderFactory, ForgeWorktree, PullRequest } from "./forge.d";
 
 interface Entry extends ForgeWorktree {
   binding?: string;
   restored?: boolean;
   board?: BoardPullRequest;
+  /** Fresh observation provenance; never restored from disk or sent to the renderer. */
+  routedHost?: string;
   orchestrator: boolean;
   refresh: number;
   followUp?: boolean;
@@ -242,6 +244,13 @@ export class ForgeTracking {
       : undefined;
   }
 
+  /** Recheck against the selected remote at the existing main-owned link boundary. */
+  readUrl(repository: string, path: string): string | undefined {
+    const entry = this.entries.get(path);
+    const board = this.readBoard(repository, path);
+    return entry?.routedHost ? forgeWebUrl(board?.url, entry.routedHost) : undefined;
+  }
+
   read(repository: string, path: string): PullRequest | undefined {
     const entry = this.entries.get(path);
     return entry?.repository === repository && entry.available ? pullRequest(entry.pr) : undefined;
@@ -395,13 +404,11 @@ export class ForgeTracking {
       entry.available = pr !== undefined;
       entry.followUp = Boolean(discovered);
       if (pr) {
-        entry.pr = {
-          number: pr.number,
-          headSha: pr.headSha,
-          state: pr.state,
-          requiredChecks: pr.requiredChecks,
-        };
-        entry.board = pr.board;
+        const { board, ...metadata } = pr;
+        entry.pr = metadata;
+        entry.board = board;
+        if (provider.routedHost === undefined) delete entry.routedHost;
+        else entry.routedHost = provider.routedHost;
       }
       entry.remote = remote;
       entry.due =

@@ -610,7 +610,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await expect(
     page.getByRole("navigation", { name: "Preflight steps" }).locator("ol button"),
   ).toHaveCount(4);
-  await expect(page.locator(".preflight-poll")).not.toContainText("Worktrees");
+  await expect(page.locator(".preflight-poll").first()).not.toContainText("Worktrees");
   await expect(page.getByRole("button", { name: "Launch" })).toBeDisabled();
   await page.getByRole("button", { name: "Fix" }).click();
 
@@ -886,11 +886,11 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
       .poll(
         () =>
           page
-            .locator(".noise-tile")
+            .locator(".welcome-sidebar")
             .evaluateAll((tiles) => tiles.map((tile) => getComputedStyle(tile).backgroundColor)),
         { message: "Row backgrounds must switch with text" },
       )
-      .toEqual(Array(10).fill(surface));
+      .toEqual([surface]);
   }
   await page.emulateMedia({ colorScheme: null });
   const dark = () => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches);

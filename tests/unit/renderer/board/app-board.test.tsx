@@ -75,7 +75,26 @@ test("unreadable settings fall back to the empty board; samples require the buil
   expect(sample.container.querySelectorAll('[data-kind="sample"]')).toHaveLength(9);
   vi.unstubAllGlobals();
 });
-test("first run still performs setup before opening the board, without a Preflight footer button", async () => {
+test("first run still performs setup before opening the board, without a Preflight footer button", async ({
+  onTestFinished,
+}) => {
+  onTestFinished(() => {
+    vi.unstubAllGlobals();
+  });
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  window.desktop.checkReadiness = vi.fn(() =>
+    Promise.resolve({
+      git: "ready" as const,
+      platform: "linux" as const,
+      forges: [],
+    }),
+  );
   mock.setupState.mockResolvedValue(setupState());
   const screen = render(<App />);
   await settle();

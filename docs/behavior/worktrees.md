@@ -41,10 +41,13 @@ share one checked-ref transaction after removals. Moved or checked-out branches
 are kept and reported; a concurrent ref race aborts the transaction safely.
 
 Worktree rows show a matched GitHub PR as **#N** and a check glyph with a status
-label in its accessible name and tooltip. Running checks are neutral, passed checks
+label in its accessible name and its plain-text title in the tooltip. Running checks are neutral, passed checks
 green, failed checks magenta; merged/closed PRs are muted without a check mark.
 Click the number to open the PR in the default browser. The checkout panel shows
-its plain-text title, state and passed/failed/running counts. Forks and the default
+its plain-text title, state and passed/failed/running counts, plus the relevant
+conclusion labelled Required checks, Head pipeline or Commit status. Optional bad
+or unavailable title/URL data leaves the PR and check status intact; a missing URL
+disables the number's link. Forks and the default
 branch never match, and ambiguous matches remain absent.
 
 When observed checks finish, Foom raises a desktop notification with the PR number
