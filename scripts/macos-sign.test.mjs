@@ -447,7 +447,7 @@ test("PR ad-hoc signing downloads the same artifact and uses the release ZIP dis
   const workflow = readFileSync(resolve(".github/workflows/ci.yml"), "utf8");
   const platform = workflow.split("\n  platform:\n")[1].split("\n  quality:\n")[0];
   assert.match(platform, /runner.os == 'macOS' \|\|/);
-  assert.match(platform, /name: Foom-\$\{\{ matrix.os \}\}\n {10}path: out\/make\/\*\*\/\*\.zip/);
+  assert.match(platform, /name: Foom-\$\{\{ matrix.os \}\}\n {10}path: out\/make\//);
   assert.match(platform, /name: Foom-macos-15\n {10}path: tested-macos/);
   assert.match(platform, /macos-sign.mjs adhoc-zip tested-macos/);
   assert.match(workflow, /macos-sign.mjs release tested-macos/);

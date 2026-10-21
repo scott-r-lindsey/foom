@@ -36,7 +36,7 @@ Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xt
 | `pnpm run test:coverage` | Enforce per-file coverage and write HTML, LCOV, JSON, and terminal reports |
 | `pnpm run test:electron` | Build and launch the real Electron feature suites |
 | `pnpm run build` | Compile application code, bundle xterm, and copy assets |
-| `pnpm run package` / `pnpm run make` | Create an executable application / a distributable ZIP |
+| `pnpm run package` / `pnpm run make` | Create an executable application / native installers and ZIP |
 
 Biome owns formatting, and ESLint owns lint rules. Strict TypeScript includes checked indexed access, exact optional properties, explicit overrides, and unused-code checks. ESLint uses type information to catch unsafe values and mishandled promises. Generated output, `inspiration/` references and `spikes/` prototypes are excluded from application checks and packaging.
 
@@ -44,7 +44,7 @@ Biome owns formatting, and ESLint owns lint rules. Strict TypeScript includes ch
 
 The full `pnpm run audit` scan includes development dependencies and fails on any reported vulnerability. It runs in the required static-checks job alongside desktop validation. A registry failure also fails that job; advisories are not suppressed. This scan does not replace monitoring Electron's Chromium and Node.js security updates.
 
-Forge CLI, ZIP maker, and fuses plugin are pinned together at 8.0.1, with `@electron/fuses` 2.1.3 to satisfy the plugin peer requirement. Forge 8 removes the vulnerable `braces` and `http-cache-semantics` dependency chains that blocked the audit gate. Its maintained rebuild and Packager dependencies also replace the older chains, so the previous rebuild, ZIP-extractor, and temporary-file overrides are no longer needed.
+Forge CLI, installer/ZIP makers, GitHub publisher, and fuses plugin are pinned together at 8.0.1, with `@electron/fuses` 2.1.3 to satisfy the plugin peer requirement. Forge 8 removes the vulnerable `braces` and `http-cache-semantics` dependency chains that blocked the audit gate. Its maintained rebuild and Packager dependencies also replace the older chains, so the previous rebuild, ZIP-extractor, and temporary-file overrides are no longer needed.
 
 Validate clean installs, real Electron tests, packaging, and packaged smoke tests when updating Forge. The Electron tests exercise the native node-pty addon, and Forge rebuilds it for the target Electron version during startup and packaging. The three-platform CI matrix checks the resulting artifacts with sandboxing and application fuses enabled.
 

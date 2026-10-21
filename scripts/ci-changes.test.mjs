@@ -267,7 +267,7 @@ test("Electron shards and once-per-platform checks run independently with diagno
     "Verify macOS ad-hoc signature after packaging and fuses",
     "Test packaged terminal host on Linux",
     "Test packaged terminal host on macOS and Windows",
-    "Upload unsigned development package",
+    "Upload tested installer and ZIP artifacts",
   ]) {
     assert.ok(platform.includes(`      - name: ${name}\n`), name);
     assert.ok(!desktop.includes(`      - name: ${name}\n`), name);
@@ -324,7 +324,7 @@ test("nightly publication waits for the full gate and reuses companion job packa
   );
   assert.doesNotMatch(nightly, /pnpm run make/);
   assert.match(platform, /name: Foom-\$\{\{ matrix\.os \}\}/);
-  assert.match(platform, /path: out\/make\/\*\*\/\*\.zip/);
+  assert.match(platform, /path: out\/make\//);
   assert.match(platform, /retention-days: 3/);
   assert.doesNotMatch(platform, /permissions:|continue-on-error:/);
   const stamp = platform
@@ -339,7 +339,7 @@ test("nightly publication waits for the full gate and reuses companion job packa
   assert.ok(platform.indexOf("run: pnpm run make") < platform.indexOf("run: codesign --verify"));
   assert.ok(
     platform.indexOf("run: pnpm run test:packaged") <
-      platform.indexOf("name: Upload unsigned development package"),
+      platform.indexOf("name: Upload tested installer and ZIP artifacts"),
   );
 });
 

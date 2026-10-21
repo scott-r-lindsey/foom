@@ -1,3 +1,5 @@
+import { app } from "electron";
+import { handleInstaller } from "./installer";
 import { runApplication } from "./wiring/application";
 
-runApplication();
+if (!handleInstaller(app)) runApplication();

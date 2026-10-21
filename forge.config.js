@@ -3,6 +3,19 @@ const { FuseV1Options, FuseVersion } = require("@electron/fuses");
 
 module.exports = {
   hooks: {
+    preMake: async () => {
+      if (process.platform !== "win32") return;
+      // pnpm disables transitive lifecycle scripts. Select only the pinned
+      // winstaller's bundled host tools, without executing its install script.
+      const { copyFile } = require("node:fs/promises");
+      const { dirname, join } = require("node:path");
+      const vendor = join(dirname(require.resolve("electron-winstaller/package.json")), "vendor");
+      for (const extension of ["exe", "dll"])
+        await copyFile(
+          join(vendor, `7z-${process.arch}.${extension}`),
+          join(vendor, `7z.${extension}`),
+        );
+    },
     // Sole packaging build owner, including direct Forge package/make invocations.
     // Always rebuild without --samples before copying assets into a package.
     prePackage: () => {
@@ -44,7 +57,47 @@ module.exports = {
       !["", "/package.json", "/LICENSE", "/NOTICE"].includes(file) &&
       !/^\/(?:build|node_modules)(?:\/|$)/.test(file),
   },
-  makers: [{ name: "@electron-forge/maker-zip", platforms: ["darwin", "linux", "win32"] }],
+  makers: [
+    { name: "@electron-forge/maker-zip", platforms: ["darwin", "linux", "win32"] },
+    new (require("./scripts/maker-dmg.cjs"))(),
+    {
+      name: "@electron-forge/maker-squirrel",
+      platforms: ["win32"],
+      config: { authors: "Foom contributors", description: "Foom terminal", noMsi: true },
+    },
+    {
+      name: "@electron-forge/maker-deb",
+      platforms: ["linux"],
+      config: {
+        options: {
+          bin: "Foom",
+          maintainer: "Foom contributors",
+          homepage: "https://github.com/scott-r-lindsey/foom",
+        },
+      },
+    },
+    {
+      name: "@electron-forge/maker-rpm",
+      platforms: ["linux"],
+      config: {
+        options: {
+          bin: "Foom",
+          homepage: "https://github.com/scott-r-lindsey/foom",
+          specTemplate: require("node:path").join(__dirname, "scripts/foom-rpm.spec.ejs"),
+        },
+      },
+    },
+  ],
+  publishers: [
+    {
+      name: "@electron-forge/publisher-github",
+      config: {
+        repository: { owner: "scott-r-lindsey", name: "foom" },
+        draft: true,
+        generateReleaseNotes: true,
+      },
+    },
+  ],
   plugins: [
     new FusesPlugin({
       version: FuseVersion.V1,
