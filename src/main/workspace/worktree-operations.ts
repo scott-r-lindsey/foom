@@ -78,10 +78,16 @@ export async function prepareParent(root: string, path: string): Promise<void> {
  * Membership and common-directory authorization still use Git in checkoutIdentity. */
 async function checkoutGitDirectory(path: string): Promise<string> {
   const marker = join(path, ".git");
-  if ((await fileStat(marker)).isDirectory()) return realpath(marker);
-  // Open without waiting on a forged FIFO; the descriptor check refuses special files.
+  const markerMetadata = await fileStat(marker);
+  if (markerMetadata.isDirectory()) return realpath(marker);
+  if (!markerMetadata.isFile() || markerMetadata.size > 64 * 1024) {
+    throw new Error("Invalid Git marker");
+  }
+  // Refuse special files before opening; recheck the descriptor in case the marker changed.
   const flags =
-    process.platform === "win32" ? constants.O_RDONLY : constants.O_RDONLY | constants.O_NONBLOCK;
+    process.platform === "win32"
+      ? constants.O_RDONLY
+      : constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY;
   const handle = await open(marker, flags);
   try {
     const metadata = await handle.stat();

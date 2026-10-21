@@ -13,9 +13,14 @@ At startup, main opens the service with `WorktreeService.open(app.getPath("userD
 Identity bookkeeping resolves the checkout's own `.git` directory or `gitdir: `
 file in-process, then records the same canonical metadata path and fresh
 `lstat` device/inode/birth-time tuple. Marker reads are limited to 64 KiB,
-reject malformed and special files, close descriptors on failure, and use
-nonblocking opens where available. Relative marker paths resolve from the checkout.
-The service does not cache identity reads or worktree listings. Listing rechecks every
+reject malformed files, and check marker type and size before opening. The opened
+descriptor is checked again to catch replacements. Reads close descriptors on failure
+and use nonblocking opens with `O_NOCTTY` on POSIX. Relative marker paths resolve from the checkout.
+The service does not cache identity reads or worktree listings. Concurrent sidebar
+requests share only a pending app-wide inventory read, including its Forge checkout
+validation. Completion or failure discards it; workspace refresh and settings changes
+invalidate it immediately for later callers. Each window still projects its own
+preview registry after the shared read completes. Listing rechecks every
 managed checkout without spawning Git for each history record. Launch and removal
 still query Git for membership and canonical common-directory agreement, and
 retain their redirected-path, locked/prunable, identity and confirmation checks.

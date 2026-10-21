@@ -101,8 +101,20 @@ load, validation, release, registry writes, placement, preview load and snapshot
 timings, Git spawn counts for moves/launches/sidebar refresh/worktree creation,
 and main-loop delay in JUnit diagnostics. Run it after a build with
 `xvfb-run -a node --require ./tests/helpers/setup.js --test --test-reporter=junit tests/electron/preview-move-measurement.js`.
-It uses 0, 5 and 15 streaming fixture agents, isolated profiles and the standard
-agent guard/process audit. It adds no production tracing and records no terminal
+It includes 0, 5 and 15 streaming fixture agents plus a realistic gallery case:
+20 worktrees in one repository, a second registered repository, Forge display/polling through
+fixture `gh`, five streaming agents with three visible terminal tiles, and sixteen
+roughly 2 MiB PNGs. The gallery repeats each move from the populated source window.
+It records menu-click/window/renderer timestamps, sidebar requests/responses,
+placement (including its five-second deadline), bounds, view load, capture/PNG
+encoding/IPC size and the renderer paint acknowledgement. Set
+`FOOM_PREVIEW_MOVE_SCENARIO=realistic` to run just that case and optionally
+`FOOM_PREVIEW_MOVE_REPORT=/tmp/preview-move.jsonl` to retain diagnostics immediately.
+A separately compiled original `worktree-operations` module supplied through
+`FOOM_PREVIEW_MOVE_IDENTITY_MODULE` selects the baseline helper and original
+unshared sidebar path; realistic fixtures are prepared before the swap, and one
+move per app keeps the existing watchdog intact. Restore happens before teardown.
+It uses isolated profiles and the standard agent guard/process audit. It adds no production tracing and records no terminal
 content. Move validation still runs before and after source cleanup; identity
 bookkeeping uses the fresh in-process metadata reads described in
 [worktrees](worktrees.md).

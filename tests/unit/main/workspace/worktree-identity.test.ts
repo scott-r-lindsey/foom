@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import * as fs from "node:fs/promises";
 import {
   lstat,
   mkdir,
@@ -10,12 +12,16 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { afterEach, expect, test } from "vitest";
+import { promisify } from "node:util";
+import { afterEach, expect, test, vi } from "vitest";
 import { worktreeIdentity } from "../../../../src/main/workspace/worktree-operations";
 import { git } from "../../../helpers/git.js";
 
+vi.mock("node:fs/promises", async (original) => ({ ...(await original<typeof fs>()) }));
+
 const roots: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 async function fixture() {
@@ -94,3 +100,40 @@ test.skipIf(process.platform === "win32")(
     await expect(worktreeIdentity(checkout)).rejects.toThrow("Invalid Git marker");
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "refuses a Git marker symlink to a FIFO before opening it",
+  async () => {
+    const { root } = await fixture();
+    const checkout = join(root, "fake");
+    await mkdir(checkout);
+    const fifo = join(root, "fifo");
+    await promisify(execFile)("mkfifo", [fifo]);
+    await symlink(fifo, join(checkout, ".git"));
+    const open = vi.spyOn(fs, "open");
+    await expect(worktreeIdentity(checkout)).rejects.toThrow("Invalid Git marker");
+    expect(open).not.toHaveBeenCalled();
+  },
+);
+
+test("rechecks marker size after opening and closes a refused descriptor", async () => {
+  const { root } = await fixture();
+  const checkout = join(root, "fake");
+  await mkdir(checkout);
+  const marker = join(checkout, ".git");
+  await writeFile(marker, "gitdir: missing\n");
+  const realOpen = fs.open;
+  const close = vi.fn();
+  vi.spyOn(fs, "open").mockImplementationOnce(async (path, flags, mode) => {
+    const handle = await realOpen(path, flags, mode);
+    await writeFile(marker, "x".repeat(64 * 1024 + 1));
+    const realClose = handle.close.bind(handle);
+    vi.spyOn(handle, "close").mockImplementationOnce(async () => {
+      close();
+      await realClose();
+    });
+    return handle;
+  });
+  await expect(worktreeIdentity(checkout)).rejects.toThrow("Invalid Git marker");
+  expect(close).toHaveBeenCalledOnce();
+});
