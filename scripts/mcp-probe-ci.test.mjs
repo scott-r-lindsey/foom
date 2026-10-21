@@ -5,6 +5,59 @@ import { test } from "node:test";
 import { join } from "node:path";
 import { probe, reportIssue, safeReport, versionInput } from "./mcp-probe-ci.mjs";
 import { requiresDesktop } from "./ci-changes.mjs";
+import { claudeToolCall } from "./mcp-probe-model.mjs";
+
+test("synthetic Claude discovers deferred tools and then calls the per-launch server", () => {
+  // Shape captured from the credential-free Claude 2.1.306 probe.
+  const deferred = {
+    tools: [{ name: "ToolSearch" }, { name: "DeferredToolPlaceholder", defer_loading: true }],
+    messages: [{ role: "user", content: "Synthetic task" }],
+  };
+  const search = claudeToolCall(deferred, 0);
+  assert.equal(search.name, "ToolSearch");
+  assert.deepEqual(search.input, { query: "foom", max_results: 100 });
+  const loaded = {
+    tools: [
+      ...deferred.tools,
+      { name: "mcp__existing__whoami" },
+      { name: "mcp__foom_fixture__whoami" },
+      { name: "mcp__foom_fixture__open_preview" },
+    ],
+    messages: [
+      ...deferred.messages,
+      { role: "assistant", content: [{ type: "tool_use", ...search }] },
+    ],
+  };
+  const identity = claudeToolCall(loaded, 0);
+  assert.equal(identity.name, "mcp__foom_fixture__whoami");
+  assert.deepEqual(identity.input, {});
+  assert.notEqual(identity.id, search.id);
+  const preview = claudeToolCall(loaded, 1);
+  assert.equal(preview.name, "mcp__foom_fixture__open_preview");
+  assert.deepEqual(preview.input, { path: "probe.html" });
+  assert.equal(claudeToolCall(loaded, 2), undefined);
+  // Older clients expose definitions upfront and require no search round trip.
+  assert.deepEqual(claudeToolCall({ tools: loaded.tools }, 0), identity);
+});
+
+test("synthetic Claude terminates after empty discovery under managed policy", () => {
+  const tools = [{ name: "ToolSearch" }];
+  assert.equal(
+    claudeToolCall(
+      {
+        tools,
+        messages: [
+          { content: [{ type: "tool_use", name: "ToolSearch" }] },
+          { content: [{ type: "tool_result", content: "No matching tools found" }] },
+        ],
+      },
+      0,
+    ),
+    undefined,
+  );
+  assert.equal(claudeToolCall({ tools: [{ name: "mcp__existing__whoami" }] }, 0), undefined);
+  assert.equal(claudeToolCall({}, 0), undefined);
+});
 
 const green = ["claude", "codex"].map((agent) => ({
   agent,
