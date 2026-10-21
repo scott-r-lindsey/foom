@@ -44,7 +44,8 @@ const args = process.argv.slice(2);
 const state = JSON.parse(fs.readFileSync(process.env.STATE, 'utf8'));
 fs.appendFileSync(process.env.LOG, JSON.stringify({ args, cwd: process.cwd(), pager: process.env.GH_PAGER, capabilities: Object.keys(process.env).filter((key) => /^(FOOM_|ELECTRON_|CLAUDECODE$)/i.test(key)) }) + '\\n');
 if (state.change && args[1] === 'view') fs.appendFileSync(process.env.MANIFEST, ' ');
-if (state.hang && args[0] !== 'auth') {
+if (state.displayFailure && args.at(-1)?.includes('title,url')) { process.stderr.write('HTTP 403 Forbidden'); process.exit(1); }
+if ((state.hang && args[0] !== 'auth') || (state.displayHang && args.at(-1)?.includes('title,url'))) {
   const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {stdio: 'inherit'});
   fs.writeFileSync(process.env.PIDS, JSON.stringify([process.pid, child.pid]));
   setInterval(() => {}, 1000);
@@ -132,10 +133,11 @@ posix(
       mergeCommit: "b".repeat(40),
       state: "MERGED",
       requiredChecks: "none",
+      checksMeaning: "required",
     });
     const first = await calls();
     for (const call of first) expect(call).toHaveProperty("capabilities", []);
-    expect(first).toHaveLength(4);
+    expect(first).toHaveLength(5);
     expect(first[0]).toMatchObject({
       args: ["auth", "status", "--hostname", "github.com"],
       pager: "cat",
@@ -146,11 +148,11 @@ posix(
     }
     if (result) result.requiredChecks = "failure";
     expect(await p.lookup("feature", 42, "all")).toMatchObject({ requiredChecks: "none" });
-    expect(await calls()).toHaveLength(4);
+    expect(await calls()).toHaveLength(5);
     expect(lifecycle.state()).toBe("ready");
     lifecycle.invalidate();
     await p.lookup("feature", 42, "all");
-    expect(await calls()).toHaveLength(8);
+    expect(await calls()).toHaveLength(10);
     expect(await p.resolve?.(42)).toEqual({
       branch: "feature",
       state: "MERGED",
@@ -323,7 +325,7 @@ posix(
     await lifecycle
       .provider({ ...selection, remote: { ...selection.remote, host: "enterprise.example" } })
       .resolve?.(42);
-    expect((await calls()).length).toBe(7);
+    expect((await calls()).length).toBe(8);
     now.mockReturnValue(1021);
     await update({ auth: "invalid token", authCode: 0 });
     expect(await lifecycle.provider(selection).resolve?.(42)).toBeUndefined();
@@ -355,5 +357,18 @@ posix("finishes asynchronous cleanup before final byte/registry publication chec
     });
     expect(await lifecycle.provider(selection).lookup("feature", 42, "all")).toBeUndefined();
     expect(lifecycle.state()).toBe(change === "bytes" ? "unavailable" : "cancelled");
+  }
+});
+
+posix("display transport failures and deadlines preserve verified checks", async () => {
+  const { lifecycle, selection, update } = await fixture(1000, 0);
+  for (const state of [{ displayFailure: true }, { displayHang: true }]) {
+    await update(state);
+    expect(await lifecycle.provider(selection).lookup("feature", 42, "all")).toMatchObject({
+      number: 42,
+      requiredChecks: "none",
+      checksMeaning: "required",
+    });
+    expect(lifecycle.state()).toBe("ready");
   }
 });

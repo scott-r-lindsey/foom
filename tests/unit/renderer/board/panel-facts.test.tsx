@@ -497,3 +497,60 @@ test("the config panel offers the held digest's existing Allow/Keep decision", a
   );
   expect(view.queryByText("Needs you")).toBeNull();
 });
+
+test("labels the relevant check conclusion separately from all-check counts", async () => {
+  for (const [checksMeaning, label] of [
+    ["required", "Required checks"],
+    ["head-pipeline", "Head pipeline"],
+    ["commit-status", "Commit status"],
+  ] as const) {
+    const view = render(
+      <PanelFacts
+        subject={{
+          kind: "worktree",
+          repository,
+          tree: {
+            ...tree,
+            pullRequest: {
+              number: 12,
+              title: "<b>Title</b>",
+              state: "OPEN",
+              checks: { passed: 1, failed: 1, pending: 0 },
+              checksMeaning,
+              requiredChecks: "success",
+            },
+          },
+        }}
+        source={source}
+        options={undefined}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(view.getByText(label)).toBeTruthy();
+    expect(view.getByText("success")).toBeTruthy();
+    expect(view.getByText("1 passed · 1 failed · 0 running")).toBeTruthy();
+    expect(view.container.querySelector("b")).toBeNull();
+    view.unmount();
+  }
+  const view = render(
+    <PanelFacts
+      subject={{
+        kind: "worktree",
+        repository,
+        tree: {
+          ...tree,
+          pullRequest: { number: 12, state: "OPEN", checks: null, checksMeaning: "head-pipeline" },
+        },
+      }}
+      source={source}
+      options={undefined}
+    />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(view.getByText("#12")).toBeTruthy();
+  expect(view.getByText("unknown")).toBeTruthy();
+});

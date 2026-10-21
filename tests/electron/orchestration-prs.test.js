@@ -307,6 +307,9 @@ test("an orchestrator wait_for wakes on a child PR required-check conclusion", {
     headSha: "a".repeat(40),
     state: "OPEN",
     requiredChecks: "success",
+    checksMeaning: "required",
+    title: "Fixture pull request",
+    url: "https://github.com/fixture/offline/pull/340",
   });
   assert.deepEqual(
     (await call("sessions")).sessions.find((row) => row.id === childId).pullRequest,
@@ -363,6 +366,7 @@ test("board pull requests show running failed and passed checks through fixture 
   await page.getByRole("button", { name: "Expand app", exact: true }).click();
   const mark = page.getByRole("button", { name: "Pull request #340 · running", exact: true });
   await expect(mark).toBeVisible();
+  await expect(mark).toHaveAttribute("title", "Pull request #340 · running · Fixture pull request");
   await mark.click();
   await expect
     .poll(() => app.evaluate(() => globalThis.forgeOpened))
@@ -393,5 +397,19 @@ test("board pull requests show running failed and passed checks through fixture 
     .click();
   await expect(page.getByText("#340 · Fixture pull request", { exact: true })).toBeVisible();
   await expect(page.getByText("1 passed · 0 failed · 0 running", { exact: true })).toBeVisible();
+  await expect(page.getByText("Required checks", { exact: true })).toBeVisible();
+  await expect(page.getByText("success", { exact: true })).toBeVisible();
+  if (process.env.FOOM_FORGE_SCREENSHOTS) {
+    const directory = path.resolve(process.env.FOOM_FORGE_SCREENSHOTS);
+    await mkdir(directory, { recursive: true });
+    for (const variant of ["light", "dark"]) {
+      await page.evaluate(
+        (variant) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${variant}` }),
+        variant,
+      );
+      await expect(page.locator("html")).toHaveCSS("color-scheme", variant);
+      await page.screenshot({ path: path.join(directory, `${variant}.png`) });
+    }
+  }
   await assertAccessible(page);
 });

@@ -7,7 +7,7 @@ import type {
   PullRequest,
 } from "./forge.d";
 import { forgeBranch, pullRequest } from "./forge";
-import { forgeIdentity, forgeValue, reduceForgeChecks } from "./forge-mapping";
+import { forgeDisplay, forgeIdentity, forgeValue, reduceForgeChecks } from "./forge-mapping";
 import { manifestBatchSize, manifestForgeBatch } from "./forge-manifest-batch";
 import { expandForgeArguments, forgeJson } from "./forge-execution";
 
@@ -18,8 +18,13 @@ export function manifestForgeProvider(
   transport: ForgeTransport,
   defaultBranch?: string,
 ): ForgeProvider {
-  const execute = async (command: ForgeCommand, bindings: ForgeBindings) =>
-    forgeJson(await transport(expandForgeArguments(command.argv, bindings)), command);
+  const execute = async (command: ForgeCommand, bindings: ForgeBindings, optionalDisplay = false) =>
+    forgeJson(
+      await (optionalDisplay
+        ? transport(expandForgeArguments(command.argv, bindings), true)
+        : transport(expandForgeArguments(command.argv, bindings))),
+      command,
+    );
   const base = { host: remote.host, project: remote.project };
   const identity = (row: unknown) => forgeIdentity(manifest, row, remote);
   async function checks(plan: ForgePlan, candidate: PullRequest) {
@@ -133,7 +138,29 @@ export function manifestForgeProvider(
               forgeValue(row, manifest.mapping.mergeCommit))
         )
           return undefined;
-        return { ...candidate, requiredChecks };
+        let display = {};
+        if (manifest.operations.display) {
+          try {
+            const row = await execute(
+              manifest.operations.display,
+              { ...base, number: candidate.number },
+              true,
+            );
+            const enriched = identity(row);
+            if (
+              enriched?.sameRepository &&
+              enriched.number === candidate.number &&
+              enriched.branch === branch &&
+              enriched.state === candidate.state &&
+              forgeValue(row, manifest.mapping.headSha) === candidate.headSha
+            ) {
+              display = forgeDisplay(manifest, row, remote);
+            }
+          } catch {
+            // Optional display failures cannot change verified status.
+          }
+        }
+        return { ...candidate, requiredChecks, checksMeaning: manifest.checks.meaning, ...display };
       } catch {
         return undefined;
       }

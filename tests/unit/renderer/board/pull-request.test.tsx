@@ -35,3 +35,19 @@ it("labels every check state and opens only on explicit click", async () => {
   }
   await Promise.resolve();
 });
+
+it("shows inert title in the tooltip and disables unavailable URLs", () => {
+  const open = vi.fn(async () => {});
+  const view = render(
+    <PullRequestMark
+      pr={{ number: 1, title: "<img src=x onerror=alert(1)>", state: "OPEN", checks: null }}
+      open={open}
+    />,
+  );
+  const button = view.getByRole("button");
+  expect(button.title).toContain("<img src=x onerror=alert(1)>");
+  expect(view.container.querySelector("img")).toBeNull();
+  expect(button.hasAttribute("disabled")).toBe(true);
+  fireEvent.click(button);
+  expect(open).not.toHaveBeenCalled();
+});

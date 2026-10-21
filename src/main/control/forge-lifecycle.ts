@@ -147,8 +147,19 @@ export class ForgeLifecycle {
           controller.abort();
         }, this.timeoutMs);
 
-        const transport: ForgeTransport = async (argv) => {
+        const transport: ForgeTransport = async (argv, optionalDisplay = false) => {
           if (execution.failure) throw execution.failure;
+          const displayController = new AbortController();
+          const cancelDisplay = () => {
+            displayController.abort();
+          };
+          let displayTimeout: ReturnType<typeof setTimeout> | undefined;
+          if (optionalDisplay) {
+            // Display has its own bounded deadline; losing it cannot erase status.
+            clearTimeout(timeout);
+            controller.signal.addEventListener("abort", cancelDisplay, { once: true });
+            displayTimeout = setTimeout(cancelDisplay, this.timeoutMs);
+          }
           try {
             await revalidate();
             const response = await executeForge(
@@ -160,15 +171,19 @@ export class ForgeLifecycle {
                 PATH: this.options.path,
                 ...plugin.manifest.environment,
               },
-              controller.signal,
+              optionalDisplay ? displayController.signal : controller.signal,
             );
             if (authFailure(response.code === 0 ? "" : response.stdout, response.stderr))
               throw new ForgeExecutionError("unauthenticated");
             return response;
           } catch (error) {
+            if (optionalDisplay) throw error;
             execution.failure =
               error instanceof ForgeExecutionError ? error : new ForgeExecutionError("unavailable");
             throw execution.failure;
+          } finally {
+            if (displayTimeout) clearTimeout(displayTimeout);
+            controller.signal.removeEventListener("abort", cancelDisplay);
           }
         };
         const authKey = JSON.stringify([plugin.digest, remote.host, resolved.identity]);

@@ -7,7 +7,7 @@ import type {
   ForgePath,
 } from "../../shared/forge-plugin";
 import { forgeHost } from "../../shared/forge-manifest";
-import { forgeBranch } from "./forge";
+import { forgeBranch, forgeTitle, forgeWebUrl } from "./forge";
 
 export function forgeValue(value: unknown, path: ForgePath): unknown {
   let result = value;
@@ -160,4 +160,24 @@ export function reduceForgeChecks(
   if (conclusions.includes("failure")) return "failure";
   if (conclusions.includes("pending")) return "pending";
   return conclusions.includes("success") ? "success" : "none";
+}
+
+/** Optional fields never participate in identity or check reduction. */
+export function forgeDisplay(manifest: ForgeManifest, row: unknown, remote: ForgeRemote) {
+  const title = manifest.mapping.title
+    ? forgeTitle(forgeValue(row, manifest.mapping.title))
+    : undefined;
+  const url = manifest.mapping.webUrl
+    ? forgeWebUrl(forgeValue(row, manifest.mapping.webUrl), remote.host)
+    : undefined;
+  const projects = manifest.mapping.projects;
+  const sourceName =
+    projects.mode === "owner-and-cross-flag"
+      ? forgeTitle(forgeValue(row, projects.sourceName))
+      : undefined;
+  return {
+    ...(title === undefined ? {} : { title }),
+    ...(url === undefined ? {} : { url }),
+    ...(sourceName === undefined ? {} : { sourceName }),
+  };
 }

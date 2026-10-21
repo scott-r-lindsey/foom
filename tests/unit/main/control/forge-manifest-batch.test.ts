@@ -7,7 +7,7 @@ import { manifestForgeProvider } from "../../../../src/main/control/forge-interp
 import { githubManifest } from "../../../../src/main/control/forge-manifests";
 import { forgeValue } from "../../../../src/main/control/forge-mapping";
 import { parseForgeManifest } from "../../../../src/shared/forge-manifest";
-import type { ForgeMatch } from "../../../../src/main/control/forge.d";
+import type { ForgeMatch, ForgeObservation } from "../../../../src/main/control/forge.d";
 import github from "../../../../src/shared/bundled-forges/github.json";
 
 const remote = { host: "github.com", project: "o/r" };
@@ -51,11 +51,28 @@ function provider(value: unknown, manifest = githubManifest, selectedRemote = re
   const forge = manifestForgeProvider(manifest, selectedRemote, run, "main");
   return { run, forge };
 }
+function legacyObservation(pr: ForgeObservation) {
+  return {
+    number: pr.number,
+    headSha: pr.headSha,
+    state: pr.state,
+    requiredChecks: pr.requiredChecks,
+    board: {
+      number: pr.board.number,
+      title: pr.board.title,
+      url: pr.board.url,
+      state: pr.board.state,
+      checks: pr.board.checks,
+    },
+  };
+}
 async function parity(value: unknown, selected: readonly ForgeMatch[] = matches) {
   const { forge } = provider(value);
   const old = await batchForge("o/r", selected, () => Promise.resolve(JSON.stringify(value)));
   const actual = await forge.batch?.(selected);
-  expect(actual).toEqual(old);
+  const legacy =
+    actual && new Map([...actual].map(([branch, pr]) => [branch, legacyObservation(pr)]));
+  expect(legacy).toEqual(old);
   return actual;
 }
 
@@ -72,7 +89,10 @@ it("composes the same dynamic query/argv for mixed discovery and bound PRs", asy
   };
   const { forge, run } = provider(value);
   const old = vi.fn((_argv: readonly string[]) => Promise.resolve(JSON.stringify(value)));
-  expect(await forge.batch?.(selected)).toEqual(await batchForge("o/r", selected, old));
+  const actual = await forge.batch?.(selected);
+  expect(
+    actual && new Map([...actual].map(([branch, pr]) => [branch, legacyObservation(pr)])),
+  ).toEqual(await batchForge("o/r", selected, old));
   // The lifecycle stage adds mergeCommit; the legacy batch has no merge field.
   const canonical = (argv: readonly string[]) =>
     argv.map((arg) =>
@@ -152,13 +172,7 @@ it("keeps fork, repository, branch, number and default-branch refusals in Foom c
     await parity(response(row(patch)));
   await parity(response(null));
   await parity(response(row(), true, "feature"));
-  for (const pr of [
-    null,
-    row({ state: "CLOSED" }),
-    row({ number: -1 }),
-    row({ title: "\u0000" }),
-    row({ title: "x".repeat(1025) }),
-  ])
+  for (const pr of [null, row({ state: "CLOSED" }), row({ number: -1 })])
     await parity(response(pr, false), [{ branch: "feature" }]);
   for (const nodes of [[], [row(), row()], [row(), row(), row()]])
     await parity(
@@ -244,8 +258,6 @@ it("fails closed on missing rows, partial GraphQL data and invalid or oversized 
     {},
     { errors: [] },
     response(row(), true, null),
-    response(row({ title: null })),
-    response(row({ title: "\u0000" })),
     response(row({ state: "UNKNOWN" })),
     { data: { repository: { defaultBranchRef: { name: "main" }, p0: {} } } },
   ])
@@ -280,6 +292,7 @@ it("rejects unsafe display URLs and preserves unknown counts for unmappable chec
   for (const webUrl of [
     "https://github.com:443/o/r/pull/12",
     "https://other.example/o/r",
+    { parts: Array.from({ length: 6 }, () => "x".repeat(4096)) },
     "http://github.com/o/r",
     "https://u@github.com/o/r",
     { parts: ["https://github.com/", "x".repeat(4096)] },
@@ -294,12 +307,19 @@ it("rejects unsafe display URLs and preserves unknown counts for unmappable chec
         },
       }),
     );
-    expect(await provider(response(), manifest).forge.batch?.(matches)).toBeUndefined();
+    expect(
+      (await provider(response(), manifest).forge.batch?.(matches))?.get("feature"),
+    ).toMatchObject({ requiredChecks: "success", board: { checks: { passed: 1 } } });
+    expect(
+      (await provider(response(), manifest).forge.batch?.(matches))?.get("feature")?.board.url,
+    ).toBeUndefined();
   }
   const noTitle = parseForgeManifest(
     JSON.stringify({ ...github, id: "no-title", mapping: { ...github.mapping, title: undefined } }),
   );
-  expect(await provider(response(), noTitle).forge.batch?.(matches)).toBeUndefined();
+  expect(
+    (await provider(response(), noTitle).forge.batch?.(matches))?.get("feature")?.board.title,
+  ).toBeUndefined();
   const result = github.operations.batchStatus.checks;
   const none = parseForgeManifest(
     JSON.stringify({
@@ -376,4 +396,18 @@ it("reports zero capacity for absent plans and invalid query bindings", () => {
 it("sizes empty and small requests without executing a command", () => {
   expect(manifestBatchSize(githubManifest, remote, [])).toBe(0);
   expect(manifestBatchSize(githubManifest, remote, matches)).toBe(1);
+});
+
+it("sanitizes optional batch titles without losing status or other candidates", async () => {
+  for (const [title, expected] of [
+    ["<b>Hi</b>\u0000\u202e\ue000\u2028", "<b>Hi</b>"],
+    ["x".repeat(1025), undefined],
+    [null, undefined],
+  ]) {
+    const actual = (await provider(response(row({ title }))).forge.batch?.(matches))?.get(
+      "feature",
+    );
+    expect(actual).toMatchObject({ requiredChecks: "success", checksMeaning: "required" });
+    expect(actual?.board.title).toBe(expected);
+  }
 });

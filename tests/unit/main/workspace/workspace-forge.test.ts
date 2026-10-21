@@ -21,6 +21,7 @@ test("board forge inventory validates checkout identity and opens only main-owne
     checks: null,
   };
   const read = vi.spyOn(forge, "readBoard").mockReturnValue(board);
+  const readUrl = vi.spyOn(forge, "readUrl").mockReturnValue(board.url);
   const open = vi.fn(() => Promise.resolve());
   deps.openExternal = open;
   const workspace = new Workspace(deps);
@@ -46,6 +47,7 @@ test("board forge inventory validates checkout identity and opens only main-owne
     );
     expect(open).toHaveBeenCalledExactlyOnceWith(board.url);
     read.mockReturnValue(undefined);
+    readUrl.mockReturnValue(undefined);
     await expect(
       workspace.sidebarCommand(
         { kind: "open-pull-request", repository: repo.path, worktree: tree.path },

@@ -13,8 +13,8 @@ Large requests run as bounded prefixes on successive serial ticks. A failed chun
 hides stale observations and backs off the whole repository, including its
 unsampled suffix. Manifest minima
 only slow regular polls; #516's discovery follow-up, adaptive cadence and budgets
-are preserved. Optional display enrichment/checks-meaning metadata remain under
-#521. See [the forge contract](../forge-plugins.md).
+are preserved. Optional display enrichment cannot change verified status; checks-meaning metadata
+is published and persisted with observations. See [the forge contract](../forge-plugins.md).
 
 Main tracks branches in every registered repository’s board checkouts and in orchestrator-owned worktrees, choosing a read-only
 forge provider from the repository's origin URL (or its sole remote). GitHub on
@@ -36,7 +36,7 @@ use of the same branch cannot claim a newly created worktree. The same open look
 is reusable by #337. Once
 bound, its number is used to follow OPEN, CLOSED and MERGED states. Output is
 untrusted: main exposes only a positive PR number, a 40-character head SHA, the
-fixed state and `requiredChecks` (`pending`, `success`, `failure`, `none`, `unknown`). Cancelled
+fixed state, optional validated `checksMeaning` and `requiredChecks` (`pending`, `success`, `failure`, `none`, `unknown`). Cancelled
 checks count as failure; skipped checks count as success; an empty required-check
 set is `none`. gh's exit-1, empty-stdout diagnostic for no required checks (or
 no checks at all) is recognized only for the required-check command with a validated

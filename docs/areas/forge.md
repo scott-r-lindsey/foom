@@ -31,8 +31,8 @@ One bounded prefix runs per serial tick, leaving the remainder due. Manifest min
 only slow regular polling, preserving #516's adaptive cadence, one-second discovery
 binding follow-up and fleet budgets. Version-1 observation persistence records
 provider provenance; legacy numbers are reused only for bundled GitHub after
-remote/ownership validation. Optional display enrichment and checks-meaning
-metadata remain under #521.
+remote/ownership validation. Optional display enrichment is isolated from status; validated checks-meaning
+metadata is published and persisted with observations.
 
 Foom also reads PR and check status for board checkouts and orchestrator-owned child
 worktrees through a main-owned forge provider. GitHub is supported through your
