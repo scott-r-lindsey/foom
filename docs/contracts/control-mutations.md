@@ -14,12 +14,12 @@ retry with the same key returns that record.
 | Tool | Parameters | Result |
 |---|---|---|
 | `create_worktree` | Exactly one of `branch` or `pullRequest` | New local branch, or continue an open same-repository PR; `resultId` is the opaque worktree ID |
-| `launch` | `worktreeId`, `agent` (`claude`, `codex`, `agy`), optional `prompt` ≤16 KiB | `resultId` is the child session ID |
+| `launch` | `worktreeId`, `agent` (`claude`, `codex`, `agy`), optional `prompt` ≤16 KiB and `review` | `resultId` is the child session ID |
 | `prompt` | `id`, `text` ≤16 KiB | Text plus submit, honoring bracketed paste, without review |
 | `send_keys` | `id`, `keys` (1–64) | Validated logical keys, without review |
 | `stop` | `id` | Existing graceful stop; an already exited child succeeds; a stop error is `indeterminate` |
 | `remove_worktree` | `worktreeId` | Returns an operation (`pending_confirmation` when review is needed); poll `operation_status` |
-| `handoff` (child only) | `status`, `summary`, optional `links`, `idempotencyKey` | `{ seq, status, timestamp }` |
+| `handoff` (child only) | `status`, `summary`, optional `links` and `review`, `idempotencyKey` | `{ seq, status, timestamp }` |
 | `read_handoff` (orchestrator only) | `id`, optional `seq` | Bounded report with `untrusted: true` |
 | `tail` | `id`, optional `lines` 1–40 | `{ id, revision, timestamp, lines, truncated, untrusted: true, notice }` |
 | `wait_for` | `ids` (1–configured child limit), optional `after` map of ID → revision, `timeoutMs` 0–30000 | `{ sessions, changed, timedOut }` |
@@ -90,3 +90,14 @@ the orchestrator can no longer stop, tail or wait for it. Takeover does not stop
 child, and the child keeps counting toward the limit until it exits. See [hierarchy and searchable log](control-visibility.md#sidebar-nesting-and-action-log-157).
 
 As of #217, Foom never emits `checking` in control API or MCP session states. Any existing client schema may retain it as deprecated for backward compatibility. Quiet debounce and classification do not introduce an intermediate state.
+
+### Opt-in child review loop (#690)
+
+`launch` additionally accepts optional `review: {rounds?, agent?, postFindings?}`.
+Defaults on opt-in are 3 rounds, Claude and no posting; rounds must be 1–5.
+Unknown fields fail closed. Main requires installed reviewer and resume-capable
+providers. Only orchestrator-created, unused worktrees remain eligible for the
+initial launch. The loop's internal review/resume steps reuse that checkout with
+ordinary owned-child grants and the existing per-parent capacity reservations.
+No child receives launch/prompt authority and parentless agents cannot opt in.
+See [the loop rules](../areas/orchestration.md#optional-child-buildreview-loop-690).

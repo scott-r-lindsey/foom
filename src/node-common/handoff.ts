@@ -1,7 +1,10 @@
 import type { Handoff } from "../shared/handoff";
+import { reviewVerdict } from "./review";
 import { ControlError, exact, identifier, object } from "./control-validation";
 
-export function handoffContent(value: unknown): Pick<Handoff, "status" | "summary" | "links"> {
+export function handoffContent(
+  value: unknown,
+): Pick<Handoff, "status" | "summary" | "links" | "review"> {
   const data = object(value);
   const { status, summary } = data;
   const links = data["links"] ?? [];
@@ -25,12 +28,14 @@ export function handoffContent(value: unknown): Pick<Handoff, "status" | "summar
     }
     return link;
   });
-  return { status, summary, links: urls };
+  const review = data["review"] === undefined ? undefined : reviewVerdict(data["review"]);
+  if (review && status !== "done") throw new ControlError("invalid_request");
+  return { status, summary, links: urls, ...(review ? { review } : {}) };
 }
 
 export function handoffRequest(value: unknown) {
   const data = object(value);
-  exact(data, ["status", "summary", "links", "idempotencyKey"]);
+  exact(data, ["status", "summary", "links", "review", "idempotencyKey"]);
   return { ...handoffContent(data), idempotencyKey: identifier(data["idempotencyKey"]) };
 }
 
@@ -48,7 +53,7 @@ export function storedHandoffs(value: unknown): Handoff[] {
   let previous = 0;
   return value.map((entry: unknown) => {
     const data = object(entry);
-    exact(data, ["seq", "status", "summary", "links", "timestamp"]);
+    exact(data, ["seq", "status", "summary", "links", "review", "timestamp"]);
     const { seq, timestamp } = data;
     if (
       typeof seq !== "number" ||

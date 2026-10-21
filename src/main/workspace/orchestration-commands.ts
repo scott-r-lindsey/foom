@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import type { AgentEvidence } from "../../shared/agent-detection";
-import type { AgentId } from "../../shared/agents";
+import type { AgentId, AgentLaunch } from "../../shared/agents";
 import type { ConfirmWorkspace } from "../../shared/confirmation";
 import type { ShellState } from "../../shared/desktop";
 import type { VerdictAction } from "../../shared/evaluator";
@@ -36,10 +36,15 @@ export async function auditHuman(
 export function orchestrationView(
   this: OrchestrationCommandsContext,
   id: string,
-): Pick<WorkspaceTerminal, "orchestration" | "handoff"> {
+): Pick<WorkspaceTerminal, "orchestration" | "handoff" | "review"> {
   const view = this.orchestration.view(id);
   const handoff = this.orchestration.handoffs.latest(id);
-  return { ...(view ? { orchestration: view } : {}), ...(handoff ? { handoff } : {}) };
+  const review = this.orchestration.reviews.view(id) ?? this.launched.get(id)?.review;
+  return {
+    ...(review ? { review } : {}),
+    ...(view ? { orchestration: view } : {}),
+    ...(handoff ? { handoff } : {}),
+  };
 }
 
 export async function makeOrchestrator(
@@ -164,6 +169,11 @@ export async function launchChild(
   created: string,
   agent: AgentId,
   prompt: string | undefined,
+  step?: {
+    resume?: { id: string; conversationId: string };
+    loop?: AgentLaunch["loop"];
+    validate(): void;
+  },
 ): Promise<string> {
   return this.withRepository(repository, async () => {
     const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
@@ -176,21 +186,50 @@ export async function launchChild(
       // Only the checkout the orchestrator created, never a replacement at the same path.
       const identity = await this.deps.worktrees.launchIdentity(repository, worktree);
       if (identity !== created) throw new Error("Worktree has changed");
-      const launched = await this.launchAgent(
-        {
-          agent,
-          repository,
-          worktree,
-          cols: 80,
-          rows: 24,
-        },
-        false,
-        false,
-        identity,
-        undefined,
-        { control: { parentId }, prompt: prompt ?? "Await your assigned task." },
-      );
-      return launched.id;
+      step?.validate();
+      const replacement = step?.resume;
+      if (replacement) {
+        const old = this.launched.get(replacement.id);
+        if (!old || this.executionOwner.view(old.id).exitCode === undefined)
+          throw new Error("Author is still running");
+        await this.queues.get(old.id);
+        if (!old.dormant) await this.deps.terminals.kill(old.id);
+        old.dormant = true;
+        this.executionOwner.reset(old.id);
+        this.deps.verdicts.forget(old.id);
+      }
+      try {
+        const launched = await this.launchAgent(
+          {
+            agent,
+            repository,
+            worktree,
+            cols: 80,
+            rows: 24,
+          },
+          false,
+          false,
+          identity,
+          replacement,
+          {
+            control: { parentId },
+            prompt: prompt ?? "Await your assigned task.",
+            ...(step
+              ? {
+                  beforeSpawn: () => {
+                    step.validate();
+                  },
+                  ...(step.loop ? { loop: step.loop } : {}),
+                }
+              : {}),
+          },
+        );
+        return launched.id;
+      } catch (error) {
+        if (replacement) this.executionOwner.markExited(replacement.id, -1);
+        this.refresh();
+        throw error;
+      }
     } finally {
       this.busyWorktrees.delete(key);
     }

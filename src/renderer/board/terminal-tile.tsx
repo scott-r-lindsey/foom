@@ -1,3 +1,4 @@
+import { reviewLabel } from "../../shared/review-state";
 import { ActionError, captureErrorFocus, useBackgroundErrors } from "./error-presentation";
 import { errorMessage } from "../../shared/application-errors";
 import { OrchestrationMark } from "./orchestration-mark";
@@ -276,6 +277,11 @@ export function Tile({
               <TileLight row={row} lightRef={lightRef} />
               {row.state === "waiting" && (
                 <span className="session-waiting">{light(row).label}</span>
+              )}
+              {row.review && (
+                <span className="session-orchestration" data-review-phase={row.review.phase}>
+                  {reviewLabel(row.review)}
+                </span>
               )}
               <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
               {row.orchestration?.role === "child" && (

@@ -1,3 +1,4 @@
+import { reviewSnapshot } from "./review-snapshot";
 import * as orchestrationCommands from "./orchestration-commands";
 
 import { ControlError } from "../../node-common/control-validation";
@@ -182,8 +183,14 @@ export class WorkspaceContext {
               this.refresh();
             }
           }),
-        launch: (parentId, repository, worktree, identity, agent, prompt) =>
-          this.launchChild(parentId, repository, worktree, identity, agent, prompt),
+        launch: (parentId, repository, worktree, identity, agent, prompt, step) =>
+          this.launchChild(parentId, repository, worktree, identity, agent, prompt, step),
+        reviewSnapshot: (repository, worktree, identity) =>
+          reviewSnapshot(this.deps.worktrees, repository, worktree, identity),
+        reviewAvailable: async (agent) =>
+          (await this.scanAgents(false)).agents.some(
+            (item) => item.id === agent && item.path !== null && item.resume === true,
+          ),
         bypassDefaults: (agent) => hasBypassArgument(agent, this.defaultArguments[agent] ?? []),
         restoreWorktree: async (repository, path) => {
           if (path === repository) return undefined;
@@ -244,7 +251,9 @@ export class WorkspaceContext {
         this.orchestration.childEvents.publish();
       },
       waitingOn: (id) => this.orchestration.waitingOn(id),
-      unreadAt: (id) => this.orchestration.unreadChildren.overdue(id),
+      reviewReason: (id) => this.orchestration.reviewAttentionReason(id),
+      unreadAt: (id) =>
+        this.orchestration.reviewUnreadAt(id) ?? this.orchestration.unreadChildren.overdue(id),
       onExecution: (event) => {
         if (event.to === "working") {
           const token = this.configTokens.get(event.terminalId);
@@ -455,6 +464,7 @@ export class WorkspaceContext {
   }
 
   focusOrchestrator(id: string): void {
+    this.orchestration.readReviews(id);
     this.orchestration.syncUnreadChildEvents();
     if (this.orchestration.unreadChildren.read(id)) this.refresh();
   }

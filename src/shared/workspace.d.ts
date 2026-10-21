@@ -1,3 +1,4 @@
+import type { ReviewState } from "./review";
 import type { Handoff } from "./handoff";
 import type { PreviewOpenAction } from "./previews";
 import type { ActionLogQuery, ActionLogPage } from "./action-log";
@@ -77,6 +78,7 @@ export interface WorkspaceTerminal {
   orchestration?: OrchestrationView;
   /** Latest child-authored report, displayed only as inert text and validated links. */
   handoff?: Handoff;
+  review?: ReviewState;
   roleNotRestored?: boolean;
 }
 

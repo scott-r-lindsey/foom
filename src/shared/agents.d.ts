@@ -1,3 +1,4 @@
+import type { ReviewOptions, ReviewState } from "./review";
 import type { V2Binding } from "./v2-hooks";
 import type { AgentSetupStatus } from "./agent-setup";
 import type { EnvironmentVariable } from "./environment";
@@ -48,6 +49,10 @@ export interface AgentHooks {
   dispose(): void;
 }
 export interface AgentLaunch {
+  /** Main-only automation authority recheck immediately before the PTY spawn. */
+  readonly beforeSpawn?: () => void;
+  /** Main-only metadata written before the first session save, never process authority. */
+  readonly loop?: ReviewOptions | ReviewState;
   readonly terminalId?: string;
   readonly conversationId?: string;
   /** Main-only strict identity for pasted or explicitly assigned conversations. */

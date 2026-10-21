@@ -1,3 +1,6 @@
+import { reviewOptions } from "../../node-common/review";
+import { AUTHOR_REVIEW_BRIEF } from "./review-loops";
+import { agentProvider } from "../agents/providers/registry";
 import { createHash } from "node:crypto";
 import { knownAgentId } from "../agents/providers/registry";
 import { ControlError, exact, identifier } from "../../node-common/control-validation";
@@ -109,18 +112,28 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     params: Record<string, unknown>,
     operations: Operations,
   ): Promise<Operation> {
-    exact(params, ["idempotencyKey", "worktreeId", "agent", "prompt"]);
+    exact(params, ["idempotencyKey", "worktreeId", "agent", "prompt", "review"]);
     const key = identifier(params["idempotencyKey"]);
     const worktreeId = identifier(params["worktreeId"]);
     const agent = params["agent"];
     if (!knownAgentId(agent)) throw new ControlError("invalid_request");
+    const review = params["review"] === undefined ? undefined : reviewOptions(params["review"]);
+    if (
+      review &&
+      (!knownAgentId(review.agent) ||
+        !agentProvider(review.agent).model.launch.resume ||
+        !agentProvider(agent).model.launch.resume)
+    )
+      throw new ControlError("invalid_request");
+    if (review && this.host.reviewAvailable && !(await this.host.reviewAvailable(review.agent)))
+      throw new ControlError("invalid_request");
     const prompt =
       params["prompt"] === undefined ? undefined : text(params["prompt"], PROMPT_BYTES);
     const operation = await operations.begin(
       actor,
       "launch",
       key,
-      JSON.stringify([worktreeId, agent, prompt ?? null]),
+      JSON.stringify([worktreeId, agent, prompt ?? null, review ?? null]),
       worktreeId,
     );
     if (!operation.created) return publicOperation(operation);
@@ -147,7 +160,17 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         tree.path,
         tree.identity,
         agent,
-        prompt,
+        review ? `${AUTHOR_REVIEW_BRIEF}\n\n${prompt ?? "Await your assigned task."}` : prompt,
+        ...(review
+          ? [
+              {
+                loop: review,
+                validate: () => {
+                  this.parent(actor);
+                },
+              },
+            ]
+          : []),
       );
       tree.state = "used";
       parent.children.set(id, {
@@ -156,6 +179,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         takenOver: false,
         tailAt: 0,
       });
+      if (review) this.startReview(id, review, actor, operations);
       this.changed();
       this.host.place?.(id, actor.terminalId);
       return await this.finish(actor, parent, operations, operation, label, "succeeded", id);
@@ -165,6 +189,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       return await this.finish(actor, parent, operations, operation, label, "failed");
     } finally {
       parent.starting--;
+      this.childEvents.publish();
       if (!this.launching()) this.early.clear();
     }
   }
@@ -209,6 +234,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     const child = this.own(parent, id);
     const label = child ? this.label(id) : metadataName(id);
     if (!child) return this.refuse(actor, parent, operations, operation, label, "not_found");
+    this.reviews.stop(id);
     this.note(parent, this.entry(operation, label));
     if (child.exited)
       return this.finish(actor, parent, operations, operation, label, "succeeded", id);

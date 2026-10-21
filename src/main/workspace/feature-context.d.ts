@@ -121,6 +121,7 @@ export type SidebarCommandsContext = Pick<
 
 export type OrchestrationCommandsContext = Pick<
   WorkspaceContext,
+  | "queues"
   | "launched"
   | "initializeControl"
   | "control"

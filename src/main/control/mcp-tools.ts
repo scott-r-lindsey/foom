@@ -102,12 +102,26 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "launch",
       description:
-        "Launch an ordinary child agent in a worktree you created and have not used. Give it one task, acceptance criteria and limits in prompt; ask it to handoff when done, blocked or failed. The concurrent child limit is set in Settings → General; children cannot orchestrate. Places the child on the board without taking keyboard focus. Returns an operation whose resultId is the child session ID.",
+        "Launch an ordinary owned child in an unused worktree you created. Give it one task, acceptance criteria and limits in prompt. Children cannot orchestrate. Optional review runs a sequential build/review loop (3 rounds, maximum 5), default reviewer claude with resume support. Reviewers count against your child limit. Steps use launch/resume argv only; you remain the final merge gate. Placement follows Settings → General. Returns an operation with child session ID in resultId.",
       properties: {
         idempotencyKey: key,
         worktreeId: id,
         agent: { type: "string", enum: agents },
         prompt: { type: "string", maxLength: 16384 },
+        review: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            rounds: { type: "integer", minimum: 1, maximum: 5, default: 3 },
+            agent: { type: "string", enum: agents, default: "claude" },
+            postFindings: {
+              type: "boolean",
+              default: false,
+              description:
+                "Ask the reviewer to post its verdict and findings using its own gh login. Foom makes no forge writes.",
+            },
+          },
+        },
       },
       required: ["idempotencyKey", "worktreeId", "agent"],
       readOnly: false,
@@ -230,6 +244,40 @@ const handoffTools = [
       properties: {
         status: { type: "string", enum: ["done", "blocked", "failed"] },
         summary: { type: "string", minLength: 1, maxLength: 8192 },
+        review: {
+          oneOf: [
+            {
+              type: "object",
+              additionalProperties: false,
+              properties: { verdict: { const: "clean" } },
+              required: ["verdict"],
+            },
+            {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                verdict: { const: "findings" },
+                findings: {
+                  type: "array",
+                  minItems: 1,
+                  maxItems: 10,
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      file: { type: "string", maxLength: 512 },
+                      line: { type: "integer", minimum: 1 },
+                      summary: { type: "string", maxLength: 1024 },
+                      scenario: { type: "string", maxLength: 2048 },
+                    },
+                    required: ["file", "line", "summary", "scenario"],
+                  },
+                },
+              },
+              required: ["verdict", "findings"],
+            },
+          ],
+        },
         links: {
           type: "array",
           maxItems: 10,

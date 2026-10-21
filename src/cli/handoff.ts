@@ -9,7 +9,7 @@ export async function handoffCommand(
   args: readonly string[],
   input: ConsoleIo["input"],
 ): Promise<Command> {
-  if (args[0] !== "handoff" || args.length > 27) throw new ControlError("invalid_request");
+  if (args[0] !== "handoff" || args.length > 29) throw new ControlError("invalid_request");
   const flags = new Map<string, string>();
   const links: string[] = [];
   for (let i = 1; i < args.length; i += 2) {
@@ -18,7 +18,7 @@ export async function handoffCommand(
     if (
       value === undefined ||
       !flag ||
-      !["--status", "--summary-file", "--link", "--idempotency-key"].includes(flag)
+      !["--status", "--summary-file", "--link", "--review", "--idempotency-key"].includes(flag)
     )
       throw new ControlError("invalid_request");
     if (flag === "--link") links.push(value);
@@ -27,7 +27,16 @@ export async function handoffCommand(
       flags.set(flag, value);
     }
   }
+  let review: unknown;
+  if (flags.has("--review")) {
+    try {
+      review = JSON.parse(flags.get("--review") ?? "");
+    } catch {
+      throw new ControlError("invalid_request");
+    }
+  }
   const params = {
+    ...(review === undefined ? {} : { review }),
     status: flags.get("--status"),
     links,
     idempotencyKey: flags.get("--idempotency-key"),

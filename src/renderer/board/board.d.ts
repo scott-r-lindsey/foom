@@ -1,3 +1,4 @@
+import type { ReviewState } from "../../shared/review";
 import type { Handoff } from "../../shared/handoff";
 import type { McpConnection } from "../../shared/workspace";
 import type { ExecutionSnapshot } from "../../shared/execution";
@@ -37,6 +38,7 @@ export interface BoardRow {
   mcpConnection?: McpConnection | undefined;
   orchestration?: OrchestrationView | undefined;
   handoff?: Handoff | undefined;
+  review?: ReviewState | undefined;
   roleNotRestored?: boolean | undefined;
   kind: "sample" | "shell" | "agent";
   repository: string;

@@ -1,3 +1,4 @@
+import { reviewLabel } from "../../shared/review-state";
 import { BackgroundErrorMark } from "./error-presentation";
 import type { SidebarRowEvents } from "./sidebar-interactions.d";
 import type { CSSProperties, ReactNode } from "react";
@@ -102,7 +103,7 @@ export function SidebarSessionRow({
         data-state={lightState(row)}
         data-exited={Boolean(row.exited)}
         tabIndex={docked || row.id === selected ? 0 : -1}
-        aria-label={`${compact ? `${row.home ? "~" : row.config ? "Foom config" : row.repository} · ` : ""}${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.orchestration?.role === "child" ? ` · Child of ${parentName ?? row.orchestration.parentId}` : ""}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.handoff ? ` · Handoff ${row.handoff.status}` : ""}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
+        aria-label={`${compact ? `${row.home ? "~" : row.config ? "Foom config" : row.repository} · ` : ""}${row.branch} · ${name}${name === identity ? "" : ` · ${identity}`} · ${light(row).label}${row.orchestration?.role === "child" ? ` · Child of ${parentName ?? row.orchestration.parentId}` : ""}${row.foregroundProgram ? ` · ${row.foregroundProgram}` : ""}${row.kind === "shell" ? "" : ` · ${row.reason}`}${row.handoff ? ` · Handoff ${row.handoff.status}` : ""}${row.review ? ` · ${reviewLabel(row.review)}` : ""}${row.bypass ? " · Bypass" : ""}${row.worktreeRemoved ? " · Worktree removed" : ""}`}
         ref={(element) => {
           register(row.id, element);
         }}
@@ -141,6 +142,11 @@ export function SidebarSessionRow({
                 : row.exited
                   ? "Exited orchestrator"
                   : "Revoked orchestrator"}
+            </span>
+          )}
+          {row.review && (
+            <span className="session-orchestration" data-review-phase={row.review.phase}>
+              {reviewLabel(row.review)}
             </span>
           )}
           <span className="session-top">

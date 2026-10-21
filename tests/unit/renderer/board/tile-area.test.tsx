@@ -1426,3 +1426,30 @@ test("probe chrome names its driver and keeps prompt feedback off the probe", as
   });
   expect(label?.textContent).toBe("Probe · Renamed fixture driver");
 });
+
+test("review state appears on the sidebar and tile without remounting its terminal", () => {
+  const { screen, click, data, views } = setup();
+  click(0);
+  const mounts = views.map((view) => view.mount.mock.calls.length);
+  const tile = screen.getByRole("region", { name: /Tile 1:/ });
+  for (const phase of ["building", "reviewing", "fixing", "clean", "escalated"] as const) {
+    act(() => {
+      data.update("permission", {
+        review: {
+          authorId: "permission",
+          rounds: 3,
+          round: 2,
+          agent: "claude",
+          postFindings: false,
+          phase,
+          ...(phase === "escalated" ? { reason: "round cap" as const } : {}),
+        },
+      });
+    });
+    expect(tile.querySelector(`[data-review-phase="${phase}"]`)).not.toBeNull();
+    expect(
+      screen.container.querySelector(`.session-entry [data-review-phase="${phase}"]`),
+    ).not.toBeNull();
+  }
+  expect(views.map((view) => view.mount.mock.calls.length)).toEqual(mounts);
+});

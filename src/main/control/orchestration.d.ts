@@ -1,5 +1,6 @@
+import type { ReviewSnapshot } from "./review-loops.d";
 import type { ForgeTracking } from "./forge-tracking";
-import type { AgentId } from "../../shared/agents";
+import type { AgentId, AgentLaunch } from "../../shared/agents";
 import type { DialogContent } from "../../shared/confirmation";
 import type { OrchestrationEntry, WorkspaceTerminal } from "../../shared/workspace";
 import type { ChildInput } from "../../shared/child-input";
@@ -33,7 +34,14 @@ export interface OrchestrationHost {
     identity: string,
     agent: AgentId,
     prompt: string | undefined,
+    step?: {
+      resume?: { id: string; conversationId: string };
+      loop?: AgentLaunch["loop"];
+      validate(): void;
+    },
   ): Promise<string>;
+  reviewSnapshot?(repository: string, worktree: string, identity: string): Promise<ReviewSnapshot>;
+  reviewAvailable?(agent: AgentId): Promise<boolean>;
   /** Only an existing Foom-managed linked checkout in this repository is eligible. */
   restoreWorktree(
     repository: string,

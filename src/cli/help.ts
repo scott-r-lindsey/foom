@@ -18,7 +18,7 @@ const commandHelp = [
   {
     prefix: "Children only: ",
     commands: [
-      "handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL]... --idempotency-key KEY",
+      "handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL]... [--review JSON_VERDICT] --idempotency-key KEY",
     ],
     suffix: "",
   },
@@ -27,7 +27,7 @@ const commandHelp = [
     commands: [
       "read-handoff ID [--seq N]",
       "create-worktree BRANCH|--pull-request N --idempotency-key KEY",
-      "launch WORKTREE_ID --agent claude|codex|agy [--prompt TEXT] --idempotency-key KEY",
+      "launch WORKTREE_ID --agent claude|codex|agy [--prompt TEXT] [--review-rounds 1-5] [--review-agent PROVIDER] [--review-post-findings true|false] --idempotency-key KEY",
       "prompt ID --text TEXT --idempotency-key KEY",
       "send-keys ID --keys y,enter --idempotency-key KEY",
       "stop ID --idempotency-key KEY",

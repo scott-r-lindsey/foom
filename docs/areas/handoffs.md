@@ -20,3 +20,18 @@ Link actions carry a terminal ID, report sequence and index through validated bo
 IPC; main reads the stored HTTPS URL, asks through the trusted dialog and rechecks
 the record before opening it. No terminal input capability is involved. See
 [handoff contracts and lifecycle](../contracts/control-handoffs.md#child-handoffs-514).
+
+## Review verdicts (#690)
+
+A `done` handoff may include `review: {verdict: "clean"}` or
+`review: {verdict: "findings", findings: [{file, line, summary, scenario}]}`.
+Main validates exact fields, 1–10 findings and an 8192-byte aggregate verdict.
+File paths are relative with no parent traversal; lines are positive safe integers.
+File, summary and failure scenario are limited to 512, 1024 and 2048 UTF-8 bytes,
+respectively, with no control or formatting characters. Verdicts are untrusted
+child-authored data. They confer no authority and persist with the handoff.
+The console accepts the same object through `handoff --review JSON_VERDICT`.
+
+The #690 loop is scoped to orchestrator-owned children. The human New-worktree
+flow has no review option; parentless agents
+continue to receive `no_parent` for handoffs.

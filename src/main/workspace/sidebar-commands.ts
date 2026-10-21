@@ -159,7 +159,8 @@ export async function sidebarCommand(
     const exited = this.executionOwner.view(command.id).exitCode !== undefined;
     if (command.kind === "stop") {
       if (!(await confirm({ kind: "stop" }))) return;
-      await this.deps.terminals.stop(command.id);
+      this.orchestration.stopReviews(command.id);
+      if (!exited) await this.deps.terminals.stop(command.id);
       return;
     }
     if (!exited) throw new Error("Session is still running");

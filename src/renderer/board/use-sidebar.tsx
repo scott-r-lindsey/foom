@@ -444,6 +444,15 @@ export function useSidebar(props: SidebarProps) {
       row.exited ?? (row.kind === "sample" && (row.state === "done" || row.state === "failed"));
     const items: (RowAction | null)[] = exited
       ? [
+          ...(row.review && !["clean", "escalated"].includes(row.review.phase)
+            ? [
+                {
+                  label: "Stop review loop",
+                  glyph: "stop" as const,
+                  run: () => command({ kind: "stop", id: row.id }),
+                },
+              ]
+            : []),
           ...(row.kind === "shell"
             ? row.worktreeRemoved
               ? []

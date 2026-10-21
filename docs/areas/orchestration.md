@@ -49,3 +49,45 @@ sidebar placement without replacing the current tile, and preserves focus. Resto
 sends no placement event. `close` accepts only owned, exited children and delegates
 to the normal sidebar close path; the final screen is discarded while the checkout,
 branch and review state remain.
+
+## Optional child build/review loop (#690)
+
+Only an orchestrator's `launch` accepts `review: {rounds?, agent?, postFindings?}`.
+It is off by default; opting in defaults to three rounds (maximum five), Claude,
+and no posting. Both author and reviewer providers must support resume. Main runs
+fixed sequential steps; agents receive no orchestration authority. The human
+New-worktree flow has no review option. This is the final scope decision recorded
+on #690; there is no parentless-agent handoff capability.
+
+The author keeps one PR, waits for green required checks, hands off `done`, then
+exits. Main verifies an open PR and a successful (or empty) required-check set
+whose head matches local HEAD before launching a reviewer in the same checkout.
+Missing, pending, red, unknown or mismatched-head checks escalate without review.
+The reviewer gets a fixed brief: reproduced correctness/security bugs only, no
+style nits or edits, then a structured verdict handoff and process exit. Main
+compares HEAD, index entries and tracked/untracked non-ignored file bytes and modes
+against the pre-review snapshot. Snapshot reads are bounded (10,000 files, 32 MiB
+of file content); unavailable snapshots fail closed. Symlinks are hashed without
+following their targets; redirected ancestors, special files and submodule
+working directories refuse a snapshot.
+
+Findings pass as quoted JSON data in a fixed author-resume template. Main resumes
+the captured author conversation under the same terminal ID, using the provider's
+existing resume argv and fresh credentials. It never writes prompts or Enter to
+a running PTY. The next review waits for another author handoff and exit. A clean
+verdict, round cap, blocked/failed report, missing report/verdict, unavailable
+conversation, non-green checks, changed worktree or launch failure ends the loop
+and raises a readable event for the parent. Clean still requires the orchestrator's
+final verification and merge decision. Foom never merges or makes forge writes.
+
+Reviewers are ordinary owned children and consume the existing per-parent budget.
+Each transition reserves a slot before asynchronous work, waits when full, and
+rechecks ownership and cancellation immediately before spawning. Handoffs remain
+readable under each participant's ID. State is exposed in session metadata and
+shown in words in sidebar rows and tile titles. Stopping, takeover, parent exit
+or revocation ends automation. Saved loop participants remain dormant and show
+`Escalated: restored`; restoration never silently launches a loop step.
+
+`postFindings: true` explicitly asks the reviewer to post its verdict and findings
+as a PR review comment using its own `gh` login. It is off by default. Main stores
+no forge tokens and performs no write; posting is the agent's own CLI action.
