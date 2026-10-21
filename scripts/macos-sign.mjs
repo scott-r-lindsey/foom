@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtemp, open, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
@@ -50,6 +50,41 @@ export function redactOutput(output, args, env = process.env, command = "") {
 // Capture failures ourselves: execFile errors include argv. Include only the
 // tool's redacted output, never argv or the spawn error's command description.
 export function run(command, args, options = {}) {
+  // Submit must expose the ID before upload completes; other tools stay synchronous.
+  if (options.onOutput) {
+    const { onOutput, timeout, ...spawnOptions } = options;
+    return new Promise((resolve, reject) => {
+      const child = spawn(command, args, { ...spawnOptions, stdio: ["ignore", "pipe", "pipe"] });
+      let output = "";
+      let failed = false;
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGKILL");
+      }, timeout);
+      for (const stream of [child.stdout, child.stderr]) {
+        stream.setEncoding("utf8");
+        stream.on("data", (chunk) => {
+          output = (output + chunk).slice(-1024 * 1024);
+          onOutput(chunk, stream === child.stdout ? "stdout" : "stderr");
+        });
+      }
+      child.on("error", () => {
+        failed = true;
+      });
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        if (failed || code !== 0 || timedOut) {
+          const detail = redactOutput(output, args, process.env, command).trim();
+          reject(
+            new Error(
+              `${command} ${timedOut ? "timed out" : "failed"}${detail ? `:\n${detail}` : ""}`,
+            ),
+          );
+        } else resolve(output);
+      });
+    });
+  }
   const result = spawnSync(command, args, { encoding: "utf8", ...options });
   if (result.error || result.status !== 0) {
     const output = redactOutput(
@@ -225,6 +260,7 @@ export const notarizationDeadlineMs = 120 * 60 * 1000;
 export function notarizationSession({
   deadlineMs = notarizationDeadlineMs,
   pollMs = 30_000,
+  queryTimeoutMs = 60_000,
   now = Date.now,
   wait = sleep,
   log = console.log,
@@ -254,11 +290,11 @@ export function notarizationSession({
         );
       return deadline - now();
     };
-    const query = (operation, target) => {
-      const output = execute(
+    const query = async (operation, target) => {
+      const output = await execute(
         "xcrun",
         ["notarytool", operation, target, ...auth, "--output-format", "json"],
-        { timeout: Math.min(60_000, remaining()), killSignal: "SIGKILL" },
+        { timeout: Math.min(queryTimeoutMs, remaining()), killSignal: "SIGKILL" },
       );
       try {
         return JSON.parse(output);
@@ -268,16 +304,42 @@ export function notarizationSession({
     };
     try {
       report(`Submitting ${basename(artifact)} for notarization`);
-      const submission = query("submit", artifact);
-      assert.ok(
-        typeof submission?.id === "string" && submission.id.length > 0,
-        "Missing notarization submission ID",
+      let record;
+      const remember = (id) => {
+        if (record || typeof id !== "string" || !id.length) return;
+        record = { artifact, id, status: "Submitted" };
+        submissions.push(record);
+        report(`${basename(artifact)} submission ID: ${record.id}`);
+      };
+      const pending = { stdout: "", stderr: "" };
+      const onOutput = (chunk, stream = "stdout") => {
+        pending[stream] += chunk;
+        const lines = pending[stream].split(/\r?\n/);
+        pending[stream] = lines.pop().slice(-4096);
+        for (const line of lines) {
+          const match = /^\s*id:\s*(\S+)\s*$/i.exec(line);
+          if (match) remember(match[1]);
+        }
+      };
+      const output = await execute(
+        "xcrun",
+        ["notarytool", "submit", artifact, ...auth, "--no-progress"],
+        { timeout: remaining(), killSignal: "SIGKILL", onOutput },
       );
-      const record = { artifact, id: submission.id, status: "Submitted" };
-      submissions.push(record);
-      report(`${basename(artifact)} submission ID: ${record.id}`);
+      // Also accept complete output from injected executors and unterminated lines.
+      pending.stdout = "";
+      pending.stderr = "";
+      onOutput(`${output}\n`);
+      if (!record) {
+        try {
+          remember(JSON.parse(output)?.id);
+        } catch {
+          /* Validated below. */
+        }
+      }
+      assert.ok(record, "Missing notarization submission ID");
       while (true) {
-        const info = query("info", record.id);
+        const info = await query("info", record.id);
         assert.ok(
           ["In Progress", "Accepted", "Invalid", "Rejected"].includes(info?.status),
           "Unknown notarization status",
@@ -288,7 +350,7 @@ export function notarizationSession({
         report(`${basename(artifact)} ${record.id}: ${record.status}`);
         if (["Invalid", "Rejected"].includes(record.status)) {
           try {
-            const detail = query("log", record.id);
+            const detail = await query("log", record.id);
             report(
               `Notarization issues for ${record.id}: ${JSON.stringify({
                 statusSummary: detail?.statusSummary,

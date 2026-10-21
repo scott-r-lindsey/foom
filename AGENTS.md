@@ -112,8 +112,9 @@ Notarization submits the ZIP and DMG without waiting in the submit command, then
 polls with timestamped submission IDs and statuses every 30 seconds. Invalid or
 Rejected submissions print Apple's issues log summary. Both submissions share a
 120-minute deadline defined in `scripts/macos-sign.mjs`; failures include all
-returned IDs and their last statuses. Each notarytool command is bounded to one
-minute (or the remaining budget). The signing job allows 150 minutes for this
+returned IDs and their last statuses. Submit uses the remaining overall budget
+and logs its ID as soon as the tool prints it. Info and log queries are bounded to
+one minute (or the remaining budget). The signing job allows 150 minutes for this
 budget plus setup, signing, image creation, verification and credential cleanup.
 Main-push signing remains necessary: the tag workflow consumes signed artifacts
 from a successful same-commit main-push run and never rebuilds or signs on tags.

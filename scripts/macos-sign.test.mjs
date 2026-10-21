@@ -193,8 +193,7 @@ test("fixture codesign and xcrun exercise notarize API-key arguments, stapling a
     credentials.appleApiKeyId,
     "--issuer",
     credentials.appleApiIssuer,
-    "--output-format",
-    "json",
+    "--no-progress",
   ]);
   assert.ok(
     calls.some(([name, args]) => name === "xcrun" && args[0] === "stapler" && args[1] === "staple"),
@@ -734,4 +733,104 @@ test("stalled notarytool commands are killed with bounded, redacted diagnostics"
     /deadline exceeded.*submissions: slow.zip: stalled-id \(Submitted\)/,
   );
   for (const value of Object.values(credentials)) assert.ok(!messages.join("\n").includes(value));
+});
+
+test("streamed submit outlives the query cap, logs its ID before completion, and obeys the overall budget", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { root } = fixture(t);
+  const bin = join(root, "upload-bin");
+  mkdirSync(bin);
+  const marker = join(root, "id-logged");
+  const tool = join(bin, "xcrun");
+  writeFileSync(
+    tool,
+    `#!${process.execPath}
+const fs = require('node:fs');
+setTimeout(() => process.exit(2), 5000).unref();
+if (process.argv[3] === 'submit') {
+  process.stdout.write('  id: slow-');
+  setTimeout(() => process.stdout.write('upload-id\\n'), 20);
+  const interval = setInterval(() => {
+    if (!fs.existsSync(${JSON.stringify(marker)})) return;
+    clearInterval(interval);
+    if (process.env.HANG_UPLOAD === 'yes') setInterval(() => {}, 1000);
+    else setTimeout(() => { console.log('Successfully uploaded file'); }, 1200);
+  }, 10);
+} else console.log(JSON.stringify({status:'Accepted'}));
+`,
+  );
+  chmodSync(tool, 0o755);
+  const credentials = {
+    appleApiKey: "fixture-key",
+    appleApiKeyId: "fixture-key-id",
+    appleApiIssuer: "fixture-issuer",
+  };
+  for (const hang of [false, true]) {
+    rmSync(marker, { force: true });
+    const messages = [];
+    const timeouts = [];
+    const start = Date.now();
+    const session = notarizationSession({
+      deadlineMs: hang ? 4000 : 120000,
+      queryTimeoutMs: 1000,
+      log(message) {
+        messages.push(message);
+        if (message.includes("submission ID: slow-upload-id")) writeFileSync(marker, "logged");
+      },
+    });
+    const execute = (command, args, options) => {
+      timeouts.push([args[1], options.timeout]);
+      return run(command, args, {
+        ...options,
+        env: { PATH: bin, HANG_UPLOAD: hang ? "yes" : "no" },
+      });
+    };
+    const action = session("Foom.zip", credentials, execute);
+    if (hang) {
+      await assert.rejects(
+        action,
+        /Notarization deadline exceeded; xcrun timed out[\s\S]*slow-upload-id \(Submitted\)/,
+      );
+      assert.deepEqual(
+        timeouts.map(([operation]) => operation),
+        ["submit"],
+      );
+    } else {
+      await action;
+      assert.ok(Date.now() - start > 1000);
+      assert.ok(timeouts[0][1] > 60_000);
+      assert.deepEqual(timeouts[1], ["info", 1000]);
+      assert.match(messages.at(-1), /slow-upload-id: Accepted/);
+    }
+    assert.equal(messages.filter((line) => line.includes("submission ID:")).length, 1);
+  }
+});
+
+test("streamed command failures redact credentials and handle missing executables", async () => {
+  await assert.rejects(
+    run(
+      process.execPath,
+      [
+        "-e",
+        "process.stderr.write(process.argv.at(-1)); process.exit(1)",
+        "--",
+        "--key",
+        "fixture-stream-secret",
+      ],
+      { timeout: 10000, onOutput() {} },
+    ),
+    (error) => {
+      assert.match(error.message, /failed:\n\[REDACTED\]/);
+      assert.ok(!inspect(error).includes("fixture-stream-secret"));
+      return true;
+    },
+  );
+  await assert.rejects(
+    run("missing-streamed-command", [], {
+      timeout: 10000,
+      onOutput() {},
+    }),
+    { message: "missing-streamed-command failed" },
+  );
 });
