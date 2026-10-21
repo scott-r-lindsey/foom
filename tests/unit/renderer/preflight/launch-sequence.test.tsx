@@ -33,67 +33,168 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("counts down, lifts off, then finishes once", () => {
+test("counts down and holds the moving steady state for ten seconds before fading", () => {
   const done = vi.fn();
+  let frame: FrameRequestCallback | undefined;
+  vi.mocked(requestAnimationFrame).mockImplementation((callback) => {
+    frame = callback;
+    return 1;
+  });
   render(<LaunchSequence onDone={done} />);
   const dialog = screen.getByRole("dialog", { name: "Launch" });
   expect(document.activeElement).toBe(dialog);
   expect(screen.getByRole("status").textContent).toBe("3T-minus");
+  expect(screen.getByText("Click or press Esc to continue")).toBeTruthy();
   expect(draw.arc).toHaveBeenCalled();
   act(() => {
     vi.advanceTimersByTime(700);
   });
   expect(screen.getByRole("status").textContent).toBe("2T-minus");
   act(() => {
-    vi.advanceTimersByTime(1400);
+    vi.advanceTimersByTime(700);
+  });
+  expect(screen.getByRole("status").textContent).toBe("1T-minus");
+  act(() => {
+    vi.advanceTimersByTime(700);
   });
   expect(screen.getByText("Takeoff was faster than expected.")).toBeTruthy();
+  act(() => {
+    vi.advanceTimersByTime(1800 + 9999);
+  });
+  const draws = draw.clearRect.mock.calls.length;
+  frame?.(0);
+  expect(draw.clearRect.mock.calls.length).toBeGreaterThan(draws);
+  expect(done).not.toHaveBeenCalled();
+  expect(dialog.dataset["fading"]).toBe("false");
+  act(() => {
+    vi.advanceTimersByTime(1);
+  });
+  expect(dialog.dataset["fading"]).toBe("true");
+  act(() => {
+    vi.advanceTimersByTime(199);
+  });
   expect(done).not.toHaveBeenCalled();
   act(() => {
-    vi.advanceTimersByTime(2200);
+    vi.advanceTimersByTime(1);
+    // A simultaneous user dismissal races the timer before React removes the dialog.
+    fireEvent.click(dialog);
+    fireEvent.keyDown(dialog, { key: "Escape" });
   });
   expect(done).toHaveBeenCalledOnce();
-  fireEvent.click(dialog);
-  expect(done).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(cancelAnimationFrame).toHaveBeenCalledWith(1);
+  expect(vi.getTimerCount()).toBe(0);
 });
 
-test("the drawing loop is disposed on unmount", () => {
-  let frame: FrameRequestCallback | undefined;
-  vi.mocked(requestAnimationFrame).mockImplementation((callback) => {
-    frame = callback;
-    return 1;
-  });
-  const { unmount } = render(<LaunchSequence onDone={vi.fn()} />);
+test.each([0, 1000, 3900, 8900, 13900])(
+  "click and skip keys dismiss once at %i ms and dispose without parent unmount",
+  (elapsed) => {
+    for (const key of [null, "Escape", "Enter", " "]) {
+      const done = vi.fn();
+      render(<LaunchSequence onDone={done} />);
+      act(() => {
+        vi.advanceTimersByTime(elapsed);
+      });
+      const dialog = screen.getByRole("dialog");
+      fireEvent.keyDown(dialog, { key: "a" });
+      expect(done).not.toHaveBeenCalled();
+      if (key === null) fireEvent.click(document.querySelector("canvas") ?? dialog);
+      else fireEvent.keyDown(dialog, { key });
+      fireEvent.click(dialog);
+      fireEvent.keyDown(dialog, { key: "Escape" });
+      expect(done).toHaveBeenCalledOnce();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(cancelAnimationFrame).toHaveBeenCalledWith(1);
+      expect(vi.getTimerCount()).toBe(0);
+      const draws = draw.clearRect.mock.calls.length;
+      fireEvent.focus(window);
+      act(() => {
+        vi.advanceTimersByTime(20_000);
+      });
+      expect(draw.clearRect.mock.calls.length).toBe(draws);
+      expect(done).toHaveBeenCalledOnce();
+      cleanup();
+    }
+  },
+);
+
+test("unmount cancels sequence timers and the drawing loop without finishing", () => {
+  const done = vi.fn();
+  const { unmount } = render(<LaunchSequence onDone={done} />);
   act(() => {
-    vi.advanceTimersByTime(2100);
+    vi.advanceTimersByTime(0);
   });
-  // Enough frames at full speed to carry every star off the bottom.
-  for (let index = 0; index < 400; index++) frame?.(0);
-  expect(draw.clearRect).toHaveBeenCalled();
   unmount();
-  expect(cancelAnimationFrame).toHaveBeenCalled();
+  expect(cancelAnimationFrame).toHaveBeenCalledWith(1);
+  expect(vi.getTimerCount()).toBe(0);
+  act(() => {
+    vi.advanceTimersByTime(20_000);
+  });
+  expect(done).not.toHaveBeenCalled();
 });
 
-test("reduced motion shows a still frame, and any skip key ends it", () => {
+test("reduced motion holds the still final frame for ten seconds", () => {
   reduced = true;
   const done = vi.fn();
   render(<LaunchSequence onDone={done} />);
   expect(screen.queryByText("T-minus")).toBeNull();
   expect(document.querySelector("canvas")).toBeTruthy();
+  expect(requestAnimationFrame).not.toHaveBeenCalled();
   act(() => {
-    vi.advanceTimersByTime(1200);
+    vi.advanceTimersByTime(9999);
+  });
+  expect(done).not.toHaveBeenCalled();
+  act(() => {
+    vi.advanceTimersByTime(1);
   });
   expect(done).toHaveBeenCalledOnce();
-  cleanup();
-  for (const key of ["Escape", "Enter", " "]) {
-    const skip = vi.fn();
-    render(<LaunchSequence onDone={skip} />);
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: "a" });
-    expect(skip).not.toHaveBeenCalled();
-    fireEvent.keyDown(screen.getByRole("dialog"), { key });
-    expect(skip).toHaveBeenCalledOnce();
-    cleanup();
-  }
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test.each([null, "a", "Escape", "Enter", " "])(
+  "reduced motion dismisses on click or any key (%s) during the hold",
+  (key) => {
+    reduced = true;
+    const done = vi.fn();
+    render(<LaunchSequence onDone={done} />);
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    const dialog = screen.getByRole("dialog");
+    if (key === null) fireEvent.click(dialog);
+    else fireEvent.keyDown(dialog, { key });
+    expect(done).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(done).toHaveBeenCalledOnce();
+  },
+);
+
+test("can start at steady state and calls the latest finish callback without restarting", () => {
+  const oldDone = vi.fn();
+  const done = vi.fn();
+  const { rerender } = render(<LaunchSequence startAt="steady" onDone={oldDone} />);
+  expect(screen.queryByText("T-minus")).toBeNull();
+  act(() => {
+    vi.advanceTimersByTime(5000);
+  });
+  rerender(<LaunchSequence startAt="steady" onDone={done} />);
+  act(() => {
+    vi.advanceTimersByTime(4999);
+  });
+  expect(done).not.toHaveBeenCalled();
+  expect(screen.getByRole("dialog").dataset["fading"]).toBe("false");
+  act(() => {
+    vi.advanceTimersByTime(1);
+  });
+  expect(screen.getByRole("dialog").dataset["fading"]).toBe("true");
+  act(() => {
+    vi.advanceTimersByTime(200);
+  });
+  expect(done).toHaveBeenCalledOnce();
+  expect(oldDone).not.toHaveBeenCalled();
 });
 
 test("no canvas context or matchMedia is tolerated", () => {
