@@ -6,9 +6,10 @@ import {
   prefersReducedMotion,
 } from "../../../../src/renderer/preflight/launch-sequence";
 
+import { canvasContext } from "../flight-canvas-fixture";
 let reduced = false;
 let context: CanvasRenderingContext2D | null;
-const draw = { clearRect: vi.fn(), fillRect: vi.fn(), fillStyle: "", globalAlpha: 1 };
+const { draw, ctx } = canvasContext();
 beforeEach(() => {
   vi.useFakeTimers();
   reduced = false;
@@ -16,7 +17,7 @@ beforeEach(() => {
     configurable: true,
     value: () => ({ matches: reduced }),
   });
-  context = draw as unknown as CanvasRenderingContext2D;
+  context = ctx;
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => context);
   // Draw exactly once per test; the loop re-queues itself.
   vi.stubGlobal(
@@ -38,7 +39,7 @@ test("counts down, lifts off, then finishes once", () => {
   const dialog = screen.getByRole("dialog", { name: "Launch" });
   expect(document.activeElement).toBe(dialog);
   expect(screen.getByRole("status").textContent).toBe("3T-minus");
-  expect(draw.fillRect).toHaveBeenCalled();
+  expect(draw.arc).toHaveBeenCalled();
   act(() => {
     vi.advanceTimersByTime(700);
   });
@@ -56,7 +57,7 @@ test("counts down, lifts off, then finishes once", () => {
   expect(done).toHaveBeenCalledOnce();
 });
 
-test("the starfield falls through and wraps", () => {
+test("the drawing loop is disposed on unmount", () => {
   let frame: FrameRequestCallback | undefined;
   vi.mocked(requestAnimationFrame).mockImplementation((callback) => {
     frame = callback;
@@ -78,7 +79,7 @@ test("reduced motion shows a still frame, and any skip key ends it", () => {
   const done = vi.fn();
   render(<LaunchSequence onDone={done} />);
   expect(screen.queryByText("T-minus")).toBeNull();
-  expect(document.querySelector("canvas")).toBeNull();
+  expect(document.querySelector("canvas")).toBeTruthy();
   act(() => {
     vi.advanceTimersByTime(1200);
   });

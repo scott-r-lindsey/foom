@@ -129,10 +129,15 @@ export async function buildWindow(
     nativeTheme.removeListener("updated", updateBackground);
   });
 
-  const openWindow = () => {
-    void wiring.createWindow().catch((error: unknown) => {
-      console.error("Unable to open window:", error);
-    });
+  const openWindow = (about = false) => {
+    void wiring
+      .createWindow()
+      .then((created) => {
+        if (about) created.webContents.send("board:command", "about");
+      })
+      .catch((error: unknown) => {
+        console.error("Unable to open window:", error);
+      });
   };
   const appMenu = attachAppMenu(
     window,

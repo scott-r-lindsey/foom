@@ -206,6 +206,7 @@ test("foreign-window navigation focuses an existing tile without replacing eithe
     ...f.source,
     appMenu: {
       platform: "darwin" as const,
+      version: vi.fn(),
       setView: vi.fn(() => Promise.resolve()),
       commands: vi.fn(() => Promise.resolve([])),
       shortcuts: vi.fn(() => Promise.resolve([])),

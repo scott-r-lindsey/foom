@@ -39,3 +39,13 @@ A constant rate intentionally produces a horizontal line above the baseline.
 - **Linting:** `eslint-plugin-react-hooks` and `@eslint-react/eslint-plugin` on top of the existing type-aware rules. `eslint-plugin-react` and `eslint-plugin-jsx-a11y` don't support ESLint 10 and are not used.
 - **Coverage and lint globs include `.tsx`.** A component outside them would silently skip the per-file thresholds or the renderer import restrictions.
 - The CSP doesn't change. React needs no `eval`.
+
+## Flight art and About (#670)
+
+`ui/flight-art.ts` shares typed canvas drawing between the first-run flight path
+and About's full-bleed illustration. `flight-canvas.tsx` owns animation and disposal,
+pauses on window blur, and draws a single reduced-motion frame. About is a modal
+portal with view state only; its note reuses `.row-menu` surface, notch and opening
+animation, returns focus to its button on dismissal, and closes before About on
+Escape. The native About panel is gone. `app-menu:version` returns main's app and
+Electron versions through a bounded, runtime-validated preload capability.

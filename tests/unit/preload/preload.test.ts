@@ -875,6 +875,28 @@ test("every main board action crosses the preload, including a newly registered 
   expect(callback).toHaveBeenCalledTimes(emitted.length);
 });
 
+test("validates bounded application and Electron versions", async () => {
+  const api = await bridge();
+  for (const value of [
+    null,
+    {},
+    { app: 1 },
+    { app: "1" },
+    { app: "1", electron: 4 },
+    { app: "<script>", electron: "44" },
+    { app: "1", electron: "x" },
+    { app: "1".repeat(129), electron: "44" },
+  ]) {
+    mock.invoke.mockResolvedValue(value);
+    await expect(api.appMenu.version()).rejects.toThrow("Invalid application version");
+  }
+  mock.invoke.mockResolvedValue({ app: "0.1.0-nightly.20261021+abc1234", electron: "44.4.5" });
+  await expect(api.appMenu.version()).resolves.toEqual({
+    app: "0.1.0-nightly.20261021+abc1234",
+    electron: "44.4.5",
+  });
+});
+
 test("readiness only publishes fixed categories and bounded DNS hostnames", async () => {
   const api = await bridge();
   const valid = {

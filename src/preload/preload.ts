@@ -341,6 +341,21 @@ const desktop: DesktopApi = {
   },
   isDevelopment: process.argv.includes("--foom-development"),
   appMenu: {
+    version: async () => {
+      const value: unknown = await ipcRenderer.invoke("app-menu:version");
+      if (
+        typeof value !== "object" ||
+        value === null ||
+        !("app" in value) ||
+        typeof value.app !== "string" ||
+        !/^[0-9][0-9A-Za-z.+-]{0,127}$/u.test(value.app) ||
+        !("electron" in value) ||
+        typeof value.electron !== "string" ||
+        !/^[0-9][0-9A-Za-z.+-]{0,127}$/u.test(value.electron)
+      )
+        throw new Error("Invalid application version");
+      return { app: value.app, electron: value.electron };
+    },
     platform: process.platform,
     setView: (state) => ipcRenderer.invoke("app-menu:view", state),
     commands: () => ipcRenderer.invoke("app-menu:list"),

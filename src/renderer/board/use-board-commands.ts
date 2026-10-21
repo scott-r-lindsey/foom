@@ -29,7 +29,7 @@ export function useBoardCommands({
   useEffect(
     () =>
       source.subscribeCommands?.((command) => {
-        if (inactive) return;
+        if (inactive || command === "about") return;
         if (command.startsWith("via-")) {
           void runSidebarCommand({ kind: "config-launch", run: command.slice(4) });
         } else if (command === "toggle-sidebar") {

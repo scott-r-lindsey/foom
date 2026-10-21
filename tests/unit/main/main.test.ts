@@ -2459,3 +2459,19 @@ test("a failed settings notification does not prevent broadcasting to another wi
     expect(mock.window.webContents.send).toHaveBeenCalledWith("setup:changed", expect.anything());
   });
 });
+
+test("windowless About opens a board and dispatches the in-board dialog command", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+  await start();
+  mock.readyEvents.get("closed")?.();
+  const { Menu } = await import("electron");
+  const template = vi.mocked(Menu).buildFromTemplate.mock.lastCall?.[0];
+  const about = template
+    ?.flatMap((section) => (Array.isArray(section.submenu) ? section.submenu : []))
+    .find((item) => item.id === "about");
+  if (!about?.click) throw new Error("Missing windowless About");
+  about.click({} as Electron.MenuItem, undefined, {});
+  await vi.waitFor(() => {
+    expect(mock.window.webContents.send).toHaveBeenCalledWith("board:command", "about");
+  });
+});

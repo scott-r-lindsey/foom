@@ -77,3 +77,10 @@ See [area rules](behavior/attention.md#shell-status).
 ## Error presentation
 
 See [Error presentation](behavior/errors.md#error-presentation).
+
+## Launch art and About
+
+First-run launch draws the brand’s exponential flight path with a rocket past the
+Eclipse black hole and stars flying toward the viewer. About Foom is an in-board
+art dialog on every platform, replacing the native About panel. See
+[launch behavior](behavior/setup.md) and [About behavior](behavior/menus.md).

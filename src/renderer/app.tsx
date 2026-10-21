@@ -1,3 +1,4 @@
+import { AboutDialog } from "./about/about-dialog";
 import { ActionError, ErrorPresentation } from "./board/error-presentation";
 import { attachPreviewComposition } from "./board/preview-composition";
 import { attachInterfaceTheme } from "./ui/interface-theme";
@@ -21,11 +22,19 @@ export function App() {
   );
 }
 function AppContents() {
+  const [about, setAbout] = useState(false);
   const [actionError, setActionError] = useState(false);
   const [source] = useState(() =>
     typeof FOOM_SAMPLE_BOARD !== "undefined" && FOOM_SAMPLE_BOARD
       ? createSampleSource()
       : createAppSource(),
+  );
+  useEffect(
+    () =>
+      source.subscribeCommands?.((command) => {
+        if (command === "about") setAbout(true);
+      }),
+    [source],
   );
   useEffect(() => {
     const api = window.desktop.previews;
@@ -65,6 +74,14 @@ function AppContents() {
   };
   return (
     <>
+      {about && (
+        <AboutDialog
+          menu={window.desktop.appMenu}
+          close={() => {
+            setAbout(false);
+          }}
+        />
+      )}
       {actionError && (
         <ActionError
           message="Unable to open Settings."

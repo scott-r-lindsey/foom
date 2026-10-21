@@ -39,3 +39,16 @@ opened Welcome normally. Scanning still found a fixture repository from filesyst
 metadata, but applying it returned `spawn git ENOENT`; T-0 only reported “None
 added.” Repository selection now reports that Git is unavailable, and T-0 names
 the Git problem directly.
+
+### Flight-path launch
+
+After All stations go, the deep-space overlay counts 3, 2, 1 at 0, 700 and
+1400 ms. Ignition at 1 adds white/violet flame and vapor. Liftoff at 2100 ms
+rolls the rocket along the flat-then-vertical brand curve, leaving a glowing
+trail past the black Eclipse hole and exiting through the top. Stars radiate
+from the hole toward the viewer, accelerating over about 1.5 seconds and
+remaining fast beneath the top-left wordmark and “Takeoff was faster than
+expected.” The overlay finishes at 4300 ms. Escape, Enter, Space or a click
+skips it; “Press Esc to skip” remains visible. Reduced motion instead holds
+one final still frame, with trail, rocket near the top, short static streaks
+and title, for 1200 ms. Art uses hole, space-ink, accent and accent-deep tokens.
