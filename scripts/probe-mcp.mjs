@@ -7,6 +7,7 @@ import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import assert from "node:assert/strict";
+import { claudeToolCall } from "./mcp-probe-model.mjs";
 const execute = promisify(execFile);
 async function phase(name) {
   if (process.env.FOOM_PROBE_STATUS)
@@ -122,12 +123,7 @@ const model = createServer(async (req, res) => {
         ? 2
         : 1
       : 0;
-    const name = completed === 0 ? "whoami" : "open_preview";
-    const tool = body.tools?.find(
-      (t) => t.name.startsWith("mcp__foom_") && t.name.endsWith(`__${name}`),
-    );
-    const done = completed >= 2;
-    const argumentsForTool = name === "whoami" ? {} : { path: "probe.html" };
+    const tool = claudeToolCall(body, completed);
     event("message_start", {
       message: {
         id: "msg_probe",
@@ -140,19 +136,19 @@ const model = createServer(async (req, res) => {
         usage: { input_tokens: 1, output_tokens: 0 },
       },
     });
-    if (tool && !done) {
+    if (tool) {
       event("content_block_start", {
         index: 0,
         content_block: {
           type: "tool_use",
-          id: `tool_probe_${completed}`,
+          id: tool.id,
           name: tool.name,
           input: {},
         },
       });
       event("content_block_delta", {
         index: 0,
-        delta: { type: "input_json_delta", partial_json: JSON.stringify(argumentsForTool) },
+        delta: { type: "input_json_delta", partial_json: JSON.stringify(tool.input) },
       });
     } else {
       event("content_block_start", { index: 0, content_block: { type: "text", text: "" } });
@@ -163,7 +159,7 @@ const model = createServer(async (req, res) => {
     }
     event("content_block_stop", { index: 0 });
     event("message_delta", {
-      delta: { stop_reason: tool && !done ? "tool_use" : "end_turn", stop_sequence: null },
+      delta: { stop_reason: tool ? "tool_use" : "end_turn", stop_sequence: null },
       usage: { output_tokens: 1 },
     });
     event("message_stop", {});
