@@ -1,0 +1,195 @@
+{
+  "categoriesMs": {
+    " (program)": 3174.6119999999923,
+    "xterm render/selection": 156.34400000000008,
+    "lights/activity": 5.500999999999999,
+    "xterm parse/buffer": 66.15600000000002,
+    " (idle)": 1768.628000000005,
+    " (garbage collector)": 39.223,
+    "other": 15.071999999999997,
+    "IPC/controller": 5.385,
+    "React": 1.52
+  },
+  "topSelfMs": [
+    [
+      " (program)",
+      3174.6119999999923
+    ],
+    [
+      " (idle)",
+      1768.628000000005
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/browser/renderer/dom/DomRendererRowFactory.ts:61 createRow",
+      44.05699999999999
+    ],
+    [
+      " replaceChildren",
+      43.22899999999998
+    ],
+    [
+      " (garbage collector)",
+      39.223
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/common/InputHandler.ts:512 print",
+      17.567000000000004
+    ],
+    [
+      " clearTimeout",
+      10.247
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/browser/renderer/dom/WidthCache.ts:134 get",
+      9.709
+    ],
+    [
+      " setTimeout",
+      8.655000000000001
+    ],
+    [
+      " closest",
+      8.516
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/common/buffer/BufferLine.ts:181 loadCell",
+      6.967
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/common/buffer/BufferLine.ts:427 copyFrom",
+      6.938999999999998
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/common/parser/EscapeSequenceParser.ts:519 parse",
+      6.620999999999999
+    ],
+    [
+      " createElement",
+      6.519
+    ],
+    [
+      " querySelector",
+      5.564
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/common/input/TextDecoder.ts:13 Sa",
+      5.390000000000001
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/common/input/TextDecoder.ts:67 decode",
+      5.302
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/common/services/BufferService.ts:64 scroll",
+      4.789000000000001
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/browser/renderer/dom/DomRenderer.ts:441 renderRows",
+      4.752
+    ],
+    [
+      " send",
+      4.6530000000000005
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/common/buffer/AttributeData.ts:141 get ext",
+      4.429999999999999
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/browser/renderer/dom/WidthCache.ts:162 _measure",
+      3.5080000000000005
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/common/SortedList.ts:147 forEachByKey",
+      2.951
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/vs/base/common/event.ts:1247 fire",
+      2.6189999999999998
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/vs/base/browser/ui/scrollbar/scrollableElement.ts:581 _scheduleHide",
+      2.44
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/browser/renderer/dom/DomRendererRowFactory.ts:480 _applyMinimumContrast",
+      2.1180000000000003
+    ],
+    [
+      "../../src/renderer/terminal/shell-controller.ts:143 ",
+      2.109
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/browser/RenderDebouncer.ts:78 _runRefreshCallbacks",
+      2.106
+    ],
+    [
+      "../../src/renderer/board/preview-composition.ts:151 ",
+      2.1020000000000003
+    ],
+    [
+      "../../src/renderer/board/light-activity.ts:85 a",
+      1.995
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/browser/Viewport.ts:150 _sync",
+      1.954
+    ],
+    [
+      " ",
+      1.6629999999999998
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/browser/CoreBrowserTerminal.ts:164 ",
+      1.602
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/browser/CoreBrowserTerminal.ts:301 _syncTextArea",
+      1.493
+    ],
+    [
+      "../../src/renderer/board/light-activity.ts:36 step",
+      1.453
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/vs/base/browser/ui/scrollbar/scrollbarState.ts:125 _computeValues",
+      1.275
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/browser/renderer/dom/DomRendererRowFactory.ts:520 _isCellInSelection",
+      1.1620000000000001
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/common/buffer/BufferLine.ts:470 getNoBgTrimmedLength",
+      1.154
+    ],
+    [
+      " frame",
+      1.1280000000000001
+    ],
+    [
+      "../../src/renderer/board/light-activity.ts:66 ",
+      1.121
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/browser/services/RenderService.ts:303 handleSelectionChanged",
+      1.071
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/common/CircularList.ts:123 recycle",
+      1.064
+    ],
+    [
+      " getAttribute",
+      1.062
+    ],
+    [
+      "../../node_modules/react-dom/cjs/react-dom-client.production.js:1784 t",
+      1.061
+    ],
+    [
+      "../../node_modules/@xterm/xterm/src/common/buffer/AttributeData.ts:64 getFgColor",
+      1.061
+    ]
+  ]
+}
