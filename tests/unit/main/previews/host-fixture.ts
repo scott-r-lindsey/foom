@@ -117,18 +117,21 @@ export async function fixture(
     webContents: new FakeContents(),
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
     isFocused: vi.fn(() => false),
+    isDestroyed: vi.fn(() => false),
     getContentBounds: vi.fn(() => ({ width: 800, height: 600 })),
   });
   partition = new FakeSession();
   const registry = new PreviewRegistry(join(root, "registry.json"));
   const validate = vi.fn(async (_worktree: string) => {});
   const changed = vi.fn();
+  const placeMoved = vi.fn();
   const host = new PreviewHost(
     window as unknown as BrowserWindow,
     registry,
     validate,
     changed,
     confirm,
+    placeMoved,
   );
   const open = async () => {
     const id = await host.open(root, "a.html");
@@ -137,7 +140,7 @@ export async function fixture(
     view.webContents.session = partition;
     return { id, view };
   };
-  return { root, window, registry, validate, changed, host, open, confirm };
+  return { root, window, registry, validate, changed, host, open, confirm, placeMoved };
 }
 
 export { fake };

@@ -86,8 +86,14 @@ focus, and measures each preview body to report bounds through the source interf
 then destroys the source contents and releases its watch, protocol and partition
 handlers before transferring the registry record with the same ID and attribution.
 The record remains discoverable throughout cleanup; concurrent close follows the
-transfer. Network resets to Off. The preload retains at most 256 unexpired placement requests until its board
-subscribes, so a slow mount cannot lose the move. The target creates a fresh view on placement,
+transfer. Network resets to Off. Human move placement requests remain valid until answered
+or their window closes (at most 256 pending requests), so a slow mount can still place
+the tile after the five-second deadline. If no visible bounds arrive within five
+seconds, main displays a fresh preview in a default landing area beside the sidebar.
+Until a loaded native view is visibly attached, closing the destination returns the
+record to its live source, recreates its contents and requests tile placement there.
+If the source has already closed or is full, recovery creates a replacement board.
+The ID remains discoverable during that return. The target creates a fresh view on placement,
 never reparenting a native view or hosting the preview in two windows at once.
 Restored registry entries stay detached and allocate no view until bounds arrive.
 Confirmed Foom worktree removal closes that checkout’s previews in all windows before

@@ -37,12 +37,14 @@ export class PreviewPlacement {
       );
     });
   }
-  place(id: string): Promise<Placement> {
+  place(id: string, moved = false): Promise<Placement> {
+    if (this.pending.size >= 256) return Promise.resolve("sidebar");
     if (this.contents.isDestroyed()) return Promise.resolve("sidebar");
     return new Promise((resolve) => {
       const request = randomUUID();
       const timer = setTimeout(() => {
-        finish("sidebar");
+        if (moved) resolve("sidebar");
+        else finish("sidebar");
       }, 5000);
       const finish = (placement: Placement) => {
         clearTimeout(timer);
@@ -50,7 +52,12 @@ export class PreviewPlacement {
         resolve(placement);
       };
       this.pending.set(request, { id, finish });
-      this.contents.send("preview:place", request, id, Date.now() + 5000);
+      this.contents.send(
+        "preview:place",
+        request,
+        id,
+        moved ? Number.MAX_SAFE_INTEGER : Date.now() + 5000,
+      );
     });
   }
   dispose(): void {

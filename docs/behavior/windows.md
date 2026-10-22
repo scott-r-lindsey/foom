@@ -5,7 +5,10 @@ Decided user-visible behavior. Implementation owners and security rules: [file m
 ## Windows and quitting
 
 New Window opens another full sidebar and an independent tile layout. A tile's
-**Move to new window** control moves that session or HTML/Markdown preview into a new window. Moving a preview removes it from the original board and preserves its live reload watch and opener attribution, with network reset to Off. Each terminal
+**Move to new window** control moves that session or HTML/Markdown preview into a new window. Moving a preview removes it from the original board and preserves its live reload watch and opener attribution, with network reset to Off. If placement stalls for five seconds, the preview appears
+in a default landing area. Closing the new window before its preview has appeared
+returns it to the original window; if that window has closed or filled up, Foom
+opens a replacement board for the preview. Each terminal
 belongs to the app and can occupy only one tile across all windows. A neutral ▣
 marker labels sessions shown in another window; selecting one brings that window
 forward and focuses its tile. Sidebar tile numbers always refer to the current
