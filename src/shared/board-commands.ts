@@ -66,6 +66,7 @@ export const BOARD_COMMANDS = [
 export const BOARD_ACTIONS = [
   ...BOARD_COMMANDS.map(({ id }) => id),
   "about",
+  "manual",
   "action-log",
   "toggle-sidebar",
   "new-worktree",

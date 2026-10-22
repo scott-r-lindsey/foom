@@ -23,10 +23,14 @@ export function attachAppMenu(
   /** The current interface size in percent, for the menu's Size row. */
   scale: () => Promise<number> = () => Promise.resolve(100),
   configAgents: () => Promise<readonly AgentId[]> = () => Promise.resolve([]),
+  openManual: () => Promise<void> = () => Promise.resolve(),
+  boardReady: () => void = () => undefined,
 ) {
   const contents = window.webContents;
   const native = (id: string) => {
     switch (id) {
+      case "manual":
+        return openManual();
       case "new-window":
         openWindow();
         break;
@@ -186,6 +190,7 @@ export function attachAppMenu(
       if (command.id === "maximize") command.checked = state.maximized;
     }
     refresh();
+    if (state.available) boardReady();
     return refreshAgents();
   });
   const shortcuts = createShortcuts(commands, process.platform, () => {
@@ -259,7 +264,7 @@ export function attachAppMenu(
 }
 
 /** Native accelerators remain available when macOS has no board to receive keys. */
-export function showWindowlessMenu(openWindow: (about?: boolean) => void): void {
+export function showWindowlessMenu(openWindow: (about?: boolean | "manual") => void): void {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       {
@@ -279,6 +284,18 @@ export function showWindowlessMenu(openWindow: (about?: boolean) => void): void 
             registerAccelerator: true,
             click: () => {
               app.quit();
+            },
+          },
+        ],
+      },
+      {
+        label: "Help",
+        submenu: [
+          {
+            id: "manual",
+            label: "Manual",
+            click: () => {
+              openWindow("manual");
             },
           },
         ],

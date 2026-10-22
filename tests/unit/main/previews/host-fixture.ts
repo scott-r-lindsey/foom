@@ -109,6 +109,7 @@ export async function fixture(
   confirm: (content: DialogContent, signal: AbortSignal) => Promise<boolean> = vi.fn(() =>
     Promise.resolve(false),
   ),
+  bundled = false,
 ) {
   const root = await mkdtemp(join(tmpdir(), "foom-host-"));
   roots.push(root);
@@ -129,6 +130,7 @@ export async function fixture(
     validate,
     changed,
     confirm,
+    bundled ? root : undefined,
   );
   const open = async () => {
     const id = await host.open(root, "a.html");

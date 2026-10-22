@@ -343,12 +343,12 @@ export function attachWorkspace(
             const repository = inventory.repositories.find((entry) =>
               entry.worktrees.some((tree) => tree.path === record.worktree),
             );
-            return repository
+            return repository || record.bundled === "manual"
               ? [
                   {
                     ...(record.openedBy ? { openedBy: record.openedBy } : {}),
                     id: record.id,
-                    repository: repository.path,
+                    repository: repository?.path ?? "",
                     worktree: record.worktree,
                     relativePath: record.relativePath,
                     network: record.network,
