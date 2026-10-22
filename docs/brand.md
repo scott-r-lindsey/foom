@@ -128,7 +128,7 @@ linear light, shadow coverage and a lens map for other art to reuse. `foom-icon.
 holds the approved parameters and writes `foom-<size>.png` (16–1024), `foom.icns`
 and `foom.ico`. Run `node scripts/icon/foom-icon.mjs <directory>` to render a set.
 The build renders into `build/icons/`, caching each set by generator source hash
-under `node_modules/.cache/foom-icons/`. Generated images are not committed.
+under `.cache/foom-icons/`. Generated images are not committed.
 
 For third-party agent identities, see the [agent-mark research](agent-marks.md):
 recommended sidebar fallbacks, official asset sources, permission conditions and

@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { test } from "node:test";
 import { inflateSync } from "node:zlib";
 import { renderBlackHole, SHADOW_RADIUS, toneMap, toStraightAlpha } from "./icon/blackhole.mjs";
 import { encodeIcns, encodeIco, ICNS_TYPES } from "./icon/containers.mjs";
 import {
+  CACHE_ROOT,
   iconFiles,
   iconImages,
   SIZES,
@@ -243,4 +244,12 @@ test("the cache key follows the generator sources", async (t) => {
   assert.equal(await sourceKey(scratch), first);
   await writeFile(join(scratch, "a.mjs"), "2");
   assert.notEqual(await sourceKey(scratch), first);
+});
+
+test("the icon cache stays outside the Electron build fingerprint", async () => {
+  const source = await readFile(join(import.meta.dirname, "validation-fingerprint.mjs"), "utf8");
+  const inputs = source.match(/return fingerprint\(\[([^\]]*)\]/)[1];
+  const top = relative(join(import.meta.dirname, ".."), CACHE_ROOT).split(sep)[0];
+  assert.equal(top, ".cache");
+  assert.doesNotMatch(inputs, /\.cache/);
 });

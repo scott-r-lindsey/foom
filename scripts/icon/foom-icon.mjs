@@ -11,6 +11,8 @@ import { encodeIcns, encodeIco, ICNS_TYPES } from "./containers.mjs";
 import { downsample, encodePng, toBytes } from "./png.mjs";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
+/** Git-ignored and outside every Electron build fingerprint input. */
+export const CACHE_ROOT = join(here, "../../.cache/foom-icons");
 
 /** Camera rolled −25° and 7° above the disk plane. */
 const CAMERA = { roll: -25, inclination: 83 };
@@ -136,10 +138,7 @@ export async function sourceKey(directory = here) {
  */
 export async function writeIcons(
   directory,
-  {
-    cacheRoot = join(here, "../../node_modules/.cache/foom-icons"),
-    generate = () => iconFiles(iconImages()),
-  } = {},
+  { cacheRoot = CACHE_ROOT, generate = () => iconFiles(iconImages()) } = {},
 ) {
   const cache = join(cacheRoot, await sourceKey());
   const rendered = !existsSync(cache);

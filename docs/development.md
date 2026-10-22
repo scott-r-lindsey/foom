@@ -18,9 +18,11 @@ Packaging commands delegate to Forge, whose mandatory `prePackage` hook performs
 
 The build also writes the app icon set to `build/icons/` from the generator in
 `scripts/icon/` (see [brand: mark](brand.md#mark)). The first build for a given
-generator source renders it in a few seconds; later builds copy the set from
-`node_modules/.cache/foom-icons/`. Forge's `prePackage` build runs before the
-packager and makers read their icon paths, so no generated image is committed.
+generator source renders it in a few seconds; later builds copy the set from the
+Git-ignored `.cache/foom-icons/`. It stays outside `node_modules`, which the
+Electron build fingerprint hashes before and after each build. Forge's
+`prePackage` build runs before the packager and makers read their icon paths,
+so no generated image is committed.
 The packager embeds `foom.icns` in the macOS bundle and `foom.ico` in
 `Foom.exe`, and Squirrel uses `foom.ico` for Setup.exe. The deb and rpm install
 `foom-512.png` as `/usr/share/pixmaps/foom.png` for the desktop entry's
