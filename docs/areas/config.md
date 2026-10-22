@@ -68,7 +68,7 @@ Sound catalogs still refresh when Settings → Sound opens.
 
 **Approval.** A change is held instead of applied when, compared with the effective
 settings in force, it turns alerts off, sets the alert volume to 0, turns hooks off,
-or turns an agent off, enables restoreSessions, or changes any agentArguments list. A missing key means the default. Sizes and turning things on apply without approval. Theme changes follow the
+or turns an agent off, enables restoreSessions, or changes any agentArguments list. A missing key means the default. Sizes and turning things on apply without approval. `showNewChildren` is a display preference and applies without approval in either direction: it changes placement only, leaving attention and permissions intact. Theme changes follow the
 attention-distinctness hold described below. Settings → Foom config
 and the config footer dock show the held change in amber. The held change carries an ID,
 the digest of its text, and a decision must name it: if an agent replaced the

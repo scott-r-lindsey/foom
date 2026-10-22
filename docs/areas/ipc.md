@@ -8,6 +8,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 
 | Channel | Direction | Payload |
 |---|---|---|
+| `app-menu:legal` | renderer → main (invoke) / main → renderer | fixed `licenses` or `notices` ID → bundled text (1–1,048,576 UTF-16 code units); trusted board frame, preload validates IDs and text |
 | `app-menu:version` | renderer → main (invoke) | no payload → `{ app, electron }`; trusted board frame, preload validates bounded version strings |
 | `board:command` | main → renderer | registry board actions (including Tidy tiles and new worktree); preload rejects unknown commands, covered boards ignore them |
 | `terminal:create` | renderer → main (invoke) | `cols`, `rows` → `{ id, title }` |

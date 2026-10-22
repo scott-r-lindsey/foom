@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { AboutDialog, SCOTT_NOTE } from "../../../src/renderer/about/about-dialog";
@@ -6,6 +7,8 @@ import type { AppMenuApi } from "../../../src/shared/app-menu";
 import { canvasContext } from "./flight-canvas-fixture";
 
 const menu: AppMenuApi = {
+  legal: vi.fn(),
+  onLegal: vi.fn(),
   version: vi.fn(() =>
     Promise.resolve({ app: "0.1.0-nightly.20261021+abcdef0", electron: "44.4.5" }),
   ),
@@ -20,6 +23,7 @@ const menu: AppMenuApi = {
 };
 let reduced = false;
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   reduced = false;
   vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (
     this: HTMLDialogElement,
@@ -41,6 +45,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -108,3 +113,145 @@ test("cancel dismisses a note first, reduced motion draws only once, and rejecte
   expect(close).not.toHaveBeenCalled();
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "a" });
 });
+
+function ReplayAbout({ done }: { done: () => void }) {
+  const [open, setOpen] = useState(true);
+  return open ? (
+    <AboutDialog
+      menu={menu}
+      close={() => {
+        done();
+        setOpen(false);
+      }}
+    />
+  ) : null;
+}
+async function replay() {
+  const done = vi.fn();
+  await act(async () => {
+    render(<ReplayAbout done={done} />);
+    await Promise.resolve();
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Replay launch" }));
+  // Flush jsdom’s selectionchange task scheduled by focus.
+  act(() => {
+    vi.advanceTimersByTime(0);
+  });
+  return done;
+}
+test("replay reveals the countdown, closes About after the iris and completes the full linger", async () => {
+  const done = await replay();
+  expect(screen.getByRole("status").textContent).toBe("3T-minus");
+  expect(screen.getByRole("dialog", { name: "About Foom" }).hasAttribute("open")).toBe(true);
+  act(() => {
+    vi.advanceTimersByTime(500);
+  });
+  expect(screen.queryByRole("dialog", { name: "About Foom" })).toBeNull();
+  act(() => {
+    vi.advanceTimersByTime(3400);
+  });
+  expect(screen.getByRole("status").textContent).toContain("Takeoff was faster");
+  act(() => {
+    vi.advanceTimersByTime(10_000);
+  });
+  expect(done).not.toHaveBeenCalled();
+  act(() => {
+    vi.advanceTimersByTime(200);
+  });
+  expect(done).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
+  expect(cancelAnimationFrame).toHaveBeenCalled();
+});
+for (const elapsed of [100, 1000, 5000]) {
+  for (const key of ["Escape", "Enter", " ", "click"]) {
+    test(`replay dismisses once at ${String(elapsed)}ms via ${key} and disposes all timers`, async () => {
+      const done = await replay();
+      act(() => {
+        vi.advanceTimersByTime(elapsed);
+      });
+      const launch = screen.getByRole("dialog", { name: "Launch" });
+      if (key === "click") fireEvent.click(launch);
+      else fireEvent.keyDown(launch, { key });
+      expect(done).toHaveBeenCalledOnce();
+      expect(screen.queryByRole("dialog", { name: "Launch replay" })).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  }
+}
+test("reduced replay cross-fades to the still final frame and holds for ten seconds", async () => {
+  reduced = true;
+  const done = await replay();
+  expect(screen.getByRole("status").textContent).toContain("Takeoff was faster");
+  expect(document.querySelector(".launch-replay-scene")?.getAttribute("data-reduced")).toBe("true");
+  expect(requestAnimationFrame).not.toHaveBeenCalled();
+  act(() => {
+    vi.advanceTimersByTime(200);
+  });
+  expect(screen.queryByRole("dialog", { name: "About Foom" })).toBeNull();
+  act(() => {
+    vi.advanceTimersByTime(9800);
+  });
+  expect(done).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
+});
+test("native cancellation and clicks outside the iris dismiss and unmount cancels pending work", async () => {
+  const done = await replay();
+  fireEvent(
+    screen.getByRole("dialog", { name: "Launch replay" }),
+    new Event("cancel", { cancelable: true }),
+  );
+  expect(done).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
+  await replay();
+  fireEvent.click(screen.getByRole("dialog", { name: "Launch replay" }));
+  expect(vi.getTimerCount()).toBe(0);
+  await replay();
+  cleanup();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+for (const elapsed of [100, 1000, 14_100]) {
+  test(`replay releases native modality before completing at ${String(elapsed)}ms`, async () => {
+    const done = await replay();
+    const openAtDone: boolean[] = [];
+    done.mockImplementation(() => {
+      openAtDone.push(document.querySelector(".launch-replay")?.hasAttribute("open") ?? false);
+    });
+    act(() => {
+      vi.advanceTimersByTime(elapsed);
+    });
+    if (elapsed < 14_100)
+      fireEvent.keyDown(screen.getByRole("dialog", { name: "Launch" }), { key: "Escape" });
+    expect(openAtDone).toEqual([false]);
+    expect(done).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+}
+for (const reducedMotion of [false, true]) {
+  for (const key of ["Enter", " ", "Escape"]) {
+    test(`Tab remains in replay and ${key} dismisses with reduced motion ${String(reducedMotion)}`, async () => {
+      reduced = reducedMotion;
+      const done = await replay();
+      fireEvent.keyDown(screen.getByRole("dialog", { name: "Launch" }), { key: "Tab" });
+      const modal = screen.getByRole("dialog", { name: "Launch replay" });
+      expect(document.activeElement).toBe(modal);
+      for (const modifier of ["Shift", "Control", "Alt", "Meta"]) {
+        fireEvent.keyDown(modal, { key: modifier });
+      }
+      expect(done).not.toHaveBeenCalled();
+      fireEvent.keyDown(modal, { key: "Tab", shiftKey: true });
+      expect(document.activeElement).toBe(modal);
+      // Flush jsdom's selectionchange task from the focus move.
+      act(() => {
+        vi.advanceTimersByTime(0);
+      });
+      if (!reducedMotion) {
+        fireEvent.keyDown(modal, { key: "a" });
+        expect(done).not.toHaveBeenCalled();
+      }
+      fireEvent.keyDown(modal, { key });
+      expect(done).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  }
+}

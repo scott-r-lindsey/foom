@@ -56,6 +56,13 @@ export function runApplication() {
   const ownsProfile = app.requestSingleInstanceLock();
 
   let settings: SettingsStore;
+  let firstSetupManualAvailable = false;
+  // Seeded from this profile's persisted setup state, then claimed once across all windows.
+  function claimSetupManual(): boolean {
+    if (!firstSetupManualAvailable) return false;
+    firstSetupManualAvailable = false;
+    return true;
+  }
   const forgeRuntime = new ForgeRuntime(
     () => settings.get(),
     async () => (await loginPath()).path,
@@ -385,6 +392,7 @@ export function runApplication() {
     set config(value: typeof config) {
       config = value;
     },
+    claimSetupManual,
     configApplied,
     get configRoot() {
       return configRoot;
@@ -435,6 +443,7 @@ export function runApplication() {
     },
     set settings(value: typeof settings) {
       settings = value;
+      firstSetupManualAvailable = !value.get().setupComplete;
     },
     get terminals() {
       return terminals;

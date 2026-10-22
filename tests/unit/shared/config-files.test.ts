@@ -19,6 +19,7 @@ const allowed = {
   sound: DEFAULT_SOUND,
   agents: { claude: false, codex: true, agy: false },
   hooks: false,
+  showNewChildren: false,
   agentArguments: { claude: [], codex: ["--ask-for-approval", "never"], agy: [] },
 };
 test("settings is an optional allowlisted patch with exactly main's value rules", () => {
@@ -214,4 +215,10 @@ test("config validation retains actionable hook placeholder diagnostics", async 
     expect(error).toHaveProperty("detail", expect.stringContaining("{hookDir}"));
     expect(error).toHaveProperty("detail", expect.stringContaining("{hookFile:NAME}"));
   }
+});
+
+test.each([null, 0, 1, "false", {}, []])("child placement rejects non-booleans: %j", (value) => {
+  expect(() =>
+    parseSettingsFile(JSON.stringify({ kind: "settings", showNewChildren: value })),
+  ).toThrow();
 });

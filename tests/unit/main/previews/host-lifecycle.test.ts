@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import { fake, partition, fixture } from "./host-fixture";
@@ -415,6 +416,38 @@ test("closing an unshown destination waits for the ownership write before return
   await moving;
   await closing;
   expect(source.registry.records.has(id)).toBe(true);
+  expect(target.registry.records.has(id)).toBe(false);
+  await source.host.dispose(false);
+});
+
+test("a moved bundled manual uses its fixed root for fallback and never gains network permission", async () => {
+  const source = await fixture(undefined, true);
+  const target = await fixture(undefined, true);
+  await writeFile(join(source.root, "manual.html"), "Manual");
+  await writeFile(join(target.root, "manual.html"), "Manual");
+  const id = source.host.openManual();
+  source.validate.mockRejectedValue(new Error("Not a worktree"));
+  target.validate.mockRejectedValue(new Error("Not a worktree"));
+  vi.useFakeTimers();
+  await source.host.moveTo(id, target.host);
+  await vi.advanceTimersByTimeAsync(5000);
+  const view = fake.views.at(-1);
+  expect(view?.webContents.loadURL).toHaveBeenCalledWith(`foom-preview://${id}/manual.html`);
+  view?.webContents.emit("did-finish-load");
+  expect(target.window.contentView.addChildView).toHaveBeenCalledWith(view);
+  expect(target.validate).not.toHaveBeenCalled();
+  await expect(target.host.network(id, true)).rejects.toThrow("Bundled previews");
+  await target.host.dispose(false);
+  await source.host.dispose(false);
+});
+
+test("quit never persists a bundled manual even while its move has not been shown", async () => {
+  const source = await fixture(undefined, true);
+  const target = await fixture(undefined, true);
+  await writeFile(join(source.root, "manual.html"), "Manual");
+  const id = source.host.openManual();
+  await source.host.moveTo(id, target.host);
+  await target.host.dispose(true);
   expect(target.registry.records.has(id)).toBe(false);
   await source.host.dispose(false);
 });

@@ -61,6 +61,7 @@ export class WorkspaceContext {
   hooksEnabled = true;
   agentHooks: Readonly<Record<string, boolean>> = {};
   concurrentChildren = 4;
+  showNewChildren = true;
   defaultArguments = EMPTY_AGENT_ARGUMENTS;
   readonly resumeStarts = new Map<string, Promise<void>>();
   readonly busySessions = new Set<string>();
@@ -197,7 +198,9 @@ export class WorkspaceContext {
         },
         stop: (id) => this.deps.terminals.stop(id),
         close: (id) => this.sidebarCommand({ kind: "close", id }, () => Promise.resolve(true)),
-        place: (id, parentId) => this.deps.placeChild?.(id, parentId),
+        place: (id, parentId) => {
+          if (this.showNewChildren) this.deps.placeChild?.(id, parentId);
+        },
         starting: (id) => this.sessions.isRestoring(id),
         reply: async (id, data) => {
           if (!this.deps.terminals.childInput) throw new Error("Child input adapter unavailable");
@@ -359,6 +362,7 @@ export class WorkspaceContext {
           | "worktreeLocation"
           | "agentArguments"
           | "agentHooks"
+          | "showNewChildren"
           | "restoreSessions"
           | "concurrentChildren"
           | "unreadChildMinutes"
@@ -371,6 +375,7 @@ export class WorkspaceContext {
     this.deps.forge?.setEnabled(settings.showPullRequests === true);
     this.sessions.configure(settings.restoreSessions ?? true);
     this.concurrentChildren = settings.concurrentChildren ?? 4;
+    this.showNewChildren = settings.showNewChildren ?? true;
     const reminderChanged = this.orchestration.unreadChildren.configure(
       settings.unreadChildMinutes ?? 5,
     );

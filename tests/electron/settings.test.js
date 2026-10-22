@@ -643,8 +643,50 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await tabTo(page, "Launch");
   await page.keyboard.press("Enter");
 
-  // Reduced motion shows a still frame, then the board.
+  // Reduced motion holds its still frame until the user continues.
   await page.getByText("Takeoff was faster than expected.").waitFor();
+  await expect(page.getByText("Click or press Esc to continue")).toBeVisible();
+  await page.locator(".launch canvas").click();
+  await expect(page.getByRole("dialog", { name: "Launch", exact: true })).toHaveCount(0);
+  await expect(page.locator(".tile-title").filter({ hasText: "manual.html" })).toHaveCount(1);
+  const firstManual = (await page.evaluate(() => window.desktop.sidebarInventory())).previews.find(
+    (entry) => entry.worktree === "foom:manual",
+  );
+  assert.ok(firstManual);
+  if (process.env.FOOM_MANUAL_SCREENSHOTS === "1" && process.platform === "linux") {
+    await mkdir("screenshots-680", { recursive: true });
+    const handle = await app.evaluate(({ BrowserWindow }) => {
+      const board = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      board.setBounds({ x: 0, y: 0, width: 1240, height: 850 });
+      return board.getNativeWindowHandle().readUInt32LE();
+    });
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await expect
+        .poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors))
+        .toBe(mode === "dark");
+      await page.waitForFunction(() => innerWidth === 1240 && innerHeight === 850);
+      await page.waitForFunction((mode) => {
+        const canvas = document.querySelector("canvas.preview-snapshot");
+        return (
+          canvas?.getContext("2d").getImageData(0, 0, 1, 1).data[0] === (mode === "dark" ? 5 : 243)
+        );
+      }, mode);
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
+      require("node:child_process").execFileSync("import", [
+        "-window",
+        String(handle),
+        `screenshots-680/first-run-${mode}.png`,
+      ]);
+    }
+    await page.evaluate(() => window.desktop.saveSetup({ colorMode: "system" }));
+  }
+
+  await page.evaluate((id) => window.desktop.previews.close(id), firstManual.id);
   await launchCheckoutShell(app, page);
   const shellRow = page.locator(".board-row[data-kind='shell']");
   await shellRow.waitFor({ timeout: deadline(10000) });
@@ -671,6 +713,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     setupComplete: true,
     hooks: true,
     restoreSessions: true,
+    showNewChildren: true,
     concurrentChildren: 4,
     recentRepositoryDays: 30,
     unreadChildMinutes: 5,
@@ -756,6 +799,13 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     home: path.join(root, "home"),
   });
   const reopenedPage = await boardPage(reopened);
+  assert.equal(
+    (await reopenedPage.evaluate(() => window.desktop.sidebarInventory())).previews.filter(
+      (entry) => entry.worktree === "foom:manual",
+    ).length,
+    0,
+  );
+
   await openSettingsScreen(reopenedPage);
   await reopenedPage.getByRole("button", { name: "General", exact: true }).click();
   await expect(reopenedPage.getByRole("radio", { name: /Put them next to/ })).toBeChecked();
@@ -2505,4 +2555,45 @@ test("interface zoom follows the shared setting in every window", async (context
   await assertScale(120);
   await zoomButton(first, 120).click();
   await assertScale(100);
+});
+
+test("Settings session panel preview follows color and contrast; Environment links to Agents", async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  const navigation = page.getByRole("navigation", { name: "Settings sections" });
+  await navigation.getByRole("button", { name: "Environment", exact: true }).click();
+  await expect(
+    page.getByText("Added to every shell and agent Foom starts.", { exact: false }),
+  ).toBeVisible();
+  await page
+    .locator(".settings-controls")
+    .getByRole("button", { name: "Agents", exact: true })
+    .click();
+  await expect(navigation.getByRole("button", { name: "Agents", exact: true })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await navigation.getByRole("button", { name: "Appearance", exact: true }).click();
+  const preview = page.getByRole("img", { name: "Session panel preview" });
+  const mark = preview.locator(".panel-mark");
+  const backgrounds = [];
+  for (const [level, tint] of [
+    ["Vivid", "1"],
+    ["Subtle", "0.5"],
+    ["Plain", "0"],
+  ]) {
+    await page.getByRole("radio", { name: level, exact: true }).check();
+    await expect(preview).toHaveCSS("--panel-tint", tint);
+    backgrounds.push(await mark.evaluate((node) => getComputedStyle(node).backgroundColor));
+  }
+  assert.equal(new Set(backgrounds).size, 3);
+  await page.getByRole("radio", { name: "Vivid", exact: true }).check();
+  await page.evaluate(() => window.desktop.saveSetup({ interfaceTheme: "high-contrast" }));
+  await expect(preview).toHaveCSS("--panel-tint", "0");
+  await page.evaluate(() => window.desktop.saveSetup({ interfaceTheme: "follow" }));
+  await page.emulateMedia({ contrast: "more" });
+  await expect(preview).toHaveCSS("--panel-tint", "0");
+  await expect(preview).toHaveCSS("--panel-chip-line", "100%");
+  await assertAccessible(page);
 });

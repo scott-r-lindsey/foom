@@ -156,6 +156,15 @@ export function useBoardTiles({
         )
           return Promise.resolve("sidebar");
         const placed = placeAgentPreview(layoutRef.current, id, placementOptions());
+        const manual =
+          source.previews.getSnapshot().find((preview) => preview.id === id)?.worktree ===
+          "foom:manual";
+        if (manual) {
+          const tile = leaves(placed.layout.tree).find(
+            (leaf) => leaf.content?.kind === "preview" && leaf.content.preview === id,
+          );
+          if (tile) placed.layout = { ...placed.layout, focused: tile.id, maximized: null };
+        }
         if (placed.layout !== layoutRef.current) {
           setArrivals((current) => new Set([...current, id]));
           changeLayout(placed.layout, true);

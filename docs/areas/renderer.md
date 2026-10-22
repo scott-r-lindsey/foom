@@ -44,7 +44,9 @@ A constant rate intentionally produces a horizontal line above the baseline.
 
 `ui/flight-art.ts` shares typed canvas drawing between the first-run flight path
 and About's full-bleed illustration. `flight-canvas.tsx` owns animation and disposal,
-pauses on window blur, and draws a single reduced-motion frame. About is a modal
+pauses on window blur, and draws a still reduced-motion frame. A disposable
+ResizeObserver repaints the canvas and rocket hit area when layout or zoom changes,
+including while the animation loop is paused. About is a modal
 portal with view state only; its note reuses `.row-menu` surface, notch and opening
 animation, returns focus to its button on dismissal, and closes before About on
 Escape. The native About panel is gone. `app-menu:version` returns main's app and

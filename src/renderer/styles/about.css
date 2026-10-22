@@ -102,3 +102,86 @@
 .about-note:focus {
   outline: none;
 }
+
+.flight-rocket {
+  position: absolute;
+  z-index: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 40%;
+  background: transparent;
+  cursor: crosshair;
+}
+.flight-rocket:hover {
+  background: transparent;
+}
+.about-art {
+  cursor: default;
+}
+.launch-replay {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  background: transparent;
+  overflow: hidden;
+}
+.launch-replay::backdrop {
+  background: transparent;
+}
+.launch-replay-scene {
+  position: absolute;
+  inset: 0;
+  animation: launch-iris 500ms ease-in both;
+}
+@keyframes launch-iris {
+  from {
+    clip-path: circle(var(--iris-start) at var(--iris-x) var(--iris-y));
+  }
+  to {
+    clip-path: circle(var(--iris-end) at var(--iris-x) var(--iris-y));
+  }
+}
+.launch-replay-scene[data-reduced="true"] {
+  animation: launch-replay-fade 200ms linear both;
+}
+@keyframes launch-replay-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.legal-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, calc(100vw - 32px));
+  height: min(640px, calc(100vh - 32px));
+  overflow: hidden;
+}
+.legal-header {
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.legal-header h2 {
+  margin: 0;
+  font: 600 16px / 1.4 var(--font-interface);
+}
+.legal-text {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 18px 20px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px / 1.6 var(--font-mono);
+  user-select: text;
+}

@@ -448,7 +448,8 @@ jobs:
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_nightly && !inputs.check_macos_credentials))
     runs-on: macos-15
-    timeout-minutes: 30
+    # Shared notarization deadline: 120 minutes in macos-sign.mjs, plus setup/signing/cleanup.
+    timeout-minutes: 150
     environment: Release
     permissions:
       contents: read

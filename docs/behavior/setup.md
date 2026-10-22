@@ -23,7 +23,7 @@ Short steps center vertically. Content changes
 re-center over 180 milliseconds (immediately with reduced motion). Back, Continue and
 Launch stay in a footer at the bottom of the window, outside the scrolling content.
 
-The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–300%, so a presenter can zoom Foom alone without changing OS scaling; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Interface size applies immediately to all windows, their confirmations and previews. Each window grows and shrinks from its own remembered 100% size; only the window where you changed zoom follows the pointer. Terminal font size is separate and lives in Settings → Terminal. Launch opens the board. The board starts empty. A repository’s **New worktree** action creates a Git worktree for the branch, or focuses the checkout that already has it regardless of which tool created it, and launches nothing; checkout panels launch sessions. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–300%, so a presenter can zoom Foom alone without changing OS scaling; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Interface size applies immediately to all windows, their confirmations and previews. Each window grows and shrinks from its own remembered 100% size; only the window where you changed zoom follows the pointer. Terminal font size is separate and lives in Settings → Terminal. Launch opens the board with the bundled manual. No terminal starts automatically. A repository’s **New worktree** action creates a Git worktree for the branch, or focuses the checkout that already has it regardless of which tool created it, and launches nothing; checkout panels launch sessions. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
 
 At T-0, forge readiness lists only DNS hosts parsed from local remotes of the
 selected repositories. Enabled, explicitly assigned manifests use their existing
@@ -48,7 +48,37 @@ rolls the rocket along the flat-then-vertical brand curve, leaving a glowing
 trail past the black Eclipse hole and exiting through the top. Stars radiate
 from the hole toward the viewer, accelerating over about 1.5 seconds and
 remaining fast beneath the top-left wordmark and “Takeoff was faster than
-expected.” The overlay finishes at 4300 ms. Escape, Enter, Space or a click
-skips it; “Press Esc to skip” remains visible. Reduced motion instead holds
-one final still frame, with trail, rocket near the top, short static streaks
-and title, for 1200 ms. Art uses hole, space-ink, accent and accent-deep tokens.
+expected.” At 3900 ms the rocket is gone, stars are at full speed and the title
+is shown. Hold that state for 10 seconds with the starfield still animating,
+then fade out over 200 ms. Escape, Enter, Space or a click anywhere finishes
+immediately, exactly once, during the animation, hold or fade; “Click or press
+Esc to continue” remains visible. Reduced motion instead holds one final still
+frame, with trail, rocket near the top, short static streaks and title, for
+10 seconds, then finishes without a fade; any click or key dismisses it.
+The drawing loop and sequence timers stop on dismissal or unmount. Art uses
+hole, space-ink, accent and accent-deep tokens.
+
+### Replay from About (#686)
+
+Only the rocket in About's flight art shows a crosshair. Its focusable hit area
+is named “Replay launch”; clicking it or pressing Enter or Space replays the full
+countdown, ignition, liftoff and ten-second linger. A circular iris centered on
+the art's black hole expands over 500 ms with ease-in, revealing the countdown
+inside it. About closes when the iris covers the window. Replay ends on the board;
+it never changes setup or first-run state. Click, Escape, Enter or Space dismisses
+at any point, including during the iris, exactly once, disposing timers and drawing
+frames. Reduced motion cross-fades over 200 ms into the final still frame with no
+iris, then holds for ten seconds with the same dismissal behavior.
+
+The rocket hit area follows the art when the window or interface zoom changes,
+including with reduced motion. Tab stays inside replay, and dismissal keys work
+after tabbing. Completion or dismissal restores focus to the control that opened
+About, after releasing the replay modal.
+
+## Bundled manual
+
+After setup first completes, the board opens the bundled HTML manual once.
+This offer is shared across all windows in the profile. Closing it before another
+setup window completes or saves preferences does not reopen it. The saved
+setup-complete state prevents automatic reopening on later launches.
+Closing the manual does not change setup; Help → Manual opens it again.

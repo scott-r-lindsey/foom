@@ -129,6 +129,7 @@ const settingsSchema = schema("foom:settings", {
     },
     hooks: { type: "boolean" },
     restoreSessions: { type: "boolean" },
+    showNewChildren: { type: "boolean", default: true },
     concurrentChildren: { type: "integer", minimum: 1, maximum: 16 },
     recentRepositoryDays: { type: "integer", minimum: 1, maximum: 365, default: 30 },
   },
@@ -270,7 +271,7 @@ valid changes live. It is plain files: Foom keeps no history of it.
 
 - \`settings.json\`: \`{ "kind": "settings", ... }\` with any of the allowed keys:
   \`colorMode\`, \`panelColor\`, \`interfaceTheme\`, \`terminalTheme\`, \`interfaceScale\`,
-  \`terminalFontSize\`, \`terminalFont\` (a family name, default Hack Nerd Font Mono), \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\`, \`restoreSessions\` and \`concurrentChildren\` (integer 1–16, default 4), and \`recentRepositoryDays\` (integer 1–365, default 30). Any other key rejects the file.
+  \`terminalFontSize\`, \`terminalFont\` (a family name, default Hack Nerd Font Mono), \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\`, \`restoreSessions\`, \`showNewChildren\` (boolean, default true; new children appear on the board) and \`concurrentChildren\` (integer 1–16, default 4), and \`recentRepositoryDays\` (integer 1–365, default 30). Any other key rejects the file.
   Consent records, paths and secrets are not configurable here.
   \`agentArguments\` requires the three bundled agents and accepts plugin IDs: \`{ "claude": [], "codex": [], "agy": [] }\`.
   Each list is literal argv, one string per argument, with no shell parsing.
@@ -501,6 +502,7 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  * is unedited and is replaced on upgrade; anything else belongs to the user.
  */
 const GUIDE_HISTORY = [
+  "3556a1106ac9fe85e2ae85fe60846e344bae0d605c51ee409532ee19a0b25ba1",
   "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",
   "878a20cc974fb5cee577361660f8153f9adbcb3ca815ee5fc4eca26047b8d858",
   "205d3cac8e70f43434c221c43f8611ba846c580084e3b6b2a53d9a966e410810",
@@ -543,6 +545,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   ],
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [
+    "f805581f622ba59315ae792ba35b809981f859c151bc0710b55c91a7a1e5d817",
     "7adeb4afdb505fdaeaf83ef3056e662f30ed502021c49adae30eb60e7bc17cca",
     "8a7b5812d9d8784e1a093861e3fecd0d8d9b74190d1fdcfb9701f2af37510624",
     "e975ab7aba189e009bbcd16becb6c096679dc5c46017d585a46cbda130af804e",

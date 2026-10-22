@@ -60,6 +60,8 @@ function fixture() {
   const dispose = vi.fn();
   const api: AppMenuApi = {
     platform: "linux",
+    legal: vi.fn(),
+    onLegal: vi.fn(),
     version: vi.fn(),
     setView: vi.fn().mockResolvedValue(undefined),
     commands: vi.fn().mockResolvedValue(entries()),

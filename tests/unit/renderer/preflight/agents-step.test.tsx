@@ -119,7 +119,10 @@ test("rejected config plugins block launch and show their reason without any app
   const card = await screen.findByRole("region", { name: "Fixture" });
   expect(within(card).getByRole("switch")).toHaveProperty("disabled", true);
   expect(within(card).getByRole("textbox")).toBeTruthy();
-  expect(within(card).getAllByText("Unavailable")).toHaveLength(3);
+  expect(card.querySelectorAll(".agent-capability")).toHaveLength(0);
+  expect(within(card).queryByText("Unavailable")).toBeNull();
+  const icon = within(card).getByRole("img", { name: "Foom config · agents/fixture.json" });
+  expect(icon.getAttribute("title")).toBe("Foom config · agents/fixture.json");
   expect(within(card).getByText("Rejected · launch blocked")).toBeTruthy();
   expect(within(card).getByText("$.launch: invalid")).toBeTruthy();
   expect(within(card).queryByRole("button", { name: "Review…" })).toBeNull();
@@ -145,7 +148,8 @@ test("rejected config plugins block launch and show their reason without any app
     }),
   );
   const builtin = screen.getByRole("region", { name: "Claude Code" });
-  expect(within(builtin).getByText("Built-in")).toBeTruthy();
+  expect(within(builtin).queryByRole("img")).toBeNull();
+  expect(screen.queryByText("Plugin source")).toBeNull();
   expect(within(builtin).getByRole("switch")).toHaveProperty("disabled", false);
   view.unmount();
   expect(f.unsubscribe).toHaveBeenCalledOnce();
@@ -326,4 +330,70 @@ test("missing attention replaces the signal control with neutral terse text", ()
   expect(within(card).queryByRole("button", { name: "Hooks" })).toBeNull();
   // Setup can still add the signal, so its actions stay available.
   expect(within(card).getByRole("button", { name: "Install" })).toBeTruthy();
+});
+
+test("capability chips explain supported capabilities and omit unsupported ones", async () => {
+  const f = fixture();
+  f.props.report = report(
+    {
+      ...installation("claude"),
+      mcp: true,
+      resume: true,
+      inline: true,
+      source: "agents/custom.json",
+    },
+    { ...installation("codex"), mcp: false, resume: false, inline: false },
+  );
+  render(<AgentsStep {...f.props} />);
+  const card = await screen.findByRole("region", { name: "Claude Code" });
+  for (const [label, hint] of [
+    ["MCP", "Foom can orchestrate this agent"],
+    ["Resume", "Reopen past conversations"],
+    ["Inline", "Runs in scrollback; wheel scrolls history"],
+  ]) {
+    const chip = within(card).getByText(label ?? "");
+    expect(chip.getAttribute("title")).toBe(hint);
+    expect(chip.getAttribute("aria-label")).toBe(hint);
+  }
+  expect(within(card).getByRole("img", { name: "Foom config · agents/custom.json" })).toBeTruthy();
+  expect(
+    screen.getByRole("region", { name: "Codex" }).querySelectorAll(".agent-capability"),
+  ).toHaveLength(0);
+  expect(screen.queryByText("Unavailable")).toBeNull();
+});
+
+test.each([true, false])("config source icon does not toggle an agent that is %s", (enabled) => {
+  const f = fixture();
+  const agents = { claude: enabled, codex: true, agy: true };
+  render(
+    <AgentsStep
+      {...f.props}
+      state={setupState({ agents })}
+      source={undefined}
+      report={report({ ...installation("claude"), source: "agents/custom.json" })}
+    />,
+  );
+  const card = screen.getByRole("region", { name: "Claude Code" });
+  const toggle = within(card).getByRole("switch");
+  expect(toggle).toHaveProperty("checked", enabled);
+  fireEvent.click(within(card).getByRole("img", { name: "Foom config · agents/custom.json" }));
+  expect(toggle).toHaveProperty("checked", enabled);
+  expect(f.save).not.toHaveBeenCalled();
+  fireEvent.click(toggle);
+  expect(f.save).toHaveBeenCalledExactlyOnceWith({ agents: { ...agents, claude: !enabled } });
+});
+
+test("an installed agent without supported capabilities has no capabilities row", () => {
+  const f = fixture();
+  render(
+    <AgentsStep
+      {...f.props}
+      source={undefined}
+      report={report({ ...installation("codex"), mcp: false, resume: false, inline: false })}
+    />,
+  );
+  const card = screen.getByRole("region", { name: "Codex" });
+  expect(within(card).getByRole("switch")).toHaveProperty("checked", true);
+  expect(within(card).queryByText("Capabilities")).toBeNull();
+  expect(card.querySelector(".agent-capabilities")).toBeNull();
 });

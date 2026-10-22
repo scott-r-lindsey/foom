@@ -201,3 +201,22 @@ subscriptions, observers and animation work are disposed on unmount. Composition
 ignores terminal/xterm repaint mutations and detached nodes; remaining board
 mutations and snapshot positioning share one animation-frame update with tile
 animation following. Mutation callbacks never scan layout.
+
+## Bundled manual root
+
+Main alone can open the fixed `build/manual/manual.html` resource. Packaged
+builds unpack this directory beside ASAR so containment and descriptor checks
+operate on real files. The host uses
+the bundled manual directory as its canonical root with the existing containment
+checks, isolated partition and default HTML CSP. This root needs no registered
+worktree; no renderer path or file-access capability selects it. Its transient
+record uses `foom:manual` as its display scope, is excluded from profile registry
+writes and restart restoration, and cannot enable network access. Main projects
+it into preview inventory even with no repositories. The fixed menu action
+places and selects the tile, reusing an existing manual across board windows.
+
+The build copies the guide, stylesheet and bundled Geist fonts, then inserts
+shortcut tables projected from the main command registry for macOS and
+Windows/Linux. Stable section IDs support internal links and future search.
+Guide prose cites its source docs in HTML comments; update it with behavior
+changes. The guide is never written into a repository or user profile.

@@ -425,6 +425,10 @@
   background: var(--hole);
   color: var(--space-ink);
 }
+.launch[data-fading="true"] {
+  opacity: 0;
+  transition: opacity 200ms linear;
+}
 .launch:focus {
   outline: none;
 }
@@ -481,7 +485,7 @@
   grid-column: 1 / -1;
 }
 
-.launch[data-phase="liftoff"][data-reduced="false"] .launch-count {
+.launch[data-phase="liftoff"][data-reduced="false"][data-start="countdown"] .launch-count {
   animation: launch-title 350ms 1400ms both;
 }
 @keyframes launch-title {

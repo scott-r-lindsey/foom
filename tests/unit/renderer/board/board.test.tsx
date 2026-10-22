@@ -240,7 +240,7 @@ test("empty boards remain usable", () => {
   board.dispose();
 });
 
-test("activity updates brightness without replacing rows or rerendering React", () => {
+test("activity updates brightness without replacing rows or rerendering React", async () => {
   const rows = sampleRows(Date.now());
   const source = createSampleSource(rows);
   const renders = vi.fn();
@@ -270,7 +270,10 @@ test("activity updates brightness without replacing rows or rerendering React", 
     vi.advanceTimersByTime(1000);
   });
   expect(renders).not.toHaveBeenCalled();
-  fireEvent.change(filter, { target: { value: "" } });
+  await act(async () => {
+    fireEvent.change(filter, { target: { value: "" } });
+    await Promise.resolve();
+  });
   act(() => {
     vi.advanceTimersByTime(1000);
   });
@@ -450,88 +453,142 @@ test("opens the action log from the app command and restores the terminal pane o
     await Promise.resolve();
   });
   expect(view.queryByRole("heading", { name: "Action log" })).toBeNull();
+  await act(async () => {
+    command?.("action-log");
+    command?.("manual");
+    await Promise.resolve();
+  });
+  expect(view.queryByRole("heading", { name: "Action log" })).toBeNull();
 });
 
-test("agent placement uses existing space, preserves focus, rejects stale arrivals and unsubscribes", async () => {
-  let arrival:
-    | ((
-        id: string,
-        expiresAt: number,
-      ) => Promise<"landing" | "empty" | "column" | "replace" | "existing" | "sidebar">)
-    | undefined;
-  // A placed preview tile reports its bounds (#296).
-  vi.stubGlobal(
-    "ResizeObserver",
-    class {
-      observe() {}
-      disconnect() {}
-    },
-  );
-  const off = vi.fn();
-  const rows = sampleRows(Date.now());
-  const row = rows[0];
-  if (!row) throw new Error("Missing row");
-  localStorage.setItem(
-    "foom.tiles.v1",
-    JSON.stringify({
-      version: 2,
-      tree: {
-        kind: "split",
-        id: "pair",
-        direction: "horizontal",
-        ratio: 0.5,
-        first: { kind: "tile", id: "terminal", content: { kind: "terminal", session: row.id } },
-        second: { kind: "tile", id: "landing", content: null },
+test.each([false, true])(
+  "preview placement uses space and selects only the explicit manual (manual: %s)",
+  async (manual) => {
+    let arrival:
+      | ((
+          id: string,
+          expiresAt: number,
+        ) => Promise<"landing" | "empty" | "column" | "replace" | "existing" | "sidebar">)
+      | undefined;
+    // A placed preview tile reports its bounds (#296).
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
       },
-      focused: "terminal",
-      landing: "landing",
-      maximized: null,
-    }),
-  );
-  const view = render(
-    <Board
-      source={{
-        ...createSampleSource(rows),
-        previews: {
-          getSnapshot: () => [
-            {
-              id: "preview",
-              relativePath: "plan.md",
-              kind: "markdown",
-              repository: row.repository,
-              worktree: row.worktree ?? "",
-              network: false,
-            },
-          ],
-          pick: () => Promise.resolve(null),
-          bounds: () => Promise.resolve(),
-          close: () => Promise.resolve(),
-          onPlace: (callback) => {
-            arrival = callback;
-            return off;
-          },
+    );
+    const off = vi.fn();
+    const rows = sampleRows(Date.now());
+    const row = rows[0];
+    if (!row) throw new Error("Missing row");
+    localStorage.setItem(
+      "foom.tiles.v1",
+      JSON.stringify({
+        version: 2,
+        tree: {
+          kind: "split",
+          id: "pair",
+          direction: "horizontal",
+          ratio: 0.5,
+          first: { kind: "tile", id: "terminal", content: { kind: "terminal", session: row.id } },
+          second: { kind: "tile", id: "landing", content: null },
         },
-      }}
-    />,
-  );
-  if (!arrival) throw new Error("Missing arrival subscription");
-  await expect(arrival("preview", Date.now())).resolves.toBe("sidebar");
-  await expect(arrival("unknown", Date.now() + 5000)).resolves.toBe("sidebar");
-  await act(async () => {
-    expect(await arrival?.("preview", Date.now() + 5000)).toBe("landing");
+        focused: "terminal",
+        landing: "landing",
+        maximized: null,
+      }),
+    );
+    const view = render(
+      <Board
+        source={{
+          ...createSampleSource(rows),
+          previews: {
+            getSnapshot: () => [
+              {
+                id: "preview",
+                relativePath: "plan.md",
+                kind: "markdown",
+                repository: row.repository,
+                worktree: manual ? "foom:manual" : (row.worktree ?? ""),
+                network: false,
+              },
+            ],
+            pick: () => Promise.resolve(null),
+            bounds: () => Promise.resolve(),
+            close: () => Promise.resolve(),
+            onPlace: (callback) => {
+              arrival = callback;
+              return off;
+            },
+          },
+        }}
+      />,
+    );
+    if (!arrival) throw new Error("Missing arrival subscription");
+    await expect(arrival("preview", Date.now())).resolves.toBe("sidebar");
+    await expect(arrival("unknown", Date.now() + 5000)).resolves.toBe("sidebar");
+    await act(async () => {
+      expect(await arrival?.("preview", Date.now() + 5000)).toBe("landing");
+    });
+    expect(document.querySelector('[data-tile="terminal"]')?.getAttribute("data-focused")).toBe(
+      manual ? "false" : "true",
+    );
+    expect(document.querySelector('[data-tile="landing"]')?.getAttribute("data-kind")).toBe(
+      "preview",
+    );
+    const arrived = document.querySelector('[data-tile="landing"]');
+    expect(arrived?.getAttribute("data-arrived")).toBe("true");
+    if (!arrived) throw new Error("Missing arrival");
+    fireEvent.pointerEnter(arrived);
+    expect(arrived.getAttribute("data-arrived")).toBe("false");
+    await expect(arrival("preview", Date.now() + 5000)).resolves.toBe("existing");
+    view.unmount();
+    expect(off).toHaveBeenCalled();
+  },
+);
+
+test("an idle board sleeps after settling and wakes for activity and wait labels", () => {
+  const fixture = sampleRows(Date.now())[1];
+  if (!fixture) throw new Error("Missing fixture");
+  const source = createSampleSource([{ ...fixture, kind: "shell", rate: 0 }]);
+  const view = render(<Board source={source} />);
+  act(() => {
+    vi.advanceTimersByTime(12000);
   });
-  expect(document.querySelector('[data-tile="terminal"]')?.getAttribute("data-focused")).toBe(
-    "true",
-  );
-  expect(document.querySelector('[data-tile="landing"]')?.getAttribute("data-kind")).toBe(
-    "preview",
-  );
-  const arrived = document.querySelector('[data-tile="landing"]');
-  expect(arrived?.getAttribute("data-arrived")).toBe("true");
-  if (!arrived) throw new Error("Missing arrival");
-  fireEvent.pointerEnter(arrived);
-  expect(arrived.getAttribute("data-arrived")).toBe("false");
-  await expect(arrival("preview", Date.now() + 5000)).resolves.toBe("existing");
+  expect(vi.getTimerCount()).toBe(0);
+  const light = view.container.querySelector<HTMLElement>(".board-light");
+  const idle = view.container.innerHTML;
+  act(() => {
+    vi.advanceTimersByTime(60000);
+  });
+  expect(view.container.innerHTML).toBe(idle);
+  source.setActivity(fixture.id, 4000);
+  act(() => {
+    vi.advanceTimersByTime(1000);
+  });
+  expect(Number(light?.style.getPropertyValue("--activity"))).toBeGreaterThan(0.99);
+  source.setActivity(fixture.id, 0);
+  act(() => {
+    vi.advanceTimersByTime(12000);
+  });
+  expect(light?.style.getPropertyValue("--activity")).toBe("0");
+  expect(vi.getTimerCount()).toBe(0);
+  act(() => {
+    source.update(fixture.id, { state: "needs_input", waitingSince: Date.now() });
+  });
+  act(() => {
+    vi.advanceTimersByTime(2000);
+  });
+  expect(view.container.querySelector(".board-wait")?.textContent).toBe("2s");
+  act(() => {
+    source.update(fixture.id, { state: "quiet_ok" });
+  });
+  act(() => {
+    vi.advanceTimersByTime(1000);
+  });
+  expect(vi.getTimerCount()).toBe(0);
   view.unmount();
-  expect(off).toHaveBeenCalled();
+  source.setActivity(fixture.id, 4000);
+  expect(vi.getTimerCount()).toBe(0);
 });

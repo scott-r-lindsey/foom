@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { open, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { FuseState, FuseV1Options, getCurrentFuseWire, pathToFuseFile } from "@electron/fuses";
 
@@ -17,7 +19,7 @@ export const releaseSecretNames = [
   "APPLE_TEAM_ID",
 ];
 export function redactOutput(output, args, env = process.env, command = "") {
-  const sensitiveFlags = new Set(["--key-id", "--issuer", "--sign"]);
+  const sensitiveFlags = new Set(["--key", "--key-id", "--issuer", "--sign"]);
   if (basename(command) === "security") {
     sensitiveFlags.add("-P");
     if (["create-keychain", "unlock-keychain"].includes(args[0])) sensitiveFlags.add("-p");
@@ -47,8 +49,43 @@ export function redactOutput(output, args, env = process.env, command = "") {
 
 // Capture failures ourselves: execFile errors include argv. Include only the
 // tool's redacted output, never argv or the spawn error's command description.
-export function run(command, args) {
-  const result = spawnSync(command, args, { encoding: "utf8" });
+export function run(command, args, options = {}) {
+  // Submit must expose the ID before upload completes; other tools stay synchronous.
+  if (options.onOutput) {
+    const { onOutput, timeout, ...spawnOptions } = options;
+    return new Promise((resolve, reject) => {
+      const child = spawn(command, args, { ...spawnOptions, stdio: ["ignore", "pipe", "pipe"] });
+      let output = "";
+      let failed = false;
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGKILL");
+      }, timeout);
+      for (const stream of [child.stdout, child.stderr]) {
+        stream.setEncoding("utf8");
+        stream.on("data", (chunk) => {
+          output = (output + chunk).slice(-1024 * 1024);
+          onOutput(chunk, stream === child.stdout ? "stdout" : "stderr");
+        });
+      }
+      child.on("error", () => {
+        failed = true;
+      });
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        if (failed || code !== 0 || timedOut) {
+          const detail = redactOutput(output, args, process.env, command).trim();
+          reject(
+            new Error(
+              `${command} ${timedOut ? "timed out" : "failed"}${detail ? `:\n${detail}` : ""}`,
+            ),
+          );
+        } else resolve(output);
+      });
+    });
+  }
+  const result = spawnSync(command, args, { encoding: "utf8", ...options });
   if (result.error || result.status !== 0) {
     const output = redactOutput(
       [result.stderr, result.stdout].filter(Boolean).join("\n"),
@@ -56,7 +93,9 @@ export function run(command, args) {
       process.env,
       command,
     ).trim();
-    throw new Error(`${command} failed${output ? `:\n${output}` : ""}`);
+    throw new Error(
+      `${command} ${result.error?.code === "ETIMEDOUT" ? "timed out" : "failed"}${output ? `:\n${output}` : ""}`,
+    );
   }
   return `${result.stdout ?? ""}${result.stderr ?? ""}`;
 }
@@ -215,39 +254,151 @@ export async function signApp(app, options, execute = run, snapshot = integrity)
   assert.deepEqual(await snapshot(app, execute), before, "Signing changed fuses or ASAR integrity");
 }
 
-export async function notarizeApp(app, credentials, execute = run) {
-  const { notarize } = await import("@electron/notarize");
-  await notarize({ appPath: app, ...credentials }); // notarytool API-key mode; also staples.
+// One budget covers both submissions, not 120 minutes per artifact. The workflow
+// leaves additional time for signing, image creation, verification and cleanup.
+export const notarizationDeadlineMs = 120 * 60 * 1000;
+export function notarizationSession({
+  deadlineMs = notarizationDeadlineMs,
+  pollMs = 30_000,
+  queryTimeoutMs = 60_000,
+  now = Date.now,
+  wait = sleep,
+  log = console.log,
+} = {}) {
+  let deadline;
+  const submissions = [];
+  return async (artifact, credentials, execute = run) => {
+    deadline ??= now() + deadlineMs;
+    const auth = [
+      "--key",
+      credentials.appleApiKey,
+      "--key-id",
+      credentials.appleApiKeyId,
+      "--issuer",
+      credentials.appleApiIssuer,
+    ];
+    const safe = (text) => redactOutput(text, auth);
+    const report = (text) => log(safe(`[${new Date(now()).toISOString()}] ${text}`));
+    const history = () =>
+      submissions
+        .map(({ artifact, id, status }) => `${basename(artifact)}: ${id} (${status})`)
+        .join("; ");
+    const remaining = () => {
+      if (now() >= deadline)
+        throw new Error(
+          `Notarization deadline exceeded; ${history() || "no submission ID returned"}`,
+        );
+      return deadline - now();
+    };
+    const query = async (operation, target) => {
+      const output = await execute(
+        "xcrun",
+        ["notarytool", operation, target, ...auth, "--output-format", "json"],
+        { timeout: Math.min(queryTimeoutMs, remaining()), killSignal: "SIGKILL" },
+      );
+      try {
+        return JSON.parse(output);
+      } catch {
+        throw new Error(`notarytool ${operation} returned invalid JSON`);
+      }
+    };
+    try {
+      report(`Submitting ${basename(artifact)} for notarization`);
+      let record;
+      const remember = (id) => {
+        if (record || typeof id !== "string" || !id.length) return;
+        record = { artifact, id, status: "Submitted" };
+        submissions.push(record);
+        report(`${basename(artifact)} submission ID: ${record.id}`);
+      };
+      const pending = { stdout: "", stderr: "" };
+      const onOutput = (chunk, stream = "stdout") => {
+        pending[stream] += chunk;
+        const lines = pending[stream].split(/\r?\n/);
+        pending[stream] = lines.pop().slice(-4096);
+        for (const line of lines) {
+          const match = /^\s*id:\s*(\S+)\s*$/i.exec(line);
+          if (match) remember(match[1]);
+        }
+      };
+      const output = await execute(
+        "xcrun",
+        ["notarytool", "submit", artifact, ...auth, "--no-progress"],
+        { timeout: remaining(), killSignal: "SIGKILL", onOutput },
+      );
+      // Also accept complete output from injected executors and unterminated lines.
+      pending.stdout = "";
+      pending.stderr = "";
+      onOutput(`${output}\n`);
+      if (!record) {
+        try {
+          remember(JSON.parse(output)?.id);
+        } catch {
+          /* Validated below. */
+        }
+      }
+      assert.ok(record, "Missing notarization submission ID");
+      while (true) {
+        const info = await query("info", record.id);
+        assert.ok(
+          ["In Progress", "Accepted", "Invalid", "Rejected"].includes(info?.status),
+          "Unknown notarization status",
+        );
+        record.status = info.status;
+        // A heartbeat even when the status is unchanged shows Apple's queue is
+        // still being polled, rather than silently holding a runner.
+        report(`${basename(artifact)} ${record.id}: ${record.status}`);
+        if (["Invalid", "Rejected"].includes(record.status)) {
+          try {
+            const detail = await query("log", record.id);
+            report(
+              `Notarization issues for ${record.id}: ${JSON.stringify({
+                statusSummary: detail?.statusSummary,
+                issues: detail?.issues,
+              })}`,
+            );
+          } catch (error) {
+            report(`Could not retrieve notarization issues for ${record.id}: ${error.message}`);
+          }
+          throw new Error(`Notarization ${record.status}; ${history()}`);
+        }
+        if (record.status === "Accepted") return;
+        await wait(Math.min(pollMs, remaining()));
+      }
+    } catch (error) {
+      // Include all IDs even on tool errors/timeouts. Never echo unsanitized
+      // tool output, JSON parse errors or credentials supplied outside env.
+      const message = `${now() >= deadline ? "Notarization deadline exceeded; " : ""}${error.message}; submissions: ${history() || "none"}`;
+      // Deliberately create a sanitized error without the raw tool error as
+      // cause: Node prints causes and their argv/stdio in uncaught errors.
+      const failure = new Error(safe(message));
+      report(failure.message);
+      throw failure;
+    }
+  };
+}
+
+export async function notarizeApp(app, credentials, execute = run, submit = notarizationSession()) {
+  const directory = await mkdtemp(join(tmpdir(), "foom-notarize-"));
+  try {
+    const zip = join(directory, "Foom.zip");
+    execute("ditto", ["-c", "-k", "--keepParent", app, zip]);
+    await submit(zip, credentials, execute);
+    execute("xcrun", ["stapler", "staple", app]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
   execute("codesign", ["--verify", "--deep", "--strict", "--verbose=2", app]);
   const assessment = execute("spctl", ["-a", "-t", "exec", "-vv", app]);
   assert.match(assessment, /source=Notarized Developer ID/);
   execute("xcrun", ["stapler", "validate", app]);
 }
 
-export function signDmg(
-  dmg,
-  { identity, keychain, appleApiKey, appleApiKeyId, appleApiIssuer },
-  execute = run,
-) {
+export async function signDmg(dmg, credentials, execute = run, submit = notarizationSession()) {
+  const { identity, keychain } = credentials;
   execute("codesign", ["--force", "--sign", identity, "--timestamp", "--keychain", keychain, dmg]);
   execute("codesign", ["--verify", "--strict", dmg]);
-  const submission = JSON.parse(
-    execute("xcrun", [
-      "notarytool",
-      "submit",
-      dmg,
-      "--key",
-      appleApiKey,
-      "--key-id",
-      appleApiKeyId,
-      "--issuer",
-      appleApiIssuer,
-      "--wait",
-      "--output-format",
-      "json",
-    ]),
-  );
-  assert.equal(submission.status, "Accepted", "DMG notarization was not accepted");
+  await submit(dmg, credentials, execute);
   execute("xcrun", ["stapler", "staple", dmg]);
   execute("xcrun", ["stapler", "validate", dmg]);
   execute("spctl", ["-a", "-t", "open", "--context", "context:primary-signature", "-vv", dmg]);
@@ -272,12 +423,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     assert.deepEqual(await readdir(unpack), ["Foom.app"]);
     const app = join(unpack, "Foom.app");
     await signApp(app, { identity, keychain });
+    const submit = notarizationSession();
     if (mode === "release")
-      await notarizeApp(app, {
-        appleApiKey: join(directory, "AuthKey.p8"),
-        appleApiKeyId: process.env.APPLE_API_KEY_ID,
-        appleApiIssuer: process.env.APPLE_API_ISSUER,
-      });
+      await notarizeApp(
+        app,
+        {
+          appleApiKey: join(directory, "AuthKey.p8"),
+          appleApiKeyId: process.env.APPLE_API_KEY_ID,
+          appleApiIssuer: process.env.APPLE_API_ISSUER,
+        },
+        run,
+        submit,
+      );
     await mkdir(resolve(output), { recursive: true });
     run("ditto", ["-c", "-k", "--keepParent", app, join(resolve(output), basename(zip))]);
     // Build the image from the exact signed/stapled app, never the ad-hoc DMG.
@@ -298,13 +455,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       targetArch: process.arch,
     });
     if (mode === "release")
-      signDmg(dmg, {
-        identity,
-        keychain,
-        appleApiKey: join(directory, "AuthKey.p8"),
-        appleApiKeyId: process.env.APPLE_API_KEY_ID,
-        appleApiIssuer: process.env.APPLE_API_ISSUER,
-      });
+      await signDmg(
+        dmg,
+        {
+          identity,
+          keychain,
+          appleApiKey: join(directory, "AuthKey.p8"),
+          appleApiKeyId: process.env.APPLE_API_KEY_ID,
+          appleApiIssuer: process.env.APPLE_API_ISSUER,
+        },
+        run,
+        submit,
+      );
   } else
     throw new Error("Expected adhoc APP or release/adhoc-zip ARTIFACT_DIRECTORY OUTPUT_DIRECTORY");
 }

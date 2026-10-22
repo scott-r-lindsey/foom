@@ -56,6 +56,7 @@ export class PreviewHost {
   private covered = false;
   private snapshotVersion = 0;
   private pendingFocus: WebContents | undefined;
+  private manualFocus: string | undefined;
   private handoffTimer: ReturnType<typeof setTimeout> | undefined;
   private handoffVersion = 0;
   constructor(
@@ -67,6 +68,7 @@ export class PreviewHost {
       content: DialogContent,
       signal: AbortSignal,
     ) => Promise<boolean> = () => Promise.resolve(false),
+    private readonly bundledRoot?: string,
     private readonly placeMoved: (id: string) => void = () => {},
   ) {
     this.board = window.webContents;
@@ -105,6 +107,7 @@ export class PreviewHost {
   }
   private readonly boardMouse = (_event: Electron.Event, mouse: Electron.MouseInputEvent) => {
     if (mouse.type !== "mouseDown") return;
+    this.manualFocus = undefined;
     this.clearHandoff();
     this.lastFocused = this.board;
   };
@@ -117,6 +120,7 @@ export class PreviewHost {
     if (this.pendingFocus === contents) this.releaseHandoff();
   }
   private readonly releaseHandoff = () => {
+    this.manualFocus = undefined;
     if (!this.pendingFocus) return;
     // Revoke focus intent immediately, including during a recreation delay.
     this.lastFocused = this.board;
@@ -159,7 +163,7 @@ export class PreviewHost {
     await this.registry.load();
     for (const record of [...this.registry.records.values()]) {
       try {
-        await this.validateWorktree(record.worktree);
+        await this.validateRecord(record);
       } catch {
         this.registry.records.delete(record.id);
       }
@@ -196,6 +200,39 @@ export class PreviewHost {
     }
     this.changed();
     return record.id;
+  }
+  /** Fixed bundled capability. It cannot be selected by a file-path IPC request. */
+  openManual(): string {
+    if (!this.bundledRoot || this.closed()) throw new Error("Manual unavailable");
+    const existing = [...this.registry.records.values()].find(
+      (record) => record.bundled === "manual",
+    );
+    if (existing) return existing.id;
+    const root = canonicalRoot(this.bundledRoot);
+    if (readInside(root, "/manual.html").status !== 200) throw new Error("Manual unavailable");
+    const record = this.registry.add("foom:manual", "manual.html");
+    record.bundled = "manual";
+    this.create(record, root);
+    this.changed();
+    return record.id;
+  }
+  focusManual(id: string): void {
+    const entry = this.hosted.get(id);
+    if (!entry || this.registry.records.get(id)?.bundled !== "manual") return;
+    this.manualFocus = id;
+    this.applyBounds(entry);
+  }
+  private root(record: PreviewRecord): string {
+    if (record.bundled === "manual") {
+      if (!this.bundledRoot) throw new Error("Manual unavailable");
+      return canonicalRoot(this.bundledRoot);
+    }
+    return canonicalRoot(record.worktree);
+  }
+  private validateRecord(record: PreviewRecord): Promise<void> {
+    return record.bundled === "manual" && this.bundledRoot
+      ? Promise.resolve()
+      : this.validateWorktree(record.worktree);
   }
   private create(record: PreviewRecord, root: string): HostedPreview {
     const origin = `foom-preview://${record.id}`;
@@ -342,6 +379,7 @@ export class PreviewHost {
       this.scheduleCapture(entry);
       if (mouse.type !== "mouseDown" || !entry.attached) return;
       // Native input only: page script cannot raise this event.
+      this.manualFocus = undefined;
       this.clearHandoff();
       this.lastFocused = contents;
       entry.clicked = true;
@@ -424,6 +462,13 @@ export class PreviewHost {
       }
       entry.restoreFocus = false;
     }
+    if (visible && entry.loaded && entry.attached && this.manualFocus === entry.id) {
+      this.manualFocus = undefined;
+      this.clearHandoff();
+      entry.clicked = true;
+      this.lastFocused = entry.view.webContents;
+      entry.view.webContents.focus();
+    }
   }
   private forgetIncoming(id: string): void {
     const incoming = this.incoming.get(id);
@@ -461,7 +506,7 @@ export class PreviewHost {
     const { id } = record;
     if (bounds.visible) this.tiled.add(id);
     if (!bounds.visible && !this.hosted.has(id)) return;
-    const entry = this.hosted.get(id) ?? this.create(record, canonicalRoot(record.worktree));
+    const entry = this.hosted.get(id) ?? this.create(record, this.root(record));
     const resized = entry.bounds.width !== bounds.width || entry.bounds.height !== bounds.height;
     entry.bounds = bounds;
     if (!bounds.visible) entry.painted = false;
@@ -593,6 +638,7 @@ export class PreviewHost {
   async network(id: string, enabled: boolean): Promise<void> {
     const record = this.registry.records.get(id);
     if (!record || this.closed()) throw new Error("Unknown preview ID");
+    if (record.bundled) throw new Error("Bundled previews have no network access");
     if (record.network === enabled) return;
     if (
       enabled &&
@@ -633,9 +679,9 @@ export class PreviewHost {
       return Promise.reject(new Error("Unable to move preview"));
     const bounds = this.hosted.get(id)?.bounds;
     const done = (async () => {
-      await target.validateWorktree(record.worktree);
+      await target.validateRecord(record);
       await this.release(id);
-      await target.validateWorktree(record.worktree);
+      await target.validateRecord(record);
       if (this.registry.records.get(id) !== record || !available())
         throw new Error("Unable to move preview");
       // No await between owners: agent inventory never loses the preview ID.
@@ -651,7 +697,7 @@ export class PreviewHost {
             const current = target.hosted.get(id)?.bounds;
             if (current?.visible && current.width > 0 && current.height > 0) return;
             void target
-              .validateWorktree(record.worktree)
+              .validateRecord(record)
               .then(() => {
                 target.landing(id);
               })
@@ -674,7 +720,7 @@ export class PreviewHost {
           !this.hosted.has(id)
         ) {
           try {
-            await this.validateWorktree(record.worktree);
+            await this.validateRecord(record);
             if (!this.closed() && this.registry.records.get(id) === record)
               this.updateBounds(record, bounds);
           } catch {
@@ -701,6 +747,7 @@ export class PreviewHost {
     if (!this.disposed) this.changed();
   }
   private async release(id: string): Promise<void> {
+    if (this.manualFocus === id) this.manualFocus = undefined;
     this.tiled.delete(id);
     this.confirmations.get(id)?.abort();
     this.watchers.get(id)?.close();
@@ -735,7 +782,7 @@ export class PreviewHost {
   async reconcile(): Promise<void> {
     for (const record of [...this.registry.records.values()]) {
       try {
-        await this.validateWorktree(record.worktree);
+        await this.validateRecord(record);
       } catch {
         if (this.registry.records.has(record.id)) await this.close(record.id);
       }
@@ -782,7 +829,9 @@ export class PreviewHost {
     this.board.removeListener("before-mouse-event", this.boardMouse);
     const saved = [...this.registry.records.values()]
       .filter(
-        (record) => this.incoming.has(record.id) || !record.agentOpened || this.visible(record.id),
+        (record) =>
+          !record.bundled &&
+          (this.incoming.has(record.id) || !record.agentOpened || this.visible(record.id)),
       )
       .map(({ agentOpened: _agentOpened, openedBy: _openedBy, ...record }) => record);
     for (const id of [...this.registry.records.keys()]) await this.close(id);

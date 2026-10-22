@@ -58,7 +58,7 @@ pruned only after the source's first inventory completes, so an asynchronous loa
 cannot erase valid assignments. This data grants no process capabilities. Maximize
 is not persisted. All terminal IPC remains ID-scoped and main-validated.
 
-The board starts empty. Shells and agents launch from checkout panels; home shells use the home row; **New worktree** is a repository action. `pnpm run start:samples` explicitly builds the development sample board. Normal builds omit its data, and Forge rebuilds without the sample flag before packaging, including when invoked directly. New worktree is a branch field inside the repository panel (`branch-field.ts` holds its pure completion, status and ref-rule logic; `branch-field-view.tsx` the field). It reads `workspace:branches` and creates through `workspace:create-worktree` without a location, so main applies the configured one; it never launches. Whether a panel shows the field is part of the panel intent target, so it closes with its panel. Repository paths come from main’s registry or native directory picker; main chooses worktree destinations and executables.
+The first board opens the bundled manual after setup, with no terminal running. Shells and agents launch from checkout panels; home shells use the home row; **New worktree** is a repository action. `pnpm run start:samples` explicitly builds the development sample board. Normal builds omit its data, and Forge rebuilds without the sample flag before packaging, including when invoked directly. New worktree is a branch field inside the repository panel (`branch-field.ts` holds its pure completion, status and ref-rule logic; `branch-field-view.tsx` the field). It reads `workspace:branches` and creates through `workspace:create-worktree` without a location, so main applies the configured one; it never launches. Whether a panel shows the field is part of the panel intent target, so it closes with its panel. Repository paths come from main’s registry or native directory picker; main chooses worktree destinations and executables.
 
 Main's inventory watcher derives the common Git directory with `rev-parse`, validates
 its canonical path, and watches metadata directories for `HEAD`, `packed-refs`,
@@ -100,3 +100,18 @@ Workspace refresh also synchronizes their projection before broadcasting a snaps
 read acknowledgements synchronize first so a queued notification cannot resurrect an
 already-read event. Both bounded and blocking waits acknowledge at entry and on
 return. Workspace disposal unsubscribes the reminder observer and cancels its timer.
+
+## Idle rendering (#697)
+
+A settled board schedules no recurring light, wait-label or sound polling work.
+Activity wakes the DOM-only light controller; its 50 ms envelope clock stops once
+rates and brightness reach zero and the eight-second trace has drained. A tiny
+release remainder below 0.0001 becomes zero. Flat traces and unchanged brightness
+are written only when their DOM value changes. Source changes and light remounts
+wake the controller, including filtering and relaunches, without React activity
+state. Unmount removes the source subscriptions, structure observer and clock.
+Wait labels schedule only their next visible seconds/minutes boundary while a
+mounted row needs input. Audio polls only while an alert or reminder is pending.
+Active relationship waves, cleanup sweeps, output and blinking terminal cursors
+still represent changing content; reduced-motion and native background-painting
+policy remain unchanged. See [renderer rules](renderer.md) for that policy.
