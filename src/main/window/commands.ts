@@ -36,7 +36,7 @@ export interface Command {
 export interface CommandActions {
   board(command: BoardCommand): void;
   zoom(direction: "in" | "out" | "reset"): Promise<void>;
-  native(id: string): void;
+  native(id: string): void | Promise<void>;
 }
 /** The terminal-safe tile leader. It only exists off macOS. */
 export const LEADER: Binding = { code: "Space", control: true, shift: true };
@@ -101,7 +101,7 @@ export function createCommands(
     section: string,
     bindings: Binding[] = [],
     run: Command["run"] = () => {
-      actions.native(id);
+      return actions.native(id);
     },
     extra: Partial<Pick<Command, "role" | "menuLabel" | "badge" | "sheet" | "enabled">> = {},
   ) => {
@@ -120,6 +120,7 @@ export function createCommands(
   add("about", "About Foom", "Foom", [], () => {
     actions.board("about");
   });
+  add("manual", "Manual", "Help");
   add("notices", "Third-party notices", "Help");
   for (const agent of agents)
     add(
@@ -319,6 +320,7 @@ const appMenuLayout = (agents: readonly string[]): readonly Layout[] => [
   null,
   "action-log",
   "shortcuts",
+  { submenu: "help-menu", label: "Help", items: ["manual"] },
   "about",
   "licenses",
   null,

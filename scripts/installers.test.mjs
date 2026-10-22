@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import MakerDMG from "./maker-dmg.cjs";
-import { signDmg } from "./macos-sign.mjs";
+import { notarizationSession, signDmg } from "./macos-sign.mjs";
 
 test("native DMG contains the exact app and Applications link; cleanup runs on failure", {
   skip: process.platform === "win32",
@@ -52,8 +52,8 @@ test("native DMG contains the exact app and Applications link; cleanup runs on f
   }
 });
 
-test("DMG notarization rejects non-Accepted submissions before stapling", () => {
-  for (const status of ["Accepted", "Invalid", "In Progress"]) {
+test("DMG notarization rejects non-Accepted submissions before stapling", async () => {
+  for (const status of ["Accepted", "Invalid", "Rejected"]) {
     const calls = [];
     const action = () =>
       signDmg(
@@ -67,15 +67,16 @@ test("DMG notarization rejects non-Accepted submissions before stapling", () => 
         },
         (command, args) => {
           calls.push([command, args]);
-          return JSON.stringify({ status });
+          return JSON.stringify({ id: "fixture-dmg", status });
         },
+        notarizationSession({ log: () => {} }),
       );
     if (status === "Accepted") {
-      action();
+      await action();
       assert.ok(calls.some(([command, args]) => command === "xcrun" && args[1] === "validate"));
       assert.equal(calls.at(-1)[0], "spctl");
     } else {
-      assert.throws(action, /not accepted/);
+      await assert.rejects(action, new RegExp(status));
       assert.ok(!calls.some(([, args]) => args[0] === "stapler"));
     }
   }

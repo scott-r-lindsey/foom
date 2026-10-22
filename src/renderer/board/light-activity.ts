@@ -25,6 +25,14 @@ export class LightHistory {
   private sampleAt = -Infinity;
   private tracePeak = 0;
   private readonly history: { at: number; level: number }[] = [];
+  get settled(): boolean {
+    return (
+      this.target === 0 &&
+      this.level === 0 &&
+      this.tracePeak === 0 &&
+      this.history.every((sample) => sample.level === 0)
+    );
+  }
   step(
     rate: number,
     now: number,
@@ -41,6 +49,8 @@ export class LightHistory {
       this.targetAt = now;
     }
     this.level = smoothLevel(this.level, this.target, elapsed);
+    // Finish the asymptotic release once it is visually indistinguishable from zero.
+    if (this.target === 0 && this.level < 0.0001) this.level = 0;
     if (now - this.sampleAt < (reduced ? 1000 : 250)) return undefined;
     this.sampleAt = now;
     const shown = reduced ? Math.round(this.level * 3) / 3 : this.level;
@@ -63,18 +73,19 @@ export class LightHistory {
 
 type Target = { row: BoardRow; element: HTMLElement; trace?: SVGPathElement | null | undefined };
 /** DOM-only activity, owned and disposed by the mounted sidebar or tile. */
-export function subscribeLights(source: BoardSource, targets: () => Target[]): () => void {
+export function subscribeLights(
+  source: BoardSource,
+  targets: () => Target[],
+  remountRoot?: Node,
+): () => void {
   const meters = new Map<string, { history: LightHistory; rate: number; version: number }>();
   const latest = new Map<string, { rate: number; version: number }>();
-  const off = source.subscribeActivity((batch) => {
-    for (const { id, rate } of batch) {
-      const row = source.getSnapshot().find((item) => item.id === id);
-      if (row && !row.exited) latest.set(id, { rate, version: row.launchVersion ?? 0 });
-    }
-  });
+  let timer: number | undefined;
   let last = performance.now();
   const tick = () => {
+    timer = undefined;
     const now = performance.now();
+    let active = false;
     const reduced =
       typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const retained = new Set<string>();
@@ -84,7 +95,7 @@ export function subscribeLights(source: BoardSource, targets: () => Target[]): (
     }
     for (const { row, element, trace } of targets()) {
       if (!movingLight(row)) {
-        trace?.setAttribute("d", "");
+        if (trace && trace.getAttribute("d") !== "") trace.setAttribute("d", "");
         continue;
       }
       retained.add(row.id);
@@ -95,21 +106,63 @@ export function subscribeLights(source: BoardSource, targets: () => Target[]): (
       }
       meter.rate = latest.get(row.id)?.rate ?? meter.rate;
       const sample = meter.history.step(meter.rate, now, now - last, reduced, row.kind);
-      if (!reduced || sample)
-        element.style.setProperty(
-          "--activity",
-          String(reduced ? sample?.level : meter.history.level),
-        );
-      if (sample) trace?.setAttribute("d", sample.path);
+      if (!reduced || sample) {
+        const value = String(reduced ? sample?.level : meter.history.level);
+        if (element.style.getPropertyValue("--activity") !== value)
+          element.style.setProperty("--activity", value);
+      }
+      if (sample && trace) {
+        const path = meter.history.settled ? "M0.0 11.0 L34.0 11.0" : sample.path;
+        if (trace.getAttribute("d") !== path) trace.setAttribute("d", path);
+      }
+      active ||= meter.rate > 0 || !meter.history.settled;
     }
     for (const id of meters.keys()) if (!retained.has(id)) meters.delete(id);
     last = now;
+    if (active) timer = window.setTimeout(tick, 50);
   };
+  const wake = () => {
+    if (timer !== undefined) return;
+    last = performance.now();
+    timer = window.setTimeout(tick, 50);
+  };
+  const off = source.subscribeActivity((batch) => {
+    for (const { id, rate } of batch) {
+      const row = source.getSnapshot().find((item) => item.id === id);
+      if (row && !row.exited) latest.set(id, { rate, version: row.launchVersion ?? 0 });
+    }
+    wake();
+  });
+  const offRows = source.subscribe(wake);
+  // Filtering and rail/tile layout can remount lights without a source change.
+  // Observe structure only; our style/path writes never wake this observer.
+  let observer: MutationObserver | undefined;
+  if (remountRoot) {
+    observer = new MutationObserver((records) => {
+      if (
+        records.some(
+          (record) =>
+            record.target instanceof Element &&
+            !record.target.closest(".xterm, .tile-terminal") &&
+            [...record.addedNodes, ...record.removedNodes].some(
+              (node) =>
+                node instanceof Element &&
+                (node.matches(".board-light") || node.querySelector(".board-light")),
+            ),
+        )
+      )
+        wake();
+    });
+    observer.observe(remountRoot, { childList: true, subtree: true });
+  }
+  // Activity subscriptions may synchronously replay cached rates.
+  if (timer !== undefined) window.clearTimeout(timer);
   tick();
-  const timer = window.setInterval(tick, 50);
   return () => {
     off();
-    window.clearInterval(timer);
+    offRows();
+    observer?.disconnect();
+    window.clearTimeout(timer);
     meters.clear();
     latest.clear();
   };

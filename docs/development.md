@@ -95,7 +95,9 @@ Every stage finishes and failures are aggregated into a nonzero exit. Use the se
 memory-constrained machines. Local measurements and tradeoffs are recorded in the
 #494 pull request; elapsed savings depend on machine load and cache state.
 
-The macOS signer pins `@electron/notarize` at 3.1.2. A transitive
+The macOS signer invokes `notarytool` directly with bounded polling and visible
+submission progress (see [validation](validation.md)). The build dependencies
+retain the `@electron/notarize` 3.1.2 pin. A transitive
 `pnpm.overrides.vite` pin to 8.3.3 fixes GHSA-698v-4r3x-3vcv in Vitest's
 Vite dependency. It satisfies Vitest 5's Vite peer range; frozen installation,
 `pnpm run audit` and the full check/coverage runs validate the override.

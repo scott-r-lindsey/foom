@@ -23,7 +23,7 @@ Short steps center vertically. Content changes
 re-center over 180 milliseconds (immediately with reduced motion). Back, Continue and
 Launch stay in a footer at the bottom of the window, outside the scrolling content.
 
-The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–300%, so a presenter can zoom Foom alone without changing OS scaling; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Interface size applies immediately to all windows, their confirmations and previews. Each window grows and shrinks from its own remembered 100% size; only the window where you changed zoom follows the pointer. Terminal font size is separate and lives in Settings → Terminal. Launch opens the board. The board starts empty. A repository’s **New worktree** action creates a Git worktree for the branch, or focuses the checkout that already has it regardless of which tool created it, and launches nothing; checkout panels launch sessions. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
+The rail also holds **Appearance**: System, Light or Dark, and the interface size (80–300%, so a presenter can zoom Foom alone without changing OS scaling; the window grows and shrinks with it while the screen has room, around the pointer when you click + or − or scroll over the percentage, so what you pointed at stays under it; also ⌘ +/−/0 on macOS or Ctrl+Shift+=/−/0 elsewhere). Interface size applies immediately to all windows, their confirmations and previews. Each window grows and shrinks from its own remembered 100% size; only the window where you changed zoom follows the pointer. Terminal font size is separate and lives in Settings → Terminal. Launch opens the board with the bundled manual. No terminal starts automatically. A repository’s **New worktree** action creates a Git worktree for the branch, or focuses the checkout that already has it regardless of which tool created it, and launches nothing; checkout panels launch sessions. Sample sessions are available only in an explicit development build. After first run, **Settings** on the board edits the saved choices.
 
 At T-0, forge readiness lists only DNS hosts parsed from local remotes of the
 selected repositories. Enabled, explicitly assigned manifests use their existing
@@ -74,3 +74,11 @@ The rocket hit area follows the art when the window or interface zoom changes,
 including with reduced motion. Tab stays inside replay, and dismissal keys work
 after tabbing. Completion or dismissal restores focus to the control that opened
 About, after releasing the replay modal.
+
+## Bundled manual
+
+After setup first completes, the board opens the bundled HTML manual once.
+This offer is shared across all windows in the profile. Closing it before another
+setup window completes or saves preferences does not reopen it. The saved
+setup-complete state prevents automatic reopening on later launches.
+Closing the manual does not change setup; Help → Manual opens it again.

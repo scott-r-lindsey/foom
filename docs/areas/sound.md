@@ -36,7 +36,8 @@ fall back to the default and report a reason, never rewriting saved choices.
 The sound controller subscribes to board and setup sources. It reads main-owned
 execution metadata, never output rates. One steady loop at the selected volume
 plays while any agent is working; shells and exited sessions are excluded. Shell rows
-are also excluded from verdict alerts, so command completion and shell prompts stay silent. A 100 ms clock settles verdicts for
+are also excluded from verdict alerts, so command completion and shell prompts stay silent. An on-demand 100 ms clock runs only while alerts or attention reminders are
+pending. It settles verdicts for
 one second, spaces alerts by two seconds, gives attention priority and repeats
 outstanding attention every two minutes. State changes, removal and disposal cancel
 reminders; repeated verdict IDs do not restart them. Attention is muted in the focused tile while the document has focus, excluding

@@ -81,3 +81,9 @@ and clears at zero. macOS uses the Dock badge; Windows uses a taskbar overlay
 with an accessible count description (the compact image caps at 99); Linux uses
 the desktop badge API where supported. The macOS Dock menu lists waiting sessions;
 clicking one reveals it in the focused tile without clearing its attention state.
+
+## Manual
+
+Help → Manual is available in the wordmark menu on every platform and in the
+macOS native Help menu. It opens the bundled, offline HTML manual in a preview
+tile, or selects the existing manual instead of opening another copy. If it belongs to another board window, that window is focused. Its keyboard shortcut tables are generated from the command registry.

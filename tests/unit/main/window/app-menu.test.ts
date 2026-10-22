@@ -297,11 +297,17 @@ test("windowless macOS menu keeps native New Window and Quit accelerators withou
   const items = sections.flatMap((section) =>
     Array.isArray(section.submenu) ? section.submenu : [],
   );
-  expect(items.map((item) => item.label)).toEqual(["About Foom", "Quit Foom", "New Window"]);
+  expect(items.map((item) => item.label)).toEqual([
+    "About Foom",
+    "Quit Foom",
+    "Manual",
+    "New Window",
+  ]);
   for (const item of items) item.click?.({} as Electron.MenuItem, undefined, {});
   expect(mock.about).not.toHaveBeenCalled();
   expect(mock.quit).toHaveBeenCalledOnce();
-  expect(open).toHaveBeenCalledTimes(2);
+  expect(open).toHaveBeenCalledTimes(3);
+  expect(open).toHaveBeenCalledWith("manual");
   expect(
     items
       .filter((item) => item.accelerator)

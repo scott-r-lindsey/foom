@@ -179,3 +179,32 @@ test("reduced trace uses four discrete peak heights independently of glow bright
     );
   }
 });
+
+test("structural remounts wake sleeping lights, while terminal paints do not", async () => {
+  vi.useFakeTimers();
+  const fixture = boardRows(0)[1];
+  if (!fixture) throw new Error("Missing fixture");
+  const row = { ...fixture, kind: "shell" as const, rate: 0 };
+  const source = createSampleSource([row]);
+  const host = document.createElement("div");
+  const terminal = document.createElement("div");
+  terminal.className = "xterm";
+  host.append(terminal);
+  document.body.append(host);
+  let element = document.createElement("span");
+  const stop = subscribeLights(source, () => [{ row, element }], host);
+  expect(vi.getTimerCount()).toBe(0);
+  terminal.append(document.createElement("span"));
+  await Promise.resolve();
+  expect(vi.getTimerCount()).toBe(0);
+  element = document.createElement("span");
+  element.className = "board-light";
+  host.append(element);
+  await Promise.resolve();
+  expect(vi.getTimerCount()).toBe(1);
+  vi.advanceTimersByTime(50);
+  expect(element.style.getPropertyValue("--activity")).toBe("0");
+  expect(vi.getTimerCount()).toBe(0);
+  stop();
+  host.remove();
+});
