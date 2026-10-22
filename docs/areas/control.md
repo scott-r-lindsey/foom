@@ -71,3 +71,7 @@ serve `/control/v1`. The existing provider ABI uses `FOOM_CONTROL_URL` and
 isolated listener, with no instance ID, CLI directory or control grant. Exit,
 early exit, failed preparation/spawn and shutdown close it and remove private
 attachment files. Ordinary and orchestrator grants are unchanged.
+The manual listener shares the control endpoint's authority-free transport
+helpers: 8 KiB headers, 32 connections, five-second header/body deadlines checked
+every second, and four outstanding authenticated requests reserved before body
+reads. Excess requests receive 429; close or upload error releases the slot.

@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { createServer } from "node:http";
+import { boundedHttpServer, reserveRequest } from "./http-limits";
 import { bundledManual, ManualSectionError } from "./manual";
 import { manualTools } from "./mcp-tools";
 import { exact, object } from "../../node-common/control-validation";
@@ -11,8 +11,9 @@ export class ManualMcp {
   private origin = "";
   private session: { id: string; version: string; ready: boolean } | undefined;
   private closed = false;
+  private readonly requests = { calls: 0 };
 
-  private readonly server = createServer({ maxHeaderSize: 8192 }, (request, response) => {
+  private readonly server = boundedHttpServer((request, response) => {
     const end = (status: number, body?: unknown, session?: string) => {
       response.writeHead(status, {
         "Content-Type": "application/json",
@@ -38,6 +39,14 @@ export class ManualMcp {
       end(403);
       return;
     }
+    let release: () => void;
+    try {
+      release = reserveRequest(this.requests);
+    } catch {
+      end(429, { error: "capacity" });
+      return;
+    }
+    response.once("close", release);
     const session = request.headers["mcp-session-id"];
     const version = request.headers["mcp-protocol-version"];
     if (
@@ -67,6 +76,7 @@ export class ManualMcp {
     let size = 0;
     request.on("error", () => {
       chunks.length = 0;
+      release();
     });
     request.on("data", (chunk: Buffer) => {
       if (response.writableEnded) return;
@@ -157,7 +167,7 @@ export class ManualMcp {
         if (value["method"] === "tools/call") {
           exact(params, ["name", "arguments"]);
           if (params["name"] !== "manual") {
-            result({ isError: true, content: [{ type: "text", text: "Unknown tool" }] });
+            end(200, { jsonrpc: "2.0", id, error: { code: -32602, message: "Unknown tool" } });
             return;
           }
           try {
@@ -189,13 +199,8 @@ export class ManualMcp {
       }
     });
   });
-  private constructor() {
-    this.server.maxConnections = 32;
-    this.server.requestTimeout = 5000;
-    this.server.headersTimeout = 5000;
-    this.server.timeout = 5000;
-    this.server.keepAliveTimeout = 1000;
-  }
+  private constructor() {}
+
   static async listen(): Promise<ManualMcp> {
     const mcp = new ManualMcp();
     await new Promise<void>((resolve, reject) => {

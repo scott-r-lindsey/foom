@@ -79,7 +79,8 @@ on demand, never included in startup instructions.
 
 Config sessions receive a separate manual-only attachment (#704) when their
 provider supports per-launch MCP. It registers exactly `manual`; every other
-tool name is refused as unknown. Its dedicated loopback listener and random
+tool name receives a JSON-RPC `-32602` protocol error (unknown tool), rather than
+a tool execution result. Its dedicated loopback listener and random
 credential are independent of control grants, pairing and orchestration. It
 uses the same private per-launch client files/arguments and random server name;
 Claude pre-approval includes only `manual` on that server. No global agent

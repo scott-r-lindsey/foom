@@ -1,3 +1,5 @@
+import { connect } from "node:net";
+import * as limits from "../../../../src/main/control/http-limits";
 import { request } from "node:http";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ManualMcp } from "../../../../src/main/control/manual-mcp";
@@ -67,8 +69,12 @@ it("registers exactly manual and refuses every control tool and arbitrary names 
   expect(listed).toEqual({ jsonrpc: "2.0", id: 2, result: { tools: manualTools } });
   for (const name of [...mcpTools(4, ["codex"]).map((tool) => tool.name), "unknown", "__proto__"]) {
     if (name === "manual") continue;
-    expect(await (await call(name)).json()).toMatchObject({
-      result: { isError: true, content: [{ text: "Unknown tool" }] },
+    const refused = await call(name);
+    expect(refused.status).toBe(200);
+    expect(await refused.json()).toEqual({
+      jsonrpc: "2.0",
+      id: 3,
+      error: { code: -32602, message: "Unknown tool" },
     });
   }
   expect(await (await call("manual")).json()).toMatchObject({
@@ -203,3 +209,76 @@ it("bounds request bodies, rejects invalid UTF-8 and discards aborted requests",
     });
   });
 });
+
+it("reserves at most four bodies before reading them and releases aborted uploads", async () => {
+  await init();
+  const reserved = vi.spyOn(limits, "reserveRequest");
+  const uploads = Array.from({ length: 4 }, () => {
+    const req = request(mcp.url.replace("/control/v1", "/mcp"), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${mcp.token}`, "Content-Type": "application/json" },
+    });
+    req.on("error", () => {});
+    req.write("{");
+    return req;
+  });
+  try {
+    await vi.waitFor(() => {
+      expect(reserved).toHaveBeenCalledTimes(4);
+    });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const refused = await send({ jsonrpc: "2.0", id: 10, method: "ping" });
+      expect(refused.status).toBe(429);
+      expect(await refused.json()).toEqual({ error: "capacity" });
+    }
+    expect((await send({}, { Authorization: "Bearer wrong" })).status).toBe(401);
+    const first = uploads[0];
+    if (!first) throw Error("Missing upload");
+    first.destroy();
+    await vi.waitFor(async () => {
+      expect((await send({ jsonrpc: "2.0", id: 11, method: "ping" })).status).toBe(200);
+    });
+  } finally {
+    for (const req of uploads) req.destroy();
+  }
+});
+
+it.each(["headers", "body"])(
+  "cuts off a continuously trickling %s at the transport deadline",
+  async (phase) => {
+    await init();
+    const url = new URL(mcp.url);
+    const socket = connect(Number(url.port), url.hostname);
+    let chunks = "";
+    let trickle: ReturnType<typeof setInterval> | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const response = new Promise<string>((resolve, reject) => {
+      deadline = setTimeout(() => {
+        reject(Error("Transport deadline did not close the socket"));
+      }, 8000);
+      socket.on("data", (data: Buffer) => {
+        chunks += data.toString("utf8");
+      });
+      socket.once("error", reject);
+      socket.once("close", () => {
+        resolve(chunks);
+      });
+      socket.once("connect", () => {
+        const headers = `POST /mcp HTTP/1.1\r\nHost: ${url.host}\r\nAuthorization: Bearer ${mcp.token}\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n`;
+        socket.write(headers + (phase === "headers" ? "X-Trickle: " : "\r\n1\r\n{\r\n"));
+        trickle = setInterval(() => {
+          socket.write(phase === "headers" ? " " : "1\r\n \r\n");
+        }, 250);
+      });
+    });
+    try {
+      expect(await response).toMatch(/^HTTP\/1\.1 408 Request Timeout/u);
+      expect((await send({ jsonrpc: "2.0", id: 12, method: "ping" })).status).toBe(200);
+    } finally {
+      clearInterval(trickle);
+      clearTimeout(deadline);
+      socket.destroy();
+    }
+  },
+  10000,
+);

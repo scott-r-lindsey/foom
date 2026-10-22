@@ -36,7 +36,8 @@ if (process.argv.includes('--help')) { console.log('-c --no-alt-screen'); proces
     session ||= response.headers.get('mcp-session-id');
     if (response.status === 202) return;
     const body = await response.json();
-    if ((!message.expectError && body.result?.isError) || body.error) throw Error(JSON.stringify(body));
+    if (message.expectError) return body;
+    if (body.result?.isError || body.error) throw Error(JSON.stringify(body));
     return body.result;
   };
   const initialized = await request({ id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'manual-fixture', version: '1' } } });
@@ -54,7 +55,7 @@ if (process.argv.includes('--help')) { console.log('-c --no-alt-screen'); proces
   if (${configSession}) {
     for (const name of ${JSON.stringify(toolsToRefuse)}) {
       const result = await request({ id: 500, method: 'tools/call', params: { name }, expectError: true });
-      if (!result.isError || result.content[0].text !== 'Unknown tool') throw Error('Unexpected authority: ' + name);
+      if (result.jsonrpc !== '2.0' || result.id !== 500 || result.error?.code !== -32602 || result.error.message !== 'Unknown tool' || result.result !== undefined) throw Error('Unexpected tool envelope: ' + name);
       refused.push(name);
     }
   }
