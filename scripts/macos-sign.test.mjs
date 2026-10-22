@@ -694,6 +694,138 @@ if (${JSON.stringify(name)} === 'xcrun' && args[0] === 'notarytool') {
   assert.equal(time, 10);
 });
 
+test("fixture stapler retries app/DMG staple and validate within the shared deadline", {
+  skip: process.platform === "win32",
+}, async (t) => {
+  const { root, app } = fixture(t);
+  const bin = join(root, "stapler-bin");
+  mkdirSync(bin);
+  const countFile = join(root, "stapler-count");
+  for (const name of ["xcrun", "codesign", "ditto", "spctl"]) {
+    const file = join(bin, name);
+    writeFileSync(
+      file,
+      `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (${JSON.stringify(name)} === 'spctl') console.log('source=Notarized Developer ID');
+if (${JSON.stringify(name)} === 'xcrun') {
+  if (args[0] === 'notarytool') console.log(JSON.stringify({id:'fixture-submission-id',status:'Accepted'}));
+  if (args[0] === 'stapler' && args[1] === process.env.FIXTURE_STAPLER_OPERATION) {
+    const count = fs.existsSync(${JSON.stringify(countFile)}) ? Number(fs.readFileSync(${JSON.stringify(countFile)}, 'utf8')) + 1 : 1;
+    fs.writeFileSync(${JSON.stringify(countFile)}, String(count));
+    if (count <= Number(process.env.FIXTURE_STAPLER_FAILURES)) {
+      console.error(process.env.FIXTURE_STAPLER_ERROR + ' failure-' + count + ' fixture-secret-key');
+      process.exit(68);
+    }
+  }
+}
+`,
+    );
+    chmodSync(file, 0o755);
+  }
+  const previous = { ...process.env };
+  t.after(() => {
+    process.env = previous;
+  });
+  process.env.PATH = bin;
+  const credentials = {
+    appleApiKey: "fixture-secret-key",
+    appleApiKeyId: "fixture-key-id",
+    appleApiIssuer: "fixture-issuer",
+  };
+  const scenarios = [
+    { error: "", failures: 0, attempts: 1 },
+    ...[-1001, -1003, -1004, -1005, -1009].map((code) => ({
+      error: `NSURLErrorDomain Code=${code} "Transport failure". Error 68.`,
+      failures: 1,
+      attempts: 2,
+    })),
+    { error: "CloudKit: Record not found. Error 65.", failures: 1, attempts: 2 },
+    { error: "Ticket is not yet available. Error 68.", failures: 1, attempts: 2 },
+    {
+      error: 'NSURLErrorDomain Code=-1005 "The network connection was lost." Error 68.',
+      failures: 9,
+      attempts: 6,
+      rejects: true,
+    },
+    ...[
+      'NSURLErrorDomain Code=-1202 "The certificate for this server is invalid." Error 68.',
+      "Invalid signature. The staple and validate action failed! Error 65.",
+      "The staple and validate action failed! Error 65.",
+      "The staple and validate action failed! Error 68.",
+      "CloudKit authentication failed. Error 68.",
+    ].map((error) => ({ error, failures: 9, attempts: 1, rejects: true })),
+    {
+      error: "CloudKit: Record not found",
+      failures: 9,
+      attempts: 2,
+      rejects: true,
+      deadlineMs: 50,
+    },
+  ];
+  for (const target of [app, "signed.dmg"]) {
+    for (const operation of ["staple", "validate"]) {
+      for (const scenario of scenarios) {
+        rmSync(countFile, { force: true });
+        process.env.FIXTURE_STAPLER_OPERATION = operation;
+        process.env.FIXTURE_STAPLER_ERROR = scenario.error;
+        process.env.FIXTURE_STAPLER_FAILURES = String(scenario.failures);
+        let time = 0;
+        const messages = [];
+        const waits = [];
+        const session = notarizationSession({
+          deadlineMs: scenario.deadlineMs ?? 1000,
+          stapleRetryMs: 30,
+          queryTimeoutMs: 100,
+          now: () => time,
+          wait: async (ms) => {
+            waits.push(ms);
+            time += ms;
+          },
+          log: (line) => messages.push(line),
+        });
+        const execute = (command, args, options) => {
+          if (args[0] === "stapler") {
+            assert.equal(options.killSignal, "SIGKILL");
+            assert.equal(options.timeout, Math.min(100, (scenario.deadlineMs ?? 1000) - time));
+          }
+          return run(command, args); // Only fixture processes; simulated clock.
+        };
+        const action = () =>
+          target === app
+            ? notarizeApp(target, credentials, execute, session)
+            : signDmg(target, credentials, execute, session);
+        if (scenario.rejects) {
+          await assert.rejects(action, (error) => {
+            assert.match(error.message, /fixture-submission-id \(Accepted\)/);
+            assert.ok(error.message.includes(`failure-${scenario.attempts}`));
+            assert.ok(!inspect(error).includes(credentials.appleApiKey));
+            if (scenario.deadlineMs) assert.match(error.message, /deadline exceeded/);
+            return true;
+          });
+        } else await action();
+        assert.equal(Number(readFileSync(countFile, "utf8")), scenario.attempts);
+        const results = messages.filter(
+          (line) => line.includes(`stapler ${operation} attempt`) && line.includes("exit status"),
+        );
+        assert.equal(results.length, scenario.attempts);
+        for (const line of results) {
+          assert.match(line, /^\[1970-01-01T/);
+          assert.ok(line.includes(target === app ? "Foom.app" : "signed.dmg"));
+          assert.match(line, /exit status (?:0|68)/);
+        }
+        assert.ok(!messages.join("\n").includes(credentials.appleApiKey));
+        assert.equal(waits.length, scenario.attempts - 1 + (scenario.deadlineMs ? 1 : 0));
+        if (scenario.deadlineMs) {
+          assert.deepEqual(waits, [30, 20]);
+          assert.equal(time, scenario.deadlineMs);
+        }
+      }
+    }
+  }
+});
+
 test("notarization job leaves overhead beyond the single shared 120-minute budget", () => {
   assert.equal(notarizationDeadlineMs, 120 * 60 * 1000);
   const job = readFileSync(".github/workflows/ci.yml", "utf8")
