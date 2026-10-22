@@ -58,3 +58,16 @@ appends share one write and sync (split only at the 10 MiB rotation boundary), t
 all snapshots are removed. Invalid or unreadable snapshots and audit failures refuse
 startup and retain snapshots for reconciliation. It never restores
 authority or replays actions. Mutation handlers retain trusted dialog wiring, action visibility and takeover together.
+
+## Config-session manual boundary (#704)
+
+Config agents receive no `ControlService` grant or principal. A separate per-launch
+`ManualMcp` loopback listener registers only `manual` and directly calls the
+same authority-independent bundled reader. Every other tool name is unknown,
+including explicitly named control, preview, handoff and orchestration tools.
+The listener has no workspace, repository or session dependencies and cannot
+serve `/control/v1`. The existing provider ABI uses `FOOM_CONTROL_URL` and
+`FOOM_CONTROL_TOKEN` to attach it; those credentials authenticate only that
+isolated listener, with no instance ID, CLI directory or control grant. Exit,
+early exit, failed preparation/spawn and shutdown close it and remove private
+attachment files. Ordinary and orchestrator grants are unchanged.

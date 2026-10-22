@@ -93,7 +93,9 @@ reason. There is no change history (#540).
 folder: no worktree, no repository-scoped control grant, the usual per-launch hooks
 and evaluator, the same Environment layers as other sessions, and the bundled
 console directory first on `PATH`, ahead of Environment entries, even if the CLI was
-never installed. A new agent config session receives a fixed, main-only greeting
+never installed. Supported agents also receive a separate, manual-only MCP attachment
+with no repository or session authority; see [MCP](mcp.md#bundled-manual-699).
+A new agent config session receives a fixed, main-only greeting
 that asks what the user wants to change; resuming a conversation adds no greeting.
 Antigravity receives it only when interactive prompts are supported, preserving
 any user default prompts. `config-launch` carries no prompt.

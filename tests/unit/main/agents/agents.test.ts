@@ -1471,3 +1471,58 @@ it("checks manifest environment after layering and rejects its bypass for childr
     }),
   ).rejects.toThrow("Unattended child");
 });
+
+it.each(["exit", "early-exit", "spawn-failure", "shutdown", "prepare-failure"])(
+  "config manual attachments have no control grant and clean up on %s",
+  async (outcome) => {
+    const { ManualMcp } = await import("../../../../src/main/control/manual-mcp");
+    const listen = vi.spyOn(ManualMcp, "listen");
+    const grant = vi.fn(() => Promise.resolve({ env: {}, bind: vi.fn(), dispose: vi.fn() }));
+    versions.claude = "2.1.300 (Claude Code)";
+    help += "\n--mcp-config <file>";
+    service = new AgentService({ listWorktrees, launchIdentity }, { create }, prepare, grant);
+    create.mockImplementation(() => {
+      if (outcome === "spawn-failure") throw Error("spawn failed");
+      if (outcome === "early-exit") service.release("terminal-id");
+      return "terminal-id";
+    });
+    const configRequest = {
+      ...request,
+      configCli: "/app/console",
+      ...(outcome === "prepare-failure" ? { prompt: "-invalid" } : {}),
+    };
+    try {
+      if (outcome === "spawn-failure" || outcome === "prepare-failure")
+        await expect(service.launch(configRequest)).rejects.toThrow();
+      else await service.launch(configRequest);
+      expect(grant).not.toHaveBeenCalled();
+      expect(listWorktrees).not.toHaveBeenCalled();
+      const attachment: unknown = await listen.mock.results[0]?.value;
+      if (!(attachment instanceof ManualMcp)) throw Error("Missing manual attachment");
+      expect(attachment.env["FOOM_CONTROL_INSTANCE"]).toBeUndefined();
+      expect(attachment.env["FOOM_CLI_DIRECTORY"]).toBeUndefined();
+      const url = attachment.url.replace("/control/v1", "/mcp");
+      if (outcome === "exit" || outcome === "shutdown") {
+        const spec = create.mock.calls.at(-1)?.[0];
+        expect(spec?.env?.["FOOM_CONTROL_TOKEN"]).toBe(attachment.token);
+        const permissions = spec?.args.filter((arg) => arg.startsWith("mcp__"));
+        expect(permissions).toHaveLength(1);
+        expect(permissions?.[0]).toMatch(/__manual$/u);
+        const fileIndex = spec?.args.indexOf("--mcp-config") ?? -1;
+        const file = spec?.args[fileIndex + 1];
+        if (!file) throw Error("Missing private MCP file");
+        expect(await readFile(file, "utf8")).toContain(url);
+        if (outcome === "exit") service.release("terminal-id");
+        else service.dispose();
+        await vi.waitFor(async () => {
+          await expect(readFile(file, "utf8")).rejects.toThrow();
+        });
+      }
+      await expect(fetch(url)).rejects.toThrow();
+    } finally {
+      service.dispose();
+      listen.mockRestore();
+      versions.claude = "2.1.284 (Claude Code)";
+    }
+  },
+);

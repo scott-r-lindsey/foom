@@ -42,7 +42,10 @@ it before probing; launch checks it before preparation and again immediately bef
 spawning, and rejects a replaced provider until the next scan loads the edit.
 Worktrees and same-user processes remain outside an isolation guarantee. Running sessions keep their launch-bound
 hook extractors after a file change. Config sessions receive no repository control
-grant, as before. Config agents inherit All sessions environment settings; the
+grant. Supported config-session launches receive a separate manual-only MCP
+attachment with fresh per-launch credentials and exactly the `manual` tool; it
+has no repository, session, worktree, preview or orchestration authority and is
+revoked on exit. Config agents inherit All sessions environment settings; the
 existing per-agent Environment editors remain built-in scopes.
 
 The hook receiver captures the loaded mapping at registration. Fixed top-level

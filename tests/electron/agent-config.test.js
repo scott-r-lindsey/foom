@@ -170,3 +170,64 @@ process.stdin.on("data", (key) => {
   await assert.rejects(require("node:fs/promises").access(path.join(folder, ".git")));
   await assertAccessible(page);
 });
+
+test("config agents receive only the bundled manual and revoke the attachment on exit", {
+  timeout: deadline(90_000),
+}, async (context) => {
+  const { installManualAgent } = require("./manual-agent.js");
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-config-manual-")));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  await mkdir(bin);
+  await mkdir(home);
+  const report = await installManualAgent(home, bin, true);
+  const app = await launchApp(context, { fixture: "agent", home, env: { HOME: home, PATH: bin } });
+  const page = await boardPage(app);
+  await page.locator(".config-gear").click();
+  await page
+    .getByRole("dialog", { name: "Foom config details and commands" })
+    .getByRole("menuitem", { name: "Via Codex", exact: true })
+    .click();
+  let result;
+  await expect
+    .poll(async () => {
+      try {
+        result = JSON.parse(await readFile(report, "utf8"));
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .toBe(true);
+  assert.equal(result.error, undefined);
+  assert.deepEqual(result.tools, ["manual"]);
+  assert.equal(result.instructions, "For questions about using Foom, call manual.");
+  assert.ok(result.refused.includes("whoami"));
+  assert.ok(result.refused.includes("handoff"));
+  assert.ok(result.refused.includes("launch"));
+  const index = JSON.parse(await readFile("build/manual/sections.json", "utf8"));
+  assert.equal(result.text, index.find((section) => section.id === "shortcuts").text);
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (entry) => entry.config,
+        )?.exitCode,
+    )
+    .toBe(0);
+  await expect
+    .poll(async () => {
+      try {
+        await fetch(result.url, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${result.token}`, "Content-Type": "application/json" },
+          body: "{}",
+        });
+        return false;
+      } catch {
+        return true;
+      }
+    })
+    .toBe(true);
+});

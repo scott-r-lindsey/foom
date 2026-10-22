@@ -260,7 +260,6 @@ it.each([
         attached
           ? {
               env: { FOOM_CONTROL_URL: "http://127.0.0.1:1234/control/v1" },
-              bind: vi.fn(),
               dispose: vi.fn(),
             }
           : undefined,

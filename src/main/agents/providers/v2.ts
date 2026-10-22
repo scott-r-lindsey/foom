@@ -316,7 +316,11 @@ export function v2Provider(
           grants = (
             verification
               ? [{ name: "ping" }]
-              : mcpTools(1, []).filter((tool) => tools.names.includes(tool.name))
+              : mcpTools(1, []).filter(
+                  (tool) =>
+                    tools.names.includes(tool.name) &&
+                    (control?.toolNames === undefined || control.toolNames.includes(tool.name)),
+                )
           ).map(({ name: tool }) =>
             tools.format === "mcp-double-underscore"
               ? `mcp__${String(values["mcpName"] ?? "")}__${tool}`

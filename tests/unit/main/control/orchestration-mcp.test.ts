@@ -506,3 +506,45 @@ it.each(["disconnect", "revoke"])(
     });
   },
 );
+
+it("manual-only credentials never become child or orchestrator control grants", async () => {
+  const { ManualMcp } = await import("../../../../src/main/control/manual-mcp");
+  const ordinary = service.authenticate(tokens.agent);
+  const parent = service.authenticate(tokens.orchestrator);
+  const before = [
+    service.capabilities(ordinary),
+    service.capabilities(parent),
+    service.listed(ordinary),
+    service.listed(parent),
+  ];
+  const manual = await ManualMcp.listen();
+  try {
+    expect(() => service.authenticate(manual.token)).toThrow("unauthorized");
+    expect([
+      service.capabilities(ordinary),
+      service.capabilities(parent),
+      service.listed(ordinary),
+      service.listed(parent),
+    ]).toEqual(before);
+    expect(service.capabilities(ordinary)).toContain("manual");
+    expect(service.capabilities(ordinary)).not.toContain("launch");
+    expect(service.capabilities(parent)).toContain("launch");
+    const response = await fetch(manual.url.replace("/control/v1", "/mcp"), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${tokens.orchestrator}`,
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+    });
+    expect(response.status).toBe(401);
+  } finally {
+    manual.dispose();
+  }
+  expect([
+    service.capabilities(ordinary),
+    service.capabilities(parent),
+    service.listed(ordinary),
+    service.listed(parent),
+  ]).toEqual(before);
+});

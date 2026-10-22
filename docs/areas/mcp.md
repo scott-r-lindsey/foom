@@ -77,7 +77,12 @@ about Foom, not instructions for the current task. Server instructions say
 “For questions about using Foom, call manual.” Manual content is fetched only
 on demand, never included in startup instructions.
 
-Config sessions still receive no repository control grant or Foom MCP attachment,
-so they do not receive `manual` yet. Their manual-only attachment is split out of
-#699 into a separate boundary change. This tool does not change config launch or
-grants. The reader itself requires no repository/session authority for reuse.
+Config sessions receive a separate manual-only attachment (#704) when their
+provider supports per-launch MCP. It registers exactly `manual`; every other
+tool name is refused as unknown. Its dedicated loopback listener and random
+credential are independent of control grants, pairing and orchestration. It
+uses the same private per-launch client files/arguments and random server name;
+Claude pre-approval includes only `manual` on that server. No global agent
+configuration is written. Session exit (including early exit), failed launch
+and shutdown revoke the credential, close the listener and dispose launch files.
+The reader requires no repository/session authority; this attachment carries none.
