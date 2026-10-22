@@ -154,7 +154,7 @@ it("accepts installed channel-less observers only through their launch-bound pro
 it.each([
   ["placement", "launch"],
   ["transport", "argv-last"],
-  ["version", 3],
+  ["version", 4],
   ["response", "silent"],
   ["delivery", "foreground"],
   ["timeoutMs", 2000],

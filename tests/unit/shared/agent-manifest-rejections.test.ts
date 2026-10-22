@@ -584,3 +584,11 @@ it("detects path suffixes after an earlier authorization substitution", () => {
   );
   expect(() => parse(source)).toThrow("placeholder-path-arithmetic");
 });
+
+it.each([
+  ["setup.status.probe.fallbackArguments", ["plugin", "install", "foom"]],
+  ["setup.status.probe.fallbackArguments", ["plugin", "list", "--all"]],
+  ["setup.status.probe.arguments", ["plugin", "list", "--all"]],
+])("rejects unsafe setup compatibility argv at %s", (path, args) => {
+  expect(() => parse(changed(agy, path, args))).toThrow();
+});

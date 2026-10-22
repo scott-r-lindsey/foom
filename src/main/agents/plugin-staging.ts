@@ -14,11 +14,12 @@ import { observerAssets, observerInvocation, observerVersion } from "./providers
 import { readOwnedFile } from "./providers/v2-files";
 import { expandV2, selected, type Facts } from "./providers/v2-values";
 
-/** Pure platform-specific definitions. Commands stay relative when the CLI copies the plugin. */
+/** Platform-specific definitions. The normalized root keeps definition identity independent of the profile. */
 export function pluginContent(
   model: AgentManifestV2,
   facts: Facts,
   windows = process.platform === "win32",
+  directory?: string,
 ) {
   const files = model.files.filter((file) => file.scope === "plugin" && selected(file.when, facts));
   const assets: { name: string; content: string }[] = [];
@@ -36,7 +37,7 @@ export function pluginContent(
     const folder = channel.observer.protocol === "ordered-v2" ? "" : `observers/${channel.id}`;
     for (const [name, content] of Object.entries(observerAssets(channel, windows)))
       assets.push({ name: folder ? `${folder}/${name}` : name, content });
-    const script = `./${folder ? `${folder}/` : ""}observer.${windows ? "ps1" : "sh"}`;
+    const script = `${directory ?? "/FOOM_PLUGIN_ROOT"}/${folder ? `${folder}/` : ""}observer.${windows ? "ps1" : "sh"}`;
     values[`observerVersion:${channel.id}`] = observerVersion(channel, windows);
     const add = (event?: string) => {
       const suffix = event ? `.${event}` : "";
@@ -46,10 +47,7 @@ export function pluginContent(
         windows,
         false,
       );
-      values[`observerCommand:${channel.id}${suffix}`] =
-        channel.observer.protocol === "ordered-v2"
-          ? `${windows ? "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File" : "sh"} ${script}${event ? ` ${event}` : ""}`
-          : invocation.command;
+      values[`observerCommand:${channel.id}${suffix}`] = invocation.command;
       values[`observerArgv:${channel.id}${suffix}`] = invocation.argv;
     };
     add();
@@ -74,7 +72,10 @@ export function pluginContent(
   )
     throw Error("Conflicting staged plugin files");
   content.push(...assets);
-  const fingerprint = createHash("sha256").update(JSON.stringify(content)).digest("hex");
+  const fingerprint: string =
+    directory === undefined
+      ? createHash("sha256").update(JSON.stringify(content)).digest("hex")
+      : pluginContent(model, facts, windows).fingerprint;
   // CLI-owned metadata carries the definition identity; no launch data enters the hash.
   if (assets.length) {
     const manifest = content.find((file) => file.name === "plugin.json");
@@ -94,9 +95,10 @@ export async function stagePlugin(
   facts: Facts,
   windows = process.platform === "win32",
 ) {
-  const { content, fingerprint } = pluginContent(model, facts, windows);
+  const { fingerprint } = pluginContent(model, facts, windows);
   const parent = await privateDirectory(root, "agent-plugins");
   const directory = await privateDirectory(parent, fingerprint);
+  const { content } = pluginContent(model, facts, windows, directory);
   for (const file of content) {
     let folder = directory;
     for (const component of file.name.split("/").slice(0, -1))

@@ -550,10 +550,11 @@ export function emptyProbe(v: unknown, p: string) {
   };
 }
 export function probe(v: unknown, p: string) {
-  const d = object(v, p, ["arguments", "format"], ["empty"]);
+  const d = object(v, p, ["arguments", "format"], ["empty", "fallbackArguments"]);
   return {
     arguments: argv(d["arguments"], `${p}.arguments`),
     format: literal("json")(d["format"], `${p}.format`),
+    fallbackArguments: optional(argv)(d["fallbackArguments"], `${p}.fallbackArguments`),
     empty: optional(emptyProbe)(d["empty"], `${p}.empty`),
   };
 }

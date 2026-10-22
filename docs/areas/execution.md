@@ -100,7 +100,7 @@ are ignored. User manifests retain the generic v2 channel `disclosure` mechanism
 
 The bundled Antigravity manifest uses generic `PluginSetup` status, ownership,
 staging and fixed CLI actions. Status reads at most 64 KiB from each fixed metadata
-path because `plugin list` omits version and enabled state. Unrecognized, linked or
+path to establish ownership and observer version. agy 1.4.x uses `plugin list --json` (array with enabled state); failed --json calls may fall back to the legacy 1.3.x object/empty-text list. Unrecognized, linked or
 unreadable ownership remains unavailable and cannot authorize mutation. Settings
 and preflight use `agents:setup`, whose trusted dialog discloses the executable,
 fixed argv, installation location, observer-only behavior, exact staged bytes and
@@ -114,13 +114,10 @@ setup IPC name forwards to the same model-owned action/confirmation path; it can
 bypass setup ownership or consent. New scans and actions use the model.
 The same `agy` enable/hooks/defaults/session keys are retained.
 
-The version-2 ordered observer ABI preserves existing root-level filenames, hook
-commands and native script bytes, including relative invocation while #467 is
-unresolved. Generic staging under Foom's profile adds only a definition fingerprint
-to plugin metadata; the CLI alone copies it into its installation. A recognized
-legacy version >=2 without a fingerprint remains installed with no reinstall.
+The version-3 ordered observer preserves root-level filenames and native script bytes, but anchors commands to the absolute private staged plugin directory (#467/#723). Generic staging under Foom's profile adds only a definition fingerprint
+to plugin metadata; the CLI alone copies it into its installation. Legacy versions 1 and 2 offer Update; version 3 requires the current definition fingerprint.
 Older versions offer Update; disabled versions offer Enable; explicit fingerprint
-mismatches offer reviewed Update. Launch adds credentials only when hooks are
+mismatches offer reviewed Update. Owned installed/outdated/disabled plugins also offer a confirmed Reinstall (uninstall then install); unavailable status offers Retry status in the row. Launch adds credentials only when hooks are
 enabled and installed or outdated. Channel-less reports are accepted only for the
 single declared compatibility channel, bound to the authenticated launch.
 A private temporary per-launch counter orders background reports; it contains no

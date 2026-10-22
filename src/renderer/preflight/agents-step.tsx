@@ -252,7 +252,23 @@ export function AgentsStep({
                         !state.settings.agyPluginOfferAnswered && <span>Plugin available</span>}
                       {installed && agent?.setup && source?.changeAgentSetup && (
                         <>
-                          <span>Plugin · {agent.setup.state}</span>
+                          <span>
+                            Plugin ·{" "}
+                            {agent.setup.state === "unavailable"
+                              ? "Status unavailable"
+                              : agent.setup.state}
+                          </span>
+                          {agent.setup.state === "unavailable" && (
+                            <button
+                              type="button"
+                              disabled={reviewing || scanning}
+                              onClick={() => {
+                                void scan(true);
+                              }}
+                            >
+                              Retry status
+                            </button>
+                          )}
                           {agent.setup.offer && <span>{agent.setup.offer}</span>}
                           {agent.setup.actions.map((action) => (
                             <button

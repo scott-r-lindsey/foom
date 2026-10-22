@@ -175,7 +175,7 @@
         "observer": {
           "transport": "stdin",
           "placement": "plugin",
-          "version": 2,
+          "version": 3,
           "response": "empty-json-first",
           "delivery": "detached",
           "timeoutMs": 1000,
@@ -375,14 +375,15 @@
   "setup": {
     "status": {
       "probe": {
-        "arguments": ["plugin", "list"],
+        "arguments": ["plugin", "list", "--json"],
         "format": "json",
         "empty": {
           "text": "No imported plugins.",
           "value": {
             "imports": []
           }
-        }
+        },
+        "fallbackArguments": ["plugin", "list"]
       },
       "metadata": [
         {
@@ -420,7 +421,7 @@
           "source": "metadata",
           "path": ["manifest", "foomObserverVersion"]
         },
-        "currentVersion": 2,
+        "currentVersion": 3,
         "disabledField": {
           "source": "metadata",
           "path": ["manifest", "disabled"]
@@ -428,8 +429,7 @@
         "enabledField": {
           "source": "metadata",
           "path": ["config", "plugins", "foom", "enabled"]
-        },
-        "unfingerprintedVersion": 2
+        }
       },
       "cases": [
         {
@@ -498,7 +498,7 @@
               {
                 "field": "version",
                 "op": "lt",
-                "value": 2
+                "value": 3
               }
             ]
           },
@@ -535,7 +535,7 @@
           ]
         },
         "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; observes only Foom launches, approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
-        "statusProbe": ["plugin", "list"]
+        "statusProbe": ["plugin", "list", "--json"]
       },
       {
         "id": "update",
@@ -552,7 +552,7 @@
           ]
         },
         "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; observes only Foom launches, approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
-        "statusProbe": ["plugin", "list"]
+        "statusProbe": ["plugin", "list", "--json"]
       },
       {
         "id": "enable",
@@ -569,7 +569,24 @@
           ]
         },
         "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; observes only Foom launches, approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
-        "statusProbe": ["plugin", "list"]
+        "statusProbe": ["plugin", "list", "--json"]
+      },
+      {
+        "id": "reinstall",
+        "label": "Reinstall plugin",
+        "kind": "command",
+        "arguments": ["plugin", "reinstall", "{pluginDir}"],
+        "when": {
+          "all": [
+            {
+              "field": "setupState",
+              "op": "in",
+              "value": ["installed", "outdated", "disabled"]
+            }
+          ]
+        },
+        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; observes only Foom launches, approves no tools, stores no credentials. Remove with agy plugin uninstall foom. Reinstall first uninstalls the owned plugin, then installs the reviewed staged files. If installation fails, the plugin remains removed; scan again and Install.",
+        "statusProbe": ["plugin", "list", "--json"]
       },
       {
         "id": "remove",
@@ -586,7 +603,7 @@
           ]
         },
         "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; observes only Foom launches, approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
-        "statusProbe": ["plugin", "list"]
+        "statusProbe": ["plugin", "list", "--json"]
       }
     ],
     "offer": {

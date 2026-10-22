@@ -398,7 +398,11 @@ else process.exit(2);
       state,
     );
     await page.getByRole("button", { name: "Scan again", exact: true }).click();
-    await expect(card.getByText(`Plugin · ${state}`, { exact: true })).toBeVisible();
+    await expect(
+      card.getByText(`Plugin · ${state === "unavailable" ? "Status unavailable" : state}`, {
+        exact: true,
+      }),
+    ).toBeVisible();
   };
   await rescan("not-installed");
   await card.getByRole("button", { name: "Install", exact: true }).click();
@@ -413,7 +417,11 @@ else process.exit(2);
     await card.getByRole("button", { name: label, exact: true }).click();
     dialog = await confirmationPage(app);
     await dialog.getByRole("button", { name: label, exact: true }).click();
-    await expect(card.getByText(`Plugin · ${state}`, { exact: true })).toBeVisible();
+    await expect(
+      card.getByText(`Plugin · ${state === "unavailable" ? "Status unavailable" : state}`, {
+        exact: true,
+      }),
+    ).toBeVisible();
   };
   await action("Install", "installed");
   await page.evaluate(

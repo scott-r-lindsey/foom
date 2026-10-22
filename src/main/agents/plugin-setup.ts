@@ -51,17 +51,25 @@ export class PluginSetup {
     const status = setup.status;
     let probe: unknown;
     if (status.probe) {
-      const { stdout } = await this.run(executable, status.probe.arguments, {
+      const probeOptions = {
         ...limits,
         ...(signal ? { signal } : {}),
-      }).catch(() => {
-        throw new Error("Plugin setup status unavailable. Scan again.");
-      });
+      };
+      const { stdout } = await this.run(executable, status.probe.arguments, probeOptions).catch(
+        async () => {
+          signal?.throwIfAborted();
+          if (!status.probe?.fallbackArguments)
+            throw new Error("Plugin setup status unavailable. Scan again.");
+          return this.run(executable, status.probe.fallbackArguments, probeOptions);
+        },
+      );
       if (Buffer.byteLength(stdout) > 65536) throw new Error("Invalid setup probe");
       probe =
         status.probe.empty && stdout.trim() === status.probe.empty.text
           ? status.probe.empty.value
           : manifestJson(stdout);
+      const modern = Array.isArray(probe);
+      if (modern) probe = { imports: probe };
       if (
         !record(probe) ||
         !Array.isArray(probe["imports"]) ||
@@ -70,14 +78,16 @@ export class PluginSetup {
           (entry: unknown) =>
             record(entry) &&
             typeof entry["name"] === "string" &&
-            /^[^\p{C}\u2028\u2029]{1,64}$/u.test(entry["name"]),
+            /^[^\p{C}\u2028\u2029]{1,64}$/u.test(entry["name"]) &&
+            (!modern || typeof entry["enabled"] === "boolean"),
         )
       )
         throw new Error("Invalid setup probe");
-      // Discard everything except the documented names.
+      // Discard paths, hook data and all fields except names and validated switches.
       probe = {
         imports: probe["imports"].map((entry: Record<string, unknown>) => ({
           name: entry["name"],
+          ...(modern ? { enabled: entry["enabled"] } : {}),
         })),
       };
     }
@@ -96,7 +106,10 @@ export class PluginSetup {
       directory = await metadataIdentity(this.home, ownership.directory, true);
       const target = ownership.directory.split("/").at(-1);
       const imports = record(probe) && Array.isArray(probe["imports"]) ? probe["imports"] : [];
-      const listed = imports.some((entry: unknown) => record(entry) && entry["name"] === target);
+      const matches = imports.filter((entry: unknown) => record(entry) && entry["name"] === target);
+      if (matches.length > 1) throw new Error("Conflicting setup probe");
+      const listed = matches.length === 1;
+      const listedPlugin: unknown = matches[0];
       const manifest = metadata[ownership.manifest];
       const absent = directory === undefined && manifest === undefined && !listed;
       if (!absent) {
@@ -162,7 +175,12 @@ export class PluginSetup {
           owned: true,
           absent: false,
           version,
-          disabled: enabled === undefined ? disabled === true : !enabled,
+          disabled:
+            record(listedPlugin) && typeof listedPlugin["enabled"] === "boolean"
+              ? !listedPlugin["enabled"]
+              : enabled === undefined
+                ? disabled === true
+                : !enabled,
         });
       } else Object.assign(derived, { owned: false, absent: true });
     }
@@ -260,11 +278,15 @@ export class PluginSetup {
         ]);
       };
       const identity = await executableIdentity();
-      const staging = action.arguments?.[1] === "install" ? await input.stage() : undefined;
+      const staging = ["install", "reinstall"].includes(action.arguments?.[1] ?? "")
+        ? await input.stage()
+        : undefined;
       const args =
         action.arguments?.map((arg) =>
           arg === "{pluginDir}" ? (staging?.directory ?? "") : arg,
         ) ?? [];
+      const reinstall = args[1] === "reinstall";
+      const target = setup.status.ownership?.directory.split("/").at(-1) ?? "";
       const accepted = await input.confirm(
         this.disclosure(model, action, executable, before.state, args, staging?.files ?? []),
       );
@@ -306,7 +328,19 @@ export class PluginSetup {
       if (!safe || !allowed.includes(after.state))
         throw new Error("Plugin setup changed. Scan again.");
       try {
-        await this.run(executable, args, { ...limits, signal });
+        if (reinstall) {
+          await this.run(executable, ["plugin", "uninstall", target], { ...limits, signal });
+          await validate();
+          const removed = await this.inspect(model, executable, input.facts(), signal);
+          if (removed.facts["absent"] !== true || identity !== (await executableIdentity()))
+            throw new Error("Plugin setup changed");
+          await staging?.verify();
+          await validate();
+        }
+        await this.run(executable, reinstall ? ["plugin", "install", args[2] ?? ""] : args, {
+          ...limits,
+          signal,
+        });
         await validate();
         const result = await this.inspect(model, executable, input.facts(), signal);
         const installedVersion = result.facts["version"];
@@ -344,7 +378,22 @@ export class PluginSetup {
         "Runs as you. Only the agent CLI changes its plugin installation. Foom never edits agent configuration or trust stores, types review commands, approves tools or stores credentials in plugins. Installed observers are inert without Foom launch credentials.",
       sections: [
         { label: "Action disclosure", items: [action.disclosure] },
-        { label: "Executable and fixed arguments", arguments: true, items: [executable, ...args] },
+        {
+          label: "Executable and fixed arguments",
+          arguments: true,
+          items:
+            args[1] === "reinstall"
+              ? [
+                  executable,
+                  JSON.stringify([
+                    "plugin",
+                    "uninstall",
+                    model.setup?.status.ownership?.directory.split("/").at(-1),
+                  ]),
+                  JSON.stringify(["plugin", "install", args[2]]),
+                ]
+              : [executable, ...args],
+        },
         {
           label: "Installation and state",
           items: [
