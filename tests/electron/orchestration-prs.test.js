@@ -1,3 +1,4 @@
+const { FAKE_GLAB, recordedGitlab } = require("../helpers/glab-cli.js");
 const { FAKE_GH } = require("../helpers/forge-cli.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
@@ -442,6 +443,105 @@ test("board pull requests show running failed and passed checks through fixture 
       );
       await expect(page.locator("html")).toHaveCSS("color-scheme", variant);
       await page.screenshot({ path: path.join(directory, `${variant}.png`) });
+    }
+  }
+  await assertAccessible(page);
+});
+
+test("board merge requests show pipeline marks and failure notifications through recorded glab", {
+  skip: process.platform === "win32" && "The fixture glab is a POSIX script",
+}, async (context) => {
+  const { chmod, symlink } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-board-forge-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const repo = path.join(root, "app");
+  const home = path.join(root, "home");
+  for (const directory of [bin, repo, home]) await mkdir(directory);
+  await writeFile(path.join(bin, "glab"), FAKE_GLAB);
+  await chmod(path.join(bin, "glab"), 0o755);
+  await symlink(process.execPath, path.join(bin, "node"));
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Foom", "-c", "user.email=foom@example.com", ...args], {
+      cwd: repo,
+    });
+  git("init", "-q", "-b", "main");
+  git("commit", "-q", "--allow-empty", "-m", "init");
+  git("remote", "add", "origin", "https://gitlab.com/scott-test-projects/foom-forge-fixtures.git");
+  const state = path.join(root, "forge.json");
+  await writeFile(state, JSON.stringify({ ...recordedGitlab(), pipelineStatus: "RUNNING" }));
+  const app = await launchApp(context, {
+    fixture: "running-shell",
+    args: [`--user-data-dir=${path.join(root, "profile")}`],
+    env: { HOME: home, PATH: bin, TEST_FORGE_STATE: state },
+  });
+  const page = await boardPage(app);
+  await app.evaluate(({ dialog, shell, Notification }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+    globalThis.forgeOpened = [];
+    globalThis.forgeNotices = [];
+    shell.openExternal = async (url) => {
+      globalThis.forgeOpened.push(url);
+    };
+    Notification.isSupported = () => true;
+    Notification.prototype.show = function () {
+      globalThis.forgeNotices.push({ title: this.title, body: this.body });
+      globalThis.lastForgeNotice = this;
+    };
+  }, repo);
+  const repository = await page.evaluate(async () => (await window.desktop.addRepository()).path);
+  await page.evaluate(async (repository) => {
+    await window.desktop.createWorktree(repository, "evidence-522/success");
+    await window.desktop.saveSetup({ showPullRequests: true });
+  }, repository);
+  await page.getByRole("button", { name: "Expand app", exact: true }).click();
+  const mark = page.getByRole("button", { name: "Merge request !2 · running", exact: true });
+  await expect(mark).toBeVisible();
+  await expect(mark).toHaveAttribute("title", "Merge request !2 · running · Evidence 522: success");
+  await mark.click();
+  await expect
+    .poll(() => app.evaluate(() => globalThis.forgeOpened))
+    .toEqual(["https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/merge_requests/2"]);
+  const transition = async (pipelineStatus) => {
+    await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: false }));
+    await expect(page.locator(".pull-request")).toHaveCount(0);
+    await writeFile(state, JSON.stringify({ ...recordedGitlab(), pipelineStatus }));
+    await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: true }));
+  };
+  await transition("FAILED");
+  await expect(
+    page.getByRole("button", { name: "Merge request !2 · failed", exact: true }),
+  ).toBeVisible();
+  await expect
+    .poll(() => app.evaluate(() => globalThis.forgeNotices))
+    .toEqual([{ title: "Merge request !2", body: "1 checks failed" }]);
+  await app.evaluate(() => globalThis.lastForgeNotice.emit("click"));
+  await expect(page.locator(".worktree-row .tree-name:focus")).toContainText(
+    "evidence-522/success",
+  );
+  await transition("SUCCESS");
+  await expect(
+    page.getByRole("button", { name: "Merge request !2 · passed", exact: true }),
+  ).toBeVisible();
+  await page
+    .locator(".worktree-row")
+    .filter({ hasText: "evidence-522/success" })
+    .getByRole("button", { name: /^Actions for/ })
+    .click();
+  await expect(page.getByText("!2 · Evidence 522: success", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 passed · 0 failed · 0 running", { exact: true })).toBeVisible();
+  await expect(page.getByText("Head pipeline", { exact: true })).toBeVisible();
+  await expect(page.getByText("success", { exact: true })).toBeVisible();
+  if (process.env.FOOM_FORGE_SCREENSHOTS) {
+    const directory = path.resolve(process.env.FOOM_FORGE_SCREENSHOTS);
+    await mkdir(directory, { recursive: true });
+    for (const variant of ["light", "dark"]) {
+      await page.evaluate(
+        (variant) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${variant}` }),
+        variant,
+      );
+      await expect(page.locator("html")).toHaveCSS("color-scheme", variant);
+      await page.screenshot({ path: path.join(directory, `gitlab-${variant}.png`) });
     }
   }
   await assertAccessible(page);

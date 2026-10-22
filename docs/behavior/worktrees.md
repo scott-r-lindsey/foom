@@ -40,7 +40,7 @@ also removed only if it still points to the exact checked commit. Branch deletio
 share one checked-ref transaction after removals. Moved or checked-out branches
 are kept and reported; a concurrent ref race aborts the transaction safely.
 
-Worktree rows show a matched GitHub PR as **#N** and a check glyph with a status
+Worktree rows show a matched GitHub PR as **#N** or GitLab MR as **!N** and a check glyph with a status
 label in its accessible name and its plain-text title in the tooltip. Running checks are neutral, passed checks
 green, failed checks magenta; merged/closed PRs are muted without a check mark.
 Click the number to open the PR in the default browser. The checkout panel shows
@@ -54,7 +54,7 @@ When observed checks finish, Foom raises a desktop notification with the PR numb
 and failure count. A pass notifies only if no agent in that checkout is working.
 Clicking focuses the checkout in the sidebar. The existing Sound alert switch and
 mute preference suppress these notifications; notifications are silent. Missing or
-logged-out `gh`, unknown remotes and unavailable results show no board error.
+logged-out `gh` or `glab`, unknown remotes and unavailable results show no board error.
 
 ### New worktree
 

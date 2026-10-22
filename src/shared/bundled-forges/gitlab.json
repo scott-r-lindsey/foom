@@ -1,0 +1,444 @@
+{
+  "kind": "forge",
+  "version": 1,
+  "id": "gitlab",
+  "name": "GitLab",
+  "badge": "GL",
+  "executables": ["glab"],
+  "remote": {
+    "hosts": ["gitlab.com"],
+    "namespace": "nested",
+    "case": "exact"
+  },
+  "auth": {
+    "argv": [
+      "auth",
+      "status",
+      "--hostname",
+      {
+        "parts": [
+          {
+            "slot": "host",
+            "encoding": "literal"
+          }
+        ]
+      }
+    ],
+    "successExitCodes": [0],
+    "failureContains": ["api call failed:", "No token provided"]
+  },
+  "environment": {
+    "GITLAB_PAGER": "cat"
+  },
+  "minimumIntervalSeconds": 20,
+  "operations": {
+    "lookupByBranch": {
+      "open": {
+        "argv": [
+          "api",
+          {
+            "parts": [
+              "projects/",
+              {
+                "slot": "project",
+                "encoding": "percent-component"
+              },
+              "/merge_requests"
+            ]
+          },
+          "--hostname",
+          {
+            "parts": [
+              {
+                "slot": "host",
+                "encoding": "literal"
+              }
+            ]
+          },
+          "--method",
+          "GET",
+          "--raw-field",
+          "scope=all",
+          "--raw-field",
+          "state=opened",
+          "--raw-field",
+          {
+            "parts": [
+              "source_branch=",
+              {
+                "slot": "branch",
+                "encoding": "literal"
+              }
+            ]
+          },
+          "--raw-field",
+          "per_page=2",
+          "--raw-field",
+          "page=1"
+        ],
+        "jsonExitCodes": [0]
+      },
+      "all": {
+        "argv": [
+          "api",
+          {
+            "parts": [
+              "projects/",
+              {
+                "slot": "project",
+                "encoding": "percent-component"
+              },
+              "/merge_requests"
+            ]
+          },
+          "--hostname",
+          {
+            "parts": [
+              {
+                "slot": "host",
+                "encoding": "literal"
+              }
+            ]
+          },
+          "--method",
+          "GET",
+          "--raw-field",
+          "scope=all",
+          "--raw-field",
+          "state=all",
+          "--raw-field",
+          {
+            "parts": [
+              "source_branch=",
+              {
+                "slot": "branch",
+                "encoding": "literal"
+              }
+            ]
+          },
+          "--raw-field",
+          "per_page=2",
+          "--raw-field",
+          "page=1"
+        ],
+        "jsonExitCodes": [0]
+      }
+    },
+    "resolveNumber": {
+      "argv": [
+        "api",
+        {
+          "parts": [
+            "projects/",
+            {
+              "slot": "project",
+              "encoding": "percent-component"
+            },
+            "/merge_requests/",
+            {
+              "slot": "number",
+              "encoding": "literal"
+            }
+          ]
+        },
+        "--hostname",
+        {
+          "parts": [
+            {
+              "slot": "host",
+              "encoding": "literal"
+            }
+          ]
+        },
+        "--method",
+        "GET"
+      ],
+      "jsonExitCodes": [0]
+    },
+    "refresh": {
+      "argv": [
+        "api",
+        {
+          "parts": [
+            "projects/",
+            {
+              "slot": "project",
+              "encoding": "percent-component"
+            },
+            "/merge_requests/",
+            {
+              "slot": "number",
+              "encoding": "literal"
+            }
+          ]
+        },
+        "--hostname",
+        {
+          "parts": [
+            {
+              "slot": "host",
+              "encoding": "literal"
+            }
+          ]
+        },
+        "--method",
+        "GET"
+      ],
+      "jsonExitCodes": [0]
+    },
+    "display": {
+      "argv": [
+        "api",
+        {
+          "parts": [
+            "projects/",
+            {
+              "slot": "project",
+              "encoding": "percent-component"
+            },
+            "/merge_requests/",
+            {
+              "slot": "number",
+              "encoding": "literal"
+            }
+          ]
+        },
+        "--hostname",
+        {
+          "parts": [
+            {
+              "slot": "host",
+              "encoding": "literal"
+            }
+          ]
+        },
+        "--method",
+        "GET"
+      ],
+      "jsonExitCodes": [0]
+    },
+    "batchStatus": {
+      "command": {
+        "argv": [
+          "api",
+          "graphql",
+          "--hostname",
+          {
+            "parts": [
+              {
+                "slot": "host",
+                "encoding": "literal"
+              }
+            ]
+          },
+          "-f",
+          {
+            "parts": [
+              "query=",
+              {
+                "slot": "query",
+                "encoding": "literal"
+              }
+            ]
+          },
+          "-f",
+          {
+            "parts": [
+              "project=",
+              {
+                "slot": "project",
+                "encoding": "literal"
+              }
+            ]
+          }
+        ],
+        "jsonExitCodes": [0]
+      },
+      "query": "query($project: ID!) { project(fullPath: $project) { id repository { rootRef } ...FoomBatch } }",
+      "discovery": "query($branch: String!) { mergeRequests(sourceBranches: [$branch], state: opened, first: 2) { pageInfo { hasNextPage } nodes { iid title sourceBranch diffHeadSha state sourceProject { id fullPath } targetProject { id fullPath } headPipeline { sha status } } } }",
+      "bound": "query($number: String!) { mergeRequest(iid: $number) { iid title sourceBranch diffHeadSha state sourceProject { id fullPath } targetProject { id fullPath } headPipeline { sha status } } }",
+      "repository": ["data", "project"],
+      "defaultBranch": ["repository", "rootRef"],
+      "nodes": ["nodes"],
+      "pageComplete": ["pageInfo", "hasNextPage"],
+      "sourceProject": ["sourceProject", "fullPath"],
+      "crossProject": [],
+      "webUrl": {
+        "parts": [
+          "https://",
+          {
+            "slot": "host",
+            "encoding": "literal"
+          },
+          "/",
+          {
+            "slot": "project",
+            "encoding": "literal"
+          },
+          "/-/merge_requests/",
+          {
+            "slot": "number",
+            "encoding": "literal"
+          }
+        ]
+      },
+      "mapping": {
+        "number": ["iid"],
+        "branch": ["sourceBranch"],
+        "headSha": ["diffHeadSha"],
+        "state": ["state"],
+        "states": {
+          "opened": "OPEN",
+          "closed": "CLOSED",
+          "merged": "MERGED"
+        },
+        "title": ["title"],
+        "webUrl": ["webUrl"],
+        "projects": {
+          "mode": "numeric-project-ids",
+          "source": ["sourceProject", "id"],
+          "target": ["targetProject", "id"],
+          "context": ["targetProject", "id"]
+        }
+      },
+      "numberEncoding": "decimal-string",
+      "projectIdEncoding": "global-project-id",
+      "projectContext": ["id"],
+      "checks": {
+        "guards": [
+          {
+            "path": ["diffHeadSha"],
+            "binding": "headSha"
+          }
+        ],
+        "nullAt": ["headPipeline"],
+        "rows": ["headPipeline"],
+        "shape": "object",
+        "limit": 1,
+        "rowGuards": [
+          {
+            "path": ["sha"],
+            "binding": "headSha"
+          }
+        ],
+        "variants": [
+          {
+            "value": ["status"],
+            "table": {
+              "CREATED": "pending",
+              "WAITING_FOR_RESOURCE": "pending",
+              "PREPARING": "pending",
+              "PENDING": "pending",
+              "RUNNING": "pending",
+              "MANUAL": "pending",
+              "SCHEDULED": "pending",
+              "SUCCESS": "success",
+              "FAILED": "failure",
+              "CANCELED": "failure",
+              "SKIPPED": "none"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "mapping": {
+    "number": ["iid"],
+    "branch": ["source_branch"],
+    "headSha": ["sha"],
+    "state": ["state"],
+    "states": {
+      "opened": "OPEN",
+      "closed": "CLOSED",
+      "merged": "MERGED"
+    },
+    "title": ["title"],
+    "webUrl": ["web_url"],
+    "projects": {
+      "mode": "numeric-project-ids",
+      "source": ["source_project_id"],
+      "target": ["target_project_id"],
+      "context": ["project_id"]
+    }
+  },
+  "checks": {
+    "meaning": "head-pipeline",
+    "primary": {
+      "commands": [
+        {
+          "argv": [
+            "api",
+            {
+              "parts": [
+                "projects/",
+                {
+                  "slot": "project",
+                  "encoding": "percent-component"
+                },
+                "/merge_requests/",
+                {
+                  "slot": "number",
+                  "encoding": "literal"
+                }
+              ]
+            },
+            "--hostname",
+            {
+              "parts": [
+                {
+                  "slot": "host",
+                  "encoding": "literal"
+                }
+              ]
+            },
+            "--method",
+            "GET"
+          ],
+          "jsonExitCodes": [0]
+        }
+      ],
+      "result": {
+        "guards": [
+          {
+            "path": ["sha"],
+            "binding": "headSha"
+          },
+          {
+            "path": ["iid"],
+            "binding": "number"
+          }
+        ],
+        "nullAt": ["head_pipeline"],
+        "rows": ["head_pipeline"],
+        "shape": "object",
+        "limit": 1,
+        "rowGuards": [
+          {
+            "path": ["sha"],
+            "binding": "headSha"
+          }
+        ],
+        "variants": [
+          {
+            "value": ["status"],
+            "table": {
+              "created": "pending",
+              "waiting_for_resource": "pending",
+              "preparing": "pending",
+              "pending": "pending",
+              "running": "pending",
+              "manual": "pending",
+              "scheduled": "pending",
+              "success": "success",
+              "failed": "failure",
+              "canceled": "failure",
+              "skipped": "none"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "requestLabel": "Merge request",
+  "numberPrefix": "!"
+}

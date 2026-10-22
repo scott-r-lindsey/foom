@@ -288,11 +288,14 @@ export function PanelFacts({
         <>
           {subject.tree.pullRequest && (
             <>
-              <Fact label="Pull request">
-                #{subject.tree.pullRequest.number}
+              <Fact label={subject.tree.pullRequest.requestLabel ?? "Pull request"}>
+                {subject.tree.pullRequest.numberPrefix ?? "#"}
+                {subject.tree.pullRequest.number}
                 {subject.tree.pullRequest.title && ` · ${subject.tree.pullRequest.title}`}
               </Fact>
-              <Fact label="PR state">{subject.tree.pullRequest.state.toLowerCase()}</Fact>
+              <Fact label={`${subject.tree.pullRequest.requestLabel ?? "PR"} state`}>
+                {subject.tree.pullRequest.state.toLowerCase()}
+              </Fact>
               {subject.tree.pullRequest.checksMeaning && (
                 <Fact
                   label={

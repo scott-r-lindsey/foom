@@ -220,33 +220,55 @@ function checkResult(value: unknown, path: string): ForgeCheckResult {
   };
 }
 function batchPlan(value: unknown, path: string): ForgeBatchPlan {
-  const data = object(value, path, [
-    "command",
-    "query",
-    "discovery",
-    "bound",
-    "repository",
-    "defaultBranch",
-    "nodes",
-    "pageComplete",
-    "sourceProject",
-    "crossProject",
-    "checks",
-    "webUrl",
-  ]);
+  const data = object(
+    value,
+    path,
+    [
+      "command",
+      "query",
+      "discovery",
+      "bound",
+      "repository",
+      "defaultBranch",
+      "nodes",
+      "pageComplete",
+      "sourceProject",
+      "crossProject",
+      "checks",
+      "webUrl",
+    ],
+    ["mapping", "numberEncoding", "projectIdEncoding", "projectContext"],
+  );
   const query = multiline(data["query"], path);
   const discovery = multiline(data["discovery"], path);
   const bound = multiline(data["bound"], path);
   validateForgeBatchQueries(query, discovery, bound);
-  const parsed = command(data["command"], path, ["host", "query", "projectOwner", "projectName"]);
+  const parsed = command(data["command"], path, [
+    "host",
+    "query",
+    "projectOwner",
+    "projectName",
+    "project",
+  ]);
   if (parsed.jsonExitCodes.length !== 1 || parsed.jsonExitCodes[0] !== 0)
     fail(path, "invalid-batch-exit");
   const webUrl = argument(data["webUrl"], path);
   if (commandSlots([webUrl]).some((slot) => !["host", "project", "number"].includes(slot)))
     fail(path, "slot-scope");
   const result = checkResult(data["checks"], path);
-  if (result.shape !== "array" || !result.required) fail(path, "invalid-batch-checks");
+  if (result.shape === "array" ? !result.required : result.required !== undefined)
+    fail(path, "invalid-batch-checks");
   return {
+    ...(data["mapping"] === undefined ? {} : { mapping: mappingValue(data["mapping"], path) }),
+    ...(data["numberEncoding"] === undefined
+      ? {}
+      : { numberEncoding: literal("decimal-string")(data["numberEncoding"], path) }),
+    ...(data["projectIdEncoding"] === undefined
+      ? {}
+      : { projectIdEncoding: literal("global-project-id")(data["projectIdEncoding"], path) }),
+    ...(data["projectContext"] === undefined
+      ? {}
+      : { projectContext: pathValue(data["projectContext"], path) }),
     command: parsed,
     query,
     discovery,
@@ -278,11 +300,32 @@ function projects(value: unknown, path: string): ForgeProjects {
     };
   }
   const data = object(value, path, ["mode", "source", "target", "context"]);
+  if (JSON.stringify(data["source"]) === JSON.stringify(data["target"]))
+    fail(path, "invalid-project-evidence");
   return {
     mode: literal("numeric-project-ids")(tag, path),
     source: pathValue(data["source"], path),
     target: pathValue(data["target"], path),
     context: pathValue(data["context"], path),
+  };
+}
+function mappingValue(value: unknown, path: string): ForgeManifest["mapping"] {
+  const mapping = object(
+    value,
+    path,
+    ["number", "branch", "headSha", "state", "states", "projects"],
+    ["title", "webUrl", "mergeCommit"],
+  );
+  return {
+    number: pathValue(mapping["number"], path),
+    branch: pathValue(mapping["branch"], path),
+    headSha: pathValue(mapping["headSha"], path),
+    mergeCommit: optional(pathValue)(mapping["mergeCommit"], path),
+    state: pathValue(mapping["state"], path),
+    states: table(mapping["states"], path, enumeration("OPEN", "CLOSED", "MERGED")),
+    title: optional(pathValue)(mapping["title"], path),
+    webUrl: optional(pathValue)(mapping["webUrl"], path),
+    projects: projects(mapping["projects"], path),
   };
 }
 function freeze<T>(value: T): T {
@@ -314,10 +357,13 @@ export function parseForgeManifest(
       "mapping",
       "checks",
     ],
-    ["environment", "minimumIntervalSeconds"],
+    ["environment", "minimumIntervalSeconds", "requestLabel", "numberPrefix"],
   );
   const identifier = id(data["id"], at);
-  if (unsafe.includes(identifier) || (origin === "config" && identifier === "github"))
+  if (
+    unsafe.includes(identifier) ||
+    (origin === "config" && ["github", "gitlab"].includes(identifier))
+  )
     fail(at, "reserved-id");
   const remote = object(data["remote"], at, ["hosts", "namespace", "case"]);
   const auth = object(data["auth"], at, ["argv", "successExitCodes"], ["failureContains"]);
@@ -330,12 +376,6 @@ export function parseForgeManifest(
     ["display", "batchStatus"],
   );
   const lookup = object(operations["lookupByBranch"], at, ["open", "all"]);
-  const mapping = object(
-    data["mapping"],
-    at,
-    ["number", "branch", "headSha", "state", "states", "projects"],
-    ["title", "webUrl", "mergeCommit"],
-  );
   const checks = object(data["checks"], at, ["meaning", "primary"], ["fallback"]);
   const env =
     data["environment"] === undefined
@@ -371,6 +411,12 @@ export function parseForgeManifest(
     id: identifier,
     name: text(data["name"], at, 40),
     badge: pattern(data["badge"], at, /^[A-Z0-9]{1,4}$/u, 4),
+    ...(data["requestLabel"] === undefined
+      ? {}
+      : { requestLabel: literal("Merge request")(data["requestLabel"], at) }),
+    ...(data["numberPrefix"] === undefined
+      ? {}
+      : { numberPrefix: literal("!")(data["numberPrefix"], at) }),
     executables: unique(array(basename, 8, 1)(data["executables"], at), at),
     remote: {
       hosts: unique(array(host, 8, 1)(remote["hosts"], at), at),
@@ -403,17 +449,7 @@ export function parseForgeManifest(
         at,
       ),
     },
-    mapping: {
-      number: pathValue(mapping["number"], at),
-      branch: pathValue(mapping["branch"], at),
-      headSha: pathValue(mapping["headSha"], at),
-      mergeCommit: optional(pathValue)(mapping["mergeCommit"], at),
-      state: pathValue(mapping["state"], at),
-      states: table(mapping["states"], at, enumeration("OPEN", "CLOSED", "MERGED")),
-      title: optional(pathValue)(mapping["title"], at),
-      webUrl: optional(pathValue)(mapping["webUrl"], at),
-      projects: projects(mapping["projects"], at),
-    },
+    mapping: mappingValue(data["mapping"], at),
     checks: {
       meaning: enumeration("required", "head-pipeline", "commit-status")(checks["meaning"], at),
       primary,

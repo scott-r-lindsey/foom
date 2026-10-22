@@ -31,10 +31,27 @@ function operation(source: string, variables: Readonly<Record<string, string>>) 
   return { document, node };
 }
 
+function baseOperation(source: string) {
+  const document = parse(source, { maxTokens: 4096 });
+  const node = document.definitions[0];
+  const project =
+    node?.kind === Kind.OPERATION_DEFINITION &&
+    node.variableDefinitions?.some((v) => v.variable.name.value === "project");
+  return operation(source, project ? { project: "ID!" } : { owner: "String!", name: "String!" });
+}
+function boundOperation(source: string) {
+  const document = parse(source, { maxTokens: 4096 });
+  const node = document.definitions[0];
+  const string =
+    node?.kind === Kind.OPERATION_DEFINITION &&
+    node.variableDefinitions?.some((v) => print(v.type) === "String!");
+  return operation(source, { number: string ? "String!" : "Int!" });
+}
+
 /** A closed query composition protocol, shared by bundled and config manifests. */
 export function validateForgeBatchQueries(query: string, discovery: string, bound: string): void {
   try {
-    const base = operation(query, { owner: "String!", name: "String!" });
+    const base = baseOperation(query);
     let markers = 0;
     visit(base.document, {
       FragmentSpread(node) {
@@ -47,7 +64,7 @@ export function validateForgeBatchQueries(query: string, discovery: string, boun
       [discovery, { branch: "String!" }],
       [bound, { number: "Int!" }],
     ] as const) {
-      const item = operation(source, variables);
+      const item = source === bound ? boundOperation(source) : operation(source, variables);
       if (
         item.node.selectionSet.selections.length !== 1 ||
         item.node.selectionSet.selections[0]?.kind !== Kind.FIELD ||
@@ -72,16 +89,17 @@ export function expandForgeBatchQuery(
   bound: string,
   numbers: readonly (number | undefined)[],
 ): string {
-  const base = operation(query, { owner: "String!", name: "String!" });
+  const base = baseOperation(query);
   const definitions = [...(base.node.variableDefinitions ?? [])];
   const selections: FieldNode[] = [];
   for (const [index, number] of numbers.entries()) {
     if (number !== undefined && (!Number.isSafeInteger(number) || number <= 0))
       fail("$.batchStatus", "invalid-number");
     const variableName = `b${String(index)}`;
-    const template = operation(
-      number === undefined ? discovery : bound,
-      number === undefined ? { branch: "String!" } : { number: "Int!" },
+    const template =
+      number === undefined ? operation(discovery, { branch: "String!" }) : boundOperation(bound);
+    const stringNumber = template.node.variableDefinitions?.some(
+      (v) => print(v.type) === "String!",
     );
     const field = template.node.selectionSet.selections[0];
     if (field?.kind !== Kind.FIELD) fail("$.batchStatus", "invalid-batch-selection");
@@ -89,7 +107,9 @@ export function expandForgeBatchQuery(
       Variable() {
         return number === undefined
           ? { kind: Kind.VARIABLE, name: { kind: Kind.NAME, value: variableName } }
-          : { kind: Kind.INT, value: String(number) };
+          : stringNumber
+            ? { kind: Kind.STRING, value: String(number) }
+            : { kind: Kind.INT, value: String(number) };
       },
     });
     // Variable definitions are generated separately; no value node can enter a definition.

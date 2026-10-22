@@ -11,12 +11,14 @@ function checkCounts(value: unknown, result: ForgeCheckResult, head: string, num
   const counts = { passed: 0, failed: 0, pending: 0 };
   if (all.nullAt && forgeValue(value, all.nullAt) === null) return counts;
   const rows = forgeValue(value, all.rows);
-  if (!Array.isArray(rows)) return null;
-  for (const row of rows) {
+  const items = all.shape === "object" ? [rows] : rows;
+  if (!Array.isArray(items)) return null;
+  for (const row of items) {
     const conclusion = reduceForgeChecks(
       [row],
       {
         ...all,
+        shape: "array",
         guards: [],
         nullAt: undefined,
         pageComplete: undefined,
@@ -25,7 +27,11 @@ function checkCounts(value: unknown, result: ForgeCheckResult, head: string, num
       head,
       number,
     );
-    if (conclusion === "unknown" || conclusion === "none") return null;
+    if (conclusion === "unknown") return null;
+    if (conclusion === "none") {
+      if (all.shape === "object") continue;
+      return null;
+    }
     counts[conclusion === "success" ? "passed" : conclusion === "failure" ? "failed" : "pending"]++;
   }
   return counts;
@@ -43,11 +49,26 @@ function parseManifestBatch(
   const repository = forgeValue(value, plan.repository);
   const reportedDefault = forgeValue(repository, plan.defaultBranch);
   if (!forgeBranch(reportedDefault)) return undefined;
+  const mapping = plan.mapping ?? manifest.mapping;
+  const projectId = (value: unknown) => {
+    const parsed =
+      plan.projectIdEncoding === "global-project-id" &&
+      typeof value === "string" &&
+      /^gid:\/\/gitlab\/Project\/[1-9][0-9]*$/u.test(value)
+        ? Number(value.slice("gid://gitlab/Project/".length))
+        : plan.projectIdEncoding
+          ? undefined
+          : value;
+    return typeof parsed === "number" && Number.isSafeInteger(parsed) && parsed > 0
+      ? parsed
+      : undefined;
+  };
   const observations = new Map<string, ForgeObservation>();
   for (const [index, match] of matches.entries()) {
     // Both trusted Git discovery and the sampled remote default exclude adoption/tracking.
     if (match.branch === defaultBranch || match.branch === reportedDefault) continue;
     let row = forgeValue(repository, [`p${String(index)}`]);
+    if (row === undefined) return undefined;
     if (match.number === undefined) {
       const nodes = forgeValue(row, plan.nodes);
       const more = forgeValue(row, plan.pageComplete);
@@ -55,35 +76,53 @@ function parseManifestBatch(
       if (nodes.length !== 1 || more) continue;
       row = nodes[0];
     } else if (row === null) continue;
-    const source = forgeValue(row, plan.sourceProject);
+    const rawNumber = forgeValue(row, mapping.number);
+    const number =
+      plan.numberEncoding === "decimal-string"
+        ? typeof rawNumber === "string" && /^[1-9][0-9]*$/u.test(rawNumber)
+          ? Number(rawNumber)
+          : undefined
+        : rawNumber;
+    const fields = mapping.projects;
+    let source = forgeValue(row, plan.sourceProject);
+    let sameProject: boolean;
+    if (fields.mode === "numeric-project-ids") {
+      const sourceId = projectId(forgeValue(row, fields.source));
+      const targetId = projectId(forgeValue(row, fields.target));
+      const contextId = plan.projectContext
+        ? projectId(forgeValue(repository, plan.projectContext))
+        : undefined;
+      sameProject = sourceId !== undefined && sourceId === targetId && targetId === contextId;
+      source = remote.project;
+    } else {
+      sameProject =
+        forgeValue(row, plan.crossProject) === false &&
+        typeof source === "string" &&
+        forgeProject(source, manifest.remote.namespace) &&
+        (manifest.remote.case === "exact"
+          ? source === remote.project
+          : source.toLowerCase() === remote.project.toLowerCase());
+    }
     if (
-      forgeValue(row, plan.crossProject) !== false ||
+      !sameProject ||
       typeof source !== "string" ||
-      !forgeProject(source, manifest.remote.namespace) ||
-      (manifest.remote.case === "exact"
-        ? source !== remote.project
-        : source.toLowerCase() !== remote.project.toLowerCase()) ||
-      forgeValue(row, manifest.mapping.branch) !== match.branch ||
-      (match.number !== undefined && forgeValue(row, manifest.mapping.number) !== match.number)
+      forgeValue(row, mapping.branch) !== match.branch ||
+      (match.number !== undefined && number !== match.number)
     )
       continue;
-    const rawState = forgeValue(row, manifest.mapping.state);
+    const rawState = forgeValue(row, mapping.state);
     const pr = pullRequest({
-      number: forgeValue(row, manifest.mapping.number),
-      headSha: forgeValue(row, manifest.mapping.headSha),
-      mergeCommit: manifest.mapping.mergeCommit
-        ? forgeValue(row, manifest.mapping.mergeCommit)
-        : undefined,
+      number,
+      headSha: forgeValue(row, mapping.headSha),
+      mergeCommit: mapping.mergeCommit ? forgeValue(row, mapping.mergeCommit) : undefined,
       state:
-        typeof rawState === "string" && Object.hasOwn(manifest.mapping.states, rawState)
-          ? manifest.mapping.states[rawState]
+        typeof rawState === "string" && Object.hasOwn(mapping.states, rawState)
+          ? mapping.states[rawState]
           : undefined,
       requiredChecks: "unknown",
     });
     if (!pr || (match.number === undefined && pr.state !== "OPEN")) return undefined;
-    const title = manifest.mapping.title
-      ? forgeTitle(forgeValue(row, manifest.mapping.title))
-      : undefined;
+    const title = mapping.title ? forgeTitle(forgeValue(row, mapping.title)) : undefined;
     let url: string | undefined;
     try {
       url = forgeWebUrl(
@@ -100,6 +139,8 @@ function parseManifestBatch(
     observations.set(match.branch, {
       ...pr,
       requiredChecks,
+      ...(manifest.requestLabel ? { requestLabel: manifest.requestLabel } : {}),
+      ...(manifest.numberPrefix ? { numberPrefix: manifest.numberPrefix } : {}),
       checksMeaning: manifest.checks.meaning,
       ...(title === undefined ? {} : { title }),
       ...(url === undefined ? {} : { url }),
@@ -108,6 +149,8 @@ function parseManifestBatch(
         ...(title === undefined ? {} : { title }),
         ...(url === undefined ? {} : { url }),
         sourceName: source,
+        ...(manifest.requestLabel ? { requestLabel: manifest.requestLabel } : {}),
+        ...(manifest.numberPrefix ? { numberPrefix: manifest.numberPrefix } : {}),
         checksMeaning: manifest.checks.meaning,
         requiredChecks,
         state: pr.state,
@@ -192,7 +235,7 @@ export async function manifestForgeBatch(
   const plan = manifest.operations.batchStatus;
   if (
     !plan ||
-    !forgeProject(remote.project, "pair") ||
+    !forgeProject(remote.project, manifest.remote.namespace) ||
     matches.length === 0 ||
     matches.length > 1000 ||
     new Set(matches.map((match) => match.branch)).size !== matches.length ||

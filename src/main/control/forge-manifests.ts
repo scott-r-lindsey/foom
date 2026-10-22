@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import gitlab from "../../shared/bundled-forges/gitlab.json";
 import github from "../../shared/bundled-forges/github.json";
 import { parsePluginManifest } from "../../shared/plugin-parser";
 
@@ -17,3 +18,20 @@ export const githubManifest = bundledForge(
   "github",
   "2b8b1fcb3983177334cb0c37ebf6cbd1588d73d0672ca043dc82c317de3892cb",
 );
+
+export const gitlabManifest = bundledForge(
+  gitlab,
+  "gitlab",
+  "b7cc0c8aaf12de7e07a263b886ce8296a4049a737d2f21945f78c290236907aa",
+);
+export const bundledForgeManifests = [githubManifest, gitlabManifest];
+export const bundledForgeEntries = [
+  {
+    manifest: githubManifest,
+    digest: "2b8b1fcb3983177334cb0c37ebf6cbd1588d73d0672ca043dc82c317de3892cb",
+  },
+  {
+    manifest: gitlabManifest,
+    digest: "b7cc0c8aaf12de7e07a263b886ce8296a4049a737d2f21945f78c290236907aa",
+  },
+];

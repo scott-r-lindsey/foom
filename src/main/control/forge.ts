@@ -45,6 +45,8 @@ export function pullRequest(value: unknown): PullRequest | undefined {
   const url = forgeWebUrl(data["url"]);
   return {
     number: data["number"],
+    ...(data["requestLabel"] === "Merge request" ? { requestLabel: data["requestLabel"] } : {}),
+    ...(data["numberPrefix"] === "!" ? { numberPrefix: data["numberPrefix"] } : {}),
     headSha: data["headSha"],
     ...(typeof data["mergeCommit"] === "string" && /^[a-f0-9]{40,64}$/u.test(data["mergeCommit"])
       ? { mergeCommit: data["mergeCommit"] }

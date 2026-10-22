@@ -161,7 +161,14 @@ export function manifestForgeProvider(
             // Optional display failures cannot change verified status.
           }
         }
-        return { ...candidate, requiredChecks, checksMeaning: manifest.checks.meaning, ...display };
+        return {
+          ...candidate,
+          ...(manifest.requestLabel ? { requestLabel: manifest.requestLabel } : {}),
+          ...(manifest.numberPrefix ? { numberPrefix: manifest.numberPrefix } : {}),
+          requiredChecks,
+          checksMeaning: manifest.checks.meaning,
+          ...display,
+        };
       } catch {
         return undefined;
       }

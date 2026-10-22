@@ -2,6 +2,8 @@ import type { ForgeSampleContext } from "./forge-lifecycle-types";
 import type { BoardPullRequest } from "../../shared/forge";
 export interface PullRequest {
   number: number;
+  requestLabel?: "Merge request";
+  numberPrefix?: "!";
   headSha: string;
   mergeCommit?: string;
   checksMeaning?: "required" | "head-pipeline" | "commit-status";
