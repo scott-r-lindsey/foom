@@ -40,6 +40,14 @@
   opacity: 0;
   pointer-events: none;
 }
+/* Exclude covered screens from layout/paint without changing their parser or
+   attachment. Keep the outer fitting box measurable, including during resize. */
+.tile-terminal .xterm-screen {
+  transition: display 180ms allow-discrete;
+}
+.terminal-tile[data-behind="true"] .xterm-screen {
+  display: none;
+}
 .terminal-tile[data-maximized="true"] {
   z-index: 3;
 }
@@ -184,6 +192,9 @@
   background: color-mix(in srgb, var(--highlight) 35%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
+  .tile-terminal .xterm-screen {
+    transition: none;
+  }
   .terminal-tile {
     transition: none;
   }

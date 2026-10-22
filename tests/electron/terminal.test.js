@@ -1241,3 +1241,209 @@ test("new and restored shells show a silent foreground program until the next pr
   await row.press("Enter");
   await showsSleep(restored);
 });
+
+test("hidden streaming buffers catch up byte-for-byte in normal and alternate screens", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const { Terminal } = require("@xterm/headless");
+  const { SerializeAddon } = require("@xterm/addon-serialize");
+  const { output } = require("./streaming-buffer.js");
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await app.evaluate(({ ipcMain }) => {
+    globalThis.bufferGrid = undefined;
+    ipcMain.on("terminal:resize", (_event, _id, cols, rows) => {
+      globalThis.bufferGrid = { cols, rows };
+    });
+  });
+  await page.evaluate(() => {
+    window.bufferEvents = [];
+    window.stopBufferEvents = window.desktop.onData((id, token, data) => {
+      window.bufferEvents.push({ id, token, data });
+    });
+  });
+  await launchCheckoutShell(app, page);
+  await expect(page.locator('.board-row[data-kind="shell"]')).toHaveCount(1);
+  await expect
+    .poll(() => app.evaluate(() => globalThis.bufferGrid))
+    .toMatchObject({
+      cols: expect.any(Number),
+      rows: expect.any(Number),
+    });
+  const [session] = (await page.evaluate(() => window.desktop.workspace())).terminals;
+  const grid = await app.evaluate(() => globalThis.bufferGrid);
+  const reference = new Terminal({ ...grid, scrollback: 10000, allowProposedApi: true });
+  const expected = new SerializeAddon();
+  reference.loadAddon(expected);
+  const write = (terminal, data) => new Promise((resolve) => terminal.write(data, resolve));
+  try {
+    const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "streaming-buffer.js")}"\r`;
+    await page.evaluate(({ id, command }) => window.desktop.input(id, command), {
+      id: session.id,
+      command,
+    });
+    await expect(page.locator('.terminal-tile[data-kind="shell"] .xterm-rows')).toContainText(
+      "BUFFER_READY",
+    );
+    await write(
+      reference,
+      await page.evaluate(() => window.bufferEvents.map((e) => e.data).join("")),
+    );
+    for (const stage of ["normal", "alternate"]) {
+      await page.getByRole("button", { name: "Hide", exact: true }).click();
+      await expect(page.locator(".tile-terminal:visible")).toHaveCount(0);
+      await page.evaluate(() => {
+        window.bufferEvents = [];
+      });
+      await page.evaluate(({ id, key }) => window.desktop.input(id, key), {
+        id: session.id,
+        key: stage === "alternate" ? "a" : "n",
+      });
+      await expect
+        .poll(async () =>
+          (await page.evaluate((id) => window.desktop.tail(id, 5), session.id)).join("\n"),
+        )
+        .toContain(`BUFFER_${stage}_DONE`);
+      assert.equal(await page.evaluate(() => window.bufferEvents.length), 0);
+      await write(reference, output(stage));
+      await page.locator(".board-row[data-kind='shell']").click();
+      await expect(page.locator('.terminal-tile[data-kind="shell"] .xterm-rows')).toContainText(
+        `BUFFER_${stage}_DONE`,
+      );
+      const snapshot = await page.evaluate(() => window.bufferEvents.map((e) => e.data).join(""));
+      const restored = new Terminal({ ...grid, scrollback: 10000, allowProposedApi: true });
+      const actual = new SerializeAddon();
+      restored.loadAddon(actual);
+      try {
+        await write(restored, snapshot);
+        assert.deepEqual(Buffer.from(actual.serialize()), Buffer.from(expected.serialize()));
+      } finally {
+        restored.dispose();
+      }
+    }
+  } finally {
+    reference.dispose();
+    await page.evaluate(() => window.stopBufferEvents());
+  }
+});
+
+test("maximized-away terminals pause paints and restore without changing attachment", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  const inventory = await page.evaluate(() => window.desktop.workspace());
+  const [session] = inventory.terminals;
+  const repository = inventory.repositories[0].path;
+  const tile = page.locator(`.terminal-tile:has(.xterm-helper-textarea)`).first();
+  const tileId = await tile.getAttribute("data-tile");
+  const original = page.locator(`.terminal-tile[data-tile="${tileId}"]`);
+  await page.evaluate((id) => {
+    window.coveredTokens = [];
+    window.coveredUnits = 0;
+    window.coveredElement = document.querySelector(".xterm");
+    window.stopCoveredData = window.desktop.onData((terminal, token, data) => {
+      if (terminal !== id) return;
+      window.coveredTokens.push(token);
+      window.coveredUnits += data.length;
+    });
+  }, session.id);
+  await app.evaluate(({ ipcMain }, id) => {
+    globalThis.coveredParsed = 0;
+    ipcMain.on("terminal:ack", (_event, terminal, _token, count) => {
+      if (terminal === id) globalThis.coveredParsed += count;
+    });
+  }, session.id);
+  const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "streaming-buffer.js")}"\r`;
+  await page.evaluate(({ id, command }) => window.desktop.input(id, command), {
+    id: session.id,
+    command,
+  });
+  await expect(original.locator(".xterm-rows")).toContainText("BUFFER_READY");
+  const tileCount = await page.locator(".terminal-tile").count();
+  await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
+  await expect(page.locator(".terminal-tile")).toHaveCount(tileCount + 1);
+  await page.evaluate(
+    (repository) =>
+      window.desktop.sidebarCommand({
+        kind: "launch",
+        repository,
+        worktree: repository,
+        run: "shell",
+      }),
+    repository,
+  );
+  await expect(page.locator('.board-row[data-kind="shell"]')).toHaveCount(2);
+  const next = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+    (entry) => entry.id !== session.id,
+  );
+  await page.locator(`[data-drag-session="${next.id}"]`).click();
+  const second = page.locator(`.terminal-tile[data-kind="shell"]:not([data-tile="${tileId}"])`);
+  await expect(second).toHaveCount(1);
+  await second.getByRole("button", { name: "Maximize tile", exact: true }).click();
+  await expect(original.locator(".xterm-screen")).toBeHidden();
+  assert.ok((await original.locator(".tile-terminal").boundingBox()).width > 0);
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(1300, 900);
+  });
+  // Let the visibility observer and any already queued paint cross a frame.
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  const intersection = await original.locator(".xterm-screen").evaluate(
+    (screen) =>
+      new Promise((resolve) => {
+        const observer = new IntersectionObserver(([entry]) => {
+          observer.disconnect();
+          resolve({ intersects: entry.isIntersecting, ratio: entry.intersectionRatio });
+        });
+        observer.observe(screen);
+      }),
+  );
+  assert.equal(intersection.intersects, false, JSON.stringify(intersection));
+  for (const [key, stage] of [
+    ["n", "normal"],
+    ["a", "alternate"],
+  ]) {
+    const deliveredBefore = await page.evaluate(() => window.coveredUnits);
+    await page.evaluate(({ id, key }) => window.desktop.input(id, key), { id: session.id, key });
+    await expect
+      .poll(async () =>
+        (await page.evaluate((id) => window.desktop.tail(id, 5), session.id)).join("\n"),
+      )
+      .toContain(`BUFFER_${stage}_DONE`);
+    await expect
+      .poll(() => page.evaluate(() => window.coveredUnits))
+      .toBeGreaterThan(deliveredBefore);
+    await expect
+      .poll(async () => {
+        const delivered = await page.evaluate(() => window.coveredUnits);
+        return (await app.evaluate(() => globalThis.coveredParsed)) >= delivered;
+      })
+      .toBe(true);
+    // xterm selection refreshes may still update the backing DOM; covered
+    // screens must stay excluded from browser layout/paint while parsing.
+    await expect(original.locator(".xterm-screen")).toBeHidden();
+  }
+  await second.getByRole("button", { name: "Restore tile", exact: true }).click();
+  await expect(original.locator(".xterm-rows")).toContainText("BUFFER_alternate_DONE");
+  assert.equal(await page.evaluate(() => new Set(window.coveredTokens).size), 1);
+  assert.equal(
+    await original.locator(".xterm").evaluate((element) => element === window.coveredElement),
+    true,
+  );
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await second.getByRole("button", { name: "Maximize tile", exact: true }).click();
+  await expect(original.locator(".xterm-screen")).toBeHidden();
+  assert.equal(
+    await original
+      .locator(".xterm-screen")
+      .evaluate((screen) => getComputedStyle(screen).transitionDuration),
+    "0s",
+  );
+  await second.getByRole("button", { name: "Restore tile", exact: true }).click();
+  await expect(original.locator(".xterm-rows")).toContainText("BUFFER_alternate_DONE");
+  await page.evaluate(() => window.stopCoveredData());
+});

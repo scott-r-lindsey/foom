@@ -54,9 +54,36 @@ bottleneck before changing output IPC batching.
 records idle and five-stream traces plus CPU summaries under `test-results/`.
 It uses the isolated Electron fixture harness, six visible DOM terminal tiles in
 an 1800×1200 window, 22 seconds of settling, and ten key-to-DOM-echo probes in the
-sixth tile. Each of five streams writes 100 78-byte lines every 20 ms for 16 seconds.
+sixth tile. Each of five streams writes 100 80-byte records every 20 ms for 16 seconds
+(literal backslash-r/backslash-n separators, wrapping at the terminal's grid width).
 CPU is the delta of Electron's cumulative process CPU time divided by elapsed
 wall time (100% is one core). Tracing and Playwright add overhead. This fixture
 explicitly disables GPU acceleration to keep DOM echo observable; GPU-process
 CPU is software-compositor evidence, not hardware WebGL performance or physical
 key-to-photon latency. Intentional cursor blinking remains in the idle trace.
+
+## Streaming and covered tiles (#711)
+
+After `pnpm run build`, run
+`MEASURE_LABEL=before xvfb-run -a node --test tests/electron/streaming-measurement.js`
+on Linux; repeat with `MEASURE_LABEL=after` after rebuilding the change. This
+fixture uses nine isolated shells running bounded Node output fixtures: five
+streaming tiles, three detached streams, and a sixth visible shell for echo
+probes. No real agent CLI runs. Each stream emits 100 actual 78-byte CRLF lines
+every 20 ms for 32 seconds. The 1800×1200 board first measures six visible tiles,
+then maximizes the echo tile over the other five. Each phase records ten
+key-to-DOM-echo probes, animation-frame intervals, process CPU deltas and a
+Chromium trace in ignored `test-results/<label>-<phase>*` files. Reports include
+screen dimensions and row counts. CPU uses 100% for one core; the fixture retains
+sandboxing and the controlled login shell/PATH. Like the idle fixture, it uses
+DOM with GPU acceleration disabled: GPU-process CPU measures the software
+compositor, not hardware WebGL performance, and echo includes Playwright overhead.
+Compare repeated runs on the same machine rather than enforcing timing thresholds.
+
+Fully covered terminal screens use `display: none` after the 180 ms tile fade
+(immediately with reduced motion). Chromium skips their layout and paint, while
+xterm's existing intersection observer defers regular refreshes and requests a
+complete repaint when restored. Selection/resize work may still update the
+backing renderer; this does not establish hardware WebGL savings. The xterm,
+attachment, parser, acknowledgement path and outer fitting box remain live.
+Uncovered tiles and native window occlusion keep their existing rendering policy.
