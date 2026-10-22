@@ -35,10 +35,24 @@ export async function reviewSnapshot(
   if (files.some((file) => file.includes("\ufffd")))
     throw new Error("Unsupported filename encoding");
   if (files.length > 10000) throw new Error("Snapshot capacity");
+  // Entry listings omit skip-worktree/assume-unchanged flags and index extensions.
+  // Resolve through Git so linked worktrees use their own index. Also guard the
+  // local exclusion rules that decide which untracked bytes enter the snapshot.
+  const entries = await Promise.all(
+    ["index", "info/sparse-checkout", "info/exclude"].map(async (name) => ({
+      file: ["git", name],
+      path: resolve(worktree, (await inspect(["rev-parse", "--git-path", name])).trim()),
+    })),
+  );
+  entries.push(
+    ...files.map((file) => {
+      const path = resolve(worktree, file);
+      assertInside(worktree, path);
+      return { file: ["worktree", file], path };
+    }),
+  );
   let total = 0;
-  for (const file of files) {
-    const path = resolve(worktree, file);
-    assertInside(worktree, path);
+  for (const { file, path } of entries) {
     const stat = await lstat(path).catch((error: unknown) => {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
       throw error;

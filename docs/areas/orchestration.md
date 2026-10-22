@@ -54,7 +54,9 @@ branch and review state remain.
 
 Only an orchestrator's `launch` accepts `review: {rounds?, agent?, postFindings?}`.
 It is off by default; opting in defaults to three rounds (maximum five), Claude,
-and no posting. Both author and reviewer providers must support resume. Main runs
+and no posting. Both author and reviewer providers must support resume. Review-enabled task prompts
+reserve the fixed author brief within the combined 16 KiB UTF-8 launch limit;
+oversized requests refuse before creating a launch operation. Main runs
 fixed sequential steps; agents receive no orchestration authority. The human
 New-worktree flow has no review option. This is the final scope decision recorded
 on #690; there is no parentless-agent handoff capability.
@@ -67,7 +69,8 @@ spawning, so a newly red or changed head cannot pass on an earlier green result.
 Missing, pending, red, unknown or mismatched-head checks escalate without review.
 The reviewer gets a fixed brief: reproduced correctness/security bugs only, no
 style nits or edits, then a structured verdict handoff and process exit. Main
-compares HEAD, index entries and tracked/untracked non-ignored file bytes and modes
+compares HEAD, raw index bytes (including entry flags), sparse-checkout and local
+exclusion rules, and tracked/untracked non-ignored file bytes and modes
 against the pre-review snapshot. Snapshot reads are bounded (10,000 files, 32 MiB
 of file content); unavailable snapshots fail closed. Symlinks are hashed without
 following their targets; redirected ancestors, special files and submodule

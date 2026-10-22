@@ -2,6 +2,8 @@ import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { git as execute } from "../../../helpers/git.js";
+import { nativeDeadline } from "../../../helpers/native-test-policy";
 import { reviewSnapshot } from "../../../../src/main/workspace/review-snapshot";
 import * as operations from "../../../../src/main/workspace/worktree-operations";
 
@@ -21,11 +23,13 @@ beforeEach(async () => {
   identity.launchIdentity.mockReset().mockResolvedValue("identity");
   vi.spyOn(operations, "git").mockImplementation((_cwd, args) =>
     Promise.resolve(
-      args.includes("rev-parse")
-        ? head + "\n"
-        : args.includes("--stage")
-          ? index
-          : files.join("\0") + "\0",
+      args.includes("--git-path")
+        ? join(tree, `.git-${args.at(-1)?.replaceAll("/", "-") ?? ""}`)
+        : args.includes("rev-parse")
+          ? head + "\n"
+          : args.includes("--stage")
+            ? index
+            : files.join("\0") + "\0",
     ),
   );
 });
@@ -108,6 +112,7 @@ describe("bounded worktree review snapshot", () => {
     identity.launchIdentity.mockResolvedValueOnce("identity").mockResolvedValueOnce("replacement");
     await expect(snapshot()).rejects.toThrow("Worktree changed");
     vi.mocked(operations.git).mockImplementation((_cwd, args) => {
+      if (args.includes("--git-path")) return Promise.resolve(join(tree, "missing"));
       if (args.includes("rev-parse")) {
         const current = head;
         head = "moved";
@@ -119,7 +124,13 @@ describe("bounded worktree review snapshot", () => {
     files = ["a/absent"];
     vi.mocked(operations.git).mockImplementation((_cwd, args) =>
       Promise.resolve(
-        args.includes("rev-parse") ? "head" : args.includes("--stage") ? "index" : files.join("\0"),
+        args.includes("--git-path")
+          ? join(tree, "missing")
+          : args.includes("rev-parse")
+            ? "head"
+            : args.includes("--stage")
+              ? "index"
+              : files.join("\0"),
       ),
     );
     await expect(snapshot()).resolves.toMatchObject({ head: "head" });
@@ -137,3 +148,52 @@ it("keeps file boundaries unambiguous when untracked files are merged", async ()
   files = ["a"];
   expect(await snapshot()).not.toEqual(initial);
 });
+
+it.each(["--skip-worktree", "--assume-unchanged"])(
+  "detects %s index flags in both main and linked worktrees",
+  { timeout: nativeDeadline(10000) },
+  async (flag) => {
+    vi.mocked(operations.git).mockImplementation(
+      async (cwd, args) => (await execute(args, { cwd })).stdout,
+    );
+    const git = async (...args: string[]) => (await execute(args, { cwd: tree })).stdout;
+    await git("init", "-b", "main");
+    await writeFile(join(tree, "tracked"), "original");
+    await git("add", "tracked");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "Initial",
+    );
+    const main = tree;
+    const linked = join(root, "linked");
+    await git("worktree", "add", "-b", "review", linked);
+    for (const checkout of [main, linked]) {
+      tree = checkout;
+      const before = await snapshot();
+      const staged = await git("ls-files", "--stage");
+      await git("update-index", flag, "tracked");
+      expect(await git("ls-files", "--stage")).toBe(staged);
+      expect(await snapshot()).not.toEqual(before);
+      await writeFile(join(tree, "tracked"), "hidden edit");
+      expect(await git("status", "--porcelain")).toBe("");
+    }
+  },
+);
+
+it.each(["index", "info/sparse-checkout", "info/exclude"])(
+  "detects changes to raw Git metadata %s",
+  async (name) => {
+    const path = join(tree, `.git-${name.replaceAll("/", "-")}`);
+    const missing = await snapshot();
+    await writeFile(path, "before");
+    const before = await snapshot();
+    expect(before).not.toEqual(missing);
+    await writeFile(path, "after");
+    expect(await snapshot()).not.toEqual(before);
+  },
+);

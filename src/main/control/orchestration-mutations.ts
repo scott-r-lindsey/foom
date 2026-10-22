@@ -10,6 +10,7 @@ import type { Operations } from "./operations";
 import type { Operation, Principal } from "./types";
 
 const PROMPT_BYTES = 16384;
+const REVIEW_PROMPT_BYTES = PROMPT_BYTES - Buffer.byteLength(`${AUTHOR_REVIEW_BRIEF}\n\n`);
 
 /** The checkout may exist although creation reported an error. */
 export class UncertainEffect extends Error {}
@@ -128,7 +129,9 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     if (review && this.host.reviewAvailable && !(await this.host.reviewAvailable(review.agent)))
       throw new ControlError("invalid_request");
     const prompt =
-      params["prompt"] === undefined ? undefined : text(params["prompt"], PROMPT_BYTES);
+      params["prompt"] === undefined
+        ? undefined
+        : text(params["prompt"], review ? REVIEW_PROMPT_BYTES : PROMPT_BYTES);
     const operation = await operations.begin(
       actor,
       "launch",

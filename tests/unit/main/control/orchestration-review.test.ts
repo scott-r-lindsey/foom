@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { AUTHOR_REVIEW_BRIEF } from "../../../../src/main/control/review-loops";
 import { harness, repo } from "./orchestration-helpers";
 import type { Handoff } from "../../../../src/shared/handoff";
 
@@ -222,5 +223,42 @@ it("refuses a reviewer if known checks turn red during provider preparation", as
   await h.sync();
   expect(spawned).toBe(false);
   expect(h.orchestration.reviews.view(id)).toMatchObject({ reason: "checks not green" });
+  h.orchestration.disposeUnreadChildren();
+});
+
+it("reserves the review brief before accepting a UTF-8 task prompt at the launch boundary", async () => {
+  const h = fixture();
+  const tree = await h.mutate("create_worktree", { branch: "boundary" });
+  const bytes = 16384 - Buffer.byteLength(`${AUTHOR_REVIEW_BRIEF}\n\n`);
+  const prompt = "é".repeat(Math.floor(bytes / 2)) + "a".repeat(bytes % 2);
+  for (const oversized of [prompt + "a", "a".repeat(16384)]) {
+    await expect(
+      h.mutate("launch", {
+        worktreeId: tree.resultId,
+        agent: "claude",
+        prompt: oversized,
+        review: {},
+      }),
+    ).rejects.toThrow("invalid_request");
+  }
+  expect(h.host.launch).not.toHaveBeenCalled();
+  const launched = await h.mutate("launch", {
+    worktreeId: tree.resultId,
+    agent: "claude",
+    prompt,
+    review: {},
+  });
+  expect(launched.status).toBe("succeeded");
+  expect(Buffer.byteLength(h.host.launch.mock.calls[0]?.[5] ?? "")).toBe(16384);
+  const normal = await h.mutate("create_worktree", { branch: "normal-boundary" });
+  expect(
+    (
+      await h.mutate("launch", {
+        worktreeId: normal.resultId,
+        agent: "claude",
+        prompt: "a".repeat(16384),
+      })
+    ).status,
+  ).toBe("succeeded");
   h.orchestration.disposeUnreadChildren();
 });

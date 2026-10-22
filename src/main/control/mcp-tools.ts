@@ -102,7 +102,7 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "launch",
       description:
-        "Launch an ordinary owned child in an unused worktree you created. Give it one task, acceptance criteria and limits in prompt. Children cannot orchestrate. Optional review runs a sequential build/review loop (3 rounds, maximum 5), default reviewer claude with resume support. Reviewers count against your child limit. Steps use launch/resume argv only; you remain the final merge gate. Placement follows Settings → General. Returns an operation with child session ID in resultId.",
+        "Launch an ordinary owned child in an unused worktree you created. Give it one task, acceptance criteria and limits in prompt. The 16 KiB UTF-8 limit includes the fixed author brief when review is enabled. Children cannot orchestrate. Optional review runs a sequential build/review loop (3 rounds, maximum 5), default reviewer claude with resume support. Reviewers count against your child limit. Steps use launch/resume argv only; you remain the final merge gate. Placement follows Settings → General. Returns an operation with child session ID in resultId.",
       properties: {
         idempotencyKey: key,
         worktreeId: id,
