@@ -194,3 +194,34 @@ needed. The worktree, branch and review state remain; worktree removal is separa
 Running and stopping children return `conflict`, taken-over children `forbidden`,
 and other orchestrators' children or unknown IDs `not_found`. Close is recorded in
 the action log and supports the same operations and idempotency as other mutations.
+
+## Optional build/review loop (#690)
+
+An orchestrator can opt a child into a Foom-run review loop when launching it.
+The default is off. Opting in uses three review rounds (at most five) and Claude
+as reviewer; an installed reviewer provider with resume support can be selected.
+The human New-worktree flow has no review option. Ask the orchestrator to launch
+a child when a loop is wanted.
+
+The author hands off after its PR's required checks are green and exits. Foom
+launches a reviewer in that checkout, then resumes the author's conversation with
+quoted findings when fixes are needed. Only one step runs in a checkout at a time.
+Reviewers consume the orchestrator's existing child slots and wait if full.
+New reviewer placement follows Show new children on the board; author resumes
+keep their existing tile. Neither step takes keyboard focus.
+The sidebar and tile show Building, Reviewing 2/3, Fixing 2/3, Review clean, or
+Escalated with a fixed reason. Every participant's handoffs remain available to
+the orchestrator. Clean also raises attention: the orchestrator verifies the
+result and remains the final merge gate.
+
+Blocked/failed reports, non-green or unknown checks, missing reports, reviewer
+edits, the round cap and launch/resume failures stop the loop and escalate.
+Stopping or taking over a participant, or stopping/revoking its orchestrator,
+ends automation. After restart, saved participants stay dormant with
+Escalated: restored; no review step starts silently.
+
+Post findings to GitHub is optional and off by default. When enabled, the reviewer
+is told to post its verdict and findings as a PR review comment using its own
+`gh` login. Foom itself makes no forge writes and stores no tokens. Review notes
+are untrusted data; Foom only quotes bounded structured findings inside its fixed
+resume brief. It never types loop prompts into a running terminal.

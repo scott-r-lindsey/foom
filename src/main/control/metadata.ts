@@ -1,3 +1,4 @@
+import type { ReviewState } from "../../shared/review";
 import type { HandoffMetadata } from "../../shared/handoff";
 import { pullRequest } from "./forge";
 import { createHash } from "node:crypto";
@@ -25,6 +26,8 @@ export class SessionMetadata {
     private readonly forge: (row: WorkspaceTerminal) => unknown = () => undefined,
     private readonly handoff: (row: WorkspaceTerminal) => HandoffMetadata | undefined = () =>
       undefined,
+    private readonly review: (row: WorkspaceTerminal) => ReviewState | undefined = (row) =>
+      row.review,
   ) {}
 
   read(
@@ -59,6 +62,7 @@ export class SessionMetadata {
 
   private row(row: WorkspaceTerminal) {
     const handoff = this.handoff(row);
+    const review = this.review(row);
     const pr = pullRequest(this.forge(row));
     const execution = row.execution;
     const fresh =
@@ -81,6 +85,7 @@ export class SessionMetadata {
     return {
       ...(handoff === undefined ? {} : { handoff }),
       ...(pr === undefined ? {} : { pullRequest: pr }),
+      ...(review ? { review } : {}),
       id: row.id,
       agent: row.agent,
       repository: locationId(row.repository),
@@ -95,6 +100,7 @@ export class SessionMetadata {
         .update(
           JSON.stringify([
             pr ?? null,
+            review ?? null,
             handoff ?? null,
             row.launchVersion ?? 0,
             execution?.launch ?? 0,

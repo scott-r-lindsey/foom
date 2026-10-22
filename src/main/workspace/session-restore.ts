@@ -6,7 +6,9 @@ export function restorePlan(entries: readonly StoredSession[], enabled: boolean)
   return enabled
     ? entries.filter(
         (entry) =>
-          entry.running === true && (entry.agent === "shell" || entry.conversationId !== undefined),
+          entry.review === undefined &&
+          entry.running === true &&
+          (entry.agent === "shell" || entry.conversationId !== undefined),
       )
     : [];
 }

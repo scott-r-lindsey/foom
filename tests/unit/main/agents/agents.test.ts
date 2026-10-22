@@ -136,6 +136,17 @@ afterEach(() => {
   replaceConfigProviders([]);
 });
 
+describe("automation spawn authority", () => {
+  it("rechecks main-owned authority immediately before spawning and cleans up a refused launch", async () => {
+    const beforeSpawn = vi.fn(() => {
+      throw new Error("Automation stopped");
+    });
+    await service.scan();
+    await expect(service.launch({ ...request, beforeSpawn })).rejects.toThrow("Automation stopped");
+    expect(beforeSpawn).toHaveBeenCalledOnce();
+  });
+});
+
 describe("detection", () => {
   it("preserves full versions and probes help before advertising hooks", async () => {
     const scan = await service.scan();

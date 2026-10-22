@@ -234,6 +234,7 @@ export function createAppSource(): BoardSource {
         environment: entry.environment,
         orchestration: entry.orchestration,
         handoff: entry.handoff,
+        review: entry.review,
         roleNotRestored: entry.roleNotRestored,
         mcpConnection: entry.mcpConnection,
         worktreeRemoved: !entry.home && !entry.config && (!checkout || checkout.prunable),

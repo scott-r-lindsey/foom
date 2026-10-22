@@ -358,6 +358,7 @@ export class AgentService {
       if (agentProvider(request.agent) !== provider)
         throw new Error("Agent plugin changed. Review it again.");
       this.ensureOpen();
+      request.beforeSpawn?.();
       const id = await this.terminals.create({
         ...(request.terminalId === undefined ? {} : { id: request.terminalId }),
         command: agent.path,
