@@ -463,3 +463,107 @@ test("quit never persists a bundled manual even while its move has not been show
   expect(target.registry.records.has(id)).toBe(false);
   await source.host.dispose(false);
 });
+
+for (const change of ["closes", "fills"] as const) {
+  test(`recovery uses a replacement when its original source ${change} during validation`, async () => {
+    const source = await fixture();
+    const target = await fixture();
+    const recovery = await fixture();
+    const { id } = await source.open();
+    source.host.bounds(id, { x: 10, y: 20, width: 200, height: 100, visible: true });
+    await source.host.moveTo(id, target.host);
+    let finishValidation = () => {};
+    let validationStarted = () => {};
+    const pending = new Promise<void>((resolve) => {
+      finishValidation = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      validationStarted = resolve;
+    });
+    source.validate.mockImplementationOnce(() => {
+      validationStarted();
+      return pending;
+    });
+    const replacement = vi.fn(() => Promise.resolve(recovery.host));
+    const closing = target.host.dispose(false, replacement);
+    await started;
+    expect(target.registry.records.has(id)).toBe(true);
+    if (change === "closes") await source.host.dispose(false);
+    else {
+      const record = target.registry.records.get(id);
+      if (!record) throw new Error("Missing moved record");
+      for (let index = 0; index < 256; index++) {
+        const key = `capacity-${String(index)}`;
+        source.registry.records.set(key, { ...record, id: key });
+      }
+    }
+    finishValidation();
+    await closing;
+    expect(replacement).toHaveBeenCalledOnce();
+    expect(source.registry.records.has(id)).toBe(false);
+    expect(target.registry.records.has(id)).toBe(false);
+    expect(recovery.registry.records.has(id)).toBe(true);
+    expect(recovery.placeMoved).toHaveBeenCalledWith(id);
+    const view = fake.views.at(-1);
+    view?.webContents.emit("did-finish-load");
+    expect(recovery.window.contentView.addChildView).toHaveBeenCalledWith(view);
+    expect(view?.setBounds).toHaveBeenLastCalledWith({ x: 300, y: 40, width: 500, height: 560 });
+    source.registry.records.clear();
+    await source.host.dispose(false);
+    await recovery.host.dispose(false);
+  });
+}
+
+for (const loaded of [false, true]) {
+  test(`landing validation cannot overwrite bounds arriving while it waits (loaded: ${String(loaded)})`, async () => {
+    const source = await fixture();
+    const target = await fixture();
+    const { id } = await source.open();
+    vi.useFakeTimers();
+    await source.host.moveTo(id, target.host);
+    let finishValidation = () => {};
+    const pending = new Promise<void>((resolve) => {
+      finishValidation = resolve;
+    });
+    target.validate.mockReturnValueOnce(pending);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(target.validate).toHaveBeenCalledTimes(3);
+    target.host.bounds(id, { x: 20, y: 30, width: 100, height: 100, visible: true });
+    const view = fake.views.at(-1);
+    if (loaded) view?.webContents.emit("did-finish-load");
+    finishValidation();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(view?.setBounds).toHaveBeenLastCalledWith({ x: 20, y: 30, width: 100, height: 100 });
+    expect(target.registry.records.has(id)).toBe(true);
+    await target.host.dispose(false);
+    await source.host.dispose(false);
+  });
+}
+
+for (const action of ["close", "move"] as const) {
+  test(`a pending landing cannot recreate a preview after ${action}`, async () => {
+    const source = await fixture();
+    const target = await fixture();
+    const recovery = await fixture();
+    const { id } = await source.open();
+    vi.useFakeTimers();
+    await source.host.moveTo(id, target.host);
+    let finishValidation = () => {};
+    const pending = new Promise<void>((resolve) => {
+      finishValidation = resolve;
+    });
+    target.validate.mockReturnValueOnce(pending);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(target.validate).toHaveBeenCalledTimes(3);
+    if (action === "close") await target.host.close(id);
+    else await target.host.moveTo(id, recovery.host);
+    const count = fake.views.length;
+    finishValidation();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.views).toHaveLength(count);
+    expect(target.registry.records.has(id)).toBe(false);
+    await target.host.dispose(false);
+    await recovery.host.dispose(false);
+    await source.host.dispose(false);
+  });
+}

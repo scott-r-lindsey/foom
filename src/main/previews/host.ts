@@ -694,12 +694,22 @@ export class PreviewHost {
           bounds,
           timer: setTimeout(() => {
             // Geometry can arrive before a slow page finishes loading. Keep it.
-            const current = target.hosted.get(id)?.bounds;
-            if (current?.visible && current.width > 0 && current.height > 0) return;
+            const incoming = target.incoming.get(id);
+            const pending = () => {
+              const current = target.hosted.get(id)?.bounds;
+              return (
+                incoming !== undefined &&
+                target.incoming.get(id) === incoming &&
+                !target.closed() &&
+                !target.moving.has(id) &&
+                !(current?.visible && current.width > 0 && current.height > 0)
+              );
+            };
+            if (!pending()) return;
             void target
               .validateRecord(record)
               .then(() => {
-                target.landing(id);
+                if (pending()) target.landing(id);
               })
               .catch(() => {
                 /* A removed checkout cannot regain a view. */
@@ -810,6 +820,12 @@ export class PreviewHost {
         // A removed checkout must not be resurrected. A persistence error can
         // happen after ownership changed, so still restore any returned record.
         await this.transfer(id, source, true).catch(() => {});
+        // Availability may change during checkout validation or native cleanup.
+        // Keep ownership here until a replacement can accept the same record.
+        if (this.registry.records.has(id) && unavailable()) {
+          source = (await replacement?.()) ?? source;
+          if (!unavailable()) await this.transfer(id, source, true).catch(() => {});
+        }
         const record = source.registry.records.get(id);
         if (record) {
           if (source === incoming.source && incoming.bounds?.visible)
