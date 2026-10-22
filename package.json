@@ -25,7 +25,7 @@
     "format:check": "biome format .",
     "lint:fix": "eslint . --fix --max-warnings=0",
     "test:packaged": "node scripts/electron-tests.mjs --packaged",
-    "test:ci": "node --require ./tests/helpers/setup.js --test scripts/packaging-build.test.mjs scripts/macos-sign.test.mjs scripts/git-safety.test.mjs scripts/ci-changes.test.mjs scripts/nightly.test.mjs scripts/mcp-probe-ci.test.mjs scripts/process-audit.test.mjs scripts/electron-shard.test.mjs scripts/electron-tests.test.mjs scripts/electron-affected.test.mjs scripts/check-local.test.mjs scripts/lint-local.test.mjs scripts/installers.test.mjs scripts/release.test.mjs",
+    "test:ci": "node --require ./tests/helpers/setup.js --test scripts/packaging-build.test.mjs scripts/macos-sign.test.mjs scripts/git-safety.test.mjs scripts/ci-changes.test.mjs scripts/nightly.test.mjs scripts/mcp-probe-ci.test.mjs scripts/process-audit.test.mjs scripts/electron-shard.test.mjs scripts/rebalance-electron-shards.test.mjs scripts/electron-tests.test.mjs scripts/electron-affected.test.mjs scripts/check-local.test.mjs scripts/lint-local.test.mjs scripts/installers.test.mjs scripts/release.test.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage && node --require ./tests/helpers/setup.js --test scripts/tsx-coverage.test.mjs && node scripts/print-coverage-url.mjs",
     "test:electron:affected": "node scripts/electron-affected.mjs",

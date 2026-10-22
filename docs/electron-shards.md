@@ -38,7 +38,7 @@ The wrapper passes `--test-concurrency=1` explicitly: feature files run serially
 within each job, preserving native desktop/focus behavior. CI jobs remain
 independent. `FOOM_ELECTRON_SHARD` partitions named tests across all feature
 files, rather than partitioning files. With no setting, every suite runs fully.
-The split preserves all 130 existing names and leaves `shard-plan.json` unchanged.
+Suite discovery preserves named registrations independently of file layout.
 Generated loop cases are included in registration audits. Empty files on a shard
 may appear as Node runner placeholders; these are not named test registrations.
 
@@ -179,14 +179,15 @@ Workflow permissions are unchanged. See the [documentation map](README.md) and
 ## Assignment method
 
 The plan records seconds per test in the listed platform order, taking the
-maximum observed duration on each platform across the three source runs. Sort
+maximum observed duration on each platform across the listed source runs. Sort
 cases by descending maximum fraction of a platform's total duration, breaking
 ties by test name. Place each case on the shard that minimizes the largest
 projected fraction across all platform/shard pairs; break ties by the selected
 shard's sum of platform fractions, then shard index. This balances all three
 platforms with one deterministic assignment.
 
-Conservative projected case sums (maxima across all three runs), seconds:
+Historical projected case sums for the original plan (maxima across its three
+source runs), seconds:
 
 | Platform | Shard 1 | Shard 2 | Shard 3 | Shard 4 |
 | --- | ---: | ---: | ---: | ---: |
@@ -199,3 +200,64 @@ and step wall times when refreshing the plan. Update the source runs, durations
 and assignment together. The shard integration test catches stale/duplicate
 plan names, checks the explicit assignment and hash fallback, and verifies
 exactly-once registration, name filtering and invalid-setting failures.
+
+## Rebalancing from current reports (#708)
+
+Run with Node 24 and the installed project dependencies. The rebalance script
+uses only Node standard-library modules. Download all twelve Electron artifacts
+per run into ignored
+`test-results/rebalance/sources/RUN_ID/`; keep the artifact directories intact:
+
+```sh
+for run in 39698958046 39717071939 39718663296; do
+  gh run download "$run" --pattern 'electron-results-*' \
+    --dir "test-results/rebalance/sources/$run"
+done
+# Preview before/after totals without changing the plan:
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/*
+# Rebuild, then apply repository JSON formatting:
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --write
+pnpm run format
+# Registration audit, including exactly-once coverage and hash fallback:
+node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs
+```
+
+Choose recent green runs covering the current cases on all three platforms.
+The script uses actual suite registrations (including generated cases) without
+running test bodies, discards removed names and empty-file placeholders, decodes
+JUnit names with a strict reader for Node JUnit XML (no DTDs or external
+entities), and records skipped cases as zero. It rejects
+missing reports, duplicate cases, failed cases, invalid durations and current
+cases without measurements on any platform. It prints the old assignment's
+projected totals using the same new measurements, including hash fallback for
+previously unplanned names, then applies the deterministic assignment above.
+No test deadlines, shard count or workflow step limits change. Unchanged plans
+retain their existing bytes. Parser, input-validation and deterministic-assignment
+fixtures run in `pnpm run test:ci`.
+
+The refresh uses green main runs
+[39698958046](https://github.com/scott-r-lindsey/foom/actions/runs/39698958046)
+and [39717071939](https://github.com/scott-r-lindsey/foom/actions/runs/39717071939),
+plus the original reports from triggering main run
+[39718663296](https://github.com/scott-r-lindsey/foom/actions/runs/39718663296).
+That last run's Linux shard 3 exceeded its step budget although all its named
+cases passed; its JUnit reports contain no failed cases. It supplies measurements
+for six newly added review-loop cases absent from the two green runs. It is
+measurement evidence, not a green validation run. These reports cover all 167
+current cases; earlier runs cover 156 and 161 respectively.
+
+Conservative case-duration sums, using each case's maximum per platform across
+these three runs (seconds; old plan includes hash assignments for new cases):
+
+| Platform | Before: shards 1 / 2 / 3 / 4 | After: shards 1 / 2 / 3 / 4 |
+| --- | --- | --- |
+| Linux | 246.3 / 291.0 / 426.5 / 279.7 | 311.6 / 311.2 / 310.2 / 310.5 |
+| Windows | 428.8 / 396.1 / 513.6 / 533.0 | 466.3 / 468.3 / 468.5 / 468.3 |
+| macOS | 357.7 / 363.6 / 482.7 / 357.4 | 387.7 / 391.8 / 390.6 / 391.2 |
+
+The maximum Linux case sum drops by 114.9s (27%); Windows by 64.5s (12%)
+and macOS by 90.9s (19%). These projections exclude build, runner and empty-file
+overhead, and combine maxima that need not occur in the same run. Check actual
+PR step wall times against the unchanged 420s Linux / 600s Windows and macOS
+limits before calling the balance validated. The earlier measurements above
+remain historical context, not this refresh's inputs.
