@@ -687,6 +687,9 @@ it.each(["installed", "outdated", "disabled"])(
     const confirm = vi.fn((_content: DialogContent) => Promise.resolve(true));
     await e.service.change(e.input("reinstall", confirm));
     expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Reinstall Antigravity plugin?" }),
+    );
     expect(JSON.stringify(confirm.mock.calls)).toContain("uninstall");
     expect(e.run.mock.calls.filter((call) => call[1][1] !== "list").map((call) => call[1])).toEqual(
       [

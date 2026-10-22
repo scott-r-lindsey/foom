@@ -371,7 +371,10 @@ export class PluginSetup {
     files: readonly string[],
   ): DialogContent {
     return {
-      title: `${action.label} ${model.name} plugin?`,
+      title:
+        args[1] === "reinstall"
+          ? `Reinstall ${model.name} plugin?`
+          : `${action.label} ${model.name} plugin?`,
       accept: action.label,
       glyph: "shield",
       detail:

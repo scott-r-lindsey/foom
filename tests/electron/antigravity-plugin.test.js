@@ -154,6 +154,9 @@ process.stdin.on('data', (data) => {
       await capture("disabled-reinstall");
       await agyRow.getByRole("button", { name: "Reinstall plugin", exact: true }).click();
       disclosure = await confirmationPage(app);
+      await expect(
+        disclosure.getByRole("heading", { name: "Reinstall Antigravity plugin?", exact: true }),
+      ).toBeVisible();
       await expect(disclosure.getByText(/Reinstall first uninstalls/u)).toBeVisible();
       await capture("reinstall-pending", disclosure);
       await disclosure.getByRole("button", { name: "Reinstall plugin", exact: true }).click();
