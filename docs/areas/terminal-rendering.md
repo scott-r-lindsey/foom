@@ -87,3 +87,27 @@ complete repaint when restored. Selection/resize work may still update the
 backing renderer; this does not establish hardware WebGL savings. The xterm,
 attachment, parser, acknowledgement path and outer fitting box remain live.
 Uncovered tiles and native window occlusion keep their existing rendering policy.
+
+## Visible streaming investigation (#711)
+
+The [source-mapped profile, repeated measurements and rejected prototypes](../../spikes/terminal-streaming/README.md)
+record the visible-streaming investigation. In the measured DOM/software-
+compositor workload, native layout/paint/raster and xterm row construction dominate;
+per-chunk controller/ACK JS, activity and React samples are much smaller. The
+steady fixture produces no attention/state events or per-chunk sound updates.
+
+Frame coalescing with focused-terminal bypass reduced ACKs but did not establish
+a consistent CPU/latency win. Compositor promotion lowered renderer CPU while
+raising GPU-process CPU substantially; row containment and an alternative dimming
+paint also failed the combined CPU/latency test. None ships. Visible terminal
+writing, parsing, acknowledgements/backpressure and input scheduling remain
+unchanged; only the separately measured covered-screen optimization is retained.
+
+The benchmark supports `MEASURE_PROFILE=1` to save a renderer V8 `.cpuprofile`,
+`MEASURE_VISIBLE_ONLY=1` to omit the covered phase, and `MEASURE_PROBES=1..30`
+(default 10). Probe gaps vary to avoid sampling one animation-frame phase.
+Experimental `MEASURE_LAYER=0|1`, `MEASURE_CONTAIN_ROWS=0|1` and
+`MEASURE_DIM_OVERLAY=0|1` flags assert/record computed styles before measuring.
+Fixture counters record data/ACK volume, activity, state changes and replaced
+sidebar rows. Source-map instructions and eight prototype fidelity tests live in
+the reference report; no instrumentation or rejected candidate ships in the app.

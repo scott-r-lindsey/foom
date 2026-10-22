@@ -1,0 +1,69 @@
+diff --git a/src/renderer/terminal/shell-controller.ts b/src/renderer/terminal/shell-controller.ts
+index b502b81b..29ac7edc 100644
+--- a/src/renderer/terminal/shell-controller.ts
++++ b/src/renderer/terminal/shell-controller.ts
+@@ -9,6 +9,7 @@ import { TerminalColors } from "../../shared/terminal-colors";
+ import { Terminal } from "@xterm/xterm";
+ import { suppressTerminalReplies } from "./terminal-replies";
+ import { FitAddon } from "@xterm/addon-fit";
++import { createOutputWriter } from "./output-writer";
+ import { createWebglRenderer } from "./webgl-renderer";
+ import type { ShellView } from "./shell.d";
+ 
+@@ -97,7 +98,13 @@ export function createShell(
+     view.status = hostFailed ? terminalStatus : prefix;
+     publish();
+   };
++  const output = createOutputWriter(
++    (data, parsed) => terminal.write(data, parsed),
++    (id, token, count) => window.desktop.acknowledge(id, token, count),
++    () => terminal.textarea === document.activeElement,
++  );
+   const visibility = (visible: boolean) => {
++    if (!visible) output.flush();
+     attached = visible;
+     container.hidden = !visible;
+     renderer.visible(visible);
+@@ -140,9 +147,7 @@ export function createShell(
+   const offData = window.desktop.onData((id, token, data) => {
+     if (id !== activeId || !attached) return;
+     // A restored snapshot may show the cursor again; keep exited screens read-only.
+-    terminal.write(exited ? `${data}\x1b[?25l` : data, () => {
+-      window.desktop.acknowledge(id, token, data.length);
+-    });
++    output.write(id, token, data, exited);
+   });
+   const offExit = window.desktop.onExit((id, code) => {
+     exits.set(id, code);
+@@ -154,6 +159,7 @@ export function createShell(
+     view.status = terminalStatus;
+     view.state = code === 0 ? "done" : "failed";
+     exited = true;
++    output.flush();
+     terminal.write("\x1b[?25l");
+     if (hostFailed) {
+       activeId = undefined;
+@@ -191,6 +197,7 @@ export function createShell(
+       dimensions.rows === view.rows
+     )
+       return;
++    output.flush();
+     fit.fit();
+     // Subpixel layout changes can leave the fitted cell grid unchanged.
+     const resizeHost =
+@@ -260,6 +267,7 @@ export function createShell(
+   observer.observe(container);
+   const openView = async (id: string) => {
+     // Drain writes from the old attachment before resetting, including delayed ACKs.
++    output.flush();
+     await new Promise<void>((resolve) => {
+       terminal.write("", resolve);
+     });
+@@ -366,6 +374,7 @@ export function createShell(
+     offMiddleClick();
+     if (activeId && attached && isAvailable(activeId))
+       void window.desktop.detach(activeId).catch(() => {});
++    output.dispose();
+     renderer.dispose();
+     terminal.dispose();
+   };

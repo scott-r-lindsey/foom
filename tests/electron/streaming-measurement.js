@@ -8,6 +8,9 @@ const { launchApp, boardPage } = require("./harness.js");
 const { expect } = require("@playwright/test");
 mkdirSync("test-results", { recursive: true });
 const label = process.env.MEASURE_LABEL || "before";
+const probes = Number(process.env.MEASURE_PROBES || 10);
+if (!Number.isInteger(probes) || probes < 1 || probes > 30)
+  throw new Error("MEASURE_PROBES must be 1..30");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 test("isolated visible and hidden streaming measurement", async (t) => {
   const app = await launchApp(t, { fixture: "running-shell", renderer: "dom" });
@@ -49,6 +52,57 @@ test("isolated visible and hidden streaming measurement", async (t) => {
   await expect(page.locator(".xterm")).toHaveCount(6);
   await page.locator(`[data-drag-session="${sessions[5].id}"]`).press("Enter");
   await expect(page.locator(".xterm-helper-textarea:focus")).toHaveCount(1);
+  for (const name of ["MEASURE_LAYER", "MEASURE_CONTAIN_ROWS", "MEASURE_DIM_OVERLAY"])
+    if (process.env[name] !== undefined && !["0", "1"].includes(process.env[name]))
+      throw new Error(`${name} must be 0 or 1`);
+  if (process.env.MEASURE_LAYER !== undefined) {
+    const value = process.env.MEASURE_LAYER === "1" ? "transform" : "auto";
+    await page.addStyleTag({
+      content: `.tile-terminal .xterm-screen:has(> .xterm-rows) { will-change: ${value}; }`,
+    });
+    await expect(page.locator(".xterm-screen").first()).toHaveCSS("will-change", value);
+  }
+  if (process.env.MEASURE_CONTAIN_ROWS === "1") {
+    await page.addStyleTag({ content: ".xterm-rows > div { contain: strict; }" });
+    await expect(page.locator(".xterm-rows > div").first()).toHaveCSS("contain", "strict");
+  }
+  if (process.env.MEASURE_DIM_OVERLAY === "1") {
+    await page.addStyleTag({
+      content: `
+      .tile-shell:has(.xterm-screen > .xterm-rows) { position: relative; }
+      .terminal-tile:not([data-focused="true"]) .tile-shell:has(.xterm-screen > .xterm-rows) { opacity: 1; }
+      .terminal-tile:not([data-focused="true"]) .tile-shell:has(.xterm-screen > .xterm-rows)::after {
+        content: ""; position: absolute; inset: 0; pointer-events: none;
+        background: color-mix(in srgb, var(--terminal-background, var(--bg)) 20%, transparent);
+      }
+    `,
+    });
+    await expect(
+      page
+        .locator('.terminal-tile:not([data-focused="true"]) .tile-shell:has(.xterm-rows)')
+        .first(),
+    ).toHaveCSS("opacity", "1");
+  }
+  const appliedStyles = await page.locator(".xterm-screen").evaluateAll((screens) =>
+    screens.map((screen) => ({
+      willChange: getComputedStyle(screen).willChange,
+      shellOpacity: getComputedStyle(screen.closest(".tile-shell")).opacity,
+      dimOverlay: getComputedStyle(screen.closest(".tile-shell"), "::after").backgroundColor,
+      rowContain: getComputedStyle(screen.querySelector(".xterm-rows > div")).contain,
+    })),
+  );
+  if (process.env.MEASURE_LAYER !== undefined)
+    expect(
+      appliedStyles.every(
+        (style) => style.willChange === (process.env.MEASURE_LAYER === "1" ? "transform" : "auto"),
+      ),
+    ).toBe(true);
+  const profiler =
+    process.env.MEASURE_PROFILE === "1" ? await page.context().newCDPSession(page) : undefined;
+  if (profiler) {
+    await profiler.send("Profiler.enable");
+    await profiler.send("Profiler.setSamplingInterval", { interval: 1000 });
+  }
   const metrics = () => app.evaluate(({ app }) => app.getAppMetrics());
   const capture = async (phase, during) => {
     const file = path.resolve(`test-results/${label}-${phase}-trace.json`);
@@ -65,6 +119,35 @@ test("isolated visible and hidden streaming measurement", async (t) => {
         ],
       }),
     );
+    await app.evaluate(({ ipcMain }) => {
+      globalThis.measureIpc = { ack: 0, input: 0, resize: 0 };
+      globalThis.measureListeners = Object.keys(globalThis.measureIpc).map((name) => {
+        const listener = () => globalThis.measureIpc[name]++;
+        ipcMain.on(`terminal:${name}`, listener);
+        return [name, listener];
+      });
+    });
+    const counters = await page.evaluateHandle(() => {
+      const counts = { data: 0, units: 0, activity: 0, state: 0, rowReplacements: 0 };
+      const rows = [...document.querySelectorAll(".board-row")];
+      const off = [
+        window.desktop.onData((_id, _token, data) => {
+          counts.data++;
+          counts.units += data.length;
+        }),
+        window.desktop.onActivity(() => counts.activity++),
+        window.desktop.onState(() => counts.state++),
+      ];
+      return {
+        counts,
+        stop: () => {
+          for (const stop of off) stop();
+          counts.rowReplacements = rows.filter((row) => !row.isConnected).length;
+          return counts;
+        },
+      };
+    });
+    if (profiler) await profiler.send("Profiler.start");
     const before = await metrics();
     const frames = await page.evaluateHandle(() => {
       const state = { intervals: [], previous: performance.now(), running: true };
@@ -80,6 +163,17 @@ test("isolated visible and hidden streaming measurement", async (t) => {
     const latency = during ? await during() : (await sleep(6000), []);
     const elapsed = performance.now() - start;
     const after = await metrics();
+    if (profiler) {
+      const { profile } = await profiler.send("Profiler.stop");
+      writeFileSync(`test-results/${label}-${phase}.cpuprofile`, JSON.stringify(profile));
+    }
+    const messages = await counters.evaluate((state) => state.stop());
+    await counters.dispose();
+    const ipc = await app.evaluate(({ ipcMain }) => {
+      for (const [name, listener] of globalThis.measureListeners)
+        ipcMain.removeListener(`terminal:${name}`, listener);
+      return globalThis.measureIpc;
+    });
     const frameTimes = await frames.evaluate((state) => {
       state.running = false;
       return state.intervals.slice(1);
@@ -93,6 +187,7 @@ test("isolated visible and hidden streaming measurement", async (t) => {
       type: p.type,
       name: p.name,
       pid: p.pid,
+      workingSetKB: p.memory.workingSetSize,
       percent:
         (100000 *
           (p.cpu.cumulativeCPUUsage -
@@ -125,6 +220,8 @@ test("isolated visible and hidden streaming measurement", async (t) => {
       label,
       phase,
       elapsed,
+      probes,
+      appliedStyles,
       viewport: await page.evaluate(() => ({ width: innerWidth, height: innerHeight })),
       platform: `${process.platform}/${process.arch} ${release()}`,
       cpuModel: cpus()[0]?.model,
@@ -141,6 +238,8 @@ test("isolated visible and hidden streaming measurement", async (t) => {
         })),
       ),
       frameTimes,
+      messages,
+      ipc,
       renderer: "DOM (GPU disabled)",
       cpu,
       latency,
@@ -172,8 +271,8 @@ test("isolated visible and hidden streaming measurement", async (t) => {
   await sleep(1000);
   const probe = async () => {
     const latency = [];
-    for (let i = 0; i < 10; i++) {
-      const token = String.fromCharCode(65 + i);
+    for (let i = 0; i < probes; i++) {
+      const token = String.fromCharCode(65 + (i % 26));
       const echo = await page.evaluateHandle((token) => {
         const ready = new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
@@ -202,11 +301,13 @@ test("isolated visible and hidden streaming measurement", async (t) => {
       await echo.dispose();
       latency.push(performance.now() - start);
       await page.keyboard.press("Control+U");
-      await sleep(500);
+      // Vary the gap so probes do not stay locked to the same 60 Hz phase.
+      await sleep([409, 521, 613, 457, 557, 647][i % 6]);
     }
     return latency;
   };
   await capture("streaming", probe);
+  if (process.env.MEASURE_VISIBLE_ONLY === "1") return;
   const focused = page.locator('.terminal-tile[data-focused="true"]');
   await focused.getByRole("button", { name: "Maximize tile", exact: true }).click();
   await focused.locator(".xterm-helper-textarea").focus();

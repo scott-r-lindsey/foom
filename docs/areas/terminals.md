@@ -41,3 +41,11 @@ renderer using xterm's public custom wheel handler. Application cursor mode sele
 line/page deltas are normalized, direction changes and attachment changes reset the remainder,
 and one event sends at most 100 arrows. Normal-buffer scrolling, mouse reporting and Ctrl-wheel
 retain xterm's handling. Input still passes through the selected terminal's ID-scoped bridge.
+
+The [visible-streaming investigation](terminal-rendering.md#visible-streaming-investigation-711)
+profiles parser/render work and records repeated CPU, frame and echo measurements.
+Frame-coalesced writes, row containment, compositor promotion and alternative
+unfocused dimming were rejected because they did not provide a reliable combined
+CPU/latency benefit. The visible write path, token-scoped parse acknowledgements
+and backpressure remain unchanged. Prototype tests cover byte-identical mixed-
+chunk normal/alternate buffers, delayed ACKs, watermarks and ordered resize stages.
