@@ -98,6 +98,13 @@ shown in words in sidebar rows and tile titles. Stopping, takeover, parent exit
 or revocation ends automation. Saved loop participants remain dormant and show
 `Escalated: restored`; restoration never silently launches a loop step.
 
+Review invalidations coalesce separately for each loop. A change arriving during
+an asynchronous step requests at most one follow-up check of that same loop;
+completing a check never invalidates sibling loops. Unchanged running children
+settle without polling or a self-sustaining Promise microtask cycle, leaving main
+able to service control and UI requests. Clean and escalated loops, including
+restored participants, do not advance on later invalidations.
+
 `postFindings: true` explicitly asks the reviewer to post its verdict and findings
 as a PR review comment using its own `gh` login. It is off by default. Main stores
 no forge tokens and performs no write; posting is the agent's own CLI action.
