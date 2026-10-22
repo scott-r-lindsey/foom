@@ -1475,6 +1475,7 @@ test("application menu uses the command registry and supports native keyboard ac
   const developer = entries.find((entry) => entry?.id === "developer-menu");
   assert.ok(developer.items.some((entry) => entry?.id === "reload"));
   assert.ok(!entries.some((entry) => entry?.id === "reload"));
+  assert.ok(!JSON.stringify(entries).includes("via-"));
   assert.equal(entries.find((entry) => entry?.id === "new-window").enabled, true);
   await page.evaluate(() => window.desktop.appMenu.execute("action-log"));
   await expect(page.getByRole("heading", { name: "Action log" })).toBeVisible();
@@ -1619,9 +1620,6 @@ test("application menu uses the command registry and supports native keyboard ac
     await expect(menu).toHaveCount(0);
     await page.getByRole("button", { name: "Close settings (Esc)" }).click();
   }
-  await trigger.click();
-  await expect(page.getByRole("menuitem", { name: /^Via / })).toHaveCount(0);
-  await page.keyboard.press("Escape");
   // Size steps the interface size and the menu stays open.
   const zoom = () =>
     app.evaluate(({ BrowserWindow }) =>
