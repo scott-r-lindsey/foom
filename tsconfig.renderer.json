@@ -8,5 +8,10 @@
     "types": [],
     "jsx": "react-jsx"
   },
-  "include": ["src/renderer/**/*.ts", "src/shared/**/*.ts", "src/renderer/**/*.tsx"]
+  "include": [
+    "src/manual/**/*.ts",
+    "src/renderer/**/*.ts",
+    "src/shared/**/*.ts",
+    "src/renderer/**/*.tsx"
+  ]
 }

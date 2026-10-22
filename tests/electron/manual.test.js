@@ -1,6 +1,6 @@
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
-const { mkdir } = require("node:fs/promises");
+const { mkdir, readFile, writeFile } = require("node:fs/promises");
 const { execFileSync } = require("node:child_process");
 const { deadline, expect } = require("./test-policy.js");
 const { launchApp, boardPage } = require("./harness.js");
@@ -132,4 +132,106 @@ test("Help Manual opens a contained offline guide and focuses the existing tile"
     (await page.evaluate(() => window.desktop.sidebarInventory())).previews[0].id,
     id,
   );
+});
+
+test("bundled manual search supports keyboard navigation and section jumps", async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await page.evaluate(() => window.desktop.appMenu.execute("manual"));
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toBeVisible();
+  const run = (code) =>
+    app.evaluate(async ({ webContents }, code) => {
+      const contents = webContents
+        .getAllWebContents()
+        .find((entry) => entry.getURL().startsWith("foom-preview://"));
+      if (!contents || contents.isLoading()) return null;
+      return contents.executeJavaScript(code);
+    }, code);
+  const key = (keyCode, modifiers = [], char = false) =>
+    app.evaluate(
+      ({ webContents }, { keyCode, modifiers, char }) => {
+        const contents = webContents
+          .getAllWebContents()
+          .find((entry) => entry.getURL().startsWith("foom-preview://"));
+        contents.focus();
+        contents.sendInputEvent({ type: "keyDown", keyCode, modifiers });
+        if (char) contents.sendInputEvent({ type: "char", keyCode, modifiers });
+        contents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
+      },
+      { keyCode, modifiers, char },
+    );
+  const type = async (value) => {
+    for (const character of value) await key(character, [], true);
+  };
+  await expect
+    .poll(() => run("typeof document.querySelector('#manual-query')?.oninput"))
+    .toBe("object");
+  const index = JSON.parse(await readFile("build/manual/sections.json", "utf8"));
+  assert.equal(index.length, 12);
+  assert.deepEqual(
+    index.map((section) => section.id),
+    await run("Array.from(document.querySelectorAll('main section[id]'), section => section.id)"),
+  );
+  assert.match(index.find((section) => section.id === "shortcuts").text, /New Window/);
+  await key("/");
+  await expect.poll(() => run("document.activeElement.id")).toBe("manual-query");
+  await type("worktree");
+  await expect
+    .poll(() => run("document.querySelectorAll('[role=option]').length"))
+    .toBeGreaterThan(1);
+  await key("Down");
+  await expect
+    .poll(() =>
+      run("document.querySelector('#manual-query').getAttribute('aria-activedescendant')"),
+    )
+    .toBe("manual-result-1");
+  await key("Up");
+  await key("Return");
+  await expect.poll(() => run("document.activeElement.id")).toBe("getting-started");
+  assert.equal(
+    await run("document.querySelector('#getting-started').classList.contains('search-hit')"),
+    true,
+  );
+  assert.ok(
+    await run(
+      "Math.abs(document.querySelector('#getting-started').getBoundingClientRect().top - 80) < 2",
+    ),
+  );
+  await key("f", [process.platform === "darwin" ? "meta" : "control"]);
+  await expect.poll(() => run("document.activeElement.id")).toBe("manual-query");
+  await type("resumable");
+  await expect.poll(() => run("document.querySelectorAll('[role=option]').length")).toBe(1);
+  assert.match(await run("document.querySelector('[role=option] span').textContent"), /resumable/);
+  await key("Return");
+  await expect.poll(() => run("document.activeElement.id")).toBe("repositories");
+  await key("/");
+  await type("no-section-matches-this");
+  await expect.poll(() => run("document.querySelectorAll('[role=option]').length")).toBe(0);
+  assert.equal(await run("document.querySelector('#manual-results').hidden"), true);
+  await key("Escape");
+  assert.equal(await run("document.querySelector('#manual-query').value"), "");
+  await type("worktree");
+  await run("document.querySelectorAll('[role=option]')[1].click()");
+  await expect.poll(() => run("document.activeElement.id")).toBe("repositories");
+  if (process.env.FOOM_MANUAL_SCREENSHOTS === "1") {
+    await mkdir("screenshots-681", { recursive: true });
+    await key("/");
+    await type("worktree");
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await expect
+        .poll(() => run("matchMedia('(prefers-color-scheme: dark)').matches"))
+        .toBe(mode === "dark");
+      const png = await app.evaluate(async ({ webContents }) => {
+        const contents = webContents
+          .getAllWebContents()
+          .find((entry) => entry.getURL().startsWith("foom-preview://"));
+        return (await contents.capturePage()).toDataURL();
+      });
+      await writeFile(
+        `screenshots-681/manual-search-${mode}.png`,
+        Buffer.from(png.split(",")[1], "base64"),
+      );
+    }
+  }
 });

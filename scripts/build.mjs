@@ -1,4 +1,5 @@
 import { build } from "esbuild";
+import { JSDOM } from "jsdom";
 import { execFileSync } from "node:child_process";
 import { chmod, copyFile, cp, glob, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -79,12 +80,36 @@ const shortcuts = ["darwin", "linux"]
     ),
   )
   .join("\n");
-await cp(join(root, "src/manual"), join(root, "build/manual"), { recursive: true });
+await mkdir(join(root, "build/manual"), { recursive: true });
+await copyFile(join(root, "src/manual/manual.css"), join(root, "build/manual/manual.css"));
+await build({
+  entryPoints: [join(root, "src/manual/search.ts")],
+  bundle: true,
+  platform: "browser",
+  format: "iife",
+  outfile: join(root, "build/manual/search.js"),
+});
 const manual = await readFile(join(root, "src/manual/manual.html"), "utf8");
+const completedManual = manual.replace("<!-- SHORTCUTS -->", shortcuts);
+await writeFile(join(root, "build/manual/manual.html"), completedManual);
+// Share one extraction definition with the page; future main-process consumers
+// can read this bundled artifact without a DOM or a second list of section IDs.
+const indexModule = join(root, "build/manual-index.cjs");
+await build({
+  entryPoints: [join(root, "src/manual/section-index.ts")],
+  bundle: true,
+  platform: "node",
+  format: "cjs",
+  outfile: indexModule,
+});
+const { sectionIndex } = await import("../build/manual-index.cjs");
+const manualDocument = new JSDOM(completedManual);
 await writeFile(
-  join(root, "build/manual/manual.html"),
-  manual.replace("<!-- SHORTCUTS -->", shortcuts),
+  join(root, "build/manual/sections.json"),
+  `${JSON.stringify(sectionIndex(manualDocument.window.document))}\n`,
 );
+manualDocument.window.close();
+await rm(indexModule);
 for (const font of ["geist.ttf", "geist-mono.ttf"]) {
   await copyFile(join(root, "src/renderer/fonts", font), join(root, "build/manual", font));
 }
