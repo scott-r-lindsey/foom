@@ -613,8 +613,19 @@ export class WorktreeService {
               "all",
             )),
       );
-      if (pr?.state !== "MERGED" || pr.headSha !== tree.head || !pr.mergeCommit) return false;
-      await git(repository, ["merge-base", "--is-ancestor", pr.mergeCommit, base]);
+      if (pr?.state !== "MERGED" || pr.headSha !== tree.head) return false;
+      let integrated = false;
+      for (const commit of new Set([pr.mergeCommit, pr.squashCommit])) {
+        if (!commit) continue;
+        try {
+          await git(repository, ["merge-base", "--is-ancestor", commit, base]);
+          integrated = true;
+          break;
+        } catch {
+          // A separate merge commit may be absent while the squash commit is integrated.
+        }
+      }
+      if (!integrated) return false;
       return (
         (await git(tree.path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim() === tree.head &&
         (await this.changes(repository, tree.path)) === ""

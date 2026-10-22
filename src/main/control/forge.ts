@@ -51,6 +51,9 @@ export function pullRequest(value: unknown): PullRequest | undefined {
     ...(typeof data["mergeCommit"] === "string" && /^[a-f0-9]{40,64}$/u.test(data["mergeCommit"])
       ? { mergeCommit: data["mergeCommit"] }
       : {}),
+    ...(typeof data["squashCommit"] === "string" && /^[a-f0-9]{40}$/u.test(data["squashCommit"])
+      ? { squashCommit: data["squashCommit"] }
+      : {}),
     ...(data["checksMeaning"] === "required" ||
     data["checksMeaning"] === "head-pipeline" ||
     data["checksMeaning"] === "commit-status"

@@ -5,8 +5,13 @@ import { afterEach, expect, it, vi } from "vitest";
 import { FAKE_GLAB } from "../../../helpers/glab-cli.js";
 import { ForgeRuntime } from "../../../../src/main/control/forge-runtime";
 import { manifestForgeProvider } from "../../../../src/main/control/forge-interpreter";
+import { pullRequest } from "../../../../src/main/control/forge";
 import { gitlabManifest } from "../../../../src/main/control/forge-manifests";
-import { forgeRemote, forgeValue } from "../../../../src/main/control/forge-mapping";
+import {
+  forgeMergeCommits,
+  forgeRemote,
+  forgeValue,
+} from "../../../../src/main/control/forge-mapping";
 import { parseForgeManifest } from "../../../../src/shared/forge-manifest";
 import gitlab from "../../../../src/shared/bundled-forges/gitlab.json";
 
@@ -372,4 +377,89 @@ it("refuses identical source and target identity selectors", () => {
       }),
     ),
   ).toThrow();
+});
+
+// #718's reduced recordings omit both integration SHAs. These overrides are synthetic.
+it.each([
+  ["merge", "a".repeat(40), null],
+  ["squash", null, "b".repeat(40)],
+  ["both", "a".repeat(40), "b".repeat(40)],
+  ["null", null, null],
+  ["missing", undefined, undefined],
+  ["malformed", "--help", "--help"],
+  ["long", "a".repeat(64), "b".repeat(64)],
+  ["uppercase", "A".repeat(40), "B".repeat(40)],
+])(
+  "maps synthetic %s integration evidence from recorded REST and GraphQL rows",
+  async (_name, merge, squash) => {
+    const rest: Record<string, unknown> = {
+      ...object(await capture("merged-rest")),
+      merge_commit_sha: merge,
+      squash_commit_sha: squash,
+    };
+    const run = vi.fn((argv: readonly string[]) =>
+      Promise.resolve({
+        code: 0,
+        stdout: JSON.stringify(argv[1]?.endsWith("/merge_requests") ? [rest] : rest),
+        stderr: "",
+      }),
+    );
+    const forge = manifestForgeProvider(gitlabManifest, remote, run, "main");
+    const result = await forge.lookup(String(rest["source_branch"]), undefined, "all");
+    expect(result?.state).toBe("MERGED");
+    const valid = (value: unknown) =>
+      typeof value === "string" && /^[a-f0-9]{40}$/u.test(value) ? value : undefined;
+    expect(result?.mergeCommit).toBe(valid(merge));
+    expect(result?.squashCommit).toBe(valid(squash));
+    const row: Record<string, unknown> = { ...(await batchRow(7)), mergeCommitSha: merge };
+    const { forge: batched, run: batchRun } = provider(batch(row));
+    const sample = (
+      await batched.batch?.([{ branch: String(row["sourceBranch"]), number: 7 }])
+    )?.get(String(row["sourceBranch"]));
+    expect(sample?.state).toBe("MERGED");
+    expect(sample?.mergeCommit).toBe(valid(merge));
+    expect(batchRun.mock.calls[0]?.[0].find((arg) => arg.startsWith("query="))).toContain(
+      "mergeCommitSha",
+    );
+  },
+);
+it("refuses changed squash evidence during the final REST refresh", async () => {
+  const rest = object(await capture("merged-rest"));
+  let calls = 0;
+  const forge = manifestForgeProvider(gitlabManifest, remote, () =>
+    Promise.resolve({
+      code: 0,
+      stdout: JSON.stringify({ ...rest, squash_commit_sha: (++calls < 3 ? "a" : "b").repeat(40) }),
+      stderr: "",
+    }),
+  );
+  expect(await forge.lookup(String(rest["source_branch"]), 7, "all")).toBeUndefined();
+});
+
+it("maps non-string merge evidence to absent without trusting nested SHA objects", () => {
+  for (const value of [0, [], {}, { oid: "a".repeat(40) }]) {
+    expect(
+      forgeMergeCommits(gitlabManifest.mapping, {
+        merge_commit_sha: value,
+        squash_commit_sha: value,
+      }),
+    ).toEqual({});
+  }
+  expect(() =>
+    parseForgeManifest(
+      JSON.stringify({
+        ...gitlab,
+        id: "custom",
+        mapping: { ...gitlab.mapping, squashCommit: ["__proto__"] },
+      }),
+    ),
+  ).toThrow();
+});
+
+it("validates squash hints at the main-owned metadata boundary", () => {
+  const pr = { number: 7, headSha: "a".repeat(40), state: "MERGED", requiredChecks: "none" };
+  expect(pullRequest({ ...pr, squashCommit: "b".repeat(40) })?.squashCommit).toBe("b".repeat(40));
+  for (const squashCommit of [null, 1, {}, "--help", "b".repeat(64)]) {
+    expect(pullRequest({ ...pr, squashCommit })?.squashCommit).toBeUndefined();
+  }
 });

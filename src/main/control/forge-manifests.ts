@@ -22,7 +22,7 @@ export const githubManifest = bundledForge(
 export const gitlabManifest = bundledForge(
   gitlab,
   "gitlab",
-  "b7cc0c8aaf12de7e07a263b886ce8296a4049a737d2f21945f78c290236907aa",
+  "4a9367675596445af47426677f5b939c751b00662eaf8e308c7af8815bb12fdc",
 );
 export const bundledForgeManifests = [githubManifest, gitlabManifest];
 export const bundledForgeEntries = [
@@ -32,6 +32,6 @@ export const bundledForgeEntries = [
   },
   {
     manifest: gitlabManifest,
-    digest: "b7cc0c8aaf12de7e07a263b886ce8296a4049a737d2f21945f78c290236907aa",
+    digest: "4a9367675596445af47426677f5b939c751b00662eaf8e308c7af8815bb12fdc",
   },
 ];

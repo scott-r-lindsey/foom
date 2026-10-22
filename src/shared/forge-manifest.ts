@@ -314,13 +314,16 @@ function mappingValue(value: unknown, path: string): ForgeManifest["mapping"] {
     value,
     path,
     ["number", "branch", "headSha", "state", "states", "projects"],
-    ["title", "webUrl", "mergeCommit"],
+    ["title", "webUrl", "mergeCommit", "squashCommit"],
   );
   return {
     number: pathValue(mapping["number"], path),
     branch: pathValue(mapping["branch"], path),
     headSha: pathValue(mapping["headSha"], path),
     mergeCommit: optional(pathValue)(mapping["mergeCommit"], path),
+    ...(mapping["squashCommit"] === undefined
+      ? {}
+      : { squashCommit: pathValue(mapping["squashCommit"], path) }),
     state: pathValue(mapping["state"], path),
     states: table(mapping["states"], path, enumeration("OPEN", "CLOSED", "MERGED")),
     title: optional(pathValue)(mapping["title"], path),

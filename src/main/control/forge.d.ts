@@ -6,6 +6,7 @@ export interface PullRequest {
   numberPrefix?: "!";
   headSha: string;
   mergeCommit?: string;
+  squashCommit?: string;
   checksMeaning?: "required" | "head-pipeline" | "commit-status";
   title?: string;
   url?: string;

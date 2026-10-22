@@ -255,8 +255,8 @@
         "jsonExitCodes": [0]
       },
       "query": "query($project: ID!) { project(fullPath: $project) { id repository { rootRef } ...FoomBatch } }",
-      "discovery": "query($branch: String!) { mergeRequests(sourceBranches: [$branch], state: opened, first: 2) { pageInfo { hasNextPage } nodes { iid title sourceBranch diffHeadSha state sourceProject { id fullPath } targetProject { id fullPath } headPipeline { sha status } } } }",
-      "bound": "query($number: String!) { mergeRequest(iid: $number) { iid title sourceBranch diffHeadSha state sourceProject { id fullPath } targetProject { id fullPath } headPipeline { sha status } } }",
+      "discovery": "query($branch: String!) { mergeRequests(sourceBranches: [$branch], state: opened, first: 2) { pageInfo { hasNextPage } nodes { iid title sourceBranch diffHeadSha state mergeCommitSha sourceProject { id fullPath } targetProject { id fullPath } headPipeline { sha status } } } }",
+      "bound": "query($number: String!) { mergeRequest(iid: $number) { iid title sourceBranch diffHeadSha state mergeCommitSha sourceProject { id fullPath } targetProject { id fullPath } headPipeline { sha status } } }",
       "repository": ["data", "project"],
       "defaultBranch": ["repository", "rootRef"],
       "nodes": ["nodes"],
@@ -286,6 +286,7 @@
         "number": ["iid"],
         "branch": ["sourceBranch"],
         "headSha": ["diffHeadSha"],
+        "mergeCommit": ["mergeCommitSha"],
         "state": ["state"],
         "states": {
           "opened": "OPEN",
@@ -346,6 +347,8 @@
     "number": ["iid"],
     "branch": ["source_branch"],
     "headSha": ["sha"],
+    "mergeCommit": ["merge_commit_sha"],
+    "squashCommit": ["squash_commit_sha"],
     "state": ["state"],
     "states": {
       "opened": "OPEN",

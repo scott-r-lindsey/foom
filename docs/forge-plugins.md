@@ -399,7 +399,8 @@ the sole bounded array iteration. Mapping never retains arbitrary response field
 | --- | --- |
 | `number` | Positive safe integer (GitLab `iid`, not global `id`) |
 | `branch`, `headSha` | Existing branch validator; exactly 40 lowercase hex SHA characters |
-| `mergeCommit?` | Optional literal selector; retain only 40–64 lowercase hex characters, matching the legacy provider; final single-PR refresh must report the same raw value |
+| `mergeCommit?` | Optional literal selector; numeric-project-ID mappings retain exactly 40 lowercase hex characters; legacy owner/cross mappings retain 40–64. Final single-PR refresh must report the same raw value |
+| `squashCommit?` | Optional literal selector for alternative integration evidence; exactly 40 lowercase hex characters; final single-PR refresh must report the same raw value |
 | `state`, `states` | Exact, case-sensitive table lookup to OPEN/CLOSED/MERGED |
 | `title?` | String <=1024 code units before sanitizing; strip Cc/Cf/Co/Cs and U+2028/U+2029; render inert text, no Markdown/HTML |
 | `webUrl?` | <=4096; no hidden/control characters, credentials or port override; HTTPS and exact selected hostname only; revalidate in main at external-link open |
@@ -632,3 +633,16 @@ See [GitLab mappings and evidence limits](areas/forge.md#gitlab-522).
 The added discovery/default-branch selections use the documented
 [GitLab GraphQL Project and Repository fields](https://docs.gitlab.com/api/graphql/reference/objects/).
 They are exercised in derived fixture envelopes, not claimed as new live captures.
+
+GitLab REST maps `merge_commit_sha` and `squash_commit_sha` independently. There
+is no manifest expression or ancestry-aware fallback selector: main retains both
+validated hints, and cleanup tests the merge commit followed by the squash commit
+against the fetched default. Only a locally present ancestor qualifies. A null,
+malformed or non-ancestor merge commit therefore cannot hide an integrated squash
+commit. Missing/invalid hints are absent and cannot authorize cleanup. GraphQL
+requests/maps `mergeCommitSha`; the documented MergeRequest schema has no
+`squashCommitSha`. Cleanup's ordinary REST lookup supplies the squash alternative.
+See [REST fields](https://docs.gitlab.com/api/merge_requests/) and
+[GraphQL fields](https://docs.gitlab.com/api/graphql/reference/objects/#mergerequest).
+The reduced #718 envelopes omit these SHA fields; tests add explicitly synthetic
+merge/squash hints, with real local Git objects for the cleanup regression.

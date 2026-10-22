@@ -59,8 +59,10 @@ are captured before the trusted dialog. Both revalidation passes check Git membe
 session eligibility, clean status and either `merge-tree` containment against a freshly
 fetched default commit or a locally verified PR merge. The latter uses the existing
 forge lookup for a same-repository MERGED PR, requires its head SHA to equal the
-worktree HEAD exactly, validates the optional `PullRequest.mergeCommit` ID, and runs
-`git merge-base --is-ancestor <mergeCommit> <fetched-default>`. Forge hints alone
+worktree HEAD exactly, validates optional `PullRequest.mergeCommit` and
+`PullRequest.squashCommit` IDs, and tests each with
+`git merge-base --is-ancestor <commit> <fetched-default>` until one qualifies.
+A missing or non-ancestor merge SHA cannot hide a valid squash ancestor. Forge hints alone
 never authorize removal; missing objects, mismatched heads and failed checks refuse.
 Every removal rechecks this evidence. Automatic removal uses this verified PR path
 alongside its existing ancestry/no-unpushed-commits path, preserving clean status,

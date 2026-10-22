@@ -109,6 +109,7 @@ export interface ForgeManifest {
     branch: ForgePath;
     headSha: ForgePath;
     mergeCommit: ForgePath | undefined;
+    squashCommit?: ForgePath;
     state: ForgePath;
     states: Readonly<Record<string, ForgeState>>;
     title: ForgePath | undefined;

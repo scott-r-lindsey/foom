@@ -3,7 +3,7 @@ import type { ForgeMatch, ForgeObservation, ForgeRemote, ForgeTransport } from "
 import { expandForgeBatchQuery } from "../../shared/forge-batch-query";
 import { expandForgeArguments, forgeJson } from "./forge-execution";
 import { forgeBranch, forgeTitle, forgeWebUrl, pullRequest } from "./forge";
-import { forgeProject, forgeValue, reduceForgeChecks } from "./forge-mapping";
+import { forgeMergeCommits, forgeProject, forgeValue, reduceForgeChecks } from "./forge-mapping";
 
 function checkCounts(value: unknown, result: ForgeCheckResult, head: string, number: number) {
   const all = { ...result, required: undefined };
@@ -114,7 +114,7 @@ function parseManifestBatch(
     const pr = pullRequest({
       number,
       headSha: forgeValue(row, mapping.headSha),
-      mergeCommit: mapping.mergeCommit ? forgeValue(row, mapping.mergeCommit) : undefined,
+      ...forgeMergeCommits(mapping, row),
       state:
         typeof rawState === "string" && Object.hasOwn(mapping.states, rawState)
           ? mapping.states[rawState]

@@ -3,6 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
+import { manifestForgeProvider } from "../../../../src/main/control/forge-interpreter";
+import { gitlabManifest } from "../../../../src/main/control/forge-manifests";
+import { forgeValue } from "../../../../src/main/control/forge-mapping";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git as execute } from "../../../helpers/git.js";
 import { forgeProvider } from "../../../helpers/legacy-forge";
@@ -342,6 +345,82 @@ describe("merged worktree containment", () => {
     ).toBe(["merge", "squash", "rebase"].includes(mode));
     expect(lookup).toHaveBeenCalled();
   });
+  it.each(["merge", "squash", "both", "alternate ancestor", "no ancestor"])(
+    "verifies GitLab %s integration SHAs for squash cleanup with offline real Git",
+    async (mode) => {
+      const tree = await feature();
+      await writeFile(join(repo, "default.txt"), "diverge before squash\n");
+      await commit(repo, "default change");
+      await git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "merge",
+        "--squash",
+        "feature",
+      );
+      await commit(repo, "squashed feature");
+      const integrated = (await git("rev-parse", "HEAD")).trim();
+      await writeFile(join(repo, "feature.txt"), "later default edit\n");
+      await commit(repo, "later edit");
+      const laterCommit = (await git("rev-parse", "HEAD")).trim();
+      await remote();
+      const envelope: unknown = JSON.parse(
+        await readFile("spikes/forge-manifests/fixtures/glab-merged-rest-recorded.json", "utf8"),
+      );
+      const stdout = forgeValue(envelope, ["stdout"]);
+      if (typeof stdout !== "string") throw new Error("Missing recorded response");
+      const recorded: unknown = JSON.parse(stdout);
+      if (typeof recorded !== "object" || recorded === null)
+        throw new Error("Invalid recorded response");
+      // Constructed integration evidence, derived from #718's reduced same-project MR.
+      const row = {
+        ...recorded,
+        source_branch: "feature",
+        sha: tree.head,
+        merge_commit_sha:
+          mode === "both"
+            ? laterCommit
+            : mode === "merge"
+              ? integrated
+              : mode === "squash"
+                ? null
+                : tree.head,
+        squash_commit_sha:
+          mode === "merge" ? null : mode === "no ancestor" ? "f".repeat(40) : integrated,
+      };
+      const transport = vi.fn((argv: readonly string[]) =>
+        Promise.resolve({
+          code: 0,
+          stdout: JSON.stringify(argv[1]?.endsWith("/merge_requests") ? [row] : row),
+          stderr: "",
+        }),
+      );
+      service = new WorktreeService(root, () =>
+        manifestForgeProvider(
+          gitlabManifest,
+          { host: "gitlab.com", project: "scott-test-projects/foom-forge-fixtures" },
+          transport,
+          "main",
+        ),
+      );
+      await service.addRepository(repo);
+      const base = await service.mergedDefault(repo, true);
+      // Later edits make content-only containment insufficient. Original feature HEAD
+      // is not an ancestor after squash; only the integrated SHA may authorize cleanup.
+      await expect(git("merge-tree", "--write-tree", base, tree.head ?? "")).rejects.toThrow();
+      expect(await service.mergedCommit(repo, tree, base)).toBe(mode !== "no ancestor");
+      expect(
+        await service.canAutoRemove(
+          repo,
+          tree.path,
+          await service.removalIdentity(repo, tree.path),
+        ),
+      ).toBe(mode !== "no ancestor");
+      expect(transport).toHaveBeenCalled();
+    },
+  );
   it("rejects conflicts and deletes only an unchanged, unchecked-out local branch", async () => {
     const tree = await feature();
     await writeFile(join(repo, "feature.txt"), "different\n");

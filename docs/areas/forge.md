@@ -95,3 +95,15 @@ constructed test cases. Single-MR checks always finish with an identity/head/sta
 refresh. MR titles are inert text; branch values stay argv/GraphQL variables.
 Manifest display metadata supplies “Merge request”/`!`; GitHub retains “Pull
 request”/`#` in board marks, panels and completion notifications.
+
+Merged GitLab cleanup reads REST `merge_commit_sha` and `squash_commit_sha` as
+separate optional hints, each exactly 40 lowercase hex characters. The manifest
+language has literal selectors, not ancestry-aware fallback expressions. Main
+tries both validated hints and accepts only one locally verified as an ancestor
+of the freshly fetched default, retaining the exact-head, clean-checkout and
+identity guards. This covers squash-only merges (null merge SHA), separate merge
+and squash commits, and a non-ancestor merge SHA with a reachable squash SHA.
+GraphQL maps `mergeCommitSha`; no unsupported `squashCommitSha` field is requested.
+Cleanup uses the ordinary REST plan, where both fields are available. #718's
+reduced envelopes omit merge/squash SHAs; these test additions are synthetic,
+including the offline real-Git squash regression, not additional live captures.
