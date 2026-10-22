@@ -8,6 +8,11 @@ Settings → Foom config explains that the folder contains plain files watched a
 validated by Foom. You can edit them yourself or launch an agent from the sidebar’s
 Foom config entry. Invalid files are rejected and the last good version stays.
 
+Settings opens on **General** unless an entry point targets a specific section.
+General offers **Show repository paths relative to code folder**, off by default.
+When on, sidebar repositories beneath the chosen code folder show relative paths
+(such as `work/foom`); repositories outside it keep their names.
+
 Open **Settings** from the board, or press ⌘, on macOS and Ctrl+Shift+, elsewhere.
 It replaces the terminal tiles beside the persistent sidebar in the same window.
 Esc returns to the tiles and restores the same focused sidebar row.

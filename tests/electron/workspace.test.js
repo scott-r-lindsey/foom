@@ -60,7 +60,7 @@ test("the trailing add repository row opens the fixture folder chooser", async (
   const app = await launchApp(context, { fixture: "repository" });
   const page = await boardPage(app);
   const add = page.getByRole("button", { name: "Add repository", exact: true });
-  await expect(add).toHaveText("+");
+  await expect(add).toHaveText("+ Add repo");
   await expect(page.locator(".sidebar-filter button")).toHaveCount(0);
   await expect(page.locator(".board-list > :last-child")).toHaveAttribute(
     "aria-label",
@@ -1472,7 +1472,10 @@ test("application menu uses the command registry and supports native keyboard ac
     window.desktop.saveSetup({ agents: { claude: false, codex: false, agy: false } }),
   );
   const entries = await page.evaluate(() => window.desktop.appMenu.commands());
-  assert.ok(entries.some((entry) => entry?.id === "reload"));
+  const developer = entries.find((entry) => entry?.id === "developer-menu");
+  assert.ok(developer.items.some((entry) => entry?.id === "reload"));
+  assert.ok(!entries.some((entry) => entry?.id === "reload"));
+  assert.ok(!JSON.stringify(entries).includes("via-"));
   assert.equal(entries.find((entry) => entry?.id === "new-window").enabled, true);
   await page.evaluate(() => window.desktop.appMenu.execute("action-log"));
   await expect(page.getByRole("heading", { name: "Action log" })).toBeVisible();
@@ -1583,7 +1586,9 @@ test("application menu uses the command registry and supports native keyboard ac
   }
   await expect(page.getByRole("menuitem", { name: /^New window/ })).toBeEnabled();
   await expect(page.getByRole("menuitem", { name: /orchestrator/i })).toHaveCount(0);
+  await page.getByRole("menuitem", { name: "Developer", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "Action log", exact: true })).toBeEnabled();
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("menuitem", { name: /^(Paste|Focus|Swap|Two by two)/ })).toHaveCount(
     0,
   );
@@ -1594,7 +1599,7 @@ test("application menu uses the command registry and supports native keyboard ac
   await page.keyboard.press("Escape");
   await expect(menu).not.toBeVisible();
   await expect(trigger).toBeFocused();
-  const settings = page.getByRole("menuitem", { name: "Settings", exact: true });
+  const settings = page.getByRole("menuitem", { name: /^Settings…/ });
   for (const key of mac ? ["click"] : ["F10", "Alt"]) {
     if (key === "click") await trigger.click();
     else
@@ -1610,26 +1615,11 @@ test("application menu uses the command registry and supports native keyboard ac
     // New window, New worktree, Add repository, then Settings.
     for (let step = 0; step < 3; step++) await page.keyboard.press("ArrowDown");
     await expect(settings).toBeFocused();
-    await page.keyboard.press("ArrowRight");
-    await expect(settings).toHaveAttribute("aria-expanded", "true");
-    await expect(page.getByRole("menuitem", { name: /^Via Settings UI/ })).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
     await expect(menu).toHaveCount(0);
     await page.getByRole("button", { name: "Close settings (Esc)" }).click();
   }
-  // A disabled agent route does nothing when clicked.
-  await trigger.click();
-  await settings.hover();
-  const submenu = page.getByRole("menu", { name: "Settings" });
-  await expect(submenu).toBeVisible();
-  const claude = submenu.getByRole("menuitem", { name: /Via Claude Code/ });
-  await expect(claude).toBeDisabled();
-  await claude.click({ force: true });
-  await expect(submenu).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toHaveCount(0);
-  await page.keyboard.press("Escape");
-  await expect(menu).toHaveCount(0);
   // Size steps the interface size and the menu stays open.
   const zoom = () =>
     app.evaluate(({ BrowserWindow }) =>

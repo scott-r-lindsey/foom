@@ -9,10 +9,11 @@ labels, platform bindings, enabled/checked state, agent badges, shortcut-sheet
 rows, native roles and actions. `app-menu.ts` projects this one registry two
 ways: every implemented command to the macOS menu bar, and a curated, fixed
 layout to the wordmark menu on every platform. The wordmark projection is data
-only (`AppMenuEntry`): commands, separators, the Settings submenu (the agent
-routes come from the live provider registry, followed by Via Settings UI), and a
+only (`AppMenuEntry`): commands (including Settings…), separators, submenus, and a
 `size` row carrying Bigger/Smaller and main's current interface scale. Action log
-is an enabled board command in both the wordmark and macOS menus; it has no direct
+is an enabled board command under Developer in both the wordmark and macOS menus,
+with Toggle Developer Tools in development builds. Quit Foom is last in the macOS
+application menu. Action log has no direct
 shortcut binding.
 Main owns one `before-input-event` dispatcher, shared by the board and every preview
 (including its synchronous focus-handoff and trusted-dialog input guards); native accelerators are
@@ -33,14 +34,9 @@ the board to show it. View accepts bounded tile counts and booleans solely for
 presentation availability and the maximize checkmark. The board source exposes
 this small typed capability. Add repository reaches the board as the
 `add-repository` board command and uses the sidebar's picker path.
-The live provider `via-<agent>` commands use the same registry for native and wordmark
-menus. Main derives their availability from discovery and saved agent switches;
-the board reports config-launch availability separately from tile availability,
-so Settings can stay open while choosing an agent. Preflight disables these routes. Availability refreshes on menu reads, execution, window
-focus and settings updates. The preload validates bounded syntactic provider IDs; main checks the live provider registry before launch.
-The board dispatches the existing `config-launch` command,
-awaits the source's refreshed inventory, and opens the newly created config session
-through normal session selection. Menu and sidebar launches use the same launch policy without notifier confirmation.
+The application menu has no agent launch routes or agent-discovery refresh.
+The sidebar’s Foom config panel retains its registry-derived launchers and their
+existing launch policy.
 
 The renderer reuses RowMenu's keyboard navigation, portal and dismissal behavior.
 RowMenu renders a submenu as a nested portal anchored to its item: the top-level

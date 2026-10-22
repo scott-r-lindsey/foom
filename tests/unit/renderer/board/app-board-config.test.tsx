@@ -45,13 +45,13 @@ test("the Foom config dock contains its sessions, shows chips, launches there an
   await settle();
   expect(mock.sidebarCommand).toHaveBeenCalledWith({ kind: "config-launch", run: "shell" });
   fireEvent.click(screen.container.querySelector(".config-gear") ?? document.body);
-  fireEvent.click(screen.getByRole("menuitem", { name: "Open Foom config settings" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Settings/ }));
   await settle();
-  expect(screen.getByRole("heading", { name: "Foom config" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "General" })).toBeTruthy();
   const sections = screen.getByRole("navigation", { name: "Settings sections" });
   expect(
     [...sections.querySelectorAll("button")]
-      .find((button) => button.textContent === "Foom config")
+      .find((button) => button.textContent === "General")
       ?.getAttribute("aria-current"),
   ).toBe("page");
 });

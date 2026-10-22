@@ -81,6 +81,11 @@ Terminal colors are independently stored as `terminalTheme`: `follow` (default),
 
 The renderer shows preflight until setup is complete; subsequent configuration lives in Settings. The default worktree location applies to the New worktree flow.
 
+Settings opens on General by default; explicitly targeted sections still open directly.
+The profile-only `showNestedRepositoryNames` boolean defaults to false and displays
+repository names relative to `codeFolder` when enabled. Repositories outside that
+folder, or the code folder itself, retain their registered name.
+
 Settings opens beside the persistent sidebar from the Foom config gear panel or app menu, with ⌘, on macOS or Ctrl+Shift+, elsewhere.
 Main reserves the shortcut through the existing validated `board:command` channel.
 Each registered window has its own trusted IPC sender and setup coordinator. The board keeps its terminal

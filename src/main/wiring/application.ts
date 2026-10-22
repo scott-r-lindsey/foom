@@ -90,7 +90,6 @@ export function runApplication() {
           .then((state) => {
             if (!entry.window.webContents.isDestroyed())
               entry.window.webContents.send("setup:changed", state);
-            void entry.appMenu.refreshAgents();
           })
           .catch((error: unknown) => {
             console.error("Unable to refresh settings:", error);
@@ -126,7 +125,6 @@ export function runApplication() {
             entry.window.webContents.mainFrame.url === APP_URL
           )
             entry.window.webContents.send("setup:changed", state);
-          void entry.appMenu.refreshAgents();
         })
         .catch(() => {});
     }

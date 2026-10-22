@@ -336,19 +336,12 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
     .toBe(false);
   await assert.rejects(require("node:fs/promises").access(second.launch.cwd), { code: "ENOENT" });
   await page.evaluate((id) => window.desktop.input(id, "install\r"), configId);
-  // Every launch surface updates while Settings stays closed, without a manual scan.
+  // Sidebar launch surfaces update while Settings stays closed, without a manual scan.
   await page.locator(".config-gear").click();
   await expect(page.getByRole("menuitem", { name: "Via OpenCode", exact: true })).toBeVisible();
-  await expect
-    .poll(() =>
-      page.evaluate(async () => {
-        const entries = await window.desktop.appMenu.commands();
-        return entries
-          .flatMap((entry) => (entry?.kind === "submenu" ? entry.items : []))
-          .find((entry) => entry?.id === "via-opencode")?.enabled;
-      }),
-    )
-    .toBe(true);
+  assert.ok(
+    !JSON.stringify(await page.evaluate(() => window.desktop.appMenu.commands())).includes("via-"),
+  );
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "OpenCode", exact: true })).toBeVisible();

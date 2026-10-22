@@ -296,8 +296,13 @@ test("launches an agent in a managed worktree and routes its attention signals",
   await page.waitForTimeout(2500);
   assert.equal((await latest()).state, "needs_input");
 
+  if (process.env.FOOM_UI_SCREENSHOTS)
+    await page.screenshot({
+      path: path.join(process.env.FOOM_UI_SCREENSHOTS, "dismiss-attention.png"),
+      animations: "disabled",
+    });
   // Dismissal clears attention but does not establish resumed execution.
-  await page.getByRole("button", { name: "Not attention", exact: true }).click();
+  await page.getByRole("button", { name: "Dismiss incorrect attention flag", exact: true }).click();
   await expect(agentRow).toHaveAttribute("data-state", "quiet_ok");
   assert.equal((await latest()).signal, "user:dismissed");
   assert.equal((await latest()).execution.phase, "blocked");

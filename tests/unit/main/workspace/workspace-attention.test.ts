@@ -157,6 +157,7 @@ test("an old classification cannot stop a newer turn; blocking screens outrank w
   expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("blocked");
   workspace.input("t1");
   await workspace.feedback("t1", states.at(-1)?.verdictId ?? null, "dismissed");
+  expect(states.at(-1)?.reason).toBe("Dismissed");
   expect(workspace.snapshot().terminals[0]?.execution?.phase).toBe("blocked");
   await workspace.dispose();
 });

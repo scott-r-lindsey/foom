@@ -589,6 +589,7 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
       onClose={close}
     />,
   );
+  fireEvent.click(button("Agents"));
   await waitFor(() => {
     expect(screen.getByRole("switch", { name: "Claude Code" })).toHaveProperty("disabled", false);
   });
@@ -769,6 +770,7 @@ test("Settings saves agent defaults through its source and retains the saved sta
   const state = setupState({ setupComplete: true });
   const source = fake(state);
   render(<Preflight source={source} initial={state} onLaunched={vi.fn()} settingsMode />);
+  fireEvent.click(button("Agents"));
   fireEvent.change(await screen.findByLabelText("Codex default arguments"), {
     target: { value: "--model\nexample" },
   });
@@ -870,6 +872,7 @@ test.each([
       report({ ...installation("agy", detected), agyPlugin: { state: pluginState } }),
     );
     render(<Preflight source={source} initial={initial} onLaunched={vi.fn()} settingsMode />);
+    fireEvent.click(button("Agents"));
     await waitFor(() => {
       expect(source.scanAgents).toHaveBeenCalled();
     });
@@ -907,6 +910,7 @@ test("concurrent card saves preserve other agents' defaults and continue after a
   const state = setupState({ setupComplete: true });
   const source = fake(state);
   render(<Preflight source={source} initial={state} settingsMode onLaunched={vi.fn()} />);
+  fireEvent.click(button("Agents"));
   const claude = await screen.findByLabelText("Claude Code default arguments");
   const codex = screen.getByLabelText("Codex default arguments");
   source.save.mockRejectedValueOnce(Error("First save refused"));
@@ -1131,4 +1135,45 @@ test("Session panel color choices save immediately and follow the saved selectio
       expect(radio).toHaveProperty("checked", true);
     });
   }
+});
+
+test("Settings defaults to General and saves the optional nested repository names", async () => {
+  const initial = setupState();
+  const source = fake(initial);
+  render(<Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />);
+  expect(screen.getByRole("heading", { name: "General" })).toBeTruthy();
+  const toggle = screen.getByRole("checkbox", {
+    name: "Show repository paths relative to code folder",
+  });
+  expect(toggle).toHaveProperty("checked", false);
+  fireEvent.click(toggle);
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ showNestedRepositoryNames: true });
+  });
+  expect(toggle).toHaveProperty("checked", true);
+});
+
+test("explicit Settings sections retain their targeted route", async () => {
+  const initial = setupState();
+  const status = { folder: "/config", available: true, pending: null, rejected: [] };
+  const source: SetupSource = {
+    ...fake(initial),
+    config: {
+      status: () => Promise.resolve(status),
+      decide: () => Promise.resolve(status),
+      openFolder: () => Promise.resolve(),
+      subscribe: () => () => {},
+    },
+  };
+  render(
+    <Preflight
+      source={source}
+      initial={initial}
+      settingsMode
+      initialSection="config"
+      onLaunched={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole("heading", { name: "Foom config" })).toBeTruthy();
+  await screen.findByText("/config");
 });

@@ -63,15 +63,12 @@ test("config panel orders Settings, launchers and folder commands; dock uses the
     "SettingsCtrl+,",
     "CCVia Claude Code",
     ">_Shell",
-    "Open Foom config settings",
     "Open folder",
   ]);
   expect(items[0]).toBe(document.activeElement);
+  expect(view.queryByRole("menuitem", { name: "Open Foom config settings" })).toBeNull();
   fireEvent.click(items[0] ?? panel);
   expect(settings).toHaveBeenLastCalledWith();
-  fireEvent.click(gear);
-  fireEvent.click(view.getByRole("menuitem", { name: "Open Foom config settings" }));
-  expect(settings).toHaveBeenLastCalledWith("config");
   fireEvent.click(gear);
   fireEvent.click(view.getByRole("menuitem", { name: /^Via Claude Code/ }));
   expect(command).toHaveBeenCalledWith({ kind: "config-launch", run: "claude" });

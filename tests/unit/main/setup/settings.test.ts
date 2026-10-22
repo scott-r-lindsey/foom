@@ -760,3 +760,17 @@ test("new child placement defaults on and round-trips a boolean", async () => {
   store.setConfig({});
   expect(store.get().showNewChildren).toBe(true);
 });
+
+test("nested repository names default off, validate booleans and persist in the profile", async () => {
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  expect(store.get().showNestedRepositoryNames).toBe(false);
+  for (const value of [null, "true", 1, {}])
+    expect(() => parseSettingsPatch({ showNestedRepositoryNames: value })).toThrow(
+      "Invalid settings",
+    );
+  await store.update(parseSettingsPatch({ showNestedRepositoryNames: true }));
+  expect((await SettingsStore.open(dir)).get().showNestedRepositoryNames).toBe(true);
+  await store.update(parseSettingsPatch({ showNestedRepositoryNames: false }));
+  expect((await SettingsStore.open(dir)).get().showNestedRepositoryNames).toBe(false);
+});

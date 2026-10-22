@@ -52,13 +52,16 @@ test("feedback failure is visible and retry leaves main in charge of attention",
   fireEvent.click(screen.getByRole("treeitem", { name: /Continue/ }));
   await settle();
   mock.feedback.mockRejectedValueOnce(new Error("disk full"));
-  fireEvent.click(screen.getByRole("button", { name: "Not attention" }));
+  const dismiss = () => screen.getByRole("button", { name: "Dismiss incorrect attention flag" });
+  expect(dismiss().textContent).toBe("Dismiss");
+  expect(dismiss().title).toContain("false positive");
+  fireEvent.click(dismiss());
   await settle();
   expect(screen.getByRole("alert").textContent).toContain("Unable to record feedback");
-  fireEvent.click(screen.getByRole("button", { name: "Not attention" }));
+  fireEvent.click(dismiss());
   await settle();
   expect(screen.queryByRole("alert")).toBeNull();
-  expect(screen.getByRole("button", { name: "Not attention" })).toBeTruthy();
+  expect(dismiss()).toBeTruthy();
 });
 test("unreadable settings fall back to the empty board; samples require the build flag", async () => {
   const error = vi.spyOn(console, "error").mockImplementation(() => {});

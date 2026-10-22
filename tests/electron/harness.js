@@ -984,7 +984,7 @@ async function openSettingsScreen(page) {
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   // Markup is visible before the mount effects install Escape and focus the
   // heading. Wait for that handoff before callers send keyboard input.
-  await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeFocused();
+  await expect(page.getByRole("heading", { name: "General", exact: true })).toBeFocused();
 }
 
 module.exports = {

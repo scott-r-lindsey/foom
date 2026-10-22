@@ -628,7 +628,7 @@ export class ExecutionOwner {
     this.publish(id, terminal, {
       verdictId: null,
       state: action === "replied" ? "working" : "quiet_ok",
-      reason: action === "replied" ? "You replied" : "Not attention",
+      reason: action === "replied" ? "You replied" : "Dismissed",
       signal: action === "replied" ? "user:reply" : "user:dismissed",
       confidence: 1,
     });

@@ -1,3 +1,4 @@
+import { repositoryDisplayName } from "../../../../src/renderer/board/sidebar-model";
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
@@ -351,4 +352,21 @@ test("preview filtering retains the opener, and attribution retains identity aft
     expect(worktree?.sessions.map((session) => session.id)).toEqual(["agent"]);
     expect(worktree?.previews.map((item) => item.id)).toEqual(["preview"]);
   }
+});
+
+test.each([
+  ["/code/work/foom", "/code", true, "work/foom"],
+  ["/code/work/foom", "/code/", true, "work/foom"],
+  ["/code/foom", "/code", true, "foom"],
+  ["/code/work/foom", "/code", false, "foom"],
+  ["/outside/foom", "/code", true, "foom"],
+  ["/code-other/foom", "/code", true, "foom"],
+  ["/code", "/code", true, "foom"],
+  ["/code/work/foom", null, true, "foom"],
+  ["/work/foom", "/", true, "work/foom"],
+  ["C:\\Code\\work\\foom", "c:\\code", true, "work/foom"],
+  ["D:/Code/foom", "C:/Code", true, "foom"],
+  ["//host/code/work/foom", "\\\\host\\code", true, "work/foom"],
+])("repository name %s relative to %s (enabled %s)", (path, root, enabled, expected) => {
+  expect(repositoryDisplayName({ path, name: "foom" }, root, enabled)).toBe(expected);
 });

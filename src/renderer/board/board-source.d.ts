@@ -17,6 +17,8 @@ import type { ConfigStatus } from "../../shared/foom-config";
 import type { AgentInstallation, AgentId } from "../../shared/agents";
 import type { BranchInventory, CreateOutcome, Repository, Worktree } from "../../shared/worktrees";
 export interface LaunchOptions {
+  codeFolder?: string | null;
+  showNestedRepositoryNames?: boolean;
   repositories: readonly Repository[];
   agents: readonly AgentInstallation[];
   enabled: Readonly<Record<AgentId, boolean>>;
