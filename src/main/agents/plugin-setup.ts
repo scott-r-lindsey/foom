@@ -1,4 +1,8 @@
-import { installedPluginCurrent, pluginContent } from "./plugin-staging";
+import {
+  installedPluginCurrent,
+  pluginContent,
+  validateInstalledPluginPath,
+} from "./plugin-staging";
 import { setupOffers } from "./setup-offers";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -164,6 +168,12 @@ export class PluginSetup {
         )
           ? pluginContent(model, facts)
           : undefined;
+        if (modern)
+          await validateInstalledPluginPath(
+            model,
+            this.home,
+            record(listedPlugin) ? listedPlugin["path"] : undefined,
+          );
         Object.assign(derived, {
           stagingOutdated:
             staged?.observers === true &&
@@ -173,13 +183,7 @@ export class PluginSetup {
                 ownership.unfingerprintedVersion !== undefined &&
                 version >= ownership.unfingerprintedVersion
               )) ||
-              !(await installedPluginCurrent(
-                model,
-                facts,
-                this.home,
-                modern,
-                record(listedPlugin) ? listedPlugin["path"] : undefined,
-              ))),
+              !(await installedPluginCurrent(model, facts, this.home))),
           owned: true,
           absent: false,
           version,

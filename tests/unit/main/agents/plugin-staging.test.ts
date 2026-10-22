@@ -8,6 +8,8 @@ import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import {
   installedPluginCurrent,
   pluginContent,
+  pluginPathMatches,
+  validateInstalledPluginPath,
   stagePlugin,
 } from "../../../../src/main/agents/plugin-staging";
 import {
@@ -136,5 +138,101 @@ it("keeps unreferenced channels out of staging and rejects generated path collis
 it("refuses an installed inventory check without fixed ownership", async () => {
   const m = model();
   m.setup = undefined;
-  expect(await installedPluginCurrent(m, {}, await root(), false, undefined)).toBe(false);
+  expect(await installedPluginCurrent(m, {}, await root())).toBe(false);
+});
+
+it.each(["linux", "darwin", "win32"] as const)(
+  "checks exact reported spellings on %s",
+  (platform) => {
+    const expected =
+      platform === "win32"
+        ? "C:\\Users\\Fixture\\.gemini\\config\\plugins\\foom"
+        : "/Users/Fixture/.gemini/config/plugins/foom";
+    const separator = platform === "win32" ? "\\" : "/";
+    expect(pluginPathMatches(expected, expected, platform)).toBe(true);
+    expect(pluginPathMatches(expected.toUpperCase(), expected, platform)).toBe(
+      platform !== "linux",
+    );
+    for (const suffix of [separator, `${separator}.`, `${separator}..${separator}foom`])
+      expect(pluginPathMatches(expected + suffix, expected, platform)).toBe(false);
+    for (const segment of [".", "..", ""])
+      expect(
+        pluginPathMatches(
+          expected.replace(`${separator}.gemini`, `${separator}${segment}${separator}.gemini`),
+          expected,
+          platform,
+        ),
+      ).toBe(false);
+    for (const value of [undefined, {}, "/".repeat(4097), `${expected}\n`])
+      expect(pluginPathMatches(value, expected, platform)).toBe(false);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "rejects a symlink-plus-parent path even when lexical normalization matches ownership",
+  async () => {
+    const home = await root();
+    const foreign = await root();
+    const relative = ".gemini/config/plugins/foom";
+    await mkdir(join(home, relative), { recursive: true });
+    await mkdir(join(foreign, "child"));
+    await mkdir(join(foreign, relative), { recursive: true });
+    await symlink(
+      join(foreign, "child"),
+      join(home, "redirect"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const reported = `${home}/redirect/../${relative}`;
+    expect(await realpath(reported)).toBe(await realpath(join(foreign, relative)));
+    await expect(validateInstalledPluginPath(model(), home, reported)).rejects.toThrow(
+      "install path",
+    );
+    await expect(
+      validateInstalledPluginPath(model(), home, join(home, relative)),
+    ).resolves.toBeUndefined();
+  },
+);
+
+it("confirms a canonical home alias by filesystem identity", async () => {
+  const parent = await root();
+  const home = join(parent, "home");
+  const alias = join(parent, "alias");
+  await mkdir(join(home, ".gemini/config/plugins/foom"), { recursive: true });
+  await symlink(home, alias, process.platform === "win32" ? "junction" : "dir");
+  await expect(
+    validateInstalledPluginPath(model(), alias, join(alias, ".gemini/config/plugins/foom")),
+  ).resolves.toBeUndefined();
+});
+
+it.skipIf(process.platform === "win32" || process.platform === "darwin")(
+  "rejects case variants with different realpath identities on a case-sensitive filesystem",
+  async () => {
+    const parent = await root();
+    const home = join(parent, "Home");
+    const foreign = join(parent, "home");
+    const relative = ".gemini/config/plugins/foom";
+    await mkdir(join(home, relative), { recursive: true });
+    await mkdir(join(foreign, relative), { recursive: true });
+    await expect(
+      validateInstalledPluginPath(model(), home, join(foreign, relative), "darwin"),
+    ).rejects.toThrow("install path");
+    await expect(
+      validateInstalledPluginPath(model(), home, join(foreign, relative), "win32"),
+    ).rejects.toThrow("install path");
+  },
+);
+
+it("checks native mixed-case spellings against the actual filesystem identity", async () => {
+  const parent = await root();
+  const home = join(parent, "MixedHome");
+  const relative = ".gemini/config/plugins/foom";
+  await mkdir(join(home, relative), { recursive: true });
+  const reported = join(parent, "mixedhome", relative);
+  const exists = await realpath(reported).then(
+    () => true,
+    () => false,
+  );
+  const result = validateInstalledPluginPath(model(), home, reported);
+  if (process.platform !== "linux" && exists) await expect(result).resolves.toBeUndefined();
+  else await expect(result).rejects.toThrow();
 });

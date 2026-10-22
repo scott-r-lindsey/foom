@@ -619,6 +619,11 @@ it.each([
   "changed-target",
   "changed-hooks",
   "linked-target",
+  "path-dot",
+  "path-parent",
+  "path-double",
+  "path-trailing",
+  "path-symlink-parent",
   "path-missing",
   "path-relative",
   "path-outside",
@@ -639,6 +644,21 @@ it.each([
     await rm(observer);
     await symlink(e.manifest, observer);
   }
+  if (failure === "path-dot") reported = `${e.directory}/.`;
+  if (failure === "path-parent") reported = `${e.directory}/../foom`;
+  if (failure === "path-double") reported = `${e.directory}//`;
+  if (failure === "path-trailing") reported = `${e.directory}/`;
+  if (failure === "path-symlink-parent") {
+    const foreign = join(e.home, "foreign");
+    await mkdir(join(foreign, "child"), { recursive: true });
+    await mkdir(join(foreign, ".gemini/config/plugins/foom"), { recursive: true });
+    await symlink(
+      join(foreign, "child"),
+      join(e.home, "redirect"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    reported = `${e.home}/redirect/../.gemini/config/plugins/foom`;
+  }
   if (failure === "path-missing") reported = undefined;
   if (failure === "path-relative") reported = ".gemini/config/plugins/foom";
   if (failure === "path-outside") reported = join(e.home, "outside");
@@ -654,9 +674,13 @@ it.each([
       : runner(executable, args),
   );
   const status = await e.status();
-  expect(status.state).toBe("outdated");
-  expect(status.actions).toContainEqual({ id: "update", label: "Update" });
-  expect(status.actions).toContainEqual({ id: "reinstall", label: "Reinstall plugin" });
+  if (failure.startsWith("path-")) {
+    expect(status).toEqual({ state: "unavailable", actions: [] });
+  } else {
+    expect(status.state).toBe("outdated");
+    expect(status.actions).toContainEqual({ id: "update", label: "Update" });
+    expect(status.actions).toContainEqual({ id: "reinstall", label: "Reinstall plugin" });
+  }
 });
 
 it("keeps a disposable-profile install working across Dev/everyday scans after deleting its staging", async () => {
@@ -715,7 +739,11 @@ it.each([
   const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
   Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
   if (version !== undefined) await e.owned(version);
-  e.run.mockResolvedValue({ stdout: JSON.stringify(list) });
+  e.run.mockResolvedValue({
+    stdout: JSON.stringify(
+      Array.isArray(list) ? list.map((entry) => ({ ...entry, path: e.directory })) : list,
+    ),
+  });
   expect((await e.status()).state).toBe(state);
   expect(e.run).toHaveBeenCalledWith(
     e.executable,

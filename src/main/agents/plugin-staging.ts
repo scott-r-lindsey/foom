@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { isAbsolute, join, normalize } from "node:path";
+import { join } from "node:path";
 import { homedir } from "node:os";
-import { readdir, realpath } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import type { AgentManifestV2 } from "../../shared/agent-manifest-v2";
 import { manifestJson } from "../../shared/agent-manifest-json";
 import { readSetupFile, record } from "./setup-metadata";
@@ -95,25 +95,57 @@ async function installedDirectory(model: AgentManifestV2, home: string) {
   return { directory: join(await realpath(home), relative), relative };
 }
 
+/** Only exact native spellings qualify for an identity check; never normalize untrusted paths. */
+export function pluginPathMatches(
+  reported: unknown,
+  expected: string,
+  platform = process.platform,
+): reported is string {
+  if (
+    typeof reported !== "string" ||
+    reported.length > 4096 ||
+    /[\p{C}\u2028\u2029]/u.test(reported)
+  )
+    return false;
+  return platform === "win32" || platform === "darwin"
+    ? reported.toLowerCase() === expected.toLowerCase()
+    : reported === expected;
+}
+
+/** Reported paths may confirm fixed ownership, but never select inventory reads. */
+export async function validateInstalledPluginPath(
+  model: AgentManifestV2,
+  home: string,
+  reported: unknown,
+  platform = process.platform,
+): Promise<void> {
+  const { directory, relative } = await installedDirectory(model, home);
+  if (
+    typeof reported !== "string" ||
+    ![directory, join(home, relative)].some((expected) =>
+      pluginPathMatches(reported, expected, platform),
+    )
+  )
+    throw Error("Unrecognized plugin install path");
+  const [actual, owned] = await Promise.all([realpath(reported), realpath(directory)]);
+  // realpath can preserve case on case-insensitive volumes. Compare filesystem identities,
+  // not folded path strings, so case-sensitive macOS volumes also fail closed.
+  const [actualInfo, ownedInfo] = await Promise.all([
+    stat(actual, { bigint: true }),
+    stat(owned, { bigint: true }),
+  ]);
+  if (actualInfo.dev !== ownedInfo.dev || actualInfo.ino !== ownedInfo.ino)
+    throw Error("Unrecognized plugin install path");
+}
+
 /** Read only the fixed owned inventory. Untrusted list paths never select files or commands. */
 export async function installedPluginCurrent(
   model: AgentManifestV2,
   facts: Facts,
   home: string,
-  modern: boolean,
-  listedPath: unknown,
 ): Promise<boolean> {
   try {
     const { directory, relative } = await installedDirectory(model, home);
-    if (
-      modern &&
-      (typeof listedPath !== "string" ||
-        listedPath.length > 4096 ||
-        /[\p{C}\u2028\u2029]/u.test(listedPath) ||
-        !isAbsolute(listedPath) ||
-        ![directory, join(home, relative)].includes(normalize(listedPath)))
-    )
-      return false;
     const expected = pluginContent(model, facts, process.platform === "win32", directory);
     for (const file of expected.content) {
       if (file.name === "plugin.json") continue; // CLI-owned metadata is checked separately.
