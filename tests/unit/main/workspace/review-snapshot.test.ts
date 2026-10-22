@@ -1,6 +1,16 @@
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+  stat,
+  utimes,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { git as execute } from "../../../helpers/git.js";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
@@ -12,13 +22,15 @@ let tree: string;
 let head: string;
 let index: string;
 let files: string[];
+const indexEntry = (entry = "index", flags = "0") =>
+  `${entry}\0  ctime: 0:0\n  mtime: 0:0\n  dev: 0\tino: 0\n  uid: 0\tgid: 0\n  size: 0\tflags: ${flags}\n`;
 const identity = { launchIdentity: vi.fn(() => Promise.resolve("identity")) };
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "foom-review-snapshot-")));
   tree = join(root, "checkout");
   await mkdir(tree);
   head = "head";
-  index = "index";
+  index = indexEntry();
   files = [];
   identity.launchIdentity.mockReset().mockResolvedValue("identity");
   vi.spyOn(operations, "git").mockImplementation((_cwd, args) =>
@@ -46,9 +58,9 @@ describe("bounded worktree review snapshot", () => {
     head = "next";
     expect(await snapshot()).not.toEqual(empty);
     head = "head";
-    index = "staged";
+    index = indexEntry("staged");
     expect(await snapshot()).not.toEqual(empty);
-    index = "index";
+    index = indexEntry();
     files = ["a.ts"];
     await writeFile(join(tree, "a.ts"), "one");
     const one = await snapshot();
@@ -129,7 +141,7 @@ describe("bounded worktree review snapshot", () => {
           : args.includes("rev-parse")
             ? "head"
             : args.includes("--stage")
-              ? "index"
+              ? indexEntry()
               : files.join("\0"),
       ),
     );
@@ -149,30 +161,27 @@ it("keeps file boundaries unambiguous when untracked files are merged", async ()
   expect(await snapshot()).not.toEqual(initial);
 });
 
+async function realWorktrees() {
+  vi.mocked(operations.git).mockImplementation(
+    async (cwd, args) => (await execute(args, { cwd })).stdout,
+  );
+  const git = async (...args: string[]) => (await execute(args, { cwd: tree })).stdout;
+  await git("init", "-b", "main");
+  await writeFile(join(tree, "tracked"), "original");
+  await git("add", "tracked");
+  await git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "Initial");
+  const main = tree;
+  const linked = join(root, "linked");
+  await git("worktree", "add", "-b", "review", linked);
+  return { git, checkouts: [main, linked] };
+}
+
 it.each(["--skip-worktree", "--assume-unchanged"])(
   "detects %s index flags in both main and linked worktrees",
   { timeout: nativeDeadline(10000) },
   async (flag) => {
-    vi.mocked(operations.git).mockImplementation(
-      async (cwd, args) => (await execute(args, { cwd })).stdout,
-    );
-    const git = async (...args: string[]) => (await execute(args, { cwd: tree })).stdout;
-    await git("init", "-b", "main");
-    await writeFile(join(tree, "tracked"), "original");
-    await git("add", "tracked");
-    await git(
-      "-c",
-      "user.name=Test",
-      "-c",
-      "user.email=test@example.com",
-      "commit",
-      "-m",
-      "Initial",
-    );
-    const main = tree;
-    const linked = join(root, "linked");
-    await git("worktree", "add", "-b", "review", linked);
-    for (const checkout of [main, linked]) {
+    const { git, checkouts } = await realWorktrees();
+    for (const checkout of checkouts) {
       tree = checkout;
       const before = await snapshot();
       const staged = await git("ls-files", "--stage");
@@ -185,7 +194,7 @@ it.each(["--skip-worktree", "--assume-unchanged"])(
   },
 );
 
-it.each(["index", "info/sparse-checkout", "info/exclude"])(
+it.each(["info/sparse-checkout", "info/exclude"])(
   "detects changes to raw Git metadata %s",
   async (name) => {
     const path = join(tree, `.git-${name.replaceAll("/", "-")}`);
@@ -197,3 +206,56 @@ it.each(["index", "info/sparse-checkout", "info/exclude"])(
     expect(await snapshot()).not.toEqual(before);
   },
 );
+
+it("ignores touch followed by status/diff cache refresh in main and linked worktrees", {
+  timeout: nativeDeadline(10000),
+}, async () => {
+  const { git, checkouts } = await realWorktrees();
+  for (const checkout of checkouts) {
+    tree = checkout;
+    const path = join(tree, "tracked");
+    const indexPath = (await git("rev-parse", "--git-path", "index")).trim();
+    const before = await snapshot();
+    const rawBefore = await readFile(resolve(tree, indexPath));
+    const previous = await stat(path);
+    // Force a distinct mtime without sleeping or modifying content.
+    await utimes(path, previous.atime, new Date(previous.mtimeMs + 10000));
+    expect(await git("status", "--porcelain")).toBe("");
+    expect(await git("diff")).toBe("");
+    expect(await readFile(resolve(tree, indexPath))).not.toEqual(rawBefore);
+    expect(await snapshot()).toEqual(before);
+  }
+});
+
+it("detects intent-to-add becoming an ordinary staged empty file in both worktrees", {
+  timeout: nativeDeadline(10000),
+}, async () => {
+  const { git, checkouts } = await realWorktrees();
+  for (const checkout of checkouts) {
+    tree = checkout;
+    await writeFile(join(tree, "empty"), "");
+    await git("add", "-N", "empty");
+    const intent = await snapshot();
+    const entries = await git("ls-files", "--stage", "-v", "-z");
+    await git("add", "empty");
+    expect(await git("ls-files", "--stage", "-v", "-z")).toBe(entries);
+    expect(await snapshot()).not.toEqual(intent);
+  }
+});
+
+it.each(["missing terminator", "entry\0unsupported metadata\n"])(
+  "refuses unsupported index debug output %j",
+  async (output) => {
+    index = output;
+    await expect(snapshot()).rejects.toThrow("Unsupported index metadata");
+  },
+);
+
+it("keeps flags distinct from newline-containing filenames and ignores nonsemantic cache bits", async () => {
+  index = indexEntry("H mode object 0\tname\n  size: 0\tflags: 20000000");
+  const before = await snapshot();
+  index = indexEntry("H mode object 0\tname\n  size: 0\tflags: 20000000", "200000");
+  expect(await snapshot()).toEqual(before);
+  index = indexEntry("H mode object 0\tname\n  size: 0\tflags: 20000000", "20000000");
+  expect(await snapshot()).not.toEqual(before);
+});

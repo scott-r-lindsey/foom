@@ -6,6 +6,28 @@ import type { ReviewSnapshot } from "../control/review-loops.d";
 import type { WorktreeService } from "./worktrees";
 import { assertInside, git } from "./worktree-operations";
 
+/** Hash entry identity and semantic flags, excluding Git's mutable stat cache. */
+function indexState(output: string): string {
+  const entries: [string, number][] = [];
+  let rest = output;
+  while (rest) {
+    const end = rest.indexOf("\0");
+    if (end < 0) throw new Error("Unsupported index metadata");
+    const entry = rest.slice(0, end);
+    rest = rest.slice(end + 1);
+    // --debug adds five lines after each NUL-terminated pathname. Read only
+    // that block: filenames may contain newlines resembling debug fields.
+    const debug = /^(?:[^\n\0]*\n){4}[^\n\0]*\tflags: ([0-9a-f]{1,8})\n/iu.exec(rest);
+    const flags = debug?.[1];
+    if (!debug || flags === undefined) throw new Error("Unsupported index metadata");
+    // CE_VALID (assume-unchanged), CE_SKIP_WORKTREE, CE_INTENT_TO_ADD.
+    // Stage, object id, mode and -v status are already present in entry.
+    entries.push([entry, Number.parseInt(flags, 16) & 0x60008000]);
+    rest = rest.slice(debug[0].length);
+  }
+  return JSON.stringify(entries);
+}
+
 /** Bounded local Git snapshot, never output or a model request. Ignored files are excluded. */
 export async function reviewSnapshot(
   service: Pick<WorktreeService, "launchIdentity">,
@@ -22,7 +44,7 @@ export async function reviewSnapshot(
   await validate();
   const head = (await inspect(["rev-parse", "HEAD"])).trim();
   const hash = createHash("sha256").update(head);
-  hash.update(JSON.stringify(await inspect(["ls-files", "--stage", "-z"])));
+  hash.update(indexState(await inspect(["ls-files", "--stage", "-v", "--debug", "-z"])));
   // Read tracked bytes as well as untracked files; diff alone misses skip-worktree
   // entries and changes within an already-dirty file. No filters or diff helpers run.
   const files = [
@@ -35,11 +57,10 @@ export async function reviewSnapshot(
   if (files.some((file) => file.includes("\ufffd")))
     throw new Error("Unsupported filename encoding");
   if (files.length > 10000) throw new Error("Snapshot capacity");
-  // Entry listings omit skip-worktree/assume-unchanged flags and index extensions.
-  // Resolve through Git so linked worktrees use their own index. Also guard the
-  // local exclusion rules that decide which untracked bytes enter the snapshot.
+  // Guard local rules that decide which untracked bytes enter the snapshot.
+  // Resolve through Git so linked worktrees use the applicable metadata.
   const entries = await Promise.all(
-    ["index", "info/sparse-checkout", "info/exclude"].map(async (name) => ({
+    ["info/sparse-checkout", "info/exclude"].map(async (name) => ({
       file: ["git", name],
       path: resolve(worktree, (await inspect(["rev-parse", "--git-path", name])).trim()),
     })),

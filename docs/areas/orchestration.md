@@ -69,9 +69,12 @@ spawning, so a newly red or changed head cannot pass on an earlier green result.
 Missing, pending, red, unknown or mismatched-head checks escalate without review.
 The reviewer gets a fixed brief: reproduced correctness/security bugs only, no
 style nits or edits, then a structured verdict handoff and process exit. Main
-compares HEAD, raw index bytes (including entry flags), sparse-checkout and local
+compares HEAD, index entry modes/object IDs/stages and semantic flags
+(skip-worktree, assume-unchanged and intent-to-add), sparse-checkout and local
 exclusion rules, and tracked/untracked non-ignored file bytes and modes
-against the pre-review snapshot. Snapshot reads are bounded (10,000 files, 32 MiB
+against the pre-review snapshot. Git stat-cache refreshes from read-only status/diff
+commands do not change the snapshot. Unsupported index debug metadata fails closed.
+Snapshot reads are bounded (10,000 files, 32 MiB
 of file content); unavailable snapshots fail closed. Symlinks are hashed without
 following their targets; redirected ancestors, special files and submodule
 working directories refuse a snapshot.
