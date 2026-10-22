@@ -1,7 +1,7 @@
 import { Pairing } from "./pairing";
 import type { PairingOptions } from "./types";
 import { ControlMcp } from "./mcp";
-import { createServer } from "node:http";
+import { boundedHttpServer } from "./http-limits";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ControlService } from "./service";
 import type { Principal } from "./types";
@@ -9,12 +9,9 @@ import { ControlError } from "../../node-common/control-validation";
 
 /** Transport limits only; roles, methods and target policy live in ControlService. */
 export class ControlHttp {
-  private readonly server = createServer(
-    { maxHeaderSize: 8192, connectionsCheckingInterval: 1000 },
-    (request, response) => {
-      this.receive(request, response);
-    },
-  );
+  private readonly server = boundedHttpServer((request, response) => {
+    this.receive(request, response);
+  });
   private readonly pairing: Pairing | undefined;
   private readonly mcp: ControlMcp;
   private origin = "";
@@ -25,11 +22,6 @@ export class ControlHttp {
   ) {
     this.pairing = options ? new Pairing(service, options) : undefined;
     this.mcp = new ControlMcp(service);
-    this.server.maxConnections = 32;
-    this.server.requestTimeout = 5000;
-    this.server.headersTimeout = 5000;
-    this.server.timeout = 5000;
-    this.server.keepAliveTimeout = 1000;
   }
   static async listen(service: ControlService, options?: PairingOptions): Promise<ControlHttp> {
     const http = new ControlHttp(service, options);

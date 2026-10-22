@@ -9,6 +9,7 @@ import {
   providerRevision,
 } from "./providers/registry";
 import { AgyPlugin } from "./agy-plugin";
+import { ManualMcp } from "../control/manual-mcp";
 import type { ControlLaunch } from "../control/types";
 import { parseAgentArguments } from "./default-arguments";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
@@ -113,6 +114,7 @@ export class AgentService {
   private readonly occupied = new Set<string>();
   private readonly launched = new Map<string, string>();
   private readonly mcpBindings = new Map<string, { dispose(): void }>();
+  private readonly manuals = new Map<string, ManualMcp>();
   private readonly controls = new Map<string, ControlLaunch>();
   private readonly earlyExits = new Set<string>();
   private starting = 0;
@@ -249,6 +251,7 @@ export class AgentService {
         }
       : undefined;
     let control: ControlLaunch | undefined;
+    let manual: ManualMcp | undefined;
     let prepared: PreparedLaunch | undefined;
     try {
       // Config sessions get no repository-scoped control grant.
@@ -261,6 +264,7 @@ export class AgentService {
               request.control,
             )
           : undefined;
+      if (config !== undefined && agent.mcp) manual = await ManualMcp.listen();
       this.ensureOpen();
       if (
         config === undefined &&
@@ -274,7 +278,7 @@ export class AgentService {
         agent,
         request,
         defaults,
-        control,
+        control ?? manual,
         config !== undefined,
         this.hooksEnabled && this.agentHooks[agent.id] !== false,
         binding,
@@ -298,7 +302,7 @@ export class AgentService {
         base: baseEnvironment,
         path: scan.path,
         pathFirst: config ?? control?.env["FOOM_CLI_DIRECTORY"],
-        foom: { ...control?.env, ...binding?.env, ...request.configEnvironment },
+        foom: { ...control?.env, ...manual?.env, ...binding?.env, ...request.configEnvironment },
       });
       const finalEnvironment = { ...baseEnvironment, ...environment.env };
       // The host inherits OS names such as ProgramFiles(x86) itself. IPC accepts
@@ -368,6 +372,7 @@ export class AgentService {
       if (this.earlyExits.has(id)) {
         if (![...this.launched.values()].includes(request.worktree))
           this.occupied.delete(request.worktree);
+        manual?.dispose();
         control?.dispose();
         binding?.dispose();
         prepared.dispose();
@@ -382,6 +387,7 @@ export class AgentService {
       }
       this.launched.set(id, request.worktree);
       this.mcpBindings.set(id, prepared);
+      if (manual) this.manuals.set(id, manual);
       if (control) {
         control.bind(id, prepared.mcp);
         this.controls.set(id, control);
@@ -399,6 +405,7 @@ export class AgentService {
         ...(environment.names.length ? { environment: environment.names } : {}),
       };
     } catch (error) {
+      manual?.dispose();
       control?.dispose();
       binding?.dispose();
       prepared?.dispose();
@@ -410,6 +417,8 @@ export class AgentService {
   release(id: string): void {
     const worktree = this.launched.get(id);
     if (!worktree && this.starting > 0) this.earlyExits.add(id);
+    this.manuals.get(id)?.dispose();
+    this.manuals.delete(id);
     this.controls.get(id)?.dispose();
     this.controls.delete(id);
     this.mcpBindings.get(id)?.dispose();

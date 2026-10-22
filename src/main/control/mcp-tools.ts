@@ -47,6 +47,7 @@ const tools = [
     openWorldHint: false,
   },
 }));
+export const manualTools = tools.filter((tool) => tool.name === "manual");
 const previews = [
   {
     name: "open_preview",

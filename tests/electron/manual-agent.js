@@ -6,13 +6,17 @@ const { expect } = require("./test-policy.js");
 
 // A native SEA fixture for the bundled Codex adapter. No config-provider installation
 // or native home override; packaged Electron resolves home independently of HOME.
-async function installManualAgent(home, bin) {
+async function installManualAgent(home, bin, configSession = false) {
   const name = "codex";
   const executable = path.join(bin, name + (process.platform === "win32" ? ".exe" : ""));
   await copyFile(process.execPath, executable);
   await chmod(executable, 0o755);
   const report = path.join(home, "manual-report.json");
   const script = path.join(home, "manual-agent.cjs");
+  const toolsToRefuse = require("../../build/main/control/mcp-tools.js")
+    .mcpTools(4, ["codex"])
+    .map((tool) => tool.name)
+    .filter((name) => name !== "manual");
   await writeFile(
     script,
     `
@@ -27,11 +31,12 @@ if (process.argv.includes('--help')) { console.log('-c --no-alt-screen'); proces
       Authorization: 'Bearer ' + process.env.FOOM_CONTROL_TOKEN,
       'Content-Type': 'application/json', Accept: 'application/json, text/event-stream',
       ...(session ? { 'Mcp-Session-Id': session, 'Mcp-Protocol-Version': '2025-11-25' } : {})
-    }, body: JSON.stringify({ jsonrpc: '2.0', ...message }) });
+    }, body: JSON.stringify({ jsonrpc: '2.0', ...Object.fromEntries(Object.entries(message).filter(([key]) => key !== 'expectError')) }) });
     if (!response.ok) throw Error('HTTP ' + response.status);
     session ||= response.headers.get('mcp-session-id');
     if (response.status === 202) return;
     const body = await response.json();
+    if (message.expectError) return body;
     if (body.result?.isError || body.error) throw Error(JSON.stringify(body));
     return body.result;
   };
@@ -46,7 +51,15 @@ if (process.argv.includes('--help')) { console.log('-c --no-alt-screen'); proces
     if (result.structuredContent.nextPage === undefined) break;
     page = result.structuredContent.nextPage;
   }
-  fs.writeFileSync(${JSON.stringify(report)}, JSON.stringify({ instructions: initialized.instructions, tools: tools.tools.map(t => t.name), sections: list.structuredContent.sections, text }));
+  const refused = [];
+  if (${configSession}) {
+    for (const name of ${JSON.stringify(toolsToRefuse)}) {
+      const result = await request({ id: 500, method: 'tools/call', params: { name }, expectError: true });
+      if (result.jsonrpc !== '2.0' || result.id !== 500 || result.error?.code !== -32602 || result.error.message !== 'Unknown tool' || result.result !== undefined) throw Error('Unexpected tool envelope: ' + name);
+      refused.push(name);
+    }
+  }
+  fs.writeFileSync(${JSON.stringify(report)}, JSON.stringify({ url, token: process.env.FOOM_CONTROL_TOKEN, session, refused, instructions: initialized.instructions, tools: tools.tools.map(t => t.name), sections: list.structuredContent.sections, text }));
 })().catch(error => fs.writeFileSync(${JSON.stringify(report)}, JSON.stringify({ error: String(error) })));
 `,
   );

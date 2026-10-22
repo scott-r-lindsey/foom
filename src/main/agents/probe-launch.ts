@@ -202,7 +202,6 @@ export async function prepareProbe(
       [],
       {
         env: { FOOM_CONTROL_URL: mcp.url, FOOM_CONTROL_TOKEN: mcp.token },
-        bind: () => {},
         dispose: () => {},
       },
       false,

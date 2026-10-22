@@ -1,3 +1,4 @@
+import { reserveRequest } from "./http-limits";
 import { bundledManual } from "./manual";
 import { PREVIEW_METHODS } from "./previews";
 import type { PreviewBroker } from "./previews";
@@ -209,15 +210,7 @@ export class ControlService {
     this.assertActive(actor);
     const grant = this.grants.get(actor.generation);
     if (!grant) throw new ControlError("unauthorized");
-    if (grant.calls >= 4) throw new ControlError("capacity");
-    grant.calls++;
-    let released = false;
-    return () => {
-      if (!released) {
-        released = true;
-        grant.calls--;
-      }
-    };
+    return reserveRequest(grant);
   }
 
   dispatch(actor: Principal, input: unknown): unknown {

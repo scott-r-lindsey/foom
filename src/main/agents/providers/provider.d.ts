@@ -1,5 +1,5 @@
 import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
-import type { ControlLaunch } from "../../control/types";
+import type { McpAttachment } from "../../control/types";
 import type { AgentHooks, AgentId, AgentInstallation, AgentLaunch } from "../../../shared/agents";
 import type { prepareMcpLaunch } from "./mcp-launch";
 export interface PreparedLaunch {
@@ -22,7 +22,7 @@ export interface AgentProvider {
     installation: AgentInstallation,
     request: AgentLaunch,
     defaults: readonly string[],
-    control: ControlLaunch | undefined,
+    control: McpAttachment | undefined,
     config: boolean,
     hooksEnabled: boolean,
     binding?: AgentHooks,

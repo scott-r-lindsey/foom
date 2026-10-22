@@ -10,11 +10,15 @@ export interface Principal {
   readonly parentId: string | null;
   readonly role: Role;
 }
-export interface ControlLaunch {
+/** Provider attachment data alone carries no workspace authority. */
+export interface McpAttachment {
+  readonly toolNames?: readonly string[];
   readonly env: Readonly<Record<string, string>>;
-  bind(terminalId: string, mcp?: boolean): void;
   /** Idempotent; preparation and the owning service may both revoke on failure. */
   dispose(): void;
+}
+export interface ControlLaunch extends McpAttachment {
+  bind(terminalId: string, mcp?: boolean): void;
 }
 export type Action =
   | "create_worktree"
