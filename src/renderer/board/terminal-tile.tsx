@@ -414,15 +414,17 @@ export function Tile({
               <span title={row.reason}>{row.reason}</span>
               <button
                 type="button"
+                aria-label="Dismiss incorrect attention flag"
+                title="Dismiss incorrect attention flag (records a false positive)"
                 onClick={() => {
                   errorOriginRef.current = captureErrorFocus();
                   setError("");
-                  void Promise.resolve(source.resolve(row.id, "Not attention")).catch(() => {
+                  void Promise.resolve(source.resolve(row.id, "Dismissed")).catch(() => {
                     setError("Unable to record feedback. Try again.");
                   });
                 }}
               >
-                Not attention
+                Dismiss
               </button>
             </div>
           )}

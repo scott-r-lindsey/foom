@@ -1,5 +1,8 @@
+import { Board } from "../../../../src/renderer/board/board-view";
+import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
+import { load } from "./sidebar-view-fixtures";
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { emptySections, setup } from "./sidebar-view-fixtures";
 beforeEach(() => {
@@ -105,3 +108,45 @@ test.each([true, false])(
     });
   },
 );
+
+test("the populated sidebar labels its repository add action", async () => {
+  const view = setup();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const add = view.getByRole("button", { name: "Add repository" });
+  expect(add.textContent).toBe("+ Add repo");
+  fireEvent.click(add);
+  expect(view.add).toHaveBeenCalledOnce();
+});
+
+test("the sidebar uses display preferences without changing repository command paths", async () => {
+  const repository = { name: "foom", path: "/code/work/foom", worktrees: [] };
+  const base = createSampleSource([]);
+  const source = {
+    ...base,
+    getSidebar: () => [repository],
+    worktrees: {
+      load: async () => ({
+        ...(await load()),
+        codeFolder: "/code",
+        showNestedRepositoryNames: true,
+      }),
+      addRepository: () => Promise.resolve(null),
+      branches: () =>
+        Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
+      create: () => Promise.reject(Error("unused")),
+      remove: () => Promise.resolve(false),
+    },
+  };
+  const view = render(<Board source={source} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(view.getByRole("treeitem", { name: "work/foom" })).toBeTruthy();
+  fireEvent.change(view.getByLabelText("Filter repositories and sessions"), {
+    target: { value: "work/foom" },
+  });
+  expect(view.getByRole("treeitem", { name: "work/foom" })).toBeTruthy();
+  expect(source.getSidebar()[0]?.path).toBe("/code/work/foom");
+});

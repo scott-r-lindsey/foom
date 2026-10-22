@@ -9,7 +9,9 @@
       "Environment settings reach a launched shell; main refuses reserved names": [
         6.659, 13.359, 2.781
       ],
-      "Settings agent menu launches a new config session in each window": [3.351, 15.205, 5.176],
+      "sidebar config agent menu launches a new config session in each window": [
+        3.351, 15.205, 5.176
+      ],
       "Settings shares live preflight values, sizes the terminal and restores keyboard focus": [
         4.562, 12.622, 8.01
       ],

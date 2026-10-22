@@ -1814,31 +1814,24 @@ test("an unusable Foom config folder keeps settings in the profile", async () =>
   expect(mock.window.loadURL).toHaveBeenCalled();
 });
 
-test("menu agent availability comes from installation and saved settings", async () => {
-  let settings = setupState({ setupComplete: true }).settings;
-  vi.spyOn(mock.settingsStore, "get").mockImplementation(() => settings);
+test("app menu settings stay available without discovering config agents", async () => {
   await start();
+  mock.workspace.scanAgents.mockClear();
   await invokeWindow(0, "app-menu:view", {
     available: false,
     configAvailable: true,
     maximized: false,
     tiles: 0,
   });
-  const enabled = async () => JSON.stringify(await invokeWindow(0, "app-menu:list"));
-  expect(await enabled()).toContain(
-    '"id":"via-claude","label":"Via Claude Code","shortcut":"","enabled":true',
-  );
-  expect(await enabled()).toContain(
-    '"id":"via-codex","label":"Via Codex","shortcut":"","enabled":false',
-  );
-  settings = { ...settings, agents: { ...settings.agents, claude: false } };
-  await expect(invokeWindow(0, "app-menu:execute", "via-claude")).rejects.toThrow(
-    "foom-error:operation-failed",
-  );
-  settings = { ...settings, setupComplete: false, agents: { ...settings.agents, claude: true } };
-  await expect(invokeWindow(0, "app-menu:execute", "via-claude")).rejects.toThrow(
-    "foom-error:operation-failed",
-  );
+  const menu = JSON.stringify(await invokeWindow(0, "app-menu:list"));
+  expect(menu).not.toContain("via-");
+  expect(menu).toContain('"id":"settings","label":"Settings…"');
+  await invokeWindow(0, "app-menu:execute", "settings");
+  for (const route of ["via-claude", "via-codex", "via-agy"])
+    await expect(invokeWindow(0, "app-menu:execute", route)).rejects.toThrow(
+      "foom-error:operation-failed",
+    );
+  expect(mock.workspace.scanAgents).not.toHaveBeenCalled();
 });
 
 test("preview hosts validate registered worktrees, notify the board, reconcile and close", async () => {

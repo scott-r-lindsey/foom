@@ -516,6 +516,8 @@ export function createAppSource(): BoardSource {
           agents: scan.agents,
           enabled: setup.settings.agents,
           hooks: setup.settings.hooks,
+          codeFolder: setup.settings.codeFolder,
+          showNestedRepositoryNames: setup.settings.showNestedRepositoryNames,
         };
       },
       addRepository: () => window.desktop.addRepository(),

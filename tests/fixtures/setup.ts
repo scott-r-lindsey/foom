@@ -14,6 +14,7 @@ export function setupState(
       hooks: true,
       restoreSessions: true,
       showNewChildren: true,
+      showNestedRepositoryNames: false,
       concurrentChildren: 4,
       recentRepositoryDays: 30,
       unreadChildMinutes: 5,

@@ -167,16 +167,6 @@ export async function buildWindow(
     ipc,
     openWindow,
     async () => (await setup.state()).settings.interfaceScale,
-    async () => {
-      if (!wiring.initialized || !wiring.config.ready) return [];
-      const report = await wiring.workspace.scanAgents(false);
-      const current = wiring.settings.get();
-      return current.setupComplete
-        ? report.agents
-            .filter((agent) => agent.path && current.agents[agent.id] !== false)
-            .map((agent) => agent.id)
-        : [];
-    },
     openManual,
     () => {
       if (!manualPending) return;

@@ -583,6 +583,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       await page.getByRole("textbox", { name: "Filter repositories and sessions" }).hover();
       await page.keyboard.press("Escape");
       await page.getByRole("button", { name: "Foom menu" }).click();
+      await page.getByRole("menuitem", { name: "Developer", exact: true }).click();
       await page.getByRole("menuitem", { name: "Action log", exact: true }).click();
       await page.getByLabel("Action", { exact: true }).selectOption("handoff");
       const history = page.getByRole("region", { name: "Action history" });
@@ -1062,6 +1063,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         ),
       );
       await page.getByRole("button", { name: "Foom menu" }).click();
+      await page.getByRole("menuitem", { name: "Developer", exact: true }).click();
       await page.getByRole("menuitem", { name: "Action log", exact: true }).click();
       await expect(page.getByRole("heading", { name: "Action log" })).toBeVisible();
       const history = page.getByRole("region", { name: "Action history" });

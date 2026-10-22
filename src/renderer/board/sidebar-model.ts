@@ -2,6 +2,23 @@ import type { PreviewSummary } from "../../shared/workspace";
 import type { BoardRow, BoardState } from "./board.d";
 import type { SidebarPreferences, SidebarRepository, SidebarTree } from "./sidebar.d";
 
+/** Display-only paths; repository identity always remains the main-owned absolute path. */
+export function repositoryDisplayName(
+  repository: Pick<SidebarRepository, "path" | "name">,
+  codeFolder: string | null | undefined,
+  enabled: boolean | undefined,
+): string {
+  if (!enabled || !codeFolder) return repository.name;
+  const windows = /^[A-Za-z]:[\\/]|^\\\\/.test(codeFolder);
+  const normalize = (path: string) => (windows ? path.replaceAll("\\", "/") : path);
+  const root = `${normalize(codeFolder).replace(/\/+$/, "")}/`;
+  const path = normalize(repository.path);
+  const inside = windows
+    ? path.toLowerCase().startsWith(root.toLowerCase())
+    : path.startsWith(root);
+  return inside && path.length > root.length ? path.slice(root.length) : repository.name;
+}
+
 const ranks: Record<BoardState, number> = {
   needs_input: 5,
   failed: 4,

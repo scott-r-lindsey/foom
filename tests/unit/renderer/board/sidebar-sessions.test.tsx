@@ -57,7 +57,7 @@ test.each(["empty", "home", "config"] as const)(
 test("add repository follows all repository groups in keyboard list order", async () => {
   const view = await emptySections();
   const add = view.getByRole("button", { name: "Add repository" });
-  expect(add.textContent).toBe("+");
+  expect(add.textContent).toBe("+ Add repo");
   expect(view.container.querySelector(".sidebar-filter button")).toBeNull();
   const nav = view.getByRole("navigation", { name: "Terminal sidebar" });
   expect(nav.lastElementChild).toBe(add);
@@ -73,7 +73,7 @@ test("add repository follows all repository groups in keyboard list order", asyn
     expect(view.queryByRole("button", { name: "Add repository" })).toBeNull();
   }
   fireEvent.click(view.getByRole("button", { name: "Clear filter" }));
-  expect(view.getByRole("button", { name: "Add repository" }).textContent).toBe("+");
+  expect(view.getByRole("button", { name: "Add repository" }).textContent).toBe("+ Add repo");
 });
 
 test("empty repository inventory keeps the Add repository label and source action", async () => {

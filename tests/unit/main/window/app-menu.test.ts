@@ -1,9 +1,4 @@
-import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
-import { v2Provider } from "../../../../src/main/agents/providers/v2";
-import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
-import pluginFixture from "../../../fixtures/agent-plugin-v2.json";
 import type * as Fs from "node:fs/promises";
-import type { AgentId } from "../../../../src/shared/agents";
 import { afterEach, expect, test, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { join } from "node:path";
@@ -85,14 +80,12 @@ function fixture(platform: NodeJS.Platform = "linux", defaults = false) {
   });
   const zoom = vi.fn<() => Promise<void>>().mockResolvedValue();
   const scale = vi.fn(() => Promise.resolve(110));
-  const configAgents = vi.fn<() => Promise<readonly AgentId[]>>().mockResolvedValue([]);
   const attached = attachAppMenu(
     window as unknown as BrowserWindow,
     zoom,
     undefined,
     undefined,
     defaults ? undefined : scale,
-    defaults ? undefined : configAgents,
   );
   const trusted = { sender: contents, senderFrame: frame };
   const invoke = (channel: string, value?: unknown, event: unknown = trusted) =>
@@ -100,7 +93,7 @@ function fixture(platform: NodeJS.Platform = "linux", defaults = false) {
   /** Every handler, synchronous or not, as a promise. */
   const call = (channel: string, value?: unknown, event: unknown = trusted) =>
     Promise.resolve().then(() => invoke(channel, value, event));
-  return { window, contents, attached, invoke, call, trusted, frame, zoom, scale, configAgents };
+  return { window, contents, attached, invoke, call, trusted, frame, zoom, scale };
 }
 test("validates each sender and command ID, projects data only and disposes handlers", async () => {
   const f = fixture();
@@ -124,12 +117,7 @@ test("validates each sender and command ID, projects data only and disposes hand
     expect.arrayContaining([
       expect.objectContaining({ kind: "command", id: "quit", enabled: true }),
       expect.objectContaining({ kind: "size", scale: 110 }),
-      expect.objectContaining({
-        kind: "submenu",
-        items: expect.arrayContaining([
-          expect.objectContaining({ id: "via-codex", label: "Via Codex", enabled: false }),
-        ]) as unknown,
-      }),
+      expect.objectContaining({ kind: "command", id: "settings", label: "Settings…" }),
     ]),
   );
   expect(await f.call("shortcuts")).toEqual(
@@ -318,87 +306,32 @@ test("windowless macOS menu keeps native New Window and Quit accelerators withou
   ]);
 });
 
-test("config routes follow discovery and settings, including while Settings hides the tiles", async () => {
-  const f = fixture("darwin");
-  f.configAgents.mockResolvedValue(["claude", "codex"]);
-  await f.call("view", { available: false, configAvailable: true, maximized: false, tiles: 0 });
-  await f.call("execute", "via-claude");
-  expect(f.contents.send).toHaveBeenLastCalledWith("board:command", "via-claude");
-  await expect(f.call("execute", "via-agy")).rejects.toThrow("Unavailable");
-  const list = JSON.stringify(await f.call("list"));
-  expect(list).toContain('"id":"via-codex","label":"Via Codex","shortcut":"","enabled":true');
-  f.configAgents.mockResolvedValue(["agy"]);
-  await f.attached.refreshAgents();
-  await expect(f.call("execute", "via-codex")).rejects.toThrow("Unavailable");
-  await f.call("execute", "via-agy");
-  expect(f.contents.send).toHaveBeenLastCalledWith("board:command", "via-agy");
-  await f.call("view", { available: false, configAvailable: false, maximized: false, tiles: 0 });
-  await expect(f.call("execute", "via-agy")).rejects.toThrow("Unavailable");
-  await f.call("view", { available: true, maximized: false, tiles: 0 });
-  f.configAgents.mockRejectedValue(new Error("Scan failed"));
-  await expect(f.call("execute", "via-agy")).rejects.toThrow("Unavailable");
-  f.attached.dispose();
-});
+test.each(["darwin", "linux", "win32"] as const)(
+  "%s app menus expose Settings directly and reject removed agent routes",
+  async (platform) => {
+    const f = fixture(platform);
+    const list = JSON.stringify(await f.call("list"));
+    expect(list).not.toContain("via-");
+    expect(list).not.toContain("Via Settings UI");
+    await f.call("execute", "settings");
+    expect(f.contents.send).toHaveBeenLastCalledWith("board:command", "settings");
+    for (const id of ["via-claude", "via-codex", "via-agy", "via-new-provider"])
+      await expect(f.call("execute", id)).rejects.toThrow("Unavailable");
+    f.window.emit("focus");
+    await f.call("view", { available: false, configAvailable: true, maximized: false, tiles: 0 });
+    expect(JSON.stringify(await f.call("list"))).not.toContain("via-");
+    f.attached.dispose();
+  },
+);
 
-test("late config availability cannot overwrite newer state or a disposed menu", async () => {
-  const f = fixture("darwin");
-  await f.call("view", { available: true, maximized: false, tiles: 0 });
-  let resolve: ((agents: readonly AgentId[]) => void) | undefined;
-  f.configAgents.mockReturnValueOnce(
-    new Promise((done) => {
-      resolve = done;
-    }),
-  );
-  const old = f.attached.refreshAgents();
-  f.configAgents.mockResolvedValue(["codex"]);
-  await f.attached.refreshAgents();
-  resolve?.(["claude"]);
-  await old;
-  const menus = mock.menu.mock.calls.at(-1)?.[0] as MenuItemConstructorOptions[];
-  const items = menus.flatMap((section) => (Array.isArray(section.submenu) ? section.submenu : []));
-  expect(items).toContainEqual(expect.objectContaining({ id: "via-claude", enabled: false }));
-  expect(items).toContainEqual(expect.objectContaining({ id: "via-codex", enabled: true }));
-  f.configAgents.mockReturnValueOnce(
-    new Promise((done) => {
-      resolve = done;
-    }),
-  );
-  const pending = f.attached.refreshAgents();
-  f.attached.dispose();
-  mock.menu.mockClear();
-  resolve?.(["claude"]);
-  await pending;
-  expect(mock.menu).not.toHaveBeenCalled();
-});
-
-test("an adapter without config services keeps agent routes unavailable", async () => {
+test("an adapter with default services keeps the default scale", async () => {
   const f = fixture("linux", true);
-  await f.call("view", { available: true, maximized: false, tiles: 0 });
-  await expect(f.call("execute", "via-claude")).rejects.toThrow("Unavailable");
   expect(await f.call("list")).toContainEqual(
     expect.objectContaining({ kind: "size", scale: 100 }),
   );
+  await f.call("execute", "manual");
   await f.call("execute", "new-window");
   f.attached.dispose();
-});
-
-test("publishes newly installed config launch routes and removes them live", async () => {
-  const f = fixture("darwin");
-  const model = parseAgentManifest(JSON.stringify(pluginFixture)).model;
-  try {
-    replaceConfigProviders([v2Provider(model, () => Promise.resolve())]);
-    f.configAgents.mockResolvedValue([model.id]);
-    await f.call("view", { available: true, configAvailable: true, maximized: false, tiles: 1 });
-    expect(JSON.stringify(await f.call("list"))).toContain(`"id":"via-${model.id}"`);
-    await f.call("execute", `via-${model.id}`);
-    expect(f.contents.send).toHaveBeenLastCalledWith("board:command", `via-${model.id}`);
-    replaceConfigProviders([]);
-    await f.attached.refreshAgents();
-    expect(JSON.stringify(await f.call("list"))).not.toContain(`"id":"via-${model.id}"`);
-  } finally {
-    replaceConfigProviders([]);
-    f.attached.dispose();
-  }
 });
 
 test("About publishes versions and legal commands only notify the board", async () => {

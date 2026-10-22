@@ -701,6 +701,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     "forgeHosts",
     "forges",
     "setupComplete",
+    "showNestedRepositoryNames",
     "showPullRequests",
     "unreadChildMinutes",
     "worktreeLocation",
@@ -719,6 +720,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     unreadChildMinutes: 5,
     autoRemoveMergedWorktrees: false,
     showPullRequests: false,
+    showNestedRepositoryNames: false,
     agents: { claude: true, codex: true, agy: true },
     agentArguments: { claude: [], codex: [], agy: [] },
     agentBypassAcknowledged: { claude: false, codex: false, agy: false },
@@ -772,7 +774,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
   await page
     .getByRole("region", { name: "Settings" })
-    .getByRole("heading", { name: "Agents", exact: true })
+    .getByRole("heading", { name: "General", exact: true })
     .press("Escape");
   await expect(page.locator(".board-home")).toBeVisible();
   // The board remains visible behind Settings, so it cannot acknowledge Escape.
@@ -1079,7 +1081,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     // Native input dispatch returns before React's mount effects finish. Visibility
     // alone does not mean the Escape listener is installed or focus has moved.
     await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeFocused();
+    await expect(page.getByRole("heading", { name: "General", exact: true })).toBeFocused();
   };
   const row = page.locator('.board-row[data-kind="shell"]');
   await boardCommand(app, "B");
@@ -1119,6 +1121,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     await tabTo(page, name);
     await page.keyboard.press("Enter");
   };
+  await section("Agents");
   const hooks = page.getByLabel("Attach hooks", { exact: false });
   await tabToControl(hooks);
   await page.keyboard.press("Space");
@@ -1274,7 +1277,15 @@ test("every Settings section passes axe in light and dark, including the narrow 
   const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await openSettingsScreen(page);
-  for (const name of ["Agents", "Repositories", "Appearance", "Terminal", "Themes", "Sound"]) {
+  for (const name of [
+    "General",
+    "Agents",
+    "Repositories",
+    "Appearance",
+    "Terminal",
+    "Themes",
+    "Sound",
+  ]) {
     await page
       .getByRole("navigation", { name: "Settings sections" })
       .getByRole("button", { name, exact: true })
@@ -1661,6 +1672,7 @@ test("Settings persists literal agent defaults and discloses bypass once per age
   const repository = await page.evaluate(() => window.desktop.addRepository());
   assert.ok(repository);
   await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
   const input = page.getByLabel("Claude Code default arguments");
   await expect(input).toBeVisible();
   await input.fill("--settings={}");
@@ -1975,7 +1987,7 @@ test("legacy inference profiles upgrade without evaluator controls or stored key
   await expect(page.getByText(/Evaluator|Run check|API key/)).toHaveCount(0);
 });
 
-test("Settings agent menu launches a new config session in each window", {
+test("sidebar config agent menu launches a new config session in each window", {
   timeout: deadline(60_000),
 }, async (context) => {
   const { chmod, copyFile } = require("node:fs/promises");
@@ -2004,10 +2016,14 @@ test("Settings agent menu launches a new config session in each window", {
   );
   await openSettingsScreen(first);
   await expect(first.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
-  await first.getByRole("button", { name: "Foom menu" }).click();
-  await first.getByRole("menuitem", { name: "Settings", exact: true }).press("ArrowRight");
-  await expect(first.getByRole("menuitem", { name: "Via Codex" })).toBeDisabled();
-  await expect(first.getByRole("menuitem", { name: "Via Claude Code" })).toBeFocused();
+  await first.locator(".config-gear").click();
+  await expect(first.getByRole("menuitem", { name: "Via Codex" })).toHaveCount(0);
+  if (process.env.FOOM_UI_SCREENSHOTS)
+    await first.screenshot({
+      path: path.join(process.env.FOOM_UI_SCREENSHOTS, "sidebar-config-via-agent.png"),
+      animations: "disabled",
+    });
+  await first.getByRole("menuitem", { name: "Via Claude Code" }).focus();
   await first.getByRole("menuitem", { name: "Via Claude Code" }).press("Enter");
   await expect(first.getByRole("heading", { name: "Settings", exact: true })).toHaveCount(0);
   await expect(first.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
@@ -2034,7 +2050,10 @@ test("Settings agent menu launches a new config session in each window", {
   );
   assert.match(greetingTail, /CONFIG_MENU_READY \["Read AGENTS\.md, then greet the user/);
   assert.match(greetingTail, /Ask what they would like to change\."\]/);
-  await first.screenshot({ path: "test-results/config-menu-launched.png", animations: "disabled" });
+  await first.screenshot({
+    path: "test-results/sidebar-config-launched.png",
+    animations: "disabled",
+  });
   await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
   await expect
     .poll(() => app.windows().filter((page) => page.url() === "app://bundle/index.html").length)
@@ -2043,25 +2062,10 @@ test("Settings agent menu launches a new config session in each window", {
     .windows()
     .find((page) => page !== first && page.url() === "app://bundle/index.html");
   await expect(second.getByRole("button", { name: "Foom menu" })).toBeVisible();
-  await expect
-    .poll(async () => {
-      const items = await second.evaluate(() => window.desktop.appMenu.commands());
-      return items
-        .find((entry) => entry?.kind === "submenu")
-        .items.find((entry) => entry?.id === "via-claude").enabled;
-    })
-    .toBe(true);
-  if (process.platform === "darwin") {
-    await second.bringToFront();
-    await expect.poll(() => second.evaluate(() => document.hasFocus())).toBe(true);
-    await app.evaluate(({ BrowserWindow, Menu }) => {
-      BrowserWindow.getFocusedWindow().emit("focus");
-      const menu = Menu.getApplicationMenu();
-      const item = menu.getMenuItemById("via-claude");
-      if (!item.enabled) throw new Error("Native config route is disabled");
-      item.click();
-    });
-  } else await second.evaluate(() => window.desktop.appMenu.execute("via-claude"));
+  const menu = await second.evaluate(() => window.desktop.appMenu.commands());
+  assert.ok(!JSON.stringify(menu).includes("via-"));
+  await second.locator(".config-gear").click();
+  await second.getByRole("menuitem", { name: "Via Claude Code" }).click();
   await expect(second.locator(".terminal-tile[data-empty=false]")).toHaveCount(1);
   assert.equal(
     (await first.evaluate(() => window.desktop.workspace())).terminals.filter(
@@ -2596,4 +2600,97 @@ test("Settings session panel preview follows color and contrast; Environment lin
   await expect(preview).toHaveCSS("--panel-tint", "0");
   await expect(preview).toHaveCSS("--panel-chip-line", "100%");
   await assertAccessible(page);
+});
+
+test("Settings opens on General from the menu, sidebar and keyboard", async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  await page.getByRole("button", { name: "Close settings (Esc)" }).click();
+  await page.locator(".config-gear").click();
+  const panel = page.getByRole("dialog", { name: "Foom config details and commands" });
+  await expect(panel.getByRole("menuitem", { name: "Open Foom config settings" })).toHaveCount(0);
+  await expect(panel.getByRole("menuitem", { name: "Open folder", exact: true })).toBeVisible();
+  if (process.env.FOOM_UI_SCREENSHOTS)
+    await page.screenshot({
+      path: path.join(process.env.FOOM_UI_SCREENSHOTS, "sidebar-config-menu.png"),
+      animations: "disabled",
+    });
+  await panel.getByRole("menuitem", { name: /^Settings/ }).click();
+  await expect(page.getByRole("heading", { name: "General", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close settings (Esc)" }).click();
+  await boardCommand(app, ",", process.platform !== "darwin");
+  await expect(page.getByRole("heading", { name: "General", exact: true })).toBeFocused();
+});
+
+test("nested repository names follow the General toggle and retain their identity", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-nested-repositories-"));
+  removeAfterApps(context, root);
+  const repository = path.join(root, "work", "foom");
+  await mkdir(repository, { recursive: true });
+  isolatedGit(["init", "-q", "-b", "main", repository]);
+  isolatedGit([
+    "-C",
+    repository,
+    "-c",
+    "user.name=Fixture",
+    "-c",
+    "user.email=fixture@example.test",
+    "commit",
+    "-q",
+    "--allow-empty",
+    "-m",
+    "fixture",
+  ]);
+  const app = await launchApp(context, { fixture: "empty-board" });
+  await app.evaluate(({ dialog }, folder) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
+  }, repository);
+  const page = await boardPage(app);
+  await page.getByRole("button", { name: "Add repository", exact: true }).click();
+  const row = page.locator(".repository-row .tree-label");
+  await expect(row).toHaveText("foom");
+  await expect(page.getByRole("button", { name: "Add repository", exact: true })).toHaveText(
+    "+ Add repo",
+  );
+  await page.evaluate(
+    (codeFolder) => window.desktop.saveSetup({ codeFolder }),
+    await realpath(root),
+  );
+  const screenshot = async (name) => {
+    if (process.env.FOOM_UI_SCREENSHOTS)
+      await page.screenshot({
+        path: path.join(process.env.FOOM_UI_SCREENSHOTS, name + ".png"),
+        animations: "disabled",
+      });
+  };
+  await screenshot("nested-repo-off-add-label");
+  await openSettingsScreen(page);
+  const toggle = page.getByRole("checkbox", {
+    name: "Show repository paths relative to code folder",
+  });
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await expect(row).toHaveText("work/foom");
+  await screenshot("settings-general-toggle");
+  await page.getByRole("button", { name: "Close settings (Esc)" }).click();
+  await screenshot("nested-repo-on");
+  const before = await page.evaluate(() => window.desktop.workspace());
+  await openSettingsScreen(page);
+  await toggle.uncheck();
+  await expect(row).toHaveText("foom");
+  assert.deepEqual(
+    (await page.evaluate(() => window.desktop.workspace())).repositories,
+    before.repositories,
+  );
+  await page.getByRole("button", { name: "Close settings (Esc)" }).click();
+  await page.getByRole("button", { name: "Foom menu" }).click();
+  await expect(page.getByRole("menuitem", { name: /^Via / })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: /^Settings…/ })).toBeVisible();
+  await screenshot("application-menu-linux");
+  await page.getByRole("menuitem", { name: "Developer", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Action log", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: /^Developer tools/ })).toBeVisible();
+  await screenshot("developer-submenu-linux");
 });

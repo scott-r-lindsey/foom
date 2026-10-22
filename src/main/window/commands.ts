@@ -1,4 +1,3 @@
-import type { AgentId } from "../../shared/agents";
 import type { BoardCommand } from "../../shared/board-command";
 import type { Input, MenuItemConstructorOptions } from "electron";
 import type { AppMenuEntry, CommandItem, ShortcutGroup } from "../../shared/app-menu";
@@ -85,7 +84,6 @@ export function createCommands(
   platform: string,
   development: boolean,
   actions: CommandActions,
-  agents: readonly { id: AgentId; name: string; mark: string }[] = [],
 ): Command[] {
   const mac = platform === "darwin";
   const chord = (code: string, shift = !mac): Binding => ({
@@ -122,17 +120,6 @@ export function createCommands(
   });
   add("manual", "Manual", "Help");
   add("notices", "Third-party notices", "Help");
-  for (const agent of agents)
-    add(
-      `via-${agent.id}`,
-      `Via ${agent.name}`,
-      "Foom",
-      [],
-      () => {
-        actions.board(`via-${agent.id}`);
-      },
-      { enabled: false, badge: agent.mark },
-    );
   add(
     "toggle-sidebar",
     "Collapse sidebar",
@@ -179,7 +166,6 @@ export function createCommands(
         actions.board(entry.id);
       },
       {
-        ...(entry.id === "settings" ? { menuLabel: "Via Settings UI" } : {}),
         sheet: sheet[entry.id] ?? ["Tiles", "Focus tile"],
       },
     );
@@ -261,7 +247,7 @@ export function createCommands(
   add(
     "action-log",
     "Action Log",
-    "Foom",
+    "Developer",
     [],
     () => {
       actions.board("action-log");
@@ -305,28 +291,25 @@ type Layout = string | null | { submenu: string; label: string; items: readonly 
  * The curated wordmark menu: app-wide commands and whole-layout Tidy. Everything else keeps its
  * shortcut and stays in the macOS menu bar. `size` is the interface size row.
  */
-const appMenuLayout = (agents: readonly string[]): readonly Layout[] => [
+const appMenuLayout: readonly Layout[] = [
   "new-window",
   "new-worktree",
   "add-repository",
   null,
-  {
-    submenu: "settings-menu",
-    label: "Settings",
-    items: [...agents.map((agent) => `via-${agent}`), null, "settings"],
-  },
+  "settings",
   { submenu: "view-menu", label: "View", items: ["toggle-sidebar", "tidy-tiles"] },
   "size",
   null,
-  "action-log",
   "shortcuts",
   { submenu: "help-menu", label: "Help", items: ["manual"] },
   "about",
   "licenses",
   null,
-  "reload",
-  "force-reload",
-  "devtools",
+  {
+    submenu: "developer-menu",
+    label: "Developer",
+    items: ["action-log", null, "reload", "force-reload", "devtools"],
+  },
   null,
   "quit",
 ];
@@ -349,11 +332,8 @@ function tidy<T>(entries: readonly (T | null)[]): (T | null)[] {
 /** The wordmark menu projection: data only, the same on every platform. */
 export function projectAppMenu(commands: readonly Command[], scale: number): AppMenuEntry[] {
   const byId = new Map(commands.map((command) => [command.id, command]));
-  const agents = commands.flatMap((command) =>
-    command.id.startsWith("via-") ? [command.id.slice(4)] : [],
-  );
   return tidy(
-    appMenuLayout(agents).flatMap((entry): AppMenuEntry[] => {
+    appMenuLayout.flatMap((entry): AppMenuEntry[] => {
       if (entry === null) return [null];
       if (typeof entry !== "string") {
         const items = tidy(

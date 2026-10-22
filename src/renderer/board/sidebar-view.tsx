@@ -513,7 +513,7 @@ export function Sidebar(props: SidebarProps) {
               });
             }}
           >
-            {tree.length === 0 ? "Add repository" : "+"}
+            {tree.length === 0 ? "Add repository" : "+ Add repo"}
           </button>
         )}
       </nav>

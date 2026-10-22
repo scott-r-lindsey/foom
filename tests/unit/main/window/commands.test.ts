@@ -6,7 +6,6 @@ import {
   projectAppMenu,
   shortcutSheet,
 } from "../../../../src/main/window/commands";
-import { AGENTS } from "../../../../src/main/agents/agent-list";
 import type { CommandItem } from "../../../../src/shared/app-menu";
 import type { Binding } from "../../../../src/main/window/commands";
 const key = (
@@ -62,7 +61,9 @@ test.each(["linux", "win32", "darwin"])(
 );
 test("packaged registry cannot reload or open DevTools; native menu comes from the same list", () => {
   const commands = createCommands("darwin", false, actions());
-  expect(commands.some((item) => item.section === "Developer")).toBe(false);
+  expect(commands.filter((item) => item.section === "Developer").map((item) => item.id)).toEqual([
+    "action-log",
+  ]);
   const maximize = commands.find((item) => item.id === "maximize");
   if (!maximize) throw new Error("Missing maximize");
   maximize.checked = true;
@@ -74,6 +75,7 @@ test("packaged registry cannot reload or open DevTools; native menu comes from t
     "View",
     "Window",
     "Help",
+    "Developer",
   ]);
   const items = menu.flatMap((section) => (Array.isArray(section.submenu) ? section.submenu : []));
   // Every implemented command; planned ones only exist in the wordmark menu.
@@ -155,26 +157,23 @@ const entryIds = (entries: ReturnType<typeof projectAppMenu>) =>
   );
 test("the wordmark menu is curated, the same on every platform, with planned items disabled", () => {
   for (const platform of ["linux", "win32", "darwin"]) {
-    const commands = createCommands(platform, true, actions(), AGENTS);
+    const commands = createCommands(platform, true, actions());
     const menu = projectAppMenu(commands, 120);
     expect(entryIds(menu)).toEqual([
       "new-window",
       "new-worktree",
       "add-repository",
       "-",
-      { "settings-menu": ["via-claude", "via-codex", "via-agy", "-", "settings"] },
+      "settings",
       { "view-menu": ["toggle-sidebar", "tidy-tiles"] },
       "size:120",
       "-",
-      "action-log",
       "shortcuts",
       { "help-menu": ["manual"] },
       "about",
       "licenses",
       "-",
-      "reload",
-      "force-reload",
-      "devtools",
+      { "developer-menu": ["action-log", "-", "reload", "force-reload", "devtools"] },
       "-",
       "quit",
     ]);
@@ -205,24 +204,25 @@ test("the wordmark menu is curated, the same on every platform, with planned ite
           : [entry],
     );
     const disabled = flat.flatMap((item) => (item.enabled ? [] : [item.id]));
-    expect(disabled).toEqual(["via-claude", "via-codex", "via-agy"]);
+    expect(disabled).toEqual([]);
     // Disabled entries carry no explanation, issue number or shortcut.
     for (const item of flat) if (!item.enabled) expect(item.shortcut).toBe("");
   }
-  const linux = projectAppMenu(createCommands("linux", false, actions(), AGENTS), 100);
-  // Packaged: no developer group and no doubled separator before Quit.
-  expect(entryIds(linux).slice(-4)).toEqual(["about", "licenses", "-", "quit"]);
-  const settings = linux.find((entry) => entry?.kind === "submenu");
-  expect(settings).toMatchObject({
-    label: "Settings",
-    items: [
-      { label: "Via Claude Code", badge: "CC", enabled: false, shortcut: "" },
-      { label: "Via Codex", badge: "CX" },
-      { label: "Via Antigravity", badge: "AG" },
-      null,
-      { id: "settings", label: "Via Settings UI", shortcut: "Ctrl+Shift+,", enabled: true },
-    ],
-  });
+  const linux = projectAppMenu(createCommands("linux", false, actions()), 100);
+  // Packaged: Developer retains Action log; development-only entries are absent.
+  expect(entryIds(linux).slice(-4)).toEqual([
+    "-",
+    { "developer-menu": ["action-log"] },
+    "-",
+    "quit",
+  ]);
+  expect(linux.find((entry) => entry?.kind === "command" && entry.id === "settings")).toMatchObject(
+    {
+      label: "Settings…",
+      shortcut: "Ctrl+Shift+,",
+      enabled: true,
+    },
+  );
   expect(linux.find((entry) => entry?.kind === "size")).toMatchObject({
     label: "Size",
     scale: 100,
@@ -239,10 +239,12 @@ test("the wordmark menu is curated, the same on every platform, with planned ite
     label: "Keyboard shortcuts",
     shortcut: "Ctrl+Shift+/",
   });
-  const mac = projectAppMenu(createCommands("darwin", true, actions(), AGENTS), 100);
+  const mac = projectAppMenu(createCommands("darwin", true, actions()), 100);
   expect(mac.slice(0, 2)).toMatchObject([{ shortcut: "⌘N" }, { shortcut: "⌘T" }]);
   expect(
-    mac.find((entry) => entry?.kind === "command" && entry.id === "force-reload"),
+    mac
+      .flatMap((entry) => (entry?.kind === "submenu" ? entry.items : []))
+      .find((entry) => entry?.id === "force-reload"),
   ).toMatchObject({
     label: "Force reload",
     shortcut: "⇧⌘R",
@@ -252,7 +254,7 @@ test("the wordmark menu is curated, the same on every platform, with planned ite
 });
 test("removed menu items keep their shortcuts", () => {
   const calls = actions();
-  const commands = createCommands("linux", false, calls, AGENTS);
+  const commands = createCommands("linux", false, calls);
   const shortcuts = createShortcuts(commands, "linux", vi.fn());
   const ids = JSON.stringify(entryIds(projectAppMenu(commands, 100)));
   for (const id of ["sidebar", "next-waiting", "maximize", "tile-1", "copy", "close-window"])
@@ -273,7 +275,7 @@ test("removed menu items keep their shortcuts", () => {
 });
 test("disabled planned commands never run from a shortcut or the native menu", () => {
   const calls = actions();
-  const commands = createCommands("darwin", false, calls, AGENTS);
+  const commands = createCommands("darwin", false, calls);
   const planned = commands.filter((command) => command.section === "Planned");
   expect(planned.map((command) => command.id)).toEqual([]);
   void commands.find((command) => command.id === "action-log")?.run();
@@ -285,7 +287,7 @@ test("disabled planned commands never run from a shortcut or the native menu", (
   expect(native.some((item) => planned.some((command) => command.id === item.id))).toBe(false);
 });
 test("the shortcut sheet is generated from the registry for each platform", () => {
-  const linux = shortcutSheet(createCommands("linux", true, actions(), AGENTS), "linux");
+  const linux = shortcutSheet(createCommands("linux", true, actions()), "linux");
   expect(linux.map((group) => [group.title, group.lead])).toEqual([
     ["App", ""],
     ["Board", ""],
@@ -319,7 +321,7 @@ test("the shortcut sheet is generated from the registry for each platform", () =
     { label: "Swap", keys: "Shift+← → ↑ ↓" },
     { label: "Focus tile", keys: "1–9" },
   ]);
-  const mac = shortcutSheet(createCommands("darwin", false, actions(), AGENTS), "darwin");
+  const mac = shortcutSheet(createCommands("darwin", false, actions()), "darwin");
   expect(mac.map((group) => group.lead)).toEqual(["", "", ""]);
   expect(mac[0]?.rows[0]).toEqual({ label: "Settings", keys: "⌘," });
   expect(mac[1]?.rows).toContainEqual({ label: "Maximize tile", keys: "⇧⌘↩" });
@@ -348,33 +350,6 @@ test("the shortcut sheet is generated from the registry for each platform", () =
       "linux",
     )[1]?.rows,
   ).toEqual([{ label: "Mixed", keys: "Ctrl+A, Alt+B" }]);
-});
-
-test("agent settings routes share board actions in native and wordmark menus", async () => {
-  const calls = actions();
-  const agents = [...AGENTS, { id: "new-provider", name: "New provider", mark: "NP" }];
-  const commands = createCommands("darwin", false, calls, agents);
-  for (const agent of agents) {
-    const command = commands.find((entry) => entry.id === `via-${agent.id}`);
-    if (!command) throw new Error("Missing agent command");
-    expect(command.enabled).toBe(false);
-    command.enabled = true;
-    await command.run();
-    expect(calls.board).toHaveBeenLastCalledWith(`via-${agent.id}`);
-  }
-  const native = nativeMenu(commands).flatMap((section) =>
-    Array.isArray(section.submenu) ? section.submenu : [],
-  );
-  const wordmark = projectAppMenu(commands, 100).flatMap((entry) =>
-    entry?.kind === "submenu" ? entry.items : [],
-  );
-  expect(
-    wordmark.filter((entry) => entry?.id.startsWith("via-")).map((entry) => entry?.id),
-  ).toEqual(agents.map(({ id }) => `via-${id}`));
-  for (const agent of agents)
-    expect(native).toContainEqual(
-      expect.objectContaining({ id: `via-${agent.id}`, enabled: true }),
-    );
 });
 
 test.each(["linux", "win32", "darwin"])(
@@ -414,5 +389,51 @@ test.each(["darwin", "win32", "linux"])(
       ),
     ).toBe(true);
     expect(calls.board).toHaveBeenCalledExactlyOnceWith("toggle-sidebar");
+  },
+);
+
+test.each(["darwin", "linux", "win32"])("%s developer commands share one menu", (platform) => {
+  const commands = createCommands(platform, true, actions());
+  const native = nativeMenu(commands);
+  const developer = native.find((menu) => menu.label === "Developer");
+  const items = developer?.submenu;
+  expect(Array.isArray(items) && items.map((item) => item.id)).toEqual([
+    "action-log",
+    "reload",
+    "force-reload",
+    "devtools",
+  ]);
+  const projected = projectAppMenu(commands, 100);
+  const submenu = projected.find(
+    (entry) => entry?.kind === "submenu" && entry.id === "developer-menu",
+  );
+  expect(submenu).toMatchObject({
+    items: [
+      { id: "action-log" },
+      null,
+      { id: "reload" },
+      { id: "force-reload" },
+      { id: "devtools" },
+    ],
+  });
+  expect(
+    projected.filter((entry) => entry?.kind === "command").map((entry) => entry.id),
+  ).not.toContain("action-log");
+  const packaged = projectAppMenu(createCommands(platform, false, actions()), 100);
+  expect(
+    packaged.find((entry) => entry?.kind === "submenu" && entry.id === "developer-menu"),
+  ).toMatchObject({ items: [{ id: "action-log" }] });
+});
+
+test.each(["darwin", "linux", "win32"])(
+  "%s keeps Quit Foom last in the application menu",
+  (platform) => {
+    const menu = nativeMenu(createCommands(platform, true, actions()));
+    const foom = menu.find((entry) => entry.label === "Foom")?.submenu;
+    expect(Array.isArray(foom) && foom.map((item) => item.id)).toEqual(
+      platform === "darwin"
+        ? ["about", "settings", "hide", "hide-others", "quit"]
+        : ["about", "settings", "quit"],
+    );
   },
 );

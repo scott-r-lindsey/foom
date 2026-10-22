@@ -63,7 +63,7 @@ function PreflightContents({
   initialSection?: "config";
 }) {
   const [state, setState] = useState(initial);
-  const [step, setStep] = useState(settingsMode ? (initialSection === "config" ? 9 : 1) : 0);
+  const [step, setStep] = useState(settingsMode ? (initialSection === "config" ? 9 : 11) : 0);
   const [reached, setReached] = useState(onClose ? STEPS.length - 1 : 0);
   const [report, setReport] = useState<AgentReport>();
   const [scanning, setScanning] = useState(false);
@@ -524,6 +524,16 @@ function PreflightContents({
           General
         </h2>
         <WorktreeLocationControls state={state} repositories={repositories} save={save} />
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={state.settings.showNestedRepositoryNames}
+            onChange={(event) => {
+              save({ showNestedRepositoryNames: event.target.checked });
+            }}
+          />
+          <span>Show repository paths relative to code folder</span>
+        </label>
         <label className="check">
           <input
             type="checkbox"

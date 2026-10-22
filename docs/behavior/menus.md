@@ -11,29 +11,23 @@ menu is the same everywhere and lists app-wide commands, the sidebar toggle and 
 
 - New window, New worktree…, Add repository… (orchestration is granted from a
   session's menu, #303)
-- **Settings ›**, a submenu of routes from the live provider registry, including
-  config providers (#84: each starts that agent in `~/.foom/config` in the Foom
-  config dock), then Via Settings UI, which opens the Settings screen. Agent routes
-  are enabled for installed, enabled agents after preflight, including while
-  Settings is open. A new config session starts with a fixed greeting describing
-  what it can change and asking what the user wants; resuming a conversation adds
-  no greeting. Antigravity releases without interactive prompt support open
-  without the greeting. Each launch opens a new config session in the current window.
+- **Settings…**, which opens General. Config-agent launchers remain in the sidebar’s Foom config gear panel.
 - **View › Collapse sidebar / Expand sidebar**, plus **Tidy tiles**, which removes empty spaces and evens every run in the focused window
 - **Size − 100% +**, one row that steps the interface size and stays open
-- Action log (#157), Keyboard shortcuts, About Foom, Third-party licenses
-- Reload, Force reload and Developer tools, in development builds only
+- Keyboard shortcuts, About Foom, Third-party licenses
+- **Developer › Action log**, plus Reload, Force reload and Developer tools in development builds only
 - Quit Foom
 
 Items whose issue hasn't landed are present but disabled, with no explanation.
 Arrows, Home/End, Enter and Escape navigate the menu; disabled items are skipped.
-Right or Enter on Settings opens its submenu and focuses the first enabled
-route; Left or Escape returns to Settings, and hovering opens it without moving
+Right or Enter on a submenu opens it and focuses the first enabled
+item; Left or Escape returns to its parent, and hovering opens it without moving
 focus. The submenu flips left when the window has no room on its right. Up and
 Down treat the Size row as one stop; Left and Right move between − and +.
 Escape at the top level returns focus to the wordmark. The menu uses the same
 surface and motion as row actions, with a scrollable list on short windows. The
-native menu bar is absent on Windows and Linux, including after Alt.
+native menu bar is absent on Windows and Linux, including after Alt. On macOS,
+Action Log and Toggle Developer Tools share Developer; Quit Foom is last in the Foom application menu.
 
 Individual tile, focus and swap commands, Focus sidebar, Longest waiting, Maximize,
 Copy, Paste, Close Window and Foom on GitHub are not in the wordmark menu. Their
@@ -65,7 +59,8 @@ On macOS, the native menu bar keeps every command: Foom (About, Settings, Hide,
 Hide Others, Quit), File (New Window, New Worktree, Add Repository, Close Window),
 standard Edit roles, View (tile actions, interface size, sidebar and
 longest waiting), Window (Minimize, Zoom, Bring All to Front and windows), and
-Help (Keyboard Shortcuts, licenses and GitHub). New Window uses Command+N on macOS
+Help (Keyboard Shortcuts, licenses and GitHub), and Developer (Action Log, plus
+Reload, Force Reload and Toggle Developer Tools in development builds). New Window uses Command+N on macOS
 and Ctrl+Shift+O on Windows/Linux.
 
 Foom commands use Command on macOS or Ctrl+Shift on Windows/Linux; plain Ctrl

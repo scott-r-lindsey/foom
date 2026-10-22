@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AgentId } from "../../shared/agents";
 import type { WindowIpc } from "./window-ipc";
 import { app, Menu, ipcMain, shell } from "electron";
 import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
@@ -11,7 +10,6 @@ import {
   projectAppMenu,
   shortcutSheet,
 } from "./commands";
-import { agentProviders } from "../agents/providers/registry";
 import type { ZoomDirection } from "./appearance";
 
 /** The bridge accepts command IDs only, from this window's trusted top-level frame. */
@@ -22,7 +20,6 @@ export function attachAppMenu(
   openWindow: () => void = () => undefined,
   /** The current interface size in percent, for the menu's Size row. */
   scale: () => Promise<number> = () => Promise.resolve(100),
-  configAgents: () => Promise<readonly AgentId[]> = () => Promise.resolve([]),
   openManual: () => Promise<void> = () => Promise.resolve(),
   boardReady: () => void = () => undefined,
 ) {
@@ -95,21 +92,16 @@ export function attachAppMenu(
         break;
     }
   };
-  const commands = createCommands(
-    process.platform,
-    !app.isPackaged,
-    {
-      native,
-      board: (command) => {
-        contents.send("board:command", command);
-      },
-      zoom: (direction) =>
-        zoom(direction).catch((error: unknown) => {
-          console.error("Unable to change interface size:", error);
-        }),
+  const commands = createCommands(process.platform, !app.isPackaged, {
+    native,
+    board: (command) => {
+      contents.send("board:command", command);
     },
-    agentProviders(),
-  );
+    zoom: (direction) =>
+      zoom(direction).catch((error: unknown) => {
+        console.error("Unable to change interface size:", error);
+      }),
+  });
   const refresh = () => {
     // Background boards also publish layout/settings state. Their commands must
     // never replace the native menu belonging to the focused macOS window.
@@ -119,38 +111,8 @@ export function attachAppMenu(
     );
     if (process.platform !== "darwin") window.removeMenu();
   };
-  let configAvailable = false;
-  let generation = 0;
-  let disposed = false;
-  const refreshAgents = async () => {
-    const current = ++generation;
-    const agents: readonly AgentId[] = await configAgents().catch(() => []);
-    if (disposed || current !== generation) return;
-    const routes = createCommands(
-      process.platform,
-      !app.isPackaged,
-      {
-        native,
-        board: (command) => {
-          contents.send("board:command", command);
-        },
-        zoom,
-      },
-      agentProviders(),
-    ).filter((command) => command.id.startsWith("via-"));
-    for (const command of routes)
-      command.enabled = configAvailable && agents.includes(command.id.slice(4));
-    for (let index = commands.length - 1; index >= 0; index--)
-      if (commands[index]?.id.startsWith("via-")) commands.splice(index, 1);
-    commands.splice(1, 0, ...routes);
-    refresh();
-  };
-  const focus = () => {
-    refresh();
-    void refreshAgents();
-  };
   refresh();
-  window.on("focus", focus);
+  window.on("focus", refresh);
   ipc.handle("app-menu:view", (event, state: unknown) => {
     trusted(event);
     if (
@@ -169,9 +131,9 @@ export function attachAppMenu(
       state.tiles > 256
     )
       throw new Error("Invalid menu view state");
-    configAvailable = "configAvailable" in state ? state.configAvailable === true : state.available;
+    const configAvailable =
+      "configAvailable" in state ? state.configAvailable === true : state.available;
     for (const command of commands) {
-      if (command.id.startsWith("via-") && !configAvailable) command.enabled = false;
       if (
         (command.section === "View" && !command.id.startsWith("zoom-")) ||
         command.id === "new-worktree"
@@ -191,7 +153,6 @@ export function attachAppMenu(
     }
     refresh();
     if (state.available) boardReady();
-    return refreshAgents();
   });
   const shortcuts = createShortcuts(commands, process.platform, () => {
     contents.send("app-menu:open");
@@ -227,7 +188,6 @@ export function attachAppMenu(
   });
   ipc.handle("app-menu:list", async (event) => {
     trusted(event);
-    await refreshAgents();
     return projectAppMenu(commands, await scale());
   });
   ipc.handle("app-menu:shortcuts", (event) => {
@@ -236,7 +196,6 @@ export function attachAppMenu(
   });
   ipc.handle("app-menu:execute", async (event, id: unknown) => {
     trusted(event);
-    if (typeof id === "string" && id.startsWith("via-")) await refreshAgents();
     const command = typeof id === "string" && commands.find((command) => command.id === id);
     if (!command || !command.enabled) throw new Error("Unavailable app command");
     // Awaited so the Size row can show the size this step produced.
@@ -246,13 +205,10 @@ export function attachAppMenu(
   if (!newWindow) throw new Error("Missing New Window command");
   return {
     newWindow,
-    refreshAgents,
     dispose() {
       contents.removeListener("before-input-event", beforeInput);
       window.removeListener("blur", shortcuts.reset);
-      disposed = true;
-      generation++;
-      window.removeListener("focus", focus);
+      window.removeListener("focus", refresh);
       ipc.removeHandler("app-menu:legal");
       ipc.removeHandler("app-menu:version");
       ipc.removeHandler("app-menu:view");

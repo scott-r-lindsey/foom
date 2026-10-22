@@ -112,7 +112,7 @@ keeps only the gear. The gear opens a
 pinned panel to the right, bottom-aligned and pointing at the gear. **Settings**
 is its first command, with its shortcut; ⌘, on macOS, Ctrl+Shift+, on
 Windows/Linux and the app menu still open Settings directly. Then come the agent launchers and Shell (run in the config
-folder), **Open Foom config settings** and **Open folder**. Each launcher action starts a new session.
+folder), then **Open folder**. Each launcher action starts a new session.
 
 A dock above the footer bar appears only while a config change is held, files
 are rejected or a config session exists. Its small gear and **Foom config** name
@@ -167,4 +167,4 @@ Below 720 CSS pixels the tree becomes a compact rail with each session’s light
 name. ⌘⇧B on macOS or Ctrl+Shift+Space, then B elsewhere focuses the sidebar; arrow keys navigate.
 ⌘⇧N or Ctrl+Shift+N reveals and opens the session that has waited longest for you, clearing
 its filter and expanding its ancestors. Other terminal keys, including Escape, remain input.
-Zoom, master volume and the Foom config gear stay at the bottom of the sidebar. Launch actions live in repository and checkout menus. An empty sidebar labels its starting action **Add repository**.
+Zoom, master volume and the Foom config gear stay at the bottom of the sidebar. Launch actions live in repository and checkout menus. An empty sidebar labels its starting action **Add repository**; a populated sidebar shows **+ Add repo** with the same accessible name. General’s optional relative-path preference shows nested repository names beneath the code folder; outside repositories keep their names.

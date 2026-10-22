@@ -21,6 +21,7 @@ import {
   buildSidebar,
   previewOpener,
   repositoryKey,
+  repositoryDisplayName,
   rowRepository,
   rowWorktree,
   sessionIdentity,
@@ -185,7 +186,14 @@ export function useSidebar(props: SidebarProps) {
     rows.filter((row) => !row.home && !row.config),
     source.getSidebar?.() ??
       (source.getRepositories?.() ?? []).map((name) => ({ name, path: name, worktrees: [] })),
-  );
+  ).map((repository) => ({
+    ...repository,
+    name: repositoryDisplayName(
+      repository,
+      options?.codeFolder,
+      options?.showNestedRepositoryNames,
+    ),
+  }));
   const homeRows = rows.filter((row) => row.home);
   const visibleHomeRows = homeRows.filter((row) =>
     `${sessionName(row, preferences)} ${row.reason} ~`
@@ -410,16 +418,6 @@ export function useSidebar(props: SidebarProps) {
       run: () => command({ kind: "config-launch", run: action.run }),
     })),
     null,
-    ...(openSettings
-      ? [
-          {
-            label: "Open Foom config settings",
-            run: () => {
-              openSettings("config");
-            },
-          },
-        ]
-      : []),
     { label: "Open folder", run: () => source.config?.openFolder() },
   ]);
   const configRejected = configStatus?.rejected.length ?? 0;
