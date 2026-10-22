@@ -93,8 +93,11 @@ export function run(command, args, options = {}) {
       process.env,
       command,
     ).trim();
-    throw new Error(
-      `${command} ${result.error?.code === "ETIMEDOUT" ? "timed out" : "failed"}${output ? `:\n${output}` : ""}`,
+    throw Object.assign(
+      new Error(
+        `${command} ${result.error?.code === "ETIMEDOUT" ? "timed out" : "failed"}${output ? `:\n${output}` : ""}`,
+      ),
+      { status: result.status, signal: result.signal },
     );
   }
   return `${result.stdout ?? ""}${result.stderr ?? ""}`;
@@ -261,13 +264,15 @@ export function notarizationSession({
   deadlineMs = notarizationDeadlineMs,
   pollMs = 30_000,
   queryTimeoutMs = 60_000,
+  stapleRetryMs = 30_000,
   now = Date.now,
   wait = sleep,
   log = console.log,
 } = {}) {
   let deadline;
   const submissions = [];
-  return async (artifact, credentials, execute = run) => {
+  // Stapler operations use the same clock, submission history and redaction as submit.
+  return async (artifact, credentials, execute = run, operation = "submit") => {
     deadline ??= now() + deadlineMs;
     const auth = [
       "--key",
@@ -302,7 +307,35 @@ export function notarizationSession({
         throw new Error(`notarytool ${operation} returned invalid JSON`);
       }
     };
+    let lastStaplerError;
     try {
+      if (operation !== "submit") {
+        assert.ok(["staple", "validate"].includes(operation), "Unknown stapler operation");
+        for (let attempt = 1; attempt <= 6; attempt++) {
+          const timeout = Math.min(queryTimeoutMs, remaining());
+          const label = `${basename(artifact)} stapler ${operation} attempt ${attempt}/6`;
+          report(`${label}: starting`);
+          try {
+            await execute("xcrun", ["stapler", operation, artifact], {
+              timeout,
+              killSignal: "SIGKILL",
+            });
+            report(`${label}: exit status 0`);
+            return;
+          } catch (error) {
+            lastStaplerError = error;
+            report(
+              `${label}: exit status ${error.status ?? "unknown"}${error.signal ? ` (${error.signal})` : ""}; ${error.message}`,
+            );
+            const transient =
+              /NSURLErrorDomain|CloudKit|record not found|network connection (?:was )?lost|network (?:error|unavailable)|timed? out|Error (?:65|68)\b/i.test(
+                error.message,
+              );
+            if (!transient || attempt === 6) throw error;
+          }
+          await wait(Math.min(stapleRetryMs, remaining()));
+        }
+      }
       report(`Submitting ${basename(artifact)} for notarization`);
       let record;
       const remember = (id) => {
@@ -368,7 +401,7 @@ export function notarizationSession({
     } catch (error) {
       // Include all IDs even on tool errors/timeouts. Never echo unsanitized
       // tool output, JSON parse errors or credentials supplied outside env.
-      const message = `${now() >= deadline ? "Notarization deadline exceeded; " : ""}${error.message}; submissions: ${history() || "none"}`;
+      const message = `${now() >= deadline ? "Notarization deadline exceeded; " : ""}${error.message}${lastStaplerError && lastStaplerError !== error ? `; last stapler error: ${lastStaplerError.message}` : ""}; submissions: ${history() || "none"}`;
       // Deliberately create a sanitized error without the raw tool error as
       // cause: Node prints causes and their argv/stdio in uncaught errors.
       const failure = new Error(safe(message));
@@ -384,14 +417,14 @@ export async function notarizeApp(app, credentials, execute = run, submit = nota
     const zip = join(directory, "Foom.zip");
     execute("ditto", ["-c", "-k", "--keepParent", app, zip]);
     await submit(zip, credentials, execute);
-    execute("xcrun", ["stapler", "staple", app]);
+    await submit(app, credentials, execute, "staple");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
   execute("codesign", ["--verify", "--deep", "--strict", "--verbose=2", app]);
   const assessment = execute("spctl", ["-a", "-t", "exec", "-vv", app]);
   assert.match(assessment, /source=Notarized Developer ID/);
-  execute("xcrun", ["stapler", "validate", app]);
+  await submit(app, credentials, execute, "validate");
 }
 
 export async function signDmg(dmg, credentials, execute = run, submit = notarizationSession()) {
@@ -399,8 +432,8 @@ export async function signDmg(dmg, credentials, execute = run, submit = notariza
   execute("codesign", ["--force", "--sign", identity, "--timestamp", "--keychain", keychain, dmg]);
   execute("codesign", ["--verify", "--strict", dmg]);
   await submit(dmg, credentials, execute);
-  execute("xcrun", ["stapler", "staple", dmg]);
-  execute("xcrun", ["stapler", "validate", dmg]);
+  await submit(dmg, credentials, execute, "staple");
+  await submit(dmg, credentials, execute, "validate");
   execute("spctl", ["-a", "-t", "open", "--context", "context:primary-signature", "-vv", dmg]);
 }
 
