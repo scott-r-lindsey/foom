@@ -397,22 +397,34 @@ test("closing an unshown destination waits for the ownership write before return
   const source = await fixture();
   const target = await fixture();
   const { id } = await source.open();
-  let saved: () => void = () => {
-    throw new Error("Save did not start");
+  let finishSource: () => void = () => {
+    throw new Error("Missing source barrier");
   };
-  vi.spyOn(target.registry, "save").mockImplementationOnce(
-    () =>
-      new Promise<void>((resolve) => {
-        saved = resolve;
-      }),
-  );
+  let finishTarget: () => void = () => {
+    throw new Error("Missing target barrier");
+  };
+  const sourcePending = new Promise<void>((resolve) => {
+    finishSource = resolve;
+  });
+  const targetPending = new Promise<void>((resolve) => {
+    finishTarget = resolve;
+  });
+  const sourceSave = vi.spyOn(source.registry, "save").mockReturnValueOnce(sourcePending);
+  const targetSave = vi.spyOn(target.registry, "save").mockReturnValueOnce(targetPending);
   const moving = source.host.moveTo(id, target.host);
   await vi.waitFor(() => {
-    expect(target.registry.records.has(id)).toBe(true);
+    expect(sourceSave).toHaveBeenCalledOnce();
   });
+  expect(target.registry.records.has(id)).toBe(true);
+  expect(targetSave).not.toHaveBeenCalled();
   const closing = target.host.dispose(false);
   expect(source.registry.records.has(id)).toBe(false);
-  saved();
+  finishSource();
+  await vi.waitFor(() => {
+    expect(targetSave).toHaveBeenCalledOnce();
+  });
+  expect(source.registry.records.has(id)).toBe(false);
+  finishTarget();
   await moving;
   await closing;
   expect(source.registry.records.has(id)).toBe(true);
