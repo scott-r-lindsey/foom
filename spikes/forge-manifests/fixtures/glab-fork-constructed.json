@@ -1,0 +1,6 @@
+{
+  "provenance": "Constructed fork identity derived from glab-mr-constructed.json; not observed output; no fork created",
+  "source": "https://docs.gitlab.com/api/merge_requests/#get-single-mr",
+  "stdout": "{\"id\":100,\"iid\":7,\"project_id\":42,\"source_project_id\":43,\"target_project_id\":42,\"source_branch\":\"feature/manifest\",\"target_branch\":\"main\",\"state\":\"opened\",\"sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Synthetic schema fixture\",\"web_url\":\"https://gitlab.com/example/fixture/-/merge_requests/7\",\"head_pipeline\":{\"id\":101,\"sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"ref\":\"feature/manifest\",\"status\":\"success\"}}",
+  "exitCode": 0
+}

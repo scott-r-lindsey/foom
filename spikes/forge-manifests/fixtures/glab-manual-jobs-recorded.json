@@ -1,0 +1,17 @@
+{
+  "provenance": "Recorded public GitLab output; unrelated fields omitted with a strict allowlist",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "api",
+    "projects/scott-test-projects%2Ffoom-forge-fixtures/pipelines/2977876128/jobs",
+    "--hostname",
+    "gitlab.com",
+    "--method",
+    "GET"
+  ],
+  "exitCode": 0,
+  "capturedAt": "2026-10-22T18:21:22.851892+00:00",
+  "scenario": "manual pipeline jobs",
+  "stdout": "[{\"id\":17392958472,\"status\":\"manual\",\"stage\":\"test\",\"name\":\"fixture\",\"ref\":\"refs/merge-requests/4/head\",\"tag\":false,\"allow_failure\":false,\"created_at\":\"2026-10-22T18:20:39.801Z\",\"started_at\":null,\"finished_at\":null,\"duration\":null,\"queued_duration\":null,\"pipeline\":{\"id\":2977876128,\"iid\":8,\"project_id\":87769054,\"sha\":\"be633f2569b2ce8a0ddbd4871b4b3fb7e7c8c478\",\"ref\":\"refs/merge-requests/4/head\",\"status\":\"manual\",\"source\":\"merge_request_event\",\"created_at\":\"2026-10-22T18:20:39.769Z\",\"updated_at\":\"2026-10-22T18:20:40.220Z\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/pipelines/2977876128\"},\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/jobs/17392958472\",\"project\":{}}]",
+  "stderr": ""
+}

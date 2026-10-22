@@ -1,0 +1,17 @@
+{
+  "provenance": "Recorded public GitLab failure exit and stderr only; stdout discarded",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "api",
+    "graphql",
+    "--hostname",
+    "gitlab.com",
+    "--raw-field",
+    "query=query {"
+  ],
+  "exitCode": 1,
+  "capturedAt": "2026-10-22T18:21:40.473035+00:00",
+  "scenario": "Failure exit and stderr shape: malformed-graphql",
+  "stdout": "",
+  "stderr": "glab: Expected NAME, not end of file at [1, 7]\n"
+}

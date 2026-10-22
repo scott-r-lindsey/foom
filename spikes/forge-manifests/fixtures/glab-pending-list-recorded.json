@@ -1,0 +1,20 @@
+{
+  "provenance": "Recorded public GitLab output; unrelated fields omitted with a strict allowlist",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "mr",
+    "list",
+    "-R",
+    "scott-test-projects/foom-forge-fixtures",
+    "-F",
+    "json",
+    "--all",
+    "--source-branch",
+    "evidence-522/pending"
+  ],
+  "exitCode": 0,
+  "capturedAt": "2026-10-22T18:21:10.192947+00:00",
+  "scenario": "pending exact branch list",
+  "stdout": "[{\"id\":553722775,\"iid\":1,\"target_branch\":\"main\",\"source_branch\":\"evidence-522/pending\",\"project_id\":87769054,\"title\":\"Evidence 522: pending\",\"state\":\"opened\",\"created_at\":\"2026-10-22T18:20:30.714Z\",\"updated_at\":\"2026-10-22T18:20:31.802Z\",\"source_project_id\":87769054,\"target_project_id\":87769054,\"sha\":\"503528d77214fbfd35dcaa17275d926247641a9c\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/merge_requests/1\"}]",
+  "stderr": ""
+}

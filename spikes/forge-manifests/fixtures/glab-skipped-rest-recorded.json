@@ -1,0 +1,17 @@
+{
+  "provenance": "Recorded public GitLab output; unrelated fields omitted with a strict allowlist",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "api",
+    "projects/scott-test-projects%2Ffoom-forge-fixtures/merge_requests/5",
+    "--hostname",
+    "gitlab.com",
+    "--method",
+    "GET"
+  ],
+  "exitCode": 0,
+  "capturedAt": "2026-10-22T18:21:25.737063+00:00",
+  "scenario": "skipped MR sample",
+  "stdout": "{\"id\":553722865,\"iid\":5,\"project_id\":87769054,\"title\":\"Evidence 522: skipped\",\"state\":\"opened\",\"created_at\":\"2026-10-22T18:20:40.687Z\",\"updated_at\":\"2026-10-22T18:20:41.738Z\",\"target_branch\":\"main\",\"source_branch\":\"evidence-522/skipped\",\"source_project_id\":87769054,\"target_project_id\":87769054,\"sha\":\"5fe2cc91628e3c214f6c06012b6ea9ed8c0d154e\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/merge_requests/5\",\"pipeline\":{\"id\":2977876230,\"iid\":10,\"project_id\":87769054,\"sha\":\"5fe2cc91628e3c214f6c06012b6ea9ed8c0d154e\",\"ref\":\"refs/merge-requests/5/head\",\"status\":\"success\",\"source\":\"merge_request_event\",\"created_at\":\"2026-10-22T18:20:41.956Z\",\"updated_at\":\"2026-10-22T18:20:52.713Z\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/pipelines/2977876230\"},\"head_pipeline\":{\"id\":2977876230,\"iid\":10,\"project_id\":87769054,\"sha\":\"5fe2cc91628e3c214f6c06012b6ea9ed8c0d154e\",\"ref\":\"refs/merge-requests/5/head\",\"status\":\"success\",\"source\":\"merge_request_event\",\"created_at\":\"2026-10-22T18:20:41.956Z\",\"updated_at\":\"2026-10-22T18:20:52.713Z\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/pipelines/2977876230\",\"before_sha\":\"5fe2cc91628e3c214f6c06012b6ea9ed8c0d154e\",\"tag\":false,\"yaml_errors\":null,\"started_at\":\"2026-10-22T18:20:42.493Z\",\"finished_at\":\"2026-10-22T18:20:52.701Z\",\"duration\":8,\"queued_duration\":null,\"detailed_status\":{}}}",
+  "stderr": ""
+}

@@ -1,0 +1,17 @@
+{
+  "provenance": "Recorded public GitLab output; unrelated fields omitted with a strict allowlist",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "api",
+    "projects/scott-test-projects%2Ffoom-forge-fixtures/merge_requests/8",
+    "--hostname",
+    "gitlab.com",
+    "--method",
+    "GET"
+  ],
+  "exitCode": 0,
+  "capturedAt": "2026-10-22T18:21:35.386133+00:00",
+  "scenario": "closed MR sample",
+  "stdout": "{\"id\":553722923,\"iid\":8,\"project_id\":87769054,\"title\":\"Evidence 522: closed\",\"state\":\"closed\",\"created_at\":\"2026-10-22T18:20:47.577Z\",\"updated_at\":\"2026-10-22T18:21:05.865Z\",\"target_branch\":\"main\",\"source_branch\":\"evidence-522/closed\",\"source_project_id\":87769054,\"target_project_id\":87769054,\"sha\":\"6d7366eef54c3cf5f4fa936b7d4268c47c012f85\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/merge_requests/8\",\"pipeline\":null,\"head_pipeline\":null}",
+  "stderr": ""
+}

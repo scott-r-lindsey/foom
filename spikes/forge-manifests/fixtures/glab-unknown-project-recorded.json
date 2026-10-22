@@ -1,0 +1,17 @@
+{
+  "provenance": "Recorded public GitLab failure exit and stderr only; stdout discarded",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "api",
+    "projects/scott-test-projects%2Ffoom-evidence-522-does-not-exist/merge_requests",
+    "--hostname",
+    "gitlab.com",
+    "--method",
+    "GET"
+  ],
+  "exitCode": 1,
+  "capturedAt": "2026-10-22T18:21:39.953142+00:00",
+  "scenario": "Failure exit and stderr shape: unknown-project",
+  "stdout": "",
+  "stderr": "glab: 404 Project Not Found (HTTP 404)\n"
+}

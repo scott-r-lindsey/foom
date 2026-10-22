@@ -1,0 +1,17 @@
+{
+  "provenance": "Recorded public GitLab output; unrelated fields omitted with a strict allowlist",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "api",
+    "projects/scott-test-projects%2Ffoom-forge-fixtures/merge_requests/2",
+    "--hostname",
+    "gitlab.com",
+    "--method",
+    "GET"
+  ],
+  "exitCode": 0,
+  "capturedAt": "2026-10-22T18:21:12.688766+00:00",
+  "scenario": "success MR sample",
+  "stdout": "{\"id\":553722798,\"iid\":2,\"project_id\":87769054,\"title\":\"Evidence 522: success\",\"state\":\"opened\",\"created_at\":\"2026-10-22T18:20:33.913Z\",\"updated_at\":\"2026-10-22T18:20:35.168Z\",\"target_branch\":\"main\",\"source_branch\":\"evidence-522/success\",\"source_project_id\":87769054,\"target_project_id\":87769054,\"sha\":\"864d86ee2bff1cf3ef1d6cf3d48e76e78f88e1e6\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/merge_requests/2\",\"pipeline\":{\"id\":2977875919,\"iid\":4,\"project_id\":87769054,\"sha\":\"864d86ee2bff1cf3ef1d6cf3d48e76e78f88e1e6\",\"ref\":\"refs/merge-requests/2/head\",\"status\":\"success\",\"source\":\"merge_request_event\",\"created_at\":\"2026-10-22T18:20:35.372Z\",\"updated_at\":\"2026-10-22T18:20:46.410Z\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/pipelines/2977875919\"},\"head_pipeline\":{\"id\":2977875919,\"iid\":4,\"project_id\":87769054,\"sha\":\"864d86ee2bff1cf3ef1d6cf3d48e76e78f88e1e6\",\"ref\":\"refs/merge-requests/2/head\",\"status\":\"success\",\"source\":\"merge_request_event\",\"created_at\":\"2026-10-22T18:20:35.372Z\",\"updated_at\":\"2026-10-22T18:20:46.410Z\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/pipelines/2977875919\",\"before_sha\":\"864d86ee2bff1cf3ef1d6cf3d48e76e78f88e1e6\",\"tag\":false,\"yaml_errors\":null,\"started_at\":\"2026-10-22T18:20:35.920Z\",\"finished_at\":\"2026-10-22T18:20:46.391Z\",\"duration\":9,\"queued_duration\":null,\"detailed_status\":{}}}",
+  "stderr": ""
+}

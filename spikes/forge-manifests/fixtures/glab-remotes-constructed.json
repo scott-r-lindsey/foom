@@ -1,0 +1,11 @@
+{
+  "provenance": "Constructed plain-string git remote -v examples; SSH was never used",
+  "scenario": "Public project remote URL forms",
+  "remotes": [
+    "origin\thttps://gitlab.com/scott-test-projects/foom-forge-fixtures.git (fetch)",
+    "origin\thttps://gitlab.com/scott-test-projects/foom-forge-fixtures.git (push)",
+    "origin\tgit@gitlab.com:scott-test-projects/foom-forge-fixtures.git (fetch)",
+    "origin\tgit@gitlab.com:scott-test-projects/foom-forge-fixtures.git (push)",
+    "origin\tssh://git@gitlab.com/scott-test-projects/foom-forge-fixtures.git (fetch)"
+  ]
+}

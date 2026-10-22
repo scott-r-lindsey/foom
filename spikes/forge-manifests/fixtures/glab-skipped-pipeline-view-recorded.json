@@ -1,0 +1,18 @@
+{
+  "provenance": "Recorded public GitLab output; unrelated fields omitted with a strict allowlist",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "mr",
+    "view",
+    "9",
+    "-R",
+    "scott-test-projects/foom-forge-fixtures",
+    "-F",
+    "json"
+  ],
+  "exitCode": 0,
+  "capturedAt": "2026-10-22T18:21:46.096603+00:00",
+  "scenario": "Commit skip marker produces skipped pipeline",
+  "stdout": "{\"id\":553723452,\"iid\":9,\"target_branch\":\"main\",\"source_branch\":\"evidence-522/skipped-pipeline\",\"project_id\":87769054,\"title\":\"Evidence 522: skipped pipeline\",\"state\":\"opened\",\"created_at\":\"2026-10-22T18:21:44.256Z\",\"updated_at\":\"2026-10-22T18:21:44.256Z\",\"source_project_id\":87769054,\"target_project_id\":87769054,\"sha\":\"ef6ded49bbbb04204e009679f85fc1743055bb03\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/merge_requests/9\",\"pipeline\":null,\"head_pipeline\":null}",
+  "stderr": ""
+}
