@@ -113,8 +113,10 @@ Rejected submissions print Apple's issues log summary. Both submissions share a
 returned IDs and their last statuses. Submit uses the remaining overall budget
 and logs its ID as soon as the tool prints it. Info and log queries are bounded to
 one minute (or the remaining budget). App and DMG stapling and staple validation
-retry transient network/CloudKit failures, missing ticket records, and Error 65/68
-up to six attempts, 30 seconds apart. Each attempt logs a timestamp, artifact and
+retry NSURL transport codes -1001, -1003, -1004, -1005 and -1009, missing CloudKit
+records, and tickets not yet available up to six attempts, 30 seconds apart.
+The domain or Error 65/68 alone never triggers retries; certificate and signature
+failures stop immediately. Each attempt logs a timestamp, artifact and
 exit status. Each command is bounded to one minute (or the remaining budget),
 and retry waits never exceed that shared budget. Other failures stop immediately;
 exhaustion reports the last error and submission IDs. The signing job allows 150 minutes for this

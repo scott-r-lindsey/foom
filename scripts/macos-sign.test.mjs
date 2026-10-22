@@ -736,22 +736,33 @@ if (${JSON.stringify(name)} === 'xcrun') {
   };
   const scenarios = [
     { error: "", failures: 0, attempts: 1 },
-    {
-      error: 'NSURLErrorDomain Code=-1005 "The network connection was lost."',
+    ...[-1001, -1003, -1004, -1005, -1009].map((code) => ({
+      error: `NSURLErrorDomain Code=${code} "Transport failure". Error 68.`,
       failures: 1,
       attempts: 2,
-    },
-    { error: "CloudKit ticket delivery failed", failures: 1, attempts: 2 },
-    { error: "Record not found", failures: 1, attempts: 2 },
-    { error: "The staple and validate action failed! Error 65.", failures: 1, attempts: 2 },
+    })),
+    { error: "CloudKit: Record not found. Error 65.", failures: 1, attempts: 2 },
+    { error: "Ticket is not yet available. Error 68.", failures: 1, attempts: 2 },
     {
-      error: "The staple and validate action failed! Error 68.",
+      error: 'NSURLErrorDomain Code=-1005 "The network connection was lost." Error 68.',
       failures: 9,
       attempts: 6,
       rejects: true,
     },
-    { error: "Invalid signature", failures: 9, attempts: 1, rejects: true },
-    { error: "CloudKit network failure", failures: 9, attempts: 2, rejects: true, deadlineMs: 50 },
+    ...[
+      'NSURLErrorDomain Code=-1202 "The certificate for this server is invalid." Error 68.',
+      "Invalid signature. The staple and validate action failed! Error 65.",
+      "The staple and validate action failed! Error 65.",
+      "The staple and validate action failed! Error 68.",
+      "CloudKit authentication failed. Error 68.",
+    ].map((error) => ({ error, failures: 9, attempts: 1, rejects: true })),
+    {
+      error: "CloudKit: Record not found",
+      failures: 9,
+      attempts: 2,
+      rejects: true,
+      deadlineMs: 50,
+    },
   ];
   for (const target of [app, "signed.dmg"]) {
     for (const operation of ["staple", "validate"]) {

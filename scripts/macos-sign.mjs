@@ -327,10 +327,12 @@ export function notarizationSession({
             report(
               `${label}: exit status ${error.status ?? "unknown"}${error.signal ? ` (${error.signal})` : ""}; ${error.message}`,
             );
+            // The domain and stapler's generic 65/68 suffix also accompany
+            // permanent failures. Retry only known transport or ticket propagation causes.
+            const urlCode = /\bNSURLErrorDomain\s+Code\s*=\s*(-\d+)\b/i.exec(error.message)?.[1];
             const transient =
-              /NSURLErrorDomain|CloudKit|record not found|network connection (?:was )?lost|network (?:error|unavailable)|timed? out|Error (?:65|68)\b/i.test(
-                error.message,
-              );
+              ["-1001", "-1003", "-1004", "-1005", "-1009"].includes(urlCode) ||
+              /\brecord not found\b|\bticket (?:is )?not (?:yet )?available\b/i.test(error.message);
             if (!transient || attempt === 6) throw error;
           }
           await wait(Math.min(stapleRetryMs, remaining()));
