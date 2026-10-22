@@ -23,7 +23,16 @@ it("generic detached observers allocate order before transport and return a neut
   if (!channel) throw Error("Missing channel");
   const directory = await mkdtemp(join(tmpdir(), "foom-v2-native-"));
   const signals: HookSignal[] = [];
-  const receiver = await HookReceiver.listen((signal) => signals.push(signal));
+  // Parent exit does not mean the detached transport has started. Await receiver
+  // events under the scenario deadline, rather than expect.poll's short default.
+  const deliveries = [
+    Promise.withResolvers<HookSignal>(),
+    Promise.withResolvers<HookSignal>(),
+  ] as const;
+  const receiver = await HookReceiver.listen((signal) => {
+    signals.push(signal);
+    deliveries[signals.length - 1]?.resolve(signal);
+  });
   const state: V2HookState = {};
   const launch = receiver.register("terminal", model.id, {
     channels: new Map([[channel.id, channel]]),
@@ -78,7 +87,8 @@ it("generic detached observers allocate order before transport and return a neut
       stdout: windows ? "{}\r\n" : "{}\n",
       stderr: "",
     });
-    await expect.poll(() => signals.length).toBe(1);
+    await deliveries[0].promise;
+    expect(signals).toHaveLength(1);
     expect(
       await run("Stop", {
         conversationId: "id",
@@ -86,7 +96,8 @@ it("generic detached observers allocate order before transport and return a neut
         fullyIdle: true,
       }),
     ).toMatchObject({ stdout: windows ? "{}\r\n" : "{}\n", stderr: "" });
-    await expect.poll(() => signals.length).toBe(2);
+    await deliveries[1].promise;
+    expect(signals).toHaveLength(2);
     expect(signals.map((signal) => signal.action)).toEqual(["working", "classify"]);
     expect(state.channels?.get(channel.id)?.sequence).toBe(2);
     const extra = join(staged.directory, "extra.json");
