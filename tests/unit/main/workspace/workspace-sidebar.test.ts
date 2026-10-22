@@ -321,3 +321,59 @@ test("prune uses the named repository and checkout, refuses sessions and release
     "Close this worktree's sessions first",
   );
 });
+
+test("concurrent sidebar readers share pending inventory and reread after success or failure", async () => {
+  const workspace = new Workspace(deps);
+  const read = vi.mocked(deps.worktrees.listWorktrees);
+  const gate = Promise.withResolvers<ReadonlyArray<typeof tree>>();
+  read.mockReturnValueOnce(gate.promise);
+  const first = workspace.sidebarInventory();
+  const second = workspace.sidebarInventory();
+  await vi.waitFor(() => {
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+  gate.resolve([tree]);
+  expect(await first).toEqual(await second);
+  await workspace.sidebarInventory();
+  expect(read).toHaveBeenCalledTimes(2);
+  const failure = Promise.withResolvers<ReadonlyArray<typeof tree>>();
+  read.mockReturnValueOnce(failure.promise);
+  const failed = workspace.sidebarInventory();
+  const alsoFailed = workspace.sidebarInventory();
+  const assertions = [
+    expect(failed).rejects.toThrow("unavailable"),
+    expect(alsoFailed).rejects.toThrow("unavailable"),
+  ];
+  failure.reject(new Error("unavailable"));
+  await Promise.all(assertions);
+  expect(read).toHaveBeenCalledTimes(3);
+  await workspace.sidebarInventory();
+  expect(read).toHaveBeenCalledTimes(4);
+});
+
+for (const change of ["refresh", "configure"] as const) {
+  test(`sidebar ${change} invalidates pending inventory without letting its completion clear a newer read`, async () => {
+    const workspace = new Workspace(deps);
+    const read = vi.mocked(deps.worktrees.listWorktrees);
+    const old = Promise.withResolvers<ReadonlyArray<typeof tree>>();
+    const current = Promise.withResolvers<ReadonlyArray<typeof tree>>();
+    read.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
+    const previous = workspace.sidebarInventory();
+    await vi.waitFor(() => {
+      expect(read).toHaveBeenCalledTimes(1);
+    });
+    if (change === "refresh") workspace.refresh();
+    else workspace.configure({ hooks: true, agents: { claude: true, codex: true, agy: true } });
+    const latest = workspace.sidebarInventory();
+    await vi.waitFor(() => {
+      expect(read).toHaveBeenCalledTimes(2);
+    });
+    old.resolve([tree]);
+    await previous;
+    const joined = workspace.sidebarInventory();
+    current.resolve([{ ...tree, branch: "changed" }]);
+    expect((await latest).repositories[0]?.worktrees[0]?.branch).toBe("changed");
+    expect(await joined).toEqual(await latest);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+}

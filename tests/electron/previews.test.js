@@ -2119,3 +2119,108 @@ for (const kind of ["html", "markdown"]) {
     });
   });
 }
+
+for (const scenario of ["never arriving", "delayed", "closed before showing"]) {
+  test(`moved HTML preview survives ${scenario} destination placement`, async (context) => {
+    const app = await launchApp(context, { fixture: "repository" });
+    const source = await boardPage(app);
+    const root = (await source.evaluate(() => window.desktop.workspace())).repositories[0].path;
+    const file = path.join(root, "recover-move.html");
+    await writeFile(file, "<!doctype html><h1>Recoverable move</h1>");
+    await app.evaluate(({ dialog }, file) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+    }, file);
+    await source.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
+    await source.getByRole("menuitem", { name: "Preview file…", exact: true }).click();
+    await expect(source.locator('.terminal-tile[data-kind="preview"]')).toBeVisible();
+    const id = (await source.evaluate(() => window.desktop.sidebarInventory())).previews[0].id;
+    await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+    const boards = app.windows();
+    // Delay only the placement message. The destination still boots a real board,
+    // publishes inventory, validates IPC and hosts an isolated native preview.
+    await app.evaluate(({ app }) => {
+      app.once("browser-window-created", (_event, board) => {
+        const send = board.webContents.send.bind(board.webContents);
+        const held = [];
+        board.webContents.send = (channel, ...args) => {
+          if (channel === "preview:place") held.push([channel, ...args]);
+          else send(channel, ...args);
+        };
+        globalThis.releaseMovedPlacement = () => {
+          for (const args of held.splice(0)) send(...args);
+        };
+      });
+    });
+    await source
+      .locator(`[data-preview-id="${id}"]`)
+      .getByRole("button", { name: /Tile \d+ menu/ })
+      .click();
+    await source.getByRole("menuitem", { name: "Move to new window", exact: true }).click();
+    let target;
+    await expect
+      .poll(() => {
+        target = app
+          .windows()
+          .find((page) => !boards.includes(page) && page.url() === "app://bundle/index.html");
+        return Boolean(target);
+      })
+      .toBe(true);
+    await expect
+      .poll(async () =>
+        (await target.evaluate(() => window.desktop.sidebarInventory())).previews.some(
+          (preview) => preview.id === id,
+        ),
+      )
+      .toBe(true);
+    await expect(source.locator(`[data-preview-id="${id}"]`)).toHaveCount(0);
+    if (scenario === "closed before showing") {
+      await target.evaluate(() => window.desktop.appMenu.execute("close-window"));
+      await expect.poll(() => target.isClosed()).toBe(true);
+      await expect(source.locator(`[data-preview-id="${id}"]`)).toBeVisible();
+      await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
+      assert.equal(
+        (await source.evaluate(() => window.desktop.sidebarInventory())).previews[0].id,
+        id,
+      );
+    } else {
+      // No renderer bounds can arrive without placement. Main must display a
+      // loaded view after its own deadline, independently of the renderer.
+      await expect
+        .poll(() =>
+          app.evaluate(({ BrowserWindow }, id) => {
+            return BrowserWindow.getAllWindows().some((board) =>
+              board.contentView.children.some(
+                (view) =>
+                  view.webContents.getURL().startsWith(`foom-preview://${id}/`) &&
+                  !view.webContents.isLoading() &&
+                  view.getVisible() &&
+                  view.getBounds().width > 0,
+              ),
+            );
+          }, id),
+        )
+        .toBe(true);
+      assert.equal(
+        await app.evaluate(async ({ webContents }, id) => {
+          const preview = webContents
+            .getAllWebContents()
+            .find((contents) => contents.getURL().startsWith(`foom-preview://${id}/`));
+          return preview?.executeJavaScript("document.body.innerText");
+        }, id),
+        "Recoverable move",
+      );
+      if (scenario === "delayed") {
+        await app.evaluate(() => globalThis.releaseMovedPlacement());
+        await expect(target.locator(`[data-preview-id="${id}"]`)).toBeVisible();
+      }
+      await target.evaluate(() => window.desktop.appMenu.execute("close-window"));
+      await expect.poll(() => target.isClosed()).toBe(true);
+      await expect
+        .poll(
+          async () =>
+            (await source.evaluate(() => window.desktop.sidebarInventory())).previews.length,
+        )
+        .toBe(0);
+    }
+  });
+}

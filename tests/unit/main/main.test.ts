@@ -62,7 +62,8 @@ const previewMock = vi.hoisted(() => ({
     confirm: (content: unknown, signal: AbortSignal) => Promise<boolean>;
     reconcile: () => Promise<void>;
     closeWorktree: (worktree: string) => Promise<void>;
-    dispose: () => Promise<void>;
+    dispose: (persist: boolean, replacement?: () => Promise<unknown>) => Promise<void>;
+    placeMoved: (id: string) => void;
     moveTo: (id: string, target: unknown) => Promise<void>;
   }[],
 }));
@@ -92,18 +93,21 @@ vi.mock("../../../src/main/previews/host", () => ({
     refresh = vi.fn();
     reconcile = vi.fn(async () => {});
     closeWorktree = vi.fn((_worktree: string) => Promise.resolve());
-    dispose = vi.fn(async () => {});
+    dispose = vi.fn(async (_persist: boolean, _replacement?: () => Promise<unknown>) => {});
     constructor(
       _window: unknown,
       _registry: unknown,
       validate: (worktree: string) => Promise<void>,
       changed: () => void,
       confirm: (content: unknown, signal: AbortSignal) => Promise<boolean>,
+      _bundledRoot: string | undefined,
+      placeMoved: (id: string) => void,
     ) {
       previewMock.hosts.push({
         validate,
         changed,
         confirm,
+        placeMoved,
         reconcile: this.reconcile,
         closeWorktree: this.closeWorktree,
         dispose: this.dispose,
@@ -357,6 +361,7 @@ const mock = vi.hoisted(() => {
     isFocused: vi.fn(() => true),
     close: vi.fn(),
     destroy: vi.fn(),
+    isDestroyed: vi.fn(() => false),
     isMinimized: vi.fn(() => false),
     restore: vi.fn(),
     focus: vi.fn(),
@@ -370,6 +375,7 @@ const mock = vi.hoisted(() => {
     close = window.close;
     destroy = window.destroy;
     isFocused = window.isFocused;
+    isDestroyed = window.isDestroyed;
     maximize = vi.fn();
     webContents = window.webContents;
     once = window.once;
@@ -1864,6 +1870,9 @@ test("preview hosts validate registered worktrees, notify the board, reconcile a
   mock.window.webContents.send.mockClear();
   host.changed();
   expect(mock.window.webContents.send).not.toHaveBeenCalled();
+  mock.window.isDestroyed.mockReturnValueOnce(true);
+  host.changed();
+  expect(mock.window.webContents.send).not.toHaveBeenCalled();
   mock.message.mockResolvedValueOnce({ response: 1 });
   await expect(
     host.confirm({ title: "Open this link?", accept: "Open" }, new AbortController().signal),
@@ -1882,7 +1891,7 @@ test("preview hosts validate registered worktrees, notify the board, reconcile a
   });
   vi.mocked(host.dispose).mockRejectedValueOnce(new Error("busy"));
   mock.readyEvents.get("closed")?.();
-  expect(host.dispose).toHaveBeenCalledWith(false);
+  expect(host.dispose).toHaveBeenCalledWith(false, expect.any(Function));
   await vi.waitFor(() => {
     expect(warn).toHaveBeenCalledWith("Unable to close previews");
   });
@@ -2210,6 +2219,12 @@ test("preview popout creates a window, transfers the host record and requests pl
   await moving;
   const { previewHosts } = await import("../../../src/main/wiring/application");
   expect(source.moveTo).toHaveBeenCalledWith("a".repeat(32), previewHosts.get(target.id));
+  source.placeMoved("a".repeat(32));
+  const returned = mock.window.webContents.send.mock.calls.findLast(
+    (call) => call[0] === "preview:place",
+  );
+  expect(returned?.[3]).toBe(Number.MAX_SAFE_INTEGER);
+  await invokeWindow(0, "preview:placed", returned?.[1], "a".repeat(32), "landing");
 });
 
 test("forge default probes GitHub CLI login once unless the preference was already saved", async () => {
@@ -2485,6 +2500,40 @@ test("windowless About opens a board and dispatches the in-board dialog command"
   about.click({} as Electron.MenuItem, undefined, {});
   await vi.waitFor(() => {
     expect(mock.window.webContents.send).toHaveBeenCalledWith("board:command", "about");
+  });
+});
+
+test("closing a board retains its preview host until recovery can create a replacement", async () => {
+  previewMock.hosts.length = 0;
+  await start();
+  const host = previewMock.hosts[0];
+  const first = mock.instances[0];
+  if (!host || !first) throw new Error("Missing preview host");
+  const { previewHosts } = await import("../../../src/main/wiring/application");
+  let finish: () => void = () => {
+    throw new Error("Recovery did not start");
+  };
+  const recovering = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  let replacementHost: unknown;
+  vi.mocked(host.dispose).mockImplementationOnce(async (_persist, replacement) => {
+    if (!replacement) throw new Error("Missing recovery factory");
+    replacementHost = await replacement();
+    await recovering;
+  });
+  mock.readyEvents.get("closed")?.();
+  await vi.waitFor(() => {
+    expect(mock.instances).toHaveLength(2);
+    expect(replacementHost).toBeDefined();
+  });
+  const replacement = mock.instances[1];
+  if (!replacement) throw new Error("Missing replacement board");
+  expect(previewHosts.has(first.id)).toBe(true);
+  expect(replacementHost).toBe(previewHosts.get(replacement.id));
+  finish();
+  await vi.waitFor(() => {
+    expect(previewHosts.has(first.id)).toBe(false);
   });
 });
 

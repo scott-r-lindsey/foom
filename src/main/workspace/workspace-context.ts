@@ -44,6 +44,7 @@ export class WorkspaceContext {
   readonly cleanup: CleanupOwner;
   readonly launched = new Map<string, WorkspaceTerminal>();
   readonly executionOwner: ExecutionOwner;
+  private sidebarRead: ReturnType<WorkspaceMethods["sidebarInventory"]> | undefined;
   readonly agyPlugin = new AgyPlugin();
   readonly hookKeys = new Map<string, string>();
   readonly queues = new Map<string, Promise<void>>();
@@ -379,6 +380,7 @@ export class WorkspaceContext {
         >
       >,
   ): void {
+    this.sidebarRead = undefined;
     this.deps.forge?.setEnabled(settings.showPullRequests === true);
     this.sessions.configure(settings.restoreSessions ?? true);
     this.concurrentChildren = settings.concurrentChildren ?? 4;
@@ -471,6 +473,7 @@ export class WorkspaceContext {
 
   refresh(): void {
     if (this.closed) return;
+    this.sidebarRead = undefined;
     this.orchestration.syncUnreadChildEvents();
     this.orchestration.childEvents.publish();
     this.deps.watcher?.sync(this.deps.worktrees.listRepositories());
@@ -616,8 +619,18 @@ export class WorkspaceContext {
   /** Config sessions have no worktree or repository grants. */
   startConfig: WorkspaceMethods["startConfig"] = sidebarCommands.startConfig.bind(this);
 
-  sidebarInventory: WorkspaceMethods["sidebarInventory"] =
-    sidebarCommands.sidebarInventory.bind(this);
+  sidebarInventory: WorkspaceMethods["sidebarInventory"] = () => {
+    if (this.sidebarRead) return this.sidebarRead;
+    // Several windows and preview placement can request the same expensive inventory.
+    // Share only work in flight; refresh/configure invalidate it for later callers.
+    const pending = sidebarCommands.sidebarInventory.call(this);
+    this.sidebarRead = pending;
+    const clear = () => {
+      if (this.sidebarRead === pending) this.sidebarRead = undefined;
+    };
+    void pending.then(clear, clear);
+    return pending;
+  };
 
   sidebarCommand: WorkspaceMethods["sidebarCommand"] = sidebarCommands.sidebarCommand.bind(this);
 

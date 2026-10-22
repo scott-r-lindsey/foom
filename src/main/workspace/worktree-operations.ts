@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { lstat, mkdir, realpath, rmdir } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, mkdir, open, realpath, rmdir, stat as fileStat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { ControlError } from "../../node-common/control-validation";
@@ -73,12 +74,41 @@ export async function prepareParent(root: string, path: string): Promise<void> {
   await mkdir(path);
 }
 
+/** Read only the checkout's own Git marker, never search ancestors or trust a cache.
+ * Membership and common-directory authorization still use Git in checkoutIdentity. */
+async function checkoutGitDirectory(path: string): Promise<string> {
+  const marker = join(path, ".git");
+  const markerMetadata = await fileStat(marker);
+  if (markerMetadata.isDirectory()) return realpath(marker);
+  if (!markerMetadata.isFile() || markerMetadata.size > 64 * 1024) {
+    throw new Error("Invalid Git marker");
+  }
+  // Refuse special files before opening; recheck the descriptor in case the marker changed.
+  const flags =
+    process.platform === "win32"
+      ? constants.O_RDONLY
+      : constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY;
+  const handle = await open(marker, flags);
+  try {
+    const metadata = await handle.stat();
+    if (!metadata.isFile() || metadata.size > 64 * 1024) throw new Error("Invalid Git marker");
+    const bytes = Buffer.alloc(64 * 1024 + 1);
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
+    if (bytesRead > 64 * 1024) throw new Error("Invalid Git marker");
+    const text = bytes.subarray(0, bytesRead).toString("utf8");
+    if (!text.startsWith("gitdir: ") || text.includes("\0")) throw new Error("Invalid Git marker");
+    const directory = text.slice(8).replace(/[\r\n]+$/u, "");
+    if (!directory) throw new Error("Invalid Git marker");
+    return await realpath(resolve(path, directory));
+  } finally {
+    await handle.close();
+  }
+}
+
 // Bind confirmation to both the filesystem entries and Git's per-worktree metadata.
 // Birth time distinguishes recreated entries even when the filesystem reuses an inode.
 export async function worktreeIdentity(path: string): Promise<string> {
-  const gitDirectory = await realpath(
-    (await git(path, ["rev-parse", "--absolute-git-dir"])).slice(0, -1),
-  );
+  const gitDirectory = await checkoutGitDirectory(path);
   const entries = await Promise.all(
     [path, join(path, ".git"), gitDirectory].map(async (entry) => {
       const stat = await lstat(entry, { bigint: true });

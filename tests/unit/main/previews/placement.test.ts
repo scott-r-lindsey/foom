@@ -68,3 +68,18 @@ it("defaults to sidebar on deadline, destruction or disposal and releases all pe
   f.destroyed.mockReturnValue(true);
   expect(await f.placement.place(id)).toBe("sidebar");
 });
+it("human moves accept a late placement after the deadline while bounding retained requests", async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  const id = "a".repeat(32);
+  const pending = f.placement.place(id, true);
+  const request = f.send.mock.lastCall?.[1];
+  expect(f.send.mock.lastCall?.[3]).toBe(Number.MAX_SAFE_INTEGER);
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(await pending).toBe("sidebar");
+  f.answer(request, id, "landing");
+  expect(() => f.answer(request, id, "landing")).toThrow("Unknown preview placement");
+  for (let i = 0; i < 256; i++) void f.placement.place(id, true);
+  expect(await f.placement.place(id, true)).toBe("sidebar");
+  f.placement.dispose();
+});

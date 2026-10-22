@@ -203,12 +203,16 @@ export async function buildWindow(
     new PreviewRegistry(path.join(app.getPath("userData"), `previews-${windowId}.json`)),
     wiring.validatePreviewWorktree,
     () => {
-      if (!window.webContents.isDestroyed()) window.webContents.send("workspace:changed");
+      if (!window.isDestroyed() && !window.webContents.isDestroyed())
+        window.webContents.send("workspace:changed");
     },
     (content, signal) => confirmations.request(content, signal),
     app.isPackaged
       ? path.join(process.resourcesPath, "app.asar.unpacked/build/manual")
       : path.join(__dirname, "../../manual"),
+    (id) => {
+      void previewPlacement.place(id, true).catch(() => {});
+    },
   );
   wiring.previewHosts.set(window.id, previewHost);
   await previewHost.restore();
@@ -223,7 +227,7 @@ export async function buildWindow(
       const target = wiring.previewHosts.get(targetWindow.id);
       if (!target) throw new Error("Preview window unavailable");
       await previewHost.moveTo(id, target);
-      await wiring.previewPlacements.get(targetWindow.id)?.place(id);
+      await wiring.previewPlacements.get(targetWindow.id)?.place(id, true);
     },
     (id) => wiring.agentPreviews?.humanClose(id),
   );
@@ -359,13 +363,20 @@ export async function buildWindow(
   wiring.attention();
   window.once("closed", () => {
     disposePreviews();
-    wiring.previewHosts.delete(window.id);
     previewPlacement.dispose();
     wiring.previewPlacements.delete(window.id);
     if (!wiring.quitting)
-      void previewHost.dispose(false).catch(() => {
-        console.warn("Unable to close previews");
-      });
+      void previewHost
+        .dispose(false, async () => {
+          const recoveryWindow = await wiring.createWindow();
+          return wiring.previewHosts.get(recoveryWindow.id);
+        })
+        .then(() => {
+          wiring.previewHosts.delete(window.id);
+        })
+        .catch(() => {
+          console.warn("Unable to close previews");
+        });
     appMenu.dispose();
     confirmations.dispose();
     setupIpc.dispose();

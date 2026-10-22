@@ -16,6 +16,16 @@ const EMPTY_BOUNDS: PreviewBounds = { x: 0, y: 0, width: 0, height: 0, visible: 
 /** One host per board window. No page or IPC capability can focus a preview. */
 export class PreviewHost {
   private readonly moving = new Map<string, { target: PreviewHost; done: Promise<void> }>();
+  private readonly incoming = new Map<
+    string,
+    {
+      source: PreviewHost;
+      bounds: PreviewBounds | undefined;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  private closing = false;
+  private disposal: Promise<void> | undefined;
   private readonly tiled = new Set<string>();
   private readonly hosted = new Map<string, HostedPreview>();
   private readonly confirmations = new Map<string, AbortController>();
@@ -40,6 +50,7 @@ export class PreviewHost {
     }
     if (this.hosted.get(id) === entry && !contents.isDestroyed()) contents.reload();
   }
+  private readonly board: WebContents;
   private lastFocused: WebContents;
   private disposed = false;
   private covered = false;
@@ -58,7 +69,9 @@ export class PreviewHost {
       signal: AbortSignal,
     ) => Promise<boolean> = () => Promise.resolve(false),
     private readonly bundledRoot?: string,
+    private readonly placeMoved: (id: string) => void = () => {},
   ) {
+    this.board = window.webContents;
     this.lastFocused = window.webContents;
     window.webContents.on("focus", this.boardFocused);
     window.webContents.on("did-start-loading", this.resetSnapshots);
@@ -77,7 +90,7 @@ export class PreviewHost {
   };
   private readonly boardFocused = () => {
     // Native fallback after detaching/closing is not a deliberate board selection.
-    if (!this.pendingFocus) this.lastFocused = this.window.webContents;
+    if (!this.pendingFocus) this.lastFocused = this.board;
   };
   private readonly boardInput = (event: Electron.Event, input?: Electron.Input) => {
     // Block synchronously in main, before Chromium can deliver a key to xterm
@@ -96,7 +109,7 @@ export class PreviewHost {
     if (mouse.type !== "mouseDown") return;
     this.manualFocus = undefined;
     this.clearHandoff();
-    this.lastFocused = this.window.webContents;
+    this.lastFocused = this.board;
   };
   private beginHandoff(contents: WebContents) {
     if (this.lastFocused !== contents || this.pendingFocus) return;
@@ -110,7 +123,7 @@ export class PreviewHost {
     this.manualFocus = undefined;
     if (!this.pendingFocus) return;
     // Revoke focus intent immediately, including during a recreation delay.
-    this.lastFocused = this.window.webContents;
+    this.lastFocused = this.board;
     for (const entry of this.hosted.values()) {
       entry.restoreFocus = false;
       if (entry.view.webContents === this.pendingFocus) entry.clicked = false;
@@ -121,7 +134,7 @@ export class PreviewHost {
     // Native fallback may have left xterm's textarea focused in the board DOM.
     // Keep the main-process gate closed until the trusted board has blurred it.
     // No preview-controlled data is evaluated here.
-    void this.window.webContents
+    void this.board
       .executeJavaScript(
         'if (document.activeElement?.closest(".xterm")) document.activeElement.blur()',
       )
@@ -130,12 +143,11 @@ export class PreviewHost {
         this.clearHandoff();
         // Some platforms leave no native responder after detaching the preview.
         // Focus the board only after DOM blur, and never activate another window.
-        if (this.window.isFocused()) this.window.webContents.focus();
+        if (this.window.isFocused()) this.board.focus();
       })
       .catch(() => {
         // A destroyed board cannot receive input; otherwise Escape can try again.
-        if (this.window.webContents.isDestroyed() && this.handoffVersion === version)
-          this.clearHandoff();
+        if (this.board.isDestroyed() && this.handoffVersion === version) this.clearHandoff();
       });
   };
   readonly refresh = () => {
@@ -145,7 +157,7 @@ export class PreviewHost {
     }
   };
   private closed(): boolean {
-    return this.disposed;
+    return this.disposed || this.closing;
   }
   async restore(): Promise<void> {
     await this.registry.load();
@@ -165,7 +177,7 @@ export class PreviewHost {
   ): Promise<string> {
     if (!previewPath(relativePath)) throw new Error("Invalid preview path");
     await this.validateWorktree(worktree);
-    if (this.disposed) throw new Error("Preview host closed");
+    if (this.closed()) throw new Error("Preview host closed");
     const root = canonicalRoot(worktree);
     const pathname = `/${relativePath.split("/").map(encodeURIComponent).join("/")}`;
     const file = readInside(root, pathname);
@@ -191,7 +203,7 @@ export class PreviewHost {
   }
   /** Fixed bundled capability. It cannot be selected by a file-path IPC request. */
   openManual(): string {
-    if (!this.bundledRoot || this.disposed) throw new Error("Manual unavailable");
+    if (!this.bundledRoot || this.closed()) throw new Error("Manual unavailable");
     const existing = [...this.registry.records.values()].find(
       (record) => record.bundled === "manual",
     );
@@ -273,7 +285,7 @@ export class PreviewHost {
       this.scheduleCapture(entry);
       // Use the owning board's dispatcher and synchronous input guards, including
       // the trusted confirmation guard. Forwarding never changes native focus.
-      this.window.webContents.emit("before-input-event", event, input);
+      this.board.emit("before-input-event", event, input);
     });
     contents.on("input-event", () => {
       this.scheduleCapture(entry);
@@ -383,7 +395,7 @@ export class PreviewHost {
       }
       // Attached or not: macOS can hand focus to a detached view that is still loading.
       else if (this.lastFocused !== contents) {
-        const target = this.lastFocused.isDestroyed() ? this.window.webContents : this.lastFocused;
+        const target = this.lastFocused.isDestroyed() ? this.board : this.lastFocused;
         if (!target.isDestroyed()) target.focus();
       }
     });
@@ -391,25 +403,26 @@ export class PreviewHost {
       if (this.pendingFocus !== contents) return;
       this.cancelHandoff(contents);
       entry.restoreFocus = false;
-      this.lastFocused = this.window.webContents;
+      this.lastFocused = this.board;
     });
     return entry;
   }
   private detach(entry: HostedPreview) {
-    if (entry.attached) this.window.contentView.removeChildView(entry.view);
+    if (entry.attached && !this.window.isDestroyed())
+      this.window.contentView.removeChildView(entry.view);
     entry.attached = false;
     entry.clicked = false;
   }
   private applyBounds(entry: HostedPreview) {
     // Native destruction can lag close; released/replaced views must never reattach.
     if (
-      this.disposed ||
+      this.closed() ||
       this.hosted.get(entry.id) !== entry ||
-      this.window.webContents.isDestroyed() ||
+      this.board.isDestroyed() ||
       entry.view.webContents.isDestroyed()
     )
       return;
-    const zoom = this.window.webContents.getZoomFactor();
+    const zoom = this.board.getZoomFactor();
     const { width, height } = this.window.getContentBounds();
     const x = Math.min(width, Math.max(0, Math.round(entry.bounds.x * zoom)));
     const y = Math.min(height, Math.max(0, Math.round(entry.bounds.y * zoom)));
@@ -433,7 +446,7 @@ export class PreviewHost {
     entry.view.setVisible(visible);
     if (!visible) {
       entry.clicked = false;
-      if (this.lastFocused === entry.view.webContents) this.lastFocused = this.window.webContents;
+      if (this.lastFocused === entry.view.webContents) this.lastFocused = this.board;
       this.cancelHandoff(entry.view.webContents);
       entry.restoreFocus = false;
       // Overlay covers only hide: keep the native child attached on X11.
@@ -441,6 +454,7 @@ export class PreviewHost {
     } else if (entry.loaded && !entry.attached) {
       this.window.contentView.addChildView(entry.view);
       entry.attached = true;
+      this.forgetIncoming(entry.id);
       if (entry.restoreFocus && this.lastFocused === entry.view.webContents) {
         entry.clicked = true;
         entry.view.webContents.focus();
@@ -456,6 +470,26 @@ export class PreviewHost {
       entry.view.webContents.focus();
     }
   }
+  private forgetIncoming(id: string): void {
+    const incoming = this.incoming.get(id);
+    if (incoming) clearTimeout(incoming.timer);
+    this.incoming.delete(id);
+  }
+  private landing(id: string): void {
+    const record = this.registry.records.get(id);
+    if (!record || this.closed() || this.moving.has(id) || this.board.isDestroyed()) return;
+    // Keep the sidebar reachable even when the board has not supplied tile geometry.
+    const zoom = this.board.getZoomFactor();
+    const { width, height } = this.window.getContentBounds();
+    const x = Math.min(300, width / zoom / 2);
+    this.updateBounds(record, {
+      x,
+      y: 40,
+      width: width / zoom - x,
+      height: Math.max(1, height / zoom - 40),
+      visible: true,
+    });
+  }
   placed(id: string, visible: boolean): void {
     if (visible && this.registry.records.has(id)) this.tiled.add(id);
   }
@@ -464,7 +498,7 @@ export class PreviewHost {
   }
   bounds(id: string, bounds: PreviewBounds): void {
     const record = this.registry.records.get(id);
-    if (!record || this.disposed) throw new Error("Unknown preview ID");
+    if (!record || this.closed()) throw new Error("Unknown preview ID");
     if (this.moving.has(id)) return;
     this.updateBounds(record, bounds);
   }
@@ -478,12 +512,12 @@ export class PreviewHost {
     if (!bounds.visible) entry.painted = false;
     if (resized) this.scheduleCapture(entry);
     if (!bounds.visible && this.lastFocused === entry.view.webContents)
-      this.lastFocused = this.window.webContents;
+      this.lastFocused = this.board;
     this.applyBounds(entry);
     this.publishSnapshots();
   }
   private publishSnapshots() {
-    if (this.window.webContents.isDestroyed()) return;
+    if (this.board.isDestroyed()) return;
     const snapshots: PreviewSnapshot[] = [];
     for (const [id, entry] of this.hosted) {
       if (entry.snapshot && entry.snapshotVersion && entry.bounds.visible)
@@ -494,7 +528,7 @@ export class PreviewHost {
           version: entry.snapshotVersion,
         });
     }
-    this.window.webContents.send("preview:snapshots", snapshots);
+    this.board.send("preview:snapshots", snapshots);
   }
   painted(id: string, version: number): void {
     const entry = this.hosted.get(id);
@@ -519,7 +553,7 @@ export class PreviewHost {
   private scheduleCapture(entry: HostedPreview) {
     clearTimeout(entry.refreshTimer);
     if (
-      this.disposed ||
+      this.closed() ||
       this.hosted.get(entry.id) !== entry ||
       !entry.bounds.visible ||
       this.covered
@@ -533,7 +567,7 @@ export class PreviewHost {
     if (
       this.closed() ||
       this.hosted.get(entry.id) !== entry ||
-      this.window.webContents.isDestroyed() ||
+      this.board.isDestroyed() ||
       !entry.loaded ||
       !entry.bounds.visible ||
       contents.isDestroyed()
@@ -603,7 +637,7 @@ export class PreviewHost {
   }
   async network(id: string, enabled: boolean): Promise<void> {
     const record = this.registry.records.get(id);
-    if (!record || this.disposed) throw new Error("Unknown preview ID");
+    if (!record || this.closed()) throw new Error("Unknown preview ID");
     if (record.bundled) throw new Error("Bundled previews have no network access");
     if (record.network === enabled) return;
     if (
@@ -627,12 +661,17 @@ export class PreviewHost {
     }
   }
   /** Keep the ID discoverable until native cleanup finishes, then transfer it atomically.
-   * The target creates a fresh view only when its board reports bounds. */
+   * A destination without board geometry receives a native landing view after five seconds. */
   moveTo(id: string, target: PreviewHost): Promise<void> {
+    return this.transfer(id, target, false);
+  }
+  private transfer(id: string, target: PreviewHost, recovering: boolean): Promise<void> {
     const record = this.registry.records.get(id);
     const available = () =>
       !this.disposed &&
       !target.disposed &&
+      !target.closing &&
+      !target.board.isDestroyed() &&
       target !== this &&
       !target.registry.records.has(id) &&
       target.registry.records.size < 256;
@@ -646,8 +685,37 @@ export class PreviewHost {
       if (this.registry.records.get(id) !== record || !available())
         throw new Error("Unable to move preview");
       // No await between owners: agent inventory never loses the preview ID.
+      this.forgetIncoming(id);
       this.registry.records.delete(id);
       target.registry.records.set(id, { ...record, network: false });
+      if (!recovering)
+        target.incoming.set(id, {
+          source: this,
+          bounds,
+          timer: setTimeout(() => {
+            // Geometry can arrive before a slow page finishes loading. Keep it.
+            const incoming = target.incoming.get(id);
+            const pending = () => {
+              const current = target.hosted.get(id)?.bounds;
+              return (
+                incoming !== undefined &&
+                target.incoming.get(id) === incoming &&
+                !target.closed() &&
+                !target.moving.has(id) &&
+                !(current?.visible && current.width > 0 && current.height > 0)
+              );
+            };
+            if (!pending()) return;
+            void target
+              .validateRecord(record)
+              .then(() => {
+                if (pending()) target.landing(id);
+              })
+              .catch(() => {
+                /* A removed checkout cannot regain a view. */
+              });
+          }, 5000),
+        });
       this.changed();
       target.changed();
       // Persist removal first; a failed source write must not also write the target.
@@ -681,6 +749,7 @@ export class PreviewHost {
       await moving.done.catch(() => {});
       if (moving.target.registry.records.has(id)) return moving.target.close(id);
     }
+    this.forgetIncoming(id);
     if (!this.registry.records.delete(id)) throw new Error("Unknown preview ID");
     await this.release(id);
     await this.registry.save();
@@ -702,7 +771,7 @@ export class PreviewHost {
       const contents = entry.view.webContents;
       const partition = entry.partition;
       this.cancelHandoff(contents);
-      if (this.lastFocused === contents) this.lastFocused = this.window.webContents;
+      if (this.lastFocused === contents) this.lastFocused = this.board;
       if (!contents.isDestroyed()) contents.close();
       this.hosted.delete(id);
       this.publishSnapshots();
@@ -729,18 +798,57 @@ export class PreviewHost {
       }
     }
   }
-  async dispose(persist: boolean): Promise<void> {
+  dispose(persist: boolean, replacement?: () => Promise<PreviewHost | undefined>): Promise<void> {
+    this.disposal ??= this.finishDispose(persist, replacement);
+    return this.disposal;
+  }
+  private async finishDispose(
+    persist: boolean,
+    replacement?: () => Promise<PreviewHost | undefined>,
+  ): Promise<void> {
     if (this.disposed) return;
+    this.closing = true;
+    if (!persist) {
+      for (const [id, incoming] of [...this.incoming]) {
+        await incoming.source.moving.get(id)?.done.catch(() => {});
+        if (!this.incoming.has(id) || !this.registry.records.has(id)) continue;
+        let source = incoming.source;
+        const unavailable = () =>
+          source.closed() || source.board.isDestroyed() || source.registry.records.size >= 256;
+        if (unavailable()) source = (await replacement?.()) ?? source;
+        if (unavailable()) continue;
+        // A removed checkout must not be resurrected. A persistence error can
+        // happen after ownership changed, so still restore any returned record.
+        await this.transfer(id, source, true).catch(() => {});
+        // Availability may change during checkout validation or native cleanup.
+        // Keep ownership here until a replacement can accept the same record.
+        if (this.registry.records.has(id) && unavailable()) {
+          source = (await replacement?.()) ?? source;
+          if (!unavailable()) await this.transfer(id, source, true).catch(() => {});
+        }
+        const record = source.registry.records.get(id);
+        if (record) {
+          if (source === incoming.source && incoming.bounds?.visible)
+            source.updateBounds(record, incoming.bounds);
+          else source.landing(id);
+          source.placeMoved(id);
+        }
+      }
+    }
     this.disposed = true;
     this.clearHandoff();
     this.window.removeListener("blur", this.releaseHandoff);
     this.window.removeListener("resize", this.refresh);
-    this.window.webContents.removeListener("focus", this.boardFocused);
-    this.window.webContents.removeListener("did-start-loading", this.resetSnapshots);
-    this.window.webContents.removeListener("before-input-event", this.boardInput);
-    this.window.webContents.removeListener("before-mouse-event", this.boardMouse);
+    this.board.removeListener("focus", this.boardFocused);
+    this.board.removeListener("did-start-loading", this.resetSnapshots);
+    this.board.removeListener("before-input-event", this.boardInput);
+    this.board.removeListener("before-mouse-event", this.boardMouse);
     const saved = [...this.registry.records.values()]
-      .filter((record) => !record.bundled && (!record.agentOpened || this.visible(record.id)))
+      .filter(
+        (record) =>
+          !record.bundled &&
+          (this.incoming.has(record.id) || !record.agentOpened || this.visible(record.id)),
+      )
       .map(({ agentOpened: _agentOpened, openedBy: _openedBy, ...record }) => record);
     for (const id of [...this.registry.records.keys()]) await this.close(id);
     if (persist) {

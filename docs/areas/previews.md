@@ -86,8 +86,14 @@ focus, and measures each preview body to report bounds through the source interf
 then destroys the source contents and releases its watch, protocol and partition
 handlers before transferring the registry record with the same ID and attribution.
 The record remains discoverable throughout cleanup; concurrent close follows the
-transfer. Network resets to Off. The preload retains at most 256 unexpired placement requests until its board
-subscribes, so a slow mount cannot lose the move. The target creates a fresh view on placement,
+transfer. Network resets to Off. Human move placement requests remain valid until answered
+or their window closes (at most 256 pending requests), so a slow mount can still place
+the tile after the five-second deadline. If no visible bounds arrive within five
+seconds, main displays a fresh preview in a default landing area beside the sidebar.
+Until a loaded native view is visibly attached, closing the destination returns the
+record to its live source, recreates its contents and requests tile placement there.
+If the source has already closed or is full, recovery creates a replacement board.
+The ID remains discoverable during that return. The target creates a fresh view on placement,
 never reparenting a native view or hosting the preview in two windows at once.
 Restored registry entries stay detached and allocate no view until bounds arrive.
 Confirmed Foom worktree removal closes that checkout’s previews in all windows before
@@ -95,6 +101,29 @@ Git runs, releasing live-reload directory handles. New preview opens are refused
 until removal finishes, including opens awaiting registry persistence. External
 removal closes previews when workspace inventory refreshes; on Windows, close
 preview tiles first because directory watches can block external deletion.
+
+The test-only `tests/electron/preview-move-measurement.js` benchmark records board
+load, validation, release, registry writes, placement, preview load and snapshot
+timings, Git spawn counts for moves/launches/sidebar refresh/worktree creation,
+and main-loop delay in JUnit diagnostics. Run it after a build with
+`xvfb-run -a node --require ./tests/helpers/setup.js --test --test-reporter=junit tests/electron/preview-move-measurement.js`.
+It includes 0, 5 and 15 streaming fixture agents plus a realistic gallery case:
+20 worktrees in one repository, a second registered repository, Forge display/polling through
+fixture `gh`, five streaming agents with three visible terminal tiles, and sixteen
+roughly 2 MiB PNGs. The gallery repeats each move from the populated source window.
+It records menu-click/window/renderer timestamps, sidebar requests/responses,
+placement (including its five-second deadline), bounds, view load, capture/PNG
+encoding/IPC size and the renderer paint acknowledgement. Set
+`FOOM_PREVIEW_MOVE_SCENARIO=realistic` to run just that case and optionally
+`FOOM_PREVIEW_MOVE_REPORT=/tmp/preview-move.jsonl` to retain diagnostics immediately.
+A separately compiled original `worktree-operations` module supplied through
+`FOOM_PREVIEW_MOVE_IDENTITY_MODULE` selects the baseline helper and original
+unshared sidebar path; realistic fixtures are prepared before the swap, and one
+move per app keeps the existing watchdog intact. Restore happens before teardown.
+It uses isolated profiles and the standard agent guard/process audit. It adds no production tracing and records no terminal
+content. Move validation still runs before and after source cleanup; identity
+bookkeeping uses the fresh in-process metadata reads described in
+[worktrees](worktrees.md).
 
 An unfocused preview never acquires keyboard focus on open, reload or navigation. Main loads
 it detached and attaches only after `did-finish-load`, when its board rectangle is

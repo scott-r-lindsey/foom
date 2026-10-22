@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
 import { fake, partition, fixture } from "./host-fixture";
@@ -275,3 +276,294 @@ test("late source load events cannot reattach a preview after it moves even befo
   await source.host.dispose(false);
   await target.host.dispose(false);
 });
+
+test("an unplaced move gets a landing view after five seconds and a late board can supply geometry", async () => {
+  const source = await fixture();
+  const target = await fixture();
+  const { id } = await source.open();
+  vi.useFakeTimers();
+  await source.host.moveTo(id, target.host);
+  const count = fake.views.length;
+  await vi.advanceTimersByTimeAsync(4999);
+  expect(fake.views).toHaveLength(count);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(fake.views).toHaveLength(count + 1);
+  const view = fake.views.at(-1);
+  view?.webContents.emit("did-finish-load");
+  expect(target.window.contentView.addChildView).toHaveBeenCalledWith(view);
+  expect(view?.setBounds).toHaveBeenLastCalledWith({ x: 300, y: 40, width: 500, height: 560 });
+  target.host.bounds(id, { x: 310, y: 50, width: 400, height: 300, visible: true });
+  expect(view?.setBounds).toHaveBeenLastCalledWith({ x: 310, y: 50, width: 400, height: 300 });
+  await target.host.dispose(false);
+  expect(source.registry.records.has(id)).toBe(false);
+  await source.host.dispose(false);
+});
+
+test("closing an unshown destination returns the same ID and fresh contents to its live source", async () => {
+  const source = await fixture();
+  const target = await fixture();
+  const { id, view } = await source.open();
+  source.host.bounds(id, { x: 10, y: 20, width: 200, height: 100, visible: true });
+  await source.host.moveTo(id, target.host);
+  target.window.webContents.isDestroyed.mockReturnValue(true);
+  await target.host.dispose(false);
+  expect(target.registry.records.has(id)).toBe(false);
+  expect(source.registry.records.has(id)).toBe(true);
+  expect(source.validate).toHaveBeenCalledWith(source.root);
+  expect(source.placeMoved).toHaveBeenCalledWith(id);
+  const restored = fake.views.at(-1);
+  expect(restored).not.toBe(view);
+  restored?.webContents.emit("did-finish-load");
+  expect(source.window.contentView.addChildView).toHaveBeenCalledWith(restored);
+  await source.host.dispose(false);
+});
+
+test("recovery revalidates a removed source and never resurrects its contents", async () => {
+  const source = await fixture();
+  const target = await fixture();
+  const { id } = await source.open();
+  await source.host.moveTo(id, target.host);
+  const count = fake.views.length;
+  source.validate.mockRejectedValue(new Error("Removed checkout"));
+  await target.host.dispose(false);
+  expect(fake.views).toHaveLength(count);
+  expect(source.registry.records.has(id)).toBe(false);
+  expect(target.registry.records.has(id)).toBe(false);
+  await source.host.dispose(false);
+});
+
+test("quit persists an unshown human move of an agent preview", async () => {
+  const source = await fixture();
+  const target = await fixture();
+  const { id } = await source.open();
+  const record = source.registry.records.get(id);
+  if (!record) throw new Error("Missing preview");
+  record.agentOpened = true;
+  await source.host.moveTo(id, target.host);
+  await target.host.dispose(true);
+  expect(target.registry.records.has(id)).toBe(true);
+  expect(source.registry.records.has(id)).toBe(false);
+  await source.host.dispose(false);
+});
+
+test("an unshown move whose source closed can recover into a replacement board", async () => {
+  const source = await fixture();
+  const target = await fixture();
+  const recovery = await fixture();
+  const { id } = await source.open();
+  source.window.getContentBounds.mockReturnValue({ width: 1100, height: 800 });
+  source.host.bounds(id, { x: 1000, y: 700, width: 100, height: 100, visible: true });
+  await source.host.moveTo(id, target.host);
+  await source.host.dispose(false);
+  await target.host.dispose(false, () => Promise.resolve(recovery.host));
+  expect(recovery.registry.records.has(id)).toBe(true);
+  expect(target.registry.records.has(id)).toBe(false);
+  fake.views.at(-1)?.webContents.emit("did-finish-load");
+  expect(recovery.window.contentView.addChildView).toHaveBeenCalledWith(fake.views.at(-1));
+  expect(recovery.placeMoved).toHaveBeenCalledWith(id);
+  expect(fake.views.at(-1)?.setBounds).toHaveBeenLastCalledWith({
+    x: 300,
+    y: 40,
+    width: 500,
+    height: 560,
+  });
+  await recovery.host.dispose(false);
+});
+
+test("a slow unshown page keeps board geometry at the deadline and returns on close", async () => {
+  const source = await fixture();
+  const target = await fixture();
+  const { id } = await source.open();
+  vi.useFakeTimers();
+  await source.host.moveTo(id, target.host);
+  target.host.bounds(id, { x: 20, y: 30, width: 100, height: 100, visible: true });
+  const view = fake.views.at(-1);
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(view?.setBounds).toHaveBeenLastCalledWith({ x: 20, y: 30, width: 100, height: 100 });
+  expect(target.window.contentView.addChildView).not.toHaveBeenCalled();
+  target.window.isDestroyed.mockReturnValue(true);
+  Object.defineProperty(target.window, "webContents", {
+    get() {
+      throw new Error("Destroyed window");
+    },
+  });
+  await target.host.dispose(false);
+  expect(source.registry.records.has(id)).toBe(true);
+  expect(view?.webContents.close).toHaveBeenCalled();
+  await source.host.dispose(false);
+});
+
+test("closing an unshown destination waits for the ownership write before returning it", async () => {
+  const source = await fixture();
+  const target = await fixture();
+  const { id } = await source.open();
+  let finishSource: () => void = () => {
+    throw new Error("Missing source barrier");
+  };
+  let finishTarget: () => void = () => {
+    throw new Error("Missing target barrier");
+  };
+  const sourcePending = new Promise<void>((resolve) => {
+    finishSource = resolve;
+  });
+  const targetPending = new Promise<void>((resolve) => {
+    finishTarget = resolve;
+  });
+  const sourceSave = vi.spyOn(source.registry, "save").mockReturnValueOnce(sourcePending);
+  const targetSave = vi.spyOn(target.registry, "save").mockReturnValueOnce(targetPending);
+  const moving = source.host.moveTo(id, target.host);
+  await vi.waitFor(() => {
+    expect(sourceSave).toHaveBeenCalledOnce();
+  });
+  expect(target.registry.records.has(id)).toBe(true);
+  expect(targetSave).not.toHaveBeenCalled();
+  const closing = target.host.dispose(false);
+  expect(source.registry.records.has(id)).toBe(false);
+  finishSource();
+  await vi.waitFor(() => {
+    expect(targetSave).toHaveBeenCalledOnce();
+  });
+  expect(source.registry.records.has(id)).toBe(false);
+  finishTarget();
+  await moving;
+  await closing;
+  expect(source.registry.records.has(id)).toBe(true);
+  expect(target.registry.records.has(id)).toBe(false);
+  await source.host.dispose(false);
+});
+
+test("a moved bundled manual uses its fixed root for fallback and never gains network permission", async () => {
+  const source = await fixture(undefined, true);
+  const target = await fixture(undefined, true);
+  await writeFile(join(source.root, "manual.html"), "Manual");
+  await writeFile(join(target.root, "manual.html"), "Manual");
+  const id = source.host.openManual();
+  source.validate.mockRejectedValue(new Error("Not a worktree"));
+  target.validate.mockRejectedValue(new Error("Not a worktree"));
+  vi.useFakeTimers();
+  await source.host.moveTo(id, target.host);
+  await vi.advanceTimersByTimeAsync(5000);
+  const view = fake.views.at(-1);
+  expect(view?.webContents.loadURL).toHaveBeenCalledWith(`foom-preview://${id}/manual.html`);
+  view?.webContents.emit("did-finish-load");
+  expect(target.window.contentView.addChildView).toHaveBeenCalledWith(view);
+  expect(target.validate).not.toHaveBeenCalled();
+  await expect(target.host.network(id, true)).rejects.toThrow("Bundled previews");
+  await target.host.dispose(false);
+  await source.host.dispose(false);
+});
+
+test("quit never persists a bundled manual even while its move has not been shown", async () => {
+  const source = await fixture(undefined, true);
+  const target = await fixture(undefined, true);
+  await writeFile(join(source.root, "manual.html"), "Manual");
+  const id = source.host.openManual();
+  await source.host.moveTo(id, target.host);
+  await target.host.dispose(true);
+  expect(target.registry.records.has(id)).toBe(false);
+  await source.host.dispose(false);
+});
+
+for (const change of ["closes", "fills"] as const) {
+  test(`recovery uses a replacement when its original source ${change} during validation`, async () => {
+    const source = await fixture();
+    const target = await fixture();
+    const recovery = await fixture();
+    const { id } = await source.open();
+    source.host.bounds(id, { x: 10, y: 20, width: 200, height: 100, visible: true });
+    await source.host.moveTo(id, target.host);
+    let finishValidation = () => {};
+    let validationStarted = () => {};
+    const pending = new Promise<void>((resolve) => {
+      finishValidation = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      validationStarted = resolve;
+    });
+    source.validate.mockImplementationOnce(() => {
+      validationStarted();
+      return pending;
+    });
+    const replacement = vi.fn(() => Promise.resolve(recovery.host));
+    const closing = target.host.dispose(false, replacement);
+    await started;
+    expect(target.registry.records.has(id)).toBe(true);
+    if (change === "closes") await source.host.dispose(false);
+    else {
+      const record = target.registry.records.get(id);
+      if (!record) throw new Error("Missing moved record");
+      for (let index = 0; index < 256; index++) {
+        const key = `capacity-${String(index)}`;
+        source.registry.records.set(key, { ...record, id: key });
+      }
+    }
+    finishValidation();
+    await closing;
+    expect(replacement).toHaveBeenCalledOnce();
+    expect(source.registry.records.has(id)).toBe(false);
+    expect(target.registry.records.has(id)).toBe(false);
+    expect(recovery.registry.records.has(id)).toBe(true);
+    expect(recovery.placeMoved).toHaveBeenCalledWith(id);
+    const view = fake.views.at(-1);
+    view?.webContents.emit("did-finish-load");
+    expect(recovery.window.contentView.addChildView).toHaveBeenCalledWith(view);
+    expect(view?.setBounds).toHaveBeenLastCalledWith({ x: 300, y: 40, width: 500, height: 560 });
+    source.registry.records.clear();
+    await source.host.dispose(false);
+    await recovery.host.dispose(false);
+  });
+}
+
+for (const loaded of [false, true]) {
+  test(`landing validation cannot overwrite bounds arriving while it waits (loaded: ${String(loaded)})`, async () => {
+    const source = await fixture();
+    const target = await fixture();
+    const { id } = await source.open();
+    vi.useFakeTimers();
+    await source.host.moveTo(id, target.host);
+    let finishValidation = () => {};
+    const pending = new Promise<void>((resolve) => {
+      finishValidation = resolve;
+    });
+    target.validate.mockReturnValueOnce(pending);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(target.validate).toHaveBeenCalledTimes(3);
+    target.host.bounds(id, { x: 20, y: 30, width: 100, height: 100, visible: true });
+    const view = fake.views.at(-1);
+    if (loaded) view?.webContents.emit("did-finish-load");
+    finishValidation();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(view?.setBounds).toHaveBeenLastCalledWith({ x: 20, y: 30, width: 100, height: 100 });
+    expect(target.registry.records.has(id)).toBe(true);
+    await target.host.dispose(false);
+    await source.host.dispose(false);
+  });
+}
+
+for (const action of ["close", "move"] as const) {
+  test(`a pending landing cannot recreate a preview after ${action}`, async () => {
+    const source = await fixture();
+    const target = await fixture();
+    const recovery = await fixture();
+    const { id } = await source.open();
+    vi.useFakeTimers();
+    await source.host.moveTo(id, target.host);
+    let finishValidation = () => {};
+    const pending = new Promise<void>((resolve) => {
+      finishValidation = resolve;
+    });
+    target.validate.mockReturnValueOnce(pending);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(target.validate).toHaveBeenCalledTimes(3);
+    if (action === "close") await target.host.close(id);
+    else await target.host.moveTo(id, recovery.host);
+    const count = fake.views.length;
+    finishValidation();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.views).toHaveLength(count);
+    expect(target.registry.records.has(id)).toBe(false);
+    await target.host.dispose(false);
+    await recovery.host.dispose(false);
+    await source.host.dispose(false);
+  });
+}
