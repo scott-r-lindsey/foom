@@ -1472,7 +1472,9 @@ test("application menu uses the command registry and supports native keyboard ac
     window.desktop.saveSetup({ agents: { claude: false, codex: false, agy: false } }),
   );
   const entries = await page.evaluate(() => window.desktop.appMenu.commands());
-  assert.ok(entries.some((entry) => entry?.id === "reload"));
+  const developer = entries.find((entry) => entry?.id === "developer-menu");
+  assert.ok(developer.items.some((entry) => entry?.id === "reload"));
+  assert.ok(!entries.some((entry) => entry?.id === "reload"));
   assert.equal(entries.find((entry) => entry?.id === "new-window").enabled, true);
   await page.evaluate(() => window.desktop.appMenu.execute("action-log"));
   await expect(page.getByRole("heading", { name: "Action log" })).toBeVisible();
