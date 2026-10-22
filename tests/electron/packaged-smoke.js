@@ -315,10 +315,9 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     assert.ok(!bundledManual.includes("<!-- SHORTCUTS -->"));
     await page.evaluate((id) => window.desktop.previews.close(id), manualId);
 
-    const manualIndex = JSON.parse(
-      extractFile(archive, "build/manual/sections.json").toString("utf8"),
-    );
-    assert.equal(Boolean(statFile(archive, "build/manual/sections.json").unpacked), false);
+    const manualIndexPath = path.join("build", "manual", "sections.json");
+    const manualIndex = JSON.parse(extractFile(archive, manualIndexPath).toString("utf8"));
+    assert.equal(Boolean(statFile(archive, manualIndexPath).unpacked), false);
     await assertManualAgent(page, repository, manualReport, manualIndex);
     console.info("Packaged ASAR manual served through fixture MCP");
     console.info("Packaged repository restored");
