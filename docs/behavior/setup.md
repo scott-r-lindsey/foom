@@ -69,3 +69,8 @@ it never changes setup or first-run state. Click, Escape, Enter or Space dismiss
 at any point, including during the iris, exactly once, disposing timers and drawing
 frames. Reduced motion cross-fades over 200 ms into the final still frame with no
 iris, then holds for ten seconds with the same dismissal behavior.
+
+The rocket hit area follows the art when the window or interface zoom changes,
+including with reduced motion. Tab stays inside replay, and dismissal keys work
+after tabbing. Completion or dismissal restores focus to the control that opened
+About, after releasing the replay modal.

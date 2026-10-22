@@ -317,19 +317,25 @@ test("About command opens the in-board art dialog and its anchored note", {
   await expect(dialog).toHaveCount(0);
 });
 
+async function pauseReplayClock(page) {
+  const time = new Date("2026-10-21T12:00:00Z");
+  await page.clock.install({ time });
+  // Installing the clock starts it; leave room for Windows transport latency.
+  await page.clock.pauseAt(new Date(time.getTime() + 3_600_000));
+}
+
 test("About rocket replays launch by mouse and keyboard without changing setup", {
   timeout: deadline(45_000),
 }, async (context) => {
   const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   const initial = await page.evaluate(async () => (await window.desktop.setupState()).settings);
-  const captureTime = new Date("2026-10-21T12:00:00Z");
-  await page.clock.install({ time: captureTime });
-  // Installing the clock starts it; leave room for Windows transport latency.
-  await page.clock.pauseAt(new Date(captureTime.getTime() + 3_600_000));
+  await pauseReplayClock(page);
   await mkdir("test-results/replay-686", { recursive: true });
   for (const reducedMotion of ["no-preference", "reduce"]) {
     await page.emulateMedia({ reducedMotion });
+    const opener = page.getByRole("button", { name: "Foom menu", exact: true });
+    await opener.focus();
     await page.evaluate(() => window.desktop.appMenu.execute("about"));
     const about = page.getByRole("dialog", { name: "About Foom", exact: true });
     const rocket = about.getByRole("button", { name: "Replay launch" });
@@ -379,6 +385,7 @@ test("About rocket replays launch by mouse and keyboard without changing setup",
       initial,
     );
     await expect(page.locator(".board-workspace")).toBeVisible();
+    await expect(opener).toBeFocused();
   }
   await page.evaluate(() => window.desktop.appMenu.execute("about"));
   await page.getByRole("button", { name: "Replay launch" }).press("Space");
@@ -461,4 +468,103 @@ test("bundled notices and licenses scroll and dismiss from About and menu comman
   await expect(licenses).toBeVisible();
   await licenses.getByRole("button", { name: "Close", exact: true }).click();
   await expect(licenses).toHaveCount(0);
+});
+
+test("About rocket stays clickable after resize and interface zoom in both motion modes", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  const size = (width, height) =>
+    app.evaluate(
+      ({ BrowserWindow }, { width, height }) => {
+        const window = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
+        window.setMinimumSize(1, 1);
+        window.setContentSize(width, height);
+      },
+      { width, height },
+    );
+  for (const reducedMotion of ["reduce", "no-preference"]) {
+    await page.emulateMedia({ reducedMotion });
+    await size(900, 640);
+    await page.evaluate(() => window.desktop.appMenu.execute("about"));
+    const rocket = page.getByRole("button", { name: "Replay launch" });
+    await expect(rocket).toBeVisible();
+    const initialHeight = await rocket.evaluate((button) => button.style.height);
+    await size(600, 420);
+    await expect
+      .poll(() => rocket.evaluate((button) => button.style.height))
+      .not.toBe(initialHeight);
+    const resizedHeight = await rocket.evaluate((button) => button.style.height);
+    await page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 300 }));
+    await size(1200, 900);
+    await expect
+      .poll(() => rocket.evaluate((button) => button.style.height))
+      .not.toBe(resizedHeight);
+    await expect
+      .poll(() =>
+        rocket.evaluate((button) => {
+          const box = button.getBoundingClientRect();
+          return (
+            document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) === button
+          );
+        }),
+      )
+      .toBe(true);
+    const box = await rocket.boundingBox();
+    assert.ok(box);
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(page.getByRole("dialog", { name: "Launch", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".launch-replay")).toHaveCount(0);
+    await page.evaluate(() => window.desktop.saveSetup({ interfaceScale: 100 }));
+  }
+});
+
+test("About replay restores its opener after iris/countdown dismissal and completion", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await pauseReplayClock(page);
+  const opener = page.getByRole("button", { name: "Foom menu", exact: true });
+  for (const elapsed of [100, 1000, 14_100]) {
+    await opener.focus();
+    await page.evaluate(() => window.desktop.appMenu.execute("about"));
+    await page.getByRole("button", { name: "Replay launch" }).click();
+    await page.clock.runFor(elapsed);
+    if (elapsed < 14_100) await page.keyboard.press("Escape");
+    await expect(page.locator(".launch-replay")).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "About Foom", exact: true })).toHaveCount(0);
+    await expect(opener).toBeFocused();
+  }
+});
+
+test("About replay contains Tab and still dismisses with Enter Space or Escape", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await pauseReplayClock(page);
+  const opener = page.getByRole("button", { name: "Foom menu", exact: true });
+  for (const reducedMotion of ["no-preference", "reduce"]) {
+    await page.emulateMedia({ reducedMotion });
+    for (const key of ["Enter", "Space", "Escape"]) {
+      await opener.focus();
+      await page.evaluate(() => window.desktop.appMenu.execute("about"));
+      await page.getByRole("button", { name: "Replay launch" }).click();
+      await expect(page.getByRole("dialog", { name: "Launch", exact: true })).toBeFocused();
+      await page.keyboard.press("Tab");
+      const replay = page.getByRole("dialog", { name: "Launch replay", exact: true });
+      await expect(replay).toBeFocused();
+      await page.keyboard.press("Shift+Tab");
+      await expect(replay).toBeFocused();
+      await page.keyboard.press(key);
+      await expect(replay).toHaveCount(0);
+      await expect(opener).toBeFocused();
+    }
+  }
 });

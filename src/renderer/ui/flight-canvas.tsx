@@ -29,7 +29,8 @@ export function FlightCanvas({
     const start = performance.now();
     let frame = 0;
     let paused = false;
-    const tick = () => {
+    const paint = () => {
+      if (!canvas.isConnected) return;
       const style = getComputedStyle(canvas);
       const token = (name: string) => style.getPropertyValue(`--${name}`).trim();
       const dark = launch || style.colorScheme !== "light";
@@ -63,6 +64,9 @@ export function FlightCanvas({
           transform: `translate(-50%, -60%) rotate(${String(rocket.angle)}rad)`,
         });
       }
+    };
+    const tick = () => {
+      paint();
       if (!reduced && !paused) frame = requestAnimationFrame(tick);
     };
     const stop = () => {
@@ -75,10 +79,19 @@ export function FlightCanvas({
       tick();
     };
     tick();
+    // Reduced motion and blurred windows have no frame loop to notice layout changes.
+    const observer =
+      typeof ResizeObserver === "function"
+        ? new ResizeObserver(() => {
+            if (canvas.clientWidth > 0 && canvas.clientHeight > 0) paint();
+          })
+        : undefined;
+    observer?.observe(canvas);
     window.addEventListener("blur", stop);
     window.addEventListener("focus", resume);
     return () => {
       stop();
+      observer?.disconnect();
       window.removeEventListener("blur", stop);
       window.removeEventListener("focus", resume);
     };

@@ -18,6 +18,8 @@ export function LaunchReplay({
   const finish = () => {
     if (finishedRef.current) return;
     finishedRef.current = true;
+    // Release native modality before About unmounts and restores its opener.
+    ref.current?.close();
     done();
   };
   useLayoutEffect(() => {
@@ -40,6 +42,28 @@ export function LaunchReplay({
       ref={ref}
       className="launch-replay"
       aria-label="Launch replay"
+      tabIndex={-1}
+      onKeyDownCapture={(event) => {
+        // A bare modifier must not trigger reduced motion's any-key skip.
+        if (["Shift", "Control", "Alt", "Meta"].includes(event.key)) {
+          event.stopPropagation();
+          return;
+        }
+        if (event.key === "Tab") {
+          event.preventDefault();
+          event.stopPropagation();
+          ref.current?.focus();
+        } else if (
+          reduced ||
+          event.key === "Escape" ||
+          event.key === "Enter" ||
+          event.key === " "
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          finish();
+        }
+      }}
       onCancel={(event) => {
         event.preventDefault();
         finish();

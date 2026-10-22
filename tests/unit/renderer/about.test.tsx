@@ -209,3 +209,49 @@ test("native cancellation and clicks outside the iris dismiss and unmount cancel
   cleanup();
   expect(vi.getTimerCount()).toBe(0);
 });
+
+for (const elapsed of [100, 1000, 14_100]) {
+  test(`replay releases native modality before completing at ${String(elapsed)}ms`, async () => {
+    const done = await replay();
+    const openAtDone: boolean[] = [];
+    done.mockImplementation(() => {
+      openAtDone.push(document.querySelector(".launch-replay")?.hasAttribute("open") ?? false);
+    });
+    act(() => {
+      vi.advanceTimersByTime(elapsed);
+    });
+    if (elapsed < 14_100)
+      fireEvent.keyDown(screen.getByRole("dialog", { name: "Launch" }), { key: "Escape" });
+    expect(openAtDone).toEqual([false]);
+    expect(done).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+}
+for (const reducedMotion of [false, true]) {
+  for (const key of ["Enter", " ", "Escape"]) {
+    test(`Tab remains in replay and ${key} dismisses with reduced motion ${String(reducedMotion)}`, async () => {
+      reduced = reducedMotion;
+      const done = await replay();
+      fireEvent.keyDown(screen.getByRole("dialog", { name: "Launch" }), { key: "Tab" });
+      const modal = screen.getByRole("dialog", { name: "Launch replay" });
+      expect(document.activeElement).toBe(modal);
+      for (const modifier of ["Shift", "Control", "Alt", "Meta"]) {
+        fireEvent.keyDown(modal, { key: modifier });
+      }
+      expect(done).not.toHaveBeenCalled();
+      fireEvent.keyDown(modal, { key: "Tab", shiftKey: true });
+      expect(document.activeElement).toBe(modal);
+      // Flush jsdom's selectionchange task from the focus move.
+      act(() => {
+        vi.advanceTimersByTime(0);
+      });
+      if (!reducedMotion) {
+        fireEvent.keyDown(modal, { key: "a" });
+        expect(done).not.toHaveBeenCalled();
+      }
+      fireEvent.keyDown(modal, { key });
+      expect(done).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  }
+}
