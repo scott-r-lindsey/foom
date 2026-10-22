@@ -127,7 +127,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   const profile = realpathSync.native(mkdtempSync(path.join(tmpdir(), "foom-packaged-")));
   writeFileSync(
     path.join(profile, "settings.json"),
-    JSON.stringify({ version: 1, settings: { setupComplete: true } }),
+    JSON.stringify({ version: 1, settings: { setupComplete: true, agentHooks: { codex: false } } }),
   );
   const repository = path.join(profile, "repo");
   mkdirSync(repository);

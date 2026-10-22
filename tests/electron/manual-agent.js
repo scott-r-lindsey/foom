@@ -1,11 +1,13 @@
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
 const { chmod, copyFile, mkdir, readFile, writeFile } = require("node:fs/promises");
 const path = require("node:path");
 const { expect } = require("./test-policy.js");
 
-// A native Node fixture, including on Windows. Never calls an installed agent CLI.
+// A native SEA fixture for the bundled Codex adapter. No config-provider installation
+// or native home override; packaged Electron resolves home independently of HOME.
 async function installManualAgent(home, bin) {
-  const name = "foom-manual-agent";
+  const name = "codex";
   const executable = path.join(bin, name + (process.platform === "win32" ? ".exe" : ""));
   await copyFile(process.execPath, executable);
   await chmod(executable, 0o755);
@@ -15,6 +17,8 @@ async function installManualAgent(home, bin) {
     script,
     `
 const fs = require('node:fs');
+if (process.argv.includes('--version')) { console.log('codex-cli 0.161.0'); process.exit(0); }
+if (process.argv.includes('--help')) { console.log('-c --no-alt-screen'); process.exit(0); }
 (async () => {
   const url = process.env.FOOM_CONTROL_URL.replace('/control/v1', '/mcp');
   let session;
@@ -46,28 +50,37 @@ const fs = require('node:fs');
 })().catch(error => fs.writeFileSync(${JSON.stringify(report)}, JSON.stringify({ error: String(error) })));
 `,
   );
-  const base = require("../fixtures/agent-plugin-v2.json");
-  const manifest = {
-    ...base,
-    id: name,
-    name: "Manual fixture",
-    executables: [name],
-    discovery: { facts: [] },
-    launch: {
-      order: base.launch.order,
-      arguments: { arguments: [script] },
-      mcp: { arguments: [], when: { all: [{ field: "control", op: "eq", value: true }] } },
-    },
-    files: [],
-    reservedArguments: [],
-    bypassArguments: [],
-    bypassEnvironment: [],
-    conversation: { resumePin: "requested-on-paste", restoreControl: false },
-    resumePaste: [{ command: name, selector: "--resume" }],
-  };
-  const directory = path.join(home, ".foom/config/agents");
-  await mkdir(directory, { recursive: true });
-  await writeFile(path.join(directory, name + ".json"), JSON.stringify(manifest));
+  const temporary = path.join(home, "manual-sea");
+  await mkdir(temporary);
+  const blob = path.join(temporary, "agent.blob");
+  const config = path.join(temporary, "sea.json");
+  await writeFile(
+    config,
+    JSON.stringify({
+      main: script,
+      output: blob,
+      disableExperimentalSEAWarning: true,
+      useSnapshot: false,
+      useCodeCache: false,
+      execArgvExtension: "none",
+    }),
+  );
+  execFileSync(process.execPath, ["--experimental-sea-config", config], { stdio: "pipe" });
+  if (process.platform === "darwin") execFileSync("codesign", ["--remove-signature", executable]);
+  execFileSync(
+    process.execPath,
+    [
+      path.join(__dirname, "../../node_modules/postject/dist/cli.js"),
+      executable,
+      "NODE_SEA_BLOB",
+      blob,
+      "--sentinel-fuse",
+      "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2",
+      ...(process.platform === "darwin" ? ["--macho-segment-name", "NODE_SEA"] : []),
+    ],
+    { stdio: "pipe" },
+  );
+  if (process.platform === "darwin") execFileSync("codesign", ["--sign", "-", executable]);
   return report;
 }
 
@@ -75,7 +88,7 @@ async function assertManualAgent(page, repository, report, index) {
   await expect
     .poll(async () => {
       const scan = await page.evaluate(() => window.desktop.scanAgents(true));
-      return scan.agents.some((agent) => agent.id === "foom-manual-agent" && agent.path !== null);
+      return scan.agents.some((agent) => agent.id === "codex" && agent.path !== null);
     })
     .toBe(true);
   await page.evaluate(
@@ -84,7 +97,7 @@ async function assertManualAgent(page, repository, report, index) {
         kind: "launch",
         repository,
         worktree: repository,
-        run: "foom-manual-agent",
+        run: "codex",
       }),
     repository,
   );
@@ -112,7 +125,7 @@ async function assertManualAgent(page, repository, report, index) {
   await expect
     .poll(async () => {
       terminal = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
-        (entry) => entry.agent === "foom-manual-agent",
+        (entry) => entry.agent === "codex",
       );
       return terminal?.exitCode;
     })
