@@ -32,6 +32,9 @@ export function useBoardCommands({
         if (inactive || command === "about") return;
         if (command.startsWith("via-")) {
           void runSidebarCommand({ kind: "config-launch", run: command.slice(4) });
+        } else if (command === "manual") {
+          onCloseSettings?.();
+          setLogOpen(false);
         } else if (command === "toggle-sidebar") {
           toggleSidebarRef.current?.();
         } else if (command === "action-log") {

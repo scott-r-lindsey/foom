@@ -285,6 +285,34 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
         entry.file,
       );
     console.info("Packaged recordings loaded and decoded");
+    await page.evaluate(() => window.desktop.appMenu.execute("manual"));
+    await expect(
+      page.locator('.terminal-tile[data-kind="preview"]').filter({ hasText: "manual.html" }),
+    ).toBeVisible();
+    const manualId = (await page.evaluate(() => window.desktop.sidebarInventory())).previews.find(
+      (entry) => entry.worktree === "foom:manual",
+    ).id;
+    let manualPage;
+    await expect
+      .poll(() => {
+        manualPage = browser
+          .contexts()
+          .flatMap((context) => context.pages())
+          .find((candidate) => candidate.url().startsWith(`foom-preview://${manualId}/`));
+        return Boolean(manualPage);
+      })
+      .toBe(true);
+    await expect(
+      manualPage.getByRole("heading", { name: "User manual", exact: true }),
+    ).toBeVisible();
+    const bundledManual = extractFile(
+      archive,
+      path.join("build", "manual", "manual.html"),
+    ).toString("utf8");
+    assert.ok(bundledManual.includes('data-command="shortcuts"'));
+    assert.ok(!bundledManual.includes("<!-- SHORTCUTS -->"));
+    await page.evaluate((id) => window.desktop.previews.close(id), manualId);
+
     console.info("Packaged repository restored");
     await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
     // Menu entries include separators (null), the Settings submenu and the Size row.

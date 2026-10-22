@@ -168,6 +168,7 @@ test("the wordmark menu is curated, the same on every platform, with planned ite
       "-",
       "action-log",
       "shortcuts",
+      { "help-menu": ["manual"] },
       "about",
       "licenses",
       "-",

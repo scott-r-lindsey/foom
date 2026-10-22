@@ -72,6 +72,18 @@ vi.mock("../../../src/main/previews/host", () => ({
     open = vi.fn((_worktree: string, _path: string, _agent?: { id: string }) =>
       Promise.resolve("preview"),
     );
+    openManual = vi.fn(() => {
+      const id = "f".repeat(32);
+      this.registry.records.set(id, {
+        id,
+        worktree: "foom:manual",
+        relativePath: "manual.html",
+        network: false,
+        bundled: "manual",
+      });
+      return id;
+    });
+    focusManual = vi.fn();
     moveTo = vi.fn((_id: string, _target: unknown) => Promise.resolve());
     close = vi.fn(() => Promise.resolve());
     visible = vi.fn(() => false);
@@ -2473,5 +2485,141 @@ test("windowless About opens a board and dispatches the in-board dialog command"
   about.click({} as Electron.MenuItem, undefined, {});
   await vi.waitFor(() => {
     expect(mock.window.webContents.send).toHaveBeenCalledWith("board:command", "about");
+  });
+});
+
+test.each([false, true])(
+  "setup completion waits for the board and menus reveal the owning manual (minimized: %s)",
+  async (minimized) => {
+    await start();
+    const { previewHosts } = await import("../../../src/main/wiring/application");
+    const host = previewHosts.get(mock.instances[0]?.id ?? -1);
+    if (!host || !mock.setup.deps) throw new Error("Missing manual dependencies");
+    const opened = vi.spyOn(host, "openManual");
+    const focused = vi.spyOn(host, "focusManual");
+    expect(opened).not.toHaveBeenCalled();
+    mock.setup.deps.apply({ ...DEFAULT_SETTINGS, setupComplete: true });
+    expect(opened).not.toHaveBeenCalled();
+    await invokeWindow(0, "app-menu:view", { available: true, maximized: false, tiles: 0 });
+    const acknowledge = async (index: number) => {
+      const window = mock.instances[index];
+      if (!window) throw new Error("Missing board");
+      await vi.waitFor(() => {
+        expect(window.webContents.send).toHaveBeenCalledWith(
+          "preview:place",
+          expect.any(String),
+          "f".repeat(32),
+          expect.any(Number),
+        );
+      });
+      const request: unknown = window.webContents.send.mock.calls
+        .filter((call) => call[0] === "preview:place")
+        .at(-1)?.[1];
+      await invokeWindow(index, "preview:placed", request, "f".repeat(32), "empty");
+    };
+    await acknowledge(0);
+    await vi.waitFor(() => {
+      expect(focused).toHaveBeenCalledWith("f".repeat(32));
+    });
+    mock.window.webContents.send.mockClear();
+    await invokeWindow(0, "app-menu:view", { available: true, maximized: false, tiles: 1 });
+    expect(
+      mock.window.webContents.send.mock.calls.some((call) => call[0] === "preview:place"),
+    ).toBe(false);
+    await newWindow();
+    const other = previewHosts.get(mock.instances[1]?.id ?? -1);
+    if (!other) throw new Error("Missing second host");
+    const otherOpened = vi.spyOn(other, "openManual");
+    mock.window.isMinimized.mockReturnValue(minimized);
+    mock.window.restore.mockClear();
+    mock.window.show.mockClear();
+    mock.window.focus.mockClear();
+    const reopened = invokeWindow(1, "app-menu:execute", "manual");
+    await acknowledge(0);
+    await reopened;
+    expect(mock.window.restore).toHaveBeenCalledTimes(minimized ? 1 : 0);
+    expect(mock.window.show).toHaveBeenCalledOnce();
+    expect(mock.window.focus).toHaveBeenCalledOnce();
+    if (minimized)
+      expect(mock.window.restore.mock.invocationCallOrder[0]).toBeLessThan(
+        mock.window.show.mock.invocationCallOrder[0] ?? 0,
+      );
+    expect(otherOpened).not.toHaveBeenCalled();
+  },
+);
+
+test.each([false, true])(
+  "automatic manual opening belongs to the profile across setup windows (already complete: %s)",
+  async (alreadyComplete) => {
+    let settings = { ...DEFAULT_SETTINGS, setupComplete: alreadyComplete };
+    const get = vi.spyOn(mock.settingsStore, "get").mockImplementation(() => settings);
+    try {
+      await start();
+      const firstSetup = mock.setup.deps;
+      if (!firstSetup) throw new Error("Missing first setup");
+      await newWindow();
+      const secondSetup = mock.setup.deps;
+      if (!secondSetup) throw new Error("Missing second setup");
+      const { previewHosts } = await import("../../../src/main/wiring/application");
+      const first = previewHosts.get(mock.instances[0]?.id ?? -1);
+      const second = previewHosts.get(mock.instances[1]?.id ?? -1);
+      if (!first || !second) throw new Error("Missing preview hosts");
+      const opened = vi.spyOn(first, "openManual");
+      const secondOpened = vi.spyOn(second, "openManual");
+      // Setup persists the shared settings before applying them to every window.
+      settings = { ...settings, setupComplete: true };
+      firstSetup.apply(settings);
+      await invokeWindow(0, "app-menu:view", { available: true, maximized: false, tiles: 0 });
+      expect(opened).toHaveBeenCalledTimes(alreadyComplete ? 0 : 1);
+      if (!alreadyComplete) {
+        const request: unknown = mock.instances[0]?.webContents.send.mock.calls
+          .filter((call) => call[0] === "preview:place")
+          .at(-1)?.[1];
+        await invokeWindow(0, "preview:placed", request, "f".repeat(32), "empty");
+      }
+      // A human closes the manual before the other pre-existing window saves anything.
+      first.registry.records.clear();
+      secondSetup.apply(settings);
+      await invokeWindow(1, "app-menu:view", { available: true, maximized: false, tiles: 0 });
+      settings = { ...settings, colorMode: "light" };
+      secondSetup.apply(settings);
+      await invokeWindow(1, "app-menu:view", { available: true, maximized: false, tiles: 0 });
+      expect(secondOpened).not.toHaveBeenCalled();
+      expect(opened).toHaveBeenCalledTimes(alreadyComplete ? 0 : 1);
+    } finally {
+      get.mockRestore();
+    }
+  },
+);
+
+test("windowless Manual opens a board with the fixed preview instead of a native dialog", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+  await start();
+  mock.readyEvents.get("closed")?.();
+  const { Menu } = await import("electron");
+  const template = vi.mocked(Menu).buildFromTemplate.mock.lastCall?.[0];
+  const manual = template
+    ?.flatMap((section) => (Array.isArray(section.submenu) ? section.submenu : []))
+    .find((item) => item.id === "manual");
+  if (!manual?.click) throw new Error("Missing windowless Manual");
+  manual.click({} as Electron.MenuItem, undefined, {});
+  await vi.waitFor(() => {
+    expect(mock.window.webContents.send).toHaveBeenCalledWith(
+      "preview:place",
+      expect.any(String),
+      "f".repeat(32),
+      expect.any(Number),
+    );
+  });
+  const request: unknown = mock.window.webContents.send.mock.calls
+    .filter((call) => call[0] === "preview:place")
+    .at(-1)?.[1];
+  const { previewHosts } = await import("../../../src/main/wiring/application");
+  const host = previewHosts.get(mock.instances[1]?.id ?? -1);
+  if (!host) throw new Error("Missing manual host");
+  const focus = vi.spyOn(host, "focusManual");
+  await invokeWindow(1, "preview:placed", request, "f".repeat(32), "empty");
+  await vi.waitFor(() => {
+    expect(focus).toHaveBeenCalledWith("f".repeat(32));
   });
 });

@@ -48,9 +48,11 @@ The round (?) opens a note beside its button in the same raised, notched surface
 as row menus. Escape or an outside press closes the note and returns focus to (?).
 Escape with no note, or Close, dismisses About and restores its previous focus.
 The footer's Licenses and Third-party notices use fixed registry commands to read
-the bundled LICENSE and build/THIRD_PARTY_NOTICES.txt into the existing native
-message dialog; Source opens the fixed GitHub repository URL. No renderer path
-or URL is accepted. Third-party licenses remains a menu alias for Licenses.
+the bundled LICENSE and build/THIRD_PARTY_NOTICES.txt into a themed, read-only
+modal with a scrollable text region and a fixed Close footer. Escape, a click
+outside, or Close dismisses the text view and restores focus to its opener; About
+stays open underneath. The macOS Help menu uses the same view. Source opens the
+fixed GitHub repository URL. No renderer path or URL is accepted. Third-party licenses remains a menu alias for Licenses.
 On macOS with no board, About creates a board before opening the in-board dialog.
 
 **Keyboard shortcuts** (Command+/ or Ctrl+Shift+/) opens a sheet of the current
@@ -79,3 +81,9 @@ and clears at zero. macOS uses the Dock badge; Windows uses a taskbar overlay
 with an accessible count description (the compact image caps at 99); Linux uses
 the desktop badge API where supported. The macOS Dock menu lists waiting sessions;
 clicking one reveals it in the focused tile without clearing its attention state.
+
+## Manual
+
+Help → Manual is available in the wordmark menu on every platform and in the
+macOS native Help menu. It opens the bundled, offline HTML manual in a preview
+tile, or selects the existing manual instead of opening another copy. If it belongs to another board window, that window is focused. Its keyboard shortcut tables are generated from the command registry.

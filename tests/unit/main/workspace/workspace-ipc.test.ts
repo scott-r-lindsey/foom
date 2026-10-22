@@ -578,6 +578,13 @@ test("sidebar inventory reports previews only for worktrees it lists", async () 
     },
     { id: "b".repeat(32), worktree: "/tree", relativePath: "site/index.html", network: false },
     { id: "c".repeat(32), worktree: "/gone", relativePath: "a.md", network: false },
+    {
+      id: "d".repeat(32),
+      worktree: "foom:manual",
+      relativePath: "manual.html",
+      network: false,
+      bundled: "manual",
+    },
   ]);
   Object.assign(workspace, {
     sidebarInventory: vi.fn(() =>
@@ -606,6 +613,14 @@ test("sidebar inventory reports previews only for worktrees it lists", async () 
         repository: "/repo",
         worktree: "/tree",
         relativePath: "site/index.html",
+        network: false,
+        kind: "html",
+      },
+      {
+        id: "d".repeat(32),
+        repository: "",
+        worktree: "foom:manual",
+        relativePath: "manual.html",
         network: false,
         kind: "html",
       },

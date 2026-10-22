@@ -385,7 +385,7 @@ export function Tile({
           view={view}
           popout={preview ? typeof source.previews?.popout === "function" : Boolean(source.windows)}
           network={
-            preview && source.previews?.network
+            preview && preview.worktree !== "foom:manual" && source.previews?.network
               ? () => {
                   errorOriginRef.current = captureErrorFocus();
                   void source.previews

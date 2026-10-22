@@ -83,3 +83,9 @@ menu; windowless macOS About opens a board first. The app-menu bridge also
 provides `version()` via trusted `app-menu:version`, returning only bounded app
 and Electron version strings. The existing command execution route owns fixed
 Licenses, notices and source actions; it accepts no renderer file path or URL.
+
+Licenses and notices commands publish the fixed document ID on `app-menu:legal`
+to open the board's text modal. The trusted `app-menu:legal` invoke accepts only
+`licenses` or `notices` and reads the corresponding bundled file. Main and preload
+reject empty text or text above 1,048,576 UTF-16 code units; preload also validates
+the response type and document notifications. No file text enters native dialogs.
