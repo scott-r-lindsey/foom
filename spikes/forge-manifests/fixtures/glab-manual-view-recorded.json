@@ -1,0 +1,18 @@
+{
+  "provenance": "Recorded public GitLab output; unrelated fields omitted with a strict allowlist",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "mr",
+    "view",
+    "4",
+    "-R",
+    "scott-test-projects/foom-forge-fixtures",
+    "-F",
+    "json"
+  ],
+  "exitCode": 0,
+  "capturedAt": "2026-10-22T18:21:21.009728+00:00",
+  "scenario": "manual MR sample",
+  "stdout": "{\"id\":553722840,\"iid\":4,\"target_branch\":\"main\",\"source_branch\":\"evidence-522/manual\",\"project_id\":87769054,\"title\":\"Evidence 522: manual\",\"state\":\"opened\",\"created_at\":\"2026-10-22T18:20:38.478Z\",\"updated_at\":\"2026-10-22T18:20:39.445Z\",\"source_project_id\":87769054,\"target_project_id\":87769054,\"sha\":\"be633f2569b2ce8a0ddbd4871b4b3fb7e7c8c478\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/merge_requests/4\",\"pipeline\":null,\"head_pipeline\":{\"id\":2977876128,\"iid\":8,\"project_id\":87769054,\"status\":\"manual\",\"source\":\"merge_request_event\",\"ref\":\"refs/merge-requests/4/head\",\"name\":\"\",\"sha\":\"be633f2569b2ce8a0ddbd4871b4b3fb7e7c8c478\",\"before_sha\":\"be633f2569b2ce8a0ddbd4871b4b3fb7e7c8c478\",\"tag\":false,\"yaml_errors\":\"\",\"updated_at\":\"2026-10-22T18:20:40.22Z\",\"created_at\":\"2026-10-22T18:20:39.769Z\",\"started_at\":null,\"finished_at\":null,\"duration\":0,\"queued_duration\":0,\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/pipelines/2977876128\",\"detailed_status\":{}}}",
+  "stderr": ""
+}

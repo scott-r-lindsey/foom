@@ -1,0 +1,27 @@
+{
+  "provenance": "Recorded public GitLab output; unrelated fields omitted with a strict allowlist",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "api",
+    "projects/scott-test-projects%2Ffoom-forge-fixtures/merge_requests",
+    "--hostname",
+    "gitlab.com",
+    "--method",
+    "GET",
+    "--raw-field",
+    "scope=all",
+    "--raw-field",
+    "state=all",
+    "--raw-field",
+    "source_branch=evidence-522/pending",
+    "--raw-field",
+    "per_page=2",
+    "--raw-field",
+    "page=1"
+  ],
+  "exitCode": 0,
+  "capturedAt": "2026-10-22T18:21:10.746891+00:00",
+  "scenario": "pending draft manifest branch lookup",
+  "stdout": "[{\"id\":553722775,\"iid\":1,\"project_id\":87769054,\"title\":\"Evidence 522: pending\",\"state\":\"opened\",\"created_at\":\"2026-10-22T18:20:30.714Z\",\"updated_at\":\"2026-10-22T18:20:31.802Z\",\"target_branch\":\"main\",\"source_branch\":\"evidence-522/pending\",\"source_project_id\":87769054,\"target_project_id\":87769054,\"sha\":\"503528d77214fbfd35dcaa17275d926247641a9c\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/merge_requests/1\"}]",
+  "stderr": ""
+}

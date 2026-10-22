@@ -1,0 +1,27 @@
+{
+  "provenance": "Recorded public GitLab output; unrelated fields omitted with a strict allowlist",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "api",
+    "projects/scott-test-projects%2Ffoom-forge-fixtures/merge_requests",
+    "--hostname",
+    "gitlab.com",
+    "--method",
+    "GET",
+    "--raw-field",
+    "scope=all",
+    "--raw-field",
+    "state=all",
+    "--raw-field",
+    "source_branch=evidence-522/skipped",
+    "--raw-field",
+    "per_page=2",
+    "--raw-field",
+    "page=1"
+  ],
+  "exitCode": 0,
+  "capturedAt": "2026-10-22T18:21:28.126779+00:00",
+  "scenario": "skipped draft manifest branch lookup",
+  "stdout": "[{\"id\":553722865,\"iid\":5,\"project_id\":87769054,\"title\":\"Evidence 522: skipped\",\"state\":\"opened\",\"created_at\":\"2026-10-22T18:20:40.687Z\",\"updated_at\":\"2026-10-22T18:20:41.738Z\",\"target_branch\":\"main\",\"source_branch\":\"evidence-522/skipped\",\"source_project_id\":87769054,\"target_project_id\":87769054,\"sha\":\"5fe2cc91628e3c214f6c06012b6ea9ed8c0d154e\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/merge_requests/5\"}]",
+  "stderr": ""
+}

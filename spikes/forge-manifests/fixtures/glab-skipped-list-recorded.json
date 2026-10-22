@@ -1,0 +1,20 @@
+{
+  "provenance": "Recorded public GitLab output; unrelated fields omitted with a strict allowlist",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "mr",
+    "list",
+    "-R",
+    "scott-test-projects/foom-forge-fixtures",
+    "-F",
+    "json",
+    "--all",
+    "--source-branch",
+    "evidence-522/skipped"
+  ],
+  "exitCode": 0,
+  "capturedAt": "2026-10-22T18:21:27.571165+00:00",
+  "scenario": "skipped exact branch list",
+  "stdout": "[{\"id\":553722865,\"iid\":5,\"target_branch\":\"main\",\"source_branch\":\"evidence-522/skipped\",\"project_id\":87769054,\"title\":\"Evidence 522: skipped\",\"state\":\"opened\",\"created_at\":\"2026-10-22T18:20:40.687Z\",\"updated_at\":\"2026-10-22T18:20:41.738Z\",\"source_project_id\":87769054,\"target_project_id\":87769054,\"sha\":\"5fe2cc91628e3c214f6c06012b6ea9ed8c0d154e\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/merge_requests/5\"}]",
+  "stderr": ""
+}

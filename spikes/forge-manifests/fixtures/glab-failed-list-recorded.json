@@ -1,0 +1,20 @@
+{
+  "provenance": "Recorded public GitLab output; unrelated fields omitted with a strict allowlist",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "mr",
+    "list",
+    "-R",
+    "scott-test-projects/foom-forge-fixtures",
+    "-F",
+    "json",
+    "--all",
+    "--source-branch",
+    "evidence-522/failed"
+  ],
+  "exitCode": 0,
+  "capturedAt": "2026-10-22T18:21:19.526210+00:00",
+  "scenario": "failed exact branch list",
+  "stdout": "[{\"id\":553722823,\"iid\":3,\"target_branch\":\"main\",\"source_branch\":\"evidence-522/failed\",\"project_id\":87769054,\"title\":\"Evidence 522: failed\",\"state\":\"opened\",\"created_at\":\"2026-10-22T18:20:36.275Z\",\"updated_at\":\"2026-10-22T18:20:37.123Z\",\"source_project_id\":87769054,\"target_project_id\":87769054,\"sha\":\"61aca14ff3c61bd20ca1f8ca242858a661e9dde4\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/merge_requests/3\"}]",
+  "stderr": ""
+}

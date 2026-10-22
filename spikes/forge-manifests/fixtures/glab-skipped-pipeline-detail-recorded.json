@@ -1,0 +1,17 @@
+{
+  "provenance": "Recorded public GitLab output; unrelated fields omitted with a strict allowlist",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "api",
+    "projects/scott-test-projects%2Ffoom-forge-fixtures/pipelines/2977881717",
+    "--hostname",
+    "gitlab.com",
+    "--method",
+    "GET"
+  ],
+  "exitCode": 0,
+  "capturedAt": "2026-10-22T18:21:47.450711+00:00",
+  "scenario": "Skipped pipeline via commit skip marker",
+  "stdout": "{\"id\":2977881717,\"iid\":14,\"project_id\":87769054,\"sha\":\"ef6ded49bbbb04204e009679f85fc1743055bb03\",\"ref\":\"refs/merge-requests/9/head\",\"status\":\"skipped\",\"source\":\"merge_request_event\",\"created_at\":\"2026-10-22T18:21:45.491Z\",\"updated_at\":\"2026-10-22T18:21:45.491Z\",\"web_url\":\"https://gitlab.com/scott-test-projects/foom-forge-fixtures/-/pipelines/2977881717\",\"before_sha\":\"ef6ded49bbbb04204e009679f85fc1743055bb03\",\"tag\":false,\"yaml_errors\":null,\"started_at\":null,\"finished_at\":null,\"duration\":null,\"queued_duration\":null,\"detailed_status\":{},\"name\":null}",
+  "stderr": ""
+}

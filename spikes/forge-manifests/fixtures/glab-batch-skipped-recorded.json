@@ -1,0 +1,19 @@
+{
+  "provenance": "Recorded public GitLab output; unrelated fields omitted with a strict allowlist",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "api",
+    "graphql",
+    "--hostname",
+    "gitlab.com",
+    "--raw-field",
+    "query=query($project: ID!) { project(fullPath: $project) { mr9: mergeRequest(iid: \"9\") { iid sourceBranch state diffHeadSha headPipeline { sha status } } } }",
+    "--raw-field",
+    "project=scott-test-projects/foom-forge-fixtures"
+  ],
+  "exitCode": 0,
+  "capturedAt": "2026-10-22T18:24:55.473674+00:00",
+  "scenario": "GraphQL skipped-pipeline scenario added after initial batch",
+  "stdout": "{\"data\":{\"project\":{\"mr9\":{\"iid\":\"9\",\"sourceBranch\":\"evidence-522/skipped-pipeline\",\"state\":\"opened\",\"diffHeadSha\":\"ef6ded49bbbb04204e009679f85fc1743055bb03\",\"headPipeline\":{\"sha\":\"ef6ded49bbbb04204e009679f85fc1743055bb03\",\"status\":\"SKIPPED\"}}}}}",
+  "stderr": ""
+}

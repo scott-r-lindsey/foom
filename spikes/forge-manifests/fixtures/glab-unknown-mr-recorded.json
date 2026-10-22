@@ -1,0 +1,18 @@
+{
+  "provenance": "Recorded public GitLab failure exit and stderr only; stdout discarded",
+  "glabVersion": "1.124.0 (d43ccacec)",
+  "argv": [
+    "mr",
+    "view",
+    "2147483647",
+    "-R",
+    "scott-test-projects/foom-forge-fixtures",
+    "-F",
+    "json"
+  ],
+  "exitCode": 1,
+  "capturedAt": "2026-10-22T18:21:39.422367+00:00",
+  "scenario": "Failure exit and stderr shape: unknown-mr",
+  "stdout": "",
+  "stderr": "          \n   ERROR  \n          \n  Failed to get merge request 2147483647: 404 Not Found.                                                              \n\n"
+}
