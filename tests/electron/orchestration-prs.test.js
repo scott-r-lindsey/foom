@@ -541,6 +541,12 @@ test("board merge requests show pipeline marks and failure notifications through
         variant,
       );
       await expect(page.locator("html")).toHaveCSS("color-scheme", variant);
+      await page.locator(".sidebar-panel").evaluate(async (panel) => {
+        await Promise.all(
+          panel.getAnimations({ subtree: true }).map((animation) => animation.finished),
+        );
+      });
+      await expect(page.locator(".sidebar-panel")).toHaveCSS("opacity", "1");
       await page.screenshot({ path: path.join(directory, `gitlab-${variant}.png`) });
     }
   }
