@@ -203,8 +203,9 @@ exactly-once registration, name filtering and invalid-setting failures.
 
 ## Rebalancing from current reports (#708)
 
-Run with Python 3 (standard library only), Node 24 and the installed project
-dependencies. Download all twelve Electron artifacts per run into ignored
+Run with Node 24 and the installed project dependencies. The rebalance script
+uses only Node standard-library modules. Download all twelve Electron artifacts
+per run into ignored
 `test-results/rebalance/sources/RUN_ID/`; keep the artifact directories intact:
 
 ```sh
@@ -213,9 +214,9 @@ for run in 39698958046 39717071939 39718663296; do
     --dir "test-results/rebalance/sources/$run"
 done
 # Preview before/after totals without changing the plan:
-python3 scripts/rebalance-electron-shards.py test-results/rebalance/sources/*
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/*
 # Rebuild, then apply repository JSON formatting:
-python3 scripts/rebalance-electron-shards.py test-results/rebalance/sources/* --write
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --write
 pnpm run format
 # Registration audit, including exactly-once coverage and hash fallback:
 node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs
@@ -224,12 +225,15 @@ node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs
 Choose recent green runs covering the current cases on all three platforms.
 The script uses actual suite registrations (including generated cases) without
 running test bodies, discards removed names and empty-file placeholders, decodes
-JUnit names with an XML parser, and records skipped cases as zero. It rejects
+JUnit names with a strict reader for Node JUnit XML (no DTDs or external
+entities), and records skipped cases as zero. It rejects
 missing reports, duplicate cases, failed cases, invalid durations and current
 cases without measurements on any platform. It prints the old assignment's
 projected totals using the same new measurements, including hash fallback for
 previously unplanned names, then applies the deterministic assignment above.
-No test deadlines, shard count or workflow step limits change.
+No test deadlines, shard count or workflow step limits change. Unchanged plans
+retain their existing bytes. Parser, input-validation and deterministic-assignment
+fixtures run in `pnpm run test:ci`.
 
 The refresh uses green main runs
 [39698958046](https://github.com/scott-r-lindsey/foom/actions/runs/39698958046)
