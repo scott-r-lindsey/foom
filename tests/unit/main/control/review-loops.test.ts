@@ -306,3 +306,64 @@ it("refuses review when checks turn red while waiting for capacity or persistenc
   expect(f.host.step).not.toHaveBeenCalled();
   expect(f.loop.view("author")).toMatchObject({ reason: "checks not green" });
 });
+
+it("coalesces overlapping invalidations per loop without rescheduling idle siblings", async () => {
+  const h = fixture();
+  const options = { rounds: 3, agent: "claude", postFindings: false };
+  const author = h.rows.get("author");
+  if (!author) throw new Error("missing author");
+  for (const id of ["second", "third"]) {
+    h.rows.set(id, { ...author, id });
+    h.loop.start(id, options);
+  }
+  const original = h.host.row;
+  let reads = 0;
+  h.host.row = vi.fn((id: string) => {
+    // Bound a broken scheduler so the regression fails instead of starving Vitest.
+    if (++reads > 100) throw new Error("unbounded review scheduling");
+    return original(id);
+  });
+  h.loop.sync();
+  h.loop.sync();
+  h.loop.sync();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(reads).toBe(6);
+  for (const id of ["author", "second", "third"]) expect(h.loop.view(id)?.phase).toBe("building");
+  expect(h.host.step).not.toHaveBeenCalled();
+});
+
+it("retains an invalidation during a step without advancing other loops again", async () => {
+  const h = fixture();
+  const author = h.rows.get("author");
+  if (!author) throw new Error("missing author");
+  h.rows.set("second", { ...author, id: "second" });
+  h.loop.start("second", { rounds: 3, agent: "claude", postFindings: false });
+  const originalRow = h.host.row;
+  let reads = 0;
+  h.host.row = (id) => {
+    if (++reads > 100) throw new Error("unbounded review scheduling");
+    return originalRow(id);
+  };
+  let release: (() => void) | undefined;
+  vi.mocked(h.host.step).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => {
+          resolve(undefined);
+        };
+      }),
+  );
+  h.handoff("author");
+  h.exit("author");
+  await h.sync();
+  expect(h.host.step).toHaveBeenCalledTimes(1);
+  h.loop.sync();
+  h.loop.sync();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(h.host.step).toHaveBeenCalledTimes(1);
+  release?.();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(h.host.step).toHaveBeenCalledTimes(2);
+  expect(h.loop.view("author")).toMatchObject({ phase: "reviewing", waiting: false });
+  expect(h.loop.view("second")?.phase).toBe("building");
+});

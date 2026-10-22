@@ -114,25 +114,30 @@ export class ReviewLoops {
   }
 
   sync(): void {
-    for (const loop of this.loops.values()) {
-      if (this.finished(loop)) continue;
-      if (loop.busy) {
-        loop.again = true;
-        continue;
-      }
-      loop.busy = true;
-      void this.advance(loop)
-        .catch(() => {
-          if (!this.finished(loop)) this.finish(loop, "launch failed");
-        })
-        .finally(() => {
-          loop.busy = false;
-          if (loop.again) {
-            delete loop.again;
-            this.sync();
-          }
-        });
+    for (const loop of this.loops.values()) this.syncLoop(loop);
+  }
+
+  private syncLoop(loop: ReviewLoop): void {
+    if (this.finished(loop)) return;
+    if (loop.busy) {
+      loop.again = true;
+      return;
     }
+    loop.busy = true;
+    void this.advance(loop)
+      .catch(() => {
+        if (!this.finished(loop)) this.finish(loop, "launch failed");
+      })
+      .finally(() => {
+        loop.busy = false;
+        if (loop.again) {
+          delete loop.again;
+          // Only replay this loop's pending invalidation. A global sync here
+          // makes concurrent loops continually invalidate one another, starving
+          // main's event loop even when no session state has changed.
+          this.syncLoop(loop);
+        }
+      });
   }
 
   private finished(loop: ReviewLoop): boolean {

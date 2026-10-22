@@ -11,15 +11,17 @@ const {
   boardPage,
   confirmationPage,
   launchApp,
+  quitAndWait,
   removeAfterApps,
   assertAccessible,
 } = require("./harness.js");
 
 // Each child waits on a fixture-owned file outside the checkout. No terminal input
 // drives the loop. Launch/resume argv, handoffs, hooks and process exits drive it.
-const REVIEW_AGENT = FAKE_ORCHESTRATED_CLAUDE.replace(
-  'const isChild = path.basename(process.cwd()).startsWith("child-");',
-  `const isChild = path.basename(process.cwd()).startsWith("child-");
+const REVIEW_AGENT =
+  FAKE_ORCHESTRATED_CLAUDE.replace(
+    'const isChild = path.basename(process.cwd()).startsWith("child-");',
+    `const isChild = path.basename(process.cwd()).startsWith("child-");
 if (isChild) {
   const fs = require("node:fs");
   const reviewer = args.some(arg => arg.includes("Review PR #340"));
@@ -30,6 +32,17 @@ if (isChild) {
   const fixtureError = error => { record("fixture-error", error instanceof Error ? error.message : String(error)); process.exit(2); };
   process.on("uncaughtException", fixtureError);
   process.on("unhandledRejection", fixtureError);
+  if (process.env.TEST_REVIEW_OUTPUT === "1") {
+    let bytes = 0;
+    let draining = false;
+    setInterval(() => {
+      if (draining) return;
+      const chunk = "Fixture output line\\r\\n".repeat(1024);
+      bytes += Buffer.byteLength(chunk);
+      if (!process.stdout.write(chunk)) { draining = true; process.stdout.once("drain", () => { draining = false; }); }
+      record("output-" + path.basename(process.cwd()), String(bytes));
+    }, 20);
+  }
   const timer = setInterval(async () => {
     const file = path.join(process.env.TEST_REVIEW_ROOT, step + ".go");
     if (!fs.existsSync(file)) return;
@@ -54,16 +67,25 @@ if (isChild) {
   }, 50);
   return;
 }`,
-);
+  ) +
+  `
+if (process.env.TEST_REVIEW_OUTPUT === "1") {
+  fetch(process.env.FOOM_HOOK_URL, { method: "POST", headers: { Authorization: process.env.FOOM_TOKEN, "X-Foom-Session": process.env.FOOM_SESSION, "X-Foom-Event": "Stop", "X-Foom-Channel": "lifecycle", "X-Foom-Sequence": "1", "Content-Type": "application/json" }, body: JSON.stringify({session_id: "parent-conversation", hook_event_name: "Stop"}) }).catch(error => { throw error; });
+}
+`;
 
-for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red"]) {
+for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concurrent"]) {
   test("owned child review loop: " + scenario, {
     timeout: deadline(90000),
     skip: process.platform === "win32" && "The fake agent is a POSIX script",
   }, async (context) => {
     const { chmod, mkdir, readFile, rename, symlink, writeFile } = require("node:fs/promises");
     const { existsSync } = require("node:fs");
-    const root = await mkdtemp(path.join(tmpdir(), "foom-forge-adopt-"));
+    const root = await mkdtemp(
+      scenario === "concurrent"
+        ? path.resolve("test-results/foom-review-concurrent-")
+        : path.join(tmpdir(), "foom-forge-adopt-"),
+    );
     removeAfterApps(context, root);
     const bin = path.join(root, "bin");
     const repo = path.join(root, "app");
@@ -97,7 +119,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red"]) {
       }),
     );
     const credentials = path.join(root, "credentials.json");
-    const app = await launchApp(context, {
+    const options = {
       fixture: "agent",
       args: [`--user-data-dir=${path.join(root, "user-data")}`],
       env: {
@@ -107,8 +129,10 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red"]) {
         TEST_FAKE_CREDENTIALS: credentials,
         TEST_FORGE_STATE: forgeState,
         TEST_REVIEW_ROOT: root,
+        TEST_REVIEW_OUTPUT: scenario === "concurrent" ? "1" : "0",
       },
-    });
+    };
+    const app = await launchApp(context, options);
     const page = await boardPage(app);
     await app.evaluate(({ dialog }, directory) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
@@ -125,7 +149,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red"]) {
       { repository },
     );
     await expect.poll(() => existsSync(`${credentials}.app`)).toBe(true);
-    const parent = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
+    let parent = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
     const call = async (method, params = {}) => {
       const response = await fetch(parent.controlUrl, {
         method: "POST",
@@ -134,6 +158,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red"]) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
+        signal: AbortSignal.timeout(deadline(5000)),
       });
       assert.equal(response.status, 200);
       return (await response.json()).result;
@@ -163,6 +188,100 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red"]) {
       idempotencyKey: "author",
     });
     assert.equal(result.status, "succeeded");
+
+    if (scenario === "concurrent") {
+      const rows = (current) =>
+        current.evaluate(async () => (await window.desktop.workspace()).terminals);
+      const ids = [result.resultId];
+      const launchMore = async (generation) => {
+        for (const index of [2, 3]) {
+          const tree = await call("create_worktree", {
+            branch: `child-${generation}-${index}`,
+            idempotencyKey: `tree-${generation}-${index}`,
+          });
+          const child = await call("launch", {
+            worktreeId: tree.resultId,
+            agent: "claude",
+            review: { rounds: 3 },
+            idempotencyKey: `author-${generation}-${index}`,
+          });
+          assert.equal(child.status, "succeeded");
+          ids.push(child.resultId);
+        }
+      };
+      await launchMore("initial");
+      await expect
+        .poll(
+          async () =>
+            (await rows(page)).filter(
+              (row) => ids.includes(row.id) && row.review?.phase === "building",
+            ).length,
+        )
+        .toBe(3);
+      await expect
+        .poll(async () => (await rows(page)).find((row) => row.id === parentId)?.conversationId)
+        .toBe("parent-conversation");
+      const roundTrips = async () => {
+        for (let index = 0; index < 10; index++) {
+          const start = performance.now();
+          assert.equal((await call("whoami")).role, "orchestrator");
+          assert.ok(performance.now() - start < deadline(5000));
+        }
+      };
+      await expect
+        .poll(async () => {
+          const files = (await require("node:fs/promises").readdir(root)).filter(
+            (name) => name.startsWith("credentials.json.output-") && !name.endsWith(".tmp"),
+          );
+          const sizes = await Promise.all(
+            files.map(async (file) => Number(await readFile(path.join(root, file), "utf8"))),
+          );
+          return sizes.filter((size) => size >= 1024 * 1024).length;
+        })
+        .toBe(3);
+      await roundTrips();
+      await quitAndWait(app, async () => {
+        await app.evaluate(({ app }) => app.quit());
+        await (await confirmationPage(app))
+          .getByRole("button", { name: "Stop all and quit" })
+          .click();
+      });
+      const restored = await launchApp(context, { ...options, fixture: "restored" });
+      const restoredPage = await boardPage(restored);
+      await expect
+        .poll(
+          async () =>
+            (await rows(restoredPage)).filter(
+              (row) =>
+                ids.includes(row.id) &&
+                row.dormant &&
+                row.review?.phase === "escalated" &&
+                row.review.reason === "restored",
+            ).length,
+        )
+        .toBe(3);
+      await expect
+        .poll(
+          async () =>
+            JSON.parse(await readFile(`${credentials}.app`, "utf8")).controlToken !==
+            parent.controlToken,
+        )
+        .toBe(true);
+      parent = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
+      await roundTrips();
+      // Two new active loops beside the three restored/escalated loops must
+      // also settle without resurrecting dormant automation.
+      await launchMore("restored");
+      await roundTrips();
+      assert.equal(
+        (await rows(restoredPage)).filter(
+          (row) =>
+            ids.slice(0, 3).includes(row.id) && row.dormant && row.review?.reason === "restored",
+        ).length,
+        3,
+      );
+      return;
+    }
     const authorId = result.resultId;
     const row = page.locator(`[data-drag-session="${authorId}"]`);
     const state = async () => (await call("session_state", { id: authorId })).review;
