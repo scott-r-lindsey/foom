@@ -99,9 +99,13 @@ request”/`#` in board marks, panels and completion notifications.
 Merged GitLab cleanup reads REST `merge_commit_sha` and `squash_commit_sha` as
 separate optional hints, each exactly 40 lowercase hex characters. The manifest
 language has literal selectors, not ancestry-aware fallback expressions. Main
-tries both validated hints and accepts only one locally verified as an ancestor
-of the freshly fetched default, retaining the exact-head, clean-checkout and
-identity guards. This covers squash-only merges (null merge SHA), separate merge
+tries both validated hints and requires local head-integration proof as well as
+ancestry from the freshly fetched default: either the exact head is an ancestor
+of the hint, or a single-parent hint has the same whitespace-preserving stable
+patch ID as the head's change set from their merge base. Unrelated ancestors,
+stale squash hints, empty patches, unavailable/ambiguous merge bases and Git errors
+cannot authorize cleanup. Exact-head, same-project, stable-refresh, clean-checkout
+and identity guards remain required. This covers squash-only merges (null merge SHA), separate merge
 and squash commits, and a non-ancestor merge SHA with a reachable squash SHA.
 GraphQL maps `mergeCommitSha`; no unsupported `squashCommitSha` field is requested.
 Cleanup uses the ordinary REST plan, where both fields are available. #718's

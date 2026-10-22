@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { manifestForgeProvider } from "../../../../src/main/control/forge-interpreter";
-import { gitlabManifest } from "../../../../src/main/control/forge-manifests";
+import { githubManifest, gitlabManifest } from "../../../../src/main/control/forge-manifests";
 import { forgeValue } from "../../../../src/main/control/forge-mapping";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git as execute } from "../../../helpers/git.js";
@@ -421,6 +421,137 @@ describe("merged worktree containment", () => {
       expect(transport).toHaveBeenCalled();
     },
   );
+  it.each([
+    "GitLab unrelated merge ancestor",
+    "GitLab unrelated squash ancestor",
+    "GitLab stale squash",
+    "GitLab whitespace after squash",
+    "GitLab invalid UTF-8 after squash",
+    "GitLab forced-text NUL after squash",
+    "GitLab root squash",
+    "GitLab empty squash",
+    "GitHub unrelated merge ancestor",
+  ])("refuses %s claims for unmerged work through offline real Git", async (mode) => {
+    const original = await feature();
+    if (mode.includes("invalid UTF-8")) {
+      await writeFile(join(original.path, "feature.txt"), Buffer.from([0xfe, 0x0a]));
+      await commit(original.path, "old non-UTF-8 content");
+    }
+    if (mode.includes("forced-text NUL")) {
+      await writeFile(join(repo, ".git", "info", "attributes"), "feature.txt diff\n");
+      await writeFile(join(original.path, "feature.txt"), Buffer.from([0, 0x61, 0x0a]));
+      await commit(original.path, "old forced-text binary content");
+    }
+    const rootCommit = (await git("rev-parse", "main")).trim();
+    await writeFile(join(repo, "unrelated.txt"), "old default change\n");
+    await commit(repo, "unrelated default ancestor");
+    let hint = (await git("rev-parse", "HEAD")).trim();
+    if (mode.includes("after squash") || mode.includes("stale squash")) {
+      await git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "merge",
+        "--squash",
+        "feature",
+      );
+      await commit(repo, "squash old feature head");
+      hint = (await git("rev-parse", "HEAD")).trim();
+      await writeFile(
+        join(original.path, "feature.txt"),
+        mode.includes("invalid UTF-8")
+          ? Buffer.from([0xff, 0x0a])
+          : mode.includes("forced-text NUL")
+            ? Buffer.from([0, 0x62, 0x0a])
+            : mode.includes("whitespace")
+              ? "feature \n"
+              : "new unmerged work\n",
+      );
+      await commit(original.path, "work added after squash");
+    }
+    if (mode.includes("root squash")) hint = rootCommit;
+    if (mode.includes("empty squash")) {
+      await git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "empty default commit",
+      );
+      hint = (await git("rev-parse", "HEAD")).trim();
+    }
+    // Prevent the content-containment path from deciding this case; the forged
+    // hint is reachable, but default does not integrate the worktree's change set.
+    await writeFile(join(repo, "feature.txt"), "conflicting default edit\n");
+    await commit(repo, "default diverges");
+    await remote();
+    const tree = (await service.listWorktrees(repo)).find((tree) => tree.path === original.path);
+    if (!tree?.head) throw new Error("Missing feature head");
+    const squash = mode.includes("squash");
+    const github = mode.startsWith("GitHub");
+    const row = github
+      ? {
+          number: 579,
+          headRefName: "feature",
+          headRefOid: tree.head,
+          state: "MERGED",
+          isCrossRepository: false,
+          headRepositoryOwner: { login: "test" },
+          mergeCommit: { oid: hint },
+        }
+      : {
+          iid: 7,
+          source_branch: "feature",
+          sha: tree.head,
+          state: "merged",
+          source_project_id: 1,
+          target_project_id: 1,
+          project_id: 1,
+          head_pipeline: null,
+          merge_commit_sha: squash ? null : hint,
+          squash_commit_sha: squash ? hint : null,
+        };
+    const transport = vi.fn((argv: readonly string[]) =>
+      Promise.resolve({
+        code: 0,
+        stderr: "",
+        stdout: JSON.stringify(
+          github
+            ? argv[1] === "list"
+              ? [row]
+              : argv[1] === "checks"
+                ? []
+                : row
+            : argv[1]?.endsWith("/merge_requests")
+              ? [row]
+              : row,
+        ),
+      }),
+    );
+    const provider = manifestForgeProvider(
+      github ? githubManifest : gitlabManifest,
+      { host: github ? "github.com" : "gitlab.com", project: "test/repo" },
+      transport,
+      "main",
+    );
+    expect(await provider.lookup("feature", undefined, "all")).toMatchObject({
+      state: "MERGED",
+      headSha: tree.head,
+      ...(squash ? { squashCommit: hint } : { mergeCommit: hint }),
+    });
+    service = new WorktreeService(root, () => provider);
+    await service.addRepository(repo);
+    const base = await service.mergedDefault(repo, true);
+    expect(await service.mergedCommit(repo, tree, base)).toBe(false);
+    expect(
+      await service.canAutoRemove(repo, tree.path, await service.removalIdentity(repo, tree.path)),
+    ).toBe(false);
+    expect(transport).toHaveBeenCalled();
+  });
   it("rejects conflicts and deletes only an unchanged, unchecked-out local branch", async () => {
     const tree = await feature();
     await writeFile(join(repo, "feature.txt"), "different\n");

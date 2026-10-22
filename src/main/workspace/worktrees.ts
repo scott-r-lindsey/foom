@@ -31,6 +31,8 @@ import {
   worktreeIdentity,
 } from "./worktree-operations";
 
+const commitId = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
+
 /** Main-process service. Git membership authorizes management; managed records creation history. */
 export class WorktreeService {
   private readonly repositories = new Map<string, Repository>();
@@ -617,12 +619,17 @@ export class WorktreeService {
       let integrated = false;
       for (const commit of new Set([pr.mergeCommit, pr.squashCommit])) {
         if (!commit) continue;
+        if (!commitId.test(commit)) return false;
         try {
           await git(repository, ["merge-base", "--is-ancestor", commit, base]);
+        } catch (error) {
+          // Exit 1 means non-ancestor; other errors make the proof unavailable.
+          if (record(error) && error["code"] === 1) continue;
+          return false;
+        }
+        if (await this.hintIntegratesHead(repository, commit, tree.head)) {
           integrated = true;
           break;
-        } catch {
-          // A separate merge commit may be absent while the squash commit is integrated.
         }
       }
       if (!integrated) return false;
@@ -634,6 +641,64 @@ export class WorktreeService {
       // Missing objects, malformed/hostile forge hints and unavailable providers fail closed.
       return false;
     }
+  }
+
+  /** Reachability from default is necessary, but cannot tie a forge hint to this head. */
+  private async hintIntegratesHead(
+    repository: string,
+    commit: string,
+    head: string,
+  ): Promise<boolean> {
+    try {
+      await git(repository, ["merge-base", "--is-ancestor", head, commit]);
+      return true;
+    } catch (error) {
+      // Only an ordinary non-ancestor result permits trying squash/rebase proof.
+      if (!record(error) || error["code"] !== 1) throw error;
+    }
+    const parents = (await git(repository, ["rev-list", "--parents", "-n", "1", commit]))
+      .trim()
+      .split(" ");
+    const parent = parents[1];
+    if (parents.length !== 2 || parents[0] !== commit || !parent || !commitId.test(parent))
+      return false;
+    const mergeBase = (await git(repository, ["merge-base", "--all", parent, head])).trim();
+    // Multiple merge bases are ambiguous; never pick one using forge claims.
+    if (!commitId.test(mergeBase)) return false;
+    const integratedPatch = await this.commitPatchId(repository, parent, commit);
+    return (
+      integratedPatch !== undefined &&
+      integratedPatch === (await this.commitPatchId(repository, mergeBase, head))
+    );
+  }
+
+  private async commitPatchId(
+    repository: string,
+    from: string,
+    to: string,
+  ): Promise<string | undefined> {
+    const diff = await git(repository, [
+      "diff",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--no-renames",
+      "--binary",
+      "--full-index",
+      "--no-color",
+      "--unified=3",
+      "--src-prefix=a/",
+      "--dst-prefix=b/",
+      "--ignore-submodules=none",
+      from,
+      to,
+      "--",
+    ]);
+    // The shared Git helper decodes UTF-8. Refuse decoding loss or forced-text
+    // binary data rather than letting distinct byte changes compare equal.
+    if (diff.includes("\uFFFD") || diff.includes("\0")) return undefined;
+    // Verbatim implies stable ordering and also retains whitespace changes.
+    const result = (await git(repository, ["patch-id", "--verbatim"], 30_000, diff)).trim();
+    return /^([a-f0-9]{40,64}) [a-f0-9]{40,64}$/u.exec(result)?.[1];
   }
 
   async deleteMergedBranch(repository: string, branch: string, head: string): Promise<void> {

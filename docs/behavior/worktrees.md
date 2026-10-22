@@ -11,15 +11,29 @@ branch is merged when `git merge-tree --write-tree <default> <branch>` produces
 the default branch's tree: merging it would change nothing. This works for merge,
 squash and rebase merges without GitHub access. Alternatively, a same-repository
 PR reported MERGED qualifies only when its reported head exactly matches the local
-worktree HEAD and its validated merge commit is locally verified as an ancestor of
-the fetched default with `git merge-base --is-ancestor`. Forge data is only a hint;
-missing or malformed evidence never qualifies. This also recognizes squash and
-rebase merges after the default branch changes the same lines. A failed fetch refuses cleanup;
+worktree HEAD and local Git proves that a validated integration hint contains that
+head's changes. The hint must be an ancestor of the freshly fetched default. A
+merge commit qualifies only if the worktree head is its ancestor. Otherwise, a
+squash/rebase hint must have exactly one parent and its patch must equal the
+worktree head's patch relative to the merge base of that parent and the head.
+Foom compares binary-inclusive diffs with three lines of context using
+`git patch-id --verbatim`
+(stable hashing that retains whitespace). Empty patches, ambiguous/missing merge
+bases and Git errors fail closed. An old default commit or stale squash of an
+earlier head cannot authorize deletion of later work. These rules apply equally
+to GitHub and GitLab, with same-project, stable-refresh, clean-checkout and identity
+guards retained. Forge claims alone never authorize cleanup. This also recognizes
+squash and rebase merges after the default branch changes the same lines. A failed fetch refuses cleanup;
 Foom never falls back to a stale default branch. Local inventory returns immediately;
 background cleanup eligibility is cached for up to one minute and published when
 ready. A plan less than one minute old fills the dialog immediately without fetching.
 An older plan opens the dialog immediately in a checking state with Delete disabled.
 Approving Delete always fetches afresh.
+
+Patch proof also refuses diffs containing NUL or the UTF-8 replacement character:
+the shared bounded Git helper returns UTF-8 strings, so these cannot establish a
+lossless byte comparison. Such worktrees are conservatively retained. Normal
+binary diffs use Git's binary patch encoding and full object IDs.
 
 The trusted dialog lists candidate branches, then skipped checkouts with short
 reasons, and offers **Delete** and **Cancel**. During cleanup it becomes a live

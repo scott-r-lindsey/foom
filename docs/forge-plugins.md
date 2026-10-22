@@ -636,13 +636,28 @@ They are exercised in derived fixture envelopes, not claimed as new live capture
 
 GitLab REST maps `merge_commit_sha` and `squash_commit_sha` independently. There
 is no manifest expression or ancestry-aware fallback selector: main retains both
-validated hints, and cleanup tests the merge commit followed by the squash commit
-against the fetched default. Only a locally present ancestor qualifies. A null,
-malformed or non-ancestor merge commit therefore cannot hide an integrated squash
-commit. Missing/invalid hints are absent and cannot authorize cleanup. GraphQL
+validated hints, and cleanup tests the merge commit followed by the squash commit.
+A candidate must be an ancestor of fetched default and locally integrate exactly
+the sampled head. Head ancestry proves a merge; otherwise a candidate must be a
+single-parent commit whose patch equals the head's patch from the merge base of
+that parent and the head. Main compares binary-inclusive diffs with three lines of context using
+`git patch-id --verbatim`, which implies stable hashing and preserves whitespace
+(unlike `--stable` alone). This applies to both GitLab and GitHub and to either
+hint field; field names and MERGED claims are never proof. Missing/ambiguous merge
+bases, empty patches, unrelated or stale hints, malformed values and Git command
+errors fail closed. Only exit 1 from an ancestry query means ordinary
+non-ancestry, permitting the alternative proof or hint. The head-equality,
+same-project, final-refresh, clean-checkout and identity guards remain required.
+See [Git patch IDs](https://git-scm.com/docs/git-patch-id).
+Missing/invalid hints are absent and cannot authorize cleanup. GraphQL
 requests/maps `mergeCommitSha`; the documented MergeRequest schema has no
 `squashCommitSha`. Cleanup's ordinary REST lookup supplies the squash alternative.
 See [REST fields](https://docs.gitlab.com/api/merge_requests/) and
 [GraphQL fields](https://docs.gitlab.com/api/graphql/reference/objects/#mergerequest).
 The reduced #718 envelopes omit these SHA fields; tests add explicitly synthetic
 merge/squash hints, with real local Git objects for the cleanup regression.
+
+Patch proof also refuses diffs containing NUL or the UTF-8 replacement character:
+the shared bounded Git helper returns UTF-8 strings, so these cannot establish a
+lossless byte comparison. Such worktrees are conservatively retained. Normal
+binary diffs use Git's binary patch encoding and full object IDs.

@@ -60,10 +60,24 @@ session eligibility, clean status and either `merge-tree` containment against a 
 fetched default commit or a locally verified PR merge. The latter uses the existing
 forge lookup for a same-repository MERGED PR, requires its head SHA to equal the
 worktree HEAD exactly, validates optional `PullRequest.mergeCommit` and
-`PullRequest.squashCommit` IDs, and tests each with
-`git merge-base --is-ancestor <commit> <fetched-default>` until one qualifies.
-A missing or non-ancestor merge SHA cannot hide a valid squash ancestor. Forge hints alone
-never authorize removal; missing objects, mismatched heads and failed checks refuse.
+`PullRequest.squashCommit` IDs, and requires each candidate to be an ancestor of
+fetched default. Reachability alone is insufficient: the head must be an ancestor
+of the hint, or a single-parent hint must have exactly the head's patch relative
+to the merge base of the hint's parent and the head. Patch proof uses binary-inclusive diffs with three lines of context,
+external diff/textconv disabled, and
+`git patch-id --verbatim` (stable hashing retaining whitespace). Both merge and
+squash fields can carry squash/rebase evidence; their names grant no trust.
+Root/merge hints without head ancestry, empty patches, multiple/missing merge
+bases, unrelated/stale patches and command errors refuse proof. Only an ordinary
+exit-1 non-ancestor query permits trying the alternate proof/hint. All derived
+SHAs are validated before argv-array Git commands. Forge hints alone never
+authorize removal; mismatched heads and failed checks refuse.
+
+Patch proof also refuses diffs containing NUL or the UTF-8 replacement character:
+the shared bounded Git helper returns UTF-8 strings, so these cannot establish a
+lossless byte comparison. Such worktrees are conservatively retained. Normal
+binary diffs use Git's binary patch encoding and full object IDs.
+
 Every removal rechecks this evidence. Automatic removal uses this verified PR path
 alongside its existing ancestry/no-unpushed-commits path, preserving clean status,
 identity, session and authority guards. A failed post-confirmation fetch prevents every removal.
