@@ -213,6 +213,7 @@ it("classifies every real server tool and includes every classification in the b
   expect(registered).toEqual(Object.keys(CONTROL_TOOL_CLASSES).sort());
   expect([...data.launch.toolPermissions.names].sort()).toEqual(registered);
   expect(CONTROL_TOOL_CLASSES).toEqual({
+    manual: "read",
     whoami: "read",
     sessions: "read",
     session_state: "read",

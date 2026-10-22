@@ -206,6 +206,7 @@ it("a human transfer takes effect on the next call over each client's existing M
         "whoami",
         "sessions",
         "session_state",
+        "manual",
         "open_preview",
         "list_previews",
         "close_preview",
@@ -331,7 +332,14 @@ it("pins bounded server and discovery wording to the orchestration contract", as
   const initialized = object((await parent.init())?.result);
   const instructions = initialized["instructions"];
   expect(typeof instructions).toBe("string");
-  expect(instructions).toBe(doc.match(/\*\*Server instructions\*\*\n\n> ([^\n]+)/u)?.[1]);
+  const instructionBlock = doc.match(/\*\*Server instructions\*\*\n\n((?:> [^\n]+\n)+)/u)?.[1];
+  expect(instructions).toBe(
+    instructionBlock
+      ?.trimEnd()
+      .split("\n")
+      .map((line) => line.slice(2))
+      .join("\n"),
+  );
   expect(String(instructions).length).toBeLessThanOrEqual(1600);
   expect(instructions).toContain("Use prompt and send_keys");
   expect(instructions).toContain("without human review");
@@ -342,6 +350,7 @@ it("pins bounded server and discovery wording to the orchestration contract", as
   const listed = object((await parent.send("tools/list"))?.result)["tools"];
   if (!Array.isArray(listed)) throw new Error("missing tools");
   for (const name of [
+    "manual",
     "whoami",
     "launch",
     "prompt",
@@ -393,7 +402,7 @@ it("advertises only current capabilities with CLI fallbacks accepted by the real
     ["read-handoff", "child"],
     ["operation-status", "--idempotency-key", "key"],
   ];
-  const expected = examples.map((args) => ({
+  const cliExpected = examples.map((args) => ({
     name: command(args).method,
     cli: `foom ${String(args[0])}`,
     ...(args[0] === "wait-for"
@@ -403,12 +412,13 @@ it("advertises only current capabilities with CLI fallbacks accepted by the real
         }
       : {}),
   }));
+  const expected = [...cliExpected.slice(0, 3), { name: "manual" }, ...cliExpected.slice(3)];
   expect(identity["tools"]).toEqual(expected);
   expect(identity["capabilities"]).toEqual(expected.map((tool) => tool.name));
   service.setRole("parent", "agent");
   const revoked = object((await parent.tool("whoami", {})).structuredContent);
-  expect(revoked["tools"]).toEqual(expected.slice(0, 6));
-  expect(revoked["capabilities"]).toEqual(expected.slice(0, 6).map((tool) => tool.name));
+  expect(revoked["tools"]).toEqual(expected.slice(0, 7));
+  expect(revoked["capabilities"]).toEqual(expected.slice(0, 7).map((tool) => tool.name));
 });
 
 it("keeps a blocking CLI request open beyond normal transport deadlines and wakes with metadata", async () => {

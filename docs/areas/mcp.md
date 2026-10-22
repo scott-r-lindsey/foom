@@ -10,7 +10,7 @@ It negotiates MCP 2025-03-26, 2025-06-18 or 2025-11-25, returns JSON responses a
 binds one random protocol session to each live grant generation, so it survives a
 role change. Reinitializing replaces that grant's old protocol session; DELETE terminates it. GET authenticates and
 validates the session before returning 405 (no SSE stream). Revocation is rechecked
-at dispatch. Ordinary agents can call `whoami`, `sessions`, `session_state` and the three preview view actions.
+at dispatch. Ordinary agents can call `whoami`, `sessions`, `session_state`, `manual` and the three preview view actions.
 Because clients fetch tools once (#303), MCP lists the orchestration tools to every
 agent; calls without the role are refused with a message naming `whoami`, here and
 by direct invocation.
@@ -55,3 +55,29 @@ show it neutrally except for an orchestrator's magenta Not connected failure.
 See the [real-client probe record](../contracts/mcp-validation.md#read-only-mcp-implementation-verification-153).
 
 MCP protocol metadata such as `_meta.progressToken` is accepted by the adapter without being passed to the control service.
+
+## Bundled manual (#699)
+
+Every session already launched with Foom MCP, including ordinary children and
+the orchestrator, can call the read-only `manual` tool. No arguments returns
+section IDs, titles and one-line summaries. `section` selects an exact known ID
+(maximum 200 characters); unknown IDs return a validation error listing valid IDs.
+`page` is a zero-based integer used only with a section; follow `nextPage` until
+it is absent. Each page holds at most 2048 Unicode code points (4096 UTF-16 units),
+and a complete section response remains below 64 KiB even with JSON escaping.
+The bounded section list is limited to 100 entries, 200-character IDs/titles and
+160-character summaries. Unknown fields and invalid page values fail closed.
+
+The authority-independent reader serves only the fixed bundled
+`build/manual/sections.json`, emitted by the same `sectionIndex` extraction as
+manual search. Main reads its native ASAR path with Electron fs, including on
+Windows; no URL conversion or caller path is involved. There are no network or
+write capabilities. Tool text identifies the manual as reference documentation
+about Foom, not instructions for the current task. Server instructions say
+“For questions about using Foom, call manual.” Manual content is fetched only
+on demand, never included in startup instructions.
+
+Config sessions still receive no repository control grant or Foom MCP attachment,
+so they do not receive `manual` yet. Their manual-only attachment is split out of
+#699 into a separate boundary change. This tool does not change config launch or
+grants. The reader itself requires no repository/session authority for reuse.

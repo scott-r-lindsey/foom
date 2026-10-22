@@ -10,7 +10,9 @@ The workspace starts it when the window is composed so human pairing is availabl
 Launches receive the `agent` role; only main changes it, when the human makes a
 running session the orchestrator or revokes it (#303), or when restore re-grants an
 orchestrator (#155). The read methods are `whoami`, `sessions`,
-`session_state` and actor-scoped `operation_status` (orchestrators only). Unknown
+`session_state` and actor-scoped `operation_status` (orchestrators only). Agent
+grants also support `manual`, which serves only fixed bundled reference
+documentation without workspace or session data; paired CLI grants omit it. Unknown
 methods, role/force flags and unknown fields fail closed. Orchestration methods are
 described in the [orchestration contract](../contracts/control-mutations.md).
 

@@ -527,6 +527,7 @@
           "type": "array",
           "items": {
             "enum": [
+              "manual",
               "whoami",
               "sessions",
               "session_state",
@@ -547,7 +548,7 @@
               "operation_status"
             ]
           },
-          "maxItems": 18,
+          "maxItems": 19,
           "minItems": 0
         },
         "format": {

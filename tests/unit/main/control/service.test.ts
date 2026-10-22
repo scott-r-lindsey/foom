@@ -45,6 +45,7 @@ describe("control identity and capability checks", () => {
         { name: "whoami", cli: "foom whoami" },
         { name: "sessions", cli: "foom sessions" },
         { name: "session_state", cli: "foom session-state" },
+        { name: "manual" },
         { name: "open_preview", cli: "foom open-preview" },
         { name: "list_previews", cli: "foom previews" },
         { name: "close_preview", cli: "foom close-preview" },
@@ -54,6 +55,7 @@ describe("control identity and capability checks", () => {
         "whoami",
         "sessions",
         "session_state",
+        "manual",
         "open_preview",
         "list_previews",
         "close_preview",
@@ -86,6 +88,7 @@ describe("control identity and capability checks", () => {
         "whoami",
         "sessions",
         "session_state",
+        "manual",
         "open_preview",
         "list_previews",
         "close_preview",
@@ -421,6 +424,9 @@ it("dates the current role at binding and each change, preserving it on no-ops",
       grantedAt: "2026-10-15T03:00:00.000Z",
     });
     const cli = service.grantCli(repo);
+    expect(() => service.dispatch(service.authenticate(cli.token), request("manual"))).toThrow(
+      "forbidden",
+    );
     expect(service.dispatch(service.authenticate(cli.token), request("whoami"))).toMatchObject({
       role: "cli",
       grantedAt: "2026-10-15T03:00:00.000Z",

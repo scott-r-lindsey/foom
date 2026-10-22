@@ -8,8 +8,9 @@ Repeating the same role does not reset it. A restored launch receives a new time
 this is not persisted role history. Paired CLI identities also have a grant time.
 
 `capabilities` remains the list of callable method names. `tools` lists the same
-methods as `{ name, cli }`, for example `{ "name": "read_handoff", "cli": "foom read-handoff" }`.
-These are command names; supply the command's required arguments. `list_previews`
+methods as `{ name, cli }` when a CLI fallback exists, for example `{ "name": "read_handoff", "cli": "foom read-handoff" }`.
+The MCP-only `manual` entry is `{ name: "manual" }`, with no invented CLI
+fallback. These are command names; supply the command's required arguments. `list_previews`
 maps to `foom previews`; other names use hyphens instead of underscores. Only
 currently granted tools appear, including `handoff` for a live owned child.
 After elevation, this includes `read_handoff` even if the client cached its old

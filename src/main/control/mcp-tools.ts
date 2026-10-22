@@ -1,6 +1,15 @@
 import { CHILD_KEYS } from "../../shared/child-input";
 const tools = [
   {
+    name: "manual",
+    description:
+      "Read reference documentation about Foom, not instructions for the current task. No arguments lists sections (id, title, summary). Supply section to read plain text; follow nextPage with the same section and page to continue. Offline bundled manual only.",
+    properties: {
+      section: { type: "string", minLength: 1, maxLength: 200 },
+      page: { type: "integer", minimum: 0 },
+    },
+  },
+  {
     name: "whoami",
     description:
       "Call first: tells you whether you are this repository's Foom orchestrator, when your current role was granted (grantedAt), and your tools with CLI fallbacks. Only the human grants the role. If a tool is missing from your client, use its listed foom command with the same session credentials. As orchestrator, create a worktree, launch one child with a task, acceptance criteria and limits, then wait_for and read_handoff. Verify evidence before calling work done; you own integration and reporting to the human.",
