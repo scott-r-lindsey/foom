@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { join } from "node:path";
-import { readdir } from "node:fs/promises";
+import { isAbsolute, join, normalize } from "node:path";
+import { homedir } from "node:os";
+import { readdir, realpath } from "node:fs/promises";
 import type { AgentManifestV2 } from "../../shared/agent-manifest-v2";
 import { manifestJson } from "../../shared/agent-manifest-json";
-import { record } from "./setup-metadata";
+import { readSetupFile, record } from "./setup-metadata";
 import { dataContainer } from "../../shared/agent-manifest-container";
 import {
   createPrivateFile,
@@ -37,7 +38,7 @@ export function pluginContent(
     const folder = channel.observer.protocol === "ordered-v2" ? "" : `observers/${channel.id}`;
     for (const [name, content] of Object.entries(observerAssets(channel, windows)))
       assets.push({ name: folder ? `${folder}/${name}` : name, content });
-    const script = `${directory ?? "/FOOM_PLUGIN_ROOT"}/${folder ? `${folder}/` : ""}observer.${windows ? "ps1" : "sh"}`;
+    const script = `${directory ?? "/FOOM_INSTALLED_PLUGIN_ROOT"}/${folder ? `${folder}/` : ""}observer.${windows ? "ps1" : "sh"}`;
     values[`observerVersion:${channel.id}`] = observerVersion(channel, windows);
     const add = (event?: string) => {
       const suffix = event ? `.${event}` : "";
@@ -88,17 +89,59 @@ export function pluginContent(
   return { content, fingerprint, observers: assets.length > 0 };
 }
 
+async function installedDirectory(model: AgentManifestV2, home: string) {
+  const relative = model.setup?.status.ownership?.directory;
+  if (!relative) throw Error("Missing plugin ownership");
+  return { directory: join(await realpath(home), relative), relative };
+}
+
+/** Read only the fixed owned inventory. Untrusted list paths never select files or commands. */
+export async function installedPluginCurrent(
+  model: AgentManifestV2,
+  facts: Facts,
+  home: string,
+  modern: boolean,
+  listedPath: unknown,
+): Promise<boolean> {
+  try {
+    const { directory, relative } = await installedDirectory(model, home);
+    if (
+      modern &&
+      (typeof listedPath !== "string" ||
+        listedPath.length > 4096 ||
+        /[\p{C}\u2028\u2029]/u.test(listedPath) ||
+        !isAbsolute(listedPath) ||
+        ![directory, join(home, relative)].includes(normalize(listedPath)))
+    )
+      return false;
+    const expected = pluginContent(model, facts, process.platform === "win32", directory);
+    for (const file of expected.content) {
+      if (file.name === "plugin.json") continue; // CLI-owned metadata is checked separately.
+      if (
+        (await readSetupFile(home, `${relative}/${file.name}`, Buffer.byteLength(file.content))) !==
+        file.content
+      )
+        return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Immutable, content-addressed staging under Foom's profile, never the agent's home. */
 export async function stagePlugin(
   model: AgentManifestV2,
   root: string,
   facts: Facts,
   windows = process.platform === "win32",
+  home = homedir(),
 ) {
   const { fingerprint } = pluginContent(model, facts, windows);
   const parent = await privateDirectory(root, "agent-plugins");
   const directory = await privateDirectory(parent, fingerprint);
-  const { content } = pluginContent(model, facts, windows, directory);
+  const installed = await installedDirectory(model, home);
+  const { content } = pluginContent(model, facts, windows, installed.directory);
   for (const file of content) {
     let folder = directory;
     for (const component of file.name.split("/").slice(0, -1))

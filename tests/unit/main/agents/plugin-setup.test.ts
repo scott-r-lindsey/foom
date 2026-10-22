@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, link } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, writeFile, readFile, rm, symlink, link } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
@@ -49,9 +49,8 @@ async function environment() {
   const run = vi.fn(async (_exe: string, args: readonly string[]) => {
     if (args[1] === "list") return { stdout: JSON.stringify({ imports: [] }) };
     if (args[1] === "install") {
-      const content = await readFile(join(required(args[2]), "plugin.json"), "utf8");
       await mkdir(directory, { recursive: true });
-      await writeFile(manifest, content);
+      await cp(required(args[2]), directory, { recursive: true });
     }
     if (args[1] === "enable")
       await writeFile(config, JSON.stringify({ plugins: { foom: { enabled: true } } }));
@@ -70,7 +69,7 @@ async function environment() {
     validate: vi.fn(async () => {}),
     facts: () => ({}),
     confirm,
-    stage: () => stagePlugin(m, home, {}),
+    stage: () => stagePlugin(m, home, {}, process.platform === "win32", home),
     signal: new AbortController().signal,
   });
   return {
@@ -340,13 +339,17 @@ it("stages immutable private files, reuses identical content and refuses tamperi
     content: "{}",
     when: undefined,
   });
-  const stage = await stagePlugin(e.m, e.home, {});
-  expect((await stagePlugin(e.m, e.home, {})).directory).toBe(stage.directory);
+  const stage = await stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home);
+  expect((await stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home)).directory).toBe(
+    stage.directory,
+  );
   await stage.verify();
   await writeFile(join(stage.directory, "config/hooks.json"), "[]");
   await expect(stage.verify()).rejects.toThrow("changed");
   e.m.files = [];
-  await expect(stagePlugin(e.m, e.home, {})).rejects.toThrow("Missing");
+  await expect(stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home)).rejects.toThrow(
+    "Missing",
+  );
   e.m.files = [
     {
       name: "plugin.json",
@@ -356,7 +359,9 @@ it("stages immutable private files, reuses identical content and refuses tamperi
       when: undefined,
     },
   ];
-  await expect(stagePlugin(e.m, e.home, {})).rejects.toThrow("Unselected");
+  await expect(stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home)).rejects.toThrow(
+    "Unselected",
+  );
 });
 
 it("does not let authored status cases relabel current or enabled installations into mutation authority", async () => {
@@ -416,7 +421,7 @@ it("rejects mutation probes and ownership without the fixed list probe at the pa
 });
 it("refuses unreviewed extra staging files before any CLI receives the staging directory", async () => {
   const e = await environment();
-  const stage = await stagePlugin(e.m, e.home, {});
+  const stage = await stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home);
   await writeFile(join(stage.directory, "unreviewed.json"), "{}");
   await expect(stage.verify()).rejects.toThrow("Staged plugin changed");
 });
@@ -519,7 +524,7 @@ it.each(["extra", "link", "changed"])(
       e.m,
       parseAgentManifest(JSON.stringify({ ...fixture, id: "setup-fixture" })).model,
     );
-    const staged = await stagePlugin(e.m, e.home, {});
+    const staged = await stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home);
     const target = join(
       staged.directory,
       "observers/lifecycle",
@@ -607,6 +612,87 @@ it("keeps an installed plugin with a missing enabled preference leaf unavailable
   expect(await e.status()).toEqual({ state: "unavailable", actions: [] });
   await expect(e.service.change(e.input("remove"))).rejects.toThrow("changed");
   expect(e.run.mock.calls.every((entry) => entry[1][1] === "list")).toBe(true);
+});
+
+it.each([
+  "missing-target",
+  "changed-target",
+  "changed-hooks",
+  "linked-target",
+  "path-missing",
+  "path-relative",
+  "path-outside",
+  "path-control",
+  "path-long",
+  "path-type",
+])("offers repair for a matching fingerprint with %s", async (failure) => {
+  const e = await environment();
+  const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+  Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+  await e.service.change(e.input());
+  const observer = join(e.directory, process.platform === "win32" ? "observer.ps1" : "observer.sh");
+  let reported: unknown = e.directory;
+  if (failure === "missing-target") await rm(observer);
+  if (failure === "changed-target") await writeFile(observer, "changed");
+  if (failure === "changed-hooks") await writeFile(join(e.directory, "hooks.json"), "{}");
+  if (failure === "linked-target") {
+    await rm(observer);
+    await symlink(e.manifest, observer);
+  }
+  if (failure === "path-missing") reported = undefined;
+  if (failure === "path-relative") reported = ".gemini/config/plugins/foom";
+  if (failure === "path-outside") reported = join(e.home, "outside");
+  if (failure === "path-control") reported = `${e.directory}\n`;
+  if (failure === "path-long") reported = "/".repeat(4097);
+  if (failure === "path-type") reported = {};
+  const runner = required(e.run.getMockImplementation());
+  e.run.mockImplementation((executable, args) =>
+    args[1] === "list"
+      ? Promise.resolve({
+          stdout: JSON.stringify([{ name: "foom", enabled: true, path: reported }]),
+        })
+      : runner(executable, args),
+  );
+  const status = await e.status();
+  expect(status.state).toBe("outdated");
+  expect(status.actions).toContainEqual({ id: "update", label: "Update" });
+  expect(status.actions).toContainEqual({ id: "reinstall", label: "Reinstall plugin" });
+});
+
+it("keeps a disposable-profile install working across Dev/everyday scans after deleting its staging", async () => {
+  const e = await environment();
+  const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+  Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+  const disposable = join(e.home, "fresh-profile");
+  const everyday = join(e.home, "everyday-profile");
+  await mkdir(disposable);
+  await mkdir(everyday);
+  const input = e.input();
+  input.stage = () => stagePlugin(e.m, disposable, {}, process.platform === "win32", e.home);
+  await e.service.change(input);
+  await rm(disposable, { recursive: true });
+  const runner = required(e.run.getMockImplementation());
+  e.run.mockImplementation(async (executable, args) => {
+    if (args[1] !== "list") return runner(executable, args);
+    const entries = await readFile(e.manifest).then(
+      () => [{ name: "foom", enabled: true, path: e.directory }],
+      () => [],
+    );
+    return { stdout: JSON.stringify(entries) };
+  });
+  const other = new PluginSetup(e.home, e.run);
+  for (let scan = 0; scan < 3; scan++) {
+    expect((await e.status()).state).toBe("installed");
+    expect((await other.status(e.m, e.executable)).state).toBe("installed");
+  }
+  const hooks = await readFile(join(e.directory, "hooks.json"), "utf8");
+  expect(hooks).not.toContain("fresh-profile");
+  expect(hooks).not.toContain("everyday-profile");
+  const repair = e.input("reinstall");
+  repair.stage = () => stagePlugin(e.m, everyday, {}, process.platform === "win32", e.home);
+  await e.service.change(repair);
+  expect(await readFile(join(e.directory, "hooks.json"), "utf8")).toBe(hooks);
+  expect((await e.status()).state).toBe("installed");
 });
 
 it.each([
@@ -747,7 +833,7 @@ it.each([
     signal: controller.signal,
   };
   input.stage = async () => {
-    staged = await stagePlugin(e.m, e.home, {});
+    staged = await stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home);
     return staged;
   };
   if (failure === "cancel") await e.service.change(input);

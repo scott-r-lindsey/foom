@@ -41,11 +41,25 @@ it("generic detached observers allocate order before transport and return a neut
   const supervisors: Promise<Error | null>[] = [];
   const failures: Error[] = [];
   try {
-    const staged = await stagePlugin(model, directory, { hooksEnabled: false });
-    await staged.verify();
-    expect((await stagePlugin(model, directory, { hooksEnabled: true })).directory).toBe(
-      staged.directory,
+    const staged = await stagePlugin(
+      model,
+      directory,
+      { hooksEnabled: false },
+      process.platform === "win32",
+      directory,
     );
+    await staged.verify();
+    expect(
+      (
+        await stagePlugin(
+          model,
+          directory,
+          { hooksEnabled: true },
+          process.platform === "win32",
+          directory,
+        )
+      ).directory,
+    ).toBe(staged.directory);
     const observerDirectory = join(staged.directory, "observers", channel.id);
     const order = join(directory, "order");
     await writeFile(order, "0");

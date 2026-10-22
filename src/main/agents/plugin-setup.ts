@@ -1,4 +1,4 @@
-import { pluginContent } from "./plugin-staging";
+import { installedPluginCurrent, pluginContent } from "./plugin-staging";
 import { setupOffers } from "./setup-offers";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -50,6 +50,7 @@ export class PluginSetup {
     if (!setup) throw Error("Missing setup");
     const status = setup.status;
     let probe: unknown;
+    let modern = false;
     if (status.probe) {
       const probeOptions = {
         ...limits,
@@ -68,7 +69,7 @@ export class PluginSetup {
         status.probe.empty && stdout.trim() === status.probe.empty.text
           ? status.probe.empty.value
           : manifestJson(stdout);
-      const modern = Array.isArray(probe);
+      modern = Array.isArray(probe);
       if (modern) probe = { imports: probe };
       if (
         !record(probe) ||
@@ -83,11 +84,11 @@ export class PluginSetup {
         )
       )
         throw new Error("Invalid setup probe");
-      // Discard paths, hook data and all fields except names and validated switches.
+      // Paths remain untrusted until compared to the fixed owned installation directory.
       probe = {
         imports: probe["imports"].map((entry: Record<string, unknown>) => ({
           name: entry["name"],
-          ...(modern ? { enabled: entry["enabled"] } : {}),
+          ...(modern ? { enabled: entry["enabled"], path: entry["path"] } : {}),
         })),
       };
     }
@@ -166,12 +167,19 @@ export class PluginSetup {
         Object.assign(derived, {
           stagingOutdated:
             staged?.observers === true &&
-            manifest["foomStagingFingerprint"] !== staged.fingerprint &&
-            !(
-              manifest["foomStagingFingerprint"] === undefined &&
-              ownership.unfingerprintedVersion !== undefined &&
-              version >= ownership.unfingerprintedVersion
-            ),
+            ((manifest["foomStagingFingerprint"] !== staged.fingerprint &&
+              !(
+                manifest["foomStagingFingerprint"] === undefined &&
+                ownership.unfingerprintedVersion !== undefined &&
+                version >= ownership.unfingerprintedVersion
+              )) ||
+              !(await installedPluginCurrent(
+                model,
+                facts,
+                this.home,
+                modern,
+                record(listedPlugin) ? listedPlugin["path"] : undefined,
+              ))),
           owned: true,
           absent: false,
           version,

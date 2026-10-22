@@ -1,11 +1,15 @@
 import { afterEach, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
-import { pluginContent, stagePlugin } from "../../../../src/main/agents/plugin-staging";
+import {
+  installedPluginCurrent,
+  pluginContent,
+  stagePlugin,
+} from "../../../../src/main/agents/plugin-staging";
 import {
   observerAssets,
   observerInvocation,
@@ -29,8 +33,10 @@ it.each([false, true])(
     const m = model();
     const channel = m.hooks?.channels[0];
     if (!channel) throw Error("Missing fixture channel");
-    const first = await stagePlugin(m, await root(), { hooksEnabled: false }, windows);
-    const second = await stagePlugin(m, await root(), { hooksEnabled: true }, windows);
+    const firstHome = await root();
+    const first = await stagePlugin(m, firstHome, { hooksEnabled: false }, windows, firstHome);
+    const secondHome = await root();
+    const second = await stagePlugin(m, secondHome, { hooksEnabled: true }, windows, secondHome);
     expect(first.directory.split(/[\\/]/u).at(-1)).toBe(second.directory.split(/[\\/]/u).at(-1));
     for (const [name, content] of Object.entries(observerAssets(channel, windows)))
       expect(await readFile(join(first.directory, "observers/lifecycle", name), "utf8")).toBe(
@@ -38,13 +44,16 @@ it.each([false, true])(
       );
     const hooks = await readFile(join(first.directory, "hooks.json"), "utf8");
     expect(hooks).not.toContain("./observers/lifecycle/observer.");
-    const script = `${first.directory}/observers/lifecycle/observer.${windows ? "ps1" : "sh"}`;
+    const installed = join(await realpath(firstHome), ".gemini/config/plugins/foom");
+    const script = `${installed}/observers/lifecycle/observer.${windows ? "ps1" : "sh"}`;
     expect(hooks).toContain(
       JSON.stringify(observerInvocation(script, ["PreInvocation"], windows, false).command),
     );
     expect(hooks).not.toMatch(/foom-v2-hooks-|127\.0\.0\.1|FOOM_TOKEN/u);
     await first.verify();
-    expect((await stagePlugin(m, roots[0] ?? "", {}, windows)).directory).toBe(first.directory);
+    expect((await stagePlugin(m, firstHome, {}, windows, firstHome)).directory).toBe(
+      first.directory,
+    );
     const original = pluginContent(m, {}, windows);
     channel.observer.timeoutMs = 2000;
     expect(pluginContent(m, {}, windows).fingerprint).not.toBe(original.fingerprint);
@@ -62,8 +71,10 @@ it.skipIf(process.platform === "win32")(
     await mkdir(join(cwd, "observers/lifecycle"), { recursive: true });
     for (const name of ["observer.sh", "observers/lifecycle/observer.sh"])
       await writeFile(join(cwd, name), "printf POISONED");
-    const staged = await stagePlugin(model(), profile, {}, false);
-    const script = join(staged.directory, "observers/lifecycle/observer.sh");
+    const staged = await stagePlugin(model(), profile, {}, false, profile);
+    const installed = join(profile, ".gemini/config/plugins/foom");
+    await cp(staged.directory, installed, { recursive: true });
+    const script = join(installed, "observers/lifecycle/observer.sh");
     const command = observerInvocation(script, ["PreInvocation"], false, false).command;
     const { stdout, stderr } = await promisify(execFile)("/bin/sh", ["-c", command], {
       cwd,
@@ -79,7 +90,7 @@ it.each(["extra", "changed", "missing", "link", "directory-link", "many-extra"])
   async (failure) => {
     const m = model();
     const home = await root();
-    const staged = await stagePlugin(m, home, {});
+    const staged = await stagePlugin(m, home, {}, process.platform === "win32", home);
     const script = join(
       staged.directory,
       "observers/lifecycle",
@@ -103,7 +114,8 @@ it.each(["extra", "changed", "missing", "link", "directory-link", "many-extra"])
       await symlink(home, folder, "junction");
     }
     await expect(staged.verify()).rejects.toThrow();
-    if (failure !== "missing") await expect(stagePlugin(m, home, {})).rejects.toThrow();
+    if (failure !== "missing")
+      await expect(stagePlugin(m, home, {}, process.platform === "win32", home)).rejects.toThrow();
   },
 );
 it("keeps unreferenced channels out of staging and rejects generated path collisions", () => {
@@ -119,4 +131,10 @@ it("keeps unreferenced channels out of staging and rejects generated path collis
   }
   channel.observer.placement = "launch";
   expect(() => pluginContent(m, {})).toThrow("placement");
+});
+
+it("refuses an installed inventory check without fixed ownership", async () => {
+  const m = model();
+  m.setup = undefined;
+  expect(await installedPluginCurrent(m, {}, await root(), false, undefined)).toBe(false);
 });

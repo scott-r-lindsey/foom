@@ -38,7 +38,7 @@ if (args[0] === 'plugin') {
   if (args[1] === 'list') {
     if (${firstRun} && args[2] === '--json') process.exit(2);
     if (fs.existsSync(path.join(path.dirname(directory), 'malformed'))) { console.log('bad-json'); process.exit(0); }
-    const entries = fs.existsSync(directory) ? [{name:'foom', enabled: !JSON.parse(fs.readFileSync(path.join(directory, 'plugin.json'))).disabled, hooks:['foom-observer-v1']}] : [];
+    const entries = fs.existsSync(directory) ? [{name:'foom', path:directory, enabled: !JSON.parse(fs.readFileSync(path.join(directory, 'plugin.json'))).disabled, hooks:['foom-observer-v1']}] : [];
     console.log(${firstRun} ? entries.length ? JSON.stringify({imports: entries}) : 'No imported plugins.' : JSON.stringify(entries));
   }
   else if (args[1] === 'install') { fs.mkdirSync(path.dirname(directory), {recursive:true}); fs.cpSync(args[2], directory, {recursive:true}); }
@@ -161,6 +161,14 @@ process.stdin.on('data', (data) => {
       await capture("reinstall-pending", disclosure);
       await disclosure.getByRole("button", { name: "Reinstall plugin", exact: true }).click();
       await expect(agyRow.getByText("Plugin · installed", { exact: true })).toBeVisible();
+      await rm(path.join(home, ".gemini/config/plugins/foom/observer.sh"));
+      await scan();
+      await expect(agyRow.getByText("Plugin · outdated", { exact: true })).toBeVisible();
+      await capture("missing-observer-update");
+      await agyRow.getByRole("button", { name: "Update", exact: true }).click();
+      disclosure = await confirmationPage(app);
+      await disclosure.getByRole("button", { name: "Update", exact: true }).click();
+      await expect(agyRow.getByText("Plugin · installed", { exact: true })).toBeVisible();
       const malformed = path.join(home, ".gemini/config/plugins/malformed");
       await writeFile(malformed, "");
       await scan();
@@ -174,6 +182,17 @@ process.stdin.on('data', (data) => {
       await expect(agyRow.getByText("Plugin · installed", { exact: true })).toBeVisible();
     }
     await assertAccessible(page);
+    const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+    await rm(path.join(profile, "agent-plugins"), { recursive: true, force: true });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async () =>
+            (await window.desktop.scanAgents(true)).agents.find((agent) => agent.id === "agy")
+              ?.setup?.state,
+        ),
+      )
+      .toBe("installed");
     await app.evaluate(({ dialog }, directory) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
     }, repo);

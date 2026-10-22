@@ -114,7 +114,7 @@ setup IPC name forwards to the same model-owned action/confirmation path; it can
 bypass setup ownership or consent. New scans and actions use the model.
 The same `agy` enable/hooks/defaults/session keys are retained.
 
-The version-3 ordered observer preserves root-level filenames and native script bytes, but anchors commands to the absolute private staged plugin directory (#467/#723). Generic staging under Foom's profile adds only a definition fingerprint
+The version-3 ordered observer preserves root-level filenames and native script bytes, but anchors commands to the absolute CLI-owned installed plugin directory (#467/#723). Generic staging under Foom's profile adds only a definition fingerprint
 to plugin metadata; the CLI alone copies it into its installation. Legacy versions 1 and 2 offer Update; version 3 requires the current definition fingerprint.
 Older versions offer Update; disabled versions offer Enable; explicit fingerprint
 mismatches offer reviewed Update. Owned installed/outdated/disabled plugins also offer a confirmed Reinstall (uninstall then install); unavailable status offers Retry status in the row. Launch adds credentials only when hooks are
