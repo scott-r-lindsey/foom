@@ -307,6 +307,26 @@ function puffs(
   }
 }
 
+/** Shared coordinates for the About drawing and its interactive rocket. */
+export function flightPathGeometry(w: number, h: number, time = 0) {
+  const R = h * 0.11,
+    cx = w * 0.66,
+    cy = h * 0.36;
+  const pts = curve(5.4, w * 0.04, h * 0.62, cx + R * 2.3, h * 0.06);
+  const [x, y, angle] = along(pts, 0.94),
+    size = h * 0.12;
+  return {
+    hole: { x: cx, y: cy, radius: R },
+    pts,
+    rocket: {
+      x: x + Math.sin(angle) * size * 0.35,
+      y: y - Math.cos(angle) * size * 0.35 + Math.sin(time / 600) * 1.5,
+      angle,
+      size,
+    },
+  };
+}
+
 /** One drawing state per mounted canvas, never shared between dialogs. */
 export function createFlightArt() {
   const field = makeStars(110),
@@ -367,24 +387,10 @@ export function createFlightArt() {
     } else {
       const time = still ? 0 : t;
       stars(ctx, w, h, field, P, time);
-      const R = h * 0.11,
-        cx = w * 0.66,
-        cy = h * 0.36;
-      hole(ctx, cx, cy, R, P, time);
-      const pts = curve(5.4, w * 0.04, h * 0.62, cx + R * 2.3, h * 0.06);
+      const { hole: H, pts, rocket: ship } = flightPathGeometry(w, h, time);
+      hole(ctx, H.x, H.y, H.radius, P, time);
       trail(ctx, pts, 0.94, P);
-      const [x, y, a] = along(pts, 0.94),
-        size = h * 0.12;
-      rocket(
-        ctx,
-        x + Math.sin(a) * size * 0.35,
-        y - Math.cos(a) * size * 0.35 + Math.sin(time / 600) * 1.5,
-        a,
-        size,
-        0.8,
-        time,
-        P,
-      );
+      rocket(ctx, ship.x, ship.y, ship.angle, ship.size, 0.8, time, P);
     }
   };
 }

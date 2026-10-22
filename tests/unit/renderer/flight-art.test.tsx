@@ -72,3 +72,65 @@ test("canvas pauses on blur, resumes on focus and disposes its loop", () => {
   view.unmount();
   expect(cancelAnimationFrame).toHaveBeenCalledTimes(3);
 });
+
+for (const reduced of [false, true]) {
+  test(`rocket hit area and canvas follow layout changes with reduced motion ${String(reduced)}`, () => {
+    const { ctx, draw } = canvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx);
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn(() => 1),
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    let resize = () => {};
+    const observe = vi.fn(),
+      disconnect = vi.fn();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          resize = callback;
+        }
+        observe = observe;
+        disconnect = disconnect;
+      },
+    );
+    const view = render(<FlightCanvas reduced={reduced} onReplay={vi.fn()} />);
+    const canvas = view.container.querySelector("canvas");
+    const button = view.getByRole("button", { name: "Replay launch" });
+    expect(observe).toHaveBeenCalledWith(canvas);
+    let width = 540,
+      height = 380;
+    Object.defineProperties(canvas, {
+      clientWidth: { get: () => width },
+      clientHeight: { get: () => height },
+    });
+    resize();
+    const initialLeft = button.style.left;
+    const frameCount = vi.mocked(requestAnimationFrame).mock.calls.length;
+    fireEvent.blur(window);
+    width = 300;
+    height = 210;
+    resize();
+    expect(button.style.left).not.toBe(initialLeft);
+    expect(parseFloat(button.style.left)).toBeLessThan(width);
+    expect(parseFloat(button.style.top)).toBeLessThan(height);
+    expect(parseFloat(button.style.left)).toBe(draw.translate.mock.calls.at(-1)?.[0]);
+    expect(parseFloat(button.style.top)).toBe(draw.translate.mock.calls.at(-1)?.[1]);
+    expect(canvas?.width).toBe(Math.round(width * (window.devicePixelRatio || 1)));
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(frameCount);
+    const visiblePaints = draw.clearRect.mock.calls.length;
+    width = 0;
+    resize();
+    width = 300;
+    height = 0;
+    resize();
+    expect(draw.clearRect).toHaveBeenCalledTimes(visiblePaints);
+    height = 210;
+    view.unmount();
+    expect(disconnect).toHaveBeenCalledOnce();
+    const paints = draw.clearRect.mock.calls.length;
+    resize();
+    expect(draw.clearRect).toHaveBeenCalledTimes(paints);
+  });
+}

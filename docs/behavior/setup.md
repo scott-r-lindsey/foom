@@ -58,6 +58,23 @@ frame, with trail, rocket near the top, short static streaks and title, for
 The drawing loop and sequence timers stop on dismissal or unmount. Art uses
 hole, space-ink, accent and accent-deep tokens.
 
+### Replay from About (#686)
+
+Only the rocket in About's flight art shows a crosshair. Its focusable hit area
+is named “Replay launch”; clicking it or pressing Enter or Space replays the full
+countdown, ignition, liftoff and ten-second linger. A circular iris centered on
+the art's black hole expands over 500 ms with ease-in, revealing the countdown
+inside it. About closes when the iris covers the window. Replay ends on the board;
+it never changes setup or first-run state. Click, Escape, Enter or Space dismisses
+at any point, including during the iris, exactly once, disposing timers and drawing
+frames. Reduced motion cross-fades over 200 ms into the final still frame with no
+iris, then holds for ten seconds with the same dismissal behavior.
+
+The rocket hit area follows the art when the window or interface zoom changes,
+including with reduced motion. Tab stays inside replay, and dismissal keys work
+after tabbing. Completion or dismissal restores focus to the control that opened
+About, after releasing the replay modal.
+
 ## Bundled manual
 
 After setup first completes, the board opens the bundled HTML manual once.
