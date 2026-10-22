@@ -168,3 +168,60 @@ body {
 table {
   table-layout: fixed;
 }
+.manual-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  max-width: 860px;
+  margin: auto;
+  padding: 12px 24px;
+  background: var(--bg);
+}
+#manual-query {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+#manual-query::placeholder {
+  color: var(--muted);
+}
+#manual-query:focus-visible {
+  outline: 2px solid var(--accent);
+}
+#manual-results {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  max-height: min(50vh, 420px);
+  overflow: auto;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+#manual-results li {
+  padding: 8px 12px;
+  cursor: pointer;
+}
+#manual-results span {
+  display: block;
+  color: var(--muted);
+}
+#manual-results [aria-selected="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+section {
+  scroll-margin-top: 80px;
+}
+section.search-hit {
+  outline: 2px solid var(--accent);
+  outline-offset: 6px;
+}

@@ -188,6 +188,16 @@ places and selects the tile, reusing an existing manual across board windows.
 
 The build copies the guide, stylesheet and bundled Geist fonts, then inserts
 shortcut tables projected from the main command registry for macOS and
-Windows/Linux. Stable section IDs support internal links and future search.
+Windows/Linux. Stable section IDs support internal links and search. The bundled
+browser-only
+`src/manual/search.ts` runs under the unchanged default CSP. `section-index.ts`
+projects those IDs, headings and normalized text from the completed DOM (including
+generated shortcuts). The build uses the same extraction function to emit
+`build/manual/sections.json` with `{ id, heading, text }` entries, so future
+main-process section consumers need neither a DOM nor a second index definition.
+Search matches headings and text, shows excerpts, and jumps with a brief section
+outline. `/` or Ctrl/Cmd+F focuses search, arrows select results, Enter jumps,
+and Escape clears. Empty queries and unmatched queries show no results or helper
+copy. Search stays inside the offline page with no bridge or host changes.
 Guide prose cites its source docs in HTML comments; update it with behavior
 changes. The guide is never written into a repository or user profile.
