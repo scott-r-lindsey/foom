@@ -66,6 +66,30 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   const archive = path.join(resources, "app.asar");
   const packagedVersion = JSON.parse(extractFile(archive, "package.json").toString()).version;
   assert.equal(packagedVersion, require("../../package.json").version);
+  // Packaging installs the generated app icon, not Electron's default.
+  const icons = path.join(__dirname, "../../build/icons");
+  if (process.platform === "darwin") {
+    const iconFile = execFileSync(
+      "/usr/libexec/PlistBuddy",
+      ["-c", "Print :CFBundleIconFile", path.join(root, "Foom.app/Contents/Info.plist")],
+      { encoding: "utf8" },
+    ).trim();
+    assert.deepEqual(
+      readFileSync(path.join(resources, iconFile)),
+      readFileSync(path.join(icons, "foom.icns")),
+    );
+  }
+  if (process.platform === "win32") {
+    assert.ok(
+      readFileSync(executable).includes(readFileSync(path.join(icons, "foom-256.png"))),
+      "Foom.exe embeds the generated icon",
+    );
+  }
+  assert.deepEqual(
+    extractFile(archive, path.join("build", "icons", "foom-512.png")),
+    readFileSync(path.join(icons, "foom-512.png")),
+    "Linux windows load the generated icon from the archive",
+  );
   const consoleManifest = JSON.parse(
     readFileSync(
       path.join(resources, "app.asar.unpacked", "build", "console", "manifest.json"),

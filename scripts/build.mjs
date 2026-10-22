@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { chmod, copyFile, cp, glob, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { writeIcons } from "./icon/foom-icon.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 // node-pty 1.1.0 publishes macOS spawn helpers without executable permission.
@@ -186,6 +187,10 @@ await copyFile(
 );
 
 await cp(join(root, "src/sounds"), join(root, "build/sounds"), { recursive: true });
+
+// Forge reads foom.icns/foom.ico and Linux windows load foom-512.png at runtime.
+// Rendering takes seconds, so sets are cached by generator source hash.
+await writeIcons(join(root, "build/icons"));
 
 const { agyPluginFiles } = await import("../build/main/agents/agy-observer.js");
 await mkdir(join(root, "build/observers/foom"), { recursive: true });
