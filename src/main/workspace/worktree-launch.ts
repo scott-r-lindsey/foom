@@ -67,7 +67,10 @@ export async function launchAgent(
   sharedCheckout = false,
   checkoutIdentity?: string,
   replacement?: { id: string; conversationId?: string },
-  extra: Pick<AgentLaunch, "control" | "prompt" | "conversationId" | "pinConversation"> = {},
+  extra: Pick<
+    AgentLaunch,
+    "control" | "prompt" | "conversationId" | "pinConversation" | "beforeSpawn" | "loop"
+  > = {},
 ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
   return this.withRepository(request.repository, async () => {
     if (this.enabled[request.agent] === false)
@@ -109,6 +112,14 @@ export async function launchAgent(
     this.launched.set(result.id, {
       ...(launchVersion === undefined ? {} : { launchVersion }),
       id: result.id,
+      ...(extra.loop
+        ? {
+            review:
+              "authorId" in extra.loop
+                ? extra.loop
+                : { ...extra.loop, authorId: result.id, round: 0, phase: "building" as const },
+          }
+        : {}),
       ...(result.providerOrigin ? { providerOrigin: result.providerOrigin } : {}),
       startedAt: this.now(),
       launchFlags: [...defaultArguments],

@@ -47,6 +47,7 @@ interface SessionEventFacts {
   id: string;
   state: string;
   reason: string;
+  review?: unknown;
   handoff?: { seq: number; status: string };
   pullRequest?: { number: number; state: string; requiredChecks: string; checksMeaning?: string };
 }
@@ -56,6 +57,7 @@ function eventCursor(row: SessionEventFacts): string {
   return createHash("sha256")
     .update(
       JSON.stringify([
+        row.review ?? null,
         row.state,
         row.reason,
         row.handoff?.seq ?? 0,

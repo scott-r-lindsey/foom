@@ -99,3 +99,11 @@ intent before automated mutations; audit failure refuses automation while human
 terminal control remains available. Ship basic action visibility and takeover with
 mutations, then nest children under their orchestrator in the board source and add
 the full log view. Components retain view state only; hidden PTYs keep running.
+
+The optional #690 review loop is main-owned automation for orchestrator-launched
+children only. Authors and reviewers retain ordinary child grants; neither may
+launch or prompt other agents. Reviewers count against the same parent's current
+concurrency limit, including launch reservations, and wait for capacity. Each step
+uses launch/resume arguments after the preceding process exits; the loop has no
+PTY-input capability. Parentless agents gain no handoff or loop authority. Human
+New-worktree launches do not expose this option.

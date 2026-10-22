@@ -16,7 +16,7 @@ export const history = (view: OrchestrationView | undefined) =>
   view?.role === "orchestrator" ? view.history : [];
 export const other = join(tmpdir(), "elsewhere");
 
-export function harness() {
+export function harness(overrides: Pick<OrchestrationHost, "reviewSnapshot"> = {}) {
   let limit = 4;
   const rows = new Map<string, WorkspaceTerminal>();
   let next = 0;
@@ -64,8 +64,10 @@ export function harness() {
         _identity: string,
         _agent: string,
         _prompt: string | undefined,
+        step?: { resume?: { id: string; conversationId: string }; validate(): void },
       ) => {
-        const id = `child-${String(++next)}`;
+        step?.validate();
+        const id = step?.resume?.id ?? `child-${String(++next)}`;
         rows.set(id, row(id, worktree, worktree.split("/").at(-1) ?? ""));
         return Promise.resolve(id);
       },
@@ -91,6 +93,7 @@ export function harness() {
     ),
     dialog: vi.fn((_content: DialogContent, _signal: AbortSignal) => Promise.resolve(true)),
     changed: vi.fn(),
+    ...overrides,
   } satisfies OrchestrationHost;
   const persist = vi.fn((_record: StoredOperation) => Promise.resolve());
   const operations = new Operations(persist, (actor) => {

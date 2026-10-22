@@ -52,6 +52,7 @@ export interface ExecutionOwnerDependencies {
   publishChildEvents: () => void;
   waitingOn: (id: string) => number;
   unreadAt: (id: string) => number | undefined;
+  reviewReason?: (id: string) => string | undefined;
   onExecution?: (event: ExecutionTransition) => void;
   onState: (state: TerminalState) => void;
   now: () => number;
@@ -115,7 +116,7 @@ export class ExecutionOwner {
         execution: terminal?.execution?.snapshot(),
         verdictId: null,
         state: "needs_input",
-        reason: "Child report unread",
+        reason: this.deps.reviewReason?.(id) ?? "Child report unread",
         signal: "orchestration:unread",
         confidence: 1,
         timestamp: unreadAt,
@@ -538,6 +539,8 @@ export class ExecutionOwner {
       const terminal = this.track(id);
       if (terminal.exitCode !== undefined) return;
       terminal.exitCode = code;
+      // Exit metadata must be observable even if final evaluation fails.
+      this.deps.publishChildEvents();
       const entry = this.deps.terminal(id);
       if (entry?.kind === "agent") this.deps.recheck(id);
       this.deps.exited(id);

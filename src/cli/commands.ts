@@ -1,3 +1,4 @@
+import { reviewOptions } from "../node-common/review";
 import { isChildInput } from "../shared/child-input";
 import { readHandoffRequest } from "../node-common/handoff";
 import { validAgentId } from "../shared/providers/catalog";
@@ -142,6 +143,18 @@ function orchestration(name: string | undefined, words: string[]): Command {
       const agent = take("--agent");
       if (!validAgentId(agent)) throw new ControlError("invalid_request");
       params["agent"] = agent;
+      const rounds = take("--review-rounds");
+      const reviewer = take("--review-agent");
+      const post = take("--review-post-findings");
+      if (rounds !== undefined || reviewer !== undefined || post !== undefined) {
+        if (post !== undefined && post !== "true" && post !== "false")
+          throw new ControlError("invalid_request");
+        params["review"] = reviewOptions({
+          ...(rounds === undefined ? {} : { rounds: integer(rounds, 5, 1) }),
+          ...(reviewer === undefined ? {} : { agent: reviewer }),
+          ...(post === undefined ? {} : { postFindings: post === "true" }),
+        });
+      }
       const prompt = take("--prompt");
       if (prompt !== undefined) params["prompt"] = text(prompt, 16384);
       break;

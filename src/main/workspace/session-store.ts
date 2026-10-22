@@ -1,3 +1,4 @@
+import { isReviewState } from "../../shared/review-state";
 import { storedHandoffs } from "../../node-common/handoff";
 import { builtinAgent, validAgentId } from "../../shared/providers/catalog";
 import { knownAgentId as isAgentId } from "../agents/providers/registry";
@@ -39,6 +40,7 @@ export function readSessions(value: unknown): StoredSession[] {
       parentId,
       providerOrigin,
       handoffs,
+      review,
     } = data;
     if (
       (providerOrigin !== undefined &&
@@ -65,12 +67,23 @@ export function readSessions(value: unknown): StoredSession[] {
     )
       throw new Error("Invalid session");
     if (!storedAgent(agent, providerOrigin) && agent !== "shell") throw new Error("Invalid agent");
+    if (review !== undefined && !isReviewState(review)) throw new Error("Invalid review");
     const role = readOrchestrator(orchestrator);
     if (role && (parentId !== undefined || agent === "shell" || home || config))
       throw new Error("Invalid role");
     ids.add(id);
     return {
       id,
+      ...(isReviewState(review)
+        ? {
+            review: {
+              ...review,
+              phase: "escalated" as const,
+              reason: "restored" as const,
+              waiting: false,
+            },
+          }
+        : {}),
       ...(handoffs === undefined ? {} : { handoffs: storedHandoffs(handoffs) }),
       ...(providerOrigin === "config" || providerOrigin === "bundled" ? { providerOrigin } : {}),
       ...(running === undefined ? {} : { running }),
@@ -119,11 +132,13 @@ export class SessionStore {
           home,
           config,
           handoffs,
+          review,
           running,
           orchestrator,
           parentId,
         }) => ({
           handoffs,
+          review,
           running,
           orchestrator,
           parentId,

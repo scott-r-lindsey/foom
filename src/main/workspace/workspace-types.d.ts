@@ -58,7 +58,10 @@ export interface WorkspaceMethods {
     sharedCheckout?: boolean,
     checkoutIdentity?: string,
     replacement?: { id: string; conversationId?: string },
-    extra?: Pick<AgentLaunch, "control" | "prompt" | "conversationId" | "pinConversation">,
+    extra?: Pick<
+      AgentLaunch,
+      "control" | "prompt" | "conversationId" | "pinConversation" | "beforeSpawn" | "loop"
+    >,
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }>;
   startWorktree(request: StartWorktreeRequest, confirm?: ConfirmWorkspace): Promise<string | null>;
   shellEnvironment(pathFirst?: string): Promise<{ env: Record<string, string>; names: string[] }>;
@@ -103,7 +106,7 @@ export interface WorkspaceMethods {
     status: string,
     operationId: string,
   ): Promise<void>;
-  orchestrationView(id: string): Pick<WorkspaceTerminal, "orchestration" | "handoff">;
+  orchestrationView(id: string): Pick<WorkspaceTerminal, "orchestration" | "handoff" | "review">;
   makeOrchestrator(id: string, confirm: ConfirmWorkspace): Promise<void>;
   revokeOrchestrator(id: string): Promise<void>;
   createChildWorktree(
@@ -117,6 +120,11 @@ export interface WorkspaceMethods {
     created: string,
     agent: AgentId,
     prompt: string | undefined,
+    step?: {
+      resume?: { id: string; conversationId: string };
+      loop?: AgentLaunch["loop"];
+      validate(): void;
+    },
   ): Promise<string>;
   known(repository: string): void;
   reserveRepositoryRemoval(repository: string, validate: () => void): () => void;

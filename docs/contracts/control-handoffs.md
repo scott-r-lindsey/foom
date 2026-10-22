@@ -55,3 +55,13 @@ never a renderer-provided URL. The Action log records `Handoff #n (status)` with
 actor/parent IDs and no summary or links. The launch prefix names both report
 interfaces. Make orchestrator discloses that reports, like tails, may reach the
 orchestrator agent's model provider; Foom itself sends neither to a network service.
+
+### Optional review verdict (#690)
+
+A `done` report may additionally carry `review: {verdict: "clean"}` or
+`review: {verdict: "findings", findings: [{file, line, summary, scenario}]}`.
+See [the bounded verdict schema](../areas/handoffs.md#review-verdicts-690).
+The CLI accepts `--review JSON_VERDICT`. Unknown fields and verdicts attached to
+blocked/failed reports are refused. Verdicts persist with each participant's
+handoff and are returned by `read_handoff` as untrusted data. They do not change
+handoff authority: ordinary parentless agents still receive `no_parent`.
