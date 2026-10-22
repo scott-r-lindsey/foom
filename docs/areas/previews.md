@@ -176,8 +176,8 @@ animation following. Mutation callbacks never scan layout.
 ## Bundled manual root
 
 Main alone can open the fixed `build/manual/manual.html` resource. Packaged
-builds unpack this directory beside ASAR so containment and descriptor checks
-operate on real files. The host uses
+builds unpack the HTML, scripts, styles and fonts beside ASAR so containment and
+descriptor checks operate on real files. The host uses
 the bundled manual directory as its canonical root with the existing containment
 checks, isolated partition and default HTML CSP. This root needs no registered
 worktree; no renderer path or file-access capability selects it. Its transient
@@ -193,8 +193,9 @@ browser-only
 `src/manual/search.ts` runs under the unchanged default CSP. `section-index.ts`
 projects those IDs, headings and normalized text from the completed DOM (including
 generated shortcuts). The build uses the same extraction function to emit
-`build/manual/sections.json` with `{ id, heading, text }` entries, so future
-main-process section consumers need neither a DOM nor a second index definition.
+`build/manual/sections.json` with `{ id, heading, text }` entries. The index stays
+inside ASAR for the MCP reader; main-process consumers need neither a DOM nor a
+second index definition.
 Search matches headings and text, shows excerpts, and jumps with a brief section
 outline. `/` or Ctrl/Cmd+F focuses search, arrows select results, Enter jumps,
 and Escape clears. Empty queries and unmatched queries show no results or helper

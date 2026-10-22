@@ -182,6 +182,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
       "whoami",
       "sessions",
       "session_state",
+      "manual",
       "open_preview",
       "list_previews",
       "close_preview",
@@ -197,6 +198,23 @@ test("launches an agent in a managed worktree and routes its attention signals",
       "operation_status",
     ],
   );
+  const manual = await (
+    await mcpRequest({ id: 20, method: "tools/call", params: { name: "manual" } })
+  ).json();
+  assert.equal(manual.result.isError, false);
+  assert.equal(manual.result.structuredContent.sections.length, 12);
+  const section = await (
+    await mcpRequest({
+      id: 21,
+      method: "tools/call",
+      params: {
+        name: "manual",
+        arguments: { section: manual.result.structuredContent.sections[0].id },
+      },
+    })
+  ).json();
+  assert.equal(section.result.isError, false);
+  assert.match(section.result.structuredContent.text, /Foom is a desktop board/);
   const metadata = await (
     await mcpRequest({ id: 3, method: "tools/call", params: { name: "sessions", arguments: {} } })
   ).json();

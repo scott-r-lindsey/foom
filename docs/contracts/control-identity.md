@@ -58,6 +58,7 @@ under the existing launch/removal locks. Git and processes use argument arrays.
 | Tool | Principal and scope | Contract |
 |---|---|---|
 | `whoami` | Every authenticated agent | Own session, role, repository/worktree and capability names; no secrets |
+| `manual` | Every authenticated agent grant | Fixed bundled user manual; section list or bounded plain-text pages; no caller paths or workspace/session data |
 | `sessions` | Every agent, own repository only | Paginated metadata, 100 rows maximum; no output, prompts, arbitrary reasons or environment |
 | `session_state` | Every agent, own repository only | State, server-generated reason, revision and attention kind; no terminal content |
 | `create_worktree` | Orchestrator | New validated branch/worktree, or adoption by open same-repository PR number; main-owned provenance |

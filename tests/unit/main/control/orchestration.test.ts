@@ -34,6 +34,7 @@ describe("orchestrator slots and authority", () => {
       "whoami",
       "sessions",
       "session_state",
+      "manual",
       "open_preview",
       "list_previews",
       "close_preview",

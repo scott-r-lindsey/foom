@@ -1,3 +1,4 @@
+import { bundledManual } from "./manual";
 import { PREVIEW_METHODS } from "./previews";
 import type { PreviewBroker } from "./previews";
 import type { McpConnection } from "../../shared/workspace";
@@ -232,6 +233,9 @@ export class ControlService {
         this.grants.delete(actor.generation);
         return { released: true };
       }
+      case "manual":
+        if (actor.role === "cli") throw new ControlError("forbidden");
+        return bundledManual().read(params);
       case "whoami":
         exact(params, []);
         return {
@@ -242,7 +246,11 @@ export class ControlService {
           capabilities: this.capabilities(actor),
           tools: this.capabilities(actor).map((name) => ({
             name,
-            cli: `foom ${name === "list_previews" ? "previews" : name.replaceAll("_", "-")}`,
+            ...(name === "manual"
+              ? {}
+              : {
+                  cli: `foom ${name === "list_previews" ? "previews" : name.replaceAll("_", "-")}`,
+                }),
             ...(name === "wait_for"
               ? {
                   longWait:
@@ -319,7 +327,7 @@ export class ControlService {
 
   /** Granted methods. Orchestration methods need a main-granted orchestrator principal. */
   capabilities(actor: Principal): string[] {
-    const views = actor.role === "cli" ? [] : PREVIEW_METHODS;
+    const views = actor.role === "cli" ? [] : ["manual", ...PREVIEW_METHODS];
     return actor.role === "orchestrator"
       ? [
           ...READ_ONLY,

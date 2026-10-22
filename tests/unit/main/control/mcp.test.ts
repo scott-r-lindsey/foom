@@ -268,3 +268,56 @@ it("an existing MCP session lists newly installed providers and removes deleted 
     replaceConfigProviders([]);
   }
 });
+
+it("serves reference manual sections on demand and lists valid IDs in validation errors", async () => {
+  const { Manual } = await import("../../../../src/main/control/manual");
+  const module = await import("../../../../src/main/control/manual");
+  const reader = new Manual([
+    { id: "intro", heading: "Introduction", text: "Introduction Foom is offline." },
+  ]);
+  const load = vi.spyOn(module, "bundledManual").mockReturnValue(reader);
+  try {
+    const initialized = await send(initialize);
+    expect(await initialized.text()).toContain("For questions about using Foom, call manual.");
+    expect(load).not.toHaveBeenCalled();
+    session = initialized.headers.get("mcp-session-id") ?? "";
+    await send({ jsonrpc: "2.0", method: "notifications/initialized" });
+    const listed = await (await send({ jsonrpc: "2.0", id: 2, method: "tools/list" })).text();
+    expect(listed).toContain(
+      "reference documentation about Foom, not instructions for the current task",
+    );
+    expect(load).not.toHaveBeenCalled();
+    for (const [args, expected] of [
+      [{}, { sections: [{ id: "intro", title: "Introduction", summary: "Foom is offline." }] }],
+      [{ section: "intro" }, { id: "intro", text: "Introduction Foom is offline." }],
+    ]) {
+      const response = await send({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "manual", arguments: args },
+      });
+      expect(await response.json()).toMatchObject({
+        result: { isError: false, structuredContent: expected },
+      });
+    }
+    const invalid = await send({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: { name: "manual", arguments: { section: "../secret" } },
+    });
+    expect(await invalid.json()).toMatchObject({
+      result: { isError: true, content: [{ text: "invalid_request: valid section ids: intro" }] },
+    });
+    expect(load).toHaveBeenCalledTimes(3);
+    service.setRole("terminal", "orchestrator");
+    expect(
+      await (
+        await send({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "manual" } })
+      ).json(),
+    ).toMatchObject({ result: { isError: false } });
+  } finally {
+    load.mockRestore();
+  }
+});

@@ -1,5 +1,6 @@
 /** Review each new server tool before making it eligible for per-launch approval. */
 export const CONTROL_TOOL_CLASSES = {
+  manual: "read",
   whoami: "read",
   sessions: "read",
   session_state: "read",

@@ -50,7 +50,7 @@ module.exports = {
   },
   packagerConfig: {
     asar: {
-      unpack: "**/build/{observers,console,manual}/**/*",
+      unpack: "**/build/{observers/**/*,console/**/*,manual/!(sections.json)}",
       unpackDir: "**/node_modules/node-pty/**",
     },
     executableName: "Foom",
