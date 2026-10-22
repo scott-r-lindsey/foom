@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative, sep } from "node:path";
+import { basename, join, relative, sep } from "node:path";
 import { test } from "node:test";
 import { inflateSync } from "node:zlib";
 import { renderBlackHole, SHADOW_RADIUS, toneMap, toStraightAlpha } from "./icon/blackhole.mjs";
 import { encodeIcns, encodeIco, ICNS_TYPES } from "./icon/containers.mjs";
 import {
   CACHE_ROOT,
+  ICON_FILES,
   iconFiles,
   iconImages,
   SIZES,
@@ -196,47 +197,126 @@ test("ICO transparent pixels are set in the legacy AND mask", () => {
   assert.throws(() => iconFiles(new Map([[16, new Uint8Array(16 * 16 * 4)]])), /Missing/);
 });
 
-test("builds render once per generator source and reuse the cached set", async (t) => {
+async function cacheScratch(t) {
   const scratch = await mkdtemp(join(tmpdir(), "foom-icons-"));
   t.after(() => rm(scratch, { recursive: true, force: true }));
   let renders = 0;
   const generate = () => {
     renders++;
-    return new Map([
-      ["foom.ico", Buffer.from("ico")],
-      ["foom-16.png", Buffer.from("png")],
-    ]);
+    return new Map(ICON_FILES.map((name) => [name, Buffer.from(`${name}:${renders}`)]));
   };
   const cacheRoot = join(scratch, "cache");
-  assert.equal(await writeIcons(join(scratch, "a"), { cacheRoot, generate }), true);
-  assert.equal(await writeIcons(join(scratch, "b"), { cacheRoot, generate }), false);
-  assert.equal(renders, 1);
-  assert.deepEqual((await readdir(join(scratch, "b"))).sort(), ["foom-16.png", "foom.ico"]);
-  assert.equal(await readFile(join(scratch, "b", "foom.ico"), "utf8"), "ico");
-  assert.deepEqual(await readdir(cacheRoot), [await sourceKey()]);
+  const options = { cacheRoot, generate };
+  const entry = join(cacheRoot, await sourceKey());
+  const out = join(scratch, "out");
+  return { scratch, options, entry, out, renders: () => renders };
+}
+
+async function assertCompleteSet(directory, render) {
+  assert.deepEqual((await readdir(directory)).sort(), [...ICON_FILES].sort());
+  for (const name of ICON_FILES)
+    assert.equal(await readFile(join(directory, name), "utf8"), `${name}:${render}`);
+}
+
+test("builds render once per generator source and reuse the verified set", async (t) => {
+  const { options, entry, out, renders } = await cacheScratch(t);
+  assert.equal(await writeIcons(out, options), true);
+  assert.equal(await writeIcons(out, options), false);
+  assert.equal(renders(), 1);
+  await assertCompleteSet(out, 1);
+  assert.deepEqual(await readdir(options.cacheRoot), [basename(entry)]);
+  const manifest = JSON.parse(await readFile(join(entry, "manifest.json"), "utf8"));
+  assert.deepEqual(Object.keys(manifest.files).sort(), [...ICON_FILES].sort());
+  assert.equal(manifest.files["foom.ico"].size, "foom.ico:1".length);
 });
 
-test("a failed render leaves no cached set behind", async (t) => {
-  const scratch = await mkdtemp(join(tmpdir(), "foom-icons-"));
-  t.after(() => rm(scratch, { recursive: true, force: true }));
-  const cacheRoot = join(scratch, "cache");
+test("a damaged cache entry is discarded and rendered again", async (t) => {
+  const damage = {
+    "a tampered file": (entry) => writeFile(join(entry, "foom-512.png"), "foom-512.png:X"),
+    "a missing file": (entry) => rm(join(entry, "foom-16.png")),
+    "an extra file": (entry) => writeFile(join(entry, "stray.png"), "stray"),
+    "a missing manifest": (entry) => rm(join(entry, "manifest.json")),
+    "a garbled manifest": (entry) => writeFile(join(entry, "manifest.json"), "{not json"),
+    "a manifest missing an entry": async (entry) => {
+      const path = join(entry, "manifest.json");
+      const manifest = JSON.parse(await readFile(path, "utf8"));
+      delete manifest.files["foom.icns"];
+      await writeFile(path, JSON.stringify(manifest));
+    },
+    "a manifest with an extra entry": async (entry) => {
+      const path = join(entry, "manifest.json");
+      const manifest = JSON.parse(await readFile(path, "utf8"));
+      manifest.files["stray.png"] = { size: 1, sha256: "0" };
+      await writeFile(path, JSON.stringify(manifest));
+    },
+    "a null manifest": (entry) => writeFile(join(entry, "manifest.json"), "null"),
+  };
+  for (const [name, corrupt] of Object.entries(damage)) {
+    await t.test(name, async (t) => {
+      const { options, entry, out, renders } = await cacheScratch(t);
+      await writeIcons(out, options);
+      await corrupt(entry);
+      assert.equal(await writeIcons(out, options), true);
+      assert.equal(renders(), 2);
+      await assertCompleteSet(out, 2);
+      // The replacement entry verifies, so the next build reuses it.
+      assert.equal(await writeIcons(out, options), false);
+      await assertCompleteSet(out, 2);
+    });
+  }
+});
+
+test("an interrupted write is never reused and is pruned once abandoned", async (t) => {
+  const { options, entry, out, renders } = await cacheScratch(t);
+  const fresh = `${entry}.1.a.tmp`;
+  const abandoned = `${entry}.2.b.tmp`;
+  for (const staging of [fresh, abandoned]) {
+    await mkdir(staging, { recursive: true });
+    await writeFile(join(staging, "foom-16.png"), "partial");
+  }
+  const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+  await utimes(abandoned, old, old);
+  assert.equal(await writeIcons(out, options), true);
+  assert.equal(renders(), 1);
+  await assertCompleteSet(out, 1);
+  assert.deepEqual((await readdir(options.cacheRoot)).sort(), [basename(entry), basename(fresh)]);
+});
+
+test("concurrent builds both write a complete set", async (t) => {
+  const { options, out, scratch } = await cacheScratch(t);
+  const other = join(scratch, "other");
+  await Promise.all([writeIcons(out, options), writeIcons(other, options)]);
+  for (const directory of [out, other])
+    assert.deepEqual((await readdir(directory)).sort(), [...ICON_FILES].sort());
+  assert.equal(await writeIcons(out, options), false);
+  assert.equal(
+    (await readdir(options.cacheRoot)).filter((name) => name.endsWith(".tmp")).length,
+    0,
+  );
+});
+
+test("a failed or incomplete render leaves no cached set behind", async (t) => {
+  const { options, out } = await cacheScratch(t);
   const failure = new Error("render failed");
   await assert.rejects(
-    writeIcons(join(scratch, "out"), {
-      cacheRoot,
+    writeIcons(out, {
+      ...options,
       generate: () => {
         throw failure;
       },
     }),
     (error) => error === failure,
   );
-  assert.deepEqual(await readdir(cacheRoot), []);
+  await assert.rejects(
+    writeIcons(out, { ...options, generate: () => new Map([["foom.ico", Buffer.from("ico")]]) }),
+    /unexpected file set/,
+  );
+  assert.deepEqual(await readdir(options.cacheRoot), []);
 });
 
 test("the cache key follows the generator sources", async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), "foom-icon-src-"));
   t.after(() => rm(scratch, { recursive: true, force: true }));
-  const { writeFile } = await import("node:fs/promises");
   await writeFile(join(scratch, "a.mjs"), "1");
   await writeFile(join(scratch, "notes.txt"), "ignored");
   const first = await sourceKey(scratch);

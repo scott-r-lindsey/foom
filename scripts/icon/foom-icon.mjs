@@ -1,9 +1,9 @@
 // The Foom app icon: the ray-traced singularity on the dark squircle tile.
 // `node scripts/icon/foom-icon.mjs <directory>` renders the PNG set, foom.icns and
-// foom.ico from scratch. The build uses writeIcons(), which caches by source hash.
-import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { cp, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+// foom.ico from scratch. The build uses writeIcons(), which caches verified sets
+// by source hash.
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { hex, renderBlackHole, toneMap } from "./blackhole.mjs";
@@ -132,31 +132,86 @@ export async function sourceKey(directory = here) {
   return hash.digest("hex").slice(0, 16);
 }
 
+/** Every file in an icon set. */
+export const ICON_FILES = [...SIZES.map((size) => `foom-${size}.png`), "foom.icns", "foom.ico"];
+const MANIFEST = "manifest.json";
+/** Staging directories older than this are abandoned writes, not concurrent ones. */
+const STALE_STAGING_MS = 60 * 60 * 1000;
+
+const digest = (data) => createHash("sha256").update(data).digest("hex");
+
 /**
- * Copies the icon set into `directory`, rendering it only when the cache has no
- * set for the current sources. Returns whether it rendered.
+ * Reads a cached set, or returns undefined unless the entry holds exactly the
+ * manifest and ICON_FILES, each with its recorded size and SHA-256.
+ */
+async function readCached(cache) {
+  try {
+    const manifest = JSON.parse(await readFile(join(cache, MANIFEST), "utf8"));
+    const names = (await readdir(cache)).filter((name) => name !== MANIFEST).sort();
+    if (JSON.stringify(names) !== JSON.stringify([...ICON_FILES].sort())) return undefined;
+    const files = new Map();
+    for (const name of ICON_FILES) {
+      const entry = manifest?.files?.[name];
+      const data = await readFile(join(cache, name));
+      if (entry?.size !== data.length || entry?.sha256 !== digest(data)) return undefined;
+      files.set(name, data);
+    }
+    return Object.keys(manifest.files).length === ICON_FILES.length ? files : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Removes abandoned staging directories left by interrupted builds. */
+async function pruneStaging(cacheRoot) {
+  for (const name of await readdir(cacheRoot)) {
+    if (!name.endsWith(".tmp")) continue;
+    const path = join(cacheRoot, name);
+    if (Date.now() - (await stat(path)).mtimeMs > STALE_STAGING_MS)
+      await rm(path, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Writes the icon set into `directory`. A cache entry for the current sources is
+ * reused only if it verifies against its manifest; otherwise the set is rendered
+ * and published atomically. Returns whether it rendered.
  */
 export async function writeIcons(
   directory,
   { cacheRoot = CACHE_ROOT, generate = () => iconFiles(iconImages()) } = {},
 ) {
   const cache = join(cacheRoot, await sourceKey());
-  const rendered = !existsSync(cache);
-  if (rendered) {
-    const staging = `${cache}.${process.pid}.tmp`;
-    await rm(staging, { recursive: true, force: true });
+  let files = await readCached(cache);
+  const rendered = !files;
+  if (!files) {
+    await mkdir(cacheRoot, { recursive: true });
+    await pruneStaging(cacheRoot);
+    files = generate();
+    if (JSON.stringify([...files.keys()].sort()) !== JSON.stringify([...ICON_FILES].sort()))
+      throw new Error("Icon generator produced an unexpected file set");
+    const staging = `${cache}.${process.pid}.${randomUUID()}.tmp`;
     try {
-      await mkdir(staging, { recursive: true });
-      for (const [name, data] of generate()) await writeFile(join(staging, name), data);
+      await mkdir(staging);
+      const manifest = { files: {} };
+      for (const [name, data] of files) {
+        await writeFile(join(staging, name), data);
+        manifest.files[name] = { size: data.length, sha256: digest(data) };
+      }
+      await writeFile(join(staging, MANIFEST), JSON.stringify(manifest, null, 2));
+      // A damaged entry is replaced; a concurrent build's valid entry is kept.
+      if (!(await readCached(cache))) await rm(cache, { recursive: true, force: true });
       await rename(staging, cache);
-    } catch (error) {
+    } catch {
+      // Caching is best effort (another build may have published first); the
+      // verified set is already in memory.
+    } finally {
       await rm(staging, { recursive: true, force: true });
-      // A concurrent build may have published the same set first.
-      if (!existsSync(cache)) throw error;
     }
   }
+  await rm(directory, { recursive: true, force: true });
   await mkdir(directory, { recursive: true });
-  await cp(cache, directory, { recursive: true });
+  for (const [name, data] of files) await writeFile(join(directory, name), data);
   return rendered;
 }
 

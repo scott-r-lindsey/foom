@@ -19,7 +19,9 @@ Packaging commands delegate to Forge, whose mandatory `prePackage` hook performs
 The build also writes the app icon set to `build/icons/` from the generator in
 `scripts/icon/` (see [brand: mark](brand.md#mark)). The first build for a given
 generator source renders it in a few seconds; later builds copy the set from the
-Git-ignored `.cache/foom-icons/`. It stays outside `node_modules`, which the
+Git-ignored `.cache/foom-icons/`. Each cache entry is published atomically with a
+manifest of file sizes and SHA-256 digests; an entry with a missing, extra or
+changed file, or a missing or invalid manifest, is discarded and rendered again. It stays outside `node_modules`, which the
 Electron build fingerprint hashes before and after each build. Forge's
 `prePackage` build runs before the packager and makers read their icon paths,
 so no generated image is committed.
