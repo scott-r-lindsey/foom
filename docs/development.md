@@ -125,3 +125,36 @@ optional-platform graph from dropping its legacy glob dependency on clean
 Windows installs. Validate dependency loading with a clean Windows-target
 optional-dependency install, plus the native Windows maker and smoke tests.
 Its lifecycle script stays disabled; Forge selects the bundled host 7-Zip files.
+
+## Website product screenshots (#582)
+
+On Linux with `xvfb-run` installed, run:
+
+```sh
+pnpm run start:samples --screenshots
+```
+
+The command builds the explicit sample board, then always creates its own Xvfb
+display, even when launched from a desktop or an existing virtual display. It
+writes six PNGs to ignored `screenshots-582/`: `eclipse-dark-{board,sidebar,needs-you}.png`
+and `eclipse-light-{board,sidebar,needs-you}.png`. Reruns overwrite those six files.
+Do not commit the images; keep the PR draft for human visual approval before
+copying approved images to the website.
+
+The full board has four tiles (Working, Done, Needs you and Failed); the sidebar
+also includes Quiet and shell samples; the extra launchpad group is collapsed so
+every state fits without scrolling. The Needs you crop includes the verdict's
+reason and the synthetic approval prompt. These are the application's sample
+rows and read-only terminal text, never a real agent screen. Separate disposable
+homes, profiles, and three fixture Git repositories are created for each theme
+and removed after the app quits. The existing Electron harness controls the login
+shell and PATH, guards agent/forge CLI probes, audits processes and mutes audio.
+No real agent CLI or user configuration is used.
+
+Captures use a 1440 × 900 content area at device scale 1 and interface size 100%,
+bundled fonts, a fixed clock, a fixed four-tile layout, reduced motion and a
+settled activity history. Each shot is captured twice and must match byte
+for byte before it is written. For cross-run comparisons use the same Linux,
+Electron and font environment; rasterization may differ across systems. Normal
+`pnpm run start:samples` still opens the interactive development sample board.
+Packaging always rebuilds without samples.

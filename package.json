@@ -11,7 +11,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "start:samples": "pnpm run build --samples && electron-forge start",
+    "start:samples": "pnpm run build --samples && node scripts/start-samples.mjs",
     "start": "pnpm run build && electron-forge start",
     "start:fresh": "pnpm run build && node scripts/start-fresh.mjs",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.tests.json",
