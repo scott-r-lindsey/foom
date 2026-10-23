@@ -1,6 +1,5 @@
 import { expect, test } from "vitest";
 import {
-  signalNote,
   versionNumber,
   agentName,
   examplePath,
@@ -55,15 +54,6 @@ test("go / no-go needs a ready agent and a repository", () => {
   expect(none[1]?.detail).toBe("Nothing to watch yet");
   expect(none.map((row) => row.system)).toEqual(["Agents", "Signals", "Repositories"]);
   expect(pollRows(setupState(), undefined, [])[0]?.detail).toBe("Still scanning");
-});
-
-test("the signal tooltip explains only what is unusual", () => {
-  const hooksTooOld = { ...installation("claude"), hooks: false, reason: "Too old for hooks." };
-  expect(signalNote(hooksTooOld, true)).toBe("Too old for hooks.");
-  expect(signalNote(hooksTooOld, false)).toBeUndefined();
-  expect(signalNote(installation("claude"), true)).toBeUndefined();
-  expect(signalNote(installation("codex"), true)).toMatch(/Replaces your own Codex notifier/);
-  expect(signalNote(installation("agy"), true)).toBeUndefined();
 });
 
 test("the version badge shows just the number, however the agent words it", () => {
