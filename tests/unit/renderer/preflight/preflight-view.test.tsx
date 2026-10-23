@@ -427,7 +427,7 @@ test("a failed launch save keeps preflight open with the error", async () => {
   source.save.mockRejectedValueOnce(new Error("Disk full"));
   fireEvent.click(button("Launch"));
   await screen.findByText("Unable to update settings.");
-  expect(screen.getByRole("dialog", { name: "Action failed" })).toBeTruthy();
+  expect(await screen.findByRole("dialog", { name: "Action failed" })).toBeTruthy();
 });
 
 test("appearance applies at once, follows shortcuts from main, and stays within its steps", async () => {
