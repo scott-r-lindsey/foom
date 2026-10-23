@@ -101,35 +101,28 @@ file contents, diffs or echoed input, and redaction cannot catch every secret.
 The Make orchestrator dialog discloses this data path. The agent's own tools and provider
 settings continue to govern its other data access.
 
-Forge manifests now drive production tracking, adoption and merged-PR hints. The
-bundled GitHub manifest preserves current PR/check behavior and adaptive polling;
-config copies use the same engine. Only enabled, explicitly assigned hosts are
-queried. Manifest minima can slow regular polls, while discovery binding keeps its
-one-second follow-up. Optional separate display reads cannot change verified PR/check status.
-Session metadata includes the validated checks meaning, persisted with observations.
+Foom reads PR or merge request and CI status for board checkouts and
+orchestrator-owned child worktrees through the bundled GitHub and GitLab forge
+manifests or enabled config manifests. Only explicitly assigned hosts are queried,
+using your selected forge CLI and existing login. Unknown remotes and unavailable
+CLIs leave status absent. Optional display details do not change verified status.
+See [forge ownership](../areas/forge.md#forge-observations) for routing and observation
+rules.
 
 The disclosure reads: “Foom uses your selected forge CLI and its existing login to
 read PR or merge request and CI metadata. It sends repository/project, branch and
 PR/MR identifiers in read-only status requests. Foom does not send terminal content,
 store forge tokens, change CLI login/configuration, or write to the forge.”
 
-Foom also reads PR and check status for board checkouts and orchestrator-owned child
-worktrees through a main-owned forge provider. GitHub is supported through your
-own `gh` CLI and existing login; Foom stores no tokens, makes no forge writes and
-sends no terminal content. The CLI contacts GitHub with repository and branch/PR
-identifiers to read PR and CI metadata. Unknown remotes and missing, logged-out or
-unavailable CLIs leave these fields absent. Validated PR number, head SHA, state
-and required-check conclusion appear in session metadata, and `wait_for` wakes on
-conclusion changes. Orchestrators can also run `foom wait-for --until-event` as
-a background command: it blocks until an owned child's state, handoff, PR state or
-required checks change (not on terminal output), then returns metadata. An optional `--timeout SECONDS` exits 5
-on timeout; role revocation returns an error. No terminal content is returned.
-The mapping survives restart and a new orchestrator generation,
-without transferring authority over old children. Reads recur every 20 seconds while checks run, two minutes when
-settled, or ten minutes with no matching PRs; failures back off up to ten minutes.
-Polling pauses during sleep and screen lock, rechecks on agent idle/exit, and stops
-on shutdown.
-See [the data, persistence and polling contract](../contracts/forge-tracking.md#child-pr-and-required-checks-340).
+Session metadata shows the validated PR/MR head, state and check conclusion, with
+its meaning (for example, GitHub required checks or a GitLab head pipeline).
+`wait_for` wakes on conclusion changes. Orchestrators can also run
+`foom wait-for --until-event` as a background command: it blocks until an owned
+child's state, handoff, PR state or checks change, then returns metadata without
+terminal content. An optional `--timeout SECONDS` exits 5 on timeout; role
+revocation returns an error. Tracking survives restart without transferring
+authority over old children, pauses during sleep and screen lock, and stops on
+shutdown. See [the data, persistence and polling contract](../contracts/forge-tracking.md#child-pr-and-required-checks-340).
 
 A granted orchestrator can send text plus submit (`prompt`) and validated logical
 keys (`send_keys`) to its own children without per-message human approval, including
@@ -150,11 +143,13 @@ Each approved removal rechecks independently; a recheck failure preserves that w
 and does not stop the others. A single pending removal keeps its ordinary dialog.
 Settings → General offers **Auto-remove merged worktrees**, allowing an orchestrator to auto-remove its own clean, fully merged
 worktrees with no running sessions across all repositories. In addition to the
-existing ancestry and no-unpushed-commits check, the same locally verified PR rule
-above qualifies squash and rebase merges. Both paths require a clean worktree and
+existing ancestry and no-unpushed-commits check, the
+[locally verified PR rule](worktrees.md#delete-merged-worktrees) qualifies squash
+and rebase merges. Both paths require a clean worktree and
 are rescanned and rechecked immediately before deletion; this option is off by default. The app menu’s
 **Action log** opens searchable local history with actor/parent,
-repository/worktree, action, target/result IDs, outcomes and hashes of child input, never its text.
+repository/worktree, action, target/result IDs, outcomes and hashes of child input.
+It omits input text, terminal tails, credentials and initial prompts.
 Search and Action/Outcome filters apply to retained history, with 100 events per page.
 Pending confirmation, refused operations and indeterminate delivery are explicit.
 **Clear history…** asks for a second click and preserves live operation deduplication.
@@ -165,9 +160,6 @@ or selecting a parent highlights its children across checkouts; hovering or
 focusing a child highlights its parent. Exited and revoked parents retain their context; close child rows before
 closing an exited parent. Children with an unavailable parent remain in their own
 checkout. Take over is shown on the child’s panel.
-A local action log records who acted, targets and
-outcomes and hashes of child input; it omits terminal tails, credentials and
-initial prompts. It retains at most 30 days and five 10 MiB files and can be cleared.
 
 ### Child board placement and close (#377)
 
