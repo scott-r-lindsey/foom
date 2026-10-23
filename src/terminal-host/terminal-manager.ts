@@ -267,7 +267,7 @@ export class TerminalManager {
     if (this.nativeAvailable(session)) session.pty.resize(cols, rows);
   }
 
-  async attach(id: string, send: View["send"]): Promise<void> {
+  async attach(id: string, send: View["send"], reset = false): Promise<void> {
     this.detach(id);
     const session = this.get(id);
     const generation = session.generation;
@@ -277,7 +277,9 @@ export class TerminalManager {
         if (this.sessions.has(id) && generation === session.generation) {
           try {
             const snapshot =
-              session.colors.snapshot() + terminalSnapshot(session.screen, session.serialize);
+              (reset ? "\x1bc" : "") +
+              session.colors.snapshot() +
+              terminalSnapshot(session.screen, session.serialize);
             session.view = { token: randomUUID(), send };
             this.deliver(session, snapshot);
           } catch (error) {

@@ -4,7 +4,9 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { HostRequest } from "../../../../src/shared/terminal-host";
 const mock = vi.hoisted(() => ({
   fork: vi.fn<(path: string, args: string[], options: ForkOptions) => Child>(),
+  remote: vi.fn<() => Child>(),
   app: {
+    getVersion: () => "0.1.0",
     on: vi.fn<(event: string, callback: (event: Event, details: Details) => void) => void>(),
     removeListener:
       vi.fn<(event: string, callback: (event: Event, details: Details) => void) => void>(),
@@ -13,6 +15,11 @@ const mock = vi.hoisted(() => ({
     shouldUseDarkColors: false,
     on: vi.fn<(event: string, callback: () => void) => void>(),
     removeListener: vi.fn(),
+  },
+}));
+vi.mock("../../../../src/main/terminals/remote-transport", () => ({
+  RemoteTransport: function () {
+    return mock.remote();
   },
 }));
 vi.mock("electron", () => ({ app: mock.app, utilityProcess: mock, nativeTheme: mock.theme }));
@@ -532,4 +539,93 @@ test("stop preserves the host's natural-exit acknowledgement and rejects a missi
   await expect(missing).rejects.toThrow("Missing terminal stop result");
   child.emit("message", { type: "exit", id, code: 1 });
   expect(await client.stop(id)).toBe(false);
+});
+
+function remoteChild(): Child {
+  const remote = new Child();
+  remote.postMessage.mockImplementation((message) => {
+    if (message === "shutdown") {
+      queueMicrotask(() => remote.emit("exit", 0));
+      return;
+    }
+    queueMicrotask(() =>
+      remote.emit("message", {
+        type: "result",
+        id: message.id,
+        request: message.request,
+        lines: ["remote"],
+        title: "remote shell",
+        cols: 80,
+        rows: 24,
+        signaled: true,
+      }),
+    );
+  });
+  return remote;
+}
+test("routes remote shell capabilities independently while leaving local terminals in their utility host", async () => {
+  const remote = remoteChild();
+  mock.remote.mockReturnValue(remote);
+  const target = { host: "fixture", artifact: "/fixture/foom-host" };
+  const id = await client.create({ ...spec, id: "remote", remote: target });
+  expect(mock.fork).not.toHaveBeenCalled();
+  expect(client.runningCount).toBe(1);
+  expect(client.hasPendingExits).toBe(true);
+  await expect(client.create({ ...spec, id, remote: target })).rejects.toThrow("occupied");
+  const send = vi.fn();
+  await client.attach(id, send);
+  remote.data(id, "snapshot");
+  expect(send).toHaveBeenCalledWith("view", "snapshot");
+  client.write(id, "input");
+  await client.reply(id, "reply");
+  await client.childInput(id, { kind: "keys", keys: ["enter"] });
+  client.resize(id, 100, 30);
+  client.acknowledge(id, "view", 8);
+  client.setTheme("follow");
+  client.detach(id);
+  expect(await client.tail(id, 1)).toEqual(["remote"]);
+  expect(await client.screen(id)).toEqual({
+    lines: ["remote"],
+    title: "remote shell",
+    cols: 80,
+    rows: 24,
+  });
+  expect(await client.stop(id)).toBe(true);
+  await client.kill(id);
+  expect(client.runningCount).toBe(0);
+  expect(
+    remote.postMessage.mock.calls.some(
+      ([message]) => message !== "shutdown" && message.type === "kill",
+    ),
+  ).toBe(true);
+  await client.dispose();
+  await expect(client.create({ ...spec, remote: target })).rejects.toThrow("disposed");
+});
+test("remote quit disconnects without requesting PTY termination; failed remote creates release their transport", async () => {
+  const remote = remoteChild();
+  mock.remote.mockReturnValue(remote);
+  await client.create({ ...spec, remote: { host: "fixture", artifact: "/fixture/foom-host" } });
+  await client.shutdown();
+  expect(client.runningCount).toBe(0);
+  expect(remote.kill).toHaveBeenCalled();
+  expect(
+    remote.postMessage.mock.calls.some(
+      ([message]) => message !== "shutdown" && ["stop", "kill", "shutdown"].includes(message.type),
+    ),
+  ).toBe(false);
+  await client.dispose();
+  client = new TerminalHostClient(exited);
+  const failed = remoteChild();
+  failed.postMessage.mockImplementation((message) => {
+    if (message === "shutdown") queueMicrotask(() => failed.emit("exit", 0));
+    else
+      queueMicrotask(() =>
+        failed.emit("message", { type: "error", id: message.id, request: message.request }),
+      );
+  });
+  mock.remote.mockReturnValue(failed);
+  await expect(
+    client.create({ ...spec, remote: { host: "fixture", artifact: "/fixture/foom-host" } }),
+  ).rejects.toThrow("failed");
+  expect(client.runningCount).toBe(0);
 });

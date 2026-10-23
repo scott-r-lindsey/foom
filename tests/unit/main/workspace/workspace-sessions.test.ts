@@ -221,3 +221,25 @@ test("pasted resumes honor shared-checkout cancellation and release failed launc
   expect(agents.launch).toHaveBeenCalledTimes(3);
   await workspace.dispose();
 });
+
+test("explicit remote spike routes only home shells and sends no local environment values", async () => {
+  const original = process.argv;
+  process.argv = [
+    ...original,
+    "--remote-shell-spike=fixture-cloud",
+    "--remote-host-artifact=/fixture/foom-host",
+  ];
+  const workspace = new Workspace(deps);
+  try {
+    await workspace.sidebarCommand({ kind: "home-shell" }, () => Promise.resolve(true));
+    expect(vi.mocked(deps.terminals, true).create.mock.calls[0]?.[0]).toMatchObject({
+      remote: { host: "fixture-cloud", artifact: "/fixture/foom-host" },
+      command: "ssh fixture-cloud",
+      env: {},
+    });
+    expect(workspace.snapshot().terminals[0]?.home).toBe(true);
+  } finally {
+    process.argv = original;
+    await workspace.dispose();
+  }
+});

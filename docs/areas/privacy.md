@@ -6,7 +6,14 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 Use Electron `safeStorage` for any secret Foom stores; never store plaintext or expose
 secrets to the renderer. Terminal content stays local except the explicit
-[config-owned probe screen capability](probes.md).
+[config-owned probe screen capability](probes.md) and SSH between the user's own
+Foom and user-provided hosts (#753). The opt-in [remote shell spike](terminals.md#remote-shell-spike-754)
+transports terminal input, output and screen replay through system SSH. SSH owns
+trust and authentication; Foom never copies keys, agent credentials or hub
+environment values to a host. There is no TCP listener on the remote host and
+no new authentication system. Hosts are user-provided; Foom provisions nothing.
+Remote messages grant no access to the hub control surface. PTY content and remote
+stderr are excluded from transport diagnostics.
 On profile load, `SettingsStore` drops legacy `inference` and `inferenceTimeoutMs`
 fields and atomically saves the migrated settings. It deletes the three fixed
 `inference-{anthropic,openai,google}.key` ciphertext files and strictly UUID-named

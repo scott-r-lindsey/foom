@@ -1375,3 +1375,18 @@ test("probe raw input remains separate from validated orchestrator child input",
   );
   expect(ptys[0]?.write).toHaveBeenCalledTimes(1);
 });
+
+test("remote replay reset belongs to the host's counted snapshot and releases view pressure", async () => {
+  const id = manager.create(spec);
+  vi.spyOn(SerializeAddon.prototype, "serialize").mockReturnValueOnce("x".repeat(270000));
+  const data = vi.fn<(token: string, data: string) => void>();
+  await manager.attach(id, data, true);
+  const frame = data.mock.calls[0];
+  if (!frame) throw new Error("Missing replay");
+  expect(frame[1].startsWith("\x1bc")).toBe(true);
+  expect(pty().pause).toHaveBeenCalledOnce();
+  manager.acknowledge(id, frame[0], frame[1].length);
+  expect(pty().resume).toHaveBeenCalledOnce();
+  output("LIVE_AFTER_REPLAY");
+  expect((await manager.tail(id, 1)).join("")).toContain("LIVE_AFTER_REPLAY");
+});

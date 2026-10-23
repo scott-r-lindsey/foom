@@ -1,3 +1,4 @@
+import type { RemoteTarget } from "./remote-host";
 import type { PreviewApi } from "./previews";
 import type { EnvironmentApi } from "./environment";
 import type { WindowsApi } from "./windows";
@@ -19,6 +20,8 @@ export interface TerminalTelemetry {
   onQuiet?(id: string): void;
 }
 export interface TerminalSpec {
+  /** Main-only development spike; never copied from renderer payloads. */
+  remote?: RemoteTarget;
   /** Main-selected ID when replacing an exited session. Never accepted from renderer launch data. */
   id?: string;
   /** Main opts interactive shells into invocation-scoped lifecycle integration. */
