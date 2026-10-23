@@ -992,7 +992,9 @@ test("stopping waits for native exit and retains an owned readable terminal", as
   expect(stopped).not.toHaveBeenCalled();
   expect(terminalControl.owns(id)).toBe(true);
   exitPty(index);
-  await stopping;
+  expect(await stopping).toBeUndefined();
+  expect(stopped).toHaveBeenCalledWith(true);
+  expect(await terminalControl.stop(id)).toBe(false);
   expect(await terminalControl.tail(id, 1)).toEqual(["preserved screen"]);
   await terminalControl.stop(id);
   expect(pty(index).kill).toHaveBeenCalledOnce();

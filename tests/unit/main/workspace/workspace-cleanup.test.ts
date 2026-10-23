@@ -184,7 +184,7 @@ test.each(["unmerged", "dirty", "replaced", "commit", "branch"])(
         vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, head: "new-head" }]);
       if (change === "branch")
         vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, branch: "other" }]);
-      return Promise.resolve();
+      return Promise.resolve(true);
     });
     await expect(
       cleanupCommand(workspace, { kind: "delete-merged-worktrees", repository: repo.path }, () =>

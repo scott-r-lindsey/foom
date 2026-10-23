@@ -370,3 +370,129 @@ it("cancels a completion stop when takeover races durable intent, and audits hos
   });
   f.orchestration.disposeUnreadChildren();
 });
+
+it.each(["snapshot", "intent"])(
+  "keeps a newly blocked author alive when done is superseded during %s",
+  async (boundary) => {
+    const h = fixture();
+    const id = await h.launch();
+    const replace = () => {
+      h.report(id, undefined, "blocked");
+    };
+    if (boundary === "snapshot")
+      h.snapshot.mockImplementationOnce(() => {
+        replace();
+        return Promise.resolve({ head: "head", digest: "initial" });
+      });
+    else
+      h.persist.mockImplementationOnce(() => {
+        replace();
+        return Promise.resolve();
+      });
+    h.report(id);
+    await h.sync();
+    expect(h.host.stop).not.toHaveBeenCalled();
+    expect(h.orchestration.reviews.view(id)?.phase).toBe("waiting-on-parent");
+    expect(h.rows.get(id)?.exited).not.toBe(true);
+    await h.mutate("prompt", { id, text: "Proceed" });
+    expect(h.orchestration.reviews.view(id)?.phase).toBe("building");
+    h.orchestration.disposeUnreadChildren();
+  },
+);
+
+it.each(["checks", "head"])(
+  "does not signal when completion %s change during durable stop intent",
+  async (change) => {
+    const h = fixture();
+    const id = await h.launch();
+    h.persist.mockImplementationOnce(() => {
+      if (change === "checks")
+        h.host.forge.read.mockReturnValue({
+          number: 7,
+          headSha: "head",
+          state: "OPEN",
+          requiredChecks: "failure",
+        });
+      else h.snapshot.mockResolvedValue({ head: "new-head", digest: "new-digest" });
+      return Promise.resolve();
+    });
+    h.report(id);
+    await h.sync();
+    expect(h.host.stop).not.toHaveBeenCalled();
+    expect(h.orchestration.reviews.view(id)?.reason).toBe("checks not green");
+    h.orchestration.disposeUnreadChildren();
+  },
+);
+
+it.each([
+  ["author", "snapshot"],
+  ["reviewer", "snapshot"],
+  ["author", "intent"],
+  ["reviewer", "intent"],
+  ["author", "mutated"],
+  ["reviewer", "mutated"],
+] as const)(
+  "preserves a natural nonzero %s exit during %s instead of exempting it",
+  async (participant, boundary) => {
+    const h = fixture();
+    const author = await h.launch();
+    let id = author;
+    if (participant === "reviewer") {
+      h.report(author);
+      h.exit(author);
+      await h.sync();
+      id = "child-2";
+    }
+    const exit = () => {
+      const row = h.rows.get(id);
+      if (!row) throw new Error("missing participant");
+      if (boundary === "mutated") {
+        row.exited = true;
+        row.exitCode = 1;
+      } else h.rows.set(id, { ...row, exited: true, exitCode: 1 });
+      h.orchestration.exited(id);
+    };
+    if (boundary === "intent")
+      h.persist.mockImplementationOnce(() => {
+        exit();
+        return Promise.resolve();
+      });
+    else
+      h.snapshot.mockImplementationOnce(() => {
+        exit();
+        return Promise.resolve({ head: "head", digest: "initial" });
+      });
+    h.report(id, participant === "reviewer" ? { verdict: "clean" } : undefined);
+    await h.sync();
+    expect(h.host.stop).not.toHaveBeenCalled();
+    expect(h.orchestration.reviews.view(author)?.reason).toBe(`${participant} failed`);
+    h.orchestration.disposeUnreadChildren();
+  },
+);
+
+it.each(["author", "reviewer"])(
+  "waits without polling when the host observes a natural %s exit before main",
+  async (participant) => {
+    const h = fixture();
+    const author = await h.launch();
+    let id = author;
+    if (participant === "reviewer") {
+      h.report(author);
+      h.exit(author);
+      await h.sync();
+      id = "child-2";
+    }
+    h.host.stop.mockResolvedValueOnce(false);
+    h.report(id, participant === "reviewer" ? { verdict: "clean" } : undefined);
+    await h.sync();
+    // No self-sustaining retry loop while the host's exit notification is in flight.
+    expect(h.host.stop).toHaveBeenCalledTimes(1);
+    const row = h.rows.get(id);
+    if (!row) throw new Error("missing participant");
+    h.rows.set(id, { ...row, exited: true, exitCode: 1 });
+    h.orchestration.exited(id);
+    await h.sync();
+    expect(h.orchestration.reviews.view(author)?.reason).toBe(`${participant} failed`);
+    h.orchestration.disposeUnreadChildren();
+  },
+);

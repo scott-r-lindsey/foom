@@ -448,7 +448,7 @@ it.each(["untracked", "commit", "forge"])(
       terminals: {
         create: () => Promise.reject(new Error("No launch expected")),
         kill: () => Promise.resolve(),
-        stop: () => Promise.resolve(),
+        stop: () => Promise.resolve(true),
         tail: () => Promise.resolve([]),
       },
       verdicts: {

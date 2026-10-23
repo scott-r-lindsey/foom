@@ -299,8 +299,8 @@ test("stop waits for host completion and preserves the terminal for retry or ins
   const id = await create();
   const stopping = client.stop(id);
   expect(child.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ type: "stop", id }));
-  child.reply();
-  await stopping;
+  child.reply(undefined, { signaled: true });
+  expect(await stopping).toBe(true);
   const tail = client.tail(id, 1);
   child.reply(undefined, { lines: ["preserved"] });
   expect(await tail).toEqual(["preserved"]);
@@ -520,4 +520,16 @@ test("screen requests require an available host and a validated title", async ()
   const missing = client.screen(id);
   child.reply();
   await expect(missing).rejects.toThrow("Missing terminal title");
+});
+
+test("stop preserves the host's natural-exit acknowledgement and rejects a missing acknowledgement", async () => {
+  const id = await create();
+  const stopping = client.stop(id);
+  child.reply(undefined, { signaled: false });
+  expect(await stopping).toBe(false);
+  const missing = client.stop(id);
+  child.reply();
+  await expect(missing).rejects.toThrow("Missing terminal stop result");
+  child.emit("message", { type: "exit", id, code: 1 });
+  expect(await client.stop(id)).toBe(false);
 });

@@ -1,5 +1,5 @@
 import type { ReviewOptions, ReviewReason, ReviewState, ReviewVerdict } from "../../shared/review";
-import type { ReviewLoop, ReviewLoopHost } from "./review-loops.d";
+import type { ReviewLoop, ReviewLoopHost, ReviewSnapshot } from "./review-loops.d";
 import type { PullRequest } from "./forge.d";
 
 function green(
@@ -228,18 +228,61 @@ export class ReviewLoops {
     }
     loop.currentId = id;
     delete loop.stoppingId;
+    delete loop.awaitingExitId;
     delete loop.prompt;
     loop.state = { ...loop.state, waiting: false };
     this.host.changed();
   }
 
   /** A validated report permits one host stop; advancing still waits for observed exit. */
-  private async endParticipant(loop: ReviewLoop): Promise<void> {
-    loop.stoppingId = loop.currentId;
-    await this.host.stop(loop.currentId);
-    // The host may resolve before main observes exit. Recheck once, then rely on
-    // normal session invalidation rather than polling or repeating the stop.
+  private async endParticipant(
+    loop: ReviewLoop,
+    seq: number,
+    snapshot: ReviewSnapshot,
+    checks: PullRequest,
+  ): Promise<void> {
+    const id = loop.currentId;
+    const expectedChecks = { ...checks };
+    const result = await this.host.stop(id, (current) => {
+      const report = this.host.report(id);
+      const row = this.host.row(id);
+      const latest = this.host.checks(loop.state.authorId);
+      return (
+        !this.finished(loop) &&
+        loop.currentId === id &&
+        report?.seq === seq &&
+        report.status === "done" &&
+        row !== undefined &&
+        !row.exited &&
+        current.head === snapshot.head &&
+        current.digest === snapshot.digest &&
+        green(latest, current.head, expectedChecks.number) &&
+        latest.requiredChecks === expectedChecks.requiredChecks
+      );
+    });
+    // Only a positive host acknowledgement proves a running process was signaled.
+    if (result === "stopped") loop.stoppingId = id;
+    if (result !== "changed") loop.awaitingExitId = id;
+    // A host-observed natural exit can precede main's inventory notification.
+    // Wait for that notification rather than retrying stops in a microtask cycle.
+    if (result !== "exited" || this.host.row(id)?.exited) loop.again = true;
+  }
+
+  private observed(
+    loop: ReviewLoop,
+    seq: number,
+    row: { exited?: boolean; exitCode?: number | undefined },
+  ): boolean {
+    const current = this.host.row(loop.currentId);
+    if (
+      this.host.report(loop.currentId)?.seq === seq &&
+      current !== undefined &&
+      current.exited === row.exited &&
+      current.exitCode === row.exitCode
+    )
+      return true;
     loop.again = true;
+    return false;
   }
 
   private async advance(loop: ReviewLoop): Promise<void> {
@@ -247,7 +290,8 @@ export class ReviewLoops {
       await this.launch(loop);
       return;
     }
-    const row = this.host.row(loop.currentId);
+    const observed = this.host.row(loop.currentId);
+    const row = observed ? { ...observed } : undefined;
     if (!row) {
       this.finish(loop, "stopped");
       return;
@@ -272,7 +316,7 @@ export class ReviewLoops {
       return;
     }
     if (loop.state.phase === "waiting-on-parent") return;
-    if (loop.stoppingId === loop.currentId && !row.exited) return;
+    if (loop.awaitingExitId === loop.currentId && !row.exited) return;
     if (
       row.exited &&
       loop.stoppingId !== loop.currentId &&
@@ -289,7 +333,7 @@ export class ReviewLoops {
     }
     if (reviewing) {
       const snapshot = await this.host.snapshot(loop.state.authorId);
-      if (this.finished(loop)) return;
+      if (this.finished(loop) || !this.observed(loop, fresh.seq, row)) return;
       if (snapshot.digest !== loop.snapshot?.digest) {
         this.finish(loop, "worktree changed");
         return;
@@ -299,7 +343,12 @@ export class ReviewLoops {
         return;
       }
       if (!row.exited) {
-        await this.endParticipant(loop);
+        const checks = this.host.checks(loop.state.authorId);
+        if (!green(checks, snapshot.head, loop.number)) {
+          this.finish(loop, "checks not green");
+          return;
+        }
+        await this.endParticipant(loop, fresh.seq, snapshot, checks);
         return;
       }
       if (fresh.review.verdict === "clean") {
@@ -320,14 +369,14 @@ export class ReviewLoops {
       loop.prompt = findingsBrief(loop.number ?? 0, fresh.review);
     } else {
       const snapshot = await this.host.snapshot(loop.state.authorId);
-      if (this.finished(loop)) return;
+      if (this.finished(loop) || !this.observed(loop, fresh.seq, row)) return;
       const checks = this.host.checks(loop.state.authorId);
       if (!green(checks, snapshot.head, loop.number)) {
         this.finish(loop, "checks not green");
         return;
       }
       if (!row.exited) {
-        await this.endParticipant(loop);
+        await this.endParticipant(loop, fresh.seq, snapshot, checks);
         return;
       }
       loop.snapshot = snapshot;

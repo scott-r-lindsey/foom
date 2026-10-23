@@ -16,7 +16,13 @@ type Command = HostRequest extends infer R
   : never;
 type Pending = {
   id: string;
-  resolve: (result: { lines: string[]; title?: string; cols?: number; rows?: number }) => void;
+  resolve: (result: {
+    lines: string[];
+    signaled?: boolean;
+    title?: string;
+    cols?: number;
+    rows?: number;
+  }) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 };
@@ -204,9 +210,13 @@ export class TerminalHostClient {
     }
   }
 
-  private async request(
-    command: Command,
-  ): Promise<{ lines: string[]; title?: string; cols?: number; rows?: number }> {
+  private async request(command: Command): Promise<{
+    lines: string[];
+    signaled?: boolean;
+    title?: string;
+    cols?: number;
+    rows?: number;
+  }> {
     const request = ++this.sequence;
     const message = { ...command, request };
     if (!hostRequest(message)) throw new Error("Invalid terminal host request");
@@ -296,9 +306,11 @@ export class TerminalHostClient {
       throw new Error("Terminal host unavailable");
     return (await this.request({ type: "tail", id, lines })).lines;
   }
-  async stop(id: string): Promise<void> {
-    if (!this.sessions.get(id)?.alive) return;
-    await this.request({ type: "stop", id });
+  async stop(id: string): Promise<boolean> {
+    if (!this.sessions.get(id)?.alive) return false;
+    const result = await this.request({ type: "stop", id });
+    if (result.signaled === undefined) throw new Error("Missing terminal stop result");
+    return result.signaled;
   }
   async kill(id: string): Promise<void> {
     if (!this.sessions.has(id)) return;

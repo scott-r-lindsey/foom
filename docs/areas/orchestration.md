@@ -76,7 +76,13 @@ and unchanged
 worktree before stopping the reviewer through the same host path and waiting for
 exit. Signal exit codes from these requested stops do not fail the loop; unexpected
 nonzero exits still escalate. Each automated stop records durable action intent
-and rechecks live authority before signaling. Main compares HEAD, index entry modes/object IDs/stages and semantic flags
+and rechecks live authority, the latest handoff sequence/status, HEAD, worktree
+snapshot and green required checks after that write and immediately before
+signaling. Changed evidence cancels that stop and re-evaluates the same loop.
+Only a host acknowledgement that it signaled a running process grants the expected
+stop-exit exemption; a natural nonzero exit still fails even when it races a
+snapshot or stop intent. A host-observed exit awaiting main inventory settles
+without polling or repeated stops. Main compares HEAD, index entry modes/object IDs/stages and semantic flags
 (skip-worktree, assume-unchanged and intent-to-add), sparse-checkout and local
 exclusion rules, and tracked/untracked non-ignored file bytes and modes
 against the pre-review snapshot. Git stat-cache refreshes from read-only status/diff
