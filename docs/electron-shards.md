@@ -261,3 +261,34 @@ overhead, and combine maxima that need not occur in the same run. Check actual
 PR step wall times against the unchanged 420s Linux / 600s Windows and macOS
 limits before calling the balance validated. The earlier measurements above
 remain historical context, not this refresh's inputs.
+
+## Rebalancing from current reports (#751)
+
+Refreshed all 185 current named cases using passing main runs
+[39918020774](https://github.com/scott-r-lindsey/foom/actions/runs/39918020774)
+and [39970696968](https://github.com/scott-r-lindsey/foom/actions/runs/39970696968),
+plus passing PR runs
+[39946804406](https://github.com/scott-r-lindsey/foom/actions/runs/39946804406),
+[39973853488](https://github.com/scott-r-lindsey/foom/actions/runs/39973853488),
+and [39981523976](https://github.com/scott-r-lindsey/foom/actions/runs/39981523976).
+All twelve Electron reports from each run are inputs. The newest main reports
+cover the GitLab cases added after this branch was created; the latest update PR
+reports measure the update-settings case subsequently merged into main. The
+#750 reports also measure its two new harness cases after incorporating those
+flake fixes from main. The existing script
+uses per-case maxima across these runs; older runs may omit newer cases when
+another input measures them on every platform.
+
+| Platform | Before: shards 1 / 2 / 3 / 4 | After: shards 1 / 2 / 3 / 4 | After max/min spread | Case-sum headroom |
+| --- | --- | --- | --- | --- |
+| Linux | 315.0 / 349.5 / 378.2 / 341.6 | 346.9 / 345.3 / 348.0 / 344.1 | 1.1% | 72.0s / 17.1% |
+| Windows | 560.7 / 574.1 / 548.1 / 487.1 | 540.3 / 546.2 / 545.3 / 538.2 | 1.5% | 53.8s / 9.0% |
+| macOS | 408.5 / 530.0 / 475.9 / 428.7 | 460.5 / 463.0 / 455.6 / 464.0 | 1.8% | 136.0s / 22.7% |
+
+Values are seconds; spread is `(maximum / minimum - 1) * 100`.
+Headroom subtracts the largest projected case sum from the unchanged step budget
+(420s Linux, 600s Windows/macOS). These conservative projections combine maxima
+that may come from different runs and exclude build/runner overhead. Actual PR
+step times remain the validation evidence. No shard count, workflow budget or
+test deadline changed. The [validation guide](validation.md#refreshing-the-electron-shard-plan)
+includes the repeatable refresh procedure.
