@@ -154,6 +154,9 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
     };
     const app = await launchApp(context, options);
     const page = await boardPage(app);
+    if (["fix", "cap"].includes(scenario)) {
+      await page.evaluate(() => window.desktop.saveSetup({ closeFinishedAgents: false }));
+    }
     await app.evaluate(({ dialog }, directory) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
     }, repo);
@@ -423,7 +426,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
           { file: "a.ts", line: 1, summary: "Incorrect zero result", scenario: "Call with zero" },
         ],
       };
-      if (scenario === "clean") {
+      if (["clean", "fix", "cap"].includes(scenario)) {
         // The exited author remains visible while its reviewer can still find bugs.
         assert.equal((await call("session_state", { id: authorId })).state, "exited");
         await expect(row).toBeVisible();
@@ -443,6 +446,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         await waitStep("review-2");
         await expect(row.locator('[data-review-phase="reviewing"]')).toHaveText("Reviewing 2/3");
         await shot("reviewing-2");
+        assert.equal((await call("session_state", { id: authorId })).state, "exited");
         await go("review-2", { review: { verdict: "clean" } });
       }
       await expect
@@ -450,6 +454,30 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         .toBe(["edit", "cap"].includes(scenario) ? "escalated" : "clean");
       if (scenario === "edit") assert.equal((await state()).reason, "worktree changed");
       if (scenario === "cap") assert.equal((await state()).reason, "round cap");
+      if (["fix", "cap"].includes(scenario)) {
+        // Explicit closure must work after findings, including an escalated loop.
+        const reviewers = (
+          await page.evaluate(async () => (await window.desktop.workspace()).terminals)
+        ).filter((entry) => entry.review?.authorId === authorId && entry.id !== authorId);
+        assert.equal(reviewers.length, scenario === "fix" ? 2 : 1);
+        const record = await state();
+        for (const reviewer of reviewers) {
+          await expect
+            .poll(async () => (await call("session_state", { id: reviewer.id })).state)
+            .toBe("exited");
+          assert.equal(
+            (await call("read_handoff", { id: reviewer.id })).review.verdict,
+            reviewer.id === reviewers[0].id ? "findings" : "clean",
+          );
+          assert.equal(
+            (await call("close", { id: reviewer.id, idempotencyKey: `close-${reviewer.id}` }))
+              .status,
+            "succeeded",
+          );
+        }
+        assert.deepEqual(await state(), record);
+        await expect(row).toBeVisible();
+      }
     }
     if (scenario === "clean") {
       await expect(page.locator('.session-robot-mark[data-kind="review"]')).toHaveCount(0);
