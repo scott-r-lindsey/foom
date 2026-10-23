@@ -23,6 +23,7 @@ afterEach(async () => {
 });
 
 const cipher = {
+  supported: () => true,
   available: () => true,
   encrypt: (text: string) => Buffer.from(`enc:${text}`).reverse(),
   decrypt: (data: Buffer) => {
@@ -38,6 +39,155 @@ const change = (name: string, value: string | null, extra: object = {}) => ({
   value,
   secret: false,
   ...extra,
+});
+
+function countingCipher() {
+  return {
+    supported: cipher.supported,
+    available: vi.fn(cipher.available),
+    encrypt: vi.fn(cipher.encrypt),
+    decrypt: vi.fn(cipher.decrypt),
+  };
+}
+
+test("settings reads, plain edits, imports and launch layers never access an empty keychain", async () => {
+  const counted = countingCipher();
+  const dir = await directory();
+  const store = await EnvironmentStore.open(dir, counted, {
+    read: () => Promise.resolve({ NO_PROXY: ".corp" }),
+  });
+  for (let tab = 0; tab < 5; tab++) expect(store.state().secrets).toBe(true);
+  await store.save(change("REGION", "west"));
+  await store.readShell();
+  await store.import(["NO_PROXY"]);
+  store.layers("codex");
+  store.redactions();
+  await store.remove("all", "REGION");
+  const reopened = await EnvironmentStore.open(dir, counted);
+  expect(reopened.state().lists.all).toHaveLength(1);
+  expect(counted.available).not.toHaveBeenCalled();
+  expect(counted.encrypt).not.toHaveBeenCalled();
+  expect(counted.decrypt).not.toHaveBeenCalled();
+});
+
+test("secret decisions probe once; status and unchanged ciphertext need no keychain", async () => {
+  const counted = countingCipher();
+  const dir = await directory();
+  const store = await EnvironmentStore.open(dir, counted);
+  await store.save(change("TOKEN", "one", { secret: true }));
+  expect(counted.available).toHaveBeenCalledTimes(1);
+  expect(counted.encrypt).toHaveBeenCalledTimes(1);
+  await store.save(change("TOKEN2", "two", { secret: true, scope: "codex" }));
+  expect(counted.available).toHaveBeenCalledTimes(2);
+  expect(counted.encrypt).toHaveBeenCalledTimes(2);
+  await store.save(change("PLAIN", "value"));
+  await store.save(change("RENAMED", null, { previous: "TOKEN", secret: true }));
+  await store.remove("all", "PLAIN");
+  expect(counted.available).toHaveBeenCalledTimes(2);
+  expect(counted.encrypt).toHaveBeenCalledTimes(2);
+  const reopened = await EnvironmentStore.open(dir, counted);
+  expect(counted.available).toHaveBeenCalledTimes(3);
+  expect(counted.decrypt).toHaveBeenCalledTimes(2);
+  reopened.state();
+  reopened.state();
+  expect(reopened.layers("codex")).toEqual([
+    [{ name: "RENAMED", value: "one" }],
+    [{ name: "TOKEN2", value: "two" }],
+  ]);
+  expect(counted.available).toHaveBeenCalledTimes(3);
+  const locked = countingCipher();
+  locked.available.mockReturnValue(false);
+  await EnvironmentStore.open(dir, locked);
+  expect(locked.available).toHaveBeenCalledOnce();
+  expect(locked.decrypt).not.toHaveBeenCalled();
+  locked.available.mockClear();
+  locked.available.mockImplementation(() => {
+    throw new Error("locked");
+  });
+  await EnvironmentStore.open(dir, locked);
+  expect(locked.available).toHaveBeenCalledOnce();
+  await reopened.remove("all", "RENAMED");
+  expect(counted.encrypt).toHaveBeenCalledTimes(2);
+});
+
+test("changed secret edits and imports replace ciphertext and survive reopening", async () => {
+  const counted = countingCipher();
+  const dir = await directory();
+  const store = await EnvironmentStore.open(dir, counted, {
+    read: () => Promise.resolve({ HTTPS_PROXY: "http://user:new@proxy:80", NO_PROXY: ".corp" }),
+  });
+  await store.save(change("HTTPS_PROXY", "http://user:old@proxy:80"));
+  await store.save(change("TOKEN", "old", { secret: true }));
+  await store.save(change("TOKEN", "new", { secret: true, previous: "TOKEN" }));
+  expect(counted.available).toHaveBeenCalledTimes(3);
+  expect(counted.encrypt).toHaveBeenCalledTimes(3);
+  await store.readShell();
+  await store.import(["HTTPS_PROXY", "NO_PROXY"]);
+  expect(counted.available).toHaveBeenCalledTimes(4);
+  expect(counted.encrypt).toHaveBeenCalledTimes(4);
+  await store.readShell();
+  await store.import(["HTTPS_PROXY", "NO_PROXY"]);
+  expect(counted.available).toHaveBeenCalledTimes(4);
+  expect(counted.encrypt).toHaveBeenCalledTimes(4);
+  const reopened = await EnvironmentStore.open(dir, counted);
+  expect(reopened.layers("shell")).toEqual([
+    [
+      { name: "HTTPS_PROXY", value: "http://user:new@proxy:80" },
+      { name: "TOKEN", value: "new" },
+      { name: "NO_PROXY", value: ".corp" },
+    ],
+  ]);
+  await reopened.save(change("TOKEN", "plain", { previous: "TOKEN" }));
+  expect(reopened.state().lists.all[1]).toEqual({ name: "TOKEN", value: "plain", secret: false });
+  const stored = await readFile(path.join(dir, "environment.json"), "utf8");
+  expect(stored).not.toContain("user:new");
+  expect(counted.encrypt).toHaveBeenCalledTimes(4);
+});
+
+test("advertised secret support still refuses unavailable encryption without persisting", async () => {
+  const counted = countingCipher();
+  counted.available.mockReturnValue(false);
+  const dir = await directory();
+  const store = await EnvironmentStore.open(dir, counted);
+  expect(store.state().secrets).toBe(true);
+  await expect(store.save(change("TOKEN", "private", { secret: true }))).rejects.toThrow(
+    "Secrets need the system keychain, which is unavailable",
+  );
+  expect(counted.available).toHaveBeenCalledOnce();
+  expect(counted.encrypt).not.toHaveBeenCalled();
+  expect(store.state().lists.all).toEqual([]);
+  await expect(readFile(path.join(dir, "environment.json"))).rejects.toThrow();
+  counted.available.mockReturnValue(true);
+  await store.save(change("TOKEN", "private", { secret: true }));
+  expect(counted.available).toHaveBeenCalledTimes(2);
+});
+
+test("safeStorage support reporting never probes encryption on any platform", () => {
+  for (const platform of ["darwin", "win32", "linux"] as const) {
+    for (const backend of ["basic_text", "unknown", "gnome_libsecret", "kwallet6"]) {
+      const storage = {
+        isEncryptionAvailable: vi.fn(() => true),
+        getSelectedStorageBackend: vi.fn(() => backend),
+        encryptString: vi.fn((value: string) => Buffer.from(value)),
+        decryptString: vi.fn((value: Buffer) => value.toString()),
+      };
+      const adapter = safeStorageCipher(storage, platform);
+      expect(adapter.supported()).toBe(
+        platform !== "linux" || ["gnome_libsecret", "kwallet6"].includes(backend),
+      );
+      expect(storage.isEncryptionAvailable).not.toHaveBeenCalled();
+      expect(storage.encryptString).not.toHaveBeenCalled();
+      expect(storage.decryptString).not.toHaveBeenCalled();
+      expect(adapter.available()).toBe(platform !== "linux" || backend !== "basic_text");
+    }
+  }
+  const storage = {
+    isEncryptionAvailable: () => false,
+    encryptString: (value: string) => Buffer.from(value),
+    decryptString: (value: Buffer) => value.toString(),
+  };
+  expect(safeStorageCipher(storage, "linux").supported()).toBe(false);
+  expect(safeStorageCipher(storage, "darwin").available()).toBe(false);
 });
 
 test("a global proxy reaches shells and agents; agent layers override and stay their own", async () => {
@@ -170,7 +320,7 @@ test("secrets are encrypted at rest, masked in replies, renamed without reading,
 
 test("secrets are refused without OS encryption, and a failed write changes nothing", async () => {
   const dir = await directory();
-  const unavailable = { ...cipher, available: () => false };
+  const unavailable = { ...cipher, supported: () => false, available: () => false };
   const store = await EnvironmentStore.open(dir, unavailable, { windows: false });
   expect(store.state().secrets).toBe(false);
   await expect(store.save(change("A", "x", { secret: true }))).rejects.toThrow("keychain");

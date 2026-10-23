@@ -28,7 +28,10 @@ data holds an All sessions list and one per agent; secret values are stored only
 `safeStorage` ciphertext, never in `settings.json`, and Linux's `basic_text` fallback
 counts as unavailable, so secrets are refused there. Loading drops invalid rows and
 secrets that cannot be decrypted. Replies carry names, plain values and null for saved
-secrets; error messages name variables, never values.
+secrets; error messages name variables, never values. Environment status never
+probes the keychain. Loading stored secrets checks availability once for the load;
+saving new or changed secret values checks once for the write. Unchanged ciphertext
+is reused on unrelated edits. See [keychain access](settings.md#environment-keychain-access-717).
 
 Each launch is built in layers, each overriding the previous: the inherited
 environment (scrubbed of `npm_*`, `ELECTRON_*`, `FOOM_*` and `CLAUDECODE`), All

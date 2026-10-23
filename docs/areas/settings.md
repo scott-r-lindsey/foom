@@ -116,3 +116,21 @@ Main resolves Git on the discovered login PATH and runs bounded, shell-free
 T-0 and Settings → Forges share this service and `ForgeRuntime.hostStatus`.
 No forge probe runs before T-0 during first run. Git alone also guards repository
 selection and setup completion; these guards never probe forge CLIs.
+
+### Environment keychain access (#717)
+
+Environment status reads (including opening Settings, changing tabs and scanning
+agents) never probe encryption availability or access the keychain. macOS and
+Windows advertise secret support without probing; Linux reports support only for
+a selected keyring backend, never `basic_text` or an unknown backend. A secret
+save still checks encryption availability and refuses with the existing keychain
+error if unavailable. Secrets remain safeStorage ciphertext on disk and null in
+renderer replies.
+
+Loading stored secret rows checks availability once for the load, then decrypts
+them in main for launch layers and redaction. Loading without secret rows makes
+no encryption, decryption or availability calls. Writes check availability once
+only when new or changed secret values
+need encryption, including imported URL credentials. Unchanged secret ciphertext
+is reused for plain edits, renames and removals. Status reads never repeat these
+checks, and a failed save can be retried without caching its failed availability.
