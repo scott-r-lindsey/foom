@@ -463,15 +463,15 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
       // Reuse the existing tracker setting invalidation; no test-only main API.
       await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: true }));
       await expect
-        .poll(
-          async () =>
-            (await page.evaluate(() => window.desktop.workspace())).terminals.some(
-              (item) => item.id === authorId,
-            ),
-          { timeout: deadline(60000) },
-        )
-        .toBe(false);
-      await expect(row).toHaveCount(0);
+        .poll(async () => (await call("session_state", { id: authorId })).pullRequest?.state, {
+          timeout: deadline(60000),
+        })
+        .toBe("MERGED");
+      await expect(row).toBeVisible();
+      assert.equal((await state()).phase, "clean");
+      await call("read_handoff", { id: authorId });
+      await expect(row).toBeVisible();
+      assert.equal((await state()).phase, "clean");
       assert.ok(git("worktree", "list", "--porcelain").includes("child-one"));
       assert.equal(git("rev-parse", "--verify", "child-one").trim(), headSha);
     }

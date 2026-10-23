@@ -150,3 +150,12 @@ eligibility after that write; audit failure leaves the session visible. Disablin
 the switch retains finished sessions. No polling, new timer, Git command or forge request is
 added; unchanged metadata settles, and failed close attempts retain the session
 without automatic retries.
+
+Loop attention is projected onto the parent: an author with unread review attention
+is ineligible even when its own row is quiet. Automatic close always leaves at least
+one loop participant on the board, retaining the review record and its persistence;
+the final participant requires explicit close, including after acknowledgment.
+PR-based closure uses only a successful observation after the exit-triggered
+recheck has settled. A response from an older in-flight read cannot qualify. The
+existing forge completion invalidation wakes closure even for unchanged PR metadata;
+the settled read is checked synchronously again immediately before close.

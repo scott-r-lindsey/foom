@@ -55,6 +55,17 @@ export class ReviewLoops {
     return this.recordedReviewers.has(id);
   }
 
+  /** Automatic closure must leave a session carrying this loop's review record. */
+  keepsStateAfterClose(id: string, closing: ReadonlySet<string>): boolean {
+    const author = this.participants.get(id);
+    return (
+      author !== undefined &&
+      [...this.participants].some(
+        ([other, loop]) => other !== id && !closing.has(other) && loop === author,
+      )
+    );
+  }
+
   forget(id: string): void {
     this.recordedReviewers.delete(id);
     const author = this.participants.get(id);

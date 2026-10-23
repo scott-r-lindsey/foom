@@ -245,3 +245,8 @@ A session that needs you, has unread attention, or was taken over stays open.
 Children without a PR stay open unless they are accepted reviewers. Closing
 removes the tile and sidebar row and discards the final screen; the worktree,
 branch and author's review state remain. Turn the setting off to retain them.
+
+A loop author also stays open while its review attention is unread on the parent.
+The final loop participant stays open to keep the review record; close it explicitly
+when you no longer need it. Other PR-based closes wait for the existing exit status
+refresh to finish, so a stale closed-PR observation cannot close a reopened PR.

@@ -113,10 +113,14 @@ export class OrchestrationAuthority {
         !this.host.starting?.(id) &&
         row.state?.state !== "needs_input" &&
         row.execution?.phase !== "blocked" &&
+        (!review || this.reviews.keepsStateAfterClose(id, this.closing)) &&
         (review && review.authorId !== id
           ? this.reviews.verdictRecorded(id)
           : (!review || review.phase === "clean" || review.phase === "escalated") &&
-            ["MERGED", "CLOSED"].includes(this.pullRequest(row)?.state ?? "")),
+            this.reviews.unread(id) === undefined &&
+            ["MERGED", "CLOSED"].includes(
+              this.host.forge?.readSettled?.(row.repository, row.worktree)?.state ?? "",
+            )),
     );
   }
 

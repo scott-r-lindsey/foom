@@ -119,3 +119,10 @@ MCP results. The CLI contacts GitHub using its own authentication and sends only
 repository, branch/PR identifiers and read-only status requests. Foom stores no
 tokens, makes no forge writes and sends no terminal content. No terminal/model
 output is used to discover PRs.
+
+Automatic session close reads a main-only settled observation: `recheck` invalidates
+this evidence synchronously, while cached display metadata remains available.
+Single and batched completions carry the request generation. Older responses do
+not settle a newer request; only the latest successful sample can authorize close.
+Completion invalidates child metadata even if PR fields are unchanged, without new
+polling or requests. Missing, unavailable or pending evidence refuses auto-close.

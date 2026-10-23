@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { harness } from "./orchestration-helpers";
+import { ForgeTracking } from "../../../../src/main/control/forge-tracking";
+import type { PullRequest } from "../../../../src/main/control/forge.d";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import type { Handoff } from "../../../../src/shared/handoff";
 
 const settled = () => new Promise<void>((resolve) => setImmediate(resolve));
@@ -246,18 +251,192 @@ describe("close finished agents", () => {
       });
       h.exit(id);
       await h.sync();
-      expect(h.host.close).toHaveBeenCalledTimes(
-        phase === "clean" || phase === "escalated" ? 1 : 0,
-      );
+      expect(h.host.close).not.toHaveBeenCalled();
     },
   );
 
-  it("closes a clean author on a later merged update, retaining checkout and review state", async () => {
+  it("keeps unread parent review attention and the last loop record when its PR merges", async () => {
     const h = fixture();
+    const author = await h.loop();
+    h.host.close.mockImplementation((id) => {
+      h.rows.delete(id);
+      h.orchestration.removed(id);
+      return Promise.resolve();
+    });
+    h.report("child-2", { verdict: "clean" });
+    h.exit("child-2");
+    await h.sync();
+    expect(h.host.close).toHaveBeenCalledExactlyOnceWith("child-2");
+    expect(h.orchestration.reviewUnreadAt("parent")).toBeDefined();
+    h.host.forge.read.mockReturnValue({
+      number: 7,
+      headSha: "head",
+      requiredChecks: "none",
+      state: "MERGED",
+    });
+    await h.sync();
+    expect(h.host.close).not.toHaveBeenCalledWith(author);
+    expect(h.orchestration.reviewUnreadAt("parent")).toBeDefined();
+    expect(h.orchestration.reviews.view(author)?.phase).toBe("clean");
+    h.orchestration.readReviews("parent");
+    await h.sync();
+    // Even after acknowledgment, automatic close must retain the final review record.
+    expect(h.rows.has(author)).toBe(true);
+    expect(h.orchestration.reviews.view(author)?.phase).toBe("clean");
+  });
+
+  it("protects unread author attention even with another participant, then keeps that last reviewer", async () => {
+    const h = fixture();
+    const author = await h.loop();
+    const reviewer = h.rows.get("child-2");
+    if (!reviewer) throw Error("missing reviewer");
+    reviewer.state = {
+      id: reviewer.id,
+      verdictId: null,
+      state: "needs_input",
+      reason: "Question",
+      signal: "permission",
+      confidence: 1,
+      timestamp: 1,
+    };
+    h.host.close.mockImplementation((id) => {
+      h.rows.delete(id);
+      h.orchestration.removed(id);
+      return Promise.resolve();
+    });
+    h.report(reviewer.id, { verdict: "clean" });
+    h.exit(reviewer.id);
+    await h.sync();
+    h.host.forge.read.mockReturnValue({
+      number: 7,
+      headSha: "head",
+      requiredChecks: "none",
+      state: "MERGED",
+    });
+    await h.sync();
+    expect(h.host.close).not.toHaveBeenCalled();
+    expect(h.orchestration.reviewUnreadAt("parent")).toBeDefined();
+    h.orchestration.readReviews("parent");
+    await h.sync();
+    expect(h.host.close).toHaveBeenCalledExactlyOnceWith(author);
+    reviewer.state = null;
+    await h.sync();
+    expect(h.host.close).toHaveBeenCalledTimes(1);
+    expect(h.orchestration.reviews.view(reviewer.id)?.phase).toBe("clean");
+  });
+
+  it("reserves the last loop record across concurrent asynchronous closes", async () => {
+    const h = fixture();
+    h.orchestration.configureCloseFinished(false);
     const author = await h.loop();
     h.report("child-2", { verdict: "clean" });
     h.exit("child-2");
     await h.sync();
+    h.orchestration.readReviews("parent");
+    h.host.forge.read.mockReturnValue({
+      number: 7,
+      headSha: "head",
+      requiredChecks: "none",
+      state: "MERGED",
+    });
+    let finish = () => {};
+    const gate = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    h.host.close.mockImplementation(async (id) => {
+      await gate;
+      h.rows.delete(id);
+      h.orchestration.removed(id);
+    });
+    h.orchestration.configureCloseFinished(true);
+    await h.sync();
+    try {
+      expect(h.host.close).toHaveBeenCalledTimes(1);
+    } finally {
+      finish();
+      await h.sync();
+      h.orchestration.disposeUnreadChildren();
+    }
+    expect(h.rows.has(author) || h.rows.has("child-2")).toBe(true);
+    expect(h.orchestration.reviews.view(h.rows.has(author) ? author : "child-2")?.phase).toBe(
+      "clean",
+    );
+  });
+
+  it("waits for the exit-triggered forge read instead of closing a reopened cached CLOSED PR", async () => {
+    const h = fixture();
+    const { id } = await h.child("feature");
+    const row = h.rows.get(id);
+    if (!row) throw Error("missing child");
+    const root = await mkdtemp(join(tmpdir(), "foom-close-refresh-"));
+    const closed: PullRequest = {
+      number: 7,
+      headSha: "a".repeat(40),
+      requiredChecks: "none",
+      state: "CLOSED",
+    };
+    let release: ((pr: PullRequest) => void) | undefined;
+    const pending = new Promise<PullRequest>((resolve) => {
+      release = resolve;
+    });
+    const lookup = vi.fn(() => Promise.resolve(closed));
+    const tracker = new ForgeTracking(
+      root,
+      () => Promise.resolve("https://github.com/o/r"),
+      () => {
+        h.orchestration.childEvents.publish();
+      },
+      () => ({ lookup }),
+    );
+    h.host.forge.read.mockImplementation((repository, path) => tracker.read(repository, path));
+    h.host.forge.readSettled.mockImplementation((repository, path) =>
+      tracker.readSettled(repository, path),
+    );
+    try {
+      tracker.track({
+        repository: row.repository,
+        path: row.worktree,
+        branch: "feature",
+        identity: "id-feature",
+      });
+      await tracker.poll();
+      lookup.mockReturnValueOnce(pending);
+      tracker.recheck(row.worktree);
+      h.exit(id);
+      await h.sync();
+      expect(lookup).toHaveBeenCalledTimes(2);
+      expect(h.host.close).not.toHaveBeenCalled();
+      release?.({ ...closed, state: "OPEN" });
+      await tracker.poll();
+      await h.sync();
+      expect(h.host.close).not.toHaveBeenCalled();
+      for (let index = 0; index < 10; index++) await h.sync();
+      expect(lookup).toHaveBeenCalledTimes(2);
+      lookup.mockResolvedValue({ ...closed, state: "MERGED" });
+      tracker.recheck(row.worktree);
+      await tracker.poll();
+      await h.sync();
+      expect(h.host.close).toHaveBeenCalledExactlyOnceWith(id);
+    } finally {
+      release?.(closed);
+      await tracker.close();
+      h.orchestration.disposeUnreadChildren();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a clean author after acknowledgment when it carries the last review record", async () => {
+    const h = fixture();
+    const author = await h.loop();
+    h.host.close.mockImplementation((id) => {
+      h.rows.delete(id);
+      h.orchestration.removed(id);
+      return Promise.resolve();
+    });
+    h.report("child-2", { verdict: "clean" });
+    h.exit("child-2");
+    await h.sync();
+    h.orchestration.readReviews("parent");
     h.host.close.mockClear();
     h.host.forge.read.mockReturnValue({
       number: 7,
@@ -266,7 +445,8 @@ describe("close finished agents", () => {
       state: "MERGED",
     });
     await h.sync();
-    expect(h.host.close).toHaveBeenCalledExactlyOnceWith(author);
+    expect(h.host.close).not.toHaveBeenCalled();
+    expect(h.rows.has(author)).toBe(true);
     expect(h.host.remove).not.toHaveBeenCalled();
     expect(h.orchestration.reviews.view(author)?.phase).toBe("clean");
   });

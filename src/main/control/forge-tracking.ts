@@ -13,6 +13,7 @@ interface Entry extends ForgeWorktree {
   routedHost?: string;
   orchestrator: boolean;
   refresh: number;
+  sampledRefresh: number;
   followUp?: boolean;
   remote?: string;
   number?: number;
@@ -138,6 +139,7 @@ export class ForgeTracking {
       ...tree,
       orchestrator,
       refresh: 0,
+      sampledRefresh: -1,
       ...(number === undefined ? {} : { number }),
       available: false,
       failures: 0,
@@ -256,6 +258,14 @@ export class ForgeTracking {
     return entry?.repository === repository && entry.available ? pullRequest(entry.pr) : undefined;
   }
 
+  /** Main-only close evidence: every requested recheck must have completed first. */
+  readSettled(repository: string, path: string): PullRequest | undefined {
+    const entry = this.entries.get(path);
+    return entry && entry.sampledRefresh === entry.refresh
+      ? this.read(repository, path)
+      : undefined;
+  }
+
   /** Serial repository batches (legacy providers retain single-checkout lookup). */
   poll(): Promise<void> {
     this.running = this.running
@@ -266,10 +276,12 @@ export class ForgeTracking {
           .find((row) => row.due <= this.now() && (row.orchestrator || this.enabled));
         if (!entry) return;
         const generation = this.generation;
+        const refresh = entry.refresh;
         const remote = await this.inspect(entry, entry.orchestrator).catch(() => undefined);
         if (this.stopped() || this.pauses.size > 0 || this.entries.get(entry.path) !== entry)
           return;
         const previous = entry.available ? JSON.stringify(entry.pr) : undefined;
+        let refreshed = false;
         if (remote === undefined) {
           this.entries.delete(entry.path);
         } else {
@@ -307,10 +319,14 @@ export class ForgeTracking {
             entry.failures = 0;
           } else entry.failures = Math.min(entry.failures + 1, 5);
           entry.due =
-            this.now() + Math.max(forgeDelay(entry.failures), provider?.minimumIntervalMs ?? 0);
+            refresh === entry.refresh
+              ? this.now() + Math.max(forgeDelay(entry.failures), provider?.minimumIntervalMs ?? 0)
+              : 0;
+          refreshed = entry.sampledRefresh !== refresh && refresh === entry.refresh;
+          entry.sampledRefresh = refresh;
         }
         const current = this.read(entry.repository, entry.path);
-        if (previous !== (current === undefined ? undefined : JSON.stringify(current)))
+        if (refreshed || previous !== (current === undefined ? undefined : JSON.stringify(current)))
           this.changed();
         await this.save();
       })
@@ -419,7 +435,10 @@ export class ForgeTracking {
               provider.minimumIntervalMs ?? 0,
               !result ? forgeDelay(entry.failures) : running ? 20000 : hasMatches ? 120000 : 600000,
             ));
-      if (entry.refresh !== revisions.get(entry)) entry.due = 0;
+      const refresh = revisions.get(entry) ?? -1;
+      const refreshed = entry.sampledRefresh !== refresh && refresh === entry.refresh;
+      entry.sampledRefresh = refresh;
+      if (entry.refresh !== refresh) entry.due = 0;
       if (
         pr &&
         old &&
@@ -434,7 +453,7 @@ export class ForgeTracking {
       )
         this.onCompleted?.(entry, pr.board);
       const current = entry.available ? JSON.stringify([entry.pr, entry.board]) : undefined;
-      if (previous !== current) this.changed();
+      if (refreshed || previous !== current) this.changed();
     }
     await this.save();
   }
