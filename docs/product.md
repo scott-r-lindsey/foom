@@ -84,3 +84,40 @@ First-run launch draws the brand’s exponential flight path with a rocket past 
 Eclipse black hole and stars flying toward the viewer. About Foom is an in-board
 art dialog on every platform, replacing the native About panel. See
 [launch behavior](behavior/setup.md) and [About behavior](behavior/menus.md).
+
+## Updates (#603)
+
+Settings → General has **Check for updates**, on by default and stored in the
+profile. Packaged builds check at launch and every six hours. Turning it off stops
+future checks and aborts a pending metadata GET. An already staged macOS update
+can still install on quit; an updater-managed download already in progress may
+finish. Development launches never check.
+
+Stable macOS builds use Electron `autoUpdater` with update.electronjs.org for
+stable GitHub Releases. Downloaded updates install on the next normal quit.
+Foom never automatically restarts or stops agents for an update. **Restart to
+update** shows the running-agent count and uses the ordinary quit confirmation,
+session save and terminal shutdown; cancelling or failing quit leaves work running.
+Session restoration follows the saved setting on the next launch.
+
+Stable Linux builds show **Update available** using an anonymous GET of
+`api.github.com/repos/scott-r-lindsey/foom/releases/latest`. CI-stamped nightly
+builds on every platform check the rolling `nightly` GitHub prerelease and show
+only a notice. Windows also uses notices only; its releases are currently
+nightly-only. Nightly in-place installation belongs to #604.
+
+Update checks are Foom's only app-owned outbound network feature. Metadata
+requests go to update.electronjs.org and api.github.com and contain only the app
+version and platform (including architecture for the macOS feed), never terminal
+content, repository paths, agent identities or credentials. Those servers see the
+client IP address and app version. Failures stay quiet apart from **Could not
+check for updates.** in Settings. Tests use fake updater and HTTP services.
+
+On stable macOS, the native updater also downloads the signed ZIP from the GitHub
+release asset URL returned by update.electronjs.org, including GitHub release
+asset hosts. The same switch controls metadata checks, notice API GETs and these
+native downloads; no other hosts are added. GitHub's download servers also see
+the client IP and request metadata. Native downloads already started cannot be
+cancelled through Electron's updater API; opting out prevents new checks and
+downloads, but an in-flight download may finish and a staged update may install
+on normal quit.

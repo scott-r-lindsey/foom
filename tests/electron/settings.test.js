@@ -693,10 +693,12 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
   // The profile keeps only profile settings; agent-editable ones live in Foom config.
   assert.equal(saved.version, 2);
+  assert.equal(saved.settings.checkForUpdates, true);
   assert.deepEqual(Object.keys(saved.settings).sort(), [
     "agentBypassAcknowledged",
     "agyPluginOfferAnswered",
     "autoRemoveMergedWorktrees",
+    "checkForUpdates",
     "codeFolder",
     "forgeHosts",
     "forges",
@@ -708,6 +710,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   ]);
   const effective = (await page.evaluate(() => window.desktop.setupState())).settings;
   assert.deepEqual(effective, {
+    checkForUpdates: true,
     forges: { github: true },
     forgeHosts: { "github.com": "github" },
     agyPluginOfferAnswered: false,
@@ -2693,4 +2696,68 @@ test("nested repository names follow the General toggle and retain their identit
   await expect(page.getByRole("menuitem", { name: "Action log", exact: true })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: /^Developer tools/ })).toBeVisible();
   await screenshot("developer-submenu-linux");
+});
+
+test("General update opt-out persists; update notices and restart counts remain quiet", async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  const check = page.getByRole("checkbox", { name: "Check for updates", exact: true });
+  // Fixture profiles explicitly opt out before launch; the product default is tested in SettingsStore.
+  await expect(check).not.toBeChecked();
+  await check.check();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.checkForUpdates),
+    )
+    .toBe(true);
+  await check.uncheck();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.checkForUpdates),
+    )
+    .toBe(false);
+  const state = await page.evaluate(() => window.desktop.setupState());
+  for (const mode of ["light", "dark"]) {
+    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+    for (const status of ["available", "downloaded", "error"]) {
+      // Fake local main facts exercise the real sandboxed bridge without any updater or HTTP call.
+      await app.evaluate(
+        ({ BrowserWindow }, state) => {
+          const board = BrowserWindow.getAllWindows().find(
+            (window) => window.webContents.getURL() === "app://bundle/index.html",
+          );
+          board.webContents.send("setup:changed", state);
+        },
+        {
+          ...state,
+          settings: { ...state.settings, colorMode: mode, checkForUpdates: true },
+          updates: { status, runningAgents: 3 },
+        },
+      );
+      if (status === "downloaded")
+        await expect(
+          page.getByRole("button", { name: "Restart to update · 3 running agents" }),
+        ).toBeVisible();
+      else
+        await expect(
+          page.getByText(
+            status === "available" ? "Update available" : "Could not check for updates.",
+            { exact: true },
+          ),
+        ).toBeVisible();
+      if (process.env.FOOM_UPDATE_SCREENSHOTS === "1") {
+        await mkdir("screenshots-603", { recursive: true });
+        await page.screenshot({ path: `screenshots-603/general-${mode}-${status}.png` });
+      }
+    }
+  }
+  // Renderer facts do not authorize quit: the main service has no staged update.
+  const windows = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+  await page.evaluate(() => window.desktop.restartToUpdate());
+  assert.equal(
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
+    windows,
+  );
+  await assertAccessible(page);
 });

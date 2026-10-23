@@ -42,7 +42,7 @@ Follow [AGENTS.md](../AGENTS.md#validation-and-delivery) for pre-push checks and
 
 Account owners should configure an Actions budget with **Stop usage when budget limit is reached** enabled in GitHub billing settings, plus usage alerts. Budget alerts alone do not stop spending. Review and delete obsolete development artifacts in Actions after preserving any needed downloads; reducing workflow retention affects new uploads, and deleting old artifacts prevents future storage accrual without reversing existing charges. Billing settings and existing artifact cleanup are account operations, not changes this workflow applies. See [GitHub budgets](https://docs.github.com/en/billing/how-tos/set-up-budgets) and [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
 
-Local `package` output goes to `out/`; `make` installers and ZIPs go to `out/make/`. Build on each target OS. These are ad-hoc development artifacts on macOS and unsigned on Linux/Windows. Published macOS nightlies are Developer ID signed, notarized and stapled in the main-only `Release` job after the Quality gate; the publisher waits for its signed artifact. See [packaging and signing](architecture.md#packaging-and-macos-signing-601) for credentials, entitlements and the manual credential check. Windows signing remains #665; unsigned Windows installers are published only on the nightly channel. The rolling nightly is a public prerelease, never Latest; its tag points to the tested commit. Publication reuses the tested ZIPs. CI stamps the version only in its disposable checkout, leaving the committed package and lockfile versions unchanged. A serialized publisher ignores duplicate or older commits. Auto-update remains #603. Versioned draft publication is described below.
+Local `package` output goes to `out/`; `make` installers and ZIPs go to `out/make/`. Build on each target OS. These are ad-hoc development artifacts on macOS and unsigned on Linux/Windows. Published macOS nightlies are Developer ID signed, notarized and stapled in the main-only `Release` job after the Quality gate; the publisher waits for its signed artifact. See [packaging and signing](architecture.md#packaging-and-macos-signing-601) for credentials, entitlements and the manual credential check. Windows signing remains #665; unsigned Windows installers are published only on the nightly channel. The rolling nightly is a public prerelease, never Latest; its tag points to the tested commit. Publication reuses the tested ZIPs. CI stamps the version only in its disposable checkout, leaving the committed package and lockfile versions unchanged. A serialized publisher ignores duplicate or older commits. Updates follow the [stable/nightly policy](product.md#updates-603); nightly builds are notice-only until #604. Versioned draft publication is described below.
 
 The independent Real CLI MCP probe runs on every scheduled and manual dispatch
 except credential-only checks, including nights without changes to main. It is excluded from the Quality gate and
@@ -54,7 +54,7 @@ nightly publication dependencies; its isolated real-CLI policy is documented in
 `pnpm run make` builds the native platform formats alongside the development ZIP:
 macOS DMG plus ZIP (the latter supports Squirrel.Mac), Windows Squirrel.Windows
 Setup.exe plus full nupkg and RELEASES, and Linux deb/rpm plus ZIP. Squirrel.Windows
-was chosen for the update.electronjs.org path planned in #603. Windows remains
+remains the installer format; #603 uses notices only on Windows. Windows remains
 unsigned until #665 and ships only on the nightly channel; versioned drafts
 contain macOS and Linux assets only. This supersedes #602's original assumption
 that #601 would also provide Windows signing.
@@ -130,3 +130,8 @@ budget, and superseding main runs can cancel in-flight submissions. Restricting
 signing to nightlies needs a separate release-preparation artifact contract.
 Real notarization is verified by the user after merge with `publish_nightly`;
 PR tests use fixture Apple tools and no Release credentials.
+
+Nightly stamping also records `foomNightlyDate` in the disposable package manifest
+for same-day notice ordering against the rolling release's commit date. Existing
+nightlies without that field can detect a later UTC day, but do not guess the
+order of two different commits from the same day. No nightly installer runs (#604).

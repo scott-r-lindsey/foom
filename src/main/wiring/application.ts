@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { autoUpdater } from "electron";
+import { Updates } from "../updates";
+import { getUpdateRelease } from "../update-http";
 import {
   app,
   BrowserWindow,
@@ -219,6 +223,7 @@ export function runApplication() {
     if (!newWindowCommand) return;
     const targets = process.platform === "win32" ? [...windows.values()] : [entry];
     const snapshot = workspace.snapshot();
+    if (updates.state(0).status === "downloaded") publishSettings();
     for (const current of targets)
       updateAttention(current?.window, snapshot, newWindowCommand, revealSession);
   };
@@ -280,6 +285,23 @@ export function runApplication() {
     return next;
   }
 
+  const packageInfo: unknown = JSON.parse(
+    readFileSync(path.join(app.getAppPath(), "package.json"), "utf8"),
+  );
+  const updates = new Updates({
+    nightlyDate:
+      typeof packageInfo === "object" && packageInfo !== null && "foomNightlyDate" in packageInfo
+        ? packageInfo.foomNightlyDate
+        : undefined,
+    packaged: app.isPackaged,
+    version: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    updater: autoUpdater,
+    getRelease: (url, signal) => getUpdateRelease(app.getVersion(), process.platform, url, signal),
+    changed: publishSettings,
+    requestQuit,
+  });
   let quitRequest: Promise<void> | undefined;
   function requestQuit(): Promise<void> {
     quitRequest ??= performQuit().finally(() => {
@@ -360,9 +382,15 @@ export function runApplication() {
       disposeThemes();
       quitting = true;
       // A resolved shutdown can resume inside a native close callback's microtask
-      // checkpoint. Let that cancelled close unwind before asking Electron to quit.
-      setImmediate(() => {
-        app.quit();
+      // checkpoint. Let that cancelled close unwind before closing windows, including
+      // the explicit update restart. Keep requestQuit pending until this decision.
+      await new Promise<void>((resolve) => {
+        setImmediate(() => {
+          const restarting = updates.quitting();
+          updates.dispose();
+          if (!restarting) app.quit();
+          resolve();
+        });
       });
     } catch (error) {
       console.error("Unable to quit the application:", error);
@@ -375,6 +403,7 @@ export function runApplication() {
   // Mutable bindings stay live across feature callbacks and later window launches.
   const wiring = {
     APP_URL,
+    updates,
     get agentPreviews() {
       return agentPreviews;
     },
@@ -610,6 +639,7 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
   else await wiring.createWindow(await loadWindowSize(app.getPath("userData")));
   wiring.workspace.configure(wiring.settings.get());
   void wiring.workspace.restartSaved();
+  wiring.updates.configure(wiring.settings.get().checkForUpdates);
 }
 
 const rendererDirectory = path.join(__dirname, "../../renderer");

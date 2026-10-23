@@ -361,3 +361,16 @@ test("git guards repository selection and completion without forge probes", asyn
   delete deps.readiness;
   expect(() => setup.readiness()).toThrow("Readiness unavailable");
 });
+
+test("Setup projects update facts and delegates restart only to the main-owned quit capability", async () => {
+  const restart = vi.fn(async () => {});
+  const setup = new Setup({
+    ...deps,
+    updates: () => ({ status: "downloaded", runningAgents: 2 }),
+    restartToUpdate: restart,
+  });
+  expect((await setup.state()).updates).toEqual({ status: "downloaded", runningAgents: 2 });
+  await setup.restartToUpdate();
+  expect(restart).toHaveBeenCalledOnce();
+  await new Setup(deps).restartToUpdate();
+});

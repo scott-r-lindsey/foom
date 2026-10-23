@@ -22,3 +22,30 @@ likely labelled credentials, bearer/API tokens, JWTs, URL credentials and privat
 blocks before selecting at most 40 physical lines. Truncated private-key fragments
 are redacted too. Oversized input is rejected. Redaction is heuristic and cannot
 identify every unlabelled secret.
+
+## Update requests (#603)
+
+**Check for updates** in Settings → General defaults on and persists only in the
+profile. It controls all update checks: stable macOS checks update.electronjs.org;
+stable Linux anonymously GETs GitHub's latest-release metadata at api.github.com;
+CI-stamped nightly builds on every platform anonymously GET the rolling nightly
+prerelease there. Windows is notice-only and currently nightly-only. No nightly
+build installs in place (#604).
+
+These servers see the client's IP and Foom version. Requests contain version and
+platform (macOS feed includes architecture), no terminal content, paths, agent
+identities, cookies, tokens or account credentials. There is no telemetry.
+Metadata GETs are bounded and reject redirects. Only fixed local status words
+reach Settings; remote errors and release notes are never rendered. Opt-out stops
+future checks and aborts a pending metadata GET; native downloads already in
+progress may complete and staged macOS updates still install on normal quit.
+Foom never restarts automatically. See [update behavior](../product.md#updates-603).
+
+On stable macOS, the native updater also downloads the signed ZIP from the GitHub
+release asset URL returned by update.electronjs.org, including GitHub release
+asset hosts. The same switch controls metadata checks, notice API GETs and these
+native downloads; no other hosts are added. GitHub's download servers also see
+the client IP and request metadata. Native downloads already started cannot be
+cancelled through Electron's updater API; opting out prevents new checks and
+downloads, but an in-flight download may finish and a staged update may install
+on normal quit.

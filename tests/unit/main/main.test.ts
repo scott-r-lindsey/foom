@@ -1,3 +1,14 @@
+const updateMock = vi.hoisted(() => ({
+  updater: {
+    setFeedURL: vi.fn(),
+    checkForUpdates: vi.fn(),
+    quitAndInstall: vi.fn(),
+    on: vi.fn<(event: string, callback: () => void) => void>(),
+    removeListener: vi.fn(),
+  },
+  getRelease: vi.fn(() => Promise.resolve({ draft: false, prerelease: false, tag_name: "v0.1.0" })),
+}));
+vi.mock("../../../src/main/update-http", () => ({ getUpdateRelease: updateMock.getRelease }));
 const forgeHostStatus = vi.hoisted(() => vi.fn(() => Promise.resolve("ready" as const)));
 const readinessCheck = vi.hoisted(() =>
   vi.fn((repositories: readonly string[], status: (host: string) => Promise<string>) => {
@@ -514,7 +525,10 @@ const mock = vi.hoisted(() => {
         "colorMode" | "interfaceScale" | "interfaceTheme" | "forges" | "forgeHosts"
       > &
         Partial<
-          Pick<Settings, "agentBypassAcknowledged" | "showPullRequests" | "setupComplete">
+          Pick<
+            Settings,
+            "agentBypassAcknowledged" | "showPullRequests" | "setupComplete" | "checkForUpdates"
+          >
         > => ({
         forges: { github: true },
         forgeHosts: { "github.com": "github" },
@@ -571,6 +585,7 @@ const mock = vi.hoisted(() => {
   };
 });
 vi.mock("electron", () => ({
+  autoUpdater: updateMock.updater,
   powerMonitor: {
     on: (name: string, listener: () => void) => {
       forgeUi.events.set(name, listener);
@@ -601,6 +616,7 @@ vi.mock("electron", () => ({
   },
   app: {
     getVersion: () => "0.1.0",
+    getAppPath: () => process.cwd(),
     setAboutPanelOptions: vi.fn(),
     whenReady: mock.ready,
     get isPackaged() {
@@ -2664,4 +2680,84 @@ test("windowless Manual opens a board with the fixed preview instead of a native
   await vi.waitFor(() => {
     expect(focus).toHaveBeenCalledWith("f".repeat(32));
   });
+});
+
+test("downloaded macOS restart waits for confirmation and PTY shutdown before native installation", async ({
+  onTestFinished,
+}) => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+  mock.packaged = true;
+  Object.defineProperty(process, "resourcesPath", { configurable: true, value: "/test/resources" });
+  onTestFinished(() => {
+    Reflect.deleteProperty(process, "resourcesPath");
+  });
+  vi.spyOn(mock.settingsStore, "get").mockReturnValue({
+    ...DEFAULT_SETTINGS,
+    checkForUpdates: true,
+  });
+  const { runApplication } = await import("../../../src/main/wiring/application");
+  const wiring = runApplication();
+  await vi.waitFor(() => {
+    expect(mock.window.loadURL).toHaveBeenCalled();
+  });
+  wiring.updates.configure(true);
+  const downloaded = updateMock.updater.on.mock.calls.find(
+    ([event]) => event === "update-downloaded",
+  )?.[1];
+  if (typeof downloaded !== "function") throw new Error("Missing native update listener");
+  downloaded();
+  expect(updateMock.updater.quitAndInstall).not.toHaveBeenCalled();
+  mock.terminals.runningCount = 1;
+  await wiring.updates.restartToUpdate(); // Cancel defaults to response 0.
+  expect(mock.terminals.shutdown).not.toHaveBeenCalled();
+  expect(updateMock.updater.quitAndInstall).not.toHaveBeenCalled();
+  mock.message.mockResolvedValue({ response: 1 });
+  let finish: () => void = () => {};
+  mock.terminals.shutdown.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const quitting = wiring.updates.restartToUpdate();
+  await vi.waitFor(() => {
+    expect(mock.terminals.shutdown).toHaveBeenCalledOnce();
+  });
+  expect(updateMock.updater.quitAndInstall).not.toHaveBeenCalled();
+  finish();
+  await quitting;
+  expect(mock.workspace.dispose).toHaveBeenCalled();
+  expect(updateMock.updater.quitAndInstall).toHaveBeenCalledOnce();
+  expect(mock.quit).not.toHaveBeenCalled();
+});
+
+test("stable Linux startup uses only the fake anonymous release HTTP adapter", async ({
+  onTestFinished,
+}) => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+  mock.packaged = true;
+  Object.defineProperty(process, "resourcesPath", { configurable: true, value: "/test/resources" });
+  onTestFinished(() => {
+    Reflect.deleteProperty(process, "resourcesPath");
+  });
+  vi.spyOn(mock.settingsStore, "get").mockReturnValue({
+    ...DEFAULT_SETTINGS,
+    checkForUpdates: true,
+  });
+  const { runApplication } = await import("../../../src/main/wiring/application");
+  const wiring = runApplication();
+  await vi.waitFor(() => {
+    expect(updateMock.getRelease).toHaveBeenCalled();
+  });
+  expect(updateMock.getRelease).toHaveBeenCalledWith(
+    "0.1.0",
+    "linux",
+    "https://api.github.com/repos/scott-r-lindsey/foom/releases/latest",
+    expect.any(AbortSignal),
+  );
+  const setupDeps = mock.setup.deps as { updates(): unknown; restartToUpdate(): Promise<void> };
+  expect(setupDeps.updates()).toEqual({ status: "idle", runningAgents: 0 });
+  await setupDeps.restartToUpdate();
+  expect(mock.quit).not.toHaveBeenCalled();
+  wiring.updates.dispose();
 });

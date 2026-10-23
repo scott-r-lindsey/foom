@@ -1177,3 +1177,37 @@ test("explicit Settings sections retain their targeted route", async () => {
   expect(screen.getByRole("heading", { name: "Foom config" })).toBeTruthy();
   await screen.findByText("/config");
 });
+
+test("General saves update opt-out and renders fixed notice/error/restart states", async () => {
+  const initial = setupState({ setupComplete: true });
+  const source = { ...fake(initial), restartToUpdate: vi.fn(async () => {}) };
+  render(<Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />);
+  const check = screen.getByLabelText("Check for updates");
+  expect(check).toHaveProperty("checked", true);
+  fireEvent.click(check);
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ checkForUpdates: false });
+  });
+  act(() => changed?.({ ...initial, updates: { status: "available", runningAgents: 0 } }));
+  expect(screen.getByRole("status").textContent).toBe("Update available");
+  act(() => changed?.({ ...initial, updates: { status: "error", runningAgents: 0 } }));
+  expect(screen.getByText("Could not check for updates.")).toBeTruthy();
+  act(() => changed?.({ ...initial, updates: { status: "downloaded", runningAgents: 3 } }));
+  fireEvent.click(screen.getByRole("button", { name: "Restart to update · 3 running agents" }));
+  expect(source.restartToUpdate).toHaveBeenCalledOnce();
+});
+
+test("an explicit update restart failure uses a fixed action error", async () => {
+  const initial = setupState(
+    { setupComplete: true },
+    { updates: { status: "downloaded", runningAgents: 1 } },
+  );
+  const source = {
+    ...fake(initial),
+    restartToUpdate: vi.fn(() => Promise.reject(new Error("remote secret"))),
+  };
+  render(<Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Restart to update · 1 running agent" }));
+  expect(await screen.findByText("Could not restart Foom.")).toBeTruthy();
+  expect(screen.queryByText("remote secret")).toBeNull();
+});

@@ -32,3 +32,17 @@ callbacks before profile selection, locks or stores. Install/update creates the
 Foom shortcut through the adjacent fixed `Update.exe`; uninstall removes it.
 Each callback quits after the helper finishes (including failures). Normal
 launches continue through the existing profile and single-instance lifecycle.
+
+## Updates (#603)
+
+Main owns update checks, timers and fixed status facts in `updates.ts`; the HTTP
+adapter uses anonymous, bounded HTTPS metadata GETs. Settings stores the opt-out
+in the profile. Only packaged builds check, once at startup and every six hours.
+The [approved channel policy](../product.md#updates-603) distinguishes stable
+macOS installation from notice-only Linux, Windows and all nightly builds.
+
+Squirrel.Mac applies downloaded updates on ordinary exit. Receipt of an update
+never quits, relaunches or kills a PTY. Explicit restart enters `requestQuit` and
+can call the native `quitAndInstall` only after confirmation, window/session save,
+PTY shutdown and service disposal succeed. Cancelled/failed quit never installs
+through that explicit path. No Windows native updater is configured.

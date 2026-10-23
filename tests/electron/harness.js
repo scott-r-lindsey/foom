@@ -501,7 +501,7 @@ async function prepareProfile(options) {
     await mkdir(profile, { recursive: true });
     await writeFile(
       path.join(profile, "settings.json"),
-      JSON.stringify({ version: 1, settings: { setupComplete: true } }),
+      JSON.stringify({ version: 1, settings: { setupComplete: true, checkForUpdates: false } }),
       { flag: "wx" },
     ).catch((error) => {
       if (error.code !== "EEXIST") throw error;

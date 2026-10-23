@@ -8,6 +8,7 @@ test("preflight reaches main only through the setup bridge", async () => {
     checkReadiness: vi.fn(() => Promise.resolve("readiness")),
     listTerminalFonts: vi.fn(() => Promise.resolve(["Mono"])),
     openThemesFolder: vi.fn(async () => {}),
+    restartToUpdate: vi.fn(async () => {}),
     setupState: vi.fn(() => Promise.resolve("state")),
     saveSetup: vi.fn(() => Promise.resolve("saved")),
     onSetupChange: vi.fn(() => "off"),
@@ -26,6 +27,8 @@ test("preflight reaches main only through the setup bridge", async () => {
   };
   Object.defineProperty(window, "desktop", { configurable: true, value: desktop });
   const source = createSetupSource();
+  await source.restartToUpdate?.();
+  expect(desktop.restartToUpdate).toHaveBeenCalledOnce();
   await expect(source.checkReadiness?.()).resolves.toBe("readiness");
   await expect(source.listTerminalFonts?.()).resolves.toEqual(["Mono"]);
   await source.listTerminalFonts?.(true);

@@ -25,6 +25,7 @@ const MAX_THEME_DIGESTS = 100;
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
   setupComplete: false,
+  checkForUpdates: true,
   agyPluginOfferAnswered: false,
   hooks: true,
   restoreSessions: true,
@@ -65,6 +66,7 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
   for (const [key, entry] of Object.entries(value)) {
     if (
       (key === "setupComplete" ||
+        key === "checkForUpdates" ||
         key === "agyPluginOfferAnswered" ||
         key === "autoRemoveMergedWorktrees" ||
         key === "showPullRequests" ||

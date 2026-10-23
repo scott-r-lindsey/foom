@@ -1,3 +1,4 @@
+import type { UpdateState } from "./updates";
 import type { ReadinessReport } from "./readiness";
 import type { ThemeCatalog, ThemeKind } from "./theme-file";
 import type { InterfaceThemeChoice } from "./interface-theme";
@@ -8,6 +9,8 @@ import type { Repository } from "./worktrees";
 /** Everything first-run setup decides. Stored in main; the renderer holds only a copy. */
 export interface Settings {
   setupComplete: boolean;
+  /** Profile-only update network opt-out. */
+  checkForUpdates: boolean;
   /** The user answered the optional Antigravity plugin offer. */
   agyPluginOfferAnswered: boolean;
   /** Attach Foom's hooks per launch. Off means every agent uses the evaluator. */
@@ -99,12 +102,14 @@ export interface RepositoryUpdate {
 export type SettingsPatch = Partial<Settings>;
 
 export interface SetupState {
+  updates?: UpdateState;
   themes?: ThemeCatalog;
   settings: Settings;
   worktreeRoot: string;
 }
 
 export interface SetupApi {
+  restartToUpdate(): Promise<void>;
   checkReadiness(): Promise<ReadinessReport>;
   listTerminalFonts(refresh?: boolean): Promise<readonly string[]>;
   listThemes(): Promise<ThemeCatalog>;
