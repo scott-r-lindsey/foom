@@ -43,7 +43,8 @@ Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xt
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm run check` | Formatting, lint, all type checks, unit tests and CI-policy tests; also the pre-commit check |
+| `pnpm run check` | Formatting, documentation integrity, lint, all type checks, unit tests and CI-policy tests; also the pre-commit check |
+| `pnpm run docs:check` | Check tracked Markdown local links/anchors and complete source-to-feature map coverage without network requests |
 | `pnpm run format` | Apply Biome formatting |
 | `pnpm run format:check` | Check formatting without changing files |
 | `pnpm run lint` / `pnpm run lint:fix` | Type-aware ESLint checks / safe autofixes |
