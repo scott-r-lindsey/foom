@@ -3,7 +3,7 @@ import { createPartition, createPreviewView, navigationAllowed } from "./partiti
 import { shell } from "electron";
 import type { BrowserWindow, Session, WebContents } from "electron";
 import type { PreviewBounds, PreviewRecord, PreviewSnapshot } from "../../shared/previews";
-import { canonicalRoot, readInside } from "./contained-files";
+import { canonicalRoot, readInside, type CanonicalRoot } from "./contained-files";
 import type { DialogContent } from "../../shared/confirmation";
 import { externalLink } from "./policy";
 import type { PreviewRegistry } from "./registry";
@@ -222,7 +222,7 @@ export class PreviewHost {
     this.manualFocus = id;
     this.applyBounds(entry);
   }
-  private root(record: PreviewRecord): string {
+  private root(record: PreviewRecord): CanonicalRoot {
     if (record.bundled === "manual") {
       if (!this.bundledRoot) throw new Error("Manual unavailable");
       return canonicalRoot(this.bundledRoot);
@@ -234,9 +234,9 @@ export class PreviewHost {
       ? Promise.resolve()
       : this.validateWorktree(record.worktree);
   }
-  private create(record: PreviewRecord, root: string): HostedPreview {
+  private create(record: PreviewRecord, root: CanonicalRoot): HostedPreview {
     const origin = `foom-preview://${record.id}`;
-    const watcher = new PreviewWatcher(root, () => {
+    const watcher = new PreviewWatcher(root.path, () => {
       void this.reload(record.id);
     });
     this.watchers.set(record.id, watcher);

@@ -1,6 +1,6 @@
 import { app, session, WebContentsView } from "electron";
 import type { PreviewRecord } from "../../shared/previews";
-import { readPreview } from "./contained-files";
+import { readPreview, type CanonicalRoot } from "./contained-files";
 import { pathnameFor, previewCsp, responseHeaders } from "./policy";
 import { markdownAsset, markdownPage } from "./markdown";
 import type { PreviewWatcher } from "./watcher";
@@ -18,7 +18,11 @@ export function navigationAllowed(url: string, origin: string): boolean {
 }
 
 /** An isolated, capability-denying partition serving only the captured root. */
-export function createPartition(record: PreviewRecord, root: string, watcher: PreviewWatcher) {
+export function createPartition(
+  record: PreviewRecord,
+  root: CanonicalRoot,
+  watcher: PreviewWatcher,
+) {
   const origin = `foom-preview://${record.id}`;
   const partition = session.fromPartition(`preview-${record.id}`, { cache: false });
   partition.setPermissionRequestHandler((_contents, _permission, callback) => {

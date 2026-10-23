@@ -9,7 +9,8 @@ Decided implementation and security rules for this area. Read the [file map](../
 Main owns a `PreviewHost` per board window and registers the standard, secure
 `foom-preview` scheme before readiness. Each view has an in-memory `preview-<id>`
 partition and an origin named by a random 128-bit ID. Its session handler captures
-`canonicalRoot` once at preview open and passes only that root and its exact
+`canonicalRoot` (canonical path and bigint `dev`/`ino`) once at preview open and
+passes only that root and its exact
 `foom-preview://<id>` origin to `readPreview`. URL normalization
 precedes per-segment decoding; credentials, ports and foreign origins are refused.
 The pure policy rejects empty/dot segments, encoded separators, NUL, controls,
@@ -22,6 +23,16 @@ case folding, and another segment check after symlinks. Directories resolve thei
 refuses non-files, opens the resolved path with `O_NOFOLLOW | O_NONBLOCK`, and
 verifies descriptor type and `dev`/`ino`. Windows exposes neither flag through
 Node; zero substitutes explicitly there, with the descriptor checks retained.
+Before releasing bytes, Linux reads `/proc/self/fd/<fd>` with `readlink` and
+rechecks containment and hidden/reserved segments against that opened object's
+path. Missing or inaccessible procfs refuses the read; there is no pathname
+fallback. macOS and Windows re-run `realpath.native` on the requested path after
+open, recheck containment and hidden/reserved segments, and stat the resolved path
+to require its bigint `dev`/`ino` to match the opened descriptor exactly. All
+platforms then stat the captured canonical root and require its directory type
+and bigint identity to match the identity captured at preview open. Mismatches
+refuse with 403; failed filesystem lookups refuse with 404. These checks also
+apply to directory indexes and the bundled manual.
 Only the verified descriptor supplies bytes; reads are bounded by its checked
 size (16 MiB, or 2 MiB for Markdown) and handles close even on read failure.
 `openInside` transfers handle ownership to its caller, which must close it.
@@ -60,12 +71,16 @@ symlink targets. The isolated stylesheet uses Eclipse tokens and follows
 Bundled dependency licenses are included in `THIRD_PARTY_NOTICES.txt`.
 Every non-hidden file in the captured worktree is readable by a preview page.
 
-As in the spike, a parent directory swap between realpath/stat and open is not
-fully prevented: `O_NOFOLLOW` protects only the final component. Descriptor
-identity checks catch a different opened file, but are not an atomic directory
-traversal guarantee. This residual race must not be treated as a general-purpose
-filesystem sandbox. Junction escape tests run on Windows; all pure filename and
-URL rules run on every OS.
+Post-open verification closes the ancestor/root link replacement between initial
+resolution and the later stat, including Windows junctions. On macOS and Windows,
+a writer controlling the parent of the preview root can still repeatedly flip
+the root between these separate checks; that adversary is not excluded. This is
+not atomic directory traversal or a general-purpose filesystem sandbox. A native
+opened-handle helper is the follow-up if that stronger guarantee is needed.
+Linux's procfs check derives the target path from the descriptor; the subsequent
+root identity check is still a separate filesystem observation. Native containment
+tests run on Linux, macOS and Windows, including Windows junctions; deterministic
+failure-path tests exercise both strategies on every OS.
 
 The main-owned registry stores `{ id, worktree, relativePath, network: false }`
 per stable window ID in profile JSON, with bounded validation and serialized
