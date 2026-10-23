@@ -2,7 +2,10 @@ import { vi } from "vitest";
 export function canvasContext() {
   const gradient = { addColorStop: vi.fn() };
   const ctx = {
+    canvas: document.createElement("canvas"),
+    clip: vi.fn(),
     clearRect: vi.fn(),
+    drawImage: vi.fn(),
     fillRect: vi.fn(),
     setTransform: vi.fn(),
     beginPath: vi.fn(),

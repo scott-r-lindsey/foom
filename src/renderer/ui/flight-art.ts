@@ -1,3 +1,4 @@
+import type { Singularity } from "./singularity";
 const TAU = Math.PI * 2;
 
 export interface Palette {
@@ -25,11 +26,6 @@ interface Depth {
 }
 const hex = (c: string) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
 const rgba = (c: string, a: number) => `rgba(${hex(c).join(",")},${String(a)})`;
-const mix = (a: string, b: string, t: number, alpha: number) => {
-  const x = hex(a),
-    y = hex(b);
-  return `rgba(${x.map((v, i) => Math.round(v + ((y[i] ?? 0) - v) * t)).join(",")},${String(alpha)})`;
-};
 const clamp = (v: number, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, v));
 const ease = (u: number) => u * u * (3 - 2 * u);
 let seed = 7;
@@ -95,57 +91,6 @@ function warp(
     ctx.stroke();
   }
 }
-/** Black hole with photon ring and accretion disk; `flare` brightens the ring. */
-function hole(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  R: number,
-  P: Palette,
-  t: number,
-  flare = 0,
-  tilt = -0.12,
-) {
-  const dark = P.mode === "dark";
-  let g = ctx.createRadialGradient(cx, cy, R * 0.8, cx, cy, R * 4.2);
-  g.addColorStop(0, rgba(P.deep, (dark ? 0.42 : 0.2) + flare * 0.3));
-  g.addColorStop(1, rgba(P.deep, 0));
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R * 4.2, 0, TAU);
-  ctx.fill();
-  const shimmer = (i: number) => 0.85 + 0.15 * Math.sin(t / 700 + i * 0.7);
-  const disk = (a0: number, a1: number) => {
-    for (let i = 0; i < 18; i++) {
-      const k = i / 17;
-      ctx.strokeStyle = mix(P.hot, P.cool, k, (0.8 - k * 0.6) * shimmer(i));
-      ctx.lineWidth = Math.max(0.6, R * 0.03);
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, R * (1.5 + k * 1.5), R * (0.2 + k * 0.22), tilt, a0, a1);
-      ctx.stroke();
-    }
-  };
-  disk(Math.PI, TAU);
-  g = ctx.createRadialGradient(cx, cy, R, cx, cy, R * (1.5 + flare * 0.6));
-  g.addColorStop(0, dark ? rgba(P.star, 0.95) : rgba(P.deep, 0.95));
-  g.addColorStop(0.2, rgba(P.accent, 0.85));
-  g.addColorStop(1, rgba(P.accent, 0));
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R * (1.5 + flare * 0.6), 0, TAU);
-  ctx.fill();
-  ctx.fillStyle = P.hole;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, 0, TAU);
-  ctx.fill();
-  ctx.strokeStyle = dark ? rgba(P.star, 0.95) : P.accent;
-  ctx.lineWidth = 1.4;
-  ctx.beginPath();
-  ctx.arc(cx, cy, R * 1.02, 0, TAU);
-  ctx.stroke();
-  disk(0, Math.PI);
-}
-
 /** Rocket pointing up at angle `rot` (0 = up). `s` is its length in px; `burn` 0..1. */
 function rocket(
   ctx: CanvasRenderingContext2D,
@@ -328,7 +273,7 @@ export function flightPathGeometry(w: number, h: number, time = 0) {
 }
 
 /** One drawing state per mounted canvas, never shared between dialogs. */
-export function createFlightArt() {
+export function createFlightArt(singularity?: Singularity) {
   const field = makeStars(110),
     depth = makeDeep(190);
   let last = 0;
@@ -362,7 +307,7 @@ export function createFlightArt() {
         dt,
         P,
       );
-      hole(ctx, cx, cy, R, P, still ? 0 : t);
+      singularity?.draw(ctx, w, h, cx, cy, R, still ? 0 : t, P.mode === "dark");
       ctx.strokeStyle = rgba(P.star, 0.18);
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -388,7 +333,7 @@ export function createFlightArt() {
       const time = still ? 0 : t;
       stars(ctx, w, h, field, P, time);
       const { hole: H, pts, rocket: ship } = flightPathGeometry(w, h, time);
-      hole(ctx, H.x, H.y, H.radius, P, time);
+      singularity?.draw(ctx, w, h, H.x, H.y, H.radius, time, P.mode === "dark");
       trail(ctx, pts, 0.94, P);
       rocket(ctx, ship.x, ship.y, ship.angle, ship.size, 0.8, time, P);
     }
