@@ -35,6 +35,12 @@ export function harness(overrides: Pick<OrchestrationHost, "reviewSnapshot"> = {
   const host = {
     forge: {
       track: vi.fn(),
+      waitForRead: vi.fn((_repository: string, _path: string, _after: number) => () => {}),
+      revision: vi.fn(() => 0),
+      readSettled: vi.fn(
+        (repository: string, path: string, _after?: number): PullRequest | undefined =>
+          host.forge.read(repository, path),
+      ),
       read: vi.fn((_repository: string, _path: string): PullRequest | undefined => undefined),
     },
     terminals: () => [...rows.values()],

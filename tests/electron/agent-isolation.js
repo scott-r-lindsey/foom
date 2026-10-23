@@ -92,18 +92,23 @@ async function isolatedEnvironment(root, extraPath = "") {
           ),
         ]
       : ["/usr/bin", "/bin"];
-  // Default fixtures must never reach the host GitHub CLI, including auth probes.
-  const ghName = process.platform === "win32" ? "gh.exe" : "gh";
-  if (
-    !extraPath
-      .split(path.delimiter)
-      .some(
-        (directory) =>
-          directory && !system.includes(directory) && existsSync(path.join(directory, ghName)),
-      )
-  ) {
-    if (process.platform === "win32") await copyFile(process.execPath, path.join(bin, ghName));
-    else await writeFile(path.join(bin, ghName), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  // Default fixtures must never reach host forge CLIs, including auth probes.
+  for (const name of ["gh", "glab"]) {
+    const executable = process.platform === "win32" ? `${name}.exe` : name;
+    if (
+      !extraPath
+        .split(path.delimiter)
+        .some(
+          (directory) =>
+            directory &&
+            !system.includes(directory) &&
+            existsSync(path.join(directory, executable)),
+        )
+    ) {
+      if (process.platform === "win32")
+        await copyFile(process.execPath, path.join(bin, executable));
+      else await writeFile(path.join(bin, executable), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    }
   }
   const controlled = [
     ...new Set([bin, ...extraPath.split(path.delimiter).filter(Boolean), ...system]),

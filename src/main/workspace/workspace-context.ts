@@ -371,6 +371,7 @@ export class WorkspaceContext {
           | "agentArguments"
           | "agentHooks"
           | "showNewChildren"
+          | "closeFinishedAgents"
           | "restoreSessions"
           | "concurrentChildren"
           | "unreadChildMinutes"
@@ -384,6 +385,7 @@ export class WorkspaceContext {
     this.sessions.configure(settings.restoreSessions ?? true);
     this.concurrentChildren = settings.concurrentChildren ?? 4;
     this.showNewChildren = settings.showNewChildren ?? true;
+    this.orchestration.configureCloseFinished(settings.closeFinishedAgents ?? true);
     const reminderChanged = this.orchestration.unreadChildren.configure(
       settings.unreadChildMinutes ?? 5,
     );

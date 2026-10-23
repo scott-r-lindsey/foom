@@ -13,6 +13,9 @@ interface Entry extends ForgeWorktree {
   routedHost?: string;
   orchestrator: boolean;
   refresh: number;
+  sampledRefresh: number;
+  observation: number;
+  readonly observationWaiters: Map<symbol, number>;
   followUp?: boolean;
   remote?: string;
   number?: number;
@@ -34,6 +37,7 @@ export class ForgeTracking {
   private closed = false;
   private enabled = false;
   private generation = 0;
+  private observation = 0;
   private readonly pauses = new Set<string>();
   onCompleted?: (tree: ForgeWorktree, pr: BoardPullRequest) => void;
   private stopped(): boolean {
@@ -138,6 +142,9 @@ export class ForgeTracking {
       ...tree,
       orchestrator,
       refresh: 0,
+      sampledRefresh: -1,
+      observation: 0,
+      observationWaiters: new Map(),
       ...(number === undefined ? {} : { number }),
       available: false,
       failures: 0,
@@ -256,6 +263,41 @@ export class ForgeTracking {
     return entry?.repository === repository && entry.available ? pullRequest(entry.pr) : undefined;
   }
 
+  /** Main-only request clock. An exit records this before accepting later observations. */
+  revision(): number {
+    return this.observation;
+  }
+
+  /** Main-only close evidence: a later request, with every recheck completed first. */
+  readSettled(repository: string, path: string, after = -1): PullRequest | undefined {
+    const entry = this.entries.get(path);
+    return entry && entry.observation > after && entry.sampledRefresh === entry.refresh
+      ? this.read(repository, path)
+      : undefined;
+  }
+
+  /** Register local interest only; never schedules a read. Cancellation is idempotent. */
+  waitForRead(repository: string, path: string, after: number): () => void {
+    const entry = this.entries.get(path);
+    if (!entry || entry.repository !== repository || this.readSettled(repository, path, after))
+      return () => {};
+    const token = Symbol();
+    entry.observationWaiters.set(token, after);
+    return () => {
+      entry.observationWaiters.delete(token);
+    };
+  }
+
+  private settleWaiters(entry: Entry): boolean {
+    let settled = false;
+    for (const [token, after] of entry.observationWaiters) {
+      if (!this.readSettled(entry.repository, entry.path, after)) continue;
+      entry.observationWaiters.delete(token);
+      settled = true;
+    }
+    return settled;
+  }
+
   /** Serial repository batches (legacy providers retain single-checkout lookup). */
   poll(): Promise<void> {
     this.running = this.running
@@ -266,10 +308,12 @@ export class ForgeTracking {
           .find((row) => row.due <= this.now() && (row.orchestrator || this.enabled));
         if (!entry) return;
         const generation = this.generation;
+        const refresh = entry.refresh;
         const remote = await this.inspect(entry, entry.orchestrator).catch(() => undefined);
         if (this.stopped() || this.pauses.size > 0 || this.entries.get(entry.path) !== entry)
           return;
         const previous = entry.available ? JSON.stringify(entry.pr) : undefined;
+        let refreshed = false;
         if (remote === undefined) {
           this.entries.delete(entry.path);
         } else {
@@ -286,6 +330,7 @@ export class ForgeTracking {
             return;
           }
           this.bind(entry, provider);
+          const observation = ++this.observation;
           const result = await provider
             ?.lookup(
               entry.branch,
@@ -303,14 +348,24 @@ export class ForgeTracking {
           entry.available = pr !== undefined;
           if (pr) {
             entry.pr = pr;
+            entry.observation = observation;
             entry.remote = remote;
             entry.failures = 0;
           } else entry.failures = Math.min(entry.failures + 1, 5);
           entry.due =
-            this.now() + Math.max(forgeDelay(entry.failures), provider?.minimumIntervalMs ?? 0);
+            refresh === entry.refresh
+              ? this.now() + Math.max(forgeDelay(entry.failures), provider?.minimumIntervalMs ?? 0)
+              : 0;
+          refreshed = entry.sampledRefresh !== refresh && refresh === entry.refresh;
+          entry.sampledRefresh = refresh;
         }
         const current = this.read(entry.repository, entry.path);
-        if (previous !== (current === undefined ? undefined : JSON.stringify(current)))
+        const settled = this.settleWaiters(entry);
+        if (
+          settled ||
+          refreshed ||
+          previous !== (current === undefined ? undefined : JSON.stringify(current))
+        )
           this.changed();
         await this.save();
       })
@@ -369,6 +424,7 @@ export class ForgeTracking {
     const keys = new Set(matches.map((request) => JSON.stringify(request)));
     const selected = rows.filter((entry) => keys.has(JSON.stringify(match(entry))));
     const revisions = new Map(rows.map((entry) => [entry, entry.refresh]));
+    const observation = ++this.observation;
     const result = await provider.batch?.(matches).catch(() => undefined);
     if (this.stopped() || generation !== this.generation || this.pauses.size > 0) return;
     const remaining = rows.filter((entry) => !selected.includes(entry) && entry.available);
@@ -406,6 +462,7 @@ export class ForgeTracking {
       if (pr) {
         const { board, ...metadata } = pr;
         entry.pr = metadata;
+        entry.observation = observation;
         entry.board = board;
         if (provider.routedHost === undefined) delete entry.routedHost;
         else entry.routedHost = provider.routedHost;
@@ -419,7 +476,10 @@ export class ForgeTracking {
               provider.minimumIntervalMs ?? 0,
               !result ? forgeDelay(entry.failures) : running ? 20000 : hasMatches ? 120000 : 600000,
             ));
-      if (entry.refresh !== revisions.get(entry)) entry.due = 0;
+      const refresh = revisions.get(entry) ?? -1;
+      const refreshed = entry.sampledRefresh !== refresh && refresh === entry.refresh;
+      entry.sampledRefresh = refresh;
+      if (entry.refresh !== refresh) entry.due = 0;
       if (
         pr &&
         old &&
@@ -434,7 +494,8 @@ export class ForgeTracking {
       )
         this.onCompleted?.(entry, pr.board);
       const current = entry.available ? JSON.stringify([entry.pr, entry.board]) : undefined;
-      if (previous !== current) this.changed();
+      const settled = this.settleWaiters(entry);
+      if (settled || refreshed || previous !== current) this.changed();
     }
     await this.save();
   }

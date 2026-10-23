@@ -181,9 +181,13 @@ Public detail/list, same-project identity, lifecycle states, no pipeline,
 running/manual/success/failed/skipped pipelines, head races and three failure exits
 are now recorded on glab 1.124.0. Real fork MR evidence is **still missing**:
 `glab-fork-constructed.json` is synthetic, and no fork was authorized or created.
-Healthy auth-probe output, older/newer CLI compatibility, other pipeline statuses
-and a runtime GitLab batch implementation still need validation before shipping.
-This evidence PR references #522 and does not complete its bundled-manifest task.
+Healthy auth-probe output, older/newer CLI compatibility and other pipeline statuses
+remain unobserved. The #522 runtime now replays
+these envelopes through fixture glab and the shared batch engine; synthetic discovery
+wrappers add queried-project/default-branch context using the documented GraphQL
+`Project.id` and `Repository.rootRef` fields. No live discovery capture is claimed.
+The spike manifests remain historical references; the shipping GitLab manifest is
+`src/shared/bundled-forges/gitlab.json`. Tested CLI version: 1.124.0; no version gate.
 
 Modern gh check-output and empty-diagnostic cases are currently constructed;
 retain existing provider tests for compatibility and capture them publicly when

@@ -194,7 +194,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     } finally {
       parent.starting--;
       this.childEvents.publish();
-      if (!this.launching()) this.early.clear();
+      this.clearEarlyExits();
     }
   }
 

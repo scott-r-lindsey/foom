@@ -2,8 +2,16 @@ import { ApplicationError } from "../../../../src/shared/application-errors";
 import type { BoardCommand } from "../../../../src/shared/board-command";
 // @vitest-environment jsdom
 import { boardRows as sampleRows } from "../../../fixtures/board";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook } from "@testing-library/react";
 import { Profiler } from "react";
+import { useBoardTiles } from "../../../../src/renderer/board/use-board-tiles";
+import type { BoardSource } from "../../../../src/renderer/board/board-source.d";
+import {
+  leaves,
+  rectangles,
+  initialLayout,
+  placeSession,
+} from "../../../../src/renderer/board/tiles";
 import { Board } from "../../../../src/renderer/board/board-view";
 import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
 import type { BoardRow } from "../../../../src/renderer/board/board.d";
@@ -592,3 +600,76 @@ test("an idle board sleeps after settling and wakes for activity and wait labels
   source.setActivity(fixture.id, 4000);
   expect(vi.getTimerCount()).toBe(0);
 });
+
+test.each(
+  [100, 200, 300].flatMap((columns) => [false, true].map((manual) => ({ columns, manual }))),
+)(
+  "blank-window preview callback matches terminal geometry at $columns cells (manual: $manual)",
+  async ({ columns, manual }) => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return DOMRect.fromRect({ width: this.classList.contains("tile-area") ? columns * 8.4 : 0 });
+    });
+    const area = document.createElement("div");
+    area.className = "tile-area";
+    const board = document.createElement("div");
+    board.append(area);
+    document.body.append(board);
+    const previews = [
+      {
+        id: "preview",
+        relativePath: "plan.md",
+        kind: "markdown" as const,
+        repository: "repo",
+        worktree: manual ? "foom:manual" : "repo",
+        network: false,
+      },
+    ];
+    let arrival:
+      | Parameters<NonNullable<NonNullable<BoardSource["previews"]>["onPlace"]>>[0]
+      | undefined;
+    const source: BoardSource = {
+      ...createSampleSource([]),
+      previews: {
+        getSnapshot: () => previews,
+        pick: () => Promise.resolve(null),
+        bounds: () => Promise.resolve(),
+        close: () => Promise.resolve(),
+        onPlace: (callback) => {
+          arrival = callback;
+          return () => {};
+        },
+      },
+    };
+    const view = renderHook(() =>
+      useBoardTiles({
+        source,
+        soundSetup: undefined,
+        rows: [],
+        previews,
+        storageKey: "blank-test",
+        setArrivals: vi.fn(),
+        setRemoveError: vi.fn(),
+      }),
+    );
+    view.result.current.boardRef.current = board;
+    await act(async () => {
+      expect(await arrival?.("preview", Date.now() + 5000)).toBe("empty");
+    });
+    const layout = view.result.current.layout;
+    const terminal = placeSession(initialLayout(), "terminal", false, { columns });
+    if (!terminal) throw new Error("Missing terminal");
+    expect(rectangles(layout.tree).tiles.map(({ rect }) => rect)).toEqual(
+      rectangles(terminal.tree).tiles.map(({ rect }) => rect),
+    );
+    expect(leaves(layout.tree)[0]?.content).toEqual({ kind: "preview", preview: "preview" });
+    await act(async () => {
+      expect(await arrival?.("preview", Date.now() + 5000)).toBe("existing");
+    });
+    expect(leaves(view.result.current.layout.tree)).toHaveLength(columns / 100);
+    expect(view.result.current.layout.focused).toBe(leaves(layout.tree)[0]?.id);
+    view.unmount();
+    vi.restoreAllMocks();
+  },
+);

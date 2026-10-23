@@ -237,3 +237,16 @@ is told to post its verdict and findings as a PR review comment using its own
 `gh` login. Foom itself makes no forge writes and stores no tokens. Review notes
 are untrusted data; Foom only quotes bounded structured findings inside its fixed
 resume brief. It never types loop prompts into a running terminal.
+
+Settings → General **Close finished agents** is on by default. Exited reviewers
+close after their verdict is accepted. Exited authors and other children close
+when their PR is merged or closed, once an author's review loop is clean or ended.
+A session that needs you, has unread attention, or was taken over stays open.
+Children without a PR stay open unless they are accepted reviewers. Closing
+removes the tile and sidebar row and discards the final screen; the worktree,
+branch and author's review state remain. Turn the setting off to retain them.
+
+A loop author also stays open while its review attention is unread on the parent.
+The final loop participant stays open to keep the review record; close it explicitly
+when you no longer need it. Other PR-based closes wait for the existing exit status
+refresh to finish, so a stale closed-PR observation cannot close a reopened PR.

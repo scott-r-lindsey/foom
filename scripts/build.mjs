@@ -139,6 +139,8 @@ await cp(
   { recursive: true },
 );
 
+await cp(join(root, "src/renderer/art"), join(root, "build/renderer/art"), { recursive: true });
+
 // Aggregate the complete licenses and modification notices for bundled assets and
 // derived agent rules. Source reference checkouts are never packaged or read here.
 const thirdPartyNotices = [

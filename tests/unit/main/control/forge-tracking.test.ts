@@ -920,3 +920,153 @@ it("revalidates stored display URLs against the routed host on open", async () =
   await tracker.poll();
   expect(tracker.readUrl(tree.repository, tree.path)).toBeUndefined();
 });
+
+it.each(["single", "batch"])(
+  "close evidence waits for the newest %s recheck and notifies even when metadata is unchanged",
+  async (mode) => {
+    const closed = { ...pending, state: "CLOSED" as const };
+    const lookup = vi.fn((): Promise<PullRequest | undefined> => Promise.resolve(closed));
+    const batch = async () => {
+      const pr = await lookup();
+      return pr
+        ? new Map([
+            [
+              tree.branch,
+              {
+                ...pr,
+                board: {
+                  number: pr.number,
+                  title: "PR",
+                  url: "https://github.com/o/r/pull/340",
+                  state: pr.state,
+                  checks: null,
+                },
+              },
+            ],
+          ])
+        : undefined;
+    };
+    const changed = vi.fn();
+    const tracker = new ForgeTracking(
+      directory,
+      () => Promise.resolve("https://github.com/o/r"),
+      changed,
+      () => (mode === "batch" ? { lookup, batch } : { lookup }),
+    );
+    trackers.push(tracker);
+    tracker.track(tree, 340);
+    expect(tracker.readSettled(tree.repository, tree.path)).toBeUndefined();
+    await tracker.poll();
+    expect(tracker.readSettled(tree.repository, tree.path)).toMatchObject(closed);
+    expect(tracker.readSettled("foreign", tree.path)).toBeUndefined();
+    expect(tracker.readSettled(tree.repository, "missing")).toBeUndefined();
+    const beforeExit = tracker.revision();
+    expect(tracker.readSettled(tree.repository, tree.path, beforeExit)).toBeUndefined();
+    const notifications = changed.mock.calls.length;
+    let firstStarted = () => {};
+    const first = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+    let secondStarted = () => {};
+    const second = new Promise<void>((resolve) => {
+      secondStarted = resolve;
+    });
+    let finishFirst = () => {};
+    const firstGate = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    let finishSecond = () => {};
+    const secondGate = new Promise<void>((resolve) => {
+      finishSecond = resolve;
+    });
+    lookup.mockImplementationOnce(async () => {
+      firstStarted();
+      await firstGate;
+      return closed;
+    });
+    lookup.mockImplementationOnce(async () => {
+      secondStarted();
+      await secondGate;
+      return closed;
+    });
+    tracker.recheck(tree.path);
+    await first;
+    tracker.recheck(tree.path);
+    expect(tracker.read(tree.repository, tree.path)).toMatchObject(closed);
+    expect(tracker.readSettled(tree.repository, tree.path)).toBeUndefined();
+    finishFirst();
+    await second;
+    // The first response predates the exit's newer recheck request.
+    expect(tracker.readSettled(tree.repository, tree.path)).toBeUndefined();
+    finishSecond();
+    await tracker.poll();
+    expect(tracker.readSettled(tree.repository, tree.path)).toMatchObject(closed);
+    expect(tracker.readSettled(tree.repository, tree.path, beforeExit)).toMatchObject(closed);
+    expect(tracker.readSettled(tree.repository, tree.path, tracker.revision())).toBeUndefined();
+    expect(changed).toHaveBeenCalledTimes(notifications + 1);
+    for (let index = 0; index < 10; index++) await tracker.poll();
+    expect(lookup).toHaveBeenCalledTimes(3);
+    lookup.mockRejectedValueOnce(Error("offline"));
+    tracker.recheck(tree.path);
+    await tracker.poll();
+    expect(tracker.readSettled(tree.repository, tree.path)).toBeUndefined();
+  },
+);
+
+it.each(["single", "batch"] as const)(
+  "unchanged periodic %s reads without a waiting child publish nothing",
+  async (mode) => {
+    const h = mode === "batch" ? batched() : harness();
+    h.tracker.track(tree);
+    await h.tracker.poll();
+    // Settle discovery's existing follow-up, then count only regular reads.
+    h.advance(600000);
+    await h.tracker.poll();
+    h.changed.mockClear();
+    for (let index = 0; index < 3; index++) {
+      h.advance(600000);
+      await h.tracker.poll();
+    }
+    expect(h.changed).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["single", "batch"] as const)(
+  "settles %s observation waiters once, respecting cancellation and fresh evidence",
+  async (mode) => {
+    const h = mode === "batch" ? batched() : harness();
+    h.tracker.track(tree);
+    await h.tracker.poll();
+    h.advance(600000);
+    await h.tracker.poll();
+    const marker = h.tracker.revision();
+    // Wrong checkout and already-settled observations cannot create interest.
+    h.tracker.waitForRead("foreign", tree.path, marker)();
+    h.tracker.waitForRead(tree.repository, "missing", marker)();
+    h.tracker.waitForRead(tree.repository, tree.path, marker - 1)();
+    const cancel = h.tracker.waitForRead(tree.repository, tree.path, marker);
+    cancel();
+    cancel();
+    h.changed.mockClear();
+    h.advance(600000);
+    await h.tracker.poll();
+    expect(h.changed).not.toHaveBeenCalled();
+
+    const after = h.tracker.revision();
+    const first = h.tracker.waitForRead(tree.repository, tree.path, after);
+    const second = h.tracker.waitForRead(tree.repository, tree.path, after);
+    const future = h.tracker.waitForRead(tree.repository, tree.path, after + 1);
+    h.advance(600000);
+    await h.tracker.poll();
+    expect(h.changed).toHaveBeenCalledTimes(1);
+    first();
+    second();
+    h.advance(600000);
+    await h.tracker.poll();
+    expect(h.changed).toHaveBeenCalledTimes(2);
+    future();
+    h.advance(600000);
+    await h.tracker.poll();
+    expect(h.changed).toHaveBeenCalledTimes(2);
+  },
+);

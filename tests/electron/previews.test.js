@@ -887,9 +887,7 @@ test("preview host isolates hostile pages, blocks network and navigation, scales
   );
 });
 
-test("an agent fixture opens full-board previews in columns, retains focus and respects human close", {
-  skip: process.platform === "win32" && "The fake agent is a POSIX script",
-}, async (context) => {
+async function agentPreviewFixture(context) {
   const { chmod, symlink } = require("node:fs/promises");
   const { existsSync } = require("node:fs");
   const root = await mkdtemp(path.join(tmpdir(), "foom-agent-preview-"));
@@ -945,6 +943,115 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
   await expect
     .poll(async () => (await page.evaluate((id) => window.desktop.tail(id, 20), agent.id)).join(""))
     .toContain("FOOM_AGENT_READY");
+  const requestPreview = async (requestId, file) => {
+    await page.evaluate(
+      ({ id, requestId, file }) =>
+        window.desktop.input(
+          id,
+          JSON.stringify({ id: requestId, args: ["open-preview", file, "--json"] }) + "\n",
+        ),
+      { id: agent.id, requestId, file },
+    );
+    await expect.poll(() => existsSync(`${credentials}.response-${requestId}`)).toBe(true);
+    const response = JSON.parse(await readFile(`${credentials}.response-${requestId}`, "utf8"));
+    assert.equal(response.code, 0, response.stderr);
+    return JSON.parse(response.stdout).result;
+  };
+  return { app, page, repo, agent, shell, credentials, requestPreview };
+}
+
+test("agent previews split a blank window into terminal-width columns", {
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { app, page, repo, requestPreview } = await agentPreviewFixture(context);
+  await writeFile(
+    path.join(repo, "blank.md"),
+    "# Agent preview\n\nOpened on a blank board, using the same columns as a terminal.",
+  );
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(2200, 1000);
+  });
+  await page.waitForFunction(() => innerWidth === 2200);
+  await page.evaluate(() => {
+    localStorage.setItem(
+      `foom.tiles.v1.${window.desktop.windows.id}`,
+      JSON.stringify({
+        version: 2,
+        tree: { kind: "tile", id: "blank", content: null },
+        focused: "blank",
+        maximized: null,
+      }),
+    );
+  });
+  await page.reload();
+  await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(1);
+  const blankPreview = await requestPreview("blank", "blank.md");
+  assert.equal(blankPreview.placement, "empty");
+  await expect(page.locator(".terminal-tile")).toHaveCount(2);
+  await expect(page.locator(".terminal-tile").first()).toHaveAttribute("data-kind", "preview");
+  assert.equal(
+    await page
+      .locator(".terminal-tile")
+      .first()
+      .evaluate((tile) => tile.style.width),
+    "50%",
+  );
+  await expect(page.locator(".terminal-tile").first()).toHaveAttribute("data-focused", "true");
+  await expect
+    .poll(async () => (await previewViewState(app, blankPreview.previewId)).attached)
+    .toBe(true);
+  if (process.env.FOOM_PLACEMENT_SCREENSHOTS === "1" && process.platform === "linux") {
+    await page.locator('.board-row[data-kind="shell"]').click();
+    await expect(page.locator('.terminal-tile[data-kind="shell"]')).toBeVisible();
+    await mkdir("screenshots-746", { recursive: true });
+    const handle = await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .getNativeWindowHandle()
+        .readUInt32LE(),
+    );
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await page.waitForFunction(
+        (mode) => document.documentElement.style.colorScheme === mode,
+        mode,
+      );
+      await expect
+        .poll(() =>
+          previewContents(
+            app,
+            blankPreview.previewId,
+            "getComputedStyle(document.documentElement).backgroundColor",
+          ),
+        )
+        .toBe(mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)");
+      await previewContents(
+        app,
+        blankPreview.previewId,
+        "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+      );
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
+      require("node:child_process").execFileSync("import", [
+        "-window",
+        String(handle),
+        `screenshots-746/agent-preview-terminal-${mode}.png`,
+      ]);
+    }
+    await page.evaluate(() => window.desktop.saveSetup({ colorMode: "system" }));
+  }
+  await page.evaluate((id) => window.desktop.previews.close(id), blankPreview.previewId);
+});
+
+test("an agent fixture opens full-board previews in columns, retains focus and respects human close", {
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { app, page, repo, agent, shell, credentials, requestPreview } =
+    await agentPreviewFixture(context);
+  const { existsSync } = require("node:fs");
   await page.evaluate(
     ({ shellId }) => {
       const key = `foom.tiles.v1.${window.desktop.windows.id}`;
@@ -1009,20 +1116,6 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
     "aria-label",
     /opened by Claude Code/,
   );
-  const requestPreview = async (requestId, file) => {
-    await page.evaluate(
-      ({ id, requestId, file }) =>
-        window.desktop.input(
-          id,
-          JSON.stringify({ id: requestId, args: ["open-preview", file, "--json"] }) + "\n",
-        ),
-      { id: agent.id, requestId, file },
-    );
-    await expect.poll(() => existsSync(`${credentials}.response-${requestId}`)).toBe(true);
-    const response = JSON.parse(await readFile(`${credentials}.response-${requestId}`, "utf8"));
-    assert.equal(response.code, 0, response.stderr);
-    return JSON.parse(response.stdout).result;
-  };
   await expect
     .poll(() => page.locator(".tile-area").evaluate((area) => area.clientWidth))
     .toBeGreaterThan(2000);

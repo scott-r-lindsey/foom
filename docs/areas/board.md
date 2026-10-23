@@ -30,8 +30,9 @@ Placement fills space, then grows a rightmost column with proportional existing
 column widths, or selects the least recently focused non-attention tile when
 columns would fall below 60 terminal cells. The board measures the available area
 at the current terminal font size and tracks focus recency outside persisted data.
-All-attention boards may grow below that minimum. Blank single-leaf windows start
-with 1–3 equal columns of about 100 cells; arranged trees retain their geometry.
+All-attention boards may grow below that minimum. All content uses this shared
+placement, including previews, the manual and orchestrator children. Blank single-leaf windows start with 1–3 equal columns of
+about 100 cells; arranged trees retain their geometry.
 Drag origins come only from local sidebar/title-bar gestures; external drag payloads
 are never interpreted. Drop-time inventory and tree lookups reject stale origins
 and targets. Edge drops obey the same depth and leaf limits as ordinary splits;

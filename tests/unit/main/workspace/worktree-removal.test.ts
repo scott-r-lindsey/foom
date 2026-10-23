@@ -443,3 +443,164 @@ it("preserves legacy explicit removal behavior for ignored files", async () => {
   await service.removeWorktree(repo, path);
   await expect(realpath(path)).rejects.toThrow();
 });
+
+it.each(["nested repository", "reset reflog", "redirected config"])(
+  "refuses round-four real Git data loss: %s",
+  async (scenario) => {
+    if (scenario !== "reset reflog") {
+      await mkdir(join(repo, "nested"));
+      await writeFile(join(repo, "nested", "tracked.txt"), "original");
+      await git("add", ".");
+      await git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-m",
+        "Tracked",
+      );
+    }
+    const { path } = await service.createWorktree(repo, "round-four");
+    await git("clone", "--bare", repo, join(temporary, "remote.git"));
+    await git("remote", "add", "origin", join(temporary, "remote.git"));
+    await git("fetch", "origin");
+    const admin = (await execute(["rev-parse", "--absolute-git-dir"], { cwd: path })).stdout.trim();
+    if (scenario === "nested repository") {
+      const nested = join(path, "nested");
+      await execute(["init"], { cwd: nested });
+      await execute(["add", "."], { cwd: nested });
+      await execute(
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "-m",
+          "Unique nested history",
+        ],
+        { cwd: nested },
+      );
+      expect((await execute(["status", "--porcelain"], { cwd: path })).stdout).toBe("");
+      await expect(service.cleanupChanges(repo, path)).rejects.toThrow();
+      expect(await stat(join(nested, ".git", "objects"))).toBeTruthy();
+    } else if (scenario === "reset reflog") {
+      await execute(
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "Only reflog keeps this secret",
+        ],
+        { cwd: path },
+      );
+      const secret = (await execute(["rev-parse", "HEAD"], { cwd: path })).stdout.trim();
+      await execute(["reset", "--hard", "origin/main"], { cwd: path });
+      await rm(join(path, ".git"));
+      await expect(service.cleanupBrokenWorktree(repo, path)).rejects.toThrow();
+      expect(await readFile(join(admin, "logs", "HEAD"), "utf8")).toContain(secret);
+    } else {
+      const mirror = join(temporary, "mirror");
+      await mkdir(join(mirror, "nested"), { recursive: true });
+      await writeFile(join(mirror, "nested", "tracked.txt"), "original");
+      await writeFile(join(mirror, "screenshot.png"), "disclosed mirror image");
+      await writeFile(join(path, "nested", "tracked.txt"), "hidden tracked edit");
+      await writeFile(join(path, "screenshot.png"), "actual image");
+      await git("config", "extensions.worktreeConfig", "true");
+      await git("config", "--file", join(admin, "config.worktree"), "core.worktree", mirror);
+      expect((await execute(["status", "--porcelain"], { cwd: path })).stdout).toBe(
+        "?? screenshot.png\n",
+      );
+      await expect(service.cleanupChanges(repo, path)).rejects.toThrow();
+      expect(await readFile(join(path, "nested", "tracked.txt"), "utf8")).toBe(
+        "hidden tracked edit",
+      );
+    }
+  },
+);
+
+it.each([
+  "ignored nested repo",
+  "untracked nested marker",
+  "deep walk",
+  "missing HEAD log",
+  "invalid log",
+  "incomplete log",
+  "oversized log",
+  "private log",
+  "symlinked log",
+  "symlinked logs directory",
+  "disabled worktree config file",
+  "enabled worktree config",
+  "clean filter",
+  "safe symlink",
+])("fails closed on cleanup evidence: %s", async (mode) => {
+  const { path } = await service.createWorktree(repo, "evidence");
+  await git("clone", "--bare", repo, join(temporary, "remote.git"));
+  await git("remote", "add", "origin", join(temporary, "remote.git"));
+  await git("fetch", "origin");
+  const admin = (await execute(["rev-parse", "--absolute-git-dir"], { cwd: path })).stdout.trim();
+  const logs = join(admin, "logs");
+  if (mode === "ignored nested repo" || mode === "untracked nested marker") {
+    await mkdir(join(path, "nested"));
+    if (mode === "ignored nested repo") {
+      await writeFile(join(path, ".gitignore"), "nested/\n");
+      await execute(["init"], { cwd: join(path, "nested") });
+    } else await writeFile(join(path, "nested", ".git"), "independent metadata");
+  }
+  if (mode === "deep walk") {
+    let directory = path;
+    for (let depth = 0; depth < 66; depth++) {
+      directory = join(directory, "d");
+      await mkdir(directory);
+    }
+  }
+  if (mode === "missing HEAD log") await rm(join(logs, "HEAD"));
+  if (mode === "invalid log") await writeFile(join(logs, "HEAD"), "unreadable revision\n");
+  if (mode === "incomplete log") await writeFile(join(logs, "HEAD"), "truncated");
+  if (mode === "oversized log")
+    await writeFile(join(logs, "HEAD"), "x".repeat(4 * 1024 * 1024 + 1));
+  if (mode === "private log") {
+    await execute(
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "unpublished",
+      ],
+      { cwd: path },
+    );
+    const localLog = await readFile(join(logs, "HEAD"));
+    await execute(["reset", "--hard", "origin/main"], { cwd: path });
+    await mkdir(join(logs, "refs", "worktree"), { recursive: true });
+    await writeFile(join(logs, "refs", "worktree", "saved"), localLog);
+    const initial = localLog.toString().slice(0, localLog.indexOf("\n"));
+    await writeFile(join(logs, "HEAD"), `${initial}\n`);
+  }
+  if (mode === "symlinked log" || mode === "symlinked logs directory") {
+    // Junctions work without elevated Windows symlink privileges.
+    if (mode === "symlinked log") await symlink(repo, join(logs, "linked"), "junction");
+    else {
+      await rename(logs, join(temporary, "saved-logs"));
+      await symlink(join(temporary, "saved-logs"), logs, "junction");
+    }
+  }
+  if (mode === "disabled worktree config file") await writeFile(join(admin, "config.worktree"), "");
+  if (mode === "enabled worktree config") await git("config", "extensions.worktreeConfig", "true");
+  if (mode === "clean filter")
+    await git("config", "filter.hide.clean", "irrelevant-fixture-command");
+  if (mode === "safe symlink") {
+    await symlink(repo, join(path, "external"), "junction");
+    expect(await service.cleanupChanges(repo, path)).toContain("?? external");
+  } else await expect(service.cleanupChanges(repo, path)).rejects.toThrow();
+  expect(await stat(path)).toBeTruthy();
+});

@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   lstat,
   mkdir,
+  mkdtemp,
+  opendir,
   readFile,
   readdir,
   realpath,
@@ -10,8 +12,9 @@ import {
   rmdir,
   writeFile,
 } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { readOwnedFile } from "../../node-common/owned-files";
 import { ApplicationError } from "../../shared/application-errors";
 import type { GitPanelFacts } from "../../shared/panel";
 import type {
@@ -40,6 +43,8 @@ import {
   within,
   worktreeIdentity,
 } from "./worktree-operations";
+
+const commitId = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
 
 /** Main-process service. Git membership authorizes management; managed records creation history. */
 export class WorktreeService {
@@ -387,6 +392,7 @@ export class WorktreeService {
         if (!trees.some((tree) => tree.prunable && tree.path === checkout)) continue;
         if (checkout === path) found = true;
         await this.checkCleanupState(repository, admin);
+        await this.checkCleanupEvidence(repository, admin);
         const read = (args: string[]) =>
           git(repository, ["--git-dir", admin, ...cleanupReadOptions, ...args]);
         if (
@@ -413,6 +419,7 @@ export class WorktreeService {
     if (await exists(path)) {
       if ((await realpath(path)) !== path || !(await lstat(path)).isDirectory())
         throw new ApplicationError("prune-unsafe");
+      await walkCleanupDirectory(path, true);
       await rmdir(path);
     }
     await validate();
@@ -473,6 +480,8 @@ export class WorktreeService {
     )
       throw new Error("Submodules prevent cleanup");
     await this.checkCleanupState(path);
+    await this.checkCleanupEvidence(path);
+    await walkCleanupDirectory(path, true);
     if ((await read(["ls-files", "-v", "--stage", "-z", "--"])) !== index)
       throw new Error("Index changed during cleanup checks");
     await this.checkRemovalIdentity(repository, path, expected);
@@ -503,6 +512,78 @@ export class WorktreeService {
     )
       throw new Error("Case-colliding paths prevent cleanup");
     return changes;
+  }
+
+  /** Only the registered directory and its own, remotely recoverable Git state may go. */
+  private async checkCleanupEvidence(path: string, gitDirectory?: string): Promise<void> {
+    const read = (args: string[]) =>
+      git(path, [
+        ...(gitDirectory ? ["--git-dir", gitDirectory] : []),
+        ...cleanupReadOptions,
+        ...args,
+      ]);
+    const admin = gitDirectory ?? (await read(["rev-parse", "--absolute-git-dir"])).trimEnd();
+    if (await exists(join(admin, "config.worktree")))
+      throw new Error("Worktree configuration prevents cleanup");
+    const config = await read(["config", "--null", "--list"]);
+    const settings = config
+      .split("\0")
+      .filter(Boolean)
+      .map((entry) => {
+        const newline = entry.indexOf("\n");
+        return [entry.slice(0, newline).toLowerCase(), entry.slice(newline + 1)];
+      });
+    if (
+      settings.some(
+        ([key, value]) =>
+          key === "core.worktree" ||
+          key?.startsWith("filter.") ||
+          (key === "extensions.worktreeconfig" && value !== "false") ||
+          (key === "core.bare" && value !== "false"),
+      )
+    )
+      throw new Error("Repository configuration prevents cleanup");
+    if (!gitDirectory) {
+      const top = (await read(["rev-parse", "--show-toplevel"])).trimEnd();
+      if ((await realpath(top)) !== path) throw new Error("Cleanup directory is redirected");
+    }
+    const logs = join(admin, "logs");
+    // A missing HEAD log is not evidence of an empty history (logging can be disabled).
+    const files = await walkCleanupDirectory(logs, false);
+    if (!files.includes(join(logs, "HEAD"))) throw new Error("Missing worktree HEAD reflog");
+    const commits = new Set<string>();
+    let remaining = 4 * 1024 * 1024;
+    for (const file of files) {
+      const contents = await readOwnedFile(file, remaining, async (target) => {
+        const entry = await lstat(target);
+        if (!entry.isFile() || entry.isSymbolicLink()) throw new Error("Unsafe reflog");
+      });
+      remaining -= Buffer.byteLength(contents);
+      if (!contents || !contents.endsWith("\n")) throw new Error("Incomplete worktree reflog");
+      for (const line of contents.trimEnd().split("\n")) {
+        const match = /^([a-f0-9]{40}|[a-f0-9]{64}) ([a-f0-9]{40}|[a-f0-9]{64}) /.exec(line);
+        if (!match || match[1]?.length !== match[2]?.length)
+          throw new Error("Invalid worktree reflog");
+        for (const oid of match.slice(1)) if (!/^0+$/.test(oid)) commits.add(oid);
+      }
+    }
+    // Bound argument size on Windows as well as the filesystem reads above.
+    const revisions = [...commits];
+    for (let start = 0; start < revisions.length; start += 128) {
+      if (
+        (
+          await read([
+            "rev-list",
+            "--count",
+            ...revisions.slice(start, start + 128),
+            "--not",
+            "--remotes",
+            "--",
+          ])
+        ).trim() !== "0"
+      )
+        throw new Error("Unpushed worktree reflog commits prevent cleanup");
+    }
   }
 
   private async checkCleanupState(path: string, gitDirectory?: string): Promise<void> {
@@ -776,7 +857,8 @@ export class WorktreeService {
           )
         ).trim();
         if (unpushed !== "0") return false;
-        await git(path, ["merge-base", "--is-ancestor", head, base]);
+        if (!(await this.withMergeProof(repository, (run) => this.isAncestor(run, head, base))))
+          return false;
       }
       if ((await this.changes(repository, path, identity)) !== "") return false;
       return (
@@ -790,19 +872,14 @@ export class WorktreeService {
   }
 
   async mergedCommit(repository: string, tree: Worktree, base: string): Promise<boolean> {
-    if (
-      !tree.head ||
-      (tree.branch !== null && this.fetchFacts.get(repository)?.branch === tree.branch)
-    )
+    const head = tree.head;
+    if (!head || (tree.branch !== null && this.fetchFacts.get(repository)?.branch === tree.branch))
       return false;
     if (tree.branch) await this.validateBranch(repository, tree.branch);
-    if (!/^[a-f0-9]{40,64}$/u.test(base) || !/^[a-f0-9]{40,64}$/u.test(tree.head))
-      throw new Error("Invalid commit ID");
-    const defaultTree = (await git(repository, ["rev-parse", `${base}^{tree}`])).trim();
+    if (!commitId.test(base) || !commitId.test(head)) throw new Error("Invalid commit ID");
     try {
       if (
-        (await git(repository, ["merge-tree", "--write-tree", base, tree.head])).trim() ===
-        defaultTree
+        await this.withMergeProof(repository, (run) => this.mergeMatchesTree(run, base, head, base))
       )
         return true;
     } catch {
@@ -830,8 +907,17 @@ export class WorktreeService {
               "all",
             )),
       );
-      if (pr?.state !== "MERGED" || pr.headSha !== tree.head || !pr.mergeCommit) return false;
-      await git(repository, ["merge-base", "--is-ancestor", pr.mergeCommit, base]);
+      if (pr?.state !== "MERGED" || pr.headSha !== tree.head) return false;
+      let integrated = false;
+      for (const commit of new Set([pr.mergeCommit, pr.squashCommit])) {
+        if (!commit) continue;
+        if (!commitId.test(commit)) return false;
+        if (await this.hintIntegratesHead(repository, commit, tree.head, base)) {
+          integrated = true;
+          break;
+        }
+      }
+      if (!integrated) return false;
       return (
         (await git(tree.path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim() === tree.head &&
         (await this.changes(repository, tree.path)) === ""
@@ -840,6 +926,121 @@ export class WorktreeService {
       // Missing objects, malformed/hostile forge hints and unavailable providers fail closed.
       return false;
     }
+  }
+
+  /** Reachability from default is necessary, but cannot tie a forge hint to this head. */
+  private async hintIntegratesHead(
+    repository: string,
+    commit: string,
+    head: string,
+    base: string,
+  ): Promise<boolean> {
+    if (![commit, head, base].every((sha) => commitId.test(sha))) return false;
+    return this.withMergeProof(repository, async (run) => {
+      if (!(await this.isAncestor(run, commit, base))) return false;
+      if (await this.isAncestor(run, head, commit)) return true;
+      const parents = (await run(["rev-list", "--parents", "-n", "1", commit])).trim().split(" ");
+      const parent = parents[1];
+      if (parents.length !== 2 || parents[0] !== commit || !parent || !commitId.test(parent))
+        return false;
+      const mergeBase = (await run(["merge-base", "--all", parent, head])).trim();
+      // Multiple merge bases are ambiguous; never pick one using forge claims.
+      if (!commitId.test(mergeBase)) return false;
+      return this.mergeMatchesTree(run, parent, head, commit);
+    });
+  }
+
+  private async isAncestor(
+    run: (args: string[]) => Promise<string>,
+    ancestor: string,
+    descendant: string,
+  ): Promise<boolean> {
+    if (![ancestor, descendant].every((sha) => commitId.test(sha))) return false;
+    try {
+      await run(["merge-base", "--is-ancestor", ancestor, descendant]);
+      return true;
+    } catch (error) {
+      // Only an ordinary non-ancestor result permits another proof or hint.
+      if (!record(error) || error["code"] !== 1) throw error;
+      return false;
+    }
+  }
+
+  /** Never let repository attributes/configuration manufacture a cleanup proof. */
+  private async withMergeProof(
+    repository: string,
+    prove: (run: (args: string[]) => Promise<string>) => Promise<boolean>,
+  ): Promise<boolean> {
+    const objects = await realpath(
+      (
+        await git(repository, ["rev-parse", "--path-format=absolute", "--git-path", "objects"])
+      ).trim(),
+    );
+    if (/[\r\n]/u.test(objects)) return false;
+    const format = (await git(repository, ["rev-parse", "--show-object-format"])).trim();
+    if (format !== "sha1" && format !== "sha256") return false;
+    const proof = await mkdtemp(join(tmpdir(), "foom-merge-proof-"));
+    try {
+      const run = (args: string[]) =>
+        git(proof, ["-c", "core.commitGraph=false", ...args], 30_000, undefined, true);
+      await run(["init", "--bare", "--template=", `--object-format=${format}`]);
+      await Promise.all(
+        ["info", "objects/info"].map((path) => mkdir(join(proof, path), { recursive: true })),
+      );
+      // Git's alternates file accepts C-quoted absolute paths. Objects are read
+      // from the source store; merge output is written only in this disposable repo.
+      await writeFile(join(proof, "objects/info/alternates"), `${JSON.stringify(objects)}\n`, {
+        mode: 0o600,
+      });
+      // info/attributes has higher precedence than every versioned attributes file.
+      await writeFile(
+        join(proof, "info/attributes"),
+        "* merge=text -text -eol -filter -working-tree-encoding\n",
+        { mode: 0o600 },
+      );
+      // Alternates expose objects only, never source refs, grafts or config.
+      // Read raw commits rather than trusting cached graphs in that object store.
+      return await prove(run);
+    } finally {
+      await rm(proof, { recursive: true, force: true });
+    }
+  }
+
+  private async mergeMatchesTree(
+    run: (args: string[]) => Promise<string>,
+    left: string,
+    head: string,
+    expected: string,
+  ): Promise<boolean> {
+    if (![left, head, expected].every((sha) => commitId.test(sha))) return false;
+    const expectedTree = (await run(["rev-parse", "--verify", `${expected}^{tree}`])).trim();
+    if (!commitId.test(expectedTree)) return false;
+    // Config controls also work on Git versions whose merge-tree has no -X.
+    // The isolated repo has no other strategy or merge-driver configuration.
+    const merged = (
+      await run([
+        "-c",
+        "core.attributesFile=",
+        "-c",
+        "core.commitGraph=false",
+        "-c",
+        "core.autocrlf=false",
+        "-c",
+        "merge.renormalize=false",
+        "-c",
+        "merge.renames=false",
+        "-c",
+        "merge.directoryRenames=false",
+        "-c",
+        "diff.algorithm=histogram",
+        "merge-tree",
+        "--write-tree",
+        "--no-messages",
+        left,
+        head,
+      ])
+    ).trim();
+    return commitId.test(merged) && merged === expectedTree;
   }
 
   async deleteMergedBranch(repository: string, branch: string, head: string): Promise<void> {
@@ -924,6 +1125,24 @@ const cleanupReadOptions = [
   "-c",
   "core.ignorecase=false",
   "-c",
+  "core.ignoreStat=false",
+  "-c",
+  "core.trustctime=true",
+  "-c",
+  "core.checkStat=default",
+  "-c",
+  "core.fileMode=true",
+  "-c",
+  "core.symlinks=true",
+  "-c",
+  "core.autocrlf=false",
+  "-c",
+  "core.eol=lf",
+  "-c",
+  "core.attributesFile=",
+  "-c",
+  "core.commitGraph=false",
+  "-c",
   "diff.ignoreSubmodules=none",
   "-c",
   "status.showUntrackedFiles=all",
@@ -936,4 +1155,36 @@ async function exists(path: string): Promise<boolean> {
       throw error;
     },
   );
+}
+
+/** Stream a bounded tree without following symlinks, including ignored directories. */
+async function walkCleanupDirectory(root: string, checkout: boolean): Promise<string[]> {
+  const files: string[] = [];
+  let remaining = 10_000;
+  const walk = async (path: string, depth: number): Promise<void> => {
+    if (depth > 64 || --remaining < 0) throw new Error("Cleanup directory walk exceeded its limit");
+    const before = await lstat(path);
+    if (!before.isDirectory() || before.isSymbolicLink() || (await realpath(path)) !== path)
+      throw new Error("Unsafe cleanup directory");
+    const directory = await opendir(path);
+    for await (const entry of directory) {
+      if (--remaining < 0) throw new Error("Cleanup directory walk exceeded its limit");
+      if (entry.name.toLowerCase() === ".git") {
+        if (checkout && depth === 0) continue;
+        throw new Error("Nested repositories prevent cleanup");
+      }
+      const child = join(path, entry.name);
+      const info = await lstat(child);
+      if (info.isSymbolicLink()) {
+        if (!checkout) throw new Error("Symlinked reflogs prevent cleanup");
+      } else if (info.isDirectory()) await walk(child, depth + 1);
+      else if (info.isFile()) files.push(child);
+      else throw new Error("Special files prevent cleanup");
+    }
+    const after = await lstat(path);
+    if (before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs)
+      throw new Error("Cleanup directory changed during inspection");
+  };
+  await walk(root, 0);
+  return files;
 }

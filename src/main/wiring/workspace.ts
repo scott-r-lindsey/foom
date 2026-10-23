@@ -132,7 +132,7 @@ export async function initializeWorkspace(
           );
         if (!pr.checks || (pr.checks.failed === 0 && active)) return;
         const notice = new Notification({
-          title: `Pull request #${String(pr.number)}`,
+          title: `${pr.requestLabel ?? "Pull request"} ${pr.numberPrefix ?? "#"}${String(pr.number)}`,
           body:
             pr.checks.failed > 0 ? `${String(pr.checks.failed)} checks failed` : "Checks passed",
           silent: true,

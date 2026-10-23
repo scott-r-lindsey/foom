@@ -181,3 +181,17 @@ export function forgeDisplay(manifest: ForgeManifest, row: unknown, remote: Forg
     ...(sourceName === undefined ? {} : { sourceName }),
   };
 }
+
+/** Keep both integration hints; only local Git ancestry may choose cleanup evidence. */
+export function forgeMergeCommits(mapping: ForgeManifest["mapping"], row: unknown) {
+  const mergeCommit = mapping.mergeCommit ? forgeValue(row, mapping.mergeCommit) : undefined;
+  const squashCommit = mapping.squashCommit ? forgeValue(row, mapping.squashCommit) : undefined;
+  const mergePattern =
+    mapping.projects.mode === "numeric-project-ids" ? /^[a-f0-9]{40}$/u : /^[a-f0-9]{40,64}$/u;
+  return {
+    ...(typeof mergeCommit === "string" && mergePattern.test(mergeCommit) ? { mergeCommit } : {}),
+    ...(typeof squashCommit === "string" && /^[a-f0-9]{40}$/u.test(squashCommit)
+      ? { squashCommit }
+      : {}),
+  };
+}
