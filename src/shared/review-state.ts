@@ -15,6 +15,7 @@ export function isReviewState(value: unknown): value is ReviewState {
         "rounds",
         "agent",
         "postFindings",
+        "parentWaitMinutes",
         "reason",
         "waiting",
       ].includes(key),
@@ -30,8 +31,15 @@ export function isReviewState(value: unknown): value is ReviewState {
     data["round"] >= 0 &&
     data["round"] <= data["rounds"] &&
     typeof data["postFindings"] === "boolean" &&
+    (data["parentWaitMinutes"] === undefined ||
+      (typeof data["parentWaitMinutes"] === "number" &&
+        Number.isInteger(data["parentWaitMinutes"]) &&
+        data["parentWaitMinutes"] >= 1 &&
+        data["parentWaitMinutes"] <= 1440)) &&
     typeof data["phase"] === "string" &&
-    ["building", "reviewing", "fixing", "clean", "escalated"].includes(data["phase"]) &&
+    ["building", "reviewing", "fixing", "waiting-on-parent", "clean", "escalated"].includes(
+      data["phase"],
+    ) &&
     (data["waiting"] === undefined || typeof data["waiting"] === "boolean") &&
     (data["phase"] === "escalated"
       ? typeof data["reason"] === "string" &&
@@ -62,6 +70,8 @@ export function reviewLabel(state: ReviewState): string {
       return `Reviewing ${String(state.round)}/${String(state.rounds)}${state.waiting ? " · Waiting for slot" : ""}`;
     case "fixing":
       return `Fixing ${String(state.round)}/${String(state.rounds)}${state.waiting ? " · Waiting for slot" : ""}`;
+    case "waiting-on-parent":
+      return "Waiting on parent";
     case "clean":
       return "Review clean";
     case "escalated":

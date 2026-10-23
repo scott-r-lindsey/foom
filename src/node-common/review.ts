@@ -4,7 +4,7 @@ import { ControlError, exact, object } from "./control-validation";
 
 export function reviewOptions(value: unknown): ReviewOptions {
   const data = object(value);
-  exact(data, ["rounds", "agent", "postFindings"]);
+  exact(data, ["rounds", "agent", "postFindings", "parentWaitMinutes"]);
   const rounds = data["rounds"] === undefined ? 3 : data["rounds"];
   const agent = data["agent"] === undefined ? "claude" : data["agent"];
   const postFindings = data["postFindings"] === undefined ? false : data["postFindings"];
@@ -14,10 +14,22 @@ export function reviewOptions(value: unknown): ReviewOptions {
     rounds < 1 ||
     rounds > 5 ||
     !validAgentId(agent) ||
-    typeof postFindings !== "boolean"
+    typeof postFindings !== "boolean" ||
+    (data["parentWaitMinutes"] !== undefined &&
+      (typeof data["parentWaitMinutes"] !== "number" ||
+        !Number.isInteger(data["parentWaitMinutes"]) ||
+        data["parentWaitMinutes"] < 1 ||
+        data["parentWaitMinutes"] > 1440))
   )
     throw new ControlError("invalid_request");
-  return { rounds, agent, postFindings };
+  return {
+    rounds,
+    agent,
+    postFindings,
+    ...(data["parentWaitMinutes"] === undefined
+      ? {}
+      : { parentWaitMinutes: data["parentWaitMinutes"] }),
+  };
 }
 
 function note(value: unknown, bytes: number): string {

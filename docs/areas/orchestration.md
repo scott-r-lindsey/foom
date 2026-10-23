@@ -52,7 +52,7 @@ branch and review state remain.
 
 ## Optional child build/review loop (#690)
 
-Only an orchestrator's `launch` accepts `review: {rounds?, agent?, postFindings?}`.
+Only an orchestrator's `launch` accepts `review: {rounds?, agent?, postFindings?, parentWaitMinutes?}`.
 It is off by default; opting in defaults to three rounds (maximum five), Claude,
 and no posting. Both author and reviewer providers must support resume. Review-enabled task prompts
 reserve the fixed author brief within the combined 16 KiB UTF-8 launch limit;
@@ -83,7 +83,7 @@ Findings pass as quoted JSON data in a fixed author-resume template. Main resume
 the captured author conversation under the same terminal ID, using the provider's
 existing resume argv and fresh credentials. It never writes prompts or Enter to
 a running PTY. The next review waits for another author handoff and exit. A clean
-verdict, round cap, blocked/failed report, missing report/verdict, unavailable
+verdict, round cap, failed author report, blocked/failed reviewer report, missing report/verdict, unavailable
 conversation, non-green checks, changed worktree or launch failure ends the loop
 and raises a readable event for the parent. Clean still requires the orchestrator's
 final verification and merge decision. Foom never merges or makes forge writes.
@@ -97,6 +97,19 @@ readable under each participant's ID. State is exposed in session metadata and
 shown in words in sidebar rows and tile titles. Stopping, takeover, parent exit
 or revocation ends automation. Saved loop participants remain dormant and show
 `Escalated: restored`; restoration never silently launches a loop step.
+
+An author's `blocked` handoff enters `waiting-on-parent`, shown as **Waiting on
+parent**, without spending a review round. The owning orchestrator's explicit
+`prompt` resumes the preceding Building or Fixing phase only after input delivery
+succeeds and live ownership is rechecked. `send_keys`, human terminal input,
+foreign parents and failed/ambiguous prompt deliveries cannot resume it. A prompt
+must target the live author process; Foom never injects input or relaunches an
+exited blocked author on its own. The next fresh `done` handoff and exit use the
+usual green-check and worktree validation before review. A fresh `failed` report
+still escalates. Waiting uses one deadline timer per loop, with no polling;
+`review.parentWaitMinutes` configures 1–1440 minutes, default 180 (three hours).
+The console flag is `--review-parent-wait-minutes`. Expiry escalates with
+`author blocked`; prompting, cancellation and removal release the timer.
 
 Review invalidations coalesce separately for each loop. A change arriving during
 an asynchronous step requests at most one follow-up check of that same loop;

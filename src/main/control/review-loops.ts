@@ -38,6 +38,8 @@ export class ReviewLoops {
   ) {}
 
   start(authorId: string, options: ReviewOptions): void {
+    const previous = this.loops.get(authorId);
+    if (previous) clearTimeout(previous.parentTimer);
     this.loops.set(authorId, {
       state: { ...options, authorId, round: 0, phase: "building" },
       currentId: authorId,
@@ -51,8 +53,10 @@ export class ReviewLoops {
   forget(id: string): void {
     const author = this.participants.get(id);
     this.participants.delete(id);
-    if (author !== undefined && ![...this.participants.values()].includes(author))
+    if (author !== undefined && ![...this.participants.values()].includes(author)) {
+      clearTimeout(this.loops.get(author)?.parentTimer);
       this.loops.delete(author);
+    }
   }
 
   attach(id: string, authorId: string): void {
@@ -113,6 +117,53 @@ export class ReviewLoops {
     if (loop && !this.finished(loop)) this.finish(loop, reason);
   }
 
+  /** Called only by the authorized prompt path; commit only after successful delivery. */
+  parentPrompt(id: string): () => void {
+    const loop = this.loops.get(id);
+    if (!loop || this.finished(loop) || loop.currentId !== id || loop.state.phase === "reviewing")
+      return () => {};
+    const report = this.host.report(id);
+    // Capture a block even if its queued invalidation has not run yet.
+    if (
+      report?.status === "blocked" &&
+      report.seq > loop.afterSeq &&
+      loop.state.phase !== "waiting-on-parent"
+    )
+      this.waitOnParent(loop, report.seq);
+    if (loop.state.phase === "waiting-on-parent" && report) {
+      if (report.status === "failed") {
+        this.finish(loop, "author failed");
+        return () => {};
+      }
+      // Only reports after this explicit prompt may complete the resumed turn.
+      loop.afterSeq = report.seq;
+    }
+    const seq = loop.afterSeq;
+    return () => {
+      if (loop.state.phase !== "waiting-on-parent" || loop.afterSeq !== seq) return;
+      clearTimeout(loop.parentTimer);
+      delete loop.parentTimer;
+      loop.state = { ...loop.state, phase: loop.authorPhase ?? "building" };
+      this.host.changed();
+      this.syncLoop(loop);
+    };
+  }
+
+  private waitOnParent(loop: ReviewLoop, seq: number): void {
+    loop.authorPhase = loop.state.phase === "fixing" ? "fixing" : "building";
+    loop.afterSeq = seq;
+    loop.state = { ...loop.state, phase: "waiting-on-parent", waiting: false };
+    loop.parentTimer = setTimeout(
+      () => {
+        delete loop.parentTimer;
+        this.finish(loop, "author blocked");
+      },
+      (loop.state.parentWaitMinutes ?? 180) * 60_000,
+    );
+    loop.parentTimer.unref();
+    this.host.changed();
+  }
+
   sync(): void {
     for (const loop of this.loops.values()) this.syncLoop(loop);
   }
@@ -145,6 +196,8 @@ export class ReviewLoops {
   }
 
   private finish(loop: ReviewLoop, reason?: ReviewReason): void {
+    clearTimeout(loop.parentTimer);
+    delete loop.parentTimer;
     loop.state = {
       ...loop.state,
       phase: reason ? "escalated" : "clean",
@@ -192,6 +245,11 @@ export class ReviewLoops {
     const report = this.host.report(loop.currentId);
     const fresh = report && report.seq > loop.afterSeq ? report : undefined;
     const reviewing = loop.state.phase === "reviewing";
+    if (fresh && fresh.status === "blocked" && !reviewing) {
+      if (loop.state.phase !== "waiting-on-parent") this.waitOnParent(loop, fresh.seq);
+      else loop.afterSeq = fresh.seq;
+      return;
+    }
     if (fresh && fresh.status !== "done") {
       this.finish(
         loop,
@@ -199,12 +257,11 @@ export class ReviewLoops {
           ? fresh.status === "blocked"
             ? "reviewer blocked"
             : "reviewer failed"
-          : fresh.status === "blocked"
-            ? "author blocked"
-            : "author failed",
+          : "author failed",
       );
       return;
     }
+    if (loop.state.phase === "waiting-on-parent") return;
     if (!row.exited) return;
     if (row.exitCode !== undefined && row.exitCode !== 0) {
       this.finish(loop, reviewing ? "reviewer failed" : "author failed");

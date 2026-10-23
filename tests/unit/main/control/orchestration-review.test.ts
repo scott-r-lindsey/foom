@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { AUTHOR_REVIEW_BRIEF } from "../../../../src/main/control/review-loops";
-import { harness, repo } from "./orchestration-helpers";
+import { harness, other, repo } from "./orchestration-helpers";
 import type { Handoff } from "../../../../src/shared/handoff";
 
 function fixture() {
@@ -138,6 +138,9 @@ describe("orchestration review authority and reservations", () => {
     async (event) => {
       const h = fixture();
       const id = await h.launch();
+      h.report(id, undefined, "blocked");
+      await h.sync();
+      expect(h.orchestration.reviews.view(id)?.phase).toBe("waiting-on-parent");
       if (event === "stop") await h.mutate("stop", { id });
       if (event === "takeover") h.orchestration.takeOver(id);
       if (event === "revoke") h.orchestration.revoke("parent");
@@ -262,3 +265,59 @@ it("reserves the review brief before accepting a UTF-8 task prompt at the launch
   ).toBe("succeeded");
   h.orchestration.disposeUnreadChildren();
 });
+
+it("resumes blocked authors only after a successful owning-parent prompt, never keys or human input", async () => {
+  const h = fixture();
+  const id = await h.launch();
+  h.report(id, undefined, "blocked");
+  await h.sync();
+  const foreign = h.launchParent("foreign-parent", other);
+  await expect(foreign.mutate("prompt", { id, text: "Foreign answer" })).rejects.toThrow(
+    "not_found",
+  );
+  // Workspace/human input invalidations carry no parent-prompt capability.
+  await h.sync();
+  expect(h.orchestration.reviews.view(id)?.phase).toBe("waiting-on-parent");
+  await h.mutate("send_keys", { id, keys: ["enter"] });
+  await h.sync();
+  expect(h.orchestration.reviews.view(id)?.phase).toBe("waiting-on-parent");
+  h.host.reply.mockRejectedValueOnce(new Error("delivery failed"));
+  await h.mutate("prompt", { id, text: "Answer" });
+  await h.sync();
+  expect(h.orchestration.reviews.view(id)?.phase).toBe("waiting-on-parent");
+  await h.mutate("prompt", { id, text: "Proceed" });
+  expect(h.orchestration.reviews.view(id)?.phase).toBe("building");
+  h.report(id);
+  h.exit(id);
+  await h.sync();
+  expect(h.orchestration.reviews.view(id)).toMatchObject({ phase: "reviewing", round: 1 });
+  expect(h.host.reply).toHaveBeenCalledTimes(3);
+  h.orchestration.disposeUnreadChildren();
+});
+
+it.each(["takeover", "revoke", "grant", "exit"])(
+  "rechecks ownership after %s during prompt delivery",
+  async (event) => {
+    const h = fixture();
+    const id = await h.launch();
+    h.report(id, undefined, "blocked");
+    await h.sync();
+    h.host.reply.mockImplementationOnce(() => {
+      if (event === "takeover") h.orchestration.takeOver(id);
+      if (event === "revoke") h.orchestration.revoke("parent");
+      if (event === "grant") h.grant.dispose();
+      if (event === "exit") {
+        h.report(id);
+        h.exit(id);
+      }
+      return Promise.resolve();
+    });
+    const delivery = h.mutate("prompt", { id, text: "Proceed" });
+    if (event === "grant") await expect(delivery).rejects.toThrow("unauthorized");
+    else await delivery;
+    await h.sync();
+    if (event === "exit") expect(h.orchestration.reviews.view(id)?.phase).toBe("reviewing");
+    else expect(h.orchestration.reviews.view(id)?.phase).not.toBe("building");
+    h.orchestration.disposeUnreadChildren();
+  },
+);

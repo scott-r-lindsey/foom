@@ -3,6 +3,8 @@ export interface ReviewOptions {
   rounds: number;
   agent: string;
   postFindings: boolean;
+  /** Minutes to wait for the owning parent after an author blocks (default 180). */
+  parentWaitMinutes?: number;
 }
 
 export interface ReviewFinding {
@@ -35,7 +37,7 @@ export type ReviewReason =
 export interface ReviewState extends ReviewOptions {
   authorId: string;
   round: number;
-  phase: "building" | "reviewing" | "fixing" | "clean" | "escalated";
+  phase: "building" | "reviewing" | "fixing" | "waiting-on-parent" | "clean" | "escalated";
   reason?: ReviewReason;
   waiting?: boolean;
 }

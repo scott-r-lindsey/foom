@@ -146,13 +146,20 @@ function orchestration(name: string | undefined, words: string[]): Command {
       const rounds = take("--review-rounds");
       const reviewer = take("--review-agent");
       const post = take("--review-post-findings");
-      if (rounds !== undefined || reviewer !== undefined || post !== undefined) {
+      const parentWait = take("--review-parent-wait-minutes");
+      if (
+        rounds !== undefined ||
+        reviewer !== undefined ||
+        post !== undefined ||
+        parentWait !== undefined
+      ) {
         if (post !== undefined && post !== "true" && post !== "false")
           throw new ControlError("invalid_request");
         params["review"] = reviewOptions({
           ...(rounds === undefined ? {} : { rounds: integer(rounds, 5, 1) }),
           ...(reviewer === undefined ? {} : { agent: reviewer }),
           ...(post === undefined ? {} : { postFindings: post === "true" }),
+          ...(parentWait === undefined ? {} : { parentWaitMinutes: integer(parentWait, 1440, 1) }),
         });
       }
       const prompt = take("--prompt");
