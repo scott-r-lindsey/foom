@@ -1,4 +1,7 @@
-import { expect, test, vi } from "vitest";
+import { interfaceThemes } from "../../../src/shared/interface-themes";
+import { malformedValues } from "./malformed-values";
+import { dialog, theme } from "./preload-fixtures";
+import { beforeEach, expect, test, vi } from "vitest";
 import type { ConfirmationWindowApi, DialogRequest } from "../../../src/shared/confirmation";
 const mock = vi.hoisted(() => ({
   exposeInMainWorld: vi.fn<(name: string, api: ConfirmationWindowApi) => void>(),
@@ -6,13 +9,17 @@ const mock = vi.hoisted(() => ({
   send: vi.fn(),
 }));
 vi.mock("electron", () => ({ contextBridge: mock, ipcRenderer: mock }));
+beforeEach(() => {
+  vi.resetModules();
+  vi.clearAllMocks();
+});
 test("buffers main's request before React subscribes and exposes only rendering, size and answer", async () => {
   await import("../../../src/preload/confirmation");
   const api = mock.exposeInMainWorld.mock.calls[0]?.[1];
   if (!api) throw Error("Missing API");
   expect(Object.keys(api)).toEqual(["render", "size", "answer"]);
   const listener = mock.on.mock.calls[0]?.[1];
-  const request = { id: "one" };
+  const request = { id: "one", theme, title: "Confirm", accept: "Continue" };
   listener?.({}, request);
   const render = vi.fn<(request: DialogRequest | null) => void>();
   const dispose = api.render(render);
@@ -38,6 +45,9 @@ test("rejects malformed structured fields and preserves literal data", async () 
   const dispose = api.render(render);
   const valid = {
     id: "structured",
+    theme,
+    title: "Confirm",
+    accept: "Continue",
     subject: "<img src=x>",
     removals: [
       {
@@ -68,9 +78,19 @@ test("rejects malformed structured fields and preserves literal data", async () 
     ],
     pairing: { code: "ABCD1234", expiresAt: 1234 },
     cleanup: {
+      stage: "ready",
       checkingCount: 11,
       fetchedAt: 1000,
-      progress: { items: [{ changes: "?? evidence.png\0" }, {}] },
+      progress: {
+        total: 2,
+        done: 0,
+        stopped: false,
+        phase: "remove",
+        items: [
+          { id: "one", branch: "one", state: "queued", changes: "?? evidence.png\0" },
+          { id: "two", branch: "two", state: "queued" },
+        ],
+      },
     },
   };
   listener({}, valid);
@@ -136,7 +156,7 @@ test("rejects malformed structured fields and preserves literal data", async () 
     { cleanup: { fetchedAt: "bad" } },
     { cleanup: { fetchedAt: Number.NaN } },
   ]) {
-    listener({}, invalid);
+    listener({}, typeof invalid === "object" ? { ...dialog, ...invalid } : invalid);
     expect(render).toHaveBeenLastCalledWith(null);
   }
   dispose();
@@ -153,6 +173,7 @@ test("bounds summary text and titles and rejects control and bidi characters", a
   const render = vi.fn();
   const dispose = api.render(render);
   const request = (line: { text: string; title?: string }) => ({
+    ...dialog,
     sections: [{ label: "Command", items: ["Full bytes\nremain reachable\0"], summary: [line] }],
   });
   const valid = request({ text: "·…🌌" + "x".repeat(8188), title: "x".repeat(8192) });
@@ -183,4 +204,49 @@ test("bounds summary text and titles and rejects control and bidi characters", a
     }
   }
   dispose();
+});
+
+test("requires the complete dialog, including theme, cleanup, reply and session fields", async () => {
+  vi.resetModules();
+  mock.on.mockClear();
+  mock.exposeInMainWorld.mockClear();
+  await import("../../../src/preload/confirmation");
+  const api = mock.exposeInMainWorld.mock.calls[0]?.[1];
+  const listener = mock.on.mock.calls[0]?.[1];
+  if (!api || !listener) throw Error("Missing confirmation bridge");
+  const render = vi.fn();
+  api.render(render);
+  listener({}, dialog);
+  expect(render).toHaveBeenLastCalledWith(dialog);
+  for (const bad of malformedValues(dialog)) {
+    listener({}, bad.value);
+    expect(render, bad.path).toHaveBeenLastCalledWith(null);
+  }
+  for (const key of ["id", "theme", "title", "accept"]) {
+    const missing = Object.fromEntries(Object.entries(dialog).filter(([name]) => name !== key));
+    listener({}, missing);
+    expect(render).toHaveBeenLastCalledWith(null);
+  }
+  for (const bad of [
+    { id: "" },
+    { theme: {} },
+    { cleanup: null },
+    { cleanup: {} },
+    { cleanup: { ...dialog.cleanup, stage: "unknown" } },
+    { theme: { ...theme, base: "unknown" } },
+    { theme: { ...theme, version: 3 } },
+  ]) {
+    listener({}, { ...dialog, ...bad });
+    expect(render).toHaveBeenLastCalledWith(null);
+  }
+  listener(
+    {},
+    {
+      id: "minimal",
+      theme: interfaceThemes["eclipse-light"],
+      title: "Confirm",
+      accept: "Continue",
+    },
+  );
+  expect(render).toHaveBeenLastCalledWith(expect.objectContaining({ id: "minimal" }));
 });

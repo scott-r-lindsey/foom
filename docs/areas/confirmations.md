@@ -102,8 +102,11 @@ Main serializes requests, supplies the current
 resolved theme and content, and gives each request a new ID. Content carries a glyph,
 subject, labeled disclosure sections (with optional main-authored collapsed summary
 lines and full tooltip/accessibility text), facts, argument chips and the pairing code with
-its main-owned expiry deadline. The sandboxed preload validates structured fields,
-including summary line text and optional full titles. Both are capped at 8,192
+its main-owned expiry deadline. The sandboxed preload requires the request ID, complete resolved theme, title
+and accept label, and validates every optional nested disclosure, removal, cleanup,
+reply, pairing and session field before buffering or publishing a request. A
+malformed request clears the rendered request to null. This includes summary line
+text and optional full titles. Both are capped at 8,192
 UTF-16 code units and reject control characters, Unicode line/paragraph separators
 and bidi controls U+202A–U+202E, U+2066–U+2069, U+200E and U+200F. Main refuses
 unsafe plugin summaries before requesting confirmation, including raw executable

@@ -1,19 +1,975 @@
+import type {
+  CodeScan,
+  CodeSuggestion,
+  FoundRepository,
+  RepositoryUpdate,
+  Settings,
+  SetupState,
+} from "../shared/setup";
+import type { UpdateState } from "../shared/updates";
+import type { ThemeCatalog, ThemeKind, ThemeReason } from "../shared/theme-file";
+import type { InterfaceTheme, InterfaceThemeChoice } from "../shared/interface-theme";
+import type { TerminalTheme, TerminalThemeChoice } from "../shared/terminal-theme";
+import type {
+  SoundChoice,
+  SoundChoices,
+  SoundEntry,
+  SoundKind,
+  SoundRead,
+  SoundSettings,
+} from "../shared/sound";
+import type {
+  ConfigAgent,
+  ConfigForge,
+  ConfigPending,
+  ConfigRejection,
+  ConfigStatus,
+} from "../shared/foom-config";
+import type {
+  AgentReport,
+  OrchestrationEntry,
+  OrchestrationView,
+  PreviewSummary,
+  SidebarInventory,
+  TerminalState,
+  WorkspaceSnapshot,
+  WorkspaceTerminal,
+} from "../shared/workspace";
+import type { BranchInventory, Repository, Worktree } from "../shared/worktrees";
+import type { ExecutionPhase, ExecutionSnapshot, ExecutionTransition } from "../shared/execution";
+import type { AttentionKind, VerdictState } from "../shared/evaluator";
+import type { Handoff } from "../shared/handoff";
+import type { ReviewFinding, ReviewReason, ReviewState, ReviewVerdict } from "../shared/review";
+import type { PreviewOpenAction, PreviewPlacement, PreviewSnapshot } from "../shared/previews";
+import type { BoardPullRequest } from "../shared/forge";
+import type { CleanupItem, CleanupProgress, CleanupReason } from "../shared/cleanup";
+import type { GitPanelFacts, HomeShellFacts } from "../shared/panel";
+import type { AgentInstallation, AgentLaunched, HookHealthState } from "../shared/agents";
+import type { AgentSetupState, AgentSetupStatus } from "../shared/agent-setup";
+import type { AgyPluginStatus } from "../shared/agy-plugin";
+import type { ActionLogEntry, ActionLogPage } from "../shared/action-log";
+import type { EnvironmentCandidate, EnvironmentRow, EnvironmentState } from "../shared/environment";
+import type { AppMenuEntry, CommandItem, ShortcutGroup, ShortcutRow } from "../shared/app-menu";
 import type { ReadinessReport } from "../shared/readiness";
-import { isBoardCommand } from "../shared/board-commands";
-import type { PreviewPlacement, PreviewSnapshot } from "../shared/previews";
-import type { WindowView, WindowAudioState } from "../shared/windows";
-import type { ExecutionTransition } from "../shared/execution";
-import { contextBridge, ipcRenderer } from "electron";
+import type { WindowAudioState, WindowView } from "../shared/windows";
 import type { IpcRendererEvent } from "electron";
 import type { DesktopApi, TerminalActivity } from "../shared/desktop";
-import type { SetupState } from "../shared/setup";
-import type { ConfigStatus } from "../shared/foom-config";
-import type { TerminalState } from "../shared/workspace";
+import { isBoardCommand } from "../shared/board-commands";
+import { contextBridge, ipcRenderer } from "electron";
 
-const states = ["needs_input", "done", "failed", "quiet_ok", "working"];
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+// Keep these checks inline: the sandboxed loader can require only Electron.
+type Validator<T> = (value: unknown) => value is T;
+const text: Validator<string> = (value): value is string => typeof value === "string";
+const finite: Validator<number> = (value): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+const boolean: Validator<boolean> = (value): value is boolean => typeof value === "boolean";
+const absent: Validator<undefined> = (value): value is undefined => value === undefined;
+const nil: Validator<null> = (value): value is null => value === null;
+function literal<const T extends readonly (string | number | boolean | null | undefined)[]>(
+  ...values: T
+): Validator<T[number]> {
+  return (value): value is T[number] => values.some((entry) => entry === value);
+}
+function either<T extends readonly Validator<unknown>[]>(
+  ...checks: T
+): Validator<T[number] extends Validator<infer U> ? U : never> {
+  return (value): value is T[number] extends Validator<infer U> ? U : never =>
+    checks.some((check) => check(value));
+}
+function array<T>(check: Validator<T>): Validator<T[]> {
+  return (value): value is T[] =>
+    Array.isArray(value) && Array.from(value).every((entry: unknown) => check(entry));
+}
+function dictionary<T>(check: Validator<T>): Validator<Record<string, T>> {
+  return (value): value is Record<string, T> => object(value) && Object.values(value).every(check);
+}
+// Require validators for optional fields too, so contract additions cannot be silently skipped.
+type Contract<T> = { [K in keyof T]-?: Validator<T[K]> };
+type Checked<T> = T extends Validator<infer U> ? U : never;
+type Fields<T> = {
+  [K in keyof T as undefined extends Checked<T[K]> ? never : K]: Checked<T[K]>;
+} & {
+  [K in keyof T as undefined extends Checked<T[K]> ? K : never]?: Exclude<Checked<T[K]>, undefined>;
+};
+function shape<T extends Record<string, Validator<unknown>>>(fields: T): Validator<Fields<T>> {
+  return (value): value is Fields<T> =>
+    object(value) && Object.entries(fields).every(([key, check]) => check(value[key]));
+}
+function both<A, B>(first: Validator<A>, second: Validator<B>): Validator<A & B> {
+  return (value): value is A & B => first(value) && second(value);
+}
+const userThemeId: Validator<`user:${string}`> = (value): value is `user:${string}` =>
+  typeof value === "string" && /^user:.+$/u.test(value);
+
+const bytes: Validator<Uint8Array> = (value): value is Uint8Array =>
+  value instanceof Uint8Array && value.byteLength <= 8 * 1024 * 1024;
+const count: Validator<number> = (value): value is number =>
+  finite(value) && Number.isSafeInteger(value) && value >= 0;
+const positiveCount: Validator<number> = (value): value is number => count(value) && value > 0;
+const nonempty: Validator<string> = (value): value is string => text(value) && value.length > 0;
+const color: Validator<string> = (value): value is string =>
+  text(value) && /^#[a-f0-9]{6}$/iu.test(value);
+function range(min: number, max: number, integer = false): Validator<number> {
+  return (value): value is number =>
+    finite(value) && value >= min && value <= max && (!integer || Number.isSafeInteger(value));
+}
+function partial<T extends Record<string, Validator<unknown>>>(
+  fields: T,
+): Validator<Partial<Fields<T>>> {
+  return (value): value is Partial<Fields<T>> =>
+    object(value) &&
+    Object.entries(fields).every(([key, check]) => value[key] === undefined || check(value[key]));
+}
+const validUpdateState: Validator<UpdateState> = shape({
+  status: literal("idle", "checking", "available", "downloaded", "error"),
+  runningAgents: count,
+} satisfies Contract<UpdateState>);
+
+const interfaceColorFields = {
+  bg: color,
+  surface: color,
+  line: color,
+  ink: color,
+  muted: color,
+  accent: color,
+  "accent-deep": color,
+  attention: color,
+  "attention-ink": color,
+  done: color,
+  "done-ink": color,
+  failed: color,
+  "failed-ink": color,
+  hole: color,
+  "space-ink": color,
+  "badge-label-fill": color,
+  "badge-label-ink": color,
+  "badge-fill": color,
+  "badge-ink": color,
+  highlight: either(absent, color),
+  "highlight-deep": either(absent, color),
+};
+const validInterfaceTheme: Validator<InterfaceTheme> = shape({
+  version: literal(1, 2),
+  name: text,
+  base: literal("light", "dark"),
+  colors: shape(interfaceColorFields),
+  areas: either(
+    absent,
+    shape({
+      sidebar: either(absent, partial(interfaceColorFields)),
+      tiles: either(absent, partial(interfaceColorFields)),
+      panels: either(absent, partial(interfaceColorFields)),
+      dialogs: either(absent, partial(interfaceColorFields)),
+      menus: either(absent, partial(interfaceColorFields)),
+    }),
+  ),
+  states: either(
+    absent,
+    partial({ selected: color, hover: color, focus: color, scrollbar: color }),
+  ),
+  shape: either(
+    absent,
+    partial({
+      radius: range(0, 12),
+      "panel-radius": range(0, 16),
+      border: range(0, 2),
+      shadow: range(0, 1),
+    }),
+  ),
+} satisfies Contract<InterfaceTheme>);
+
+const validTerminalTheme: Validator<TerminalTheme> = shape({
+  foreground: color,
+  background: color,
+  cursor: color,
+  selectionBackground: color,
+  black: color,
+  red: color,
+  green: color,
+  yellow: color,
+  blue: color,
+  magenta: color,
+  cyan: color,
+  white: color,
+  brightBlack: color,
+  brightRed: color,
+  brightGreen: color,
+  brightYellow: color,
+  brightBlue: color,
+  brightMagenta: color,
+  brightCyan: color,
+  brightWhite: color,
+} satisfies Contract<TerminalTheme>);
+
+const validThemeReason: Validator<ThemeReason> = literal(
+  "malformed-json",
+  "unknown-key",
+  "missing-key",
+  "not-a-color",
+  "attention-distinctness",
+  "color-distance",
+  "base-luminance",
+  "hole-color",
+  "contrast",
+  "reserved-color",
+  "too-large",
+  "unsafe-file",
+  "too-many-files",
+  "invalid-value",
+  "unreadable",
+);
+
+const validThemeKind: Validator<ThemeKind> = literal("theme", "terminal-theme");
+
+const validThemeCatalog: Validator<ThemeCatalog> = shape({
+  interface: array(
+    shape({
+      id: userThemeId,
+      theme: validInterfaceTheme,
+    }),
+  ),
+  terminal: array(
+    shape({
+      id: userThemeId,
+      name: text,
+      theme: validTerminalTheme,
+    }),
+  ),
+  errors: array(
+    shape({
+      severity: either(absent, literal("error", "warning")),
+      file: text,
+      path: text,
+      reason: validThemeReason,
+      detail: either(absent, text),
+      kind: validThemeKind,
+    }),
+  ),
+} satisfies Contract<ThemeCatalog>);
+
+const validInterfaceThemeChoice: Validator<InterfaceThemeChoice> = either(
+  userThemeId,
+  validInterfaceTheme,
+  literal("follow"),
+  literal("eclipse-light"),
+  literal("eclipse-dark"),
+  literal("high-contrast"),
+  literal("deep-field"),
+  literal("moonlight"),
+  literal("graphite"),
+  literal("midnight-indigo"),
+);
+
+const validTerminalThemeChoice: Validator<TerminalThemeChoice> = either(
+  userThemeId,
+  validTerminalTheme,
+  literal("follow"),
+  literal("foom-dark"),
+  literal("foom-light"),
+  literal("solarized-dark"),
+  literal("solarized-light"),
+  literal("dracula"),
+);
+
+const validSoundChoice: Validator<SoundChoice> = shape({
+  source: literal("builtin", "user"),
+  file: text,
+} satisfies Contract<SoundChoice>);
+
+const validSoundChoices: Validator<SoundChoices> = shape({
+  done: validSoundChoice,
+  working: validSoundChoice,
+  "needs-you": validSoundChoice,
+  refusal: validSoundChoice,
+} satisfies Contract<SoundChoices>);
+
+const validSoundSettings: Validator<SoundSettings> = shape({
+  choices: validSoundChoices,
+  volume: range(0, 1),
+  muted: boolean,
+  working: boolean,
+  workingVolume: range(0, 1),
+  alerts: boolean,
+  alertVolume: range(0, 1),
+} satisfies Contract<SoundSettings>);
+
+const validSettings: Validator<Settings> = shape({
+  setupComplete: boolean,
+  checkForUpdates: boolean,
+  agyPluginOfferAnswered: boolean,
+  hooks: boolean,
+  agentHooks: either(absent, dictionary(boolean)),
+  restoreSessions: boolean,
+  showNewChildren: boolean,
+  closeFinishedAgents: boolean,
+  concurrentChildren: range(1, 16, true),
+  recentRepositoryDays: range(1, 365, true),
+  unreadChildMinutes: range(0, 1440, true),
+  autoRemoveMergedWorktrees: boolean,
+  showPullRequests: either(absent, boolean),
+  showNestedRepositoryNames: boolean,
+  forges: dictionary(boolean),
+  forgeHosts: dictionary(text),
+  agents: both(
+    shape({
+      claude: boolean,
+      codex: boolean,
+      agy: boolean,
+    }),
+    dictionary(boolean),
+  ),
+  agentArguments: both(
+    shape({
+      claude: array(text),
+      codex: array(text),
+      agy: array(text),
+    }),
+    dictionary(array(text)),
+  ),
+  agentBypassAcknowledged: both(
+    shape({
+      claude: boolean,
+      codex: boolean,
+      agy: boolean,
+    }),
+    dictionary(boolean),
+  ),
+  worktreeLocation: literal("root", "adjacent"),
+  panelColor: literal("vivid", "subtle", "plain"),
+  colorMode: literal("light", "dark", "system"),
+  interfaceTheme: validInterfaceThemeChoice,
+  interfaceScale: literal(80, 90, 100, 110, 120, 130, 140, 150, 175, 200, 250, 300),
+  terminalFontSize: range(10, 32, true),
+  terminalFont: text,
+  terminalTheme: validTerminalThemeChoice,
+  sound: validSoundSettings,
+  codeFolder: either(nil, text),
+} satisfies Contract<Settings>);
+
+const validSetupState: Validator<SetupState> = shape({
+  updates: either(absent, validUpdateState),
+  themes: either(absent, validThemeCatalog),
+  settings: validSettings,
+  worktreeRoot: text,
+} satisfies Contract<SetupState>);
+
+const validConfigForge: Validator<ConfigForge> = shape({
+  id: nonempty,
+  name: text,
+  badge: text,
+  executables: array(text),
+  file: either(absent, text),
+  reason: either(absent, text),
+} satisfies Contract<ConfigForge>);
+
+const validConfigAgent: Validator<ConfigAgent> = shape({
+  id: nonempty,
+  name: text,
+  mark: text,
+  command: text,
+  file: text,
+  state: literal("rejected"),
+  reason: either(absent, text),
+} satisfies Contract<ConfigAgent>);
+
+const validConfigPending: Validator<ConfigPending> = shape({
+  id: nonempty,
+  action: text,
+  file: text,
+  detail: text,
+} satisfies Contract<ConfigPending>);
+
+const validConfigRejection: Validator<ConfigRejection> = shape({
+  file: text,
+  reason: text,
+} satisfies Contract<ConfigRejection>);
+
+const validConfigStatus: Validator<ConfigStatus> = shape({
+  forgePlugins: either(absent, array(validConfigForge)),
+  agentPlugins: either(absent, array(validConfigAgent)),
+  folder: text,
+  available: boolean,
+  pending: either(nil, validConfigPending),
+  rejected: array(validConfigRejection),
+  error: either(absent, text),
+} satisfies Contract<ConfigStatus>);
+
+const validRepository: Validator<Repository> = shape({
+  path: text,
+  name: text,
+} satisfies Contract<Repository>);
+
+const validExecutionPhase: Validator<ExecutionPhase> = literal(
+  "idle",
+  "working",
+  "starting",
+  "blocked",
+  "exited",
+);
+
+const validExecutionSnapshot: Validator<ExecutionSnapshot> = shape({
+  terminalId: (value): value is string => nonempty(value) && value.length <= 200,
+  launch: count,
+  revision: count,
+  turn: count,
+  phase: validExecutionPhase,
+} satisfies Contract<ExecutionSnapshot>);
+
+const validAttentionKind: Validator<AttentionKind> = literal(
+  "question",
+  "permission",
+  "credential",
+  "provider",
+  "unknown",
+);
+
+const validVerdictState: Validator<VerdictState> = literal(
+  "done",
+  "failed",
+  "working",
+  "needs_input",
+  "quiet_ok",
+);
+
+const validTerminalState: Validator<TerminalState> = shape({
+  waitingOn: either(absent, count),
+  outputRevision: either(absent, count),
+  inputRevision: either(absent, count),
+  execution: either(absent, validExecutionSnapshot),
+  attentionKind: either(absent, validAttentionKind),
+  id: nonempty,
+  verdictId: either(nil, text),
+  state: validVerdictState,
+  reason: text,
+  signal: text,
+  confidence: range(0, 1),
+  timestamp: finite,
+} satisfies Contract<TerminalState>);
+
+const validOrchestrationEntry: Validator<OrchestrationEntry> = shape({
+  id: nonempty,
+  action: literal(
+    "create_worktree",
+    "launch",
+    "stop",
+    "close",
+    "remove_worktree",
+    "prompt",
+    "send_keys",
+    "reply",
+    "take_over",
+  ),
+  label: text,
+  status: literal(
+    "failed",
+    "pending_confirmation",
+    "running",
+    "succeeded",
+    "declined",
+    "cancelled",
+    "indeterminate",
+  ),
+  at: finite,
+} satisfies Contract<OrchestrationEntry>);
+
+const validOrchestrationView: Validator<OrchestrationView> = either(
+  shape({
+    role: literal("orchestrator"),
+    active: boolean,
+    children: count,
+    history: array(validOrchestrationEntry),
+  }),
+  shape({
+    role: literal("child"),
+    parentId: text,
+    takenOver: boolean,
+  }),
+);
+
+const validReviewFinding: Validator<ReviewFinding> = shape({
+  file: text,
+  line: positiveCount,
+  summary: text,
+  scenario: text,
+} satisfies Contract<ReviewFinding>);
+
+const validReviewVerdict: Validator<ReviewVerdict> = either(
+  shape({
+    verdict: literal("clean"),
+  }),
+  shape({
+    verdict: literal("findings"),
+    findings: array(validReviewFinding),
+  }),
+);
+
+const validHandoff: Validator<Handoff> = shape({
+  seq: count,
+  status: literal("done", "failed", "blocked"),
+  summary: text,
+  links: array(text),
+  timestamp: text,
+  review: either(absent, validReviewVerdict),
+} satisfies Contract<Handoff>);
+
+const validReviewReason: Validator<ReviewReason> = literal(
+  "round cap",
+  "author blocked",
+  "author failed",
+  "reviewer blocked",
+  "reviewer failed",
+  "missing handoff",
+  "missing verdict",
+  "checks not green",
+  "worktree changed",
+  "launch failed",
+  "resume unavailable",
+  "stopped",
+  "restored",
+);
+
+const validReviewState: Validator<ReviewState> = shape({
+  authorId: text,
+  round: count,
+  phase: literal("clean", "building", "reviewing", "fixing", "waiting-on-parent", "escalated"),
+  reason: either(absent, validReviewReason),
+  waiting: either(absent, boolean),
+  rounds: count,
+  agent: text,
+  postFindings: boolean,
+  parentWaitMinutes: either(absent, count),
+} satisfies Contract<ReviewState>);
+
+const validWorkspaceTerminal: Validator<WorkspaceTerminal> = shape({
+  foregroundProgram: either(absent, text),
+  outputRevision: either(absent, count),
+  inputRevision: either(absent, count),
+  mcpConnection: either(absent, literal("connecting", "connected", "not-connected")),
+  execution: either(absent, validExecutionSnapshot),
+  attentionKind: either(absent, validAttentionKind),
+  id: nonempty,
+  kind: literal("agent", "shell"),
+  agent: text,
+  providerOrigin: either(absent, literal("config", "bundled")),
+  repository: text,
+  worktree: text,
+  branch: either(nil, text),
+  attention: literal("hooks", "evaluator"),
+  state: either(nil, validTerminalState),
+  exited: either(absent, boolean),
+  conversationId: either(absent, text),
+  dormant: either(absent, boolean),
+  launchVersion: either(absent, count),
+  bypass: either(absent, boolean),
+  home: either(absent, boolean),
+  config: either(absent, boolean),
+  probe: either(absent, boolean),
+  probeOwner: either(absent, text),
+  probeNote: either(absent, boolean),
+  startedAt: either(absent, finite),
+  exitCode: either(absent, finite),
+  launchFlags: either(absent, array(text)),
+  environment: either(absent, array(text)),
+  orchestration: either(absent, validOrchestrationView),
+  handoff: either(absent, validHandoff),
+  review: either(absent, validReviewState),
+  roleNotRestored: either(absent, boolean),
+} satisfies Contract<WorkspaceTerminal>);
+
+const validWorkspaceSnapshot: Validator<WorkspaceSnapshot> = shape({
+  repositories: array(validRepository),
+  terminals: array(validWorkspaceTerminal),
+} satisfies Contract<WorkspaceSnapshot>);
+
+const validPreviewOpenAction: Validator<PreviewOpenAction> = shape({
+  id: nonempty,
+  terminalId: (value): value is string => nonempty(value) && value.length <= 200,
+  path: text,
+  at: finite,
+} satisfies Contract<PreviewOpenAction>);
+
+const validPreviewSummary: Validator<PreviewSummary> = shape({
+  openedBy: either(
+    absent,
+    shape({
+      terminalId: (value): value is string => nonempty(value) && value.length <= 200,
+      agent: text,
+    }),
+  ),
+  network: boolean,
+  id: nonempty,
+  repository: text,
+  worktree: text,
+  relativePath: text,
+  kind: literal("markdown", "html"),
+} satisfies Contract<PreviewSummary>);
+
+const validBoardPullRequest: Validator<BoardPullRequest> = shape({
+  number: positiveCount,
+  requestLabel: either(absent, literal("Merge request")),
+  numberPrefix: either(absent, literal("!")),
+  title: either(absent, text),
+  url: either(absent, text),
+  sourceName: either(absent, text),
+  checksMeaning: either(absent, literal("required", "head-pipeline", "commit-status")),
+  requiredChecks: either(absent, literal("unknown", "pending", "success", "failure", "none")),
+  state: literal("OPEN", "CLOSED", "MERGED"),
+  checks: either(
+    nil,
+    shape({
+      passed: count,
+      failed: count,
+      pending: count,
+    }),
+  ),
+} satisfies Contract<BoardPullRequest>);
+
+const validWorktree: Validator<Worktree> = shape({
+  pullRequest: either(absent, validBoardPullRequest),
+  path: text,
+  head: either(nil, text),
+  bare: boolean,
+  branch: either(nil, text),
+  locked: boolean,
+  prunable: boolean,
+  managed: boolean,
+} satisfies Contract<Worktree>);
+
+const validCleanupReason: Validator<CleanupReason> = literal(
+  "running",
+  "worktree changed",
+  "main checkout",
+  "unavailable",
+  "resumable conversation",
+  "uncommitted changes",
+  "not merged",
+  "not started",
+  "removal failed",
+  "fetch failed",
+  "branch kept",
+);
+
+const validCleanupItem: Validator<CleanupItem> = shape({
+  id: nonempty,
+  path: text,
+  branch: text,
+  state: literal("error", "queued", "removing", "removed", "kept"),
+  reason: either(absent, validCleanupReason),
+  changes: either(absent, text),
+  omittedChanges: either(absent, count),
+} satisfies Contract<CleanupItem>);
+
+const validCleanupProgress: Validator<CleanupProgress> = shape({
+  id: either(absent, text),
+  total: count,
+  done: count,
+  phase: literal("fetch", "remove", "finished"),
+  stopped: boolean,
+  items: array(validCleanupItem),
+} satisfies Contract<CleanupProgress>);
+
+const validHomeShellFacts: Validator<HomeShellFacts> = shape({
+  directory: text,
+  path: text,
+  version: either(nil, text),
+} satisfies Contract<HomeShellFacts>);
+
+const validSidebarInventory: Validator<SidebarInventory> = shape({
+  previewActions: either(absent, array(validPreviewOpenAction)),
+  previews: either(absent, array(validPreviewSummary)),
+  repositories: array(
+    shape({
+      path: text,
+      name: text,
+      worktrees: array(validWorktree),
+      cleanup: either(absent, validCleanupProgress),
+      canDeleteMerged: either(absent, boolean),
+      mergedCount: either(absent, count),
+      mergedError: either(absent, text),
+    }),
+  ),
+  shell: text,
+  home: either(absent, validHomeShellFacts),
+} satisfies Contract<SidebarInventory>);
+
+const validAgentSetupState: Validator<AgentSetupState> = literal(
+  "unavailable",
+  "not-installed",
+  "installed",
+  "outdated",
+  "disabled",
+);
+
+const validAgentSetupStatus: Validator<AgentSetupStatus> = shape({
+  state: validAgentSetupState,
+  offer: either(absent, text),
+  actions: array(
+    shape({
+      id: nonempty,
+      label: text,
+    }),
+  ),
+} satisfies Contract<AgentSetupStatus>);
+
+const validAgyPluginStatus: Validator<AgyPluginStatus> = shape({
+  state: literal("unavailable", "not-installed", "installed", "outdated", "disabled"),
+  version: either(absent, count),
+} satisfies Contract<AgyPluginStatus>);
+
+const validHookHealthState: Validator<HookHealthState> = literal(
+  "declined",
+  "outdated",
+  "not-reviewed",
+  "trusted",
+);
+
+const validAgentInstallation: Validator<AgentInstallation> = shape({
+  id: nonempty,
+  name: either(absent, text),
+  mark: either(absent, text),
+  command: either(absent, text),
+  path: either(nil, text),
+  version: either(nil, text),
+  hooks: boolean,
+  attentionSignal: either(absent, boolean),
+  resume: either(absent, boolean),
+  resumePaste: either(
+    absent,
+    array(
+      shape({
+        command: text,
+        selector: text,
+      }),
+    ),
+  ),
+  restoreControl: either(absent, boolean),
+  source: either(absent, text),
+  bypassArguments: either(absent, array(text)),
+  setup: either(absent, validAgentSetupStatus),
+  agyPlugin: either(absent, validAgyPluginStatus),
+  inline: either(absent, boolean),
+  cliGuidance: either(absent, boolean),
+  mcp: either(absent, boolean),
+  mcpReason: either(absent, text),
+  healthSupported: either(absent, boolean),
+  notifierReplacement: either(absent, boolean),
+  healthInstructions: either(absent, text),
+  hookState: either(absent, validHookHealthState),
+  reason: text,
+} satisfies Contract<AgentInstallation>);
+
+const validAgentReport: Validator<AgentReport> = shape({
+  warning: either(nil, text),
+  agents: array(validAgentInstallation),
+} satisfies Contract<AgentReport>);
+
+const validGitPanelFacts: Validator<GitPanelFacts> = shape({
+  changes: either(nil, count),
+  upstream: either(
+    nil,
+    shape({
+      ahead: count,
+      behind: count,
+    }),
+  ),
+  commit: either(
+    nil,
+    shape({
+      hash: text,
+      subject: text,
+      timestamp: finite,
+    }),
+  ),
+  remote: either(nil, text),
+  defaultBranch: either(nil, text),
+  lastFetch: either(nil, finite),
+  fetchFailed: boolean,
+  merged: literal(null, false, true),
+} satisfies Contract<GitPanelFacts>);
+
+const validActionLogEntry: Validator<ActionLogEntry> = shape({
+  path: either(absent, text),
+  session: either(absent, text),
+  operationId: text,
+  timestamp: text,
+  actorId: text,
+  parentId: either(nil, text),
+  repository: text,
+  worktree: text,
+  action: text,
+  targetId: either(nil, text),
+  resultId: either(nil, text),
+  status: text,
+  reason: text,
+  proposal: either(absent, text),
+  inputHash: either(absent, text),
+} satisfies Contract<ActionLogEntry>);
+
+const validActionLogPage: Validator<ActionLogPage> = shape({
+  entries: array(validActionLogEntry),
+  total: count,
+} satisfies Contract<ActionLogPage>);
+
+const validBranchInventory: Validator<BranchInventory> = shape({
+  head: either(nil, text),
+  local: array(
+    shape({
+      name: text,
+      worktree: either(nil, text),
+    }),
+  ),
+  remote: either(nil, text),
+  remoteBranches: array(text),
+} satisfies Contract<BranchInventory>);
+
+const validAgentLaunched: Validator<AgentLaunched> = shape({
+  conversationId: either(absent, text),
+  bypass: either(absent, boolean),
+  providerOrigin: either(absent, literal("config", "bundled")),
+  id: nonempty,
+  attention: literal("hooks", "evaluator"),
+  environment: either(absent, array(text)),
+} satisfies Contract<AgentLaunched>);
+
+const environmentRow = shape({
+  name: text,
+  value: either(nil, text),
+  secret: boolean,
+} satisfies Contract<EnvironmentRow>);
+const validEnvironmentRow: Validator<EnvironmentRow> = (value): value is EnvironmentRow =>
+  environmentRow(value) && (!value.secret || value.value === null);
+
+const validEnvironmentState: Validator<EnvironmentState> = shape({
+  lists: both(
+    shape({
+      claude: array(validEnvironmentRow),
+      codex: array(validEnvironmentRow),
+      agy: array(validEnvironmentRow),
+      all: array(validEnvironmentRow),
+    }),
+    dictionary(array(validEnvironmentRow)),
+  ),
+  windows: boolean,
+  secrets: boolean,
+} satisfies Contract<EnvironmentState>);
+
+const validEnvironmentCandidate: Validator<EnvironmentCandidate> = shape({
+  name: text,
+  display: text,
+  status: literal("new", "same", "replaces"),
+} satisfies Contract<EnvironmentCandidate>);
+
+const validFoundRepository: Validator<FoundRepository> = shape({
+  path: text,
+  name: text,
+  relative: text,
+  branch: either(nil, text),
+  lastActive: either(nil, finite),
+  recent: boolean,
+  added: boolean,
+} satisfies Contract<FoundRepository>);
+
+const validCodeScan: Validator<CodeScan> = shape({
+  folder: text,
+  repositories: array(validFoundRepository),
+  folders: count,
+  truncated: boolean,
+} satisfies Contract<CodeScan>);
+
+const validCodeSuggestion: Validator<CodeSuggestion> = shape({
+  path: text,
+  repositories: count,
+  more: boolean,
+} satisfies Contract<CodeSuggestion>);
+
+const validRepositoryUpdate: Validator<RepositoryUpdate> = shape({
+  repositories: array(validRepository),
+  failures: array(
+    shape({
+      path: text,
+      message: text,
+    }),
+  ),
+} satisfies Contract<RepositoryUpdate>);
+
+const validSoundKind: Validator<SoundKind> = literal("done", "working", "needs-you", "refusal");
+
+const validSoundEntry: Validator<SoundEntry> = shape({
+  name: text,
+  error: either(absent, text),
+  kind: validSoundKind,
+  source: literal("builtin", "user"),
+  file: text,
+} satisfies Contract<SoundEntry>);
+
+const validSoundRead: Validator<SoundRead> = either(
+  shape({
+    bytes: bytes,
+  }),
+  shape({
+    error: text,
+  }),
+);
+
+const validCommandItem: Validator<CommandItem> = shape({
+  id: nonempty,
+  label: text,
+  shortcut: text,
+  enabled: boolean,
+  checked: either(absent, boolean),
+  badge: either(absent, text),
+} satisfies Contract<CommandItem>);
+
+const validAppMenuEntry: Validator<AppMenuEntry> = either(
+  nil,
+  shape({
+    kind: literal("command"),
+    id: nonempty,
+    label: text,
+    shortcut: text,
+    enabled: boolean,
+    checked: either(absent, boolean),
+    badge: either(absent, text),
+  }),
+  shape({
+    kind: literal("submenu"),
+    id: nonempty,
+    label: text,
+    items: array(either(nil, validCommandItem)),
+  }),
+  shape({
+    kind: literal("size"),
+    label: text,
+    scale: finite,
+    smaller: validCommandItem,
+    bigger: validCommandItem,
+  }),
+);
+
+const validShortcutRow: Validator<ShortcutRow> = shape({
+  label: text,
+  keys: text,
+} satisfies Contract<ShortcutRow>);
+
+const validShortcutGroup: Validator<ShortcutGroup> = shape({
+  title: text,
+  lead: text,
+  rows: array(validShortcutRow),
+} satisfies Contract<ShortcutGroup>);
+
+async function reply<T>(channel: string, check: Validator<T>, ...args: unknown[]): Promise<T> {
+  const value: unknown = await ipcRenderer.invoke(channel, ...args);
+  if (!check(value)) throw new Error(`Invalid ${channel} response`);
+  return value;
+}
+// Void capabilities expose no reply data, regardless of main's internal return value.
+async function invokeVoid(channel: string, ...args: unknown[]): Promise<void> {
+  await ipcRenderer.invoke(channel, ...args);
+}
+
 function readinessReport(value: unknown): value is ReadinessReport {
   return (
     object(value) &&
@@ -24,7 +980,7 @@ function readinessReport(value: unknown): value is ReadinessReport {
     ["macos", "windows", "linux"].includes(value["platform"]) &&
     Array.isArray(value["forges"]) &&
     value["forges"].length <= 1000 &&
-    value["forges"].every(
+    Array.from(value["forges"]).every(
       (entry: unknown) =>
         object(entry) &&
         Object.keys(entry).length === 2 &&
@@ -42,78 +998,15 @@ function readinessReport(value: unknown): value is ReadinessReport {
   );
 }
 
-/** Main is trusted, but the renderer still receives only well-formed state. */
-function terminalState(value: unknown): value is TerminalState {
-  return (
-    object(value) &&
-    typeof value["id"] === "string" &&
-    (value["verdictId"] === null || typeof value["verdictId"] === "string") &&
-    states.includes(String(value["state"])) &&
-    typeof value["reason"] === "string" &&
-    typeof value["signal"] === "string" &&
-    typeof value["confidence"] === "number" &&
-    typeof value["timestamp"] === "number" &&
-    (value["attentionKind"] === undefined ||
-      (typeof value["attentionKind"] === "string" &&
-        ["question", "permission", "credential", "provider", "unknown"].includes(
-          value["attentionKind"],
-        ))) &&
-    ["outputRevision", "inputRevision"].every(
-      (key) =>
-        value[key] === undefined ||
-        (typeof value[key] === "number" && Number.isSafeInteger(value[key]) && value[key] >= 0),
-    ) &&
-    (value["execution"] === undefined || executionSnapshot(value["execution"]))
-  );
-}
-
-function executionSnapshot(value: unknown): boolean {
-  return (
-    object(value) &&
-    typeof value["terminalId"] === "string" &&
-    value["terminalId"].length > 0 &&
-    value["terminalId"].length <= 200 &&
-    ["starting", "idle", "working", "blocked", "exited"].includes(String(value["phase"])) &&
-    ["launch", "revision", "turn"].every(
-      (key) =>
-        typeof value[key] === "number" && Number.isSafeInteger(value[key]) && value[key] >= 0,
-    )
-  );
-}
-
 function executionTransition(value: unknown): value is ExecutionTransition {
-  if (!object(value) || !executionSnapshot(value)) return false;
   return (
-    ["launch", "hook", "title", "screen", "exit"].includes(String(value["source"])) &&
-    ["starting", "idle", "working", "blocked", "exited"].includes(String(value["from"])) &&
+    object(value) &&
+    validExecutionSnapshot(value) &&
+    literal("launch", "hook", "title", "screen", "exit")(value["source"]) &&
+    literal("starting", "idle", "working", "blocked", "exited")(value["from"]) &&
     value["phase"] === value["to"] &&
     value["from"] !== value["to"] &&
-    typeof value["at"] === "number" &&
-    Number.isFinite(value["at"])
-  );
-}
-
-function setupState(value: unknown): value is SetupState {
-  if (!object(value) || !object(value["settings"]) || typeof value["worktreeRoot"] !== "string")
-    return false;
-  const update = value["updates"];
-  return (
-    update === undefined ||
-    (object(update) &&
-      typeof update["status"] === "string" &&
-      ["idle", "checking", "available", "downloaded", "error"].includes(update["status"]) &&
-      typeof update["runningAgents"] === "number" &&
-      Number.isSafeInteger(update["runningAgents"]) &&
-      update["runningAgents"] >= 0)
-  );
-}
-
-function configStatus(value: unknown): value is ConfigStatus {
-  return (
-    object(value) &&
-    typeof value["folder"] === "string" &&
-    typeof value["available"] === "boolean" &&
-    Array.isArray(value["rejected"])
+    finite(value["at"])
   );
 }
 
@@ -122,7 +1015,7 @@ function configStatus(value: unknown): value is ConfigStatus {
 ipcRenderer.on("terminal:flush-views", (_event, ids: unknown, token: unknown) => {
   if (
     !Array.isArray(ids) ||
-    !ids.every((id: unknown) => typeof id === "string") ||
+    !Array.from(ids).every((id: unknown) => typeof id === "string") ||
     typeof token !== "number" ||
     !Number.isSafeInteger(token) ||
     token <= 0
@@ -137,13 +1030,9 @@ function windowViews(value: unknown): value is WindowView[] {
   return (
     Array.isArray(value) &&
     value.length <= 8192 &&
-    value.every(
+    Array.from(value).every(
       (item: unknown) =>
-        object(item) &&
-        typeof item["id"] === "string" &&
-        item["id"].length <= 200 &&
-        typeof item["window"] === "number" &&
-        Number.isSafeInteger(item["window"]),
+        object(item) && nonempty(item["id"]) && item["id"].length <= 200 && count(item["window"]),
     )
   );
 }
@@ -152,7 +1041,7 @@ function audioState(value: unknown): value is WindowAudioState {
     object(value) &&
     typeof value["enabled"] === "boolean" &&
     (value["focusedId"] === null ||
-      (typeof value["focusedId"] === "string" && value["focusedId"].length <= 200))
+      (nonempty(value["focusedId"]) && value["focusedId"].length <= 200))
   );
 }
 const windowArgument = (name: string) =>
@@ -173,12 +1062,26 @@ function deliverPlacement(request: string, id: string, expiresAt: number): void 
   }
   void Promise.resolve()
     .then(() => callback(id, expiresAt))
-    .then((placement) => ipcRenderer.invoke("preview:placed", request, id, placement))
+    .then((placement) => invokeVoid("preview:placed", request, id, placement))
     .catch(() => {});
 }
-ipcRenderer.on("preview:place", (_event, request: string, id: string, expiresAt: number) => {
+ipcRenderer.on("preview:place", (_event, request: unknown, id: unknown, expiresAt: unknown) => {
+  if (
+    typeof request !== "string" ||
+    !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u.test(request) ||
+    typeof id !== "string" ||
+    !/^[a-f0-9]{32}$/u.test(id) ||
+    !finite(expiresAt) ||
+    !Number.isSafeInteger(expiresAt) ||
+    expiresAt <= 0
+  )
+    return;
   deliverPlacement(request, id, expiresAt);
 });
+const createdWorktree = both(
+  validWorktree,
+  shape({ outcome: literal("new", "existing", "origin", "open") }),
+);
 const desktop: DesktopApi = {
   previews: {
     onPlace(callback) {
@@ -191,13 +1094,13 @@ const desktop: DesktopApi = {
         if (placePreview === callback) placePreview = undefined;
       };
     },
-    popout: (id) => ipcRenderer.invoke("preview:popout", id),
-    network: (id, enabled) => ipcRenderer.invoke("preview:network", id, enabled),
-    pick: (worktree) => ipcRenderer.invoke("preview:pick", worktree),
-    close: (id) => ipcRenderer.invoke("preview:close", id),
-    bounds: (id, bounds) => ipcRenderer.invoke("preview:bounds", id, bounds),
-    painted: (id, version) => ipcRenderer.invoke("preview:painted", id, version),
-    cover: (covered) => ipcRenderer.invoke("preview:cover", covered),
+    popout: (id) => invokeVoid("preview:popout", id),
+    network: (id, enabled) => invokeVoid("preview:network", id, enabled),
+    pick: (worktree) => reply("preview:pick", either(nil, text), worktree),
+    close: (id) => invokeVoid("preview:close", id),
+    bounds: (id, bounds) => invokeVoid("preview:bounds", id, bounds),
+    painted: (id, version) => invokeVoid("preview:painted", id, version),
+    cover: (covered) => invokeVoid("preview:cover", covered),
     onSnapshots(callback) {
       const listener = (_event: IpcRendererEvent, value: unknown) => {
         if (!Array.isArray(value) || value.length > 256) return;
@@ -247,8 +1150,8 @@ const desktop: DesktopApi = {
         const value: unknown = await ipcRenderer.invoke("windows:audio-state");
         return audioState(value) ? value : { enabled: false, focusedId: null };
       },
-      focus: (id) => ipcRenderer.invoke("windows:audio-focus", id),
-      refuse: () => ipcRenderer.invoke("windows:refuse"),
+      focus: (id) => invokeVoid("windows:audio-focus", id),
+      refuse: () => invokeVoid("windows:refuse"),
       onChanged: (callback) => {
         const listener = (_event: IpcRendererEvent, value: unknown) => {
           if (audioState(value)) callback(value);
@@ -271,9 +1174,9 @@ const desktop: DesktopApi = {
     id: windowArgument("window-id") ?? "main",
     number: Number(windowArgument("window-number") ?? 0),
     initialSession: windowArgument("initial-session"),
-    sync: (ids) => ipcRenderer.invoke("windows:sync", ids),
-    select: (id) => ipcRenderer.invoke("windows:select", id),
-    popout: (id) => ipcRenderer.invoke("windows:popout", id),
+    sync: (ids) => reply("windows:sync", array(text), ids),
+    select: (id) => reply("windows:select", boolean, id),
+    popout: (id) => invokeVoid("windows:popout", id),
     snapshot: async () => {
       const value: unknown = await ipcRenderer.invoke("windows:views");
       return windowViews(value) ? value : [];
@@ -307,10 +1210,10 @@ const desktop: DesktopApi = {
         ipcRenderer.removeListener("sound:changed", listener);
       };
     },
-    list: () => ipcRenderer.invoke("sound:list"),
-    read: (request) => ipcRenderer.invoke("sound:read", request),
-    openFolder: () => ipcRenderer.invoke("sound:open-folder"),
-    notices: () => ipcRenderer.invoke("sound:notices"),
+    list: () => reply("sound:list", array(validSoundEntry)),
+    read: (request) => reply("sound:read", validSoundRead, request),
+    openFolder: () => invokeVoid("sound:open-folder"),
+    notices: () => reply("sound:notices", text),
   },
   confirmations: {
     onScrim(callback) {
@@ -333,12 +1236,13 @@ const desktop: DesktopApi = {
     },
     subscribe(callback) {
       const listener = (_event: IpcRendererEvent, value: unknown, accepted: unknown) => {
-        if (value === null) callback(null, accepted === true);
+        if (value === null && (accepted === undefined || typeof accepted === "boolean"))
+          callback(null, accepted === true);
         else if (
           object(value) &&
-          typeof value["nonce"] === "string" &&
-          typeof value["target"] === "string" &&
-          typeof value["label"] === "string"
+          nonempty(value["nonce"]) &&
+          nonempty(value["target"]) &&
+          nonempty(value["label"])
         )
           callback({ nonce: value["nonce"], target: value["target"], label: value["label"] });
       };
@@ -347,8 +1251,8 @@ const desktop: DesktopApi = {
         ipcRenderer.removeListener("confirmation:armed", listener);
       };
     },
-    confirm: (arm) => ipcRenderer.invoke("confirmation:confirm", arm.nonce, arm.target),
-    cancel: () => ipcRenderer.invoke("confirmation:cancel"),
+    confirm: (arm) => invokeVoid("confirmation:confirm", arm.nonce, arm.target),
+    cancel: () => invokeVoid("confirmation:cancel"),
   },
   isDevelopment: process.argv.includes("--foom-development"),
   appMenu: {
@@ -384,10 +1288,10 @@ const desktop: DesktopApi = {
       return { app: value.app, electron: value.electron };
     },
     platform: process.platform,
-    setView: (state) => ipcRenderer.invoke("app-menu:view", state),
-    commands: () => ipcRenderer.invoke("app-menu:list"),
-    shortcuts: () => ipcRenderer.invoke("app-menu:shortcuts"),
-    execute: (id) => ipcRenderer.invoke("app-menu:execute", id),
+    setView: (state) => invokeVoid("app-menu:view", state),
+    commands: () => reply("app-menu:list", array(validAppMenuEntry)),
+    shortcuts: () => reply("app-menu:shortcuts", array(validShortcutGroup)),
+    execute: (id) => invokeVoid("app-menu:execute", id),
     onOpen(callback) {
       const listener = () => {
         callback();
@@ -408,7 +1312,12 @@ const desktop: DesktopApi = {
     },
     onSession(callback) {
       const listener = (_event: IpcRendererEvent, id: unknown, background: unknown) => {
-        if (typeof id === "string" && id.length > 0 && id.length <= 256) {
+        if (
+          typeof id === "string" &&
+          id.length > 0 &&
+          id.length <= 256 &&
+          (background === undefined || typeof background === "boolean")
+        ) {
           if (background === true) callback(id, true);
           else callback(id);
         }
@@ -434,7 +1343,7 @@ const desktop: DesktopApi = {
       typeof reply !== "object" ||
       reply === null ||
       !("id" in reply) ||
-      typeof reply.id !== "string" ||
+      !nonempty(reply.id) ||
       !("title" in reply) ||
       typeof reply.title !== "string"
     )
@@ -472,12 +1381,7 @@ const desktop: DesktopApi = {
   },
   async tail(id, lines) {
     const reply: unknown = await ipcRenderer.invoke("terminal:tail", id, lines);
-    if (
-      !Array.isArray(reply) ||
-      reply.length > 10000 ||
-      !reply.every((line: unknown) => typeof line === "string")
-    )
-      throw new Error("Invalid terminal tail");
+    if (!array(text)(reply) || reply.length > 10000) throw new Error("Invalid terminal tail");
     return reply;
   },
   onActivity(callback) {
@@ -505,8 +1409,8 @@ const desktop: DesktopApi = {
     ipcRenderer.on("terminal:activity", listener);
     return () => ipcRenderer.removeListener("terminal:activity", listener);
   },
-  actionLog: (query) => ipcRenderer.invoke("workspace:action-log", query),
-  clearActionLog: () => ipcRenderer.invoke("workspace:clear-action-log"),
+  actionLog: (query) => reply("workspace:action-log", validActionLogPage, query),
+  clearActionLog: () => invokeVoid("workspace:clear-action-log"),
   onWorkspaceChange(callback) {
     const listener = () => {
       callback();
@@ -516,87 +1420,89 @@ const desktop: DesktopApi = {
       ipcRenderer.removeListener("workspace:changed", listener);
     };
   },
-  startWorktree: (request) => ipcRenderer.invoke("workspace:start", request),
-  removeWorktree: (id) => ipcRenderer.invoke("workspace:remove", id),
+  startWorktree: (request) => reply("workspace:start", either(nil, text), request),
+  removeWorktree: (id) => reply("workspace:remove", boolean, id),
   panelFacts: (repository, worktree) =>
-    ipcRenderer.invoke("workspace:panel-facts", repository, worktree),
+    reply("workspace:panel-facts", validGitPanelFacts, repository, worktree),
   onFocusWorktree(callback) {
     const listener = (_event: Electron.IpcRendererEvent, path: unknown) => {
-      if (typeof path === "string" && path.length <= 4096) callback(path);
+      if (nonempty(path) && path.length <= 4096) callback(path);
     };
     ipcRenderer.on("workspace:focus-worktree", listener);
     return () => {
       ipcRenderer.removeListener("workspace:focus-worktree", listener);
     };
   },
-  sidebarInventory: () => ipcRenderer.invoke("workspace:sidebar"),
-  sidebarCommand: (command) => ipcRenderer.invoke("workspace:sidebar-command", command),
-  workspace: () => ipcRenderer.invoke("workspace:snapshot"),
-  addRepository: () => ipcRenderer.invoke("workspace:add-repository"),
-  worktrees: (repository) => ipcRenderer.invoke("workspace:worktrees", repository),
-  branches: (repository) => ipcRenderer.invoke("workspace:branches", repository),
+  sidebarInventory: () => reply("workspace:sidebar", validSidebarInventory),
+  sidebarCommand: (command) => invokeVoid("workspace:sidebar-command", command),
+  workspace: () => reply("workspace:snapshot", validWorkspaceSnapshot),
+  addRepository: () => reply("workspace:add-repository", either(nil, validRepository)),
+  worktrees: (repository) => reply("workspace:worktrees", array(validWorktree), repository),
+  branches: (repository) => reply("workspace:branches", validBranchInventory, repository),
   createWorktree: (repository, branch, location) =>
-    ipcRenderer.invoke("workspace:create-worktree", repository, branch, location),
-  changeAgentSetup: (id, action) => ipcRenderer.invoke("agents:setup", id, action),
-  changeAgyPlugin: (action) => ipcRenderer.invoke("agents:agy-plugin", action),
-  scanAgents: (refresh) => ipcRenderer.invoke("agents:scan", refresh),
-  launchAgent: (request) => ipcRenderer.invoke("agents:launch", request),
-  configStatus: () => ipcRenderer.invoke("config:status"),
-  decideConfig: (decision, id) => ipcRenderer.invoke("config:decide", decision, id),
-  openConfigFolder: () => ipcRenderer.invoke("config:open-folder"),
+    reply("workspace:create-worktree", createdWorktree, repository, branch, location),
+  changeAgentSetup: (id, action) => reply("agents:setup", validAgentReport, id, action),
+  changeAgyPlugin: (action) => reply("agents:agy-plugin", validAgentReport, action),
+  scanAgents: (refresh) => reply("agents:scan", validAgentReport, refresh),
+  launchAgent: (request) => reply("agents:launch", either(nil, validAgentLaunched), request),
+  configStatus: () => reply("config:status", validConfigStatus),
+  decideConfig: (decision, id) => reply("config:decide", validConfigStatus, decision, id),
+  openConfigFolder: () => invokeVoid("config:open-folder"),
   onConfigChange(callback) {
     const listener = (_event: IpcRendererEvent, status: unknown) => {
-      if (configStatus(status)) callback(status);
+      if (validConfigStatus(status)) callback(status);
     };
     ipcRenderer.on("config:changed", listener);
     return () => {
       ipcRenderer.removeListener("config:changed", listener);
     };
   },
-  listTerminalFonts: (refresh = false) => ipcRenderer.invoke("setup:terminal-fonts", refresh),
-  listThemes: () => ipcRenderer.invoke("theme:list"),
-  openThemesFolder: (kind) => ipcRenderer.invoke("theme:open-folder", kind),
+  listTerminalFonts: (refresh = false) => reply("setup:terminal-fonts", array(text), refresh),
+  listThemes: () => reply("theme:list", validThemeCatalog),
+  openThemesFolder: (kind) => invokeVoid("theme:open-folder", kind),
   checkReadiness: async () => {
     const value: unknown = await ipcRenderer.invoke("setup:readiness");
     if (!readinessReport(value)) throw new Error("Invalid readiness response");
     return value;
   },
-  restartToUpdate: () => ipcRenderer.invoke("setup:restart-update"),
+  restartToUpdate: () => invokeVoid("setup:restart-update"),
   setupState: async () => {
     const value: unknown = await ipcRenderer.invoke("setup:state");
-    if (!setupState(value)) throw new Error("Invalid setup response");
+    if (!validSetupState(value)) throw new Error("Invalid setup response");
     return value;
   },
   saveSetup: async (patch) => {
     const value: unknown = await ipcRenderer.invoke("setup:save", patch);
-    if (!setupState(value)) throw new Error("Invalid setup response");
+    if (!validSetupState(value)) throw new Error("Invalid setup response");
     return value;
   },
-  environmentState: () => ipcRenderer.invoke("environment:state"),
-  saveEnvironment: (change) => ipcRenderer.invoke("environment:save", change),
-  removeEnvironment: (scope, name) => ipcRenderer.invoke("environment:remove", scope, name),
-  readShellEnvironment: () => ipcRenderer.invoke("environment:read-shell"),
-  importEnvironment: (names) => ipcRenderer.invoke("environment:import", [...names]),
-  codeSuggestions: () => ipcRenderer.invoke("setup:code-suggestions"),
+  environmentState: () => reply("environment:state", validEnvironmentState),
+  saveEnvironment: (change) => reply("environment:save", validEnvironmentState, change),
+  removeEnvironment: (scope, name) =>
+    reply("environment:remove", validEnvironmentState, scope, name),
+  readShellEnvironment: () => reply("environment:read-shell", array(validEnvironmentCandidate)),
+  importEnvironment: (names) => reply("environment:import", validEnvironmentState, [...names]),
+  codeSuggestions: () => reply("setup:code-suggestions", array(validCodeSuggestion)),
   scanCode(id, folder, onProgress) {
     const listener = (_event: IpcRendererEvent, scan: unknown, progress: unknown) => {
       if (
         scan === id &&
         object(progress) &&
-        typeof progress["folders"] === "number" &&
-        typeof progress["repositories"] === "number"
+        count(progress["folders"]) &&
+        count(progress["repositories"])
       )
         onProgress({ folders: progress["folders"], repositories: progress["repositories"] });
     };
     ipcRenderer.on("setup:scan-progress", listener);
-    return ipcRenderer.invoke("setup:scan-code", id, folder).finally(() => {
+    return reply("setup:scan-code", either(nil, validCodeScan), id, folder).finally(() => {
       ipcRenderer.removeListener("setup:scan-progress", listener);
     });
   },
-  applyRepositories: (selected) => ipcRenderer.invoke("setup:apply-repositories", selected),
+  applyRepositories: (selected) =>
+    reply("setup:apply-repositories", validRepositoryUpdate, selected),
   onSetupChange(callback) {
     const listener = (_event: IpcRendererEvent, state: unknown) => {
-      if (setupState(state)) callback(state);
+      if (validSetupState(state)) callback(state);
     };
     ipcRenderer.on("setup:changed", listener);
     return () => {
@@ -617,7 +1523,7 @@ const desktop: DesktopApi = {
   },
   onState(callback) {
     const listener = (_event: IpcRendererEvent, state: unknown) => {
-      if (terminalState(state)) callback(state);
+      if (validTerminalState(state)) callback(state);
     };
     ipcRenderer.on("terminal:state", listener);
     return () => {
@@ -626,8 +1532,7 @@ const desktop: DesktopApi = {
   },
   onData(callback) {
     const listener = (_event: IpcRendererEvent, id: unknown, token: unknown, data: unknown) => {
-      if (typeof id === "string" && typeof token === "string" && typeof data === "string")
-        callback(id, token, data);
+      if (nonempty(id) && nonempty(token) && typeof data === "string") callback(id, token, data);
     };
     ipcRenderer.on("terminal:data", listener);
     return () => {
@@ -641,9 +1546,18 @@ const desktop: DesktopApi = {
       available: unknown,
       reset?: unknown,
     ) => {
-      if (!Array.isArray(ids) || typeof available !== "boolean") return;
+      if (
+        !Array.isArray(ids) ||
+        typeof available !== "boolean" ||
+        (reset !== undefined && typeof reset !== "boolean")
+      )
+        return;
       const values: unknown[] = ids;
-      if (!values.every((id) => typeof id === "string" && id.length > 0 && id.length <= 200))
+      if (
+        !Array.from(values).every(
+          (id) => typeof id === "string" && id.length > 0 && id.length <= 200,
+        )
+      )
         return;
       for (const id of values)
         if (typeof id === "string") {
@@ -658,7 +1572,7 @@ const desktop: DesktopApi = {
   },
   onExit(callback) {
     const listener = (_event: IpcRendererEvent, id: unknown, code: unknown) => {
-      if (typeof id === "string" && typeof code === "number" && Number.isInteger(code))
+      if (nonempty(id) && typeof code === "number" && Number.isSafeInteger(code))
         callback(id, code);
     };
     ipcRenderer.on("terminal:exit", listener);

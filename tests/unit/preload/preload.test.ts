@@ -1,3 +1,16 @@
+import { DEFAULT_SETTINGS } from "../../../src/main/setup/settings";
+import { malformedValues } from "./malformed-values";
+import {
+  replies,
+  setup,
+  config,
+  requestId,
+  previewId,
+  scan,
+  state,
+  workspace,
+  environment,
+} from "./preload-fixtures";
 import { BOARD_ACTIONS } from "../../../src/shared/board-commands";
 import { createCommands } from "../../../src/main/window/commands";
 import { beforeEach, expect, test, vi } from "vitest";
@@ -16,6 +29,9 @@ vi.mock("electron", () => ({
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
+  mock.invoke.mockImplementation((channel) =>
+    Promise.resolve(typeof channel === "string" ? replies[channel] : undefined),
+  );
 });
 async function bridge(keepListeners = false) {
   await import("../../../src/preload/preload");
@@ -147,8 +163,7 @@ test("validates tail replies and activity batches and removes subscriptions", as
 
 test("workspace requests use their own channels", async () => {
   const api = await bridge();
-  mock.invoke.mockResolvedValue("reply");
-  await expect(api.workspace()).resolves.toBe("reply");
+  await expect(api.workspace()).resolves.toEqual(replies["workspace:snapshot"]);
   await api.addRepository();
   await api.worktrees("/repos/app");
   await api.branches("/repos/app");
@@ -180,13 +195,15 @@ test("workspace requests use their own channels", async () => {
 });
 test("setup requests use their own channels and never read a key back", async () => {
   const api = await bridge();
-  mock.invoke.mockResolvedValue("reply");
-  await expect(api.listTerminalFonts()).resolves.toBe("reply");
-  await expect(api.listTerminalFonts(true)).resolves.toBe("reply");
-  await expect(api.listThemes()).resolves.toBe("reply");
+  await expect(api.listTerminalFonts()).resolves.toEqual(replies["setup:terminal-fonts"]);
+  await expect(api.listTerminalFonts(true)).resolves.toEqual(replies["setup:terminal-fonts"]);
+  await expect(api.listThemes()).resolves.toEqual(replies["theme:list"]);
   await api.openThemesFolder("theme");
-  mock.invoke.mockResolvedValue({ settings: {}, worktreeRoot: "/fixture" });
-  await expect(api.setupState()).resolves.toEqual({ settings: {}, worktreeRoot: "/fixture" });
+  mock.invoke.mockResolvedValue({ settings: setup.settings, worktreeRoot: "/fixture" });
+  await expect(api.setupState()).resolves.toEqual({
+    settings: setup.settings,
+    worktreeRoot: "/fixture",
+  });
   await api.saveSetup({ hooks: false });
   expect(mock.invoke.mock.calls).toEqual([
     ["setup:terminal-fonts", false],
@@ -200,10 +217,9 @@ test("setup requests use their own channels and never read a key back", async ()
 });
 test("environment requests use their own channels and copy import names", async () => {
   const api = await bridge();
-  mock.invoke.mockResolvedValue("reply");
   const change = { scope: "all", previous: null, name: "A", value: "1", secret: false } as const;
   const names = ["HTTPS_PROXY"];
-  await expect(api.environmentState()).resolves.toBe("reply");
+  await expect(api.environmentState()).resolves.toEqual(replies["environment:state"]);
   await api.saveEnvironment(change);
   await api.removeEnvironment("codex", "A");
   await api.readShellEnvironment();
@@ -220,7 +236,7 @@ test("environment requests use their own channels and copy import names", async 
 test("code scans report validated progress and use their own channels", async () => {
   const api = await bridge();
   const progress = vi.fn();
-  mock.invoke.mockResolvedValueOnce("scan");
+  mock.invoke.mockResolvedValueOnce(scan);
   const pending = api.scanCode("s1", "/code", progress);
   expect(mock.invoke).toHaveBeenLastCalledWith("setup:scan-code", "s1", "/code");
   const listener = mock.on.mock.calls.find(([name]) => name === "setup:scan-progress")?.[1];
@@ -229,10 +245,9 @@ test("code scans report validated progress and use their own channels", async ()
   listener({}, "other", { folders: 3, repositories: 1 });
   listener({}, "s1", { folders: "3", repositories: 1 });
   listener({}, "s1", null);
-  await expect(pending).resolves.toBe("scan");
+  await expect(pending).resolves.toEqual(scan);
   expect(progress).toHaveBeenCalledExactlyOnceWith({ folders: 3, repositories: 1 });
   expect(mock.removeListener).toHaveBeenCalledWith("setup:scan-progress", listener);
-  mock.invoke.mockResolvedValue("reply");
   await api.codeSuggestions();
   await api.applyRepositories(["/code/a"]);
   expect(mock.invoke.mock.calls.slice(-2)).toEqual([
@@ -246,7 +261,7 @@ test("setup changes from main are validated and can be unsubscribed", async () =
   const off = api.onSetupChange(callback);
   const listener = mock.on.mock.calls.find(([name]) => name === "setup:changed")?.[1];
   if (!listener) throw new Error("Missing listener");
-  const state = { settings: {}, worktreeRoot: "/w" };
+  const state = { settings: setup.settings, worktreeRoot: "/w" };
   for (const value of [state, null, { ...state, settings: null }, { ...state, worktreeRoot: 1 }])
     listener({}, value);
   expect(callback).toHaveBeenCalledExactlyOnceWith(state);
@@ -464,7 +479,6 @@ test.each([false, true])(
 
 test("sound capabilities send only typed requests and unsubscribe refresh events", async () => {
   const api = await bridge();
-  mock.invoke.mockResolvedValue(undefined);
   await api.sounds.list();
   const request = { kind: "done", source: "user", file: "bell.wav" } as const;
   await api.sounds.read(request);
@@ -551,7 +565,7 @@ test("application menu bridge forwards IDs and strips events from validated sess
   expect(session.mock.calls).toEqual([["one"]]);
   navigate?.({}, "child", true);
   navigate?.({}, "normal", "true");
-  expect(session.mock.calls).toEqual([["one"], ["child", true], ["normal"]]);
+  expect(session.mock.calls).toEqual([["one"], ["child", true]]);
   offOpen();
   offSession();
   expect(mock.removeListener).toHaveBeenCalledWith("app-menu:session", navigate);
@@ -585,6 +599,7 @@ test("window capabilities forward IDs and validate view and audio notifications"
   if (!api?.audio) throw new Error("Missing window capabilities");
   mock.invoke.mockResolvedValue([]);
   await api.sync(["a"]);
+  mock.invoke.mockResolvedValueOnce(true);
   await api.select("a");
   await api.popout("a");
   expect(mock.invoke.mock.calls.slice(0, 3)).toEqual([
@@ -683,7 +698,7 @@ test("scrim notifications carry only validated visibility and unsubscribe", asyn
 });
 test("Foom config calls pass fixed channels and status events are validated", async () => {
   const api = await bridge();
-  mock.invoke.mockResolvedValue({});
+  mock.invoke.mockResolvedValue(config);
   await api.configStatus();
   await api.decideConfig("keep", "f".repeat(64));
   await api.openConfigFolder();
@@ -696,7 +711,7 @@ test("Foom config calls pass fixed channels and status events are validated", as
   const off = api.onConfigChange(callback);
   const listener = mock.on.mock.calls.find(([name]) => name === "config:changed")?.[1];
   if (!listener) throw new Error("Missing listener");
-  const status = { folder: "/c", available: true, rejected: [] };
+  const status = { folder: "/c", available: true, pending: null, rejected: [] };
   for (const value of [status, null, { ...status, folder: 1 }, { ...status, rejected: {} }])
     listener({}, value);
   expect(callback).toHaveBeenCalledExactlyOnceWith(status);
@@ -724,23 +739,23 @@ test("preview placement strips the event, acknowledges only the requested ID and
   const listener = mock.on.mock.calls.find(([channel]) => channel === "preview:place")?.[1];
   if (!listener || !off) throw new Error("Missing placement bridge");
   const expiresAt = Date.now() + 5000;
-  listener({}, "request", "a".repeat(32), expiresAt);
+  listener({}, requestId(0), "a".repeat(32), expiresAt);
   await vi.waitFor(() => {
     expect(mock.invoke).toHaveBeenCalledWith(
       "preview:placed",
-      "request",
+      requestId(0),
       "a".repeat(32),
       "landing",
     );
   });
   expect(callback).toHaveBeenCalledWith("a".repeat(32), expiresAt);
   callback.mockRejectedValueOnce(new Error("renderer"));
-  listener({}, "request2", "b".repeat(32), expiresAt);
+  listener({}, requestId(1), "b".repeat(32), expiresAt);
   await Promise.resolve();
   await Promise.resolve();
   expect(mock.invoke).toHaveBeenCalledTimes(1);
   off();
-  listener({}, "request3", "c".repeat(32), expiresAt);
+  listener({}, requestId(2), "c".repeat(32), expiresAt);
   await Promise.resolve();
   expect(callback).toHaveBeenCalledTimes(2);
   const next = vi.fn(() => Promise.resolve("empty" as const));
@@ -824,26 +839,25 @@ test("preview placement waits for board mount, expires stale requests and bounds
   const listener = mock.on.mock.calls.find(([channel]) => channel === "preview:place")?.[1];
   if (!listener) throw new Error("Missing placement listener");
   const expiresAt = Date.now() + 5000;
-  listener({}, "expired", "old", Date.now() - 1);
-  listener({}, "expiring", "old", Date.now() + 1);
+  listener({}, requestId(3), previewId(), Date.now() - 1);
+  listener({}, requestId(4), previewId(), Date.now() + 1);
   // Advance the clock without a real delay or a product/test deadline change.
   const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 2);
-  for (let i = 0; i < 257; i++)
-    listener({}, `request-${String(i)}`, `preview-${String(i)}`, expiresAt);
+  for (let i = 0; i < 257; i++) listener({}, requestId(i + 10), previewId(i + 10), expiresAt);
   expect(mock.invoke).not.toHaveBeenCalled();
   const callback = vi.fn(() => Promise.resolve("empty" as const));
   const off = api.previews?.onPlace?.(callback);
   await vi.waitFor(() => {
     expect(callback).toHaveBeenCalledTimes(256);
   });
-  expect(callback).toHaveBeenNthCalledWith(1, "preview-0", expiresAt);
-  expect(callback).toHaveBeenLastCalledWith("preview-255", expiresAt);
+  expect(callback).toHaveBeenNthCalledWith(1, previewId(10), expiresAt);
+  expect(callback).toHaveBeenLastCalledWith(previewId(265), expiresAt);
   const next = vi.fn(() => Promise.resolve("landing" as const));
   api.previews?.onPlace?.(next);
   off?.();
-  listener({}, "latest", "new", expiresAt);
+  listener({}, requestId(5), previewId(300), expiresAt);
   await vi.waitFor(() => {
-    expect(next).toHaveBeenCalledWith("new", expiresAt);
+    expect(next).toHaveBeenCalledWith(previewId(300), expiresAt);
   });
   now.mockRestore();
 });
@@ -964,7 +978,7 @@ test("update status rejects remote text and malformed agent counts", async () =>
     { status: "downloaded", runningAgents: 2 },
     { status: "idle", runningAgents: 0 },
   ])
-    listener?.({}, { settings: {}, worktreeRoot: "/fixture", updates });
+    listener?.({}, { settings: setup.settings, worktreeRoot: "/fixture", updates });
   for (const updates of [
     { status: "remote message", runningAgents: 0 },
     { status: "downloaded", runningAgents: -1 },
@@ -972,7 +986,7 @@ test("update status rejects remote text and malformed agent counts", async () =>
     null,
     { status: "error", runningAgents: "3" },
   ])
-    listener?.({}, { settings: {}, worktreeRoot: "/fixture", updates });
+    listener?.({}, { settings: setup.settings, worktreeRoot: "/fixture", updates });
   expect(changed).toHaveBeenCalledTimes(2);
   await api.restartToUpdate();
   expect(mock.invoke).toHaveBeenCalledWith("setup:restart-update");
@@ -981,10 +995,301 @@ test("update status rejects remote text and malformed agent counts", async () =>
 test("initial and saved setup responses validate update facts too", async () => {
   const api = await bridge();
   mock.invoke.mockResolvedValue({
-    settings: {},
+    settings: setup.settings,
     worktreeRoot: "/fixture",
     updates: { status: "secret", runningAgents: 2 },
   });
   await expect(api.setupState()).rejects.toThrow("Invalid setup response");
   await expect(api.saveSetup({ checkForUpdates: false })).rejects.toThrow("Invalid setup response");
+});
+
+const invokeReply: Record<string, (api: DesktopApi) => Promise<unknown>> = {
+  "workspace:snapshot": (api) => api.workspace(),
+  "workspace:add-repository": (api) => api.addRepository(),
+  "workspace:worktrees": (api) => api.worktrees("/repo"),
+  "workspace:branches": (api) => api.branches("/repo"),
+  "workspace:create-worktree": (api) => api.createWorktree("/repo", "feature"),
+  "workspace:sidebar": (api) => api.sidebarInventory(),
+  "workspace:start": (api) =>
+    api.startWorktree({ repository: "/repo", branch: "feature", run: "codex" }),
+  "workspace:remove": (api) => api.removeWorktree("one"),
+  "workspace:panel-facts": (api) => api.panelFacts("/repo", "/worktrees/feature"),
+  "workspace:action-log": (api) => api.actionLog({ search: "", action: "", status: "", offset: 0 }),
+  "agents:scan": (api) => api.scanAgents(false),
+  "agents:setup": (api) => api.changeAgentSetup("codex", "update"),
+  "agents:agy-plugin": (api) => api.changeAgyPlugin("update"),
+  "agents:launch": (api) =>
+    api.launchAgent({
+      agent: "codex",
+      repository: "/repo",
+      worktree: "/worktrees/feature",
+      cols: 80,
+      rows: 24,
+    }),
+  "setup:state": (api) => api.setupState(),
+  "setup:save": (api) => api.saveSetup({}),
+  "setup:terminal-fonts": (api) => api.listTerminalFonts(),
+  "theme:list": (api) => api.listThemes(),
+  "config:status": (api) => api.configStatus(),
+  "config:decide": (api) => api.decideConfig("keep", "digest"),
+  "environment:state": (api) => api.environmentState(),
+  "environment:save": (api) =>
+    api.saveEnvironment({
+      scope: "all",
+      previous: null,
+      name: "NO_PROXY",
+      value: "localhost",
+      secret: false,
+    }),
+  "environment:remove": (api) => api.removeEnvironment("all", "NO_PROXY"),
+  "environment:import": (api) => api.importEnvironment(["HTTPS_PROXY"]),
+  "environment:read-shell": (api) => api.readShellEnvironment(),
+  "setup:scan-code": (api) => api.scanCode("scan", "/code", vi.fn()),
+  "setup:code-suggestions": (api) => api.codeSuggestions(),
+  "setup:apply-repositories": (api) => api.applyRepositories(["/repo"]),
+  "sound:list": (api) => api.sounds.list(),
+  "sound:read": (api) => api.sounds.read({ kind: "done", source: "builtin", file: "bell.ogg" }),
+  "sound:notices": (api) => api.sounds.notices(),
+  "app-menu:list": (api) => api.appMenu.commands(),
+  "app-menu:shortcuts": (api) => api.appMenu.shortcuts(),
+  "windows:sync": async (api) => api.windows?.sync(["one"]),
+  "windows:select": async (api) => api.windows?.select("one"),
+  "preview:pick": async (api) => api.previews?.pick("/worktrees/feature"),
+};
+
+test.each(Object.entries(invokeReply))(
+  "%s checks every nested reply field before resolving",
+  async (channel, call) => {
+    const api = await bridge();
+    const valid = replies[channel];
+    mock.invoke.mockResolvedValue(valid);
+    await expect(call(api)).resolves.toEqual(valid);
+    for (const bad of malformedValues(valid)) {
+      mock.invoke.mockResolvedValue(bad.value);
+      await expect(call(api), bad.path).rejects.toThrow(/Invalid/);
+    }
+    mock.invoke.mockResolvedValue(undefined);
+    await expect(call(api)).rejects.toThrow(/Invalid/);
+    mock.invoke.mockRejectedValue(new Error("Main rejected"));
+    await expect(call(api)).rejects.toThrow("Main rejected");
+  },
+);
+
+test("setup, config and terminal events apply the same complete nested contracts", async () => {
+  const api = await bridge();
+  for (const [channel, subscribe, valid] of [
+    ["setup:changed", (cb: (value: unknown) => void) => api.onSetupChange(cb), setup],
+    ["config:changed", (cb: (value: unknown) => void) => api.onConfigChange(cb), config],
+    ["terminal:state", (cb: (value: unknown) => void) => api.onState(cb), state],
+  ] as const) {
+    const callback = vi.fn();
+    const off = subscribe(callback);
+    const listener = mock.on.mock.calls.find(([name]) => name === channel)?.[1];
+    if (!listener) throw Error("Missing event");
+    listener({}, valid);
+    expect(callback).toHaveBeenCalledExactlyOnceWith(valid);
+    callback.mockClear();
+    for (const bad of malformedValues(valid)) listener({}, bad.value);
+    expect(callback).not.toHaveBeenCalled();
+    off();
+  }
+});
+
+test("placement rejects malformed envelopes before buffering or calling the board", async () => {
+  const api = await bridge(true);
+  const listener = mock.on.mock.calls.find(([name]) => name === "preview:place")?.[1];
+  if (!listener) throw Error("Missing placement listener");
+  const valid = [requestId(), previewId(), Date.now() + 5000];
+  const invalid = [
+    ...[null, {}, "", "request", 1].map((request) => [request, valid[1], valid[2]]),
+    ...[null, {}, "", "z".repeat(32), 1].map((id) => [valid[0], id, valid[2]]),
+    ...[null, {}, "1", NaN, Infinity, -Infinity, -1, 1.5, Date.now() - 1].map((expiry) => [
+      valid[0],
+      valid[1],
+      expiry,
+    ]),
+  ];
+  for (const envelope of invalid) listener({}, ...envelope);
+  const callback = vi.fn(() => Promise.resolve("landing" as const));
+  api.previews?.onPlace?.(callback);
+  for (const envelope of invalid) listener({}, ...envelope);
+  await Promise.resolve();
+  expect(callback).not.toHaveBeenCalled();
+  expect(mock.invoke).not.toHaveBeenCalled();
+  listener({}, ...valid);
+  await vi.waitFor(() => {
+    expect(callback).toHaveBeenCalledOnce();
+  });
+});
+
+test("scan progress rejects nonfinite, fractional and negative counts", async () => {
+  const api = await bridge();
+  const progress = vi.fn();
+  const pending = api.scanCode("scan", "/code", progress);
+  const listener = mock.on.mock.calls.find(([name]) => name === "setup:scan-progress")?.[1];
+  for (const key of ["folders", "repositories"])
+    for (const value of [NaN, Infinity, -Infinity, -1, 1.5])
+      listener?.({}, "scan", { folders: 1, repositories: 1, [key]: value });
+  listener?.({}, "scan", { folders: 0, repositories: 0 });
+  await pending;
+  expect(progress).toHaveBeenCalledExactlyOnceWith({ folders: 0, repositories: 0 });
+});
+
+test("missing required settings and config fields reject both reads and notifications", async () => {
+  const api = await bridge();
+  const changed = vi.fn();
+  const configured = vi.fn();
+  api.onSetupChange(changed);
+  api.onConfigChange(configured);
+  const setupEvent = mock.on.mock.calls.find(([name]) => name === "setup:changed")?.[1];
+  const configEvent = mock.on.mock.calls.find(([name]) => name === "config:changed")?.[1];
+  for (const key of Object.keys(DEFAULT_SETTINGS)) {
+    const settings = Object.fromEntries(
+      Object.entries(setup.settings).filter(([name]) => name !== key),
+    );
+    const value = { ...setup, settings };
+    mock.invoke.mockResolvedValue(value);
+    await expect(api.setupState(), key).rejects.toThrow("Invalid setup response");
+    await expect(api.saveSetup({}), key).rejects.toThrow("Invalid setup response");
+    setupEvent?.({}, value);
+  }
+  for (const key of ["folder", "available", "pending", "rejected"]) {
+    const value = Object.fromEntries(Object.entries(config).filter(([name]) => name !== key));
+    mock.invoke.mockResolvedValue(value);
+    await expect(api.configStatus(), key).rejects.toThrow(/Invalid/);
+    await expect(api.decideConfig("keep", "digest"), key).rejects.toThrow(/Invalid/);
+    configEvent?.({}, value);
+  }
+  expect(changed).not.toHaveBeenCalled();
+  expect(configured).not.toHaveBeenCalled();
+});
+
+test("unknown enums and out-of-range settings never enter setup state", async () => {
+  const api = await bridge();
+  for (const patch of [
+    { worktreeLocation: "unknown" },
+    { panelColor: "unknown" },
+    { colorMode: "unknown" },
+    { interfaceTheme: "unknown" },
+    { terminalTheme: "unknown" },
+    ...[0, 17, 1.5].map((concurrentChildren) => ({ concurrentChildren })),
+    ...[0, 366, 1.5].map((recentRepositoryDays) => ({ recentRepositoryDays })),
+    ...[-1, 1441, 1.5].map((unreadChildMinutes) => ({ unreadChildMinutes })),
+    ...[9, 33, 14.5].map((terminalFontSize) => ({ terminalFontSize })),
+    ...[0, 85, 151, 301].map((interfaceScale) => ({ interfaceScale })),
+    ...[-0.1, 1.1].map((volume) => ({ sound: { ...setup.settings.sound, volume } })),
+    {
+      sound: {
+        ...setup.settings.sound,
+        choices: { ...setup.settings.sound.choices, done: { source: "remote", file: "bell.wav" } },
+      },
+    },
+  ]) {
+    mock.invoke.mockResolvedValue({ ...setup, settings: { ...setup.settings, ...patch } });
+    await expect(api.setupState()).rejects.toThrow("Invalid setup response");
+  }
+  mock.invoke.mockResolvedValue({ settings: DEFAULT_SETTINGS, worktreeRoot: "/worktrees" });
+  await expect(api.setupState()).resolves.toEqual({
+    settings: DEFAULT_SETTINGS,
+    worktreeRoot: "/worktrees",
+  });
+  for (const choice of ["user:custom.json", "eclipse-light", "follow"] as const) {
+    mock.invoke.mockResolvedValue({
+      ...setup,
+      settings: { ...setup.settings, interfaceTheme: choice, terminalTheme: "user:custom.json" },
+    });
+    await expect(api.setupState()).resolves.toBeDefined();
+  }
+});
+
+test("nullable replies and alternate union branches remain valid", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue(null);
+  await expect(api.addRepository()).resolves.toBeNull();
+  await expect(
+    api.startWorktree({ repository: "/repo", branch: "feature", run: "codex" }),
+  ).resolves.toBeNull();
+  await expect(
+    api.launchAgent({
+      repository: "/repo",
+      worktree: "/worktree",
+      agent: "codex",
+      cols: 80,
+      rows: 24,
+    }),
+  ).resolves.toBeNull();
+  await expect(api.previews?.pick("/worktree")).resolves.toBeNull();
+  await expect(api.scanCode("scan", null, vi.fn())).resolves.toBeNull();
+  mock.invoke.mockResolvedValue({ error: "Unavailable" });
+  await expect(
+    api.sounds.read({ kind: "done", source: "user", file: "bell.wav" }),
+  ).resolves.toEqual({ error: "Unavailable" });
+  const snapshot = {
+    ...workspace,
+    terminals: workspace.terminals.map((terminal) => ({
+      ...terminal,
+      state: null,
+      orchestration: { role: "child", parentId: "parent", takenOver: false },
+      handoff: {
+        ...terminal.handoff,
+        seq: 1,
+        status: "done",
+        summary: "Done",
+        links: [],
+        timestamp: "now",
+        review: { verdict: "clean" },
+      },
+    })),
+  };
+  mock.invoke.mockResolvedValue(snapshot);
+  await expect(api.workspace()).resolves.toEqual(snapshot);
+});
+
+test("rejects sparse arrays and malformed optional event flags", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue(new Array(1));
+  await expect(api.listTerminalFonts()).rejects.toThrow(/Invalid/);
+  await expect(api.tail("one", 1)).rejects.toThrow(/Invalid/);
+  const changed = vi.fn();
+  api.onTerminalAvailability(changed);
+  api.appMenu.onSession(changed);
+  api.confirmations.subscribe(changed);
+  for (const [channel, args] of [
+    ["terminal:availability", [["one"], true, "true"]],
+    ["app-menu:session", ["one", "true"]],
+    ["confirmation:armed", [null, "true"]],
+  ] as const)
+    mock.on.mock.calls.find(([name]) => name === channel)?.[1]({}, ...args);
+  expect(changed).not.toHaveBeenCalled();
+});
+
+test("bounded sound bytes and window IDs reject malformed data", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue({ bytes: new Uint8Array(8 * 1024 * 1024 + 1) });
+  await expect(
+    api.sounds.read({ kind: "working", source: "user", file: "loop.ogg" }),
+  ).rejects.toThrow(/Invalid/);
+  const changed = vi.fn();
+  api.windows?.onChanged(changed);
+  api.windows?.audio?.onChanged(changed);
+  const views = mock.on.mock.calls.find(([name]) => name === "windows:changed")?.[1];
+  const audio = mock.on.mock.calls.find(([name]) => name === "windows:audio")?.[1];
+  views?.({}, [{ id: "", window: 1 }]);
+  views?.({}, [{ id: "one", window: -1 }]);
+  views?.({}, new Array(1));
+  audio?.({}, { enabled: true, focusedId: "" });
+  expect(changed).not.toHaveBeenCalled();
+});
+
+test("a secret row carrying plaintext cannot cross the environment response boundary", async () => {
+  const api = await bridge();
+  const value = {
+    ...environment,
+    lists: {
+      ...environment.lists,
+      all: [{ name: "HTTPS_PROXY", secret: true, value: "must stay in main" }],
+    },
+  };
+  mock.invoke.mockResolvedValue(value);
+  await expect(api.environmentState()).rejects.toThrow(/Invalid/);
 });
