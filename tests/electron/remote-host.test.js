@@ -148,6 +148,7 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   // Await the launch capability's completion before asserting its UI. Bootstrap
   // transfers a full runtime and is an asynchronous operation, unlike a local PTY.
   await page.evaluate(() => window.desktop.sidebarCommand({ kind: "home-shell" }));
+  await page.locator(".board-row[data-kind='shell']").click();
   await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(1);
   let id;
   await expect
@@ -176,7 +177,7 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
     "i=0; while [ \"$i\" -lt 5000 ]; do printf '%079d\\n' 0; i=$((i+1)); done; printf 'LARGE_REPLAY_READY\\n'",
   );
   await page.keyboard.press("Enter");
-  await expect.poll(tail).toContain("LARGE_REPLAY_READY");
+  await expect.poll(tail).toMatch(/(?:^|\n)LARGE_REPLAY_READY(?:\n|$)/);
   const installed = path.join(
     remoteHome,
     ".foom-host",
