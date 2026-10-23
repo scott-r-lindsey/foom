@@ -55,6 +55,7 @@ export function useBoardTiles({
   const fontFamilyRef = useRef(TERMINAL_FONT_FALLBACK);
   const focusedAtRef = useRef(new Map<string, number>());
   const focusClockRef = useRef(0);
+  const unrestoredRolesRef = useRef(new Set<string>());
   useEffect(() => {
     if (!soundSetup) return;
     let active = true;
@@ -176,15 +177,28 @@ export function useBoardTiles({
   useEffect(() => {
     if (source.isReady && !source.isReady()) return;
     const current = layoutRef.current;
+    // Remove a failed restore's saved assignment once. The warning may remain
+    // on the row when the human later reveals or resumes that session.
+    const failedRoles = new Set(
+      rows
+        .filter((row) => row.roleNotRestored && !unrestoredRolesRef.current.has(row.id))
+        .map((row) => row.id),
+    );
+    for (const id of failedRoles) unrestoredRolesRef.current.add(id);
+    const sessions = new Set(
+      rows
+        .filter((row) => !(row.dormant && row.exited) && !failedRoles.has(row.id))
+        .map((row) => row.id),
+    );
     if (
       leaves(current.tree).some((tile) =>
         tile.content?.kind === "preview"
           ? !previews.some((preview) => preview.id === contentId(tile.content))
-          : sessionId(tile) && !rows.some((row) => row.id === sessionId(tile)),
+          : sessionId(tile) && !sessions.has(sessionId(tile) ?? ""),
       )
     ) {
       const next = pruneContent(current, {
-        sessions: new Set(rows.map((row) => row.id)),
+        sessions,
         previews: new Set(previews.map((preview) => preview.id)),
       });
       layoutRef.current = next;

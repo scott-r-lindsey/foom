@@ -150,7 +150,8 @@ export function TileArea({
       !drag ||
       inactive ||
       !(event.target instanceof Element) ||
-      (drag.kind === "session" && !rows.some((row) => row.id === drag.id))
+      (drag.kind === "session" &&
+        !rows.some((row) => row.id === drag.id && !(row.dormant && row.exited)))
     )
       return;
     const tile = event.target.closest<HTMLElement>("[data-tile]");

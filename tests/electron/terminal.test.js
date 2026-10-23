@@ -769,6 +769,7 @@ test("a crashed utility host reports failure and the renderer can restart", {
   await page.waitForFunction(
     () => !/Starting|exited|Unable/.test(document.querySelector(".tile-status").textContent),
   );
+  await expect(page.locator(".tile-restoring")).toHaveCount(0);
   const hostPid = await app.evaluate(({ app }) => {
     const metric = app
       .getAppMetrics()
@@ -777,7 +778,8 @@ test("a crashed utility host reports failure and the renderer can restart", {
     process.kill(metric.pid, "SIGKILL");
     return metric.pid;
   });
-  await page.getByRole("status").filter({ hasText: "Terminal host failed" }).waitFor();
+  await expect(page.getByRole("status").filter({ hasText: "Terminal host failed" })).toBeVisible();
+  await expect(page.getByRole("status", { name: /^Restoring / })).toHaveCount(0);
   await restartShellFromSidebar(page);
   await page.waitForFunction(
     () => !/Starting|failed|Unable/.test(document.querySelector(".tile-status").textContent),
@@ -1179,14 +1181,15 @@ test("restored exited sessions hide the unattached terminal until restarted", as
   const restoredApp = await launchApp(context, { fixture: "restored", ...options });
   const restored = await boardPage(restoredApp);
   await expect(restored.locator(".board-row")).toHaveCount(1);
-  // The restored terminal cannot take input focus; activate its row directly.
+  // A saved exited row has no screen or board assignment until restarted.
   await restored.locator(".board-row").press("Enter");
-  await expect(restored.locator('.terminal-tile[data-empty="false"]')).toBeVisible();
+  await expect(restored.locator('.terminal-tile[data-empty="false"]')).toHaveCount(0);
   await expect(restored.locator(".tile-terminal")).toBeHidden();
   await expect(restored.locator(".xterm-helper-textarea")).not.toBeFocused();
   await expect(restored.locator(".xterm-cursor:visible")).toHaveCount(0);
 
   await restartShellFromSidebar(restored);
+  await expect(restored.locator(".tile-restoring")).toHaveCount(0);
   await expect(restored.locator(".tile-terminal")).toBeVisible();
   await expect(restored.locator(".xterm-helper-textarea")).toBeFocused();
   await restored.locator(".xterm-helper-textarea").pressSequentially("echo RESTORED_SHELL_READY");

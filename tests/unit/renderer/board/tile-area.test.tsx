@@ -3,7 +3,7 @@ import { arrangedLayout } from "../../../fixtures/tile-layout";
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { beforeEach, afterEach, expect, test, vi } from "vitest";
 import type { BoardCommand } from "../../../../src/shared/board-command";
-import type { SidebarCommand } from "../../../../src/shared/workspace";
+import type { PreviewSummary, SidebarCommand } from "../../../../src/shared/workspace";
 import type { BoardRow } from "../../../../src/renderer/board/board.d";
 import type { BoardSource } from "../../../../src/renderer/board/board-source.d";
 import { Board } from "../../../../src/renderer/board/board-view";
@@ -23,12 +23,17 @@ const snapshot = {
   rows: 24,
   state: "quiet_ok" as const,
   visible: true,
+  firstFrame: true,
+  attaching: false,
   toggleLabel: "Hide terminal",
   toggleDisabled: false,
   restartDisabled: true,
 };
 beforeEach(() => {
   localStorage.clear();
+  snapshot.status = "Terminal";
+  snapshot.firstFrame = true;
+  snapshot.attaching = false;
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -1477,6 +1482,152 @@ test("review state appears on the sidebar and tile without remounting its termin
   }
   expect(views.map((view) => view.mount.mock.calls.length)).toEqual(mounts);
 });
+
+test("saved exited rows stay in the sidebar; restoring tiles survive until failure or first frame", async () => {
+  const saved = placeSession(initialLayout(), "permission");
+  if (!saved) throw new Error("No layout");
+  saveLayout(localStorage, saved);
+  const { screen, data, views } = setup();
+  act(() => {
+    data.update("permission", { dormant: true, exited: true });
+  });
+  expect(screen.container.querySelectorAll('.terminal-tile[data-empty="false"]')).toHaveLength(0);
+  expect(screen.container.querySelector('[data-drag-session="permission"]')).toBeTruthy();
+  fireEvent.click(
+    screen.container.querySelector('[data-drag-session="permission"]') ?? document.body,
+  );
+  expect(screen.container.querySelectorAll('.terminal-tile[data-empty="false"]')).toHaveLength(0);
+  // Manual resume places a fresh tile in the existing layout.
+  act(() => {
+    data.update("permission", { dormant: false, exited: false });
+  });
+  fireEvent.click(
+    screen.container.querySelector('[data-drag-session="permission"]') ?? document.body,
+  );
+  expect(screen.container.querySelectorAll('.terminal-tile[data-empty="false"]')).toHaveLength(1);
+  snapshot.firstFrame = false;
+  snapshot.attaching = true;
+  act(() => {
+    data.update("permission", { dormant: true, exited: false });
+  });
+  expect(screen.container.querySelector(".tile-restoring")).toBeTruthy();
+  act(() => {
+    data.update("permission", { dormant: false });
+  });
+  expect(screen.container.querySelector(".tile-restoring")).toBeTruthy();
+  snapshot.firstFrame = true;
+  snapshot.attaching = false;
+  act(() => {
+    data.update("permission", { launchVersion: 1 });
+  });
+  expect(screen.container.querySelector(".tile-restoring")).toBeNull();
+  expect(views[0]?.mount).toHaveBeenCalledOnce();
+  act(() => {
+    data.update("permission", { dormant: true, exited: true });
+  });
+  expect(screen.container.querySelectorAll('.terminal-tile[data-empty="false"]')).toHaveLength(0);
+  await act(async () => {});
+});
+
+test("a role that could not be restored loses its saved tile without deleting its row", () => {
+  const saved = placeSession(initialLayout(), "permission");
+  if (!saved) throw new Error("No layout");
+  saveLayout(localStorage, saved);
+  const { screen, data } = setup();
+  act(() => {
+    data.update("permission", { roleNotRestored: true });
+  });
+  expect(screen.container.querySelectorAll('.terminal-tile[data-empty="false"]')).toHaveLength(0);
+  expect(screen.container.querySelector('[data-drag-session="permission"]')).toBeTruthy();
+  fireEvent.click(
+    screen.container.querySelector('[data-drag-session="permission"]') ?? document.body,
+  );
+  act(() => {
+    data.update("permission", { launchVersion: 2 });
+  });
+  expect(screen.container.querySelectorAll('.terminal-tile[data-empty="false"]')).toHaveLength(1);
+});
+
+test("preview placement waits for inventory without pruning the pending assignment", async () => {
+  const data = createSampleSource(sampleRows(100).slice(1, 2));
+  const row = data.getSnapshot()[0];
+  if (!row) throw new Error("Missing row");
+  const preview: PreviewSummary = {
+    id: "pending-preview",
+    repository: row.repository,
+    worktree: `${row.repository}/${row.branch}`,
+    relativePath: "page.html",
+    kind: "html",
+    network: false,
+  };
+  let previews: readonly PreviewSummary[] = [];
+  const screen = render(
+    <Board
+      source={{
+        ...data,
+        previews: {
+          getSnapshot: () => previews,
+          pick: () => Promise.resolve(preview.id),
+          close: () => Promise.resolve(),
+          bounds: () => Promise.resolve(),
+        },
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: `Actions for ${row.branch}` }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Preview file…" }));
+  await act(async () => {});
+  expect(localStorage.getItem(TILE_STORAGE)).toContain(preview.id);
+  act(() => {
+    previews = [preview];
+    data.update(row.id, { seen: true });
+  });
+  expect(screen.getByRole("region", { name: "Tile 1: page.html" })).toBeTruthy();
+});
+
+test("saved exited rows cannot be dragged back onto the board without a host", () => {
+  const { screen, data, row } = setup();
+  act(() => {
+    data.update("permission", { dormant: true, exited: true });
+  });
+  const target = screen.container.querySelector<HTMLElement>(".terminal-tile");
+  if (!target) throw new Error("No tile");
+  vi.spyOn(target, "getBoundingClientRect").mockReturnValue({
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    width: 100,
+    height: 100,
+    right: 100,
+    bottom: 100,
+    toJSON: () => ({}),
+  });
+  vi.stubGlobal("DragEvent", MouseEvent);
+  const transfer = { setData: vi.fn(), effectAllowed: "", dropEffect: "" };
+  fireEvent.dragStart(row(0), { dataTransfer: transfer });
+  fireEvent.dragOver(target, { dataTransfer: transfer, clientX: 50, clientY: 50 });
+  fireEvent.drop(target, { dataTransfer: transfer, clientX: 50, clientY: 50 });
+  expect(screen.container.querySelector(".tile-drop-preview")).toBeNull();
+  expect(target.dataset["empty"]).toBe("true");
+  vi.unstubAllGlobals();
+});
+
+test.each(["Terminal host failed. Restart the shell to continue.", "Unable to open terminal"])(
+  "attachment failure shows its status without a restore skeleton: %s",
+  (status) => {
+    const saved = placeSession(initialLayout(), "permission");
+    if (!saved) throw new Error("No layout");
+    saveLayout(localStorage, saved);
+    snapshot.status = status;
+    snapshot.firstFrame = false;
+    snapshot.attaching = false;
+    const { screen } = setup();
+    expect(screen.container.querySelector('.terminal-tile[data-empty="false"]')).toBeTruthy();
+    expect(screen.container.querySelector(".tile-restoring")).toBeNull();
+    expect(screen.container.querySelector(".tile-status")?.textContent).toBe(status);
+  },
+);
 
 test.each([100, 200, 300])(
   "background child arrivals split blank boards at %i cells without requesting focus",

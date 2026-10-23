@@ -450,3 +450,29 @@ test.each(["orchestration:unread", "probe:waiting"])(
     off?.();
   },
 );
+
+test("queued restores project Starting without the saved host's failure verdict", async () => {
+  const source = createAppSource();
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [
+      {
+        ...agent("queued", { ...verdict("queued", 10), state: "failed" }),
+        dormant: true,
+        exited: false,
+      },
+    ],
+  });
+  const disconnect = source.connect?.();
+  await settle();
+  expect(source.getSnapshot()[0]).toMatchObject({
+    id: "queued",
+    dormant: true,
+    exited: false,
+    state: "quiet_ok",
+    reason: "Starting",
+  });
+  await source.createView?.().open("queued");
+  expect(mock.open).not.toHaveBeenCalled();
+  disconnect?.();
+});

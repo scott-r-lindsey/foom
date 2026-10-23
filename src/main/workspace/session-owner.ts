@@ -56,7 +56,7 @@ export class SessionOwner {
     return this.restoring.has(id);
   }
   roleNotRestored(id: string): boolean {
-    return this.unrestoredRoles.has(id);
+    return !this.restoring.has(id) && this.unrestoredRoles.has(id);
   }
   rememberIdentity(repository: string, identity: string): void {
     this.repositoryIdentities.set(repository, identity);
@@ -89,6 +89,8 @@ export class SessionOwner {
       delete row.parentId;
       delete row.handoffs;
       this.deps.restoreRow(row);
+      // Reserve eligible saved tiles before the first window requests inventory.
+      if (restorePlan([entry], this.restoreEnabled).length) this.restoring.add(entry.id);
     }
   }
 
@@ -150,6 +152,7 @@ export class SessionOwner {
   restartSaved(): Promise<void> {
     if (this.restoreWork) return this.restoreWork;
     const plan = restorePlan([...this.saved.values()], this.restoreEnabled);
+    this.restoring.clear();
     for (const entry of plan) {
       this.restoring.add(entry.id);
       this.deps.busy(entry.id, true);
