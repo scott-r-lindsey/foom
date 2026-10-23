@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { ApplicationError } from "../../shared/application-errors";
 import type { GitPanelFacts } from "../../shared/panel";
@@ -583,13 +583,8 @@ export class WorktreeService {
     await this.validateBranch(repository, tree.branch);
     if (!/^[a-f0-9]{40,64}$/u.test(base) || !/^[a-f0-9]{40,64}$/u.test(tree.head))
       throw new Error("Invalid commit ID");
-    const defaultTree = (await git(repository, ["rev-parse", `${base}^{tree}`])).trim();
     try {
-      if (
-        (await git(repository, ["merge-tree", "--write-tree", base, tree.head])).trim() ===
-        defaultTree
-      )
-        return true;
+      if (await this.mergeMatchesTree(repository, base, tree.head, base)) return true;
     } catch {
       // A content conflict does not rule out an earlier PR merge.
     }
@@ -665,40 +660,72 @@ export class WorktreeService {
     const mergeBase = (await git(repository, ["merge-base", "--all", parent, head])).trim();
     // Multiple merge bases are ambiguous; never pick one using forge claims.
     if (!commitId.test(mergeBase)) return false;
-    const integratedPatch = await this.commitPatchId(repository, parent, commit);
-    return (
-      integratedPatch !== undefined &&
-      integratedPatch === (await this.commitPatchId(repository, mergeBase, head))
-    );
+    return this.mergeMatchesTree(repository, parent, head, commit);
   }
 
-  private async commitPatchId(
+  /** Never let repository attributes/configuration manufacture a cleanup proof. */
+  private async mergeMatchesTree(
     repository: string,
-    from: string,
-    to: string,
-  ): Promise<string | undefined> {
-    const diff = await git(repository, [
-      "diff",
-      "--no-ext-diff",
-      "--no-textconv",
-      "--no-renames",
-      "--binary",
-      "--full-index",
-      "--no-color",
-      "--unified=3",
-      "--src-prefix=a/",
-      "--dst-prefix=b/",
-      "--ignore-submodules=none",
-      from,
-      to,
-      "--",
-    ]);
-    // The shared Git helper decodes UTF-8. Refuse decoding loss or forced-text
-    // binary data rather than letting distinct byte changes compare equal.
-    if (diff.includes("\uFFFD") || diff.includes("\0")) return undefined;
-    // Verbatim implies stable ordering and also retains whitespace changes.
-    const result = (await git(repository, ["patch-id", "--verbatim"], 30_000, diff)).trim();
-    return /^([a-f0-9]{40,64}) [a-f0-9]{40,64}$/u.exec(result)?.[1];
+    left: string,
+    head: string,
+    expected: string,
+  ): Promise<boolean> {
+    if (![left, head, expected].every((sha) => commitId.test(sha))) return false;
+    const objects = await realpath(
+      (
+        await git(repository, ["rev-parse", "--path-format=absolute", "--git-path", "objects"])
+      ).trim(),
+    );
+    if (/[\r\n]/u.test(objects)) return false;
+    const format = (await git(repository, ["rev-parse", "--show-object-format"])).trim();
+    if (format !== "sha1" && format !== "sha256") return false;
+    const proof = await mkdtemp(join(tmpdir(), "foom-merge-proof-"));
+    try {
+      const run = (args: string[]) => git(proof, args, 30_000, undefined, true);
+      await run(["init", "--bare", "--template=", `--object-format=${format}`]);
+      await Promise.all(
+        ["info", "objects/info"].map((path) => mkdir(join(proof, path), { recursive: true })),
+      );
+      // Git's alternates file accepts C-quoted absolute paths. Objects are read
+      // from the source store; merge output is written only in this disposable repo.
+      await writeFile(join(proof, "objects/info/alternates"), `${JSON.stringify(objects)}\n`, {
+        mode: 0o600,
+      });
+      // info/attributes has higher precedence than every versioned attributes file.
+      await writeFile(
+        join(proof, "info/attributes"),
+        "* merge=text -text -eol -filter -working-tree-encoding\n",
+        { mode: 0o600 },
+      );
+      const expectedTree = (await run(["rev-parse", "--verify", `${expected}^{tree}`])).trim();
+      if (!commitId.test(expectedTree)) return false;
+      const merged = (
+        await run([
+          "-c",
+          "core.attributesFile=",
+          "-c",
+          "core.autocrlf=false",
+          "-c",
+          "merge.renormalize=false",
+          "-c",
+          "merge.renames=false",
+          "-c",
+          "merge.directoryRenames=false",
+          "-c",
+          "diff.algorithm=myers",
+          "merge-tree",
+          "--write-tree",
+          "--no-messages",
+          "-Xno-renames",
+          "-Xdiff-algorithm=myers",
+          left,
+          head,
+        ])
+      ).trim();
+      return commitId.test(merged) && merged === expectedTree;
+    } finally {
+      await rm(proof, { recursive: true, force: true });
+    }
   }
 
   async deleteMergedBranch(repository: string, branch: string, head: string): Promise<void> {

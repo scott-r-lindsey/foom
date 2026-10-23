@@ -14,12 +14,12 @@ PR reported MERGED qualifies only when its reported head exactly matches the loc
 worktree HEAD and local Git proves that a validated integration hint contains that
 head's changes. The hint must be an ancestor of the freshly fetched default. A
 merge commit qualifies only if the worktree head is its ancestor. Otherwise, a
-squash/rebase hint must have exactly one parent and its patch must equal the
-worktree head's patch relative to the merge base of that parent and the head.
-Foom compares binary-inclusive diffs with three lines of context using
-`git patch-id --verbatim`
-(stable hashing that retains whitespace). Empty patches, ambiguous/missing merge
-bases and Git errors fail closed. An old default commit or stale squash of an
+squash/rebase hint H must have exactly one parent P. Foom merges P with the
+worktree head using `git merge-tree --write-tree` and qualifies only if the merge
+is conflict-free and its tree OID exactly equals `H^{tree}`. This preserves edit
+positions and compares complete Git trees, including binary bytes and line endings.
+Missing/ambiguous merge bases, malformed output and Git errors fail closed.
+An old default commit or stale squash of an
 earlier head cannot authorize deletion of later work. These rules apply equally
 to GitHub and GitLab, with same-project, stable-refresh, clean-checkout and identity
 guards retained. Forge claims alone never authorize cleanup. This also recognizes
@@ -29,11 +29,6 @@ background cleanup eligibility is cached for up to one minute and published when
 ready. A plan less than one minute old fills the dialog immediately without fetching.
 An older plan opens the dialog immediately in a checking state with Delete disabled.
 Approving Delete always fetches afresh.
-
-Patch proof also refuses diffs containing NUL or the UTF-8 replacement character:
-the shared bounded Git helper returns UTF-8 strings, so these cannot establish a
-lossless byte comparison. Such worktrees are conservatively retained. Normal
-binary diffs use Git's binary patch encoding and full object IDs.
 
 The trusted dialog lists candidate branches, then skipped checkouts with short
 reasons, and offers **Delete** and **Cancel**. During cleanup it becomes a live

@@ -24,14 +24,26 @@ export async function git(
   args: string[],
   timeout = 30_000,
   input?: string,
+  isolated = false,
 ): Promise<string> {
   // Ignore inherited repository selectors: the validated cwd selects the repository.
   const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+    Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith("GIT_")),
   );
   const operation = execute("git", args, {
     cwd,
-    env: { ...env, GIT_TERMINAL_PROMPT: "0" },
+    env: {
+      ...env,
+      GIT_TERMINAL_PROMPT: "0",
+      ...(isolated
+        ? {
+            GIT_CONFIG_GLOBAL: "/dev/null",
+            GIT_CONFIG_SYSTEM: "/dev/null",
+            GIT_CONFIG_NOSYSTEM: "1",
+            GIT_ATTR_NOSYSTEM: "1",
+          }
+        : {}),
+    },
     timeout,
     encoding: "utf8",
     maxBuffer: 16 * 1024 * 1024,

@@ -101,10 +101,12 @@ separate optional hints, each exactly 40 lowercase hex characters. The manifest
 language has literal selectors, not ancestry-aware fallback expressions. Main
 tries both validated hints and requires local head-integration proof as well as
 ancestry from the freshly fetched default: either the exact head is an ancestor
-of the hint, or a single-parent hint has the same whitespace-preserving stable
-patch ID as the head's change set from their merge base. Unrelated ancestors,
-stale squash hints, empty patches, unavailable/ambiguous merge bases and Git errors
-cannot authorize cleanup. Exact-head, same-project, stable-refresh, clean-checkout
+of the hint, or the conflict-free merge of a single-parent hint's parent with
+the exact head must produce precisely the hint's tree OID. The latter uses
+`git merge-tree --write-tree` in a disposable repository with fixed attributes
+and config, not position-insensitive patch IDs. Unrelated/stale hints, moved
+repeated-block edits, unavailable/ambiguous merge bases, conflicts, malformed
+output and Git errors cannot authorize cleanup. Exact-head, same-project, stable-refresh, clean-checkout
 and identity guards remain required. This covers squash-only merges (null merge SHA), separate merge
 and squash commits, and a non-ancestor merge SHA with a reachable squash SHA.
 GraphQL maps `mergeCommitSha`; no unsupported `squashCommitSha` field is requested.

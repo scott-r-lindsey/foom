@@ -62,21 +62,23 @@ forge lookup for a same-repository MERGED PR, requires its head SHA to equal the
 worktree HEAD exactly, validates optional `PullRequest.mergeCommit` and
 `PullRequest.squashCommit` IDs, and requires each candidate to be an ancestor of
 fetched default. Reachability alone is insufficient: the head must be an ancestor
-of the hint, or a single-parent hint must have exactly the head's patch relative
-to the merge base of the hint's parent and the head. Patch proof uses binary-inclusive diffs with three lines of context,
-external diff/textconv disabled, and
-`git patch-id --verbatim` (stable hashing retaining whitespace). Both merge and
-squash fields can carry squash/rebase evidence; their names grant no trust.
-Root/merge hints without head ancestry, empty patches, multiple/missing merge
-bases, unrelated/stale patches and command errors refuse proof. Only an ordinary
-exit-1 non-ancestor query permits trying the alternate proof/hint. All derived
-SHAs are validated before argv-array Git commands. Forge hints alone never
-authorize removal; mismatched heads and failed checks refuse.
+of the hint, or a single-parent hint H with parent P must pass an exact tree proof:
+`git merge-tree --write-tree P <head>` must exit zero with no conflicts and return
+exactly the tree OID of H. The merge-base of P and the head must be unique.
+Patch IDs are not evidence: they ignore hunk positions and can equate edits in
+different repeated blocks. Malformed OIDs, missing/ambiguous bases and command
+errors refuse proof. Only ordinary exit-1 ancestry queries permit another proof.
 
-Patch proof also refuses diffs containing NUL or the UTF-8 replacement character:
-the shared bounded Git helper returns UTF-8 strings, so these cannot establish a
-lossless byte comparison. Such worktrees are conservatively retained. Normal
-binary diffs use Git's binary patch encoding and full object IDs.
+Both ordinary containment and hint tree proofs run in a disposable bare repository,
+reading the source object store through a quoted alternates path. Global/system
+Git config and system attributes are disabled for those subprocesses; no user
+config is edited. A main-owned info/attributes file forces the built-in text merge
+driver and disables text/EOL/filter/encoding conversion, overriding versioned
+attributes. Fixed options disable rename detection, directory renames and
+renormalization and select Myers diffing. Source repository merge drivers cannot
+run or manufacture a successful tree. Temporary merge output is removed afterward.
+Only canonical OIDs are decoded: file bytes never round-trip through text or patch
+hashes. Same-project, exact-head, stable-refresh, clean and identity guards remain.
 
 Every removal rechecks this evidence. Automatic removal uses this verified PR path
 alongside its existing ancestry/no-unpushed-commits path, preserving clean status,

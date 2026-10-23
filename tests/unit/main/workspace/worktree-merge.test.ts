@@ -426,6 +426,8 @@ describe("merged worktree containment", () => {
     "GitLab unrelated squash ancestor",
     "GitLab stale squash",
     "GitLab whitespace after squash",
+    "GitLab CRLF after squash",
+    "GitLab configured merge driver",
     "GitLab invalid UTF-8 after squash",
     "GitLab forced-text NUL after squash",
     "GitLab root squash",
@@ -433,6 +435,15 @@ describe("merged worktree containment", () => {
     "GitHub unrelated merge ancestor",
   ])("refuses %s claims for unmerged work through offline real Git", async (mode) => {
     const original = await feature();
+    if (mode.includes("CRLF")) await git("config", "core.autocrlf", "false");
+    if (mode.includes("configured merge driver")) {
+      await writeFile(join(repo, ".git/info/attributes"), "feature.txt merge=tamper\n");
+      await git("config", "merge.tamper.driver", "true");
+      await git("config", "merge.renames", "true");
+      await git("config", "merge.directoryRenames", "true");
+      await git("config", "merge.renormalize", "true");
+      await git("config", "diff.algorithm", "histogram");
+    }
     if (mode.includes("invalid UTF-8")) {
       await writeFile(join(original.path, "feature.txt"), Buffer.from([0xfe, 0x0a]));
       await commit(original.path, "old non-UTF-8 content");
@@ -464,9 +475,11 @@ describe("merged worktree containment", () => {
           ? Buffer.from([0xff, 0x0a])
           : mode.includes("forced-text NUL")
             ? Buffer.from([0, 0x62, 0x0a])
-            : mode.includes("whitespace")
-              ? "feature \n"
-              : "new unmerged work\n",
+            : mode.includes("CRLF")
+              ? "feature\r\n"
+              : mode.includes("whitespace")
+                ? "feature \n"
+                : "new unmerged work\n",
       );
       await commit(original.path, "work added after squash");
     }
@@ -551,6 +564,155 @@ describe("merged worktree containment", () => {
       await service.canAutoRemove(repo, tree.path, await service.removalIdentity(repo, tree.path)),
     ).toBe(false);
     expect(transport).toHaveBeenCalled();
+  });
+  it("refuses a stale squash hint when an identical edit moves to a repeated block", async () => {
+    const block = "before1\nbefore2\nbefore3\nold\nafter1\nafter2\nafter3\n";
+    const changed = block.replace("old\n", "new\n");
+    await writeFile(join(repo, "file.txt"), `${block}separator\n${block}`);
+    await commit(repo, "repeated blocks");
+    const { path } = await service.createWorktree(repo, "feature");
+    await writeFile(join(path, "file.txt"), `${changed}separator\n${block}`);
+    await commit(path, "edit first block");
+    await writeFile(join(repo, "default.txt"), "default diverges\n");
+    await commit(repo, "default change");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "merge",
+      "--squash",
+      "feature",
+    );
+    await commit(repo, "squash first-block edit");
+    const hint = (await git("rev-parse", "HEAD")).trim();
+    await writeFile(join(path, "file.txt"), `${block}separator\n${changed}`);
+    await commit(path, "undo first edit and edit second block");
+    await remote();
+    const tree = (await service.listWorktrees(repo)).find((tree) => tree.path === path);
+    if (!tree?.head) throw new Error("Missing feature head");
+    const row = {
+      iid: 7,
+      source_branch: "feature",
+      sha: tree.head,
+      state: "merged",
+      source_project_id: 1,
+      target_project_id: 1,
+      project_id: 1,
+      head_pipeline: null,
+      merge_commit_sha: null,
+      squash_commit_sha: hint,
+    };
+    const provider = manifestForgeProvider(
+      gitlabManifest,
+      { host: "gitlab.com", project: "test/repo" },
+      (argv) =>
+        Promise.resolve({
+          code: 0,
+          stderr: "",
+          stdout: JSON.stringify(argv[1]?.endsWith("/merge_requests") ? [row] : row),
+        }),
+      "main",
+    );
+    expect(await provider.lookup("feature", undefined, "all")).toMatchObject({
+      state: "MERGED",
+      headSha: tree.head,
+      squashCommit: hint,
+    });
+    service = new WorktreeService(root, () => provider);
+    await service.addRepository(repo);
+    const base = await service.mergedDefault(repo, true);
+    expect((await git("merge-tree", "--write-tree", base, tree.head)).trim()).not.toBe(
+      (await git("rev-parse", `${base}^{tree}`)).trim(),
+    );
+    expect.soft(await service.mergedCommit(repo, tree, base)).toBe(false);
+    expect
+      .soft(await service.canAutoRemove(repo, path, await service.removalIdentity(repo, path)))
+      .toBe(false);
+  });
+  it("refuses a squash hint with multiple merge bases", async () => {
+    await git("switch", "-c", "left");
+    await writeFile(join(repo, "left.txt"), "left\n");
+    await commit(repo, "left base");
+    await git("branch", "left-tip");
+    await git("switch", "-c", "right", "main");
+    await writeFile(join(repo, "right.txt"), "right\n");
+    await commit(repo, "right base");
+    await git("branch", "right-tip");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "merge",
+      "--no-ff",
+      "left-tip",
+      "-m",
+      "right cross merge",
+    );
+    await git("branch", "feature");
+    await git("switch", "left");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "merge",
+      "--no-ff",
+      "right-tip",
+      "-m",
+      "left cross merge",
+    );
+    const parent = (await git("rev-parse", "HEAD")).trim();
+    await git("switch", "main");
+    await git("reset", "--hard", parent);
+    const { path } = await service.createWorktree(repo, "feature");
+    await writeFile(join(path, "feature.txt"), "unmerged feature\n");
+    await commit(path, "feature changes");
+    await writeFile(join(repo, "feature.txt"), "different default change\n");
+    await commit(repo, "claimed squash");
+    const hint = (await git("rev-parse", "HEAD")).trim();
+    await remote();
+    const tree = (await service.listWorktrees(repo)).find((tree) => tree.path === path);
+    if (!tree?.head) throw new Error("Missing feature head");
+    expect((await git("merge-base", "--all", parent, tree.head)).trim().split(/\s+/u)).toHaveLength(
+      2,
+    );
+    const row = {
+      iid: 7,
+      source_branch: "feature",
+      sha: tree.head,
+      state: "merged",
+      source_project_id: 1,
+      target_project_id: 1,
+      project_id: 1,
+      head_pipeline: null,
+      merge_commit_sha: null,
+      squash_commit_sha: hint,
+    };
+    const provider = manifestForgeProvider(
+      gitlabManifest,
+      { host: "gitlab.com", project: "test/repo" },
+      (argv) =>
+        Promise.resolve({
+          code: 0,
+          stderr: "",
+          stdout: JSON.stringify(argv[1]?.endsWith("/merge_requests") ? [row] : row),
+        }),
+      "main",
+    );
+    expect(await provider.lookup("feature", undefined, "all")).toMatchObject({
+      state: "MERGED",
+      headSha: tree.head,
+      squashCommit: hint,
+    });
+    service = new WorktreeService(root, () => provider);
+    await service.addRepository(repo);
+    const base = await service.mergedDefault(repo, true);
+    expect(await service.mergedCommit(repo, tree, base)).toBe(false);
+    expect(await service.canAutoRemove(repo, path, await service.removalIdentity(repo, path))).toBe(
+      false,
+    );
   });
   it("rejects conflicts and deletes only an unchanged, unchecked-out local branch", async () => {
     const tree = await feature();
