@@ -148,6 +148,16 @@ req.end(JSON.stringify(payload));
     await expect
       .poll(async () => (await rows(first)).find((row) => row.id === exitedChild.resultId)?.exited)
       .toBe(true);
+    // Persist both assignments, including an exited screen that cannot survive quit.
+    await first.locator(`[data-drag-session="${exitedChild.resultId}"]`).click();
+    await expect(
+      first.locator('.terminal-tile[data-exited="true"][data-empty="false"]'),
+    ).toHaveCount(1);
+    await first.evaluate(() => window.desktop.appMenu.execute("split-right"));
+    await first.locator(`[data-drag-session="${parentId}"]`).click();
+    await expect(
+      first.locator('.terminal-tile[data-exited="true"][data-empty="false"]'),
+    ).toHaveCount(1);
     const unusedTree = await call(oldParent, "create_worktree", {
       branch: "unused-child",
       idempotencyKey: "unused-tree",
@@ -220,6 +230,70 @@ req.end(JSON.stringify(payload));
         .toBe(true);
       return readCredentials(name);
     };
+    // Exited records retain their row, but no saved board assignment.
+    for (const window of pages) {
+      await expect(window.locator(`[data-drag-session="${exitedChild.resultId}"]`)).toHaveCount(1);
+      await expect(
+        window.locator('.terminal-tile[data-exited="true"][data-empty="false"]'),
+      ).toHaveCount(0);
+    }
+    if (agent === "claude") {
+      let ownerPage;
+      for (const candidate of pages) {
+        if ((await candidate.evaluate(() => window.desktop.windows.id)) === firstId)
+          ownerPage = candidate;
+      }
+      assert.ok(ownerPage);
+      // Pause only fixture snapshot delivery, then reload the restored board. The
+      // real attachment still runs, but cannot satisfy the first-frame gate yet.
+      await restored.evaluate(({ webContents }) => {
+        globalThis.restoreStreams = [];
+        globalThis.resumeRestoreStreams = [];
+        for (const contents of webContents.getAllWebContents()) {
+          const send = contents.send.bind(contents);
+          contents.send = (channel, ...args) => {
+            if (channel === "terminal:data")
+              globalThis.restoreStreams.push(() => send(channel, ...args));
+            else send(channel, ...args);
+          };
+          globalThis.resumeRestoreStreams.push(() => {
+            contents.send = send;
+          });
+        }
+      });
+      try {
+        await ownerPage.reload();
+        await expect(ownerPage.locator(".tile-restoring").first()).toBeVisible();
+        await expect
+          .poll(() => restored.evaluate(() => globalThis.restoreStreams.length))
+          .toBeGreaterThan(0);
+        await expect(
+          ownerPage.locator('.terminal-tile[data-empty="false"] .tile-restoring'),
+        ).toHaveCount(await ownerPage.locator('.terminal-tile[data-empty="false"]').count());
+        for (const theme of ["eclipse-light", "eclipse-dark"]) {
+          await ownerPage.evaluate(
+            (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
+            theme,
+          );
+          await expect(ownerPage.locator(".tile-restoring").first()).toBeVisible();
+          await expect
+            .poll(() => ownerPage.evaluate(() => document.documentElement.style.colorScheme))
+            .toBe(theme === "eclipse-light" ? "light" : "dark");
+          if (process.env.FOOM_RESTORE_SCREENSHOTS) {
+            await mkdir(process.env.FOOM_RESTORE_SCREENSHOTS, { recursive: true });
+            await ownerPage.screenshot({
+              path: path.join(process.env.FOOM_RESTORE_SCREENSHOTS, `${theme}.png`),
+            });
+          }
+        }
+      } finally {
+        await restored.evaluate(() => {
+          for (const resume of globalThis.resumeRestoreStreams) resume();
+          for (const send of globalThis.restoreStreams) send();
+        });
+      }
+      await expect(ownerPage.locator(".tile-restoring")).toHaveCount(0);
+    }
     const newParent = await waitForCredentials("repo", oldParent);
     // The role is re-granted from main's store; the resumed agent gets no launch prompt.
     assert.ok(

@@ -196,6 +196,7 @@ it("marks every planned session busy before launching and preserves saved child 
   const work = f.owner.restartSaved();
   expect(f.owner.restartSaved()).toBe(work);
   expect(f.owner.isRestoring("parent")).toBe(true);
+  expect(f.owner.roleNotRestored("parent")).toBe(false);
   expect(f.owner.isRestoring("child")).toBe(true);
   expect(f.owner.isRestoring("exited")).toBe(false);
   expect(f.deps.busy).toHaveBeenCalledWith("parent", true);
@@ -324,3 +325,18 @@ it.each(["save", "flush"] as const)(
     });
   },
 );
+
+it("marks only eligible running rows before inventory, and clears the reservation on failure", async () => {
+  const legacy = row("legacy");
+  delete legacy.running;
+  const f = fixture([row("running"), row("exited", { running: false }), legacy]);
+  await f.owner.restore();
+  expect(f.owner.isRestoring("running")).toBe(true);
+  expect(f.owner.isRestoring("exited")).toBe(false);
+  expect(f.owner.isRestoring("legacy")).toBe(false);
+  vi.mocked(f.deps.launch).mockRejectedValueOnce(new Error("fixture failure"));
+  await f.owner.restartSaved();
+  expect(f.owner.isRestoring("running")).toBe(false);
+  expect(f.deps.failed).toHaveBeenCalledWith("running");
+  expect(f.rows.get("running")?.dormant).toBe(true);
+});

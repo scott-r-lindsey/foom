@@ -69,3 +69,15 @@ Hooks-disabled launches likewise cannot capture an ID.
 ## Antigravity resume
 
 Resume supplies `--conversation` and the validated ID as separate arguments with current defaults and fresh credentials. Without plugin events, no new ID is captured. A normal manual launch pins the first observed ID: if the CLI starts a new conversation for an unknown ID, that new ID replaces the saved one. Pasted IDs retain their stricter requested-ID pin. The CLI warning stays visible. [Probe evidence: #249](https://github.com/scott-r-lindsey/foom/issues/249).
+
+## Restored tile placement (#732)
+
+Sessions that exited before quit keep their sidebar rows and Resume/New conversation
+commands, but their saved board assignments become empty spaces: no screen or
+scrollback exists to draw. Disabled or ineligible restores likewise stay in the
+sidebar. Eligible running sessions keep their saved tile positions while queued
+and relaunched. A neutral skeleton with the agent glyph and session name covers
+the tile until the new attachment's snapshot has been parsed and its first frame
+rendered. Restoration failures and roles that cannot be restored lose their tile
+assignment and retain the existing sidebar error state. Manual resume uses normal
+launch placement. Live tiles retain their split geometry and hidden-space rules.
