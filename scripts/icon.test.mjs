@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, relative, sep } from "node:path";
@@ -345,4 +346,38 @@ test("the icon cache stays outside the Electron build fingerprint", async () => 
   const top = relative(join(import.meta.dirname, ".."), CACHE_ROOT).split(sep)[0];
   assert.equal(top, ".cache");
   assert.doesNotMatch(inputs, /\.cache/);
+});
+
+test("flight bake is reproducible, opaque map bytes survive PNG decoding, and assets stay modest", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "foom-flight-bake-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  execFileSync(process.execPath, ["scripts/bake-flight.mjs", directory]);
+  const names = ["emission.png", "lens.png", "singularity.png", "sky.png"];
+  assert.deepEqual((await readdir(directory)).sort(), names);
+  let total = 0;
+  for (const name of names) {
+    const baked = await readFile(join(directory, name));
+    assert.deepEqual(baked, await readFile(join("src/renderer/art", name)));
+    total += baked.length;
+  }
+  assert.ok(total < 1_100_000);
+  for (const name of ["emission.png", "singularity.png", "sky.png"]) {
+    const { bytes } = readPng(await readFile(join(directory, name)));
+    for (let k = 0; k < bytes.length; k += 4)
+      assert.ok(bytes[k + 2] >= bytes[k] && bytes[k] >= bytes[k + 1], `${name}: violet-white ramp`);
+  }
+  const map = readPng(await readFile(join(directory, "lens.png")));
+  assert.equal(map.width, 1024);
+  assert.equal(map.height, 512);
+  // At the shadow, escape visibility is zero and actual coverage is opaque.
+  // No colour bytes can be lost to browser PNG alpha premultiplication.
+  for (const x of [256, 768]) {
+    const k = (256 * 1024 + x) * 4;
+    assert.equal(map.bytes[k + 2], x === 256 ? 0 : 255);
+    assert.equal(map.bytes[k + 3], 255);
+  }
+  assert.ok(map.bytes.some((v, k) => k % 4 === 2 && v === 255));
+  const still = readPng(await readFile(join(directory, "singularity.png")));
+  assert.equal(still.bytes[(256 * 512 + 256) * 4 + 3], 255);
+  assert.ok(still.bytes.some((v, k) => k % 4 === 3 && v === 0));
 });

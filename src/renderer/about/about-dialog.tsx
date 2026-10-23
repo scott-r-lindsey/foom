@@ -92,6 +92,7 @@ export function AboutDialog({ menu, close }: { menu: AppMenuApi; close: () => vo
       >
         <div className="about-art">
           <FlightCanvas
+            active={!replay}
             reduced={reduced}
             onReplay={(hole) => {
               setNote(false);

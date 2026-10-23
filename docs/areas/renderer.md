@@ -40,14 +40,65 @@ A constant rate intentionally produces a horizontal line above the baseline.
 - **Coverage and lint globs include `.tsx`.** A component outside them would silently skip the per-file thresholds or the renderer import restrictions.
 - The CSP doesn't change. React needs no `eval`.
 
-## Flight art and About (#670)
+## Flight art and About (#670, #725)
 
-`ui/flight-art.ts` shares typed canvas drawing between the first-run flight path
-and About's full-bleed illustration. `flight-canvas.tsx` owns animation and disposal,
-pauses on window blur, and draws a still reduced-motion frame. A disposable
-ResizeObserver repaints the canvas and rocket hit area when layout or zoom changes,
-including while the animation loop is paused. About is a modal
-portal with view state only; its note reuses `.row-menu` surface, notch and opening
-animation, returns focus to its button on dismissal, and closes before About on
-Escape. The native About panel is gone. `app-menu:version` returns main's app and
+`ui/flight-art.ts` shares the rocket, flight geometry and Canvas2D fallback sky
+between first-run flight and About's full-bleed illustration. `singularity.ts`
+composites the offline R3 Schwarzschild render with a moving sky through its
+baked geodesic map using WebGL. It does no runtime ray tracing. The sky uses one
+texture sample per fragment, plus the map and emission lookups. The two map
+halves hold 16-bit signed sky coordinates (±256 M); the blue channels hold escape visibility and actual shadow coverage. An outer edge fade joins the finite map to the unlensed sky.
+The rocket and its trail draw in front of the disk and lensed arch, preserving
+the original flight path and About hit area. The sky plane sits 16 M behind
+the hole, keeping its Einstein ring inside the baked field of view. A bright
+star crosses the optical axis at eight seconds in each launch. Without WebGL, on initialization
+failure or context loss, Canvas2D layers the same baked transparent still over
+the existing starfield. A loading failure retains an opaque black shadow.
+
+`flight-canvas.tsx` owns animation and disposal. It pauses on window blur and
+hidden documents, unmounts with its surface, and draws a still reduced-motion
+frame. About explicitly deactivates its canvas when replay covers it. Loading
+assets and resizing can repaint a paused still without starting a frame loop.
+A disposable ResizeObserver also updates the rocket hit area after layout/zoom
+changes. GPU resources are owned per surface, released on disposal, and capped
+at 1440 pixels on the longest side independently of display pixel ratio.
+The board schedules no flight frames when these surfaces are absent.
+
+About is a modal portal with view state only; its note reuses `.row-menu`
+surface, notch and opening animation, returns focus to its button on dismissal,
+and closes before About on Escape. `app-menu:version` returns main's app and
 Electron versions through a bounded, runtime-validated preload capability.
+
+### Reproducing the flight assets
+
+Run `node scripts/bake-flight.mjs` with Node 24. It reuses
+`scripts/icon/blackhole.mjs`, the approved `VIEW` / `TONE` in `foom-icon.mjs`
+(roll −25°, inclination 83°), and the shared PNG encoder. The icon's tile
+centre offset is removed so the shadow aligns with flight geometry; the sky
+plane distance affects lensing without changing its emitted light. The four
+checked-in files under `src/renderer/art/` total 966,416 bytes (0.92 MiB):
+
+| Asset | Dimensions | Bytes | Purpose |
+| --- | --- | ---: | --- |
+| `singularity.png` | 512 × 512 | 141,180 | Straight-alpha fallback, emission plus opaque shadow |
+| `emission.png` | 512 × 512 | 142,866 | Opaque RGB light for GPU composition |
+| `lens.png` | 1024 × 512 | 631,149 | Two coordinate halves, 16-bit values, visibility and shadow |
+| `sky.png` | 1024 × 1024 | 51,221 | Deterministic repeating violet-white stars |
+
+The build copies only these local assets into the bundle. Each URL is explicitly
+allowlisted by `main/wiring/application.ts`; images remain within `img-src 'self'`
+without changing CSP, enabling fetch or permitting remote assets. The bake
+round-trip test checks byte reproducibility, map opacity, shadow coverage and
+the aggregate asset budget.
+
+### Measuring flight work
+
+After `pnpm run build`, run
+`MEASURE_LABEL=after xvfb-run -a node --test tests/electron/flight-measurement.js`
+on Linux. Like #697's idle measurement, it uses isolated harness profiles,
+Chromium traces and cumulative per-process CPU deltas. It settles for one second
+then samples six seconds each of About, launch, the closed board and reduced
+motion. Linux explicitly uses SwiftShader software WebGL, so GPU-process CPU
+is software-rendering work, not a hardware GPU-utilization measurement. Reports
+and traces go to ignored `test-results/flight-725/`; screenshots go to untracked
+`screenshots-725/`. No real agent CLI or everyday profile is used.

@@ -3,6 +3,7 @@ export function canvasContext() {
   const gradient = { addColorStop: vi.fn() };
   const ctx = {
     clearRect: vi.fn(),
+    drawImage: vi.fn(),
     fillRect: vi.fn(),
     setTransform: vi.fn(),
     beginPath: vi.fn(),

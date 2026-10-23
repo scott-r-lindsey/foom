@@ -568,3 +568,103 @@ test("About replay contains Tab and still dismisses with Enter Space or Escape",
     }
   }
 });
+
+test("flight samples baked assets with WebGL, freezes reduced motion and stops after closing", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board", renderer: "webgl" });
+  const page = await boardPage(app);
+  await page.evaluate(() => {
+    const original = WebGLRenderingContext.prototype.drawArrays;
+    WebGLRenderingContext.prototype.drawArrays = function (...args) {
+      document.documentElement.dataset.flightFrames = String(
+        Number(document.documentElement.dataset.flightFrames || 0) + 1,
+      );
+      return original.apply(this, args);
+    };
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.evaluate(() => window.desktop.appMenu.execute("about"));
+  const dialog = page.getByRole("dialog", { name: "About Foom", exact: true });
+  await expect(dialog).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => Number(document.documentElement.dataset.flightFrames || 0)))
+    .toBeGreaterThan(0);
+  const canvas = dialog.locator("canvas");
+  const pixels = () =>
+    canvas.evaluate((canvas) =>
+      canvas
+        .getContext("2d")
+        .getImageData(0, 0, canvas.width, canvas.height)
+        .data.reduce((hash, byte) => Math.imul(hash ^ byte, 16777619) >>> 0, 2166136261),
+    );
+  // Loading and the first ResizeObserver notification can each repaint the
+  // still. Wait for those event-driven paints, then require a quiet surface.
+  await expect
+    .poll(async () => {
+      const count = await page.evaluate(() => document.documentElement.dataset.flightFrames);
+      await page.waitForTimeout(100);
+      return (await page.evaluate(() => document.documentElement.dataset.flightFrames)) === count;
+    })
+    .toBe(true);
+  const still = await pixels();
+  const settledFrames = await page.evaluate(() => document.documentElement.dataset.flightFrames);
+  // A settled reduced-motion surface paints on load/resize, with no frame loop.
+  await page.waitForTimeout(250);
+  assert.deepEqual(await pixels(), still);
+  assert.equal(
+    await page.evaluate(() => document.documentElement.dataset.flightFrames),
+    settledFrames,
+  );
+  const shadow = await canvas.evaluate((canvas) => {
+    const x = Math.round(canvas.width * 0.66),
+      y = Math.round(canvas.height * (0.36 - 0.11 * 0.3));
+    return Array.from(canvas.getContext("2d").getImageData(x, y, 1, 1).data);
+  });
+  assert.ok(
+    shadow[0] < 20 && shadow[1] < 20 && shadow[2] < 25 && shadow[3] === 255,
+    `Opaque shadow: ${shadow}`,
+  );
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  const frames = await page.evaluate(() => document.documentElement.dataset.flightFrames);
+  await page.waitForTimeout(250);
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.flightFrames), frames);
+  await pauseReplayClock(page);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.evaluate(() => window.desktop.appMenu.execute("about"));
+  await expect(dialog).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => Number(document.documentElement.dataset.flightFrames || 0)))
+    .toBeGreaterThan(Number(frames));
+  const moving = await pixels();
+  await page.clock.fastForward(1000);
+  assert.notEqual(await pixels(), moving);
+  const ring = () =>
+    canvas.evaluate((canvas) => {
+      const ctx = canvas.getContext("2d");
+      return [-1, 1].map((side) => {
+        const x = Math.round(canvas.width * 0.66),
+          y = Math.round(canvas.height * (0.36 + side * 0.11 * 1.97));
+        const data = ctx.getImageData(x - 1, y - 1, 3, 3).data;
+        return Math.max(...Array.from(data).filter((_v, k) => k % 4 === 1));
+      });
+    });
+  const unaligned = await ring();
+  // The baked bright star crosses the optical axis at eight seconds. Its image
+  // appears on opposite sides of the shadow, outside the emitted photon ring.
+  await page.clock.fastForward(7000);
+  await expect
+    .poll(async () => (await ring()).every((value, i) => value > unaligned[i] + 80))
+    .toBe(true);
+  await page.getByRole("button", { name: "Replay launch" }).click();
+  await expect(page.locator(".launch")).toBeVisible();
+  await page.clock.runFor(600);
+  await expect(dialog).not.toBeVisible();
+  await page.clock.resume();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".launch")).toHaveCount(0);
+  const closed = await page.evaluate(() => document.documentElement.dataset.flightFrames);
+  await page.waitForTimeout(250);
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.flightFrames), closed);
+});
