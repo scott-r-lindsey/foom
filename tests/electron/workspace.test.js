@@ -3025,8 +3025,25 @@ test("prunable removal offers a coded modal; Enter is inert, Escape restores foc
     return window.desktop.createWorktree(repositories[0].path, "error-prune-test", "root");
   });
   const { rm } = require("node:fs/promises");
-  // Capture the ordinary action before the checkout breaks: the coded recovery
-  // remains available for stale rows alongside the new direct cleanup action.
+  // Hold inventory notifications to exercise a stale row deterministically.
+  // The separate broken-row test covers normal refresh and direct Clean up.
+  await app.evaluate(({ BrowserWindow }) => {
+    const board = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    if (!board) throw new Error("Missing board");
+    const contents = board.webContents;
+    const send = contents.send.bind(contents);
+    contents.send = (channel, ...args) => {
+      if (channel !== "workspace:changed") send(channel, ...args);
+    };
+    globalThis.restorePruneInventory = () => {
+      contents.send = send;
+    };
+  });
+  // The reload completes its initial inventory while the checkout is still valid.
+  await page.reload();
+  await boardPage(app);
   await page.getByRole("button", { name: "Actions for error-prune-test", exact: true }).click();
   await rm(path.join(tree.path, ".git"));
   await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
@@ -3055,6 +3072,10 @@ test("prunable removal offers a coded modal; Enter is inert, Escape restores foc
   });
   assert.ok(branches.local.some((branch) => branch.name === "error-prune-test"));
   await assert.rejects(readFile(path.join(tree.path, ".git")), { code: "ENOENT" });
+  await app.evaluate(() => {
+    globalThis.restorePruneInventory();
+    delete globalThis.restorePruneInventory;
+  });
 });
 
 test("broken checkout shows Clean up directly and removes leftover content without panel-facts errors", async (context) => {
@@ -3145,6 +3166,9 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
     ],
     { cwd: repository },
   );
+  const remote = path.join(remoteRoot, "remote.git");
+  isolatedGit(["clone", "--bare", repository, remote], { cwd: repository });
+  isolatedGit(["remote", "add", "origin", remote], { cwd: repository });
   const trees = [];
   for (const branch of ["review-detached-a", "review-detached-b", "untracked-evidence"])
     trees.push(
@@ -3154,9 +3178,6 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
       ),
     );
   for (const tree of trees.slice(0, 2)) isolatedGit(["checkout", "--detach"], { cwd: tree.path });
-  const remote = path.join(remoteRoot, "remote.git");
-  isolatedGit(["clone", "--bare", repository, remote], { cwd: repository });
-  isolatedGit(["remote", "add", "origin", remote], { cwd: repository });
   await writeFile(path.join(trees[2].path, "screenshot.png"), "fixture evidence");
   // Rebuild inventory after the fixture's external Git operations.
   await page.reload();
