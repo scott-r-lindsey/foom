@@ -216,6 +216,35 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
     receive({
       ...base,
       cleanup: {
+        stage: "ready",
+        progress: {
+          ...progress,
+          items: [
+            {
+              ...progress.items[0],
+              id: "untracked",
+              branch: "screenshots",
+              state: "queued",
+              changes: "?? proof.png\0!! .env\0",
+              omittedChanges: 7,
+            },
+          ],
+        },
+      },
+    });
+  });
+  expect(view.getByRole("list", { name: "Uncommitted changes" }).textContent).toContain(
+    "proof.png",
+  );
+  expect(view.getByText("ignored", { exact: true })).toBeTruthy();
+  expect(view.getByText(".env", { exact: true })).toBeTruthy();
+  expect(view.getByText("7 more paths", { exact: true })).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Force delete 1" }));
+  expect(answer).toHaveBeenLastCalledWith("cleanup", true);
+  act(() => {
+    receive({
+      ...base,
+      cleanup: {
         stage: "run",
         progress: {
           ...progress,

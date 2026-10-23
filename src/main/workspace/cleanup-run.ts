@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
   CleanupDialog,
@@ -12,6 +13,7 @@ export interface CleanupCandidate {
   tree: Worktree;
   reason: CleanupReason | undefined;
   identity?: string;
+  changes?: string;
 }
 
 /** Main owns the lifetime; closing a presentation only unsubscribes it. */
@@ -72,11 +74,13 @@ export class CleanupRun implements CleanupFeed {
       ...(fetchedAt !== undefined ? { fetchedAt } : {}),
       progress: {
         ...progress,
-        items: progress.items.map(({ id, branch, state, reason }) => ({
+        items: progress.items.map(({ id, branch, state, reason, changes, omittedChanges }) => ({
           id,
           branch,
           state,
           ...(reason ? { reason } : {}),
+          ...(changes ? { changes } : {}),
+          ...(omittedChanges ? { omittedChanges } : {}),
         })),
       },
     };
@@ -93,12 +97,25 @@ export class CleanupRun implements CleanupFeed {
   }
   ready(plan: readonly CleanupCandidate[]): void {
     this.plan = plan;
-    this.items = plan.map(({ tree, reason }, index) => ({
+    this.items = plan.map(({ tree, reason, changes }, index) => ({
       id: String(index),
       path: tree.path,
-      branch: tree.branch ?? "Detached checkout",
+      branch:
+        tree.branch ??
+        `${basename(tree.path)} · Detached at ${tree.head?.slice(0, 7) ?? "Unknown"}`,
       state: reason ? "kept" : "queued",
       ...(reason ? { reason } : {}),
+      ...(changes
+        ? {
+            omittedChanges: Math.max(0, changes.split("\0").filter(Boolean).length - 50),
+            changes: changes
+              .split("\0")
+              .filter(Boolean)
+              .slice(0, 50)
+              .map((entry) => (entry.length > 500 ? `${entry.slice(0, 499)}…` : entry))
+              .join("\0"),
+          }
+        : {}),
     }));
     this.total = this.items.filter((item) => item.state === "queued").length;
     this.stage = "ready";
@@ -138,6 +155,9 @@ export class CleanupRun implements CleanupFeed {
     this.publish();
     let next = 0;
     const removed: CleanupCandidate[] = [];
+    // Detached checkouts share the existing null-branch reservation. Release it
+    // after each removal and serialize only those candidates within this run.
+    let detached: Promise<void> = Promise.resolve();
     const worker = async () => {
       while (!this.stopped && next < this.plan.length) {
         const index = next++;
@@ -147,7 +167,11 @@ export class CleanupRun implements CleanupFeed {
         item.state = "removing";
         this.publish();
         try {
-          await this.deps.remove(candidate, base);
+          if (candidate.tree.branch === null) {
+            const removal = detached.then(() => this.deps.remove(candidate, base));
+            detached = removal.catch(() => undefined);
+            await removal;
+          } else await this.deps.remove(candidate, base);
           item.state = "removed";
           removed.push(candidate);
         } catch (error) {

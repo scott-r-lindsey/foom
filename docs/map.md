@@ -28,7 +28,7 @@ Paths below are relative to the repository root.
 | `src/main/agents/providers/` | Registry, bundled/config v2 loading, launch/MCP/hooks, immutable mappings and observed health | [Providers](areas/providers.md), [manifest contracts](agent-plugins.md) |
 | `src/main/agents/probe-*.ts`, `probes.ts` | Config-credential-owned scratch probes, prompt/input, screen and reminder projection | [Probes](areas/probes.md), [behavior](behavior/probes.md), [capture/replay](contracts/agent-report.md#saved-screen-rule-regressions-592) |
 | `src/main/control/service.ts`, `runtime.ts`, `http.ts`, `http-limits.ts`, `mcp.ts`, `mcp-tools.ts`, `manual.ts`, `manual-mcp.ts`, `store.ts`, `operations.ts`, `pairing.ts` | Authorization policy, adapters, grants, durable idempotency/audit and human pairing | [Control foundation](areas/control.md), [MCP](areas/mcp.md), [protocol contracts](orchestration.md) |
-| `src/main/control/orchestration-authority.ts`, `orchestration-mutations.ts`, `orchestration.ts`, `orchestration.d.ts`, `review-loops.ts` | Authority/limits/lifecycle and optional child review loops; worktree and child mutations; dispatch/input/tails/waits; shared host/state declarations | [Orchestration](areas/orchestration.md), [child authority/input](areas/child-authority.md), [behavior](behavior/orchestration.md) |
+| `src/main/control/orchestration-authority.ts`, `orchestration-mutations.ts`, `orchestration.ts`, `orchestration.d.ts`, `review-loops.ts`, `review-effects.ts`, `finished-child-closer.ts`, `orchestration-automation.ts` | Authority/limits/lifecycle and optional child review loops; worktree and child mutations; dispatch/input/tails/waits; shared host/state declarations | [Orchestration](areas/orchestration.md), [child authority/input](areas/child-authority.md), [behavior](behavior/orchestration.md) |
 | `src/main/control/handoffs.ts`, `child-events.ts`, `unread-child-events.ts` | Bounded child reports, shared invalidation and unread reminders | [Handoffs](areas/handoffs.md), [report contract](contracts/control-handoffs.md), [behavior](behavior/orchestration.md) |
 | `src/main/control/forge*.ts` | PR/check mapping, lifecycle/interpreter, runtime routing and batched tracking; production uses the shared manifest engine | [Forge ownership](areas/forge.md), [tracking contract](contracts/forge-tracking.md), [forge status](contracts/forge-status.md) |
 | `src/main/config/`, `src/main/setup/` | Config containment/live reload/holds, profile consent, repository scans, settings/environment IPC | [Config](areas/config.md), [settings](areas/settings.md), [launch environment](areas/agent-launch.md#launch-environment-215), [behavior](behavior/settings.md), [setup](behavior/setup.md) |
@@ -56,7 +56,9 @@ Every top-level `src/` directory is covered above: `cli`, `main`, `node-common`,
 plus `workspace.test.ts` and `orchestration-workspace.test.ts`; their shared setup
 and helpers live in `tests/unit/main/workspace/workspace-fixture.ts`. `tests/electron/agent-{config,launch,lifecycle,plugins,probe,restore,resume}.test.js`
 are distinct feature suites; `antigravity-plugin.test.js` covers plugin behavior.
-Other named feature suites, `harness.js`, `agent-isolation.js`, `test-policy.js`,
+`preflight.test.js` and `settings-{accessibility,appearance,sound,agents,general}.test.js`
+cover setup and Settings; sound affected runs select all six replacement suites
+to retain the former combined suite’s coverage. Other named feature suites, `harness.js`, `agent-isolation.js`, `test-policy.js`,
 `process-audit.js` and `shard-plan.json` own app fixtures, CLI isolation, deadlines,
 process cleanup and CI assignment. `tests/helpers/git.js` owns test Git isolation.
 Read [Electron sharding](electron-shards.md), [fixtures](electron-fixtures.md),

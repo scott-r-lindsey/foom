@@ -30,7 +30,10 @@ export function serveHost(build: string, home = homedir()) {
     }
     const state = outgoing.get(socket) ?? { chain: Promise.resolve(), queued: 0 };
     outgoing.set(socket, state);
-    const cost = replay ? 0 : Buffer.byteLength(JSON.stringify(message));
+    // Dispatch awaits each result and replay, so only one bounded reply is
+    // retained at a time. The separate backlog cap applies to live updates.
+    const cost =
+      replay || message.type === "result" ? 0 : Buffer.byteLength(JSON.stringify(message));
     state.queued += cost;
     if (state.queued > 1024 * 1024 || socket.writableLength > 1024 * 1024) {
       socket.destroy();

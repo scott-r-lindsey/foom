@@ -202,6 +202,7 @@ export type SidebarCommand =
   | { kind: "copy-worktree-path"; repository: string; worktree: string }
   | { kind: "launch"; repository: string; worktree: string; run: AgentId }
   | { kind: "remove-worktree"; repository: string; worktree: string }
+  | { kind: "cleanup-worktree"; repository: string; worktree: string }
   | { kind: "prune-worktree"; repository: string; worktree: string }
   | { kind: "delete-merged-worktrees"; repository: string }
   | { kind: "remove-repository"; repository: string }

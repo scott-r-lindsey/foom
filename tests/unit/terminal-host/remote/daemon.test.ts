@@ -354,3 +354,32 @@ test.skipIf(process.platform === "win32")(
     expect(mock.kill).not.toHaveBeenCalled();
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "large valid tail results stream within the total bound without tripping the live backlog cap",
+  async () => {
+    await start();
+    const c = await open();
+    const lines = Array.from({ length: 10000 }, () => "λ".repeat(80));
+    const expected = { type: "result", id: "one", request: 2, lines };
+    expect(Buffer.byteLength(JSON.stringify(expected))).toBeGreaterThan(1024 * 1024);
+    mock.tail.mockResolvedValueOnce(lines);
+    const responses = new RemoteMessages();
+    const frames = new RemoteFrames();
+    const complete: unknown[] = [];
+    c.socket.on("data", (bytes: Buffer) => {
+      frames.push(bytes, (wire) => {
+        if (!remoteResponse(wire)) throw new Error("Invalid response");
+        const value = responses.push(wire);
+        if (value) complete.push(value);
+      });
+    });
+    c.send({ type: "tail", id: "one", request: 2, lines: 10000 });
+    while (complete.length < 1) await once(c.socket, "data");
+    expect(complete).toEqual([expected]);
+    expect(c.socket.destroyed).toBe(false);
+    c.send({ type: "write", id: "one", request: 3, data: "still attached" });
+    while (complete.length < 2) await once(c.socket, "data");
+    expect(mock.write).toHaveBeenCalledWith("one", "still attached");
+  },
+);

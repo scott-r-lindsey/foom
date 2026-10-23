@@ -377,3 +377,14 @@ for (const change of ["refresh", "configure"] as const) {
     expect(read).toHaveBeenCalledTimes(2);
   });
 }
+
+test("broken-row cleanup uses its own safety capability rather than legacy prune", async () => {
+  const workspace = new Workspace(deps);
+  await workspace.sidebarCommand(
+    { kind: "cleanup-worktree", repository: repo.path, worktree: tree.path },
+    () => Promise.resolve(true),
+  );
+  expect(deps.worktrees.cleanupBrokenWorktree).toHaveBeenCalledWith(repo.path, tree.path);
+  expect(deps.worktrees.pruneWorktree).not.toHaveBeenCalled();
+  await workspace.dispose();
+});

@@ -1,7 +1,20 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  opendir,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  rmdir,
+  writeFile,
+} from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { readOwnedFile } from "../../node-common/owned-files";
 import { ApplicationError } from "../../shared/application-errors";
 import type { GitPanelFacts } from "../../shared/panel";
 import type {
@@ -355,6 +368,59 @@ export class WorktreeService {
     await this.save();
   }
 
+  /** Broken-row cleanup never recursively deletes an uninspectable directory. */
+  async cleanupBrokenWorktree(repository: string, path: string): Promise<void> {
+    this.repository(repository);
+    const trees = await this.listWorktrees(repository);
+    const selected = trees.find((tree) => tree.path === path);
+    if (!selected?.prunable || selected.locked || selected.bare || path === repository)
+      throw new ApplicationError("prune-unsafe");
+    assertInside(await realpath(this.root), resolve(path));
+    // Prune is repository-wide. Prove every prunable admin record safe before
+    // invoking it, including worktrees whose checkout directory is already gone.
+    const common = (
+      await cleanupGit(repository, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+    ).trimEnd();
+    const validate = async () => {
+      const admins = await readdir(join(common, "worktrees"));
+      let found = false;
+      for (const name of admins) {
+        const admin = join(common, "worktrees", name);
+        const checkout = resolve(
+          dirname((await readFile(join(admin, "gitdir"), "utf8")).trimEnd()),
+        );
+        if (!trees.some((tree) => tree.prunable && tree.path === checkout)) continue;
+        if (checkout === path) found = true;
+        await this.checkCleanupState(repository, admin);
+        await this.checkCleanupEvidence(repository, admin);
+        const read = (args: string[]) => cleanupGit(repository, ["--git-dir", admin, ...args]);
+        const index = await read(["ls-files", "-v", "--stage", "-z"]);
+        // Without a checkout marker there is no trustworthy status snapshot. Keep
+        // any nonempty index, including staged blobs, gitlinks and sparse entries.
+        if (
+          index ||
+          (await read(["rev-list", "--count", "HEAD", "--not", "--remotes"])).trim() !== "0"
+        )
+          throw new ApplicationError("prune-unsafe");
+      }
+      if (!found) throw new ApplicationError("prune-unsafe");
+    };
+    await validate();
+    // rmdir is deliberately nonrecursive: new or undisclosed contents fail closed.
+    // Reuse the canonical/symlink/marker guards of prune without its rm path by
+    // first requiring the directory to be absent. Only an empty directory may go.
+    if (await exists(path)) {
+      if ((await realpath(path)) !== path || !(await lstat(path)).isDirectory())
+        throw new ApplicationError("prune-unsafe");
+      await walkCleanupDirectory(path, true);
+      await rmdir(path);
+    }
+    await validate();
+    await git(repository, ["worktree", "prune"]);
+    this.managed.delete(path);
+    await this.save();
+  }
+
   private async checkRemovalIdentity(
     repositoryPath: string,
     path: string,
@@ -366,16 +432,248 @@ export class WorktreeService {
 
   // Background status reads must not refresh/write the index while removal is
   // deleting per-worktree Git metadata. --no-optional-locks keeps them read-only.
+  // Disable status caches so they cannot hide changes from a removal snapshot.
   async changes(repositoryPath: string, path: string, identity?: string): Promise<string> {
     const expected = identity ?? (await this.removalIdentity(repositoryPath, path));
     await this.checkRemovalIdentity(repositoryPath, path, expected);
     return git(path, [
       "--no-optional-locks",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.untrackedCache=false",
       "status",
       "--porcelain=v1",
       "-z",
       "--untracked-files=all",
     ]);
+  }
+
+  /** A fresh config-neutral status snapshot for group cleanup, never explicit removal. */
+  async cleanupStatus(
+    repository: string,
+    path: string,
+    identity?: string,
+    head?: string | null,
+    inspectReflogs = false,
+  ): Promise<string> {
+    const expected = identity ?? (await this.removalIdentity(repository, path));
+    const read = (args: string[]) => cleanupGit(path, args);
+    const expectedHead = head ?? (await read(["rev-parse", "--verify", "HEAD^{commit}"])).trim();
+    const index = await read(["ls-files", "-v", "--stage", "-z", "--"]);
+    const entries = index.split("\0").filter(Boolean);
+    if (entries.some((entry) => /^[a-zS]/.test(entry)))
+      throw new Error("Index flags can hide tracked changes and prevent cleanup");
+    if (
+      entries.some((entry) => entry.slice(2).startsWith("160000 ")) ||
+      (await exists(join(path, ".gitmodules")))
+    )
+      throw new Error("Submodules prevent cleanup");
+    await this.checkCleanupState(path);
+    await this.checkCleanupEvidence(path, undefined, inspectReflogs);
+    await walkCleanupDirectory(path, true);
+    const paths = entries.map((entry) => entry.slice(entry.indexOf("\t") + 1));
+    if (paths.length) {
+      const attributes = (
+        await cleanupGit(
+          path,
+          ["check-attr", "-z", "--stdin", "ident", "working-tree-encoding"],
+          `${paths.join("\0")}\0`,
+        )
+      ).split("\0");
+      if (attributes.pop() !== "" || attributes.length !== paths.length * 6)
+        throw new Error("Cannot inspect tracked content conversions");
+      for (let position = 0; position < attributes.length; position += 3) {
+        const attribute = attributes[position + 1];
+        const value = attributes[position + 2];
+        if (
+          (attribute !== "ident" && attribute !== "working-tree-encoding") ||
+          (value !== "unspecified" && value !== "unset")
+        )
+          throw new Error("Tracked content conversions prevent cleanup");
+      }
+    }
+    if ((await read(["ls-files", "-v", "--stage", "-z", "--"])) !== index)
+      throw new Error("Index changed during cleanup checks");
+    await this.checkRemovalIdentity(repository, path, expected);
+    if ((await read(["rev-parse", "--verify", "HEAD^{commit}"])).trim() !== expectedHead)
+      throw new Error("HEAD changed during cleanup checks");
+    // Keep status last: a tracked save during any preceding validation await
+    // must be visible to the approved-snapshot comparison next to Git removal.
+    const changes = await read([
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--ignored=matching",
+      "--ignore-submodules=none",
+    ]);
+    const records = changes.split("\0").filter(Boolean);
+    // A case-sensitive read exposes names hidden by core.ignorecase. Refuse
+    // collisions rather than interpreting which spelling represents tracked data.
+    const tracked = new Set(paths.map((path) => path.toLowerCase()));
+    if (
+      records.some(
+        (entry) =>
+          (entry.startsWith("?? ") || entry.startsWith("!! ")) &&
+          tracked.has(entry.slice(3).toLowerCase()),
+      )
+    )
+      throw new Error("Case-colliding paths prevent cleanup");
+    return changes;
+  }
+
+  /** New cleanup reads cannot redirect status; additional candidates must retain private history. */
+  private async checkCleanupEvidence(
+    path: string,
+    gitDirectory?: string,
+    inspectReflogs = true,
+  ): Promise<void> {
+    const read = (args: string[]) =>
+      cleanupGit(path, [...(gitDirectory ? ["--git-dir", gitDirectory] : []), ...args]);
+    const locations = gitDirectory
+      ? [gitDirectory]
+      : (await read(["rev-parse", "--absolute-git-dir", "--show-toplevel"])).trimEnd().split("\n");
+    const admin = locations[0];
+    if (!admin || (!gitDirectory && locations.length !== 2))
+      throw new Error("Cannot inspect cleanup directory");
+    if (await exists(join(admin, "config.worktree")))
+      throw new Error("Worktree configuration prevents cleanup");
+    const config = await read(["config", "--null", "--list"]);
+    const settings = config
+      .split("\0")
+      .filter(Boolean)
+      .map((entry) => {
+        const newline = entry.indexOf("\n");
+        return {
+          key: (newline < 0 ? entry : entry.slice(0, newline)).toLowerCase(),
+          value: newline < 0 ? undefined : entry.slice(newline + 1),
+        };
+      });
+    const disabled = (value: string | undefined) =>
+      value !== undefined && ["", "0", "no", "off", "false"].includes(value.trim().toLowerCase());
+    if (settings.some(({ key, value }) => key === "core.sparsecheckout" && !disabled(value)))
+      throw new Error("Sparse checkouts prevent cleanup");
+    if (
+      settings.some(
+        ({ key, value }) =>
+          key === "core.worktree" ||
+          key.startsWith("filter.") ||
+          (key === "extensions.worktreeconfig" && !disabled(value)) ||
+          (key === "core.bare" && !disabled(value)),
+      )
+    )
+      throw new Error("Repository configuration prevents cleanup");
+    if (!gitDirectory) {
+      const top = locations[1];
+      if (!top || (await realpath(top)) !== path)
+        throw new Error("Cleanup directory is redirected");
+    }
+    // Ordinary clean branch cleanup retains its established merge-evidence policy.
+    // Detached/leftover cleanup and broken-row pruning additionally protect reflogs.
+    if (!inspectReflogs) return;
+    const logs = join(admin, "logs");
+    // A missing HEAD log is not evidence of an empty history (logging can be disabled).
+    const files = await walkCleanupDirectory(logs, false);
+    if (!files.includes(join(logs, "HEAD"))) throw new Error("Missing worktree HEAD reflog");
+    const commits = new Set<string>();
+    let remaining = 4 * 1024 * 1024;
+    for (const file of files) {
+      const contents = await readOwnedFile(file, remaining, async (target) => {
+        const entry = await lstat(target);
+        if (!entry.isFile() || entry.isSymbolicLink()) throw new Error("Unsafe reflog");
+      });
+      remaining -= Buffer.byteLength(contents);
+      if (!contents || !contents.endsWith("\n")) throw new Error("Incomplete worktree reflog");
+      for (const line of contents.trimEnd().split("\n")) {
+        const match = /^([a-f0-9]{40}|[a-f0-9]{64}) ([a-f0-9]{40}|[a-f0-9]{64}) /.exec(line);
+        if (!match || match[1]?.length !== match[2]?.length)
+          throw new Error("Invalid worktree reflog");
+        for (const oid of match.slice(1)) if (!/^0+$/.test(oid)) commits.add(oid);
+      }
+    }
+    // Bound argument size on Windows as well as the filesystem reads above.
+    const revisions = [...commits];
+    for (let start = 0; start < revisions.length; start += 128) {
+      if (
+        (
+          await read([
+            "rev-list",
+            "--count",
+            ...revisions.slice(start, start + 128),
+            "--not",
+            "--remotes",
+            "--",
+          ])
+        ).trim() !== "0"
+      )
+        throw new Error("Unpushed worktree reflog commits prevent cleanup");
+    }
+  }
+
+  private async checkCleanupState(path: string, gitDirectory?: string): Promise<void> {
+    const read = (args: string[]) =>
+      cleanupGit(path, [...(gitDirectory ? ["--git-dir", gitDirectory] : []), ...args]);
+    if (
+      (
+        await read([
+          "for-each-ref",
+          "--format=%(refname)",
+          "refs/worktree/",
+          "refs/bisect/",
+          "refs/rewritten/",
+        ])
+      ).trim()
+    )
+      throw new Error("Worktree-private refs prevent cleanup");
+    const names = [
+      "MERGE_HEAD",
+      "CHERRY_PICK_HEAD",
+      "REVERT_HEAD",
+      "rebase-merge",
+      "rebase-apply",
+      "sequencer",
+      "BISECT_LOG",
+      "BISECT_START",
+    ];
+    const paths = (
+      await read([
+        "rev-parse",
+        "--path-format=absolute",
+        ...names.flatMap((name) => ["--git-path", name]),
+      ])
+    )
+      .trimEnd()
+      .split("\n");
+    if (paths.length !== names.length) throw new Error("Cannot inspect Git operation state");
+    if ((await Promise.all(paths.map(exists))).some(Boolean))
+      throw new Error("An in-progress Git operation prevents cleanup");
+  }
+
+  /** Extra guards for newly eligible detached and leftover-only cleanup. */
+  async cleanupChanges(
+    repository: string,
+    path: string,
+    identity?: string,
+    head?: string | null,
+  ): Promise<string> {
+    const expected = identity ?? (await this.removalIdentity(repository, path));
+    const expectedHead =
+      head ?? (await cleanupGit(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
+    assertInside(await realpath(this.root), await realpath(path));
+    const unpushed = (
+      await cleanupGit(path, ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"])
+    ).trim();
+    if (unpushed !== "0") throw new Error("Unpushed commits prevent cleanup");
+    const changes = await this.cleanupStatus(repository, path, expected, expectedHead, true);
+    // No asynchronous work after cleanupStatus's final status read.
+    if (
+      changes
+        .split("\0")
+        .some((entry) => entry && !entry.startsWith("?? ") && !entry.startsWith("!! "))
+    )
+      throw new Error("Tracked changes prevent cleanup");
+    return changes;
   }
 
   /** Local refs only: the branch field never waits on the network. */
@@ -482,7 +780,23 @@ export class WorktreeService {
 
   /** Authorize even cache hits. Opening a panel never starts or awaits a network fetch. */
   async panelFacts(repository: string, worktree: string): Promise<GitPanelFacts> {
-    const identity = await this.launchIdentity(repository, worktree);
+    let identity: string;
+    try {
+      identity = await this.launchIdentity(repository, worktree);
+    } catch (error) {
+      if (!(error instanceof ApplicationError) || error.code !== "worktree-prunable") throw error;
+      // Known inventory state, not a failed panel operation.
+      return {
+        changes: null,
+        upstream: null,
+        commit: null,
+        remote: null,
+        defaultBranch: null,
+        lastFetch: null,
+        fetchFailed: false,
+        merged: null,
+      };
+    }
     const key = `${repository}\0${worktree}`;
     const cached = this.panelCache.get(key);
     if (cached?.identity === identity && Date.now() - cached.time < 3000) return cached.result;
@@ -580,9 +894,9 @@ export class WorktreeService {
 
   async mergedCommit(repository: string, tree: Worktree, base: string): Promise<boolean> {
     const head = tree.head;
-    if (!tree.branch || !head || this.fetchFacts.get(repository)?.branch === tree.branch)
+    if (!head || (tree.branch !== null && this.fetchFacts.get(repository)?.branch === tree.branch))
       return false;
-    await this.validateBranch(repository, tree.branch);
+    if (tree.branch) await this.validateBranch(repository, tree.branch);
     if (!commitId.test(base) || !commitId.test(head)) throw new Error("Invalid commit ID");
     try {
       if (
@@ -729,6 +1043,8 @@ export class WorktreeService {
         "-c",
         "core.attributesFile=",
         "-c",
+        "core.commitGraph=false",
+        "-c",
         "core.autocrlf=false",
         "-c",
         "merge.renormalize=false",
@@ -797,12 +1113,16 @@ export class WorktreeService {
     path: string,
     force = false,
     identity?: string,
+    beforeRemove?: () => Promise<void>,
   ): Promise<void> {
     const repository = this.repository(repositoryPath);
     validatePath(path);
     const resolved = resolve(path);
     const expected = identity ?? (await this.removalIdentity(repositoryPath, resolved));
     await this.checkRemovalIdentity(repositoryPath, resolved, expected);
+    // Callers with an approved snapshot must validate after the identity await,
+    // immediately before Git. Direct callers keep Git's existing dirty policy.
+    await beforeRemove?.();
     // Git performs its own dirty/locked checks before removing the tree.
     await git(repository.path, [
       "worktree",
@@ -814,4 +1134,91 @@ export class WorktreeService {
     this.managed.delete(resolved);
     await this.save();
   }
+}
+
+// Command-scoped overrides: repository configuration cannot suppress evidence.
+const cleanupReadOptions = [
+  "--no-optional-locks",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.untrackedCache=false",
+  "-c",
+  "core.ignorecase=false",
+  "-c",
+  "core.ignoreStat=false",
+  "-c",
+  "core.trustctime=true",
+  "-c",
+  "core.checkStat=default",
+  "-c",
+  "core.fileMode=true",
+  "-c",
+  "core.symlinks=true",
+  "-c",
+  "core.autocrlf=false",
+  "-c",
+  "core.eol=lf",
+  "-c",
+  "core.attributesFile=",
+  "-c",
+  "core.commitGraph=false",
+  "-c",
+  "diff.ignoreSubmodules=none",
+  "-c",
+  "status.showUntrackedFiles=all",
+];
+// Source-local configuration still applies and is audited above; user/system
+// configuration and system attributes cannot change these cleanup-only reads.
+function cleanupGit(path: string, args: string[], input?: string): Promise<string> {
+  return git(path, [...cleanupReadOptions, ...args], 30_000, input, true);
+}
+
+async function exists(path: string): Promise<boolean> {
+  return lstat(path).then(
+    () => true,
+    (error: unknown) => {
+      if (record(error) && error["code"] === "ENOENT") return false;
+      throw error;
+    },
+  );
+}
+
+/** Stream a bounded tree without following symlinks, including ignored directories. */
+async function walkCleanupDirectory(root: string, checkout: boolean): Promise<string[]> {
+  const files: string[] = [];
+  let remaining = 10_000;
+  const walk = async (path: string, depth: number): Promise<void> => {
+    if (depth > 64 || --remaining < 0) throw new Error("Cleanup directory walk exceeded its limit");
+    const before = await lstat(path);
+    if (!before.isDirectory() || before.isSymbolicLink() || (await realpath(path)) !== path)
+      throw new Error("Unsafe cleanup directory");
+    const directory = await opendir(path);
+    for await (const entry of directory) {
+      if (--remaining < 0) throw new Error("Cleanup directory walk exceeded its limit");
+      // Dirent strings replace invalid filename bytes. Never inspect a different
+      // sibling through a lossy name (including a literal replacement character).
+      if (
+        entry.name.includes("\ufffd") ||
+        Buffer.from(entry.name, "utf8").toString("utf8") !== entry.name
+      )
+        throw new Error("Cannot inspect cleanup directory names");
+      if (entry.name.toLowerCase() === ".git") {
+        if (checkout && depth === 0) continue;
+        throw new Error("Nested repositories prevent cleanup");
+      }
+      const child = join(path, entry.name);
+      const info = await lstat(child);
+      if (info.isSymbolicLink()) {
+        if (!checkout) throw new Error("Symlinked reflogs prevent cleanup");
+      } else if (info.isDirectory()) await walk(child, depth + 1);
+      else if (info.isFile()) files.push(child);
+      else throw new Error("Special files prevent cleanup");
+    }
+    const after = await lstat(path);
+    if (before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs)
+      throw new Error("Cleanup directory changed during inspection");
+  };
+  await walk(root, 0);
+  return files;
 }

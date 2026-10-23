@@ -150,3 +150,26 @@ test("the sidebar uses display preferences without changing repository command p
   expect(view.getByRole("treeitem", { name: "work/foom" })).toBeTruthy();
   expect(source.getSidebar()[0]?.path).toBe("/code/work/foom");
 });
+
+test("a broken checkout has a single Clean up command and a visible state", async () => {
+  const { source, command, base, ...view } = setup();
+  const repositories = source.getSidebar?.() ?? [];
+  source.getSidebar = () =>
+    repositories.map((repo) => ({
+      ...repo,
+      worktrees: repo.worktrees.map((tree) =>
+        tree.path === "/tree" ? { ...tree, prunable: true } : tree,
+      ),
+    }));
+  // A source notification refreshes the inventory without launching anything.
+  await act(async () => {
+    base.update("a", { seen: true });
+    await Promise.resolve();
+  });
+  fireEvent.click(view.getByRole("button", { name: "Actions for feature" }));
+  expect(view.getAllByText("Broken checkout").length).toBeGreaterThan(0);
+  expect(view.getAllByRole("menuitem")).toHaveLength(1);
+  // The existing fixture has a live session: cleanup must require closing it.
+  expect(view.getByRole("menuitem", { name: "Clean up" }).hasAttribute("disabled")).toBe(true);
+  expect(command).not.toHaveBeenCalled();
+});

@@ -70,6 +70,9 @@ beforeEach(() => {
       launchIdentity: vi.fn(() => Promise.resolve("identity")),
       removalIdentity: vi.fn(() => Promise.resolve("identity")),
       changes: vi.fn(() => Promise.resolve("")),
+      cleanupBrokenWorktree: vi.fn(async () => {}),
+      cleanupStatus: vi.fn(() => Promise.resolve("")),
+      cleanupChanges: vi.fn(() => Promise.resolve("")),
       mergedFetchTime: vi.fn(() => 1000),
       mergedDefault: vi.fn(() => Promise.resolve("base")),
       mergedCommit: vi.fn(() => Promise.resolve(false)),
@@ -471,6 +474,7 @@ it("removes an orchestrator worktree only through the trusted dialog", async () 
       child.path,
       false,
       "identity",
+      expect.any(Function),
     );
   });
   expect(deps.dialog).toHaveBeenCalledWith(
@@ -578,6 +582,7 @@ it.each([
     child.path,
     ["dirty", "changed-before-delete"].includes(mode),
     "identity",
+    expect.any(Function),
   );
   if (mode === "enabled") expect(deps.worktrees.canAutoRemove).toHaveBeenCalledTimes(2);
 });

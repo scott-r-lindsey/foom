@@ -124,7 +124,7 @@ operations, including the attach result after the complete replay, resets the
 retry allowance. An open acknowledgement followed by a replay disconnect still
 consumes an attempt; five such attempts terminate the transport and fail the tile.
 Input interrupted by disconnect is failed rather than replayed. Slow output above
-1 MiB of queued non-replay responses or socket writes disconnects the view; headless parsing continues.
+1 MiB of queued live updates or socket writes disconnects the view; headless parsing continues.
 Quit/dispose disconnects remote shells; explicit Stop or Close terminates them.
 The phase-1 hub retains IDs only in memory: rediscovery after hub restart is phase 4.
 See [measurements and fixture verification](../../spikes/remote-host/phase-1.md).
