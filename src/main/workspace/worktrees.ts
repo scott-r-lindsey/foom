@@ -394,12 +394,6 @@ export class WorktreeService {
         await this.checkCleanupState(repository, admin);
         await this.checkCleanupEvidence(repository, admin);
         const read = (args: string[]) => cleanupGit(repository, ["--git-dir", admin, ...args]);
-        if (
-          (
-            await read(["config", "--bool", "--default=false", "--get", "core.sparseCheckout"])
-          ).trim() !== "false"
-        )
-          throw new ApplicationError("prune-unsafe");
         const index = await read(["ls-files", "-v", "--stage", "-z"]);
         // Without a checkout marker there is no trustworthy status snapshot. Keep
         // any nonempty index, including staged blobs, gitlinks and sparse entries.
@@ -466,10 +460,6 @@ export class WorktreeService {
     const expected = identity ?? (await this.removalIdentity(repository, path));
     const read = (args: string[]) => cleanupGit(path, args);
     const expectedHead = head ?? (await read(["rev-parse", "--verify", "HEAD^{commit}"])).trim();
-    const sparse = (
-      await read(["config", "--bool", "--default=false", "--get", "core.sparseCheckout"])
-    ).trim();
-    if (sparse !== "false") throw new Error("Sparse checkouts prevent cleanup");
     const index = await read(["ls-files", "-v", "--stage", "-z", "--"]);
     const entries = index.split("\0").filter(Boolean);
     if (entries.some((entry) => /^[a-zS]/.test(entry)))
@@ -522,7 +512,12 @@ export class WorktreeService {
   ): Promise<void> {
     const read = (args: string[]) =>
       cleanupGit(path, [...(gitDirectory ? ["--git-dir", gitDirectory] : []), ...args]);
-    const admin = gitDirectory ?? (await read(["rev-parse", "--absolute-git-dir"])).trimEnd();
+    const locations = gitDirectory
+      ? [gitDirectory]
+      : (await read(["rev-parse", "--absolute-git-dir", "--show-toplevel"])).trimEnd().split("\n");
+    const admin = locations[0];
+    if (!admin || (!gitDirectory && locations.length !== 2))
+      throw new Error("Cannot inspect cleanup directory");
     if (await exists(join(admin, "config.worktree")))
       throw new Error("Worktree configuration prevents cleanup");
     const config = await read(["config", "--null", "--list"]);
@@ -531,21 +526,29 @@ export class WorktreeService {
       .filter(Boolean)
       .map((entry) => {
         const newline = entry.indexOf("\n");
-        return [entry.slice(0, newline).toLowerCase(), entry.slice(newline + 1)];
+        return {
+          key: (newline < 0 ? entry : entry.slice(0, newline)).toLowerCase(),
+          value: newline < 0 ? undefined : entry.slice(newline + 1),
+        };
       });
+    const disabled = (value: string | undefined) =>
+      value !== undefined && ["", "0", "no", "off", "false"].includes(value.trim().toLowerCase());
+    if (settings.some(({ key, value }) => key === "core.sparsecheckout" && !disabled(value)))
+      throw new Error("Sparse checkouts prevent cleanup");
     if (
       settings.some(
-        ([key, value]) =>
+        ({ key, value }) =>
           key === "core.worktree" ||
-          key?.startsWith("filter.") ||
-          (key === "extensions.worktreeconfig" && value !== "false") ||
-          (key === "core.bare" && value !== "false"),
+          key.startsWith("filter.") ||
+          (key === "extensions.worktreeconfig" && !disabled(value)) ||
+          (key === "core.bare" && !disabled(value)),
       )
     )
       throw new Error("Repository configuration prevents cleanup");
     if (!gitDirectory) {
-      const top = (await read(["rev-parse", "--show-toplevel"])).trimEnd();
-      if ((await realpath(top)) !== path) throw new Error("Cleanup directory is redirected");
+      const top = locations[1];
+      if (!top || (await realpath(top)) !== path)
+        throw new Error("Cleanup directory is redirected");
     }
     // Ordinary clean branch cleanup retains its established merge-evidence policy.
     // Detached/leftover cleanup and broken-row pruning additionally protect reflogs.

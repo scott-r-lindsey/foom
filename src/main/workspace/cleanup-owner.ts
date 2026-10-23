@@ -378,7 +378,8 @@ export class CleanupOwner {
               throw new KeptWorktree("worktree changed");
             const reason = this.sessionSkip(tree.path);
             if (reason) throw new KeptWorktree(reason);
-            if ((await readSnapshot()) !== changes) throw new KeptWorktree("worktree changed");
+            // Snapshot comparisons belong to the removal owner, after async proof
+            // work and at the final service boundary. Do not duplicate them here.
             // Re-read forge hints and local evidence; the displayed plan alone
             // never authorizes a later deletion.
             if (!(await this.deps.worktrees.mergedCommit(repository, current, base)))

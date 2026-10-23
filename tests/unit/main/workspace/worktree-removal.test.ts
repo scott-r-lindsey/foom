@@ -671,3 +671,30 @@ it.skipIf(process.platform !== "linux")(
     expect((await stat(rawFile(path, ".git/objects"))).isDirectory()).toBe(true);
   },
 );
+
+it("refuses a valueless worktree configuration boolean", async () => {
+  const { path } = await service.createWorktree(repo, "valueless-config");
+  await git("clone", "--bare", repo, join(temporary, "remote.git"));
+  await git("remote", "add", "origin", join(temporary, "remote.git"));
+  await git("fetch", "origin");
+  const config = join(repo, ".git", "config");
+  await writeFile(config, `${await readFile(config, "utf8")}\n[extensions]\nworktreeConfig\n`);
+  expect(
+    (
+      await execute(["config", "--bool", "--get", "extensions.worktreeConfig"], { cwd: path })
+    ).stdout.trim(),
+  ).toBe("true");
+  await expect(service.cleanupChanges(repo, path)).rejects.toThrow("configuration");
+});
+
+it.each(["false", "0", "off", "no", ""])(
+  "accepts disabled sparse configuration %j in the audited config read",
+  async (value) => {
+    const { path } = await service.createWorktree(repo, "disabled-sparse");
+    await git("clone", "--bare", repo, join(temporary, "remote.git"));
+    await git("remote", "add", "origin", join(temporary, "remote.git"));
+    await git("fetch", "origin");
+    await execute(["config", "core.sparseCheckout", value], { cwd: path });
+    expect(await service.cleanupChanges(repo, path)).toBe("");
+  },
+);

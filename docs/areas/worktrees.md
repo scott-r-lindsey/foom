@@ -169,7 +169,11 @@ more than 10,000 entries or depth over 64. For the additional detached/leftover 
 (including HEAD and per-worktree logs) must be present, readable and bounded;
 every old and new commit must be reachable from remote-tracking refs. Reflog
 reads are limited to 4 MiB in total, and reachability reads disable commit-graph caches. These guards repeat at final revalidation.
-Index listings are compared across metadata checks, and HEAD
+The removal owner reads the full snapshot after asynchronous merge-proof
+revalidation rather than duplicating it inside that proof. Configuration and Git
+directory queries are batched; valueless boolean settings retain Git’s true
+semantics. The final full policy read remains after preview shutdown and service
+identity validation. Index listings are compared across metadata checks, and HEAD
 and filesystem identity are rechecked. Status is the final asynchronous read, so
 a tracked save during a preceding validation await invalidates approval. Git errors
 refuse eligibility. The existing freshly fetched default and merge containment checks still apply. Clean branch

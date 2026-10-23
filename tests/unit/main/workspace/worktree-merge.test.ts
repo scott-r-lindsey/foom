@@ -1487,23 +1487,51 @@ it("preserves a tracked save during the final cleanup snapshot identity await", 
   const { path } = await service.createWorktree(repo, "final-snapshot-race");
   await git("clone", "--bare", repo, join(temporary, "remote.git"));
   await git("remote", "add", "origin", join(temporary, "remote.git"));
+  await git("fetch", "origin");
   await writeFile(join(path, "approved.png"), "approved evidence");
-  let afterPreview = false;
-  let snapshot = 0;
+  const expectedIdentity = await service.removalIdentity(repo, path);
+  const head = (await execute(["rev-parse", "HEAD"], { cwd: path })).stdout.trim();
+  const approved = await service.cleanupChanges(repo, path, expectedIdentity, head);
+  let finalSnapshot = false;
   let saved = false;
-  const status = service.cleanupStatus.bind(service);
-  vi.spyOn(service, "cleanupStatus").mockImplementation(async (...args) => {
-    if (afterPreview) snapshot++;
-    return status(...args);
-  });
   const identity = service.removalIdentity.bind(service);
   vi.spyOn(service, "removalIdentity").mockImplementation(async (...args) => {
     const result = await identity(...args);
-    // The first post-preview snapshot belongs to merge revalidation. The
-    // second is the final approved snapshot, adjacent to forced Git removal.
-    if (snapshot === 2 && !saved) {
+    if (finalSnapshot && !saved) {
       saved = true;
       await writeFile(join(path, "tracked.txt"), "saved during final identity check");
+    }
+    return result;
+  });
+  await expect(
+    service.removeWorktree(repo, path, true, expectedIdentity, async () => {
+      finalSnapshot = true;
+      if ((await service.cleanupChanges(repo, path, expectedIdentity, head)) !== approved)
+        throw new Error("Snapshot changed");
+    }),
+  ).rejects.toThrow();
+  expect(saved).toBe(true);
+  expect(await readFile(join(path, "tracked.txt"), "utf8")).toBe(
+    "saved during final identity check",
+  );
+  expect(await readFile(join(path, "approved.png"), "utf8")).toBe("approved evidence");
+});
+
+it("rechecks the full cleanup policy after the final asynchronous merge proof", async () => {
+  const { path } = await service.createWorktree(repo, "proof-boundary");
+  await git("clone", "--bare", repo, join(temporary, "remote.git"));
+  await git("remote", "add", "origin", join(temporary, "remote.git"));
+  await writeFile(join(path, "approved.png"), "approved evidence");
+  const admin = (await execute(["rev-parse", "--absolute-git-dir"], { cwd: path })).stdout.trim();
+  let afterPreview = false;
+  let changed = false;
+  const merged = service.mergedCommit.bind(service);
+  vi.spyOn(service, "mergedCommit").mockImplementation(async (...args) => {
+    const result = await merged(...args);
+    if (afterPreview && !changed) {
+      expect(result).toBe(true);
+      changed = true;
+      await writeFile(join(admin, "config.worktree"), "");
     }
     return result;
   });
@@ -1525,11 +1553,9 @@ it("preserves a tracked save during the final cleanup snapshot identity await", 
         return true;
       },
     );
-    expect(saved).toBe(true);
-    expect(await readFile(join(path, "tracked.txt"), "utf8")).toBe(
-      "saved during final identity check",
-    );
+    expect(changed).toBe(true);
     expect(await readFile(join(path, "approved.png"), "utf8")).toBe("approved evidence");
+    expect(await realpath(path)).toBe(path);
   } finally {
     await workspace.dispose();
   }
