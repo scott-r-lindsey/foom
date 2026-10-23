@@ -1,12 +1,13 @@
 import {
+  agentFixture,
   binding,
+  cleanup,
   create,
   launchIdentity,
   listWorktrees,
   prepare,
   request,
   root,
-  agentFixture,
   versions,
 } from "./agents-fixture";
 import { readFile } from "node:fs/promises";
@@ -15,7 +16,6 @@ import { expect, it, vi } from "vitest";
 import { AgentService } from "../../../../src/main/agents/agents";
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
 import { CLI_GUIDANCE, CONFIG_PROMPT } from "../../../../src/main/agents/providers/cli-launch";
-import { prepareMcpLaunch } from "../../../../src/main/agents/providers/mcp-launch";
 import {
   agentProvider,
   replaceConfigProviders,
@@ -30,11 +30,6 @@ it.each([true, false])(
   async (trusted) => {
     const old = versions.codex;
     versions.codex = "codex-cli 0.161.0";
-    const disposeMcp = vi.fn();
-    vi.mocked(prepareMcpLaunch).mockResolvedValueOnce({
-      args: ["-c", 'mcp_servers.foom.url="http://127.0.0.1:1234/control/v1/mcp"'],
-      dispose: disposeMcp,
-    });
     agentFixture.service = new AgentService(
       { listWorktrees, launchIdentity },
       { create },
@@ -76,7 +71,7 @@ it.each([true, false])(
         ),
       );
       agentFixture.service.release("terminal-id");
-      expect(disposeMcp).not.toHaveBeenCalled();
+      expect(cleanup).toHaveBeenCalledOnce();
       expect(args.some((arg) => arg.startsWith("notify="))).toBe(!trusted);
       expect(args.join(" ")).not.toContain("--dangerously-bypass-hook-trust");
       expect(args.join(" ")).not.toContain("secret");
@@ -157,7 +152,7 @@ it.each([false, true, "child"])(
     expect(spec?.env?.["PATH"]).toBe(`${join(root, "console 日本語")}${delimiter}${root}`);
     expect(spec?.args.join(" ")).not.toContain("control-secret");
     expect(process.env["PATH"]).toBe(inheritedPath);
-    expect(prepareMcpLaunch).not.toHaveBeenCalled();
+    expect(spec?.args.join(" ")).not.toMatch(/mcp_servers|--mcp-config/u);
   },
 );
 
@@ -299,10 +294,6 @@ it.each([
   const grants = ["open_preview", "list_previews", "close_preview"].map(
     (tool) => `mcp__foom_test__${tool}`,
   );
-  vi.mocked(prepareMcpLaunch).mockResolvedValue({
-    args: ["--mcp-config", "/private/mcp.json", "--allowedTools", grants.join(",")],
-    dispose: vi.fn(),
-  });
   agentFixture.service = new AgentService(
     { listWorktrees, launchIdentity },
     { create },
@@ -347,7 +338,7 @@ it.each([
       if (defaults.includes("--model")) expect(args.slice(0, 2)).toEqual(["--model", "example"]);
     } else {
       expect(args.slice(0, -2)).toEqual(defaults);
-      expect(prepareMcpLaunch).not.toHaveBeenCalled();
+      expect(args).not.toContain("--mcp-config");
     }
   } finally {
     versions.claude = previous;

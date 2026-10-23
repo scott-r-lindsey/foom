@@ -6,8 +6,6 @@ import type * as Os from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, vi } from "vitest";
 import { AgentService } from "../../../../src/main/agents/agents";
-import type * as McpLaunch from "../../../../src/main/agents/providers/mcp-launch";
-import { prepareMcpLaunch } from "../../../../src/main/agents/providers/mcp-launch";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import type { AgentHooks, AgentLaunch } from "../../../../src/shared/agents";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
@@ -30,10 +28,7 @@ vi.mock("node:child_process", async (original) => {
   });
   return { ...actual, execFile: mocked };
 });
-vi.mock("../../../../src/main/agents/providers/mcp-launch", async (original) => ({
-  ...(await original<typeof McpLaunch>()),
-  prepareMcpLaunch: vi.fn(),
-}));
+
 vi.mock("node:fs/promises", async (original) => ({
   ...(await original<typeof Fs>()),
   access: vi.fn(),
@@ -88,7 +83,6 @@ export const agentFixture = {
 beforeEach(() => {
   vi.clearAllMocks();
   binding.v2?.channels.clear();
-  vi.mocked(prepareMcpLaunch).mockReset();
   create.mockReset().mockImplementation(() => "terminal-id");
   launchIdentity.mockReset().mockResolvedValue("identity");
   vi.stubEnv("PATH", root);

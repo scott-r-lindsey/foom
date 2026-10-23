@@ -1,4 +1,5 @@
 import {
+  agentFixture,
   binding,
   cleanup,
   create,
@@ -7,7 +8,6 @@ import {
   prepare,
   request,
   root,
-  agentFixture,
   tree,
   versions,
 } from "./agents-fixture";
@@ -15,7 +15,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { AgentService } from "../../../../src/main/agents/agents";
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
-import { prepareMcpLaunch } from "../../../../src/main/agents/providers/mcp-launch";
+import type { TerminalSpec } from "../../../../src/shared/desktop";
 
 describe("conversation resume", () => {
   it.each(["claude", "codex", "agy"] as const)(
@@ -159,12 +159,8 @@ it.each([true, false])(
     const previous = versions.claude;
     versions.claude = "2.1.296 (Claude Code)";
     agentFixture.help += "\n--mcp-config <file>";
-    const dispose = vi.fn();
+    const revoke = vi.fn();
     const bind = vi.fn();
-    vi.mocked(prepareMcpLaunch).mockResolvedValue({
-      args: ["--mcp-config", "/private/mcp.json"],
-      dispose,
-    });
     agentFixture.service = new AgentService(
       { listWorktrees, launchIdentity },
       { create },
@@ -173,7 +169,7 @@ it.each([true, false])(
         Promise.resolve({
           env: { FOOM_CONTROL_URL: "http://127.0.0.1:1234/control/v1" },
           bind,
-          dispose: vi.fn(),
+          dispose: revoke,
         }),
     );
     agentFixture.service.setHooksEnabled(hooks);
@@ -181,18 +177,17 @@ it.each([true, false])(
       expect((await agentFixture.service.scan()).agents[0]?.mcp).toBe(true);
       await agentFixture.service.launch(request);
       expect(bind).toHaveBeenCalledWith("terminal-id", true);
-      expect(create.mock.calls.at(-1)?.[0].args).toContain("--mcp-config");
+      const args = create.mock.calls.at(-1)?.[0].args ?? [];
+      const file = args[args.indexOf("--mcp-config") + 1];
+      if (!file) throw Error("Missing private MCP file");
+      const data = await readFile(file, "utf8");
+      expect(data).toContain("http://127.0.0.1:1234/mcp");
+      expect(data).toContain("Bearer ${FOOM_CONTROL_TOKEN}");
       agentFixture.service.release("terminal-id");
-      await expect
-        .poll(async () => {
-          try {
-            await readFile(create.mock.calls.at(-1)?.[0].args[1] ?? "");
-            return false;
-          } catch {
-            return true;
-          }
-        })
-        .toBe(true);
+      expect(revoke).toHaveBeenCalledOnce();
+      await vi.waitFor(async () => {
+        await expect(readFile(file, "utf8")).rejects.toThrow();
+      });
     } finally {
       versions.claude = previous;
     }
@@ -220,10 +215,6 @@ it("restores an orchestrator's role without a launch prompt and appends a child'
   const previous = versions.claude;
   versions.claude = "2.1.293 (Claude Code)";
   agentFixture.help += "\n--mcp-config <file>";
-  vi.mocked(prepareMcpLaunch).mockResolvedValue({
-    args: ["--mcp-config", "/private/mcp.json"],
-    dispose: vi.fn(),
-  });
   try {
     await agentFixture.service.scan();
     await agentFixture.service.launch({ ...request, control: { role: "orchestrator" } });
@@ -256,9 +247,6 @@ it.each([
   const previous = versions[agent];
   versions[agent] = agent === "claude" ? "2.1.293 (Claude Code)" : "codex-cli 0.161.0";
   agentFixture.help += "\n--mcp-config <configs...>\n--no-alt-screen";
-  const mcpArgs =
-    agent === "claude" ? ["--mcp-config", "/private/mcp.json"] : ["-c", "mcp_servers.foom={}"];
-  vi.mocked(prepareMcpLaunch).mockResolvedValue({ args: mcpArgs, dispose: vi.fn() });
   agentFixture.service = new AgentService(
     { listWorktrees, launchIdentity },
     { create },
@@ -306,7 +294,12 @@ it.each(["denied", "spawn", "early-exit"])("cleans MCP launch on %s", async (mod
   versions.claude = "2.1.293 (Claude Code)";
   agentFixture.help += "\n--mcp-config <file>";
   const revoke = vi.fn();
-  const spawn = () => {
+  let file: string | undefined;
+  const spawn = async (spec: TerminalSpec) => {
+    expect(spec.args).toContain("--mcp-config");
+    file = spec.args[spec.args.indexOf("--mcp-config") + 1];
+    if (!file) throw Error("Missing private MCP file");
+    expect(await readFile(file, "utf8")).toContain("http://127.0.0.1:1234/mcp");
     if (mode === "spawn") throw new Error("spawn");
     agentFixture.service.release("early");
     return "early";
@@ -330,8 +323,16 @@ it.each(["denied", "spawn", "early-exit"])("cleans MCP launch on %s", async (mod
       await expect(agentFixture.service.launch(request)).rejects.toThrow(
         mode === "denied" ? "Invalid URL" : mode,
       );
-    expect(revoke).toHaveBeenCalled();
-    expect(cleanup).toHaveBeenCalled();
+    expect(revoke).toHaveBeenCalledOnce();
+    expect(cleanup).toHaveBeenCalledOnce();
+    if (mode === "denied") expect(file).toBeUndefined();
+    else {
+      const createdFile = file;
+      if (!createdFile) throw Error("Missing generated MCP file");
+      await vi.waitFor(async () => {
+        await expect(readFile(createdFile, "utf8")).rejects.toThrow();
+      });
+    }
   } finally {
     versions.claude = previous;
   }
