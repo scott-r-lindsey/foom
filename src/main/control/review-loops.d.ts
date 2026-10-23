@@ -27,4 +27,6 @@ export interface ReviewLoop {
   busy: boolean;
   again?: boolean;
   unreadAt?: number;
+  parentTimer?: ReturnType<typeof setTimeout>;
+  authorPhase?: "building" | "fixing";
 }
