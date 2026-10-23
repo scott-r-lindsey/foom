@@ -115,6 +115,7 @@ test("owned files refresh only when missing or matching an earlier Foom version"
       "hooks",
       "restoreSessions",
       "showNewChildren",
+      "closeFinishedAgents",
       "concurrentChildren",
       "recentRepositoryDays",
     ].sort(),
@@ -302,4 +303,15 @@ test("child placement is a display preference in either direction", () => {
     properties: Record<string, unknown>;
   };
   expect(schema.properties["showNewChildren"]).toEqual({ type: "boolean", default: true });
+});
+
+test("closing finished agents applies in either direction", () => {
+  const off = effective(base, { closeFinishedAgents: false });
+  expect(weakenings(base, off)).toEqual([]);
+  expect(weakenings(off, base)).toEqual([]);
+  expect(describe(base, off)).toBe("Close finished agents off");
+  const schema = JSON.parse(OWNED_FILES["schemas/settings.schema.json"] ?? "{}") as {
+    properties: Record<string, unknown>;
+  };
+  expect(schema.properties["closeFinishedAgents"]).toEqual({ type: "boolean", default: true });
 });

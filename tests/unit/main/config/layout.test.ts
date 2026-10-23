@@ -122,3 +122,15 @@ test("every worked guide attachment validates on its first pass", async () => {
     expect(() => parseAgentManifest(JSON.stringify(draft), "bundled"), String(flag)).not.toThrow();
   }
 });
+
+test("the previous settings schema remains refreshable after adding close finished agents", () => {
+  const current = OWNED_FILES["schemas/settings.schema.json"] ?? "";
+  const previous: { properties: Record<string, unknown> } = JSON.parse(current);
+  delete previous.properties["closeFinishedAgents"];
+  expect(
+    refreshable(
+      "schemas/settings.schema.json",
+      new TextEncoder().encode(`${JSON.stringify(previous, null, 2)}\n`),
+    ),
+  ).toBe(true);
+});

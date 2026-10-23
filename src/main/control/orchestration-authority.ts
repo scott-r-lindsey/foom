@@ -37,6 +37,9 @@ export class OrchestrationAuthority {
   protected readonly early = new Set<string>();
   protected readonly metadata: SessionMetadata;
   private readonly offUnread: () => void;
+  private closeFinished = true;
+  private readonly automation = new Map<string, { actor: Principal; operations: Operations }>();
+  private readonly closing = new Set<string>();
 
   constructor(
     protected readonly host: OrchestrationHost,
@@ -69,6 +72,7 @@ export class OrchestrationAuthority {
     this.offUnread = this.childEvents.subscribe(() => {
       this.syncUnreadChildEvents();
       this.reviews.sync();
+      this.closeFinishedChildren();
     });
     this.metadata = new SessionMetadata(
       () => host.terminals(),
@@ -82,6 +86,91 @@ export class OrchestrationAuthority {
     this.offUnread();
     for (const id of this.reviewRuns.keys()) this.reviews.stop(id);
     this.unreadChildren.dispose();
+  }
+
+  configureCloseFinished(enabled: boolean): void {
+    this.closeFinished = enabled;
+    this.childEvents.publish();
+  }
+
+  /** Only the service binds a live, main-granted parent identity (including restore). */
+  bindAutomation(actor: Principal, operations: Operations): void {
+    if (actor.role === "orchestrator") this.automation.set(actor.terminalId, { actor, operations });
+  }
+
+  private finishedChild(parent: Parent, id: string): boolean {
+    const child = parent.children.get(id);
+    const row = this.host.terminals().find((entry) => entry.id === id);
+    const review = row && this.reviewMetadata(row);
+    return Boolean(
+      this.closeFinished &&
+        parent.active &&
+        child &&
+        !child.takenOver &&
+        child.exited &&
+        row?.exited === true &&
+        row.kind === "agent" &&
+        !this.host.starting?.(id) &&
+        row.state?.state !== "needs_input" &&
+        row.execution?.phase !== "blocked" &&
+        (review && review.authorId !== id
+          ? this.reviews.verdictRecorded(id)
+          : (!review || review.phase === "clean" || review.phase === "escalated") &&
+            ["MERGED", "CLOSED"].includes(this.pullRequest(row)?.state ?? "")),
+    );
+  }
+
+  /** Existing metadata invalidations only; one close attempt per eligible session. */
+  private closeFinishedChildren(): void {
+    for (const parent of this.parents.values()) {
+      const run = parent.terminalId === null ? undefined : this.automation.get(parent.terminalId);
+      if (!run) continue;
+      for (const id of parent.children.keys()) {
+        if (this.closing.has(id) || !this.finishedChild(parent, id)) continue;
+        this.closing.add(id);
+        void this.closeFinishedChild(parent, id, run.actor, run.operations);
+      }
+    }
+  }
+
+  private async closeFinishedChild(
+    parent: Parent,
+    id: string,
+    actor: Principal,
+    operations: Operations,
+  ): Promise<void> {
+    let operation: Operation | undefined;
+    const label = this.label(id);
+    try {
+      operation = await operations.begin(
+        actor,
+        "close",
+        `finished-${randomUUID()}`,
+        JSON.stringify([id]),
+        id,
+      );
+      operations.lookup(actor, { operationId: operation.operationId });
+      if (this.parent(actor) !== parent || !this.finishedChild(parent, id)) {
+        const record = await operations.finish(
+          actor,
+          operation.operationId,
+          "cancelled",
+          "completed",
+          id,
+        );
+        this.note(parent, this.entry(record, label));
+        this.closing.delete(id);
+        return;
+      }
+      await this.host.close(id);
+      await this.finish(actor, parent, operations, operation, label, "succeeded", id);
+    } catch {
+      if (operation)
+        await this.finish(actor, parent, operations, operation, label, "failed", id).catch(
+          () => undefined,
+        );
+      // Retain the final screen on failure, without a self-sustaining retry loop.
+    }
   }
 
   syncUnreadChildEvents(): void {
@@ -307,8 +396,9 @@ export class OrchestrationAuthority {
   /** The session left the board. A parent's history goes with its row. */
   removed(id: string): void {
     this.childEvents.publish();
-    this.reviews.stop(id);
+    if (!this.reviews.verdictRecorded(id)) this.reviews.stop(id);
     this.reviews.forget(id);
+    this.closing.delete(id);
     this.handoffs.remove(id);
     const parent = this.parents.get(id);
     if (parent) {
@@ -316,6 +406,7 @@ export class OrchestrationAuthority {
       this.parents.delete(id);
     }
     this.reviewRuns.delete(id);
+    this.automation.delete(id);
     for (const entry of this.parents.values()) entry.children.delete(id);
   }
 
@@ -619,6 +710,7 @@ export class OrchestrationAuthority {
   private retire(parent: Parent): void {
     if (!parent.active) return;
     parent.active = false;
+    if (parent.terminalId !== null) this.automation.delete(parent.terminalId);
     for (const id of parent.children.keys()) this.reviews.stop(id);
     if (this.slots.get(parent.repository) === parent) this.slots.delete(parent.repository);
     for (const abort of parent.aborts) abort.abort();

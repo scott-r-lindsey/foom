@@ -32,6 +32,7 @@ export function findingsBrief(number: number, verdict: ReviewVerdict): string {
 export class ReviewLoops {
   private readonly loops = new Map<string, ReviewLoop>();
   private readonly participants = new Map<string, string>();
+  private readonly recordedReviewers = new Set<string>();
   constructor(
     private readonly host: ReviewLoopHost,
     private readonly now = Date.now,
@@ -50,7 +51,12 @@ export class ReviewLoops {
     this.host.changed();
   }
 
+  verdictRecorded(id: string): boolean {
+    return this.recordedReviewers.has(id);
+  }
+
   forget(id: string): void {
+    this.recordedReviewers.delete(id);
     const author = this.participants.get(id);
     this.participants.delete(id);
     if (author !== undefined && ![...this.participants.values()].includes(author)) {
@@ -351,6 +357,7 @@ export class ReviewLoops {
         await this.endParticipant(loop, fresh.seq, snapshot, checks);
         return;
       }
+      this.recordedReviewers.add(loop.currentId);
       if (fresh.review.verdict === "clean") {
         this.finish(loop);
         return;

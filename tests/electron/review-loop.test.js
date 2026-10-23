@@ -423,6 +423,11 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
           { file: "a.ts", line: 1, summary: "Incorrect zero result", scenario: "Call with zero" },
         ],
       };
+      if (scenario === "clean") {
+        // The exited author remains visible while its reviewer can still find bugs.
+        assert.equal((await call("session_state", { id: authorId })).state, "exited");
+        await expect(row).toBeVisible();
+      }
       await go("review-1", {
         review: ["fix", "cap"].includes(scenario) ? findings : { verdict: "clean" },
         edit: scenario === "edit",
@@ -445,6 +450,30 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         .toBe(["edit", "cap"].includes(scenario) ? "escalated" : "clean");
       if (scenario === "edit") assert.equal((await state()).reason, "worktree changed");
       if (scenario === "cap") assert.equal((await state()).reason, "round cap");
+    }
+    if (scenario === "clean") {
+      await expect(page.locator('.session-robot-mark[data-kind="review"]')).toHaveCount(0);
+      await writeFile(
+        forgeState,
+        JSON.stringify({
+          pr: { headRefOid: headSha, state: "MERGED" },
+          checks: [{ bucket: "pass" }],
+        }),
+      );
+      // Reuse the existing tracker setting invalidation; no test-only main API.
+      await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: true }));
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.workspace())).terminals.some(
+              (item) => item.id === authorId,
+            ),
+          { timeout: deadline(60000) },
+        )
+        .toBe(false);
+      await expect(row).toHaveCount(0);
+      assert.ok(git("worktree", "list", "--porcelain").includes("child-one"));
+      assert.equal(git("rev-parse", "--verify", "child-one").trim(), headSha);
     }
     await shot("finished");
     assert.deepEqual(await fixtureErrors(), []);

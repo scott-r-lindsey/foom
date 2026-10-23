@@ -29,6 +29,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   hooks: true,
   restoreSessions: true,
   showNewChildren: true,
+  closeFinishedAgents: true,
   showNestedRepositoryNames: false,
   concurrentChildren: 4,
   recentRepositoryDays: 30,
