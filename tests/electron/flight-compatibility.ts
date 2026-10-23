@@ -89,7 +89,20 @@ export async function compare() {
     lens.draw(ctx, 900, 600, 450, 300, 50, 0, true);
     const lobes = readLobes().map((value, i) => value - (empty[i] ?? 0));
     const shadow = Array.from(ctx.getImageData(450, 285, 1, 1).data);
-    return { outside, beforeDelta, outsideDelta, insideChanges, lobes, shadow };
+    // A continuous ramp exposes any discontinuity where the rectangular baked
+    // lookup ends (14 M, or 2.694 shadow radii), inside the circular composite.
+    ctx.clearRect(0, 0, 900, 600);
+    const ramp = ctx.createLinearGradient(450, 0, 600, 0);
+    ramp.addColorStop(0, "#000000");
+    ramp.addColorStop(1, "#F4EFFF");
+    ctx.fillStyle = ramp;
+    ctx.fillRect(0, 0, 900, 600);
+    lens.draw(ctx, 900, 600, 450, 300, 50, 0, true);
+    const boundary = ctx.getImageData(582, 300, 8, 1).data;
+    let boundaryJump = 0;
+    for (let k = 5; k < boundary.length; k += 4)
+      boundaryJump = Math.max(boundaryJump, Math.abs((boundary[k] ?? 0) - (boundary[k - 4] ?? 0)));
+    return { outside, beforeDelta, outsideDelta, insideChanges, lobes, shadow, boundaryJump };
   } finally {
     lens.dispose();
   }

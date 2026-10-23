@@ -49,6 +49,8 @@ WebGL sampler, then composites only a disc of three shadow radii around the hole
 Its outer band (2.1–3 radii) feathers back to the unchanged source sky. Pixels
 outside the disc are never cleared or painted by the compositor. There is no
 second sky texture, injected alignment star or full-viewport replacement.
+The finite lookup also fades back to the original coordinates before its
+rectangular boundary, so a passing star cannot expose its edge.
 The offline R3 Schwarzschild map bends the original stars; a small reconstruction
 filter softens magnified streaks into starlight rather than a hard white circle.
 The two map halves hold 16-bit signed sky coordinates (±256 M); blue channels

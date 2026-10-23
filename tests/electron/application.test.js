@@ -713,4 +713,8 @@ test("flight lens preserves main's procedural starfield outside its feathered di
     `Source star did not bend: ${result.lobes}`,
   );
   assert.ok(result.shadow[3] === 255 && result.shadow[2] < 25, `Shadow leaked: ${result.shadow}`);
+  assert.ok(
+    result.boundaryJump <= 5,
+    `Finite map revealed a rectangular edge: ${result.boundaryJump}`,
+  );
 });

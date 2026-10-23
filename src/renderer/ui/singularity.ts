@@ -41,10 +41,13 @@ void main() {
     vec2 bent = vec2(dot(mx.rg, vec2(65280., 255.)), dot(my.rg, vec2(65280., 255.))) / 65535. * 512. - 256.;
     // The offline map's y axis points up; screen coordinates point down.
     bent.y = -bent.y;
-    source = centre + bent / ${String(SHADOW_RADIUS)} * radius;
-    visible = mx.b;
+    // Return to the original coordinates before the finite lookup ends, so
+    // even a star crossing its rectangular boundary cannot reveal a box.
+    float edge = 1. - smoothstep(.4, .5, max(abs(local.x - .5), abs(local.y - .5)));
+    source = mix(pixel, centre + bent / ${String(SHADOW_RADIUS)} * radius, edge);
+    visible = mix(1., mx.b, edge);
     shadow = my.b;
-    light = texture2D(emission, local).rgb * weight;
+    light = texture2D(emission, local).rgb * weight * edge;
   }
   vec4 original = texture2D(sky, pixel / viewport);
   vec4 stars = mix(original, starlight(source) * visible, weight);
