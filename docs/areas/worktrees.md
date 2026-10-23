@@ -164,7 +164,7 @@ enabled `extensions.worktreeConfig`, `core.worktree` and bare configuration are
 refused, and the canonical `rev-parse --show-toplevel` must match the registered
 checkout. A streaming, non-symlink-following walk includes ignored directories,
 refuses nested `.git` markers, and fails closed on errors, directory changes,
-more than 10,000 entries or depth over 64. Each checkout’s own admin reflogs
+more than 10,000 entries or depth over 64. For the additional detached/leftover candidates, the checkout’s own admin reflogs
 (including HEAD and per-worktree logs) must be present, readable and bounded;
 every old and new commit must be reachable from remote-tracking refs. Reflog
 reads are limited to 4 MiB in total, and reachability reads disable commit-graph caches. These guards repeat at final revalidation.
@@ -172,8 +172,9 @@ Index listings are compared across metadata checks, and HEAD
 and filesystem identity are rechecked. Status is the final asynchronous read, so
 a tracked save during a preceding validation await invalidates approval. Git errors
 refuse eligibility. The existing freshly fetched default and merge containment checks still apply. Clean branch
-candidates keep their established location and remote-ref policy while sharing
-the snapshot guards.
+candidates keep their established location and merge-evidence policy while sharing
+the status, configuration and nested-repository guards. The new reflog reachability
+restriction applies to detached/leftover candidates and broken-row cleanup.
 
 The main-owned plan captures the complete NUL-delimited status. The trusted
 cleanup dialog lists up to 50 untracked and ignored paths per checkout, truncates

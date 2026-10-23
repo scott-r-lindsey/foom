@@ -975,7 +975,7 @@ it("status inspection never refreshes the index during concurrent cleanup", asyn
   expect(await readFile(index)).not.toEqual(before);
 });
 
-it.each(["detached", "untracked", "unpushed", "tracked", "external"])(
+it.each(["detached", "untracked", "unpushed", "tracked", "external", "clean branch reset history"])(
   "group cleanup handles %s with real repositories without changing explicit removal policy",
   async (mode) => {
     const path = (await service.createWorktree(repo, "group-cleanup")).path;
@@ -987,6 +987,26 @@ it.each(["detached", "untracked", "unpushed", "tracked", "external"])(
     const upstream = join(temporary, "remote.git");
     await git("clone", "--bare", repo, upstream);
     await git("remote", "add", "origin", upstream);
+    if (mode === "clean branch reset history") {
+      await git("fetch", "origin");
+      await execute(
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "Private reset history",
+        ],
+        { cwd: path },
+      );
+      await execute(["reset", "--hard", "HEAD~1"], { cwd: path });
+      // New detached/leftover flows must retain this recovery history. Ordinary
+      // clean branch removal keeps main's existing merge-evidence policy.
+      await expect(service.cleanupChanges(repo, path)).rejects.toThrow("reflog");
+    }
     if (mode === "untracked" || mode === "unpushed")
       await writeFile(join(path, "screenshots.png"), "evidence");
     if (mode === "unpushed")
@@ -1046,7 +1066,7 @@ it.each(["detached", "untracked", "unpushed", "tracked", "external"])(
           return true;
         },
       );
-      if (mode === "detached" || mode === "untracked") {
+      if (mode === "detached" || mode === "untracked" || mode === "clean branch reset history") {
         await expect(realpath(target)).rejects.toThrow();
         if (mode === "detached") await expect(realpath(other)).rejects.toThrow();
       } else expect(await realpath(target)).toBe(target);

@@ -461,6 +461,7 @@ export class WorktreeService {
     path: string,
     identity?: string,
     head?: string | null,
+    inspectReflogs = false,
   ): Promise<string> {
     const expected = identity ?? (await this.removalIdentity(repository, path));
     const read = (args: string[]) => cleanupGit(path, args);
@@ -479,7 +480,7 @@ export class WorktreeService {
     )
       throw new Error("Submodules prevent cleanup");
     await this.checkCleanupState(path);
-    await this.checkCleanupEvidence(path);
+    await this.checkCleanupEvidence(path, undefined, inspectReflogs);
     await walkCleanupDirectory(path, true);
     if ((await read(["ls-files", "-v", "--stage", "-z", "--"])) !== index)
       throw new Error("Index changed during cleanup checks");
@@ -513,8 +514,12 @@ export class WorktreeService {
     return changes;
   }
 
-  /** Only the registered directory and its own, remotely recoverable Git state may go. */
-  private async checkCleanupEvidence(path: string, gitDirectory?: string): Promise<void> {
+  /** New cleanup reads cannot redirect status; additional candidates must retain private history. */
+  private async checkCleanupEvidence(
+    path: string,
+    gitDirectory?: string,
+    inspectReflogs = true,
+  ): Promise<void> {
     const read = (args: string[]) =>
       cleanupGit(path, [...(gitDirectory ? ["--git-dir", gitDirectory] : []), ...args]);
     const admin = gitDirectory ?? (await read(["rev-parse", "--absolute-git-dir"])).trimEnd();
@@ -542,6 +547,9 @@ export class WorktreeService {
       const top = (await read(["rev-parse", "--show-toplevel"])).trimEnd();
       if ((await realpath(top)) !== path) throw new Error("Cleanup directory is redirected");
     }
+    // Ordinary clean branch cleanup retains its established merge-evidence policy.
+    // Detached/leftover cleanup and broken-row pruning additionally protect reflogs.
+    if (!inspectReflogs) return;
     const logs = join(admin, "logs");
     // A missing HEAD log is not evidence of an empty history (logging can be disabled).
     const files = await walkCleanupDirectory(logs, false);
@@ -635,7 +643,7 @@ export class WorktreeService {
       await cleanupGit(path, ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"])
     ).trim();
     if (unpushed !== "0") throw new Error("Unpushed commits prevent cleanup");
-    const changes = await this.cleanupStatus(repository, path, expected, expectedHead);
+    const changes = await this.cleanupStatus(repository, path, expected, expectedHead, true);
     // No asynchronous work after cleanupStatus's final status read.
     if (
       changes
