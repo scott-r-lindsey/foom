@@ -11,7 +11,12 @@ creation/removal and child launch/stop/close; `orchestration.ts` dispatches call
 and implements child input, handoff reads, tails and waits. The classes share
 the authority module through inheritance, keeping all parent/generation and child
 ownership checks in one place. `orchestration.d.ts` holds their host and state
-contracts. `review-effects.ts` owns durable snapshot/stop/launch/resume effects;
+contracts. The main-only leaf modules `workspace/worktree-outcome.ts` and
+`control/orchestration-limits.ts` own the shared uncertain-creation error and unused
+worktree bound, so Git helpers and session persistence do not load orchestration
+implementations for these primitives.
+
+`review-effects.ts` owns review snapshot reads and durable stop/launch/resume effects;
 `ReviewLoops` retains phase and evidence ownership. Effects receive captured child
 capabilities that revalidate exact live parent/child identities after durable
 intent and in the host's pre-spawn callback. Authority alone reserves capacity

@@ -5,15 +5,14 @@ import { createHash } from "node:crypto";
 import { knownAgentId } from "../agents/providers/registry";
 import { ControlError, exact, identifier } from "../../node-common/control-validation";
 import { locationId, metadataName } from "./metadata";
-import { OrchestrationAuthority, WORKTREE_LIMIT } from "./orchestration-authority";
+import { OrchestrationAuthority } from "./orchestration-authority";
+import { WORKTREE_LIMIT } from "./orchestration-limits";
+import { UncertainEffect } from "../workspace/worktree-outcome";
 import type { Operations } from "./operations";
 import type { Operation, Principal } from "./types";
 
 const PROMPT_BYTES = 16384;
 const REVIEW_PROMPT_BYTES = PROMPT_BYTES - Buffer.byteLength(`${AUTHOR_REVIEW_BRIEF}\n\n`);
-
-/** The checkout may exist although creation reported an error. */
-export class UncertainEffect extends Error {}
 
 function text(value: unknown, bytes: number): string {
   if (

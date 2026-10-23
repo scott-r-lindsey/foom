@@ -19,9 +19,8 @@ import type { Operations } from "./operations";
 import type { Operation, Principal } from "./types";
 import { ControlError } from "../../node-common/control-validation";
 import type { Child, Parent, OrchestrationHost } from "./orchestration.d";
+import { WORKTREE_LIMIT } from "./orchestration-limits";
 
-/** Orchestrator-created worktrees that no child has used yet. */
-export const WORKTREE_LIMIT = 4;
 const HISTORY = 20;
 
 /**

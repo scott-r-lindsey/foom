@@ -8,7 +8,7 @@ import type { GitPanelFacts } from "../../shared/panel";
 import type { CreatedWorktree, CreateWorktreeOptions } from "../../shared/worktrees";
 import { forgeBranch } from "../control/forge";
 import type { ForgeProviderFactory } from "../control/forge.d";
-import { UncertainEffect } from "../control/orchestration-mutations";
+import { UncertainEffect } from "./worktree-outcome";
 import type {
   AdoptionService,
   CreationContext,

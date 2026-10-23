@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { locationId } from "../../../../src/main/control/metadata";
-import { UncertainEffect } from "../../../../src/main/control/orchestration-mutations";
+import { UncertainEffect } from "../../../../src/main/workspace/worktree-outcome";
 import type { Operation } from "../../../../src/main/control/types";
 import { ControlError } from "../../../../src/node-common/control-validation";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
@@ -148,10 +148,14 @@ describe("worktrees and children", () => {
   it("reports a possibly created worktree as indeterminate and keeps it charged", async () => {
     const h = harness();
     h.host.createWorktree.mockRejectedValueOnce(new UncertainEffect());
-    expect(await h.mutate("create_worktree", { branch: "maybe" })).toMatchObject({
+    const params = { idempotencyKey: "uncertain", branch: "maybe" };
+    const first = await h.call("create_worktree", params);
+    expect(first).toMatchObject({
       status: "indeterminate",
       reason: "uncertain",
     });
+    expect(await h.call("create_worktree", params)).toEqual(first);
+    expect(h.host.createWorktree).toHaveBeenCalledOnce();
     for (const branch of ["a", "b", "c"]) await h.mutate("create_worktree", { branch });
     await expect(h.mutate("create_worktree", { branch: "d" })).rejects.toThrow("capacity");
   });
