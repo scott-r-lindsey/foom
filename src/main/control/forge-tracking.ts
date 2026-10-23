@@ -15,6 +15,7 @@ interface Entry extends ForgeWorktree {
   refresh: number;
   sampledRefresh: number;
   observation: number;
+  readonly observationWaiters: Map<symbol, number>;
   followUp?: boolean;
   remote?: string;
   number?: number;
@@ -143,6 +144,7 @@ export class ForgeTracking {
       refresh: 0,
       sampledRefresh: -1,
       observation: 0,
+      observationWaiters: new Map(),
       ...(number === undefined ? {} : { number }),
       available: false,
       failures: 0,
@@ -274,6 +276,28 @@ export class ForgeTracking {
       : undefined;
   }
 
+  /** Register local interest only; never schedules a read. Cancellation is idempotent. */
+  waitForRead(repository: string, path: string, after: number): () => void {
+    const entry = this.entries.get(path);
+    if (!entry || entry.repository !== repository || this.readSettled(repository, path, after))
+      return () => {};
+    const token = Symbol();
+    entry.observationWaiters.set(token, after);
+    return () => {
+      entry.observationWaiters.delete(token);
+    };
+  }
+
+  private settleWaiters(entry: Entry): boolean {
+    let settled = false;
+    for (const [token, after] of entry.observationWaiters) {
+      if (!this.readSettled(entry.repository, entry.path, after)) continue;
+      entry.observationWaiters.delete(token);
+      settled = true;
+    }
+    return settled;
+  }
+
   /** Serial repository batches (legacy providers retain single-checkout lookup). */
   poll(): Promise<void> {
     this.running = this.running
@@ -336,7 +360,12 @@ export class ForgeTracking {
           entry.sampledRefresh = refresh;
         }
         const current = this.read(entry.repository, entry.path);
-        if (refreshed || previous !== (current === undefined ? undefined : JSON.stringify(current)))
+        const settled = this.settleWaiters(entry);
+        if (
+          settled ||
+          refreshed ||
+          previous !== (current === undefined ? undefined : JSON.stringify(current))
+        )
           this.changed();
         await this.save();
       })
@@ -465,7 +494,8 @@ export class ForgeTracking {
       )
         this.onCompleted?.(entry, pr.board);
       const current = entry.available ? JSON.stringify([entry.pr, entry.board]) : undefined;
-      if (refreshed || previous !== current) this.changed();
+      const settled = this.settleWaiters(entry);
+      if (settled || refreshed || previous !== current) this.changed();
     }
     await this.save();
   }

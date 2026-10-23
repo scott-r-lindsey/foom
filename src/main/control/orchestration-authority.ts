@@ -41,6 +41,7 @@ export class OrchestrationAuthority {
   private readonly automation = new Map<string, { actor: Principal; operations: Operations }>();
   private readonly closing = new Set<string>();
   private readonly exitObservations = new Map<string, number>();
+  private readonly observationWaits = new Set<() => void>();
 
   constructor(
     protected readonly host: OrchestrationHost,
@@ -85,6 +86,7 @@ export class OrchestrationAuthority {
 
   disposeUnreadChildren(): void {
     this.offUnread();
+    this.clearObservationWaits();
     for (const id of this.reviewRuns.keys()) this.reviews.stop(id);
     this.unreadChildren.dispose();
   }
@@ -121,14 +123,28 @@ export class OrchestrationAuthority {
           : (!review || review.phase === "clean" || review.phase === "escalated") &&
             this.reviews.unread(id) === undefined &&
             after !== undefined &&
-            ["MERGED", "CLOSED"].includes(
-              this.host.forge?.readSettled?.(row.repository, row.worktree, after)?.state ?? "",
-            )),
+            ["MERGED", "CLOSED"].includes(this.finishedPullRequest(row, after)?.state ?? "")),
     );
+  }
+
+  private finishedPullRequest(row: WorkspaceTerminal, after: number) {
+    const pr = this.host.forge?.readSettled?.(row.repository, row.worktree, after);
+    if (!pr) {
+      const cancel = this.host.forge?.waitForRead?.(row.repository, row.worktree, after);
+      if (cancel) this.observationWaits.add(cancel);
+    }
+    return pr;
+  }
+
+  private clearObservationWaits(): void {
+    for (const cancel of this.observationWaits) cancel();
+    this.observationWaits.clear();
   }
 
   /** Existing metadata invalidations only; one close attempt per eligible session. */
   private closeFinishedChildren(): void {
+    // Rebuild interest from live eligibility, retiring revoked/resumed/removed sessions.
+    this.clearObservationWaits();
     for (const parent of this.parents.values()) {
       const run = parent.terminalId === null ? undefined : this.automation.get(parent.terminalId);
       if (!run) continue;

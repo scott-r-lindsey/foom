@@ -10,7 +10,7 @@ import type { Principal } from "./types";
 /** Main-owned effects. Every path is chosen by main; the API only names IDs. */
 export interface OrchestrationHost {
   forge?: Pick<ForgeTracking, "track" | "read"> &
-    Partial<Pick<ForgeTracking, "readSettled" | "revision">>;
+    Partial<Pick<ForgeTracking, "readSettled" | "revision" | "waitForRead">>;
   adoptWorktree?(
     repository: string,
     number: number,

@@ -1012,3 +1012,61 @@ it.each(["single", "batch"])(
     expect(tracker.readSettled(tree.repository, tree.path)).toBeUndefined();
   },
 );
+
+it.each(["single", "batch"] as const)(
+  "unchanged periodic %s reads without a waiting child publish nothing",
+  async (mode) => {
+    const h = mode === "batch" ? batched() : harness();
+    h.tracker.track(tree);
+    await h.tracker.poll();
+    // Settle discovery's existing follow-up, then count only regular reads.
+    h.advance(600000);
+    await h.tracker.poll();
+    h.changed.mockClear();
+    for (let index = 0; index < 3; index++) {
+      h.advance(600000);
+      await h.tracker.poll();
+    }
+    expect(h.changed).not.toHaveBeenCalled();
+  },
+);
+
+it.each(["single", "batch"] as const)(
+  "settles %s observation waiters once, respecting cancellation and fresh evidence",
+  async (mode) => {
+    const h = mode === "batch" ? batched() : harness();
+    h.tracker.track(tree);
+    await h.tracker.poll();
+    h.advance(600000);
+    await h.tracker.poll();
+    const marker = h.tracker.revision();
+    // Wrong checkout and already-settled observations cannot create interest.
+    h.tracker.waitForRead("foreign", tree.path, marker)();
+    h.tracker.waitForRead(tree.repository, "missing", marker)();
+    h.tracker.waitForRead(tree.repository, tree.path, marker - 1)();
+    const cancel = h.tracker.waitForRead(tree.repository, tree.path, marker);
+    cancel();
+    cancel();
+    h.changed.mockClear();
+    h.advance(600000);
+    await h.tracker.poll();
+    expect(h.changed).not.toHaveBeenCalled();
+
+    const after = h.tracker.revision();
+    const first = h.tracker.waitForRead(tree.repository, tree.path, after);
+    const second = h.tracker.waitForRead(tree.repository, tree.path, after);
+    const future = h.tracker.waitForRead(tree.repository, tree.path, after + 1);
+    h.advance(600000);
+    await h.tracker.poll();
+    expect(h.changed).toHaveBeenCalledTimes(1);
+    first();
+    second();
+    h.advance(600000);
+    await h.tracker.poll();
+    expect(h.changed).toHaveBeenCalledTimes(2);
+    future();
+    h.advance(600000);
+    await h.tracker.poll();
+    expect(h.changed).toHaveBeenCalledTimes(2);
+  },
+);

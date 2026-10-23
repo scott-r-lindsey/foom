@@ -363,6 +363,116 @@ describe("close finished agents", () => {
     );
   });
 
+  it.each(["takeover", "removed", "resumed", "disabled", "revoked"])(
+    "cancels fresh-observation interest when the waiting child is %s",
+    async (change) => {
+      const h = fixture();
+      const { id } = await h.child("feature");
+      const cancel = vi.fn();
+      h.host.forge.waitForRead.mockReturnValue(cancel);
+      h.exit(id);
+      await h.sync();
+      expect(h.host.forge.waitForRead).toHaveBeenCalled();
+      cancel.mockClear();
+      h.host.forge.waitForRead.mockClear();
+      if (change === "takeover") h.orchestration.takeOver(id);
+      if (change === "removed") h.orchestration.removed(id);
+      if (change === "resumed") h.orchestration.relaunched(id);
+      if (change === "disabled") h.orchestration.configureCloseFinished(false);
+      if (change === "revoked") h.orchestration.revoke("parent");
+      await h.sync();
+      expect(cancel).toHaveBeenCalled();
+      expect(h.host.forge.waitForRead).not.toHaveBeenCalled();
+      h.orchestration.disposeUnreadChildren();
+    },
+  );
+
+  it.each(["single", "batch"] as const)(
+    "closes a restored exited child on an unchanged periodic %s observation",
+    async (mode) => {
+      const h = fixture();
+      const { id } = await h.child("feature");
+      const row = h.rows.get(id);
+      if (!row) throw Error("missing child");
+      h.orchestration.removed(id);
+      row.exited = true;
+      const root = await mkdtemp(join(tmpdir(), "foom-close-restore-"));
+      const closed: PullRequest = {
+        number: 7,
+        headSha: "a".repeat(40),
+        requiredChecks: "none",
+        state: "CLOSED",
+      };
+      const lookup = vi.fn(() => Promise.resolve(closed));
+      const batch = vi.fn(() =>
+        Promise.resolve(
+          new Map([
+            [
+              "feature",
+              {
+                ...closed,
+                board: {
+                  number: 7,
+                  title: "PR",
+                  url: "https://github.com/o/r/pull/7",
+                  state: "CLOSED" as const,
+                  checks: { passed: 0, failed: 0, pending: 0 },
+                },
+              },
+            ],
+          ]),
+        ),
+      );
+      let now = 100;
+      const changed = vi.fn(() => {
+        h.orchestration.childEvents.publish();
+      });
+      const tracker = new ForgeTracking(
+        root,
+        () => Promise.resolve("https://github.com/o/r"),
+        changed,
+        () => ({ lookup, ...(mode === "batch" ? { batch } : {}) }),
+        () => now,
+      );
+      h.host.forge.read.mockImplementation((repository, path) => tracker.read(repository, path));
+      h.host.forge.revision.mockImplementation(() => tracker.revision());
+      h.host.forge.readSettled.mockImplementation((repository, path, after) =>
+        tracker.readSettled(repository, path, after),
+      );
+      h.host.forge.waitForRead.mockImplementation((repository, path, after) =>
+        tracker.waitForRead(repository, path, after),
+      );
+      try {
+        tracker.track({
+          repository: row.repository,
+          path: row.worktree,
+          branch: "feature",
+          identity: "id-feature",
+        });
+        await tracker.poll();
+        expect(await h.orchestration.restoreChild("parent", row)).toBe(true);
+        await settled();
+        expect(h.host.close).not.toHaveBeenCalled();
+        changed.mockClear();
+        now += 600000;
+        await tracker.poll();
+        // No unrelated child-event publication may be needed to discover this read.
+        await settled();
+        expect(h.host.close).toHaveBeenCalledExactlyOnceWith(id);
+        expect(changed).toHaveBeenCalledTimes(1);
+        now += 600000;
+        await tracker.poll();
+        await settled();
+        expect(changed).toHaveBeenCalledTimes(1);
+        expect(mode === "batch" ? batch : lookup).toHaveBeenCalledTimes(3);
+      } finally {
+        h.orchestration.disposeUnreadChildren();
+        await tracker.close();
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("waits for the exit-triggered forge read instead of closing a reopened cached CLOSED PR", async () => {
     const h = fixture();
     const { id } = await h.child("feature");

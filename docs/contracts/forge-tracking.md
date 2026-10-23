@@ -132,3 +132,11 @@ from a request started after that marker as well as settling the latest recheck.
 This also refuses cached data when exit publication precedes the queued refresh
 callback, and refuses an older request that completes after exit. Markers are
 reset for resumed launches and never persisted or exposed through IPC.
+
+An eligible exited child awaiting fresh evidence registers cancellable local interest
+in its exit marker. A successful single or batched read that settles that marker
+consumes the interest and invalidates child metadata once, even when PR fields and
+the recheck generation are unchanged. This includes already-exited children restored
+after a cached read. Eligibility changes cancel stale interest. Unchanged periodic
+reads without waiting children publish nothing; registering interest adds no timer,
+poll or forge request.
