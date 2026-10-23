@@ -1,5 +1,6 @@
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import type * as Fs from "node:fs/promises";
+import type * as HookPreparation from "../../../../src/main/agents/providers/v2-hook-launch";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { execFile } from "node:child_process";
 import { mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
@@ -7,10 +8,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { prepareHookLaunch } from "../../../../src/main/agents/providers/hook-launch";
+import { prepareV2Hooks } from "../../../../src/main/agents/providers/v2-hook-launch";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
 import type { HookSignal } from "../../../../src/shared/hooks";
 
 vi.mock("node:fs/promises", async (original) => ({ ...(await original<typeof Fs>()) }));
+vi.mock("../../../../src/main/agents/providers/v2-hook-launch", async (original) => {
+  const actual = await original<typeof HookPreparation>();
+  return { ...actual, prepareV2Hooks: vi.fn(actual.prepareV2Hooks) };
+});
 
 let scratch: string;
 async function launchDirectories(): Promise<string[]> {
@@ -137,15 +143,33 @@ test("removes the directory and revokes credentials if registration fails", asyn
 });
 
 test("defaults to the system temporary directory", async () => {
-  // This checks default path selection. Real Windows interpreter/policy behavior
-  // is exercised by the bounded integration tests below, not this filesystem unit test.
+  // Path selection needs no native ACL/PowerShell subprocesses. Other cases in
+  // this file retain real private files and the Windows policy/transport checks.
   const execute = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
-  const hooks = await prepareHookLaunch(receiver, "claude", vi.fn(), undefined, undefined, execute);
-  try {
-    expect(String(hooks.v2?.values["hookDir"]).startsWith(await realpath(tmpdir()))).toBe(true);
-  } finally {
-    hooks.dispose();
-  }
+  const hooks = {
+    env: {},
+    observerCommand: "",
+    observerArgv: [],
+    dispose: vi.fn(),
+    disposeAndWait: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+  };
+  vi.mocked(prepareV2Hooks).mockResolvedValueOnce(hooks);
+  const bind = vi.fn();
+  expect(await prepareHookLaunch(receiver, "claude", bind, undefined, undefined, execute)).toBe(
+    hooks,
+  );
+  expect(prepareV2Hooks).toHaveBeenCalledExactlyOnceWith(
+    receiver,
+    agentProvider("claude").model,
+    bind,
+    process.platform === "win32",
+    tmpdir(),
+    undefined,
+    execute,
+    true,
+  );
+  expect(receiver.register).not.toHaveBeenCalled();
+  expect(execute).not.toHaveBeenCalled();
 });
 
 test.skipIf(process.platform === "win32")(

@@ -94,7 +94,18 @@ function executionTransition(value: unknown): value is ExecutionTransition {
 }
 
 function setupState(value: unknown): value is SetupState {
-  return object(value) && object(value["settings"]) && typeof value["worktreeRoot"] === "string";
+  if (!object(value) || !object(value["settings"]) || typeof value["worktreeRoot"] !== "string")
+    return false;
+  const update = value["updates"];
+  return (
+    update === undefined ||
+    (object(update) &&
+      typeof update["status"] === "string" &&
+      ["idle", "checking", "available", "downloaded", "error"].includes(update["status"]) &&
+      typeof update["runningAgents"] === "number" &&
+      Number.isSafeInteger(update["runningAgents"]) &&
+      update["runningAgents"] >= 0)
+  );
 }
 
 function configStatus(value: unknown): value is ConfigStatus {
@@ -550,8 +561,17 @@ const desktop: DesktopApi = {
     if (!readinessReport(value)) throw new Error("Invalid readiness response");
     return value;
   },
-  setupState: () => ipcRenderer.invoke("setup:state"),
-  saveSetup: (patch) => ipcRenderer.invoke("setup:save", patch),
+  restartToUpdate: () => ipcRenderer.invoke("setup:restart-update"),
+  setupState: async () => {
+    const value: unknown = await ipcRenderer.invoke("setup:state");
+    if (!setupState(value)) throw new Error("Invalid setup response");
+    return value;
+  },
+  saveSetup: async (patch) => {
+    const value: unknown = await ipcRenderer.invoke("setup:save", patch);
+    if (!setupState(value)) throw new Error("Invalid setup response");
+    return value;
+  },
   environmentState: () => ipcRenderer.invoke("environment:state"),
   saveEnvironment: (change) => ipcRenderer.invoke("environment:save", change),
   removeEnvironment: (scope, name) => ipcRenderer.invoke("environment:remove", scope, name),

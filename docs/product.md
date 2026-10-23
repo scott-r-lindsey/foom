@@ -88,3 +88,58 @@ First-run launch draws the brand’s exponential flight path with a rocket past 
 Eclipse black hole and stars flying toward the viewer. About Foom is an in-board
 art dialog on every platform, replacing the native About panel. See
 [launch behavior](behavior/setup.md) and [About behavior](behavior/menus.md).
+
+## Updates (#603)
+
+Settings → General has **Check for updates**, on by default and stored in the
+profile. Packaged builds check at launch and every six hours. Turning it off stops
+future checks and aborts pending metadata and ZIP requests. A request already sent
+may have reached the server, and received bytes cannot be recalled. No native
+check starts after opt-out; a native local copy/verification already started may
+finish and stage an update (or fail). Such a staged update, including one staged
+before opt-out, can still install on quit.
+Development launches never check.
+
+Stable macOS builds use Electron `autoUpdater` with update.electronjs.org for
+stable GitHub Releases. Downloaded updates install on the next normal quit.
+Foom never automatically restarts or stops agents for an update. **Restart to
+update** shows the running-agent count and uses the ordinary quit confirmation,
+session save and terminal shutdown; cancelling or failing quit leaves work running.
+Session restoration follows the saved setting on the next launch. If native
+restart errors or has not exited within five seconds after shutdown, Foom calls
+`app.quit`, then `app.exit(0)` one second later if still alive.
+
+Stable Linux builds show **Update available** using an anonymous GET of
+`api.github.com/repos/scott-r-lindsey/foom/releases/latest`. CI-stamped nightly
+builds on every platform check the rolling `nightly` GitHub prerelease and show
+only a notice. Windows also uses notices only; its releases are currently
+nightly-only. Nightly in-place installation belongs to #604.
+
+Update checks are Foom's only app-owned outbound network feature. Metadata
+requests go to update.electronjs.org and api.github.com and contain only the app
+version and platform (including architecture for the macOS feed), never terminal
+content, repository paths, agent identities or credentials. Those servers see the
+client IP address and app version. Failures stay quiet apart from **Could not
+check for updates.** in Settings. Tests use fake updater and HTTP services.
+
+On stable macOS, Foom fetches metadata itself and accepts only an HTTPS ZIP URL
+under `github.com/scott-r-lindsey/foom/releases/download/vX.Y.Z/`, with the matching
+Foom architecture and version in the filename. The URL's version must be strictly
+newer than the running stable version; release titles are not version evidence.
+Foom downloads that signed ZIP itself, following at most three redirects, only
+to `release-assets.githubusercontent.com` paths scoped to Foom's repository ID.
+It then supplies Electron `autoUpdater` with a private local JSON feed and ZIP,
+using `file:` URLs and `serverType: json`. Remote delta URLs and other feed fields
+are discarded. Squirrel performs signature verification and installation without
+outbound requests. Packaged macOS Info.plist also enables
+`ElectronSquirrelPreventDowngrades` to reject older bundle versions.
+
+The same switch controls all three request kinds: macOS metadata at
+update.electronjs.org, the macOS ZIP from the two GitHub download hosts above,
+and GitHub Releases API notices at api.github.com. GitHub's download servers see
+the client IP and request metadata (including the offered version in the URL).
+No other hosts are added. Redirect/error bodies are destroyed without being
+read. The chain shares one cancellation signal, size budget and total deadline;
+all requests close before preparation returns, including after success or opt-out.
+Foom bounds and can abort its ZIP transfer; only local
+native work already handed off is outside that cancellation boundary.

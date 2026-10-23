@@ -185,7 +185,8 @@ test("setup requests use their own channels and never read a key back", async ()
   await expect(api.listTerminalFonts(true)).resolves.toBe("reply");
   await expect(api.listThemes()).resolves.toBe("reply");
   await api.openThemesFolder("theme");
-  await expect(api.setupState()).resolves.toBe("reply");
+  mock.invoke.mockResolvedValue({ settings: {}, worktreeRoot: "/fixture" });
+  await expect(api.setupState()).resolves.toEqual({ settings: {}, worktreeRoot: "/fixture" });
   await api.saveSetup({ hooks: false });
   expect(mock.invoke.mock.calls).toEqual([
     ["setup:terminal-fonts", false],
@@ -952,4 +953,38 @@ test("legal bridge validates fixed IDs, bounded text, notifications and disposal
   expect(callback.mock.calls).toEqual([["licenses"], ["notices"]]);
   off();
   expect(mock.removeListener).toHaveBeenCalledWith("app-menu:legal", listener);
+});
+
+test("update status rejects remote text and malformed agent counts", async () => {
+  const api = await bridge();
+  const changed = vi.fn();
+  api.onSetupChange(changed);
+  const listener = mock.on.mock.calls.find(([name]) => name === "setup:changed")?.[1];
+  for (const updates of [
+    { status: "downloaded", runningAgents: 2 },
+    { status: "idle", runningAgents: 0 },
+  ])
+    listener?.({}, { settings: {}, worktreeRoot: "/fixture", updates });
+  for (const updates of [
+    { status: "remote message", runningAgents: 0 },
+    { status: "downloaded", runningAgents: -1 },
+    { status: "idle", runningAgents: 0.5 },
+    null,
+    { status: "error", runningAgents: "3" },
+  ])
+    listener?.({}, { settings: {}, worktreeRoot: "/fixture", updates });
+  expect(changed).toHaveBeenCalledTimes(2);
+  await api.restartToUpdate();
+  expect(mock.invoke).toHaveBeenCalledWith("setup:restart-update");
+});
+
+test("initial and saved setup responses validate update facts too", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue({
+    settings: {},
+    worktreeRoot: "/fixture",
+    updates: { status: "secret", runningAgents: 2 },
+  });
+  await expect(api.setupState()).rejects.toThrow("Invalid setup response");
+  await expect(api.saveSetup({ checkForUpdates: false })).rejects.toThrow("Invalid setup response");
 });

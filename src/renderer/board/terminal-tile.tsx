@@ -53,7 +53,11 @@ function TerminalView({
   session,
   active,
   launchVersion,
+  row,
+  name,
 }: {
+  row: BoardRow | undefined;
+  name: string;
   view: TerminalViewSource;
   session: string | undefined;
   active: boolean;
@@ -74,6 +78,19 @@ function TerminalView({
         {status.status}
       </span>
       <div className="tile-terminal" ref={mount} />
+      {row && (row.dormant || status.attaching) && (
+        <div className="tile-restoring" aria-label={`Restoring ${name}`} role="status">
+          <div className="tile-restoring-identity">
+            <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
+            <span>{name}</span>
+          </div>
+          <div className="tile-restoring-lines" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -450,6 +467,8 @@ export function Tile({
         <div className="tile-shell" hidden={!row || row.kind === "sample"}>
           <TerminalView
             view={view}
+            row={row}
+            name={name}
             session={row?.kind === "sample" ? undefined : row?.id}
             active={!inactive}
             launchVersion={row?.launchVersion ?? 0}

@@ -111,6 +111,7 @@ async function boardPage(app) {
     );
   let page;
   try {
+    await app.evaluate(() => globalThis.boardStartup.waitForDocument());
     await expect
       .poll(() => {
         page = app.windows().find((page) => page.url() === "app://bundle/index.html");
@@ -501,7 +502,7 @@ async function prepareProfile(options) {
     await mkdir(profile, { recursive: true });
     await writeFile(
       path.join(profile, "settings.json"),
-      JSON.stringify({ version: 1, settings: { setupComplete: true } }),
+      JSON.stringify({ version: 1, settings: { setupComplete: true, checkForUpdates: false } }),
       { flag: "wx" },
     ).catch((error) => {
       if (error.code !== "EEXIST") throw error;

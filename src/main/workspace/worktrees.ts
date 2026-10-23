@@ -472,6 +472,27 @@ export class WorktreeService {
     await this.checkCleanupState(path);
     await this.checkCleanupEvidence(path, undefined, inspectReflogs);
     await walkCleanupDirectory(path, true);
+    const paths = entries.map((entry) => entry.slice(entry.indexOf("\t") + 1));
+    if (paths.length) {
+      const attributes = (
+        await cleanupGit(
+          path,
+          ["check-attr", "-z", "--stdin", "ident", "working-tree-encoding"],
+          `${paths.join("\0")}\0`,
+        )
+      ).split("\0");
+      if (attributes.pop() !== "" || attributes.length !== paths.length * 6)
+        throw new Error("Cannot inspect tracked content conversions");
+      for (let position = 0; position < attributes.length; position += 3) {
+        const attribute = attributes[position + 1];
+        const value = attributes[position + 2];
+        if (
+          (attribute !== "ident" && attribute !== "working-tree-encoding") ||
+          (value !== "unspecified" && value !== "unset")
+        )
+          throw new Error("Tracked content conversions prevent cleanup");
+      }
+    }
     if ((await read(["ls-files", "-v", "--stage", "-z", "--"])) !== index)
       throw new Error("Index changed during cleanup checks");
     await this.checkRemovalIdentity(repository, path, expected);
@@ -490,9 +511,7 @@ export class WorktreeService {
     const records = changes.split("\0").filter(Boolean);
     // A case-sensitive read exposes names hidden by core.ignorecase. Refuse
     // collisions rather than interpreting which spelling represents tracked data.
-    const tracked = new Set(
-      entries.map((entry) => entry.slice(entry.indexOf("\t") + 1).toLowerCase()),
-    );
+    const tracked = new Set(paths.map((path) => path.toLowerCase()));
     if (
       records.some(
         (entry) =>
@@ -1151,8 +1170,8 @@ const cleanupReadOptions = [
 ];
 // Source-local configuration still applies and is audited above; user/system
 // configuration and system attributes cannot change these cleanup-only reads.
-function cleanupGit(path: string, args: string[]): Promise<string> {
-  return git(path, [...cleanupReadOptions, ...args], 30_000, undefined, true);
+function cleanupGit(path: string, args: string[], input?: string): Promise<string> {
+  return git(path, [...cleanupReadOptions, ...args], 30_000, input, true);
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -1179,7 +1198,11 @@ async function walkCleanupDirectory(root: string, checkout: boolean): Promise<st
       if (--remaining < 0) throw new Error("Cleanup directory walk exceeded its limit");
       // Dirent strings replace invalid filename bytes. Never inspect a different
       // sibling through a lossy name (including a literal replacement character).
-      if (entry.name.includes("\ufffd")) throw new Error("Cannot inspect cleanup directory names");
+      if (
+        entry.name.includes("\ufffd") ||
+        Buffer.from(entry.name, "utf8").toString("utf8") !== entry.name
+      )
+        throw new Error("Cannot inspect cleanup directory names");
       if (entry.name.toLowerCase() === ".git") {
         if (checkout && depth === 0) continue;
         throw new Error("Nested repositories prevent cleanup");

@@ -577,3 +577,25 @@ it.each(["stopped", "exited"] as const)(
     expect(h.loop.view("second")?.phase).toBe("building");
   },
 );
+
+it.each([false, true])(
+  "advances findings across exited authors in consecutive rounds (host stop: %s)",
+  async (stopped) => {
+    const h = fixture();
+    for (const round of [1, 2]) {
+      h.handoff("author");
+      if (stopped) {
+        await h.sync();
+        expect(h.host.stop).toHaveBeenLastCalledWith("author", expect.any(Function));
+      }
+      h.exit("author");
+      await h.sync();
+      expect(h.loop.view("author")).toMatchObject({ phase: "reviewing", round });
+      expect(h.rows.get("author")?.exited).toBe(true);
+      await h.reviewed(findings);
+      expect(h.loop.view("author")).toMatchObject({ phase: "fixing", round });
+      expect(h.host.step).toHaveBeenLastCalledWith("author", false, findingsBrief(7, findings));
+    }
+    expect(h.host.step).toHaveBeenCalledTimes(4);
+  },
+);

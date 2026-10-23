@@ -250,3 +250,9 @@ Below the folder, the section shows only what needs the user now: a held change,
 or each rejected file with its reason. When all is well it shows nothing more.
 Changes made in Settings are written to the same file. See the
 [architecture](../areas/config.md#foom-config-environment-84).
+
+General includes **Check for updates** (on by default), **Update available** for
+notice-only channels, and a fixed **Could not check for updates.** failure message.
+A downloaded stable macOS update offers **Restart to update** and the number of
+running agents. Restart follows normal quit confirmation and session saving.
+See the [channel and privacy policy](../product.md#updates-603).

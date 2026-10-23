@@ -264,6 +264,7 @@ function BoardContents({
       destination?: { tile: string; session: string },
       background = false,
     ) => {
+      if (row.dormant && row.exited) return;
       const present = () => {
         const current = layoutRef.current;
         const own =

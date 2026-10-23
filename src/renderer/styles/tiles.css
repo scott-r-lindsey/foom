@@ -131,6 +131,7 @@
   overflow: hidden;
 }
 .tile-terminal {
+  isolation: isolate;
   padding: 4px;
 }
 .tile-terminal .xterm {
@@ -313,4 +314,41 @@
   background: var(--surface);
   color: var(--muted);
   font: 11px / 1.4 var(--font-mono);
+}
+
+.tile-shell {
+  position: relative;
+}
+.tile-restoring {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--muted);
+  pointer-events: none;
+}
+.tile-restoring-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+}
+.tile-restoring-lines {
+  margin-top: 24px;
+  display: grid;
+  gap: 8px;
+  max-width: 480px;
+}
+.tile-restoring-lines span {
+  height: 10px;
+  border-radius: 3px;
+  background: var(--line);
+  width: 60%;
+}
+.tile-restoring-lines span:nth-child(2) {
+  width: 85%;
+}
+.tile-restoring-lines span:nth-child(3) {
+  width: 45%;
 }

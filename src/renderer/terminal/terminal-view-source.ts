@@ -13,6 +13,7 @@ export function createTerminalView(
     status: "Terminal",
     state: "quiet_ok",
     visible: false,
+    attaching: true,
     toggleLabel: "Open terminal",
     toggleDisabled: true,
     restartDisabled: true,
@@ -23,6 +24,7 @@ export function createTerminalView(
       snapshot = {
         ...snapshot,
         status: "Unable to update terminal view.",
+        attaching: false,
       };
       for (const listener of listeners) listener();
     });

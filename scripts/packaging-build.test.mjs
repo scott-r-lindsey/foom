@@ -47,3 +47,10 @@ test("the directly used Squirrel toolchain loads offline with its required depen
   assert.equal(typeof installer.createWindowsInstaller, "function");
   assert.equal(manifest.devDependencies["electron-winstaller"], "5.4.4");
 });
+
+test("packaged macOS bundles prevent Squirrel downgrades", () => {
+  assert.equal(
+    require("../forge.config.js").packagerConfig.extendInfo.ElectronSquirrelPreventDowngrades,
+    true,
+  );
+});

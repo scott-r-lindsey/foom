@@ -173,6 +173,74 @@ test("a compositor-ready board still fails when animation callbacks are withheld
 
 // A controlled callback reproduces the missing readiness boundary without a
 // slow GPU, a sleep, or changing any assertion deadline.
+test("document readiness awaits native navigation and releases listeners on success or failure", async () => {
+  const { EventEmitter } = require("node:events");
+  const { waitForBoardDocument } = require("./board-startup.js");
+  for (const outcome of ["loaded", "already-loaded", "closed", "crashed", "failed"]) {
+    const window = new EventEmitter();
+    const contents = new EventEmitter();
+    window.webContents = contents;
+    let url = outcome === "already-loaded" ? "app://bundle/index.html" : "";
+    let loading = false;
+    contents.getURL = () => url;
+    contents.isLoadingMainFrame = () => loading;
+    let settled = false;
+    const waiting = waitForBoardDocument(window).then(() => {
+      settled = true;
+    });
+    if (outcome === "loaded") {
+      await Promise.resolve();
+      assert.equal(settled, false, "A native window alone is not a loaded document");
+      contents.emit("did-finish-load");
+      url = "app://bundle/index.html";
+      loading = true;
+      contents.emit("did-navigate");
+      await Promise.resolve();
+      assert.equal(settled, false);
+      // did-finish-load is authoritative even before the native loading flag
+      // clears; checking that flag inside its callback can miss readiness.
+      contents.emit("did-finish-load");
+    }
+    if (outcome === "closed") window.emit("closed");
+    if (outcome === "crashed") contents.emit("render-process-gone", {}, { reason: "crashed" });
+    if (outcome === "failed")
+      contents.emit("did-fail-load", {}, -2, "failed", "app://bundle/index.html", true);
+    if (["loaded", "already-loaded"].includes(outcome)) await waiting;
+    else await assert.rejects(waiting, /closed|crashed|navigation failed/);
+    assert.equal(window.listenerCount("closed"), 0);
+    for (const event of ["did-finish-load", "render-process-gone", "did-fail-load"])
+      assert.equal(contents.listenerCount(event), 0);
+  }
+});
+
+test("fixture records await atomic writes, surface errors and abort with their case", async (context) => {
+  const { writeFile, rename } = require("node:fs/promises");
+  const { waitForFixtureRecord } = require("./fixture-records.js");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-record-wait-"));
+  removeAfterApps(context, root);
+  const file = path.join(root, "ready");
+  const error = path.join(root, "error");
+  const waiting = waitForFixtureRecord(file, [error], context.signal);
+  await writeFile(file + ".tmp", "ready");
+  await rename(file + ".tmp", file);
+  await waiting;
+  await waitForFixtureRecord(file, [], context.signal);
+  const failed = waitForFixtureRecord(path.join(root, "missing"), [error], context.signal);
+  const rejected = assert.rejects(failed, /fixture failed/);
+  await writeFile(error + ".tmp", "fixture failed");
+  await rename(error + ".tmp", error);
+  await rejected;
+  const controller = new AbortController();
+  const aborted = waitForFixtureRecord(path.join(root, "never"), [], controller.signal);
+  const abortError = new Error("Case ended");
+  controller.abort(abortError);
+  await assert.rejects(aborted, (error) => error === abortError);
+  await assert.rejects(
+    waitForFixtureRecord(file, [], controller.signal),
+    (error) => error === abortError,
+  );
+});
+
 test("compositor readiness awaits output and releases subscriptions on output or failure", async () => {
   const { EventEmitter } = require("node:events");
   const { waitForBoardCompositor } = require("./board-startup.js");

@@ -55,6 +55,7 @@ module.exports = {
     },
     executableName: "Foom",
     appBundleId: "com.foom-term.foom",
+    extendInfo: { ElectronSquirrelPreventDowngrades: true },
     // prePackage renders these; packager appends .icns or .ico per platform.
     icon: require("node:path").join(__dirname, "build/icons/foom"),
     // Include production dependencies; native PTY binaries and helpers must live outside ASAR.

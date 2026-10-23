@@ -22,3 +22,40 @@ likely labelled credentials, bearer/API tokens, JWTs, URL credentials and privat
 blocks before selecting at most 40 physical lines. Truncated private-key fragments
 are redacted too. Oversized input is rejected. Redaction is heuristic and cannot
 identify every unlabelled secret.
+
+## Update requests (#603)
+
+**Check for updates** in Settings → General defaults on and persists only in the
+profile. It controls all update checks: stable macOS checks update.electronjs.org;
+stable Linux anonymously GETs GitHub's latest-release metadata at api.github.com;
+CI-stamped nightly builds on every platform anonymously GET the rolling nightly
+prerelease there. Windows is notice-only and currently nightly-only. No nightly
+build installs in place (#604).
+
+These servers see the client's IP and Foom version. Requests contain version and
+platform (macOS feed includes architecture), no terminal content, paths, agent
+identities, cookies, tokens or account credentials. There is no telemetry.
+Metadata GETs are bounded and reject redirects. Only fixed local status words
+reach Settings; remote errors and release notes are never rendered. Opt-out stops
+future checks and aborts pending metadata and ZIP GETs. A request already sent may
+have reached its server, and received bytes cannot be recalled. No native check
+starts after opt-out. A local native copy/verification already started may finish
+and stage an update (or fail); that update, or one staged before opt-out, may
+still install on normal quit. Foom never
+restarts automatically. See [update behavior](../product.md#updates-603).
+
+Stable macOS ZIP downloads are owned by Foom, not Squirrel. The metadata must
+identify a strictly newer stable version and an HTTPS ZIP under this repository's
+`github.com/scott-r-lindsey/foom/releases/download/vX.Y.Z/` path, with matching
+architecture and version in its filename. Foom follows at most three redirects,
+only to `release-assets.githubusercontent.com/github-production-release-asset/1394006699/`
+(Foom's repository ID). The chain shares one abort signal, size budget and total
+deadline, with per-request inactivity limits. Redirect and error bodies are never
+drained: those responses are immediately destroyed. All hops close on completion,
+failure or opt-out before preparation returns.
+GitHub's download hosts see the IP and request metadata, including the offered
+version in the URL. No user/account credentials are attached; GitHub's temporary
+asset URL query is used only for the asset request. The same Settings switch
+controls macOS metadata, ZIP downloads and GitHub API notices; no other hosts
+are added. Electron receives only private local feed and archive `file:` URLs,
+with remote extra fields discarded, so native work cannot start a network request.

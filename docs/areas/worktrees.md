@@ -156,7 +156,10 @@ Cleanup status and index reads disable fsmonitor and untracked-cache, force
 leftovers are refused. Cleanup also forces `core.ignoreStat=false`,
 `core.trustctime=true`, `core.checkStat=default`, `core.fileMode=true` and
 `core.symlinks=true`, `core.autocrlf=false`, `core.eol=lf` and an empty
-`core.attributesFile`; repository-local filter drivers are refused. Cleanup-only
+`core.attributesFile`; repository-local filter drivers are refused. Tracked paths
+also refuse active `ident` and `working-tree-encoding` attributes, including
+attributes from Git’s info directory, so built-in conversion cannot hide edited
+contents from status. Ordinary text/EOL attributes remain supported. Cleanup-only
 reads use the existing isolated Git runner to disable global/system configuration
 and system attributes. Git subprocesses
 strip inherited `GIT_*` directory/index selectors. Worktree configuration files,

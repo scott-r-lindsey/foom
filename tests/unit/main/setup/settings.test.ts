@@ -775,6 +775,19 @@ test("nested repository names default off, validate booleans and persist in the 
   expect((await SettingsStore.open(dir)).get().showNestedRepositoryNames).toBe(false);
 });
 
+test("update checks default on, persist in the profile, and reject non-booleans", async () => {
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  expect(store.get().checkForUpdates).toBe(true);
+  const writer = vi.fn();
+  await store.attachConfig(writer, {}, null);
+  await store.update({ checkForUpdates: false });
+  expect((await SettingsStore.open(dir)).get().checkForUpdates).toBe(false);
+  expect(writer).not.toHaveBeenCalled();
+  expect(parseSettingsPatch({ checkForUpdates: false })).toEqual({ checkForUpdates: false });
+  expect(() => parseSettingsPatch({ checkForUpdates: "off" })).toThrow("Invalid settings");
+});
+
 test("close finished agents defaults on and round-trips a boolean", async () => {
   expect(DEFAULT_SETTINGS.closeFinishedAgents).toBe(true);
   for (const closeFinishedAgents of [false, true])

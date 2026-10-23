@@ -6,6 +6,7 @@ export function createSetupSource(): SetupSource {
     checkReadiness: () => desktop.checkReadiness(),
     listTerminalFonts: (refresh) => desktop.listTerminalFonts(refresh),
     openThemesFolder: (kind) => desktop.openThemesFolder(kind),
+    restartToUpdate: () => desktop.restartToUpdate(),
     state: () => desktop.setupState(),
     save: (patch) => desktop.saveSetup(patch),
     changeAgentSetup: (id, action) => desktop.changeAgentSetup(id, action),

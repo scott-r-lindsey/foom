@@ -698,3 +698,59 @@ it.each(["false", "0", "off", "no", ""])(
     expect(await service.cleanupChanges(repo, path)).toBe("");
   },
 );
+
+it.each(["ident", "working-tree-encoding=UTF-8"])(
+  "refuses tracked status conversion %s before leftover cleanup",
+  async (attribute) => {
+    await writeFile(join(repo, ".gitattributes"), `tracked.txt ${attribute}\n`);
+    await writeFile(join(repo, "tracked.txt"), attribute === "ident" ? "$Id$\n" : "original\n");
+    await git("add", ".");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "Attributes",
+    );
+    const { path } = await service.createWorktree(repo, "status-conversion");
+    await git("clone", "--bare", repo, join(temporary, "remote.git"));
+    await git("remote", "add", "origin", join(temporary, "remote.git"));
+    await git("fetch", "origin");
+    if (attribute === "ident")
+      await writeFile(join(path, "tracked.txt"), `$Id: ${"a".repeat(40)} $\n`);
+    await writeFile(join(path, "screenshot.png"), "approved image");
+    expect((await execute(["status", "--porcelain"], { cwd: path })).stdout).toBe(
+      "?? screenshot.png\n",
+    );
+    await expect(service.cleanupChanges(repo, path)).rejects.toThrow();
+    expect(await readFile(join(path, "tracked.txt"), "utf8")).toBe(
+      attribute === "ident" ? `$Id: ${"a".repeat(40)} $\n` : "original\n",
+    );
+  },
+);
+
+it.each(["text eol=lf", "-ident -working-tree-encoding"])(
+  "allows ordinary tracked attributes %s",
+  async (attribute) => {
+    await writeFile(join(repo, ".gitattributes"), `tracked.txt ${attribute}\n`);
+    await writeFile(join(repo, "tracked.txt"), "original\n");
+    await git("add", ".");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "Attributes",
+    );
+    const { path } = await service.createWorktree(repo, "ordinary-attributes");
+    await git("clone", "--bare", repo, join(temporary, "remote.git"));
+    await git("remote", "add", "origin", join(temporary, "remote.git"));
+    await git("fetch", "origin");
+    await writeFile(join(path, "screenshot.png"), "approved image");
+    expect(await service.cleanupChanges(repo, path)).toBe("?? screenshot.png\0");
+  },
+);

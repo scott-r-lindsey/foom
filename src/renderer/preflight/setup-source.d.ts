@@ -16,6 +16,7 @@ import type { ConfigStatus } from "../../shared/foom-config";
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
+  restartToUpdate?(): Promise<void>;
   checkReadiness?(): Promise<ReadinessReport>;
   listTerminalFonts?(refresh?: boolean): Promise<readonly string[]>;
   openThemesFolder(kind: ThemeKind): Promise<void>;

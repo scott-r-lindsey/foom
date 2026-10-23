@@ -11,6 +11,7 @@ export function setupState(
     settings: {
       agyPluginOfferAnswered: false,
       setupComplete: false,
+      checkForUpdates: true,
       hooks: true,
       restoreSessions: true,
       showNewChildren: true,

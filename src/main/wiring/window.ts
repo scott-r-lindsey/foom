@@ -250,6 +250,15 @@ export async function buildWindow(
     confirmations.refresh();
   };
   const setup = new Setup({
+    updates: () =>
+      wiring.updates.state(
+        wiring.workspace
+          .snapshot()
+          .terminals.filter(
+            (terminal) => terminal.kind === "agent" && !terminal.exited && !terminal.dormant,
+          ).length,
+      ),
+    restartToUpdate: () => wiring.updates.restartToUpdate(),
     readiness: () =>
       checkReadiness(
         wiring.worktrees.listRepositories().map((repo) => repo.path),
@@ -292,6 +301,7 @@ export async function buildWindow(
       },
     },
     apply: (next) => {
+      wiring.updates.configure(next.checkForUpdates);
       if (next.setupComplete && wiring.claimSetupManual()) manualPending = true;
       wiring.forgeRuntime.configure();
       wiring.workspace.configure(next);
