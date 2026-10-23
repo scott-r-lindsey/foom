@@ -61,15 +61,28 @@ fixed sequential steps; agents receive no orchestration authority. The human
 New-worktree flow has no review option. This is the final scope decision recorded
 on #690; there is no parentless-agent handoff capability.
 
-The author keeps one PR, waits for green required checks, hands off `done`, then
-exits. Main verifies an open PR and a successful (or empty) required-check set
-whose head matches local HEAD before launching a reviewer in the same checkout.
+The author keeps one PR, waits for green required checks, and hands off `done`.
+Main verifies an open PR and a successful (or empty) required-check set
+whose head matches local HEAD before stopping the author through the normal host
+session stop path (signal the process group, wait briefly, then force). Main waits
+for the observed exit before launching a reviewer in the same checkout. Invalid
+handoffs escalate without stopping the process.
 It rechecks the observed PR/check facts after capacity waits and immediately before
 spawning, so a newly red or changed head cannot pass on an earlier green result.
 Missing, pending, red, unknown or mismatched-head checks escalate without review.
 The reviewer gets a fixed brief: reproduced correctness/security bugs only, no
-style nits or edits, then a structured verdict handoff and process exit. Main
-compares HEAD, index entry modes/object IDs/stages and semantic flags
+style nits or edits, then a structured verdict handoff. Main validates the verdict
+and unchanged
+worktree before stopping the reviewer through the same host path and waiting for
+exit. Signal exit codes from these requested stops do not fail the loop; unexpected
+nonzero exits still escalate. Each automated stop records durable action intent
+and rechecks live authority, the latest handoff sequence/status, HEAD, worktree
+snapshot and green required checks after that write and immediately before
+signaling. Changed evidence cancels that stop and re-evaluates the same loop.
+Only a host acknowledgement that it signaled a running process grants the expected
+stop-exit exemption; a natural nonzero exit still fails even when it races a
+snapshot or stop intent. A host-observed exit awaiting main inventory settles
+without polling or repeated stops. Main compares HEAD, index entry modes/object IDs/stages and semantic flags
 (skip-worktree, assume-unchanged and intent-to-add), sparse-checkout and local
 exclusion rules, and tracked/untracked non-ignored file bytes and modes
 against the pre-review snapshot. Git stat-cache refreshes from read-only status/diff
@@ -82,7 +95,8 @@ working directories refuse a snapshot.
 Findings pass as quoted JSON data in a fixed author-resume template. Main resumes
 the captured author conversation under the same terminal ID, using the provider's
 existing resume argv and fresh credentials. It never writes prompts or Enter to
-a running PTY. The next review waits for another author handoff and exit. A clean
+a running PTY. The next review waits for another validated author handoff and
+host-observed exit. A clean
 verdict, round cap, failed author report, blocked/failed reviewer report, missing report/verdict, unavailable
 conversation, non-green checks, changed worktree or launch failure ends the loop
 and raises a readable event for the parent. Clean still requires the orchestrator's
@@ -94,13 +108,13 @@ preference as initial children, without taking focus; author resumes retain thei
 Each transition reserves a slot before asynchronous work, waits when full, and
 rechecks ownership and cancellation immediately before spawning. Handoffs remain
 readable under each participant's ID. State is exposed in session metadata and
-shown in words in sidebar rows and tile titles. Stopping, takeover, parent exit
-or revocation ends automation. Saved loop participants remain dormant and show
+shown in words in sidebar rows and tile titles. Human or parent stopping,
+takeover, parent exit or revocation ends automation. Saved loop participants remain dormant and show
 `Escalated: restored`; restoration never silently launches a loop step.
 
 An author's `blocked` handoff enters `waiting-on-parent`, shown as **Waiting on
-parent**, without spending a review round. The owning orchestrator's explicit
-`prompt` resumes the preceding Building or Fixing phase only after input delivery
+parent**, without stopping its process or spending a review round. The owning
+orchestrator's explicit `prompt` resumes the preceding Building or Fixing phase only after input delivery
 succeeds and live ownership is rechecked. `send_keys`, human terminal input,
 foreign parents and failed/ambiguous prompt deliveries cannot resume it. A prompt
 must target the live author process; Foom never injects input or relaunches an
@@ -121,3 +135,27 @@ restored participants, do not advance on later invalidations.
 `postFindings: true` explicitly asks the reviewer to post its verdict and findings
 as a PR review comment using its own `gh` login. It is off by default. Main stores
 no forge tokens and performs no write; posting is the agent's own CLI action.
+
+Settings → General **Close finished agents** defaults to on. Existing child-event
+invalidations check exited owned agents: reviewers become eligible only after the
+loop accepts their verdict and observes their exit; authors and ordinary children
+need a MERGED or CLOSED PR. Active loop authors (including waiting on parent) stay
+open until the loop is clean or ended. Needs-you/unread attention, blocked sessions,
+takeover, starting or running sessions and children without a PR stay open (accepted
+reviewers need no PR). The normal sidebar close path discards the final screen and
+removes the tile and row, keeping the checkout, branch and remaining loop state.
+Closing an accepted reviewer must not cancel its author's loop. Automatic closes
+persist normal close intent and recheck the live parent, ownership, setting and
+eligibility after that write; audit failure leaves the session visible. Disabling
+the switch retains finished sessions. No polling, new timer, Git command or forge request is
+added; unchanged metadata settles, and failed close attempts retain the session
+without automatic retries.
+
+Loop attention is projected onto the parent: an author with unread review attention
+is ineligible even when its own row is quiet. Automatic close always leaves at least
+one loop participant on the board, retaining the review record and its persistence;
+the final participant requires explicit close, including after acknowledgment.
+PR-based closure uses only a successful observation after the exit-triggered
+recheck has settled. A response from an older in-flight read cannot qualify. The
+existing forge completion invalidation wakes closure even for unchanged PR metadata;
+the settled read is checked synchronously again immediately before close.

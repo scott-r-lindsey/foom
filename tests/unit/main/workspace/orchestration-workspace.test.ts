@@ -37,7 +37,7 @@ let launch: ReturnType<
   typeof vi.fn<(request: AgentLaunch) => Promise<{ id: string; attention: "evaluator" }>>
 >;
 let scanned: AgentScan;
-let stop: ReturnType<typeof vi.fn<(id: string) => Promise<void>>>;
+let stop: ReturnType<typeof vi.fn<(id: string) => Promise<boolean>>>;
 let tail: ReturnType<typeof vi.fn<(id: string, lines: number) => Promise<string[]>>>;
 let confirm: ReturnType<typeof vi.fn<(request: WorkspaceConfirmation) => Promise<boolean>>>;
 let setRole: ReturnType<typeof vi.fn<ControlRuntime["setRole"]>>;
@@ -48,7 +48,7 @@ beforeEach(() => {
   launch = vi.fn((_request: AgentLaunch) =>
     Promise.resolve({ id: "parent", attention: "evaluator" as const }),
   );
-  stop = vi.fn(async (_id: string) => {});
+  stop = vi.fn((_id: string) => Promise.resolve(true));
   tail = vi.fn((_id: string, _lines: number) => Promise.resolve(["done"]));
   confirm = vi.fn((_request: WorkspaceConfirmation) => Promise.resolve(true));
   setRole = vi.fn<ControlRuntime["setRole"]>();

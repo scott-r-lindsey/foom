@@ -50,6 +50,7 @@ port.on("message", (event: { data: unknown }) => {
   void (async () => {
     let lines: string[] = [];
     let title: string | undefined;
+    let signaled: boolean | undefined;
     let size: { cols: number; rows: number } | undefined;
     if (message.type === "shutdown") {
       await manager.shutdown();
@@ -73,7 +74,7 @@ port.on("message", (event: { data: unknown }) => {
           manager.detach(id);
           break;
         case "stop":
-          await manager.stop(id);
+          signaled = await manager.stop(id);
           break;
         case "kill":
           manager.kill(id);
@@ -108,6 +109,7 @@ port.on("message", (event: { data: unknown }) => {
       id,
       request,
       lines,
+      ...(signaled === undefined ? {} : { signaled }),
       ...(title === undefined ? {} : { title }),
       ...size,
     });

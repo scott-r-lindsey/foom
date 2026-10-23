@@ -1,3 +1,4 @@
+import type { ReviewSnapshot } from "./review-loops.d";
 import { reviewLabel } from "../../shared/review-state";
 import { randomUUID } from "node:crypto";
 import { ReviewLoops } from "./review-loops";
@@ -36,6 +37,11 @@ export class OrchestrationAuthority {
   protected readonly early = new Set<string>();
   protected readonly metadata: SessionMetadata;
   private readonly offUnread: () => void;
+  private closeFinished = true;
+  private readonly automation = new Map<string, { actor: Principal; operations: Operations }>();
+  private readonly closing = new Set<string>();
+  private readonly exitObservations = new Map<string, number>();
+  private readonly observationWaits = new Set<() => void>();
 
   constructor(
     protected readonly host: OrchestrationHost,
@@ -50,15 +56,8 @@ export class OrchestrationAuthority {
           const row = host.terminals().find((row) => row.id === id);
           return row ? this.pullRequest(row) : undefined;
         },
-        snapshot: async (id) => {
-          const run = this.reviewRuns.get(id);
-          if (!run) throw new ControlError("forbidden");
-          const parent = this.parent(run.actor);
-          const child = this.own(parent, id);
-          const tree = child && parent.worktrees.get(child.worktreeId);
-          if (!tree || !host.reviewSnapshot) throw new ControlError("unavailable");
-          return host.reviewSnapshot(parent.repository, tree.path, tree.identity);
-        },
+        snapshot: (id) => this.reviewSnapshot(id),
+        stop: (id, validate) => this.reviewStop(id, validate),
         step: (id, reviewer, prompt) => this.reviewStep(id, reviewer, prompt),
         changed: () => {
           this.changed();
@@ -75,6 +74,7 @@ export class OrchestrationAuthority {
     this.offUnread = this.childEvents.subscribe(() => {
       this.syncUnreadChildEvents();
       this.reviews.sync();
+      this.closeFinishedChildren();
     });
     this.metadata = new SessionMetadata(
       () => host.terminals(),
@@ -86,8 +86,114 @@ export class OrchestrationAuthority {
 
   disposeUnreadChildren(): void {
     this.offUnread();
+    this.clearObservationWaits();
     for (const id of this.reviewRuns.keys()) this.reviews.stop(id);
     this.unreadChildren.dispose();
+  }
+
+  configureCloseFinished(enabled: boolean): void {
+    this.closeFinished = enabled;
+    this.childEvents.publish();
+  }
+
+  /** Only the service binds a live, main-granted parent identity (including restore). */
+  bindAutomation(actor: Principal, operations: Operations): void {
+    if (actor.role === "orchestrator") this.automation.set(actor.terminalId, { actor, operations });
+  }
+
+  private finishedChild(parent: Parent, id: string): boolean {
+    const child = parent.children.get(id);
+    const row = this.host.terminals().find((entry) => entry.id === id);
+    const review = row && this.reviewMetadata(row);
+    const after = this.exitObservations.get(id);
+    return Boolean(
+      this.closeFinished &&
+        parent.active &&
+        child &&
+        !child.takenOver &&
+        child.exited &&
+        row?.exited === true &&
+        row.kind === "agent" &&
+        !this.host.starting?.(id) &&
+        row.state?.state !== "needs_input" &&
+        row.execution?.phase !== "blocked" &&
+        (!review || this.reviews.keepsStateAfterClose(id, this.closing)) &&
+        (review && review.authorId !== id
+          ? this.reviews.verdictRecorded(id)
+          : (!review || review.phase === "clean" || review.phase === "escalated") &&
+            this.reviews.unread(id) === undefined &&
+            after !== undefined &&
+            ["MERGED", "CLOSED"].includes(this.finishedPullRequest(row, after)?.state ?? "")),
+    );
+  }
+
+  private finishedPullRequest(row: WorkspaceTerminal, after: number) {
+    const pr = this.host.forge?.readSettled?.(row.repository, row.worktree, after);
+    if (!pr) {
+      const cancel = this.host.forge?.waitForRead?.(row.repository, row.worktree, after);
+      if (cancel) this.observationWaits.add(cancel);
+    }
+    return pr;
+  }
+
+  private clearObservationWaits(): void {
+    for (const cancel of this.observationWaits) cancel();
+    this.observationWaits.clear();
+  }
+
+  /** Existing metadata invalidations only; one close attempt per eligible session. */
+  private closeFinishedChildren(): void {
+    // Rebuild interest from live eligibility, retiring revoked/resumed/removed sessions.
+    this.clearObservationWaits();
+    for (const parent of this.parents.values()) {
+      const run = parent.terminalId === null ? undefined : this.automation.get(parent.terminalId);
+      if (!run) continue;
+      for (const id of parent.children.keys()) {
+        if (this.closing.has(id) || !this.finishedChild(parent, id)) continue;
+        this.closing.add(id);
+        void this.closeFinishedChild(parent, id, run.actor, run.operations);
+      }
+    }
+  }
+
+  private async closeFinishedChild(
+    parent: Parent,
+    id: string,
+    actor: Principal,
+    operations: Operations,
+  ): Promise<void> {
+    let operation: Operation | undefined;
+    const label = this.label(id);
+    try {
+      operation = await operations.begin(
+        actor,
+        "close",
+        `finished-${randomUUID()}`,
+        JSON.stringify([id]),
+        id,
+      );
+      operations.lookup(actor, { operationId: operation.operationId });
+      if (this.parent(actor) !== parent || !this.finishedChild(parent, id)) {
+        const record = await operations.finish(
+          actor,
+          operation.operationId,
+          "cancelled",
+          "completed",
+          id,
+        );
+        this.note(parent, this.entry(record, label));
+        this.closing.delete(id);
+        return;
+      }
+      await this.host.close(id);
+      await this.finish(actor, parent, operations, operation, label, "succeeded", id);
+    } catch {
+      if (operation)
+        await this.finish(actor, parent, operations, operation, label, "failed", id).catch(
+          () => undefined,
+        );
+      // Retain the final screen on failure, without a self-sustaining retry loop.
+    }
   }
 
   syncUnreadChildEvents(): void {
@@ -278,6 +384,7 @@ export class OrchestrationAuthority {
       takenOver: false,
       tailAt: 0,
     });
+    if (entry.exited) this.observeExit(entry.id);
     if (entry.review) this.reviews.restore(entry.id, entry.review);
     this.changed();
     return true;
@@ -295,6 +402,12 @@ export class OrchestrationAuthority {
     if (parent) this.retire(parent);
   }
 
+  private observeExit(id: string): void {
+    const revision = this.host.forge?.revision?.();
+    if (revision !== undefined && !this.exitObservations.has(id))
+      this.exitObservations.set(id, revision);
+  }
+
   /** Exit revokes the parent's authority; children keep running under human control. */
   exited(id: string): void {
     this.childEvents.publish();
@@ -305,16 +418,22 @@ export class OrchestrationAuthority {
     }
     const child = this.child(id);
     if (child) {
+      this.observeExit(id);
       child.exited = true;
       this.changed();
-    } else if (this.launching()) this.early.add(id);
+    } else if (this.launching()) {
+      this.observeExit(id);
+      this.early.add(id);
+    }
   }
 
   /** The session left the board. A parent's history goes with its row. */
   removed(id: string): void {
     this.childEvents.publish();
-    this.reviews.stop(id);
+    if (!this.reviews.verdictRecorded(id)) this.reviews.stop(id);
     this.reviews.forget(id);
+    this.closing.delete(id);
+    this.exitObservations.delete(id);
     this.handoffs.remove(id);
     const parent = this.parents.get(id);
     if (parent) {
@@ -322,11 +441,13 @@ export class OrchestrationAuthority {
       this.parents.delete(id);
     }
     this.reviewRuns.delete(id);
+    this.automation.delete(id);
     for (const entry of this.parents.values()) entry.children.delete(id);
   }
 
   /** A human relaunch under the same ID (resume, new conversation) is never the orchestrator's. */
   relaunched(id: string): void {
+    this.exitObservations.delete(id);
     this.reviews.stop(id);
     this.childEvents.publish();
     for (const parent of this.parents.values()) parent.children.delete(id);
@@ -424,6 +545,69 @@ export class OrchestrationAuthority {
     return times.length ? Math.min(...times) : undefined;
   }
 
+  private async reviewSnapshot(id: string): Promise<ReviewSnapshot> {
+    const run = this.reviewRuns.get(id);
+    if (!run) throw new ControlError("forbidden");
+    const parent = this.parent(run.actor);
+    const child = this.own(parent, id);
+    const tree = child && parent.worktrees.get(child.worktreeId);
+    if (!tree || !this.host.reviewSnapshot) throw new ControlError("unavailable");
+    return this.host.reviewSnapshot(parent.repository, tree.path, tree.identity);
+  }
+
+  private async reviewStop(
+    id: string,
+    validate: (snapshot: ReviewSnapshot) => boolean,
+  ): Promise<"stopped" | "changed" | "exited"> {
+    const state = this.reviews.view(id);
+    const run = state && this.reviewRuns.get(state.authorId);
+    if (!run) throw new ControlError("forbidden");
+    const { actor, operations } = run;
+    const parent = this.parent(actor);
+    const child = this.own(parent, id);
+    if (!child) throw new ControlError("forbidden");
+    const label = this.label(id);
+    const operation = await operations.begin(
+      actor,
+      "stop",
+      `review-stop-${randomUUID()}`,
+      JSON.stringify([id]),
+      id,
+    );
+    try {
+      const snapshot = await this.reviewSnapshot(state.authorId);
+      operations.lookup(actor, { operationId: operation.operationId });
+      this.parent(actor);
+      const current = this.reviews.view(id);
+      if (
+        this.own(parent, id) !== child ||
+        current?.phase !== state.phase ||
+        current.round !== state.round
+      )
+        throw new ControlError("conflict");
+      if (!validate(snapshot)) {
+        const record = await operations.finish(
+          actor,
+          operation.operationId,
+          "cancelled",
+          "completed",
+          id,
+        );
+        this.note(parent, this.entry(record, label));
+        return "changed";
+      }
+      // Unlike a human/parent stop, this validated completion preserves the loop.
+      const signaled = await this.host.stop(id);
+      await this.finish(actor, parent, operations, operation, label, "succeeded", id);
+      return signaled ? "stopped" : "exited";
+    } catch (error) {
+      await this.finish(actor, parent, operations, operation, label, "indeterminate").catch(
+        () => undefined,
+      );
+      throw error;
+    }
+  }
+
   private async reviewStep(
     authorId: string,
     reviewer: boolean,
@@ -478,7 +662,10 @@ export class OrchestrationAuthority {
       const resume = reviewer
         ? undefined
         : { id: authorId, conversationId: author.conversationId ?? "" };
-      if (!reviewer) child.exited = false;
+      if (!reviewer) {
+        child.exited = false;
+        this.exitObservations.delete(authorId);
+      }
       const id = await this.host.launch(
         actor.terminalId,
         parent.repository,
@@ -515,7 +702,7 @@ export class OrchestrationAuthority {
     } finally {
       parent.starting--;
       this.childEvents.publish();
-      if (!this.launching()) this.early.clear();
+      this.clearEarlyExits();
     }
   }
 
@@ -559,9 +746,16 @@ export class OrchestrationAuthority {
     );
   }
 
+  protected clearEarlyExits(): void {
+    if (this.launching()) return;
+    for (const id of this.early) this.exitObservations.delete(id);
+    this.early.clear();
+  }
+
   private retire(parent: Parent): void {
     if (!parent.active) return;
     parent.active = false;
+    if (parent.terminalId !== null) this.automation.delete(parent.terminalId);
     for (const id of parent.children.keys()) this.reviews.stop(id);
     if (this.slots.get(parent.repository) === parent) this.slots.delete(parent.repository);
     for (const abort of parent.aborts) abort.abort();

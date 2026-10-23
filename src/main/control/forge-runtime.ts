@@ -5,18 +5,17 @@ import type { LoadedForgeManifest } from "../config/plugins";
 import type { ForgeProviderFactory } from "./forge.d";
 import { forgeRemote } from "./forge-mapping";
 import { ForgeLifecycle } from "./forge-lifecycle";
-import { githubManifest } from "./forge-manifests";
+import { githubManifest, bundledForgeEntries } from "./forge-manifests";
 import type { ForgeLifecycleOptions } from "./forge-lifecycle-types";
 
-const bundled: LoadedForgeManifest = {
-  manifest: githubManifest,
-  digest: "2b8b1fcb3983177334cb0c37ebf6cbd1588d73d0672ca043dc82c317de3892cb",
+const bundled: LoadedForgeManifest[] = bundledForgeEntries.map((entry) => ({
+  ...entry,
   validate: () => Promise.resolve(),
-};
+}));
 
 /** Main-owned manifest selection; routing authority comes only from profile assignments. */
 export class ForgeRuntime {
-  private plugins: readonly LoadedForgeManifest[] = [bundled];
+  private plugins: readonly LoadedForgeManifest[] = bundled;
   private lifecycle: ForgeLifecycle | undefined;
   private path: string | undefined;
   private revision = 0;
@@ -33,7 +32,7 @@ export class ForgeRuntime {
   ) {}
 
   replace(plugins: readonly LoadedForgeManifest[]): void {
-    const next = [bundled, ...plugins];
+    const next = [...bundled, ...plugins];
     if (next.length === this.plugins.length && next.every((p, i) => p === this.plugins[i])) return;
     if (new Set(next.map((p) => p.manifest.id)).size !== next.length)
       throw new Error("Duplicate forge ID");
@@ -113,7 +112,8 @@ export class ForgeRuntime {
       },
     });
     provider.binding = JSON.stringify([plugin.manifest.id, plugin.digest, remote]);
-    provider.acceptLegacyBinding = plugin === bundled && remote.host === "github.com";
+    provider.acceptLegacyBinding =
+      plugin.manifest === githubManifest && remote.host === "github.com";
     if (!plugin.manifest.operations.batchStatus) delete provider.batch;
     return provider;
   };

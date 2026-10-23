@@ -663,6 +663,16 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ showNewChildren: true });
   });
+  const finished = screen.getByRole("checkbox", { name: "Close finished agents" });
+  expect(finished).toHaveProperty("checked", true);
+  fireEvent.click(finished);
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ closeFinishedAgents: false });
+  });
+  fireEvent.click(finished);
+  await waitFor(() => {
+    expect(source.save).toHaveBeenCalledWith({ closeFinishedAgents: true });
+  });
   const restore = screen.getByRole("checkbox", { name: "Restore sessions on launch" });
   expect(restore).toHaveProperty("checked", true);
   const limit = screen.getByRole("spinbutton", { name: "Concurrent children per orchestrator" });

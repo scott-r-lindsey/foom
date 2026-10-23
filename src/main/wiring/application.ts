@@ -664,6 +664,9 @@ const assets = new Map([
   ["/fonts/geist-mono.ttf", "fonts/geist-mono.ttf"],
   ["/fonts/HackNerdFontMono-Regular.woff2", "fonts/HackNerdFontMono-Regular.woff2"],
   ["/fonts/HackNerdFontMono-Bold.woff2", "fonts/HackNerdFontMono-Bold.woff2"],
+  ["/art/singularity.png", "art/singularity.png"],
+  ["/art/emission.png", "art/emission.png"],
+  ["/art/lens.png", "art/lens.png"],
   ["/renderer.js", "renderer.js"],
   ["/renderer.css", "renderer.css"],
 ]);

@@ -59,9 +59,34 @@ are captured before the trusted dialog. Both revalidation passes check Git membe
 session eligibility, clean status and either `merge-tree` containment against a freshly
 fetched default commit or a locally verified PR merge. The latter uses the existing
 forge lookup for a same-repository MERGED PR, requires its head SHA to equal the
-worktree HEAD exactly, validates the optional `PullRequest.mergeCommit` ID, and runs
-`git merge-base --is-ancestor <mergeCommit> <fetched-default>`. Forge hints alone
-never authorize removal; missing objects, mismatched heads and failed checks refuse.
+worktree HEAD exactly, validates optional `PullRequest.mergeCommit` and
+`PullRequest.squashCommit` IDs, and requires each candidate to be an ancestor of
+fetched default. Reachability alone is insufficient: the head must be an ancestor
+of the hint, or a single-parent hint H with parent P must pass an exact tree proof:
+`git merge-tree --write-tree P <head>` must exit zero with no conflicts and return
+exactly the tree OID of H. The merge-base of P and the head must be unique.
+Patch IDs are not evidence: they ignore hunk positions and can equate edits in
+different repeated blocks. Malformed OIDs, missing/ambiguous bases and command
+errors refuse proof. Only ordinary exit-1 ancestry queries permit another proof.
+
+All cleanup ancestry, parent, merge-base and tree proofs run in the same disposable
+bare repository for each candidate,
+reading the source object store through a quoted alternates path. Global/system
+Git config and system attributes are disabled for those subprocesses; no user
+config is edited. A main-owned info/attributes file forces the built-in text merge
+driver and disables text/EOL/filter/encoding conversion, overriding versioned
+attributes. Fixed options disable rename detection, directory renames and
+renormalization and retain built-in histogram diffing. Source repository merge drivers cannot
+run or manufacture a successful tree. Temporary merge output is removed afterward.
+Every workspace Git invocation, including source HEAD/tree reads, fetch validation,
+unpushed counts and final rechecks, sets `GIT_NO_REPLACE_OBJECTS=1` and
+`GIT_GRAFT_FILE=/dev/null` after clearing inherited Git variables. Local replace
+refs and legacy info/grafts cannot rewrite the history used for cleanup. Alternates
+share object bytes only; source refs, grafts and config are never copied. Proof
+commands also disable commit-graph caches so ancestry comes from stored commits.
+Only canonical OIDs are decoded: file bytes never round-trip through text or patch
+hashes. Same-project, exact-head, stable-refresh, clean and identity guards remain.
+
 Every removal rechecks this evidence. Automatic removal uses this verified PR path
 alongside its existing ancestry/no-unpushed-commits path, preserving clean status,
 identity, session and authority guards. A failed post-confirmation fetch prevents every removal.

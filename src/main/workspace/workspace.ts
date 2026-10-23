@@ -47,6 +47,7 @@ export class Workspace {
           | "agentArguments"
           | "agentHooks"
           | "showNewChildren"
+          | "closeFinishedAgents"
           | "restoreSessions"
           | "concurrentChildren"
           | "unreadChildMinutes"

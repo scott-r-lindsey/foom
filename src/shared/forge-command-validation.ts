@@ -55,6 +55,8 @@ export function validateForgeCommand(argv: readonly ForgeArgument[], auth = fals
     "api graphql --hostname {host} -f query={query} -f owner={projectOwner} -f name={projectName}"
   )
     return;
+  if (signature.join(" ") === "api graphql --hostname {host} -f query={query} -f project={project}")
+    return;
   // GET endpoints are fixed or assembled from a validated percent-encoded project/number.
   if (
     first === "api" &&
@@ -62,7 +64,12 @@ export function validateForgeCommand(argv: readonly ForgeArgument[], auth = fals
     signature[3] === "{host}" &&
     signature[4] === "--method" &&
     signature[5] === "GET" &&
-    signature.length === 6 &&
+    (signature.length === 6 ||
+      (second === "projects/{project}/merge_requests" &&
+        [
+          "--raw-field scope=all --raw-field state=opened --raw-field source_branch={branch} --raw-field per_page=2 --raw-field page=1",
+          "--raw-field scope=all --raw-field state=all --raw-field source_branch={branch} --raw-field per_page=2 --raw-field page=1",
+        ].includes(signature.slice(6).join(" ")))) &&
     /^projects\/\{project\}\/merge_requests(?:\/\{number\})?$/u.test(second ?? "")
   )
     return;

@@ -605,6 +605,16 @@ function PreflightContents({
           />
           <span>Show new children on the board</span>
         </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={state.settings.closeFinishedAgents}
+            onChange={(event) => {
+              save({ closeFinishedAgents: event.target.checked });
+            }}
+          />
+          <span>Close finished agents</span>
+        </label>
         <label className="concurrent-children">
           Concurrent children per orchestrator
           <input

@@ -10,9 +10,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-test("forge preferences are copied, bounded, profile-only and default to bundled GitHub", () => {
-  expect(DEFAULT_SETTINGS.forges).toEqual({ github: true });
-  expect(DEFAULT_SETTINGS.forgeHosts).toEqual({ "github.com": "github" });
+test("forge preferences are copied, bounded, profile-only and default to bundled GitHub and GitLab", () => {
+  expect(DEFAULT_SETTINGS.forges).toEqual({ github: true, gitlab: true });
+  expect(DEFAULT_SETTINGS.forgeHosts).toEqual({ "github.com": "github", "gitlab.com": "gitlab" });
   const hosts = { "git.example.org": "custom" };
   expect(parseForgeHosts(hosts)).toEqual(hosts);
   expect(parseForgeHosts(hosts)).not.toBe(hosts);

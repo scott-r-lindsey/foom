@@ -50,6 +50,9 @@ describe("orchestration review authority and reservations", () => {
     if (!row) throw new Error("missing author");
     row.conversationId = "author-conversation";
     h.report(id);
+    await h.sync();
+    expect(h.host.stop).toHaveBeenLastCalledWith(id);
+    expect(h.host.launch).toHaveBeenCalledTimes(1);
     h.exit(id);
     await h.sync();
     expect(h.orchestration.reviews.view(id)).toMatchObject({ phase: "reviewing" });
@@ -72,6 +75,9 @@ describe("orchestration review authority and reservations", () => {
       verdict: "findings",
       findings: [{ file: "a.ts", line: 1, summary: "Wrong result", scenario: "Input zero" }],
     });
+    await h.sync();
+    expect(h.host.stop).toHaveBeenLastCalledWith("child-2");
+    expect(h.host.launch).toHaveBeenCalledTimes(2);
     h.exit("child-2");
     await h.sync();
     expect(h.orchestration.reviews.view(id)).toMatchObject({ phase: "fixing" });
@@ -318,6 +324,175 @@ it.each(["takeover", "revoke", "grant", "exit"])(
     await h.sync();
     if (event === "exit") expect(h.orchestration.reviews.view(id)?.phase).toBe("reviewing");
     else expect(h.orchestration.reviews.view(id)?.phase).not.toBe("building");
+    h.orchestration.disposeUnreadChildren();
+  },
+);
+
+it("rechecks the live grant before stopping a participant after its asynchronous snapshot", async () => {
+  const h = fixture();
+  const id = await h.launch();
+  h.snapshot.mockImplementationOnce(() => {
+    h.grant.dispose();
+    return Promise.resolve({ head: "head", digest: "initial" });
+  });
+  h.report(id);
+  await h.sync();
+  expect(h.host.stop).not.toHaveBeenCalled();
+  expect(h.orchestration.reviews.view(id)).toMatchObject({
+    phase: "escalated",
+    reason: "launch failed",
+  });
+  h.orchestration.disposeUnreadChildren();
+});
+
+it("cancels a completion stop when takeover races durable intent, and audits host stop failures", async () => {
+  const h = fixture();
+  const id = await h.launch();
+  h.persist.mockImplementationOnce(() => {
+    h.orchestration.takeOver(id);
+    return Promise.resolve();
+  });
+  h.report(id);
+  await h.sync();
+  expect(h.host.stop).not.toHaveBeenCalled();
+  expect(h.orchestration.reviews.view(id)?.reason).toBe("stopped");
+  h.orchestration.disposeUnreadChildren();
+  const f = fixture();
+  const author = await f.launch();
+  f.host.stop.mockRejectedValueOnce(new Error("host unavailable"));
+  f.report(author);
+  await f.sync();
+  expect(f.orchestration.reviews.view(author)?.reason).toBe("launch failed");
+  expect(f.persist.mock.calls.at(-1)?.[0].operation).toMatchObject({
+    action: "stop",
+    status: "indeterminate",
+    targetId: author,
+  });
+  f.orchestration.disposeUnreadChildren();
+});
+
+it.each(["snapshot", "intent"])(
+  "keeps a newly blocked author alive when done is superseded during %s",
+  async (boundary) => {
+    const h = fixture();
+    const id = await h.launch();
+    const replace = () => {
+      h.report(id, undefined, "blocked");
+    };
+    if (boundary === "snapshot")
+      h.snapshot.mockImplementationOnce(() => {
+        replace();
+        return Promise.resolve({ head: "head", digest: "initial" });
+      });
+    else
+      h.persist.mockImplementationOnce(() => {
+        replace();
+        return Promise.resolve();
+      });
+    h.report(id);
+    await h.sync();
+    expect(h.host.stop).not.toHaveBeenCalled();
+    expect(h.orchestration.reviews.view(id)?.phase).toBe("waiting-on-parent");
+    expect(h.rows.get(id)?.exited).not.toBe(true);
+    await h.mutate("prompt", { id, text: "Proceed" });
+    expect(h.orchestration.reviews.view(id)?.phase).toBe("building");
+    h.orchestration.disposeUnreadChildren();
+  },
+);
+
+it.each(["checks", "head"])(
+  "does not signal when completion %s change during durable stop intent",
+  async (change) => {
+    const h = fixture();
+    const id = await h.launch();
+    h.persist.mockImplementationOnce(() => {
+      if (change === "checks")
+        h.host.forge.read.mockReturnValue({
+          number: 7,
+          headSha: "head",
+          state: "OPEN",
+          requiredChecks: "failure",
+        });
+      else h.snapshot.mockResolvedValue({ head: "new-head", digest: "new-digest" });
+      return Promise.resolve();
+    });
+    h.report(id);
+    await h.sync();
+    expect(h.host.stop).not.toHaveBeenCalled();
+    expect(h.orchestration.reviews.view(id)?.reason).toBe("checks not green");
+    h.orchestration.disposeUnreadChildren();
+  },
+);
+
+it.each([
+  ["author", "snapshot"],
+  ["reviewer", "snapshot"],
+  ["author", "intent"],
+  ["reviewer", "intent"],
+  ["author", "mutated"],
+  ["reviewer", "mutated"],
+] as const)(
+  "preserves a natural nonzero %s exit during %s instead of exempting it",
+  async (participant, boundary) => {
+    const h = fixture();
+    const author = await h.launch();
+    let id = author;
+    if (participant === "reviewer") {
+      h.report(author);
+      h.exit(author);
+      await h.sync();
+      id = "child-2";
+    }
+    const exit = () => {
+      const row = h.rows.get(id);
+      if (!row) throw new Error("missing participant");
+      if (boundary === "mutated") {
+        row.exited = true;
+        row.exitCode = 1;
+      } else h.rows.set(id, { ...row, exited: true, exitCode: 1 });
+      h.orchestration.exited(id);
+    };
+    if (boundary === "intent")
+      h.persist.mockImplementationOnce(() => {
+        exit();
+        return Promise.resolve();
+      });
+    else
+      h.snapshot.mockImplementationOnce(() => {
+        exit();
+        return Promise.resolve({ head: "head", digest: "initial" });
+      });
+    h.report(id, participant === "reviewer" ? { verdict: "clean" } : undefined);
+    await h.sync();
+    expect(h.host.stop).not.toHaveBeenCalled();
+    expect(h.orchestration.reviews.view(author)?.reason).toBe(`${participant} failed`);
+    h.orchestration.disposeUnreadChildren();
+  },
+);
+
+it.each(["author", "reviewer"])(
+  "waits without polling when the host observes a natural %s exit before main",
+  async (participant) => {
+    const h = fixture();
+    const author = await h.launch();
+    let id = author;
+    if (participant === "reviewer") {
+      h.report(author);
+      h.exit(author);
+      await h.sync();
+      id = "child-2";
+    }
+    h.host.stop.mockResolvedValueOnce(false);
+    h.report(id, participant === "reviewer" ? { verdict: "clean" } : undefined);
+    await h.sync();
+    // No self-sustaining retry loop while the host's exit notification is in flight.
+    expect(h.host.stop).toHaveBeenCalledTimes(1);
+    const row = h.rows.get(id);
+    if (!row) throw new Error("missing participant");
+    h.rows.set(id, { ...row, exited: true, exitCode: 1 });
+    h.orchestration.exited(id);
+    await h.sync();
+    expect(h.orchestration.reviews.view(author)?.reason).toBe(`${participant} failed`);
     h.orchestration.disposeUnreadChildren();
   },
 );

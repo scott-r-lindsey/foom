@@ -28,6 +28,9 @@ as they are. Off keeps new children in the sidebar, where they retain attention
 and can be opened normally. The config-folder key `showNewChildren` is a plain
 display preference and applies without Allow in either direction.
 
+General has a **Close finished agents** switch, on by default. It closes eligible
+exited children as described in [Orchestration](orchestration.md).
+
 Forges shows bundled and config manifests in the same card layout, with an On/Off
 switch, badge and host assignments. Valid config manifests load without
 approval; there is no Duplicate action. Copies start off with no hosts. Settings

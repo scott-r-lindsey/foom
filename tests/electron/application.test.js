@@ -568,3 +568,153 @@ test("About replay contains Tab and still dismisses with Enter Space or Escape",
     }
   }
 });
+
+test("flight samples baked assets with WebGL, freezes reduced motion and stops after closing", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board", renderer: "webgl" });
+  const page = await boardPage(app);
+  await page.evaluate(() => {
+    const original = WebGLRenderingContext.prototype.drawArrays;
+    WebGLRenderingContext.prototype.drawArrays = function (...args) {
+      document.documentElement.dataset.flightFrames = String(
+        Number(document.documentElement.dataset.flightFrames || 0) + 1,
+      );
+      return original.apply(this, args);
+    };
+  });
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await page.evaluate(() => window.desktop.appMenu.execute("about"));
+  const dialog = page.getByRole("dialog", { name: "About Foom", exact: true });
+  await expect(dialog).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => Number(document.documentElement.dataset.flightFrames || 0)))
+    .toBeGreaterThan(0);
+  const canvas = dialog.locator("canvas");
+  const pixels = () =>
+    canvas.evaluate((canvas) =>
+      canvas
+        .getContext("2d")
+        .getImageData(0, 0, canvas.width, canvas.height)
+        .data.reduce((hash, byte) => Math.imul(hash ^ byte, 16777619) >>> 0, 2166136261),
+    );
+  // Loading and the first ResizeObserver notification can each repaint the
+  // still. Wait for those event-driven paints, then require a quiet surface.
+  await expect
+    .poll(async () => {
+      const count = await page.evaluate(() => document.documentElement.dataset.flightFrames);
+      await page.waitForTimeout(100);
+      return (await page.evaluate(() => document.documentElement.dataset.flightFrames)) === count;
+    })
+    .toBe(true);
+  const still = await canvas.evaluateHandle(
+    (canvas) => canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data,
+  );
+  const settledFrames = await page.evaluate(() => document.documentElement.dataset.flightFrames);
+  // A settled reduced-motion surface paints on load/resize, with no frame loop.
+  await page.waitForTimeout(250);
+  const maxDelta = await canvas.evaluate((canvas, before) => {
+    const after = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+    if (before.length !== after.length) return Infinity;
+    let maximum = 0;
+    for (let k = 0; k < after.length; k += 4) {
+      maximum = Math.max(maximum, Math.abs(after[k + 3] - before[k + 3]));
+      for (let channel = 0; channel < 3; channel++)
+        maximum = Math.max(
+          maximum,
+          Math.abs(
+            (after[k + channel] * after[k + 3]) / 255 - (before[k + channel] * before[k + 3]) / 255,
+          ),
+        );
+    }
+    return maximum;
+  }, still);
+  await still.dispose();
+  // Accelerated canvas readback can round an 8-bit channel by one unit, without
+  // another draw. Compare visible premultiplied colour and require zero redraws.
+  assert.ok(maxDelta <= 1, `Static frame changed by ${maxDelta} levels`);
+  assert.equal(
+    await page.evaluate(() => document.documentElement.dataset.flightFrames),
+    settledFrames,
+  );
+  const shadowPixel = () =>
+    canvas.evaluate((canvas) => {
+      const x = Math.round(canvas.width * 0.66),
+        y = Math.round(canvas.height * (0.36 - 0.11 * 0.3));
+      return Array.from(canvas.getContext("2d").getImageData(x, y, 1, 1).data);
+    });
+  const shadow = await shadowPixel();
+  assert.ok(
+    shadow[0] < 20 && shadow[1] < 20 && shadow[2] < 25 && shadow[3] === 255,
+    `Opaque shadow: ${shadow}`,
+  );
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  const frames = await page.evaluate(() => document.documentElement.dataset.flightFrames);
+  await page.waitForTimeout(250);
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.flightFrames), frames);
+  await pauseReplayClock(page);
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "no-preference" });
+  await page.evaluate(() => window.desktop.appMenu.execute("about"));
+  await expect(dialog).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => Number(document.documentElement.dataset.flightFrames || 0)))
+    .toBeGreaterThan(Number(frames));
+  const moving = await pixels();
+  await page.clock.fastForward(1000);
+  assert.notEqual(await pixels(), moving);
+  // The original procedural sky has no injected star fixed to eight seconds.
+  await page.clock.fastForward(7000);
+  assert.notEqual(await pixels(), moving);
+  const alignedShadow = await shadowPixel();
+  assert.ok(
+    alignedShadow[0] < 20 &&
+      alignedShadow[1] < 20 &&
+      alignedShadow[2] < 25 &&
+      alignedShadow[3] === 255,
+    `Aligned star leaked through the shadow: ${alignedShadow}`,
+  );
+  await page.getByRole("button", { name: "Replay launch" }).click();
+  await expect(page.locator(".launch")).toBeVisible();
+  await page.clock.runFor(600);
+  await expect(dialog).not.toBeVisible();
+  await page.clock.resume();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".launch")).toHaveCount(0);
+  const closed = await page.evaluate(() => document.documentElement.dataset.flightFrames);
+  await page.waitForTimeout(250);
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.flightFrames), closed);
+});
+
+test("flight lens preserves main's procedural starfield outside its feathered disc", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const { build } = require("esbuild");
+  const bundle = await build({
+    entryPoints: [path.join(__dirname, "flight-compatibility.ts")],
+    bundle: true,
+    write: false,
+    format: "iife",
+    globalName: "flightCompatibility",
+    platform: "browser",
+  });
+  const app = await launchApp(context, { fixture: "empty-board", renderer: "webgl" });
+  const page = await boardPage(app);
+  const result = await page.evaluate(
+    `${bundle.outputFiles[0].text}\nflightCompatibility.compare()`,
+  );
+  context.diagnostic(JSON.stringify(result));
+  assert.ok(result.outside > 1_000_000, "Compare the whole sky over both surfaces and themes");
+  assert.equal(result.beforeDelta, 0, `Main's seeded sky changed: ${JSON.stringify(result)}`);
+  assert.equal(result.outsideDelta, 0, `Lensing changed outside pixels: ${result.outsideDelta}`);
+  assert.ok(result.insideChanges > 1000, "The lens actually changed its local region");
+  assert.ok(
+    result.lobes.every((value) => value > 5),
+    `Source star did not bend: ${result.lobes}`,
+  );
+  assert.ok(result.shadow[3] === 255 && result.shadow[2] < 25, `Shadow leaked: ${result.shadow}`);
+  assert.ok(
+    result.boundaryJump <= 5,
+    `Finite map revealed a rectangular edge: ${result.boundaryJump}`,
+  );
+});

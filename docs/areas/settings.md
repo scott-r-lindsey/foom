@@ -24,6 +24,7 @@ in the profile. Validation alone grants no approval.
 | `agents` | Boolean provider-ID map, at most 100 entries; `claude`, `codex`, `agy` are required |
 | `agentArguments` | Literal argument lists keyed by valid provider IDs, at most 100 entries; `claude`, `codex`, `agy` are required; validated by `parseAgentDefaults`; every file change requires Allow |
 | `hooks` | Boolean |
+| `closeFinishedAgents` | Boolean, default `true`; close eligible finished children; no Allow required |
 | `showNewChildren` | Boolean, default `true`; display-only, no Allow required |
 | `restoreSessions` | Boolean, default `true`; enabling through the file requires Allow |
 | `concurrentChildren` | Integer 1–16, default 4 |

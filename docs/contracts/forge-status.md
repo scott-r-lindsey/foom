@@ -8,7 +8,7 @@ agents accept only version 2. The config scanner now uses this dispatcher for `a
 wrong-kind files and applies its existing contained-directory, bounded-read and
 watcher rules to both. Each kind has its own 50-file cap and ID namespace.
 
-Production forge selection uses the build-locked GitHub manifest and the same
+Production forge selection uses the build-locked GitHub and GitLab manifests and the same
 interpreter for bundled/config copies. Dynamic batch plans keep all-check board
 counts separate from required-only conclusions. Main owns bounded scheduling,
 read-only argv execution, auth/executable validation and checkout/ownership policy.

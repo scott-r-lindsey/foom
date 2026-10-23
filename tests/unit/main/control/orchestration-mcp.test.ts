@@ -39,7 +39,7 @@ beforeEach(async () => {
       return Promise.resolve("child");
     },
     restoreWorktree: () => Promise.resolve(undefined),
-    stop: () => Promise.resolve(),
+    stop: () => Promise.resolve(true),
     close: () => Promise.resolve(),
     reply: vi.fn(() => Promise.resolve()),
     tail: () => Promise.resolve(["ok"]),

@@ -286,7 +286,9 @@ export class WorkspaceContext {
         this.sessions.isRestoring(id) ||
         (!this.launched.get(id)?.dormant && this.executionOwner.view(id).exitCode === undefined),
       exitCode: (id) => this.executionOwner.view(id).exitCode,
-      stop: (id) => deps.terminals.stop(id),
+      stop: async (id) => {
+        await deps.terminals.stop(id);
+      },
       exited: (id, code) => this.exited(id, code),
       kill: (id) => deps.terminals.kill(id),
       removed: (id) => {
@@ -372,6 +374,7 @@ export class WorkspaceContext {
           | "agentArguments"
           | "agentHooks"
           | "showNewChildren"
+          | "closeFinishedAgents"
           | "restoreSessions"
           | "concurrentChildren"
           | "unreadChildMinutes"
@@ -385,6 +388,7 @@ export class WorkspaceContext {
     this.sessions.configure(settings.restoreSessions ?? true);
     this.concurrentChildren = settings.concurrentChildren ?? 4;
     this.showNewChildren = settings.showNewChildren ?? true;
+    this.orchestration.configureCloseFinished(settings.closeFinishedAgents ?? true);
     const reminderChanged = this.orchestration.unreadChildren.configure(
       settings.unreadChildMinutes ?? 5,
     );

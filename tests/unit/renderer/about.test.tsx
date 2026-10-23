@@ -35,7 +35,10 @@ beforeEach(() => {
   ) {
     this.removeAttribute("open");
   });
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(canvasContext().ctx);
+  const ctx = canvasContext().ctx;
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation((kind) =>
+    kind === "2d" ? ctx : null,
+  );
   vi.stubGlobal("matchMedia", () => ({ matches: reduced }));
   vi.stubGlobal(
     "requestAnimationFrame",

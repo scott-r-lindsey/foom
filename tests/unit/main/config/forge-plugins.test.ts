@@ -74,6 +74,7 @@ it("loads through the shared bounded scanner, binds exact bytes, reloads edits a
   expect(initial.manifest.id).toBe("custom");
   expect(f.service.status().forgePlugins).toEqual([
     { id: "github", name: "GitHub", badge: "GH", executables: ["gh"] },
+    { id: "gitlab", name: "GitLab", badge: "GL", executables: ["glab"] },
     { id: "custom", name: "GitHub", badge: "GH", executables: ["gh"], file: "forges/custom.json" },
   ]);
   expect(initial.digest).toMatch(/^[a-f0-9]{64}$/u);
@@ -88,7 +89,7 @@ it("loads through the shared bounded scanner, binds exact bytes, reloads edits a
   await rm(f.file);
   await f.service.refresh();
   expect(f.catalog()).toEqual([]);
-  expect(f.service.status().forgePlugins).toHaveLength(1);
+  expect(f.service.status().forgePlugins).toHaveLength(2);
   await expect(edited.validate()).rejects.toThrow("changed");
   await writeFile(f.file, source + " ");
   await f.service.refresh();

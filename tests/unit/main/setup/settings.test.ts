@@ -787,3 +787,23 @@ test("update checks default on, persist in the profile, and reject non-booleans"
   expect(parseSettingsPatch({ checkForUpdates: false })).toEqual({ checkForUpdates: false });
   expect(() => parseSettingsPatch({ checkForUpdates: "off" })).toThrow("Invalid settings");
 });
+
+test("close finished agents defaults on and round-trips a boolean", async () => {
+  expect(DEFAULT_SETTINGS.closeFinishedAgents).toBe(true);
+  for (const closeFinishedAgents of [false, true])
+    expect(parseSettingsPatch({ closeFinishedAgents })).toEqual({ closeFinishedAgents });
+  for (const value of [null, 0, 1, "false", {}, []])
+    expect(() => parseSettingsPatch({ closeFinishedAgents: value })).toThrow();
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  await store.update({ closeFinishedAgents: false });
+  expect((await SettingsStore.open(dir)).get().closeFinishedAgents).toBe(false);
+  const writer = vi.fn();
+  await store.attachConfig(writer, { closeFinishedAgents: false }, null);
+  await store.update({ closeFinishedAgents: true });
+  expect(writer).toHaveBeenCalledWith({ closeFinishedAgents: true });
+  store.setConfig({ closeFinishedAgents: false });
+  expect(store.get().closeFinishedAgents).toBe(false);
+  store.setConfig({});
+  expect(store.get().closeFinishedAgents).toBe(true);
+});
