@@ -113,7 +113,24 @@ Hack Nerd Font Mono bundles only Regular and Bold from Nerd Fonts. Installed Hac
 
 ## Mark
 
-The in-app wordmark is plain text "foom" in Archivo Black, with no black-hole substitution. The app icon is the black hole with the curve passing it. Production needs a vector master and platform icon sets (`.icns`, `.ico`, PNG sizes).
+The in-app wordmark is plain text "foom" in Archivo Black, with no black-hole substitution.
+
+The app icon is a ray-traced Schwarzschild black hole on a dark squircle tile
+(an 824 body on a 1024 grid, sky `#160E30` to `#05040A`). Its thin accretion disk
+is lensed into the arch over the shadow and the crescent under it, with a crisp
+photon ring and Doppler beaming. The camera is rolled −25° and sits 7° above the
+disk plane. The disk light uses only the brand violet-to-white ramp, never amber
+or orange. Sizes up to 64 px use simplified art: a tighter crop, no disk streaks
+and a heavier photon ring. Every size is quantized to 8 bits with a 4×4 Bayer
+ordered dither (±½ step on colour, alpha untouched), which removes banding in
+the disk glow.
+
+`scripts/icon/` is the master. `blackhole.mjs` traces null geodesics and returns
+linear light, shadow coverage and a lens map for other art to reuse. `foom-icon.mjs`
+holds the approved parameters and writes `foom-<size>.png` (16–1024), `foom.icns`
+and `foom.ico`. Run `node scripts/icon/foom-icon.mjs <directory>` to render a set.
+The build renders into `build/icons/`, caching each set by generator source hash
+under `.cache/foom-icons/`. Generated images are not committed.
 
 For third-party agent identities, see the [agent-mark research](agent-marks.md):
 recommended sidebar fallbacks, official asset sources, permission conditions and

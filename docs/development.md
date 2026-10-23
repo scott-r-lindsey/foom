@@ -16,6 +16,23 @@ Electron runs JavaScript compiled from your TypeScript. `pnpm start`, `pnpm run 
 
 Packaging commands delegate to Forge, whose mandatory `prePackage` hook performs one fresh production build. Direct `pnpm exec electron-forge package` and `pnpm exec electron-forge make` use the same hook. A previous `pnpm run start:samples` build is replaced before packaging, so its development sample data cannot ship.
 
+The build also writes the app icon set to `build/icons/` from the generator in
+`scripts/icon/` (see [brand: mark](brand.md#mark)). The first build for a given
+generator source renders it in a few seconds; later builds copy the set from the
+Git-ignored `.cache/foom-icons/`. Each cache entry is published atomically with a
+manifest of file sizes and SHA-256 digests; an entry with a missing, extra or
+changed file, or a missing or invalid manifest, is discarded and rendered again. It stays outside `node_modules`, which the
+Electron build fingerprint hashes before and after each build. Forge's
+`prePackage` build runs before the packager and makers read their icon paths,
+so no generated image is committed.
+The packager embeds `foom.icns` in the macOS bundle and `foom.ico` in
+`Foom.exe`, and Squirrel uses `foom.ico` for Setup.exe. The deb and rpm install
+`foom-512.png` as `/usr/share/pixmaps/foom.png` for the desktop entry's
+`Icon=foom`; Linux windows load the same file from the archive. The DMG carries
+the icon inside `Foom.app`; a custom volume icon would need macOS-only tools, so
+the volume keeps the default. Squirrel's `iconUrl` (the Apps & features icon)
+needs a hosted image and is unset.
+
 See [architecture: process model](architecture.md#process-model) for ownership and
 security boundaries and the [source layout](architecture.md#source-layout) for directories
 and import rules.

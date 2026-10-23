@@ -19,6 +19,7 @@ import { attachSetup } from "../setup/setup-ipc";
 import { attachSounds } from "../sounds/ipc";
 import { SoundLibrary } from "../sounds/library";
 import { attachThemes } from "../themes/ipc";
+import { windowIcon } from "../window/app-icon";
 import { attachAppMenu, showWindowlessMenu } from "../window/app-menu";
 import type { Size } from "../window/appearance";
 import { initialSize, MINIMUM_SIZE, scaledSize } from "../window/appearance";
@@ -67,6 +68,7 @@ export async function buildWindow(
     ).colors.bg,
     show: false,
     autoHideMenuBar: true,
+    ...windowIcon(process.platform, path.join(__dirname, "../..")),
     webPreferences: {
       // Keep board and terminal paints alive across native occlusion/show transitions.
       backgroundThrottling: false,

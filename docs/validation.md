@@ -73,8 +73,10 @@ After the regular packaged smoke, CI runs `pnpm run test:installers` (under Xvfb
 on Linux). It extracts deb/rpm into temporary directories, mounts DMG read-only
 and copies its app into scratch, and extracts Squirrel's full nupkg payload on
 Windows. Every extracted application runs the same packaged native PTY, fuse,
-ASAR, console and fixture-isolation checks. Linux also verifies its desktop entry
-and executable symlink. Desktop entries launch `/usr/lib/foom/Foom` directly so
+ASAR, icon, console and fixture-isolation checks. The icon check compares the
+macOS bundle icon, the icon embedded in `Foom.exe` and the archived Linux window
+icon with the generated `build/icons/` set. Linux also verifies its desktop entry,
+executable symlink and icon pixmap. Desktop entries launch `/usr/lib/foom/Foom` directly so
 a user-installed console helper named `foom` on PATH cannot shadow the GUI.
 These tests exercise installed payload layouts without
 installing packages system-wide, running Setup.exe, writing /Applications or

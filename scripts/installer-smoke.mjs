@@ -52,6 +52,10 @@ for (const kind of kinds) {
         readFileSync(join(scratch, "usr/share/applications/foom.desktop"), "utf8"),
         /^Exec=\/usr\/lib\/foom\/Foom %U$/m,
       );
+      assert.deepEqual(
+        readFileSync(join(scratch, "usr/share/pixmaps/foom.png")),
+        readFileSync("build/icons/foom-512.png"),
+      );
     }
     execFileSync(process.execPath, ["scripts/electron-tests.mjs", "--packaged"], {
       stdio: "inherit",

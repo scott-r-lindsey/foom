@@ -55,6 +55,8 @@ module.exports = {
     },
     executableName: "Foom",
     appBundleId: "com.foom-term.foom",
+    // prePackage renders these; packager appends .icns or .ico per platform.
+    icon: require("node:path").join(__dirname, "build/icons/foom"),
     // Include production dependencies; native PTY binaries and helpers must live outside ASAR.
     ignore: (file) =>
       !["", "/package.json", "/LICENSE", "/NOTICE"].includes(file) &&
@@ -66,7 +68,13 @@ module.exports = {
     {
       name: "@electron-forge/maker-squirrel",
       platforms: ["win32"],
-      config: { authors: "Foom contributors", description: "Foom terminal", noMsi: true },
+      // iconUrl (the Apps & features icon) needs a hosted URL; nothing is hosted yet.
+      config: {
+        authors: "Foom contributors",
+        description: "Foom terminal",
+        noMsi: true,
+        setupIcon: require("node:path").join(__dirname, "build/icons/foom.ico"),
+      },
     },
     {
       name: "@electron-forge/maker-deb",
@@ -75,6 +83,8 @@ module.exports = {
         options: {
           bin: "Foom",
           desktopTemplate: require("node:path").join(__dirname, "scripts/foom.desktop.ejs"),
+          // A single path installs /usr/share/pixmaps/foom.png for Icon=foom.
+          icon: require("node:path").join(__dirname, "build/icons/foom-512.png"),
           maintainer: "Foom contributors",
           homepage: "https://github.com/scott-r-lindsey/foom",
         },
@@ -87,6 +97,8 @@ module.exports = {
         options: {
           bin: "Foom",
           desktopTemplate: require("node:path").join(__dirname, "scripts/foom.desktop.ejs"),
+          // foom-rpm.spec.ejs lists this pixmap in %files.
+          icon: require("node:path").join(__dirname, "build/icons/foom-512.png"),
           homepage: "https://github.com/scott-r-lindsey/foom",
           specTemplate: require("node:path").join(__dirname, "scripts/foom-rpm.spec.ejs"),
         },
