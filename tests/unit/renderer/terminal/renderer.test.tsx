@@ -1290,7 +1290,7 @@ test("renderer fallback refits the attached grid without resetting or reattachin
   controller.dispose();
 });
 
-test("first frame follows parsed attachment data and a render, and resets on hide", async () => {
+test("first frame follows parsed attachment data and a render without loading again on reshow", async () => {
   const update = vi.fn<(view: ShellView) => void>();
   const element = document.createElement("div");
   document.body.append(element);
@@ -1307,15 +1307,62 @@ test("first frame follows parsed attachment data and a render, and resets on hid
   mock.write.mock.lastCall?.[1]?.();
   renderFrame?.();
   expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ firstFrame: true }));
+  const staleParsed = mock.write.mock.lastCall?.[1];
+  mock.write.mockImplementation((_data, done) => done?.());
   const count = update.mock.calls.length;
   renderFrame?.();
   expect(update).toHaveBeenCalledTimes(count);
   await shell.hide();
-  expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ firstFrame: false }));
-  // A delayed write from the old attachment cannot satisfy a new frame.
-  mock.write.mock.lastCall?.[1]?.();
+  expect(update).toHaveBeenLastCalledWith(
+    expect.objectContaining({ firstFrame: true, attaching: false }),
+  );
+  update.mockClear();
+  await shell.open("restored");
+  expect(update.mock.calls.every(([view]) => !view.attaching)).toBe(true);
+  // Switching sessions needs a new snapshot, and ignores delayed writes.
+  await shell.open("another");
+  staleParsed?.();
   renderFrame?.();
-  expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ firstFrame: false }));
+  expect(update).toHaveBeenLastCalledWith(
+    expect.objectContaining({ firstFrame: false, attaching: true }),
+  );
   shell.dispose();
   expect(mock.offRender).toHaveBeenCalledOnce();
+});
+
+test.each([false, true])(
+  "host failure ends attachment loading (already rendered: %s)",
+  async (rendered) => {
+    const update = vi.fn<(view: ShellView) => void>();
+    const shell = createShell(document.createElement("div"), update, false, undefined, false);
+    await shell.open("restored");
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ attaching: true }));
+    if (rendered) {
+      mock.onData.mock.calls[0]?.[0]("restored", "snapshot", "screen");
+      mock.onRender.mock.calls[0]?.[0]();
+    }
+    mock.onExit.mock.calls[0]?.[0]("restored", -1);
+    expect(update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        attaching: false,
+        status: "Terminal host failed. Restart the shell to continue.",
+        state: "failed",
+      }),
+    );
+    shell.dispose();
+  },
+);
+
+test("attachment rejection ends loading and retains the failure status", async () => {
+  mock.attach.mockRejectedValue(new Error("Attachment failed"));
+  const update = vi.fn<(view: ShellView) => void>();
+  const shell = createShell(document.createElement("div"), update, false, undefined, false);
+  await shell.open("restored");
+  expect(update).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      attaching: false,
+      status: "Unable to open terminal",
+    }),
+  );
+  shell.dispose();
 });

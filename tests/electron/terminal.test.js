@@ -768,6 +768,7 @@ test("a crashed utility host reports failure and the renderer can restart", {
   await page.waitForFunction(
     () => !/Starting|exited|Unable/.test(document.querySelector(".tile-status").textContent),
   );
+  await expect(page.locator(".tile-restoring")).toHaveCount(0);
   const hostPid = await app.evaluate(({ app }) => {
     const metric = app
       .getAppMetrics()
@@ -776,7 +777,8 @@ test("a crashed utility host reports failure and the renderer can restart", {
     process.kill(metric.pid, "SIGKILL");
     return metric.pid;
   });
-  await page.getByRole("status").filter({ hasText: "Terminal host failed" }).waitFor();
+  await expect(page.getByRole("status").filter({ hasText: "Terminal host failed" })).toBeVisible();
+  await expect(page.getByRole("status", { name: /^Restoring / })).toHaveCount(0);
   await restartShellFromSidebar(page);
   await page.waitForFunction(
     () => !/Starting|failed|Unable/.test(document.querySelector(".tile-status").textContent),

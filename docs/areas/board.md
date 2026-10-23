@@ -124,6 +124,8 @@ scrollback exists to draw. Disabled or ineligible restores likewise stay in the
 sidebar. Eligible running sessions keep their saved tile positions while queued
 and relaunched. A neutral skeleton with the agent glyph and session name covers
 the tile until the new attachment's snapshot has been parsed and its first frame
-rendered. Restoration failures and roles that cannot be restored lose their tile
+rendered. Loading ends on host or attachment failure so the existing failure
+status remains available. Hiding and reshowing a session that already rendered
+does not show the skeleton again. Restoration failures and roles that cannot be restored lose their tile
 assignment and retain the existing sidebar error state. Manual resume uses normal
 launch placement. Live tiles retain their split geometry and hidden-space rules.

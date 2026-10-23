@@ -23,12 +23,16 @@ const snapshot = {
   state: "quiet_ok" as const,
   visible: true,
   firstFrame: true,
+  attaching: false,
   toggleLabel: "Hide terminal",
   toggleDisabled: false,
   restartDisabled: true,
 };
 beforeEach(() => {
   localStorage.clear();
+  snapshot.status = "Terminal";
+  snapshot.firstFrame = true;
+  snapshot.attaching = false;
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -1480,6 +1484,7 @@ test("saved exited rows stay in the sidebar; restoring tiles survive until failu
   );
   expect(screen.container.querySelectorAll('.terminal-tile[data-empty="false"]')).toHaveLength(1);
   snapshot.firstFrame = false;
+  snapshot.attaching = true;
   act(() => {
     data.update("permission", { dormant: true, exited: false });
   });
@@ -1489,6 +1494,7 @@ test("saved exited rows stay in the sidebar; restoring tiles survive until failu
   });
   expect(screen.container.querySelector(".tile-restoring")).toBeTruthy();
   snapshot.firstFrame = true;
+  snapshot.attaching = false;
   act(() => {
     data.update("permission", { launchVersion: 1 });
   });
@@ -1584,3 +1590,19 @@ test("saved exited rows cannot be dragged back onto the board without a host", (
   expect(target.dataset["empty"]).toBe("true");
   vi.unstubAllGlobals();
 });
+
+test.each(["Terminal host failed. Restart the shell to continue.", "Unable to open terminal"])(
+  "attachment failure shows its status without a restore skeleton: %s",
+  (status) => {
+    const saved = placeSession(initialLayout(), "permission");
+    if (!saved) throw new Error("No layout");
+    saveLayout(localStorage, saved);
+    snapshot.status = status;
+    snapshot.firstFrame = false;
+    snapshot.attaching = false;
+    const { screen } = setup();
+    expect(screen.container.querySelector('.terminal-tile[data-empty="false"]')).toBeTruthy();
+    expect(screen.container.querySelector(".tile-restoring")).toBeNull();
+    expect(screen.container.querySelector(".tile-status")?.textContent).toBe(status);
+  },
+);

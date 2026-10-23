@@ -31,6 +31,7 @@ export function createShell(
     state: "quiet_ok",
     toggleLabel: "Open terminal",
     visible: false,
+    attaching: true,
     toggleDisabled: true,
     restartDisabled: true,
   };
@@ -102,13 +103,14 @@ export function createShell(
   const frame = terminal.onRender(() => {
     if (!attached || !parsedFrame || view.firstFrame) return;
     view.firstFrame = true;
+    view.attaching = false;
     publish();
   });
   const visibility = (visible: boolean) => {
     if (!visible) {
       ++frameGeneration;
       parsedFrame = false;
-      view.firstFrame = false;
+      view.attaching = false;
     }
     attached = visible;
     container.hidden = !visible;
@@ -273,6 +275,8 @@ export function createShell(
   const observer = new ResizeObserver(resize);
   observer.observe(container);
   const openView = async (id: string) => {
+    view.attaching = !view.firstFrame;
+    publish();
     // Drain writes from the old attachment before resetting, including delayed ACKs.
     await new Promise<void>((resolve) => {
       terminal.write("", resolve);
@@ -326,6 +330,9 @@ export function createShell(
     view.status = "Starting shell…";
     controls();
     visibility(false);
+    view.firstFrame = false;
+    view.attaching = true;
+    publish();
     try {
       if (activeId) {
         const previous = activeId;
@@ -410,6 +417,7 @@ export function createShell(
         }
         const previous = attached ? activeId : undefined;
         visibility(false);
+        if (activeId !== id) view.firstFrame = false;
         activeId = undefined;
         // Removal can revoke the old capability before selection catches up.
         // Its failed detach must not prevent attaching the next owned terminal.

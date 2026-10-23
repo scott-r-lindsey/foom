@@ -78,7 +78,7 @@ function TerminalView({
         {status.status}
       </span>
       <div className="tile-terminal" ref={mount} />
-      {row && (row.dormant || !status.firstFrame) && (
+      {row && (row.dormant || status.attaching) && (
         <div className="tile-restoring" aria-label={`Restoring ${name}`} role="status">
           <div className="tile-restoring-identity">
             <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
