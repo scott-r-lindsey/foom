@@ -15,6 +15,9 @@ function fixture() {
     return image;
   });
   const gl = {
+    TEXTURE_2D: 3553,
+    RGBA: 6408,
+    UNSIGNED_BYTE: 5121,
     createShader: vi.fn<() => WebGLShader | null>(() => ({})),
     shaderSource: vi.fn(),
     compileShader: vi.fn(),
@@ -58,23 +61,33 @@ function fixture() {
   };
   return { gl, images, context, repaint, load };
 }
-test("loads only local baked assets; GPU draw scales with the surface and resources are released", () => {
+test("loads only local baked assets; GPU draws stay inside the local disc and resources are released", () => {
   const { gl, images, repaint, load } = fixture();
   const view = createSingularity(repaint);
   expect(images.map((i) => i.getAttribute("src"))).toEqual([
     "art/singularity.png",
     "art/lens.png",
     "art/emission.png",
-    "art/sky.png",
   ]);
   load();
-  expect(repaint).toHaveBeenCalledTimes(4);
+  expect(repaint).toHaveBeenCalledTimes(3);
   const { ctx, draw } = canvasContext();
   view.draw(ctx, 2000, 1000, 1200, 400, 80, 4000, true);
-  expect(gl.viewport).toHaveBeenLastCalledWith(0, 0, 1440, 720);
-  expect(gl.uniform1f).toHaveBeenCalledWith("time", 4);
+  expect(gl.viewport).toHaveBeenLastCalledWith(0, 0, 480, 480);
+  expect(gl.texImage2D).toHaveBeenLastCalledWith(
+    gl.TEXTURE_2D,
+    0,
+    gl.RGBA,
+    gl.RGBA,
+    gl.UNSIGNED_BYTE,
+    ctx.canvas,
+  );
+  expect(draw.clearRect).toHaveBeenLastCalledWith(960, 160, 480, 480);
+  expect(draw.clip).toHaveBeenCalledOnce();
   view.draw(ctx, 2000, 1000, 1200, 400, 80, 4000, false);
-  expect(gl.uniform1f).toHaveBeenCalledWith("dark", 0);
+  expect(draw.clearRect).not.toHaveBeenCalledWith(0, 0, 2000, 1000);
+  view.draw(ctx, 4000, 2000, 2400, 800, 400, 4000, true);
+  expect(gl.viewport).toHaveBeenLastCalledWith(0, 0, 1440, 1440);
   gl.isContextLost.mockReturnValue(true);
   view.draw(ctx, 500, 300, 250, 150, 30, 0, true);
   gl.isContextLost.mockReturnValue(false);
@@ -85,7 +98,7 @@ test("loads only local baked assets; GPU draw scales with the surface and resour
   surface.dispatchEvent(lost);
   expect(lost.defaultPrevented).toBe(true);
   view.draw(ctx, 500, 300, 250, 150, 30, 0, true);
-  expect(gl.drawArrays).toHaveBeenCalledTimes(2);
+  expect(gl.drawArrays).toHaveBeenCalledTimes(3);
   const pending = images[1];
   const lateLoad = pending?.onload;
   const lateStill = images[0]?.onload;
@@ -101,7 +114,7 @@ test("loads only local baked assets; GPU draw scales with the surface and resour
   load();
   expect(repaint).toHaveBeenCalledTimes(paints);
   view.draw(ctx, 500, 300, 250, 150, 30, 0, true);
-  expect(gl.drawArrays).toHaveBeenCalledTimes(2);
+  expect(gl.drawArrays).toHaveBeenCalledTimes(3);
 });
 test("without WebGL, renders the baked still and keeps an opaque shadow while it loads", () => {
   const { context, images, load, repaint } = fixture();

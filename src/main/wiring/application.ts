@@ -629,7 +629,6 @@ const assets = new Map([
   ["/art/singularity.png", "art/singularity.png"],
   ["/art/emission.png", "art/emission.png"],
   ["/art/lens.png", "art/lens.png"],
-  ["/art/sky.png", "art/sky.png"],
   ["/renderer.js", "renderer.js"],
   ["/renderer.css", "renderer.css"],
 ]);

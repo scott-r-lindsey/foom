@@ -352,7 +352,7 @@ test("flight bake is reproducible, opaque map bytes survive PNG decoding, and as
   const directory = await mkdtemp(join(tmpdir(), "foom-flight-bake-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   execFileSync(process.execPath, ["scripts/bake-flight.mjs", directory]);
-  const names = ["emission.png", "lens.png", "singularity.png", "sky.png"];
+  const names = ["emission.png", "lens.png", "singularity.png"];
   assert.deepEqual((await readdir(directory)).sort(), names);
   let total = 0;
   for (const name of names) {
@@ -361,7 +361,7 @@ test("flight bake is reproducible, opaque map bytes survive PNG decoding, and as
     total += baked.length;
   }
   assert.ok(total < 1_100_000);
-  for (const name of ["emission.png", "singularity.png", "sky.png"]) {
+  for (const name of ["emission.png", "singularity.png"]) {
     const { bytes } = readPng(await readFile(join(directory, name)));
     for (let k = 0; k < bytes.length; k += 4)
       assert.ok(bytes[k + 2] >= bytes[k] && bytes[k] >= bytes[k + 1], `${name}: violet-white ramp`);

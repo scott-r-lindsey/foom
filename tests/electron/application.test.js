@@ -663,23 +663,9 @@ test("flight samples baked assets with WebGL, freezes reduced motion and stops a
   const moving = await pixels();
   await page.clock.fastForward(1000);
   assert.notEqual(await pixels(), moving);
-  const ring = () =>
-    canvas.evaluate((canvas) => {
-      const ctx = canvas.getContext("2d");
-      return [-1, 1].map((side) => {
-        const x = Math.round(canvas.width * 0.66),
-          y = Math.round(canvas.height * (0.36 + side * 0.11 * 1.97));
-        const data = ctx.getImageData(x - 1, y - 1, 3, 3).data;
-        return Math.max(...Array.from(data).filter((_v, k) => k % 4 === 1));
-      });
-    });
-  const unaligned = await ring();
-  // The baked bright star crosses the optical axis at eight seconds. Its image
-  // appears on opposite sides of the shadow, outside the emitted photon ring.
+  // The original procedural sky has no injected star fixed to eight seconds.
   await page.clock.fastForward(7000);
-  await expect
-    .poll(async () => (await ring()).every((value, i) => value > unaligned[i] + 80))
-    .toBe(true);
+  assert.notEqual(await pixels(), moving);
   const alignedShadow = await shadowPixel();
   assert.ok(
     alignedShadow[0] < 20 &&
@@ -698,4 +684,33 @@ test("flight samples baked assets with WebGL, freezes reduced motion and stops a
   const closed = await page.evaluate(() => document.documentElement.dataset.flightFrames);
   await page.waitForTimeout(250);
   assert.equal(await page.evaluate(() => document.documentElement.dataset.flightFrames), closed);
+});
+
+test("flight lens preserves main's procedural starfield outside its feathered disc", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const { build } = require("esbuild");
+  const bundle = await build({
+    entryPoints: [path.join(__dirname, "flight-compatibility.ts")],
+    bundle: true,
+    write: false,
+    format: "iife",
+    globalName: "flightCompatibility",
+    platform: "browser",
+  });
+  const app = await launchApp(context, { fixture: "empty-board", renderer: "webgl" });
+  const page = await boardPage(app);
+  const result = await page.evaluate(
+    `${bundle.outputFiles[0].text}\nflightCompatibility.compare()`,
+  );
+  context.diagnostic(JSON.stringify(result));
+  assert.ok(result.outside > 1_000_000, "Compare the whole sky over both surfaces and themes");
+  assert.equal(result.beforeDelta, 0, `Main's seeded sky changed: ${JSON.stringify(result)}`);
+  assert.equal(result.outsideDelta, 0, `Lensing changed outside pixels: ${result.outsideDelta}`);
+  assert.ok(result.insideChanges > 1000, "The lens actually changed its local region");
+  assert.ok(
+    result.lobes.every((value) => value > 5),
+    `Source star did not bend: ${result.lobes}`,
+  );
+  assert.ok(result.shadow[3] === 255 && result.shadow[2] < 25, `Shadow leaked: ${result.shadow}`);
 });
