@@ -195,7 +195,7 @@ export function validateV2(manifest: AgentManifestV2): void {
       (manifest.hooks?.channels.length !== 1 ||
         channel.observer.placement !== "plugin" ||
         channel.observer.transport !== "stdin" ||
-        channel.observer.version !== 2 ||
+        (channel.observer.version !== 2 && channel.observer.version !== 3) ||
         channel.observer.response !== "empty-json-first" ||
         channel.observer.delivery !== "detached" ||
         channel.observer.timeoutMs !== 1000 ||
@@ -447,7 +447,14 @@ export function validateV2(manifest: AgentManifestV2): void {
       );
     if (
       setup.status.probe &&
-      JSON.stringify(setup.status.probe.arguments) !== JSON.stringify(["plugin", "list"])
+      (![JSON.stringify(["plugin", "list"]), JSON.stringify(["plugin", "list", "--json"])].includes(
+        JSON.stringify(setup.status.probe.arguments),
+      ) ||
+        (setup.status.probe.fallbackArguments !== undefined &&
+          (JSON.stringify(setup.status.probe.arguments) !==
+            JSON.stringify(["plugin", "list", "--json"]) ||
+            JSON.stringify(setup.status.probe.fallbackArguments) !==
+              JSON.stringify(["plugin", "list"]))))
     )
       fail("$.setup.status.probe.arguments", "incompatible-combination");
     if (setup.status.ownership) {
@@ -522,9 +529,13 @@ export function validateV2(manifest: AgentManifestV2): void {
         if (
           args.length !== 3 ||
           args[0] !== "plugin" ||
-          !["install", "enable", "uninstall"].includes(operation ?? "") ||
-          args[2] !== (operation === "install" ? "{pluginDir}" : target) ||
-          JSON.stringify(action.statusProbe) !== JSON.stringify(["plugin", "list"]) ||
+          !["install", "reinstall", "enable", "uninstall"].includes(operation ?? "") ||
+          args[2] !==
+            (["install", "reinstall"].includes(operation ?? "") ? "{pluginDir}" : target) ||
+          ![
+            JSON.stringify(["plugin", "list"]),
+            JSON.stringify(["plugin", "list", "--json"]),
+          ].includes(JSON.stringify(action.statusProbe)) ||
           !stateGuard
         )
           fail("$.setup.actions", "incompatible-combination");

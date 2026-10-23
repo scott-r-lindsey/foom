@@ -66,6 +66,13 @@ launch modal or toast. Answering the install confirmation, including **Not now**
 persists the answer and clears the marker; the inline action stays available.
 Without agy on PATH, no plugin controls or marker appear.
 
+An owned Antigravity plugin offers **Reinstall plugin** and **Remove** while
+installed, outdated or disabled. Reinstall confirms both steps together, then
+uninstalls and installs the reviewed observer. If installation fails after removal,
+scan again and use Install. Outdated installations also offer Update; disabled
+installations offer Enable. **Status unavailable** offers **Retry status** in the
+row and no mutation actions until a successful check establishes ownership.
+
 Settings → Agents also provides default launch arguments for each supported
 agent, one argument per line, saved when focus leaves the editor. Put flag
 values on separate lines. Spaces and quotes are literal, with no shell parsing or

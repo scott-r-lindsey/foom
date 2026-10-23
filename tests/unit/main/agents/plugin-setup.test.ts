@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, link } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, writeFile, readFile, rm, symlink, link } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
@@ -49,9 +49,8 @@ async function environment() {
   const run = vi.fn(async (_exe: string, args: readonly string[]) => {
     if (args[1] === "list") return { stdout: JSON.stringify({ imports: [] }) };
     if (args[1] === "install") {
-      const content = await readFile(join(required(args[2]), "plugin.json"), "utf8");
       await mkdir(directory, { recursive: true });
-      await writeFile(manifest, content);
+      await cp(required(args[2]), directory, { recursive: true });
     }
     if (args[1] === "enable")
       await writeFile(config, JSON.stringify({ plugins: { foom: { enabled: true } } }));
@@ -70,7 +69,7 @@ async function environment() {
     validate: vi.fn(async () => {}),
     facts: () => ({}),
     confirm,
-    stage: () => stagePlugin(m, home, {}),
+    stage: () => stagePlugin(m, home, {}, process.platform === "win32", home),
     signal: new AbortController().signal,
   });
   return {
@@ -340,13 +339,17 @@ it("stages immutable private files, reuses identical content and refuses tamperi
     content: "{}",
     when: undefined,
   });
-  const stage = await stagePlugin(e.m, e.home, {});
-  expect((await stagePlugin(e.m, e.home, {})).directory).toBe(stage.directory);
+  const stage = await stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home);
+  expect((await stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home)).directory).toBe(
+    stage.directory,
+  );
   await stage.verify();
   await writeFile(join(stage.directory, "config/hooks.json"), "[]");
   await expect(stage.verify()).rejects.toThrow("changed");
   e.m.files = [];
-  await expect(stagePlugin(e.m, e.home, {})).rejects.toThrow("Missing");
+  await expect(stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home)).rejects.toThrow(
+    "Missing",
+  );
   e.m.files = [
     {
       name: "plugin.json",
@@ -356,7 +359,9 @@ it("stages immutable private files, reuses identical content and refuses tamperi
       when: undefined,
     },
   ];
-  await expect(stagePlugin(e.m, e.home, {})).rejects.toThrow("Unselected");
+  await expect(stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home)).rejects.toThrow(
+    "Unselected",
+  );
 });
 
 it("does not let authored status cases relabel current or enabled installations into mutation authority", async () => {
@@ -416,7 +421,7 @@ it("rejects mutation probes and ownership without the fixed list probe at the pa
 });
 it("refuses unreviewed extra staging files before any CLI receives the staging directory", async () => {
   const e = await environment();
-  const stage = await stagePlugin(e.m, e.home, {});
+  const stage = await stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home);
   await writeFile(join(stage.directory, "unreviewed.json"), "{}");
   await expect(stage.verify()).rejects.toThrow("Staged plugin changed");
 });
@@ -519,7 +524,7 @@ it.each(["extra", "link", "changed"])(
       e.m,
       parseAgentManifest(JSON.stringify({ ...fixture, id: "setup-fixture" })).model,
     );
-    const staged = await stagePlugin(e.m, e.home, {});
+    const staged = await stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home);
     const target = join(
       staged.directory,
       "observers/lifecycle",
@@ -542,17 +547,13 @@ it.each(["extra", "link", "changed"])(
 );
 
 it.each([0, 1, 2, 3, 100001])(
-  "recognizes legacy bundled observer version %s without a fingerprint or reinstall",
+  "requires an anchored update for legacy bundled observer version %s",
   async (version) => {
     const e = await environment();
     const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
     Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
     await e.owned(version);
-    expect(await e.status()).toMatchObject({ state: version < 2 ? "outdated" : "installed" });
-    if (version >= 2) {
-      expect((await e.status()).actions).toEqual([{ id: "remove", label: "Remove" }]);
-      await expect(e.service.change(e.input("update"))).rejects.toThrow("changed");
-    }
+    expect(await e.status()).toMatchObject({ state: "outdated" });
     expect(e.run.mock.calls.every((entry) => entry[1][1] === "list")).toBe(true);
     expect(await readFile(e.manifest, "utf8")).toBe(
       JSON.stringify({ name: "foom", foomObserverVersion: version }),
@@ -560,7 +561,7 @@ it.each([0, 1, 2, 3, 100001])(
   },
 );
 
-it("preserves installed native observer and hook bytes on both platforms; only staging metadata is added", async () => {
+it("preserves native observer bytes while anchoring hook commands on both platforms", async () => {
   const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
   const { pluginContent } = await import("../../../../src/main/agents/plugin-staging");
   const { agyPluginFiles } = await import("../../../../src/main/agents/agy-observer");
@@ -574,11 +575,11 @@ it("preserves installed native observer and hook bytes on both platforms; only s
         expect(JSON.parse(files[name] ?? "")).toEqual({
           name: "foom",
           version: "1.0.0",
-          foomObserverVersion: 2,
+          foomObserverVersion: 3,
           foomStagingFingerprint: staged.fingerprint,
         });
-      } else if (windows || name === "hooks.json" || name === "observer.sh")
-        expect(files[name]).toBe(content);
+      } else if (name === "hooks.json") expect(files[name]).not.toContain("./observer.");
+      else if (windows || name === "observer.sh") expect(files[name]).toBe(content);
     }
   }
 });
@@ -611,4 +612,269 @@ it("keeps an installed plugin with a missing enabled preference leaf unavailable
   expect(await e.status()).toEqual({ state: "unavailable", actions: [] });
   await expect(e.service.change(e.input("remove"))).rejects.toThrow("changed");
   expect(e.run.mock.calls.every((entry) => entry[1][1] === "list")).toBe(true);
+});
+
+it.each([
+  "missing-target",
+  "changed-target",
+  "changed-hooks",
+  "linked-target",
+  "path-dot",
+  "path-parent",
+  "path-double",
+  "path-trailing",
+  "path-symlink-parent",
+  "path-missing",
+  "path-relative",
+  "path-outside",
+  "path-control",
+  "path-long",
+  "path-type",
+])("offers repair for a matching fingerprint with %s", async (failure) => {
+  const e = await environment();
+  const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+  Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+  await e.service.change(e.input());
+  const observer = join(e.directory, process.platform === "win32" ? "observer.ps1" : "observer.sh");
+  let reported: unknown = e.directory;
+  if (failure === "missing-target") await rm(observer);
+  if (failure === "changed-target") await writeFile(observer, "changed");
+  if (failure === "changed-hooks") await writeFile(join(e.directory, "hooks.json"), "{}");
+  if (failure === "linked-target") {
+    await rm(observer);
+    await symlink(e.manifest, observer);
+  }
+  if (failure === "path-dot") reported = `${e.directory}/.`;
+  if (failure === "path-parent") reported = `${e.directory}/../foom`;
+  if (failure === "path-double") reported = `${e.directory}//`;
+  if (failure === "path-trailing") reported = `${e.directory}/`;
+  if (failure === "path-symlink-parent") {
+    const foreign = join(e.home, "foreign");
+    await mkdir(join(foreign, "child"), { recursive: true });
+    await mkdir(join(foreign, ".gemini/config/plugins/foom"), { recursive: true });
+    await symlink(
+      join(foreign, "child"),
+      join(e.home, "redirect"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    reported = `${e.home}/redirect/../.gemini/config/plugins/foom`;
+  }
+  if (failure === "path-missing") reported = undefined;
+  if (failure === "path-relative") reported = ".gemini/config/plugins/foom";
+  if (failure === "path-outside") reported = join(e.home, "outside");
+  if (failure === "path-control") reported = `${e.directory}\n`;
+  if (failure === "path-long") reported = "/".repeat(4097);
+  if (failure === "path-type") reported = {};
+  const runner = required(e.run.getMockImplementation());
+  e.run.mockImplementation((executable, args) =>
+    args[1] === "list"
+      ? Promise.resolve({
+          stdout: JSON.stringify([{ name: "foom", enabled: true, path: reported }]),
+        })
+      : runner(executable, args),
+  );
+  const status = await e.status();
+  if (failure.startsWith("path-")) {
+    expect(status).toEqual({ state: "unavailable", actions: [] });
+  } else {
+    expect(status.state).toBe("outdated");
+    expect(status.actions).toContainEqual({ id: "update", label: "Update" });
+    expect(status.actions).toContainEqual({ id: "reinstall", label: "Reinstall plugin" });
+  }
+});
+
+it("keeps a disposable-profile install working across Dev/everyday scans after deleting its staging", async () => {
+  const e = await environment();
+  const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+  Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+  const disposable = join(e.home, "fresh-profile");
+  const everyday = join(e.home, "everyday-profile");
+  await mkdir(disposable);
+  await mkdir(everyday);
+  const input = e.input();
+  input.stage = () => stagePlugin(e.m, disposable, {}, process.platform === "win32", e.home);
+  await e.service.change(input);
+  await rm(disposable, { recursive: true });
+  const runner = required(e.run.getMockImplementation());
+  e.run.mockImplementation(async (executable, args) => {
+    if (args[1] !== "list") return runner(executable, args);
+    const entries = await readFile(e.manifest).then(
+      () => [{ name: "foom", enabled: true, path: e.directory }],
+      () => [],
+    );
+    return { stdout: JSON.stringify(entries) };
+  });
+  const other = new PluginSetup(e.home, e.run);
+  for (let scan = 0; scan < 3; scan++) {
+    expect((await e.status()).state).toBe("installed");
+    expect((await other.status(e.m, e.executable)).state).toBe("installed");
+  }
+  const hooks = await readFile(join(e.directory, "hooks.json"), "utf8");
+  expect(hooks).not.toContain("fresh-profile");
+  expect(hooks).not.toContain("everyday-profile");
+  const repair = e.input("reinstall");
+  repair.stage = () => stagePlugin(e.m, everyday, {}, process.platform === "win32", e.home);
+  await e.service.change(repair);
+  expect(await readFile(join(e.directory, "hooks.json"), "utf8")).toBe(hooks);
+  expect((await e.status()).state).toBe("installed");
+});
+
+it.each([
+  [[], undefined, "not-installed"],
+  [[{ name: "foom", enabled: true, hooks: ["foom-observer-v1"] }], 1, "outdated"],
+  [[{ name: "foom", enabled: false }], 3, "disabled"],
+  [[{ name: "foom", enabled: "yes" }], 1, "unavailable"],
+  [
+    [
+      { name: "foom", enabled: true },
+      { name: "foom", enabled: false },
+    ],
+    1,
+    "unavailable",
+  ],
+  [{ imports: [] }, undefined, "not-installed"],
+  ["malformed", undefined, "unavailable"],
+])("validates modern and legacy probe output %j", async (list, version, state) => {
+  const e = await environment();
+  const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+  Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+  if (version !== undefined) await e.owned(version);
+  e.run.mockResolvedValue({
+    stdout: JSON.stringify(
+      Array.isArray(list) ? list.map((entry) => ({ ...entry, path: e.directory })) : list,
+    ),
+  });
+  expect((await e.status()).state).toBe(state);
+  expect(e.run).toHaveBeenCalledWith(
+    e.executable,
+    ["plugin", "list", "--json"],
+    expect.any(Object),
+  );
+  expect(e.run).toHaveBeenCalledTimes(1);
+});
+
+it("falls back only on a failed JSON command, retaining legacy empty output", async () => {
+  const e = await environment();
+  const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+  Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+  e.run
+    .mockRejectedValueOnce(Error("unknown --json"))
+    .mockResolvedValueOnce({ stdout: "No imported plugins." });
+  expect((await e.status()).state).toBe("not-installed");
+  expect(e.run.mock.calls.map((call) => call[1])).toEqual([
+    ["plugin", "list", "--json"],
+    ["plugin", "list"],
+  ]);
+  e.run.mockClear();
+  e.run.mockResolvedValue({ stdout: "Installed plugins:" });
+  expect((await e.status()).state).toBe("unavailable");
+  expect(e.run).toHaveBeenCalledTimes(1);
+});
+
+it("does not run the legacy fallback when a setup probe is cancelled", async () => {
+  const e = await environment();
+  const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+  Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+  const controller = new AbortController();
+  e.run.mockImplementation(() => {
+    controller.abort();
+    return Promise.reject(Error("cancelled probe"));
+  });
+  await expect(e.service.change({ ...e.input(), signal: controller.signal })).rejects.toThrow();
+  expect(e.run).toHaveBeenCalledTimes(1);
+  expect(e.run.mock.calls[0]?.[1]).toEqual(["plugin", "list", "--json"]);
+});
+
+it.each(["installed", "outdated", "disabled"])(
+  "reinstalls owned %s with one disclosure and sequential fixed commands",
+  async (state) => {
+    const e = await environment();
+    const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+    Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+    await e.service.change(e.input());
+    if (state !== "installed") await e.owned(state === "outdated" ? 1 : 3, state !== "disabled");
+    expect((await e.status()).actions).toContainEqual({
+      id: "reinstall",
+      label: "Reinstall plugin",
+    });
+    e.run.mockClear();
+    const confirm = vi.fn((_content: DialogContent) => Promise.resolve(true));
+    await e.service.change(e.input("reinstall", confirm));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Reinstall Antigravity plugin?" }),
+    );
+    expect(JSON.stringify(confirm.mock.calls)).toContain("uninstall");
+    expect(e.run.mock.calls.filter((call) => call[1][1] !== "list").map((call) => call[1])).toEqual(
+      [
+        ["plugin", "uninstall", "foom"],
+        ["plugin", "install", expect.stringContaining("agent-plugins")],
+      ],
+    );
+    expect((await e.status()).state).toBe(state === "disabled" ? "disabled" : "installed");
+  },
+);
+
+it("does not reinstall when removal fails or leaves an owned directory", async () => {
+  const e = await environment();
+  const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+  Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+  await e.owned(1);
+  e.run.mockResolvedValue({ stdout: JSON.stringify({ imports: [] }) });
+  await expect(e.service.change(e.input("reinstall"))).rejects.toThrow("command failed");
+  expect(e.run.mock.calls.some((call) => call[1][1] === "install")).toBe(false);
+  e.run
+    .mockRejectedValueOnce(Error("probe failed"))
+    .mockRejectedValueOnce(Error("legacy probe failed"));
+  expect((await e.status()).state).toBe("unavailable");
+});
+
+it.each([
+  "cancel",
+  "cancel-after-removal",
+  "uninstall-fails",
+  "install-fails",
+  "stage-changes",
+  "executable-changes",
+])("reinstall fails closed for %s without an automatic retry", async (failure) => {
+  const e = await environment();
+  const { default: bundled } = await import("../../../../src/shared/bundled-agents/agy.json");
+  Object.assign(e.m, parseAgentManifest(JSON.stringify(bundled), "bundled").model);
+  await e.owned(1);
+  const run = e.run.getMockImplementation();
+  if (!run) throw Error("Missing fixture runner");
+  const controller = new AbortController();
+  let staged: Awaited<ReturnType<typeof stagePlugin>> | undefined;
+  e.run.mockImplementation(async (executable, args) => {
+    if (args[1] === "uninstall" && failure === "uninstall-fails") throw Error("failed");
+    if (args[1] === "install" && failure === "install-fails") throw Error("failed");
+    const result = await run(executable, args);
+    if (args[1] === "uninstall" && failure === "cancel-after-removal") controller.abort();
+    if (args[1] === "uninstall" && failure === "stage-changes")
+      await writeFile(join(required(staged).directory, "observer.sh"), "changed");
+    if (args[1] === "uninstall" && failure === "executable-changes")
+      await writeFile(e.executable, "changed executable");
+    return result;
+  });
+  const input = {
+    ...e.input("reinstall", () => Promise.resolve(failure !== "cancel")),
+    signal: controller.signal,
+  };
+  input.stage = async () => {
+    staged = await stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home);
+    return staged;
+  };
+  if (failure === "cancel") await e.service.change(input);
+  else await expect(e.service.change(input)).rejects.toThrow("command failed");
+  const mutations = e.run.mock.calls.filter((call) => call[1][1] !== "list");
+  expect(mutations.map((call) => call[1][1])).toEqual(
+    failure === "cancel"
+      ? []
+      : failure === "install-fails"
+        ? ["uninstall", "install"]
+        : ["uninstall"],
+  );
+  expect((await e.status()).state).toBe(
+    ["cancel", "uninstall-fails"].includes(failure) ? "outdated" : "not-installed",
+  );
 });

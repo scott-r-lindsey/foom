@@ -317,8 +317,16 @@ export function validateTemplates(manifest: AgentManifestV2): void {
       `$.hooks.channels[${String(index)}].arguments`,
       channel.when,
     );
+  if (manifest.setup?.status.probe?.fallbackArguments)
+    check(
+      manifest.setup.status.probe.fallbackArguments,
+      "fixed",
+      "$.setup.status.probe.fallbackArguments",
+    );
   if (
-    manifest.setup?.actions.some((action) => action.arguments?.[1] === "install") &&
+    manifest.setup?.actions.some((action) =>
+      ["install", "reinstall"].includes(action.arguments?.[1] ?? ""),
+    ) &&
     !manifest.files.some(
       (file) => file.scope === "plugin" && file.format === "json" && file.name === "plugin.json",
     )

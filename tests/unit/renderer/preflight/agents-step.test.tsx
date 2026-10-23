@@ -397,3 +397,14 @@ test("an installed agent without supported capabilities has no capabilities row"
   expect(within(card).queryByText("Capabilities")).toBeNull();
   expect(card.querySelector(".agent-capabilities")).toBeNull();
 });
+
+test("unavailable plugin status offers a bounded rescan from the row", () => {
+  const f = fixture();
+  f.source.changeAgentSetup = vi.fn(() => Promise.resolve(report()));
+  f.props.report = report({ ...installation("agy"), setup: { state: "unavailable", actions: [] } });
+  render(<AgentsStep {...f.props} />);
+  expect(screen.getByText("Plugin · Status unavailable")).toBeTruthy();
+  f.scan.mockClear();
+  fireEvent.click(screen.getByRole("button", { name: "Retry status" }));
+  expect(f.scan).toHaveBeenCalledWith(true);
+});

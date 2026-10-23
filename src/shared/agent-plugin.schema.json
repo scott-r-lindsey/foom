@@ -1377,6 +1377,9 @@
         },
         "empty": {
           "$ref": "#/$defs/emptyProbe"
+        },
+        "fallbackArguments": {
+          "$ref": "#/$defs/argv"
         }
       }
     },

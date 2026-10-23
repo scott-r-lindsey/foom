@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { readdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { readdir, realpath, stat } from "node:fs/promises";
 import type { AgentManifestV2 } from "../../shared/agent-manifest-v2";
 import { manifestJson } from "../../shared/agent-manifest-json";
-import { record } from "./setup-metadata";
+import { readSetupFile, record } from "./setup-metadata";
 import { dataContainer } from "../../shared/agent-manifest-container";
 import {
   createPrivateFile,
@@ -14,11 +15,12 @@ import { observerAssets, observerInvocation, observerVersion } from "./providers
 import { readOwnedFile } from "./providers/v2-files";
 import { expandV2, selected, type Facts } from "./providers/v2-values";
 
-/** Pure platform-specific definitions. Commands stay relative when the CLI copies the plugin. */
+/** Platform-specific definitions. The normalized root keeps definition identity independent of the profile. */
 export function pluginContent(
   model: AgentManifestV2,
   facts: Facts,
   windows = process.platform === "win32",
+  directory?: string,
 ) {
   const files = model.files.filter((file) => file.scope === "plugin" && selected(file.when, facts));
   const assets: { name: string; content: string }[] = [];
@@ -36,7 +38,7 @@ export function pluginContent(
     const folder = channel.observer.protocol === "ordered-v2" ? "" : `observers/${channel.id}`;
     for (const [name, content] of Object.entries(observerAssets(channel, windows)))
       assets.push({ name: folder ? `${folder}/${name}` : name, content });
-    const script = `./${folder ? `${folder}/` : ""}observer.${windows ? "ps1" : "sh"}`;
+    const script = `${directory ?? "/FOOM_INSTALLED_PLUGIN_ROOT"}/${folder ? `${folder}/` : ""}observer.${windows ? "ps1" : "sh"}`;
     values[`observerVersion:${channel.id}`] = observerVersion(channel, windows);
     const add = (event?: string) => {
       const suffix = event ? `.${event}` : "";
@@ -46,10 +48,7 @@ export function pluginContent(
         windows,
         false,
       );
-      values[`observerCommand:${channel.id}${suffix}`] =
-        channel.observer.protocol === "ordered-v2"
-          ? `${windows ? "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File" : "sh"} ${script}${event ? ` ${event}` : ""}`
-          : invocation.command;
+      values[`observerCommand:${channel.id}${suffix}`] = invocation.command;
       values[`observerArgv:${channel.id}${suffix}`] = invocation.argv;
     };
     add();
@@ -74,7 +73,10 @@ export function pluginContent(
   )
     throw Error("Conflicting staged plugin files");
   content.push(...assets);
-  const fingerprint = createHash("sha256").update(JSON.stringify(content)).digest("hex");
+  const fingerprint: string =
+    directory === undefined
+      ? createHash("sha256").update(JSON.stringify(content)).digest("hex")
+      : pluginContent(model, facts, windows).fingerprint;
   // CLI-owned metadata carries the definition identity; no launch data enters the hash.
   if (assets.length) {
     const manifest = content.find((file) => file.name === "plugin.json");
@@ -87,16 +89,91 @@ export function pluginContent(
   return { content, fingerprint, observers: assets.length > 0 };
 }
 
+async function installedDirectory(model: AgentManifestV2, home: string) {
+  const relative = model.setup?.status.ownership?.directory;
+  if (!relative) throw Error("Missing plugin ownership");
+  return { directory: join(await realpath(home), relative), relative };
+}
+
+/** Only exact native spellings qualify for an identity check; never normalize untrusted paths. */
+export function pluginPathMatches(
+  reported: unknown,
+  expected: string,
+  platform = process.platform,
+): reported is string {
+  if (
+    typeof reported !== "string" ||
+    reported.length > 4096 ||
+    /[\p{C}\u2028\u2029]/u.test(reported)
+  )
+    return false;
+  return platform === "win32" || platform === "darwin"
+    ? reported.toLowerCase() === expected.toLowerCase()
+    : reported === expected;
+}
+
+/** Reported paths may confirm fixed ownership, but never select inventory reads. */
+export async function validateInstalledPluginPath(
+  model: AgentManifestV2,
+  home: string,
+  reported: unknown,
+  platform = process.platform,
+): Promise<void> {
+  const { directory, relative } = await installedDirectory(model, home);
+  if (
+    typeof reported !== "string" ||
+    ![directory, join(home, relative)].some((expected) =>
+      pluginPathMatches(reported, expected, platform),
+    )
+  )
+    throw Error("Unrecognized plugin install path");
+  const [actual, owned] = await Promise.all([realpath(reported), realpath(directory)]);
+  // realpath can preserve case on case-insensitive volumes. Compare filesystem identities,
+  // not folded path strings, so case-sensitive macOS volumes also fail closed.
+  const [actualInfo, ownedInfo] = await Promise.all([
+    stat(actual, { bigint: true }),
+    stat(owned, { bigint: true }),
+  ]);
+  if (actualInfo.dev !== ownedInfo.dev || actualInfo.ino !== ownedInfo.ino)
+    throw Error("Unrecognized plugin install path");
+}
+
+/** Read only the fixed owned inventory. Untrusted list paths never select files or commands. */
+export async function installedPluginCurrent(
+  model: AgentManifestV2,
+  facts: Facts,
+  home: string,
+): Promise<boolean> {
+  try {
+    const { directory, relative } = await installedDirectory(model, home);
+    const expected = pluginContent(model, facts, process.platform === "win32", directory);
+    for (const file of expected.content) {
+      if (file.name === "plugin.json") continue; // CLI-owned metadata is checked separately.
+      if (
+        (await readSetupFile(home, `${relative}/${file.name}`, Buffer.byteLength(file.content))) !==
+        file.content
+      )
+        return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Immutable, content-addressed staging under Foom's profile, never the agent's home. */
 export async function stagePlugin(
   model: AgentManifestV2,
   root: string,
   facts: Facts,
   windows = process.platform === "win32",
+  home = homedir(),
 ) {
-  const { content, fingerprint } = pluginContent(model, facts, windows);
+  const { fingerprint } = pluginContent(model, facts, windows);
   const parent = await privateDirectory(root, "agent-plugins");
   const directory = await privateDirectory(parent, fingerprint);
+  const installed = await installedDirectory(model, home);
+  const { content } = pluginContent(model, facts, windows, installed.directory);
   for (const file of content) {
     let folder = directory;
     for (const component of file.name.split("/").slice(0, -1))

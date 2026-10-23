@@ -49,6 +49,16 @@ export async function metadataIdentity(
 }
 /** Only called with parser-validated fixed plugin/config paths; never exposed as file IPC. */
 export async function readSetupMetadata(home: string, relative: string): Promise<unknown> {
+  const content = await readSetupFile(home, relative, 65536);
+  return content === undefined ? undefined : manifestJson(content);
+}
+
+/** Fixed setup metadata/generated inventory only; never CLI-reported paths. */
+export async function readSetupFile(
+  home: string,
+  relative: string,
+  limit: number,
+): Promise<string | undefined> {
   const before = await metadataIdentity(home, relative, false);
   if (before === undefined) return undefined;
   const file = await open(
@@ -58,17 +68,15 @@ export async function readSetupMetadata(home: string, relative: string): Promise
   );
   try {
     const info = await file.stat();
-    if (!info.isFile() || info.nlink !== 1 || info.size > 65536)
+    if (!info.isFile() || info.nlink !== 1 || info.size > limit)
       throw new Error("Invalid setup metadata");
-    const bytes = Buffer.alloc(65537);
+    const bytes = Buffer.alloc(limit + 1);
     const { bytesRead } = await file.read(bytes, 0, bytes.length, 0);
-    if (bytesRead > 65536) throw new Error("Invalid setup metadata");
+    if (bytesRead > limit) throw new Error("Invalid setup metadata");
     const opened = JSON.stringify([info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs]);
     if (!before.endsWith(opened) || before !== (await metadataIdentity(home, relative, false)))
       throw new Error("Setup metadata changed");
-    return manifestJson(
-      new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, bytesRead)),
-    );
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, bytesRead));
   } finally {
     await file.close();
   }
