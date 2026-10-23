@@ -13,21 +13,28 @@ Hide keeps the session running; Close closes it through the sidebar command.
 Tile chrome never stops a running process. Reclaim space with Grow, gutters
 (including Home/End), or Tidy tiles.
 
-Clicking a visible session focuses its tile. Clicking a hidden session or launching
-one fills the landing spot, then the first empty space in tree order. A full board
-adds a column at the far right. Columns are the children of the root's horizontal
-split chain; any other root is one column. With N columns, existing widths scale
-by N/(N+1), the new column gets 1/(N+1), and nested row ratios stay unchanged.
-If any resulting column would have fewer than about 60 terminal cells at the
-current font size, replace the least recently focused non-Needs-you tile, excluding
-the focused tile. If none qualifies, use the oldest-focused non-Needs-you tile,
-even if focused. Its session keeps running hidden. If all tiles need attention,
-add the column despite the minimum width. Tree resource limits still apply.
-Full tiles produce no refusal shake or sound.
-
+All content uses the same placement rule: human-launched terminals, orchestrator
+children, agent-opened and sidebar-reopened previews, and the bundled manual.
 A single empty tile is a blank window: on first placement it becomes K equal
 columns, where K is the number of 100-terminal-cell widths that fit, clamped to
-1–3. The session fills the leftmost column. An arranged tree is never re-split.
+1–3. The content fills the leftmost column. An arranged tree is never re-split.
+Otherwise, placement fills the landing spot, then the first empty space in tree
+order. A full board adds a column at the far right. Columns are the children of
+the root's horizontal split chain; any other root is one column. With N columns,
+existing widths scale by N/(N+1), the new column gets 1/(N+1), and nested row ratios
+stay unchanged. If any resulting column would have fewer than about 60 terminal
+cells at the current font size, replace the least recently focused non-Needs-you
+tile, excluding the focused tile. If none qualifies, human placement uses the
+oldest-focused non-Needs-you tile, even if focused. Background arrivals never
+replace the focused tile. Replaced sessions keep running hidden; replaced
+previews close. If no eligible replacement exists, add the column despite the
+minimum width. Tree resource limits still apply. Full tiles produce no refusal
+shake or sound.
+
+Clicking a visible session focuses its tile. Human terminal launches and sidebar
+preview selections take focus; background children and agent-opened previews
+preserve focus. The manual takes focus, including when already open. Existing
+content is reused rather than duplicated.
 Restart replaces its own tile. The longest-waiting shortcut explicitly replaces
 the focused tile and hides its previous occupant. If the waiting session was in
 another tile, that tile empties.
@@ -63,8 +70,9 @@ Preview title bars show a document glyph, MD or HTML badge, relative path, tile 
 Maximize/Restore and Close. The tile menu offers Allow network… when off, and Block network when on; its facts show Network Off or On, and the title bar marks enabled network. Allow network asks in the trusted confirmation window: "This page can send files from this worktree to the internet". Permission belongs to that preview, permits HTTPS and secure WebSockets, and resets on restart or when moved to another window. A move resets network to Off because permission was granted in the original window’s trusted dialog context. Plain HTTP stays blocked. External link requests always ask in the trusted window, showing the full URL, even when page script requested them without a click. Only HTTPS, HTTP and mailto links are eligible. Each preview has at most one pending confirmation; requests received while one is pending are dropped. Declining opens nothing.
 
 A preview has no running process to hide. Replacement closes previews that no longer fit. Split, Grow, drag, Tidy and focus
-shortcuts treat previews as occupied tiles. Opening or reloading a preview never
-moves focus; a click or explicit focus command does. While panels, trusted
+shortcuts treat previews as occupied tiles. File-picker and agent preview opens,
+reloads and navigation preserve keyboard focus; clicks and explicit focus commands
+move it. The bundled manual takes focus when opened. While panels, trusted
 confirmation scrims or drag previews cover previews, they show a frozen image
 of the page beneath the board UI and resume afterwards. During maximize/restore
 motion, live previews follow the tile bounds without a cover.
@@ -76,9 +84,7 @@ Raw HTML is displayed as text; Mermaid fences remain code. Relative Markdown
 links open within the same tile and external links carry an arrow. Document
 colors follow the light/dark Appearance setting.
 
-Agent-opened previews fill the landing spot or first empty space. With a full board,
-they use the same far-right column growth and minimum-width fallback as new
-terminals, preserving the focused tile and keyboard focus. Reopening an existing
+Agent-opened previews preserve the focused tile and keyboard focus. Reopening an existing
 sidebar preview places it on the board; reopening a tiled preview leaves it in place. Foom draws their kind badge, worktree-relative path and
 “opened by” agent badge outside the page; accessible names identify the agent and
 session. A newly filled tile flares twice in the accent, never amber, then keeps
