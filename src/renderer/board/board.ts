@@ -39,12 +39,3 @@ export function waitTime(row: BoardRow, now: number): string {
   const seconds = Math.max(0, Math.floor((now - row.waitingSince) / 1000));
   return seconds < 60 ? `${String(seconds)}s` : `${String(Math.floor(seconds / 60))}m`;
 }
-export function groupRows(rows: readonly BoardRow[]): Map<string, BoardRow[]> {
-  const groups = new Map<string, BoardRow[]>();
-  for (const row of rows) {
-    const group = groups.get(row.repository) ?? [];
-    group.push(row);
-    groups.set(row.repository, group);
-  }
-  return groups;
-}
