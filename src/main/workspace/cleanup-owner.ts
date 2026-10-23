@@ -12,6 +12,8 @@ export interface CleanupOwnerDependencies {
   worktrees: Pick<
     WorktreeService,
     | "changes"
+    | "cleanupChanges"
+    | "cleanupStatus"
     | "removalIdentity"
     | "launchIdentity"
     | "removeWorktree"
@@ -33,10 +35,10 @@ export interface CleanupOwnerDependencies {
     branch: string | null,
     confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
     revalidate?: () => void | Promise<void>,
-    retainBranchLock?: boolean,
+    retainBranchLock?: (release: () => void) => void,
     autoApprove?: () => Promise<boolean>,
+    readSnapshot?: () => Promise<string>,
   ) => Promise<boolean>;
-  releaseWorktree: (repository: string, branch: string | null) => void;
   terminals: () => readonly WorkspaceTerminal[];
   running: (id: string) => boolean;
   exitCode: (id: string) => number | undefined;
@@ -118,7 +120,7 @@ export class CleanupOwner {
         return accepted;
       },
       available,
-      false,
+      undefined,
       async () => {
         await available();
         if (!this.autoRemoveMergedWorktrees) return false;
@@ -187,20 +189,20 @@ export class CleanupOwner {
     confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
     revalidate?: () => void | Promise<void>,
     autoApprove?: () => Promise<boolean>,
+    readSnapshot?: () => Promise<string>,
   ): Promise<boolean> {
     const entry = { repository, worktree, branch };
     const identity = await this.deps.worktrees.removalIdentity(entry.repository, entry.worktree);
-    let changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
+    const readChanges =
+      readSnapshot ?? (() => this.deps.worktrees.changes(repository, worktree, identity));
+    let changes = await readChanges();
     const automatic = changes === "" && (await autoApprove?.()) === true;
     const accepted = automatic
       ? await confirm(entry.branch ?? entry.worktree, changes, true)
       : await confirm(entry.branch ?? entry.worktree, changes);
     if (!accepted) return false;
     await revalidate?.();
-    if (
-      !automatic &&
-      (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
-    )
+    if (!automatic && (await readChanges()) !== changes)
       throw new Error("Worktree changes have changed. Review them and try again.");
     const entries = this.deps.terminals().filter((item) => item.worktree === entry.worktree);
     for (const item of entries) {
@@ -209,21 +211,16 @@ export class CleanupOwner {
       await this.deps.exited(item.id, -1);
     }
     await revalidate?.();
-    if (
-      !automatic &&
-      (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
-    )
+    if (!automatic && (await readChanges()) !== changes)
       throw new Error("Worktree changes have changed. Review them and try again.");
     // Automatic approval awaits another policy check below. Ordinary confirmation
     // has no intervening work before the final revalidation, so do it only once.
     if (automatic) await revalidate?.();
     if (automatic && !(await autoApprove?.())) {
-      changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
+      changes = await readChanges();
       if (!(await confirm(entry.branch ?? entry.worktree, changes))) return false;
       await revalidate?.();
-      if (
-        (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
-      )
+      if ((await readChanges()) !== changes)
         throw new Error("Worktree changes have changed. Review them and try again.");
     }
     await revalidate?.();
@@ -232,8 +229,17 @@ export class CleanupOwner {
       await this.deps.worktrees.removeWorktree(
         entry.repository,
         entry.worktree,
-        changes.length > 0,
+        readSnapshot
+          ? changes.split("\0").some((entry) => entry.startsWith("?? "))
+          : changes.length > 0,
         identity,
+        async () => {
+          // Preview shutdown and the service's identity check both await external
+          // work. Validate the approved snapshot after them, next to Git removal.
+          await revalidate?.();
+          if ((await readChanges()) !== changes)
+            throw new Error("Worktree changes have changed. Review them and try again.");
+        },
       );
     } finally {
       release?.();
@@ -261,16 +267,39 @@ export class CleanupOwner {
       trees.map(async (tree) => {
         let reason: CleanupReason | undefined;
         if (tree.path === repository || tree.bare) reason = "main checkout";
-        else if (tree.locked || tree.prunable || !tree.branch) reason = "unavailable";
+        else if (tree.locked || tree.prunable) reason = "unavailable";
         else reason = this.sessionSkip(tree.path);
+        let changes = "";
         if (!reason) {
           try {
-            if (await this.deps.worktrees.changes(repository, tree.path))
+            changes = await this.deps.worktrees.cleanupStatus(
+              repository,
+              tree.path,
+              undefined,
+              tree.head,
+            );
+            if (
+              changes
+                .split("\0")
+                .some((entry) => entry && !entry.startsWith("?? ") && !entry.startsWith("!! "))
+            )
               reason = "uncommitted changes";
-            else if (!(await this.deps.worktrees.mergedCommit(repository, tree, base)))
+            else if (tree.branch === null || changes) {
+              // Existing clean branch cleanup keeps its established policy.
+              if (
+                (await this.deps.worktrees.cleanupChanges(
+                  repository,
+                  tree.path,
+                  undefined,
+                  tree.head,
+                )) !== changes
+              )
+                reason = "worktree changed";
+            }
+            if (!reason && !(await this.deps.worktrees.mergedCommit(repository, tree, base)))
               reason = "not merged";
           } catch {
-            reason = "unavailable";
+            reason = changes ? "uncommitted changes" : "unavailable";
           }
         }
         if (reason) return { tree, reason };
@@ -278,6 +307,7 @@ export class CleanupOwner {
           return {
             tree,
             reason,
+            changes,
             identity: await this.deps.worktrees.removalIdentity(repository, tree.path),
           };
         } catch {
@@ -304,6 +334,7 @@ export class CleanupOwner {
       return;
     }
     return this.deps.withRepository(repository, async () => {
+      const releases = new Set<() => void>();
       const run = new CleanupRun({
         checkingCount: this.mergeEligibility.get(repository)?.count,
         fetchedAt: () => this.deps.worktrees.mergedFetchTime(repository),
@@ -325,10 +356,15 @@ export class CleanupOwner {
               ),
             );
           } finally {
-            for (const { tree } of removed) this.deps.releaseWorktree(repository, tree.branch);
+            for (const release of releases) release();
+            releases.clear();
           }
         },
-        remove: async ({ tree, identity }, base) => {
+        remove: async ({ tree, identity, changes = "" }, base) => {
+          const readSnapshot = () =>
+            tree.branch === null || changes
+              ? this.deps.worktrees.cleanupChanges(repository, tree.path, identity, tree.head)
+              : this.deps.worktrees.cleanupStatus(repository, tree.path, identity, tree.head);
           const revalidate = async () => {
             const current = (await this.deps.inventory(repository)).find(
               (item) => item.path === tree.path,
@@ -342,8 +378,8 @@ export class CleanupOwner {
               throw new KeptWorktree("worktree changed");
             const reason = this.sessionSkip(tree.path);
             if (reason) throw new KeptWorktree(reason);
-            if (await this.deps.worktrees.changes(repository, tree.path, identity))
-              throw new KeptWorktree("uncommitted changes");
+            // Snapshot comparisons belong to the removal owner, after async proof
+            // work and at the final service boundary. Do not duplicate them here.
             // Re-read forge hints and local evidence; the displayed plan alone
             // never authorizes a later deletion.
             if (!(await this.deps.worktrees.mergedCommit(repository, current, base)))
@@ -355,9 +391,18 @@ export class CleanupOwner {
             tree.branch,
             // The run is already approved; removeTree revalidates immediately
             // after this callback and again around terminal shutdown and removal.
-            () => Promise.resolve(true),
+            (_branch, currentChanges) => {
+              if (currentChanges !== changes) throw new KeptWorktree("worktree changed");
+              return Promise.resolve(true);
+            },
             revalidate,
-            true,
+            tree.branch === null
+              ? undefined
+              : (release) => {
+                  releases.add(release);
+                },
+            undefined,
+            readSnapshot,
           );
         },
       });

@@ -67,7 +67,11 @@ test("rejects malformed structured fields and preserves literal data", async () 
       { label: "Grants", value: "Read only" },
     ],
     pairing: { code: "ABCD1234", expiresAt: 1234 },
-    cleanup: { checkingCount: 11, fetchedAt: 1000 },
+    cleanup: {
+      checkingCount: 11,
+      fetchedAt: 1000,
+      progress: { items: [{ changes: "?? evidence.png\0" }, {}] },
+    },
   };
   listener({}, valid);
   expect(render).toHaveBeenLastCalledWith(valid);
@@ -77,6 +81,11 @@ test("rejects malformed structured fields and preserves literal data", async () 
     1,
     "text",
     { cancel: "Install now" },
+    ...[-1, 1.5, Number.NaN, "7"].map((omittedChanges) => ({
+      cleanup: { progress: { items: [{ omittedChanges }] } },
+    })),
+    { cleanup: { progress: { items: [{ changes: 42 }] } } },
+    { cleanup: { progress: { items: [{ changes: "x".repeat(25_051) }] } } },
     { removals: {} },
     { removals: [null] },
     { removals: [{ id: "one", branch: "one", path: "/one", changes: 1 }] },
