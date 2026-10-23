@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
@@ -15,10 +15,10 @@ test.each(["arguments", "environment"])(
     const root = await mkdtemp(join(tmpdir(), "foom-probe-verification-"));
     let prepared: Awaited<ReturnType<typeof prepareProbe>> | undefined;
     try {
-      await copyFile(
-        process.execPath,
-        join(root, process.platform === "win32" ? "copilot.exe" : "copilot"),
-      );
+      // Avoid copying the entire Node binary per case: closing the copy can stall on disk I/O.
+      // Windows keeps a native executable without requiring symlink privileges.
+      if (process.platform === "win32") await copyFile(process.execPath, join(root, "copilot.exe"));
+      else await symlink(process.execPath, join(root, "copilot"));
       const script = join(root, "fixture.cjs");
       await writeFile(
         script,
