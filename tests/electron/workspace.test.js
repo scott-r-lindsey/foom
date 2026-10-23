@@ -2827,6 +2827,7 @@ test("tile layouts restore v1 terminal content and v2 mixed content after invent
   inventory.previews = [
     {
       id: "markdown-preview",
+      network: false,
       repository: repository.path,
       worktree: repository.worktrees[0].path,
       relativePath: "docs/previews.md",
@@ -2834,6 +2835,7 @@ test("tile layouts restore v1 terminal content and v2 mixed content after invent
     },
     {
       id: "html-preview",
+      network: false,
       repository: repository.path,
       worktree: repository.worktrees[0].path,
       relativePath: "docs/mockups/preview-tiles.html",

@@ -229,6 +229,8 @@ test("requires the complete dialog, including theme, cleanup, reply and session 
   }
   for (const bad of [
     { id: "" },
+    { title: "" },
+    { accept: "" },
     { theme: {} },
     { cleanup: null },
     { cleanup: {} },
