@@ -527,6 +527,31 @@ function PreflightContents({
         <label className="check">
           <input
             type="checkbox"
+            checked={state.settings.checkForUpdates}
+            onChange={(event) => {
+              save({ checkForUpdates: event.target.checked });
+            }}
+          />
+          <span>Check for updates</span>
+        </label>
+        {state.updates?.status === "error" && <p>Could not check for updates.</p>}
+        {state.updates?.status === "available" && <p role="status">Update available</p>}
+        {state.updates?.status === "downloaded" && (
+          <button
+            type="button"
+            onClick={() => {
+              void source.restartToUpdate?.().catch(() => {
+                setError("Could not restart Foom.");
+              });
+            }}
+          >
+            Restart to update · {state.updates.runningAgents} running{" "}
+            {state.updates.runningAgents === 1 ? "agent" : "agents"}
+          </button>
+        )}
+        <label className="check">
+          <input
+            type="checkbox"
             checked={state.settings.showNestedRepositoryNames}
             onChange={(event) => {
               save({ showNestedRepositoryNames: event.target.checked });

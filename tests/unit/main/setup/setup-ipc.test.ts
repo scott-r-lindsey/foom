@@ -17,6 +17,7 @@ const contents = { mainFrame: frame, isDestroyed: vi.fn(() => false), send: vi.f
 const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame };
 const setup = {
+  restartToUpdate: vi.fn(() => Promise.resolve()),
   readiness: vi.fn(() => "readiness"),
   state: vi.fn(() => "state"),
   save: vi.fn(() => "saved"),
@@ -46,6 +47,7 @@ test("every channel rejects untrusted senders", () => {
     "setup:terminal-fonts",
     "setup:readiness",
     "setup:state",
+    "setup:restart-update",
     "setup:save",
     "setup:code-suggestions",
     "setup:scan-code",
@@ -154,4 +156,10 @@ test("font enumeration accepts only an optional boolean refresh flag", async () 
 test("readiness accepts no payload and only the trusted frame", () => {
   expect(invoke("setup:readiness")).toBe("readiness");
   expect(() => invoke("setup:readiness", [{}])).toThrow("Invalid readiness request");
+});
+
+test("update restart validates arguments before entering the normal quit path", async () => {
+  expect(() => invoke("setup:restart-update", [true])).toThrow("Invalid update request");
+  await invoke("setup:restart-update");
+  expect(setup.restartToUpdate).toHaveBeenCalledOnce();
 });

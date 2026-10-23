@@ -51,6 +51,13 @@ export function attachSetup(
     ],
     ["setup:state", () => setup.state()],
     [
+      "setup:restart-update",
+      (...args) => {
+        if (args.length) throw new Error("Invalid update request");
+        return setup.restartToUpdate();
+      },
+    ],
+    [
       "setup:save",
       async (patch) => {
         const zooming = typeof patch === "object" && patch !== null && "interfaceScale" in patch;

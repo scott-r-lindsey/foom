@@ -1,3 +1,4 @@
+import type { UpdateState } from "../../shared/updates";
 import type { ReadinessReport } from "../../shared/readiness";
 import type { ThemeCatalog } from "../../shared/theme-file";
 import { hasBypassArgument } from "../agents/default-arguments";
@@ -17,6 +18,8 @@ import type {
 import type { WorktreeService } from "../workspace/worktrees";
 
 export interface SetupDependencies {
+  updates?: () => UpdateState;
+  restartToUpdate?: () => Promise<void>;
   gitReadiness?: () => Promise<ReadinessReport>;
   readiness?: () => Promise<ReadinessReport>;
   themes?: () => ThemeCatalog;
@@ -60,9 +63,14 @@ export class Setup {
     return this.deps.readiness();
   }
 
+  restartToUpdate(): Promise<void> {
+    return this.deps.restartToUpdate?.() ?? Promise.resolve();
+  }
+
   state(): Promise<SetupState> {
     return Promise.resolve({
       ...(this.deps.themes ? { themes: this.deps.themes() } : {}),
+      ...(this.deps.updates ? { updates: this.deps.updates() } : {}),
       settings: this.deps.store.get(),
       worktreeRoot: this.deps.worktreeRoot,
     });

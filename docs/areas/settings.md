@@ -118,6 +118,14 @@ T-0 and Settings → Forges share this service and `ForgeRuntime.hostStatus`.
 No forge probe runs before T-0 during first run. Git alone also guards repository
 selection and setup completion; these guards never probe forge CLIs.
 
+### Update preference (#603)
+
+`checkForUpdates` is a profile-only boolean defaulting to true, excluded from
+agent-editable config. Settings → General presents **Check for updates** and fixed
+update/error status, plus **Restart to update** with the running-agent count only
+for a downloaded stable macOS update. The restart capability accepts no arguments
+and uses the registered-window/main-frame IPC boundary. See [updates](../product.md#updates-603).
+
 ### Environment keychain access (#717)
 
 Environment status reads (including opening Settings, changing tabs and scanning

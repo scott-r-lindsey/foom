@@ -21,3 +21,7 @@ Background publication mounts no dialog and makes no focus request. Each success
 clears only its operation's mark. The trusted confirmation renderer is separate.
 
 Pruning uses the [worktree safety contract](worktrees.md#pruning-stale-worktrees).
+
+Update checks (#603) are deliberately quiet: their background failure appears only
+as a fixed sentence in Settings → General. An explicit Restart to update capability
+failure uses the normal action error dialog.

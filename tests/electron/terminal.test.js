@@ -441,6 +441,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "listThemes",
           "openThemesFolder",
           "checkReadiness",
+          "restartToUpdate",
           "setupState",
           "saveSetup",
           "environmentState",

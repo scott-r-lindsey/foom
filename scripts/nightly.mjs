@@ -291,5 +291,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   // CI's disposable checkout only; no version commit or lockfile mutation.
   const manifest = JSON.parse(readFileSync("package.json", "utf8"));
   manifest.version = info.version;
+  manifest.foomNightlyDate = info.date;
   writeFileSync("package.json", `${JSON.stringify(manifest, null, 2)}\n`);
 }

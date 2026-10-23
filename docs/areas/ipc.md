@@ -53,3 +53,8 @@ The renderer names repositories and worktrees only by paths main returned, and a
 ## Error codes
 
 Capability rejections and their fixed renderer messages follow the [coded error contract](errors.md#coded-capability-errors). `workspace:sidebar-command` additionally accepts `prune-worktree` with exactly `kind`, `repository` and `worktree`; main owns its [filesystem checks](worktrees.md#pruning-stale-worktrees).
+
+`setup:restart-update` accepts no arguments from a registered board main frame.
+It enters normal quit only when a stable macOS update is downloaded and checking
+is enabled. `SetupState.updates` carries a fixed status enum and nonnegative
+running-agent count, validated by preload; it never contains remote text or URLs.
