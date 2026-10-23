@@ -100,8 +100,15 @@ subject to window-manager restrictions (for example native Wayland). Quit approv
 does not need the board to render.
 Main serializes requests, supplies the current
 resolved theme and content, and gives each request a new ID. Content carries a glyph,
-subject, labeled disclosure sections (with optional main-authored collapsed summaries), facts, argument chips and the pairing code with
-its main-owned expiry deadline. The sandboxed preload validates structured fields.
+subject, labeled disclosure sections (with optional main-authored collapsed summary
+lines and full tooltip/accessibility text), facts, argument chips and the pairing code with
+its main-owned expiry deadline. The sandboxed preload validates structured fields,
+including summary line text and optional full titles. Plugin staging computes
+12-character hash displays, full hashes and UTF-8 sizes in main; full hashes also
+remain selectable in the expanded file byte boxes. Plugin executable summaries
+use the executable basename and fixed argv, with middle truncation computed in
+main and full commands retained in titles. These presentation summaries never
+change the accepted action or its revalidation.
 The shared anatomy uses 500 CSS pixels for prose and 540 for lists and disclosures;
 main still applies zoom and the parent/work-area clamps. List names wrap in their own
 grid column; state and retention labels never wrap. Pairing counts down to the actual

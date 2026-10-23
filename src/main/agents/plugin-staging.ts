@@ -221,15 +221,25 @@ export async function stagePlugin(
     }
   };
   await verify();
+  const disclosed = content.map((file) => {
+    const hash = createHash("sha256").update(file.content).digest("hex");
+    const size = Buffer.byteLength(file.content);
+    return {
+      bytes: `${file.name} · SHA-256 ${hash}\n${file.name}: ${JSON.stringify(file.content)}`,
+      summary: {
+        text: `${file.name} · ${hash.slice(0, 12)} · ${String(size)} B`,
+        title: `${file.name} · SHA-256 ${hash} · ${String(size)} B`,
+      },
+    };
+  });
   return {
     directory,
-    files: content.map((file) => `${file.name}: ${JSON.stringify(file.content)}`),
+    files: disclosed.map((file) => file.bytes),
     summary: [
-      `${String(content.length)} files · ${String(content.reduce((total, file) => total + Buffer.byteLength(file.content), 0))} bytes`,
-      ...content.map(
-        (file) =>
-          `${file.name} · sha256 ${createHash("sha256").update(file.content).digest("hex")}`,
-      ),
+      {
+        text: `${String(content.length)} files · ${String(content.reduce((total, file) => total + Buffer.byteLength(file.content), 0))} bytes`,
+      },
+      ...disclosed.map((file) => file.summary),
     ],
     verify,
   };

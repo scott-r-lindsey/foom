@@ -494,7 +494,9 @@ li[data-dirty="true"] > .row > .why svg {
   display: block;
   margin-top: 4px;
   font: 11px / 1.5 var(--font-mono);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .disclosure[open] > .argument-lines {
   margin-top: 8px;
@@ -511,4 +513,9 @@ li[data-dirty="true"] > .row > .why svg {
 .disclosure code:focus-visible {
   outline: 2px solid var(--state-focus, var(--highlight));
   outline-offset: 2px;
+}
+
+.bounded .confirmation-content > div {
+  gap: 12px;
+  padding-block: 14px 18px;
 }

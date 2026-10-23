@@ -8,10 +8,11 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { stat, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
+import { basename } from "node:path";
 import { promisify } from "node:util";
 import type { AgentManifestV2 } from "../../shared/agent-manifest-v2";
 import type { AgentSetupState, AgentSetupStatus } from "../../shared/agent-setup";
-import type { DialogContent } from "../../shared/confirmation";
+import type { DialogContent, DialogSummaryLine } from "../../shared/confirmation";
 import { conversationId } from "../../shared/conversation";
 import { manifestJson } from "../../shared/agent-manifest-json";
 import { selected, type Facts } from "./providers/v2-values";
@@ -256,7 +257,7 @@ export class PluginSetup {
     stage(): Promise<{
       directory: string;
       files: readonly string[];
-      summary: readonly string[];
+      summary: readonly DialogSummaryLine[];
       verify(): Promise<void>;
     }>;
     signal: AbortSignal;
@@ -312,7 +313,7 @@ export class PluginSetup {
           before.state,
           args,
           staging?.files ?? [],
-          staging?.summary ?? ["0 files · 0 bytes"],
+          staging?.summary ?? [{ text: "0 files · 0 bytes" }],
         ),
       );
       await setupOffers.answer(model.id);
@@ -394,8 +395,23 @@ export class PluginSetup {
     state: string,
     args: string[],
     files: readonly string[],
-    summary: readonly string[],
+    summary: readonly DialogSummaryLine[],
   ): DialogContent {
+    const location = model.setup?.status.ownership
+      ? `~/${model.setup.status.ownership.directory}`
+      : "No installation change";
+    const command = (arguments_: readonly string[]) =>
+      [basename(executable), ...arguments_]
+        .map((arg) => (/[\s"\\]/u.test(arg) ? JSON.stringify(arg) : arg))
+        .join(" ");
+    const commandLine =
+      args[1] === "reinstall"
+        ? `${command(["plugin", "uninstall", model.setup?.status.ownership?.directory.split("/").at(-1) ?? ""])}; ${command(["plugin", "install", args[2] ?? ""])}`
+        : command(args);
+    const commandSummary =
+      commandLine.length > 68
+        ? `${commandLine.slice(0, 38)}…${commandLine.slice(-29)}`
+        : commandLine;
     return {
       title:
         args[1] === "reinstall"
@@ -409,6 +425,7 @@ export class PluginSetup {
         { label: "Action disclosure", items: [action.disclosure] },
         {
           label: "Executable and fixed arguments",
+          summary: [{ text: commandSummary, title: commandLine }],
           arguments: true,
           items:
             args[1] === "reinstall"
@@ -425,19 +442,20 @@ export class PluginSetup {
         },
         {
           label: "Installation and state",
-          items: [
-            model.id,
-            model.setup?.status.ownership
-              ? `~/${model.setup.status.ownership.directory}`
-              : "No installation change",
-            state,
-            JSON.stringify(action.when),
+          summary: [
+            {
+              text: `${model.id} · ${location} · ${state}`,
+              title: `${model.id} · ${location} · ${state}`,
+            },
           ],
+          items: [model.id, location, state, JSON.stringify(action.when)],
         },
         {
           label: "Status and ownership checks",
           summary: [
-            `${String(model.setup?.status.metadata.length ?? 0)} metadata checks · ${String(model.setup?.status.ownership?.require.length ?? 0)} ownership requirements`,
+            {
+              text: `${String(model.setup?.status.metadata.length ?? 0)} metadata checks · ${String(model.setup?.status.ownership?.require.length ?? 0)} ownership requirements`,
+            },
           ],
           arguments: true,
           items: [JSON.stringify(model.setup?.status)],

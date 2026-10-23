@@ -304,6 +304,16 @@ it("keeps instruction actions inert, with a separate trusted disclosure and no C
   const confirm = vi.fn((_content: DialogContent) => Promise.resolve(true));
   await e.service.change(e.input("review", confirm));
   expect(JSON.stringify(confirm.mock.calls)).toContain("Open /hooks yourself.");
+  const sections = confirm.mock.calls[0]?.[0].sections;
+  expect(
+    sections?.find((section) => section.label === "Executable and fixed arguments")?.summary,
+  ).toEqual([{ text: "fixture-cli", title: "fixture-cli" }]);
+  expect(sections?.find((section) => section.label === "Installation and state")?.summary).toEqual([
+    {
+      text: "setup-fixture · No installation change · unavailable",
+      title: "setup-fixture · No installation change · unavailable",
+    },
+  ]);
   expect(e.run).not.toHaveBeenCalled();
 });
 it("evaluates metadata/probe selectors without inherited properties", async () => {
@@ -902,7 +912,14 @@ it.each(["install", "update", "reinstall"])(
       content: '{"text":"é 🌌 <img src=x>"}',
       when: undefined,
     });
-    const staging = await stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home);
+    await mkdir(join(e.home, "profile space"));
+    const staging = await stagePlugin(
+      e.m,
+      join(e.home, "profile space"),
+      {},
+      process.platform === "win32",
+      e.home,
+    );
     const contents = await Promise.all(
       ["plugin.json", "unicode.json"].map(async (name) => ({
         name,
@@ -913,29 +930,54 @@ it.each(["install", "update", "reinstall"])(
       const sections = required(dialog.sections);
       expect(
         sections.filter((section) => section.summary === undefined).map((section) => section.label),
-      ).toEqual([
-        "Action disclosure",
-        "Executable and fixed arguments",
-        "Installation and state",
-        "Instructions and removal",
-      ]);
+      ).toEqual(["Action disclosure", "Instructions and removal"]);
       expect(
         sections.find((section) => section.label === "Status and ownership checks"),
       ).toMatchObject({
-        summary: [expect.stringMatching(/metadata checks · .* ownership requirements/u)],
+        summary: [{ text: "2 metadata checks · 2 ownership requirements" }],
         items: [JSON.stringify(e.m.setup?.status)],
       });
       expect(
         sections.find((section) => section.label === "Staged files (JSON-escaped bytes)"),
       ).toMatchObject({
         summary: [
-          `2 files · ${String(contents.reduce((total, file) => total + Buffer.byteLength(file.content), 0))} bytes`,
-          ...contents.map(
-            (file) =>
-              `${file.name} · sha256 ${createHash("sha256").update(file.content).digest("hex")}`,
-          ),
+          {
+            text: `2 files · ${String(contents.reduce((total, file) => total + Buffer.byteLength(file.content), 0))} bytes`,
+          },
+          ...contents.map((file) => ({
+            text: `${file.name} · ${createHash("sha256").update(file.content).digest("hex").slice(0, 12)} · ${String(Buffer.byteLength(file.content))} B`,
+            title: `${file.name} · SHA-256 ${createHash("sha256").update(file.content).digest("hex")} · ${String(Buffer.byteLength(file.content))} B`,
+          })),
         ],
-        items: contents.map((file) => `${file.name}: ${JSON.stringify(file.content)}`),
+        items: contents.map(
+          (file) =>
+            `${file.name} · SHA-256 ${createHash("sha256").update(file.content).digest("hex")}\n${file.name}: ${JSON.stringify(file.content)}`,
+        ),
+      });
+      const executableSection = required(
+        sections.find((section) => section.label === "Executable and fixed arguments"),
+      );
+      const command = required(executableSection.summary?.[0]);
+      const expectedCommand =
+        action === "reinstall"
+          ? `fixture-cli plugin uninstall foom; fixture-cli plugin install ${JSON.stringify(staging.directory)}`
+          : `fixture-cli plugin install ${JSON.stringify(staging.directory)}`;
+      expect(command.title).toBe(expectedCommand);
+      expect(command.text).toBe(`${expectedCommand.slice(0, 38)}…${expectedCommand.slice(-29)}`);
+      expect(command.text).not.toMatch(/[\r\n]/u);
+      expect(executableSection.items).toContain(e.executable);
+      expect(sections.find((section) => section.label === "Installation and state")).toMatchObject({
+        summary: [
+          {
+            text: `setup-fixture · ~/.gemini/config/plugins/foom · ${action === "install" ? "not-installed" : action === "update" ? "outdated" : "installed"}`,
+          },
+        ],
+        items: [
+          "setup-fixture",
+          "~/.gemini/config/plugins/foom",
+          action === "install" ? "not-installed" : action === "update" ? "outdated" : "installed",
+          expect.any(String),
+        ],
       });
       return Promise.resolve(false);
     });

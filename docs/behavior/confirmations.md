@@ -31,12 +31,19 @@ use solid ink; amber and magenta retain their status meanings.
 Folder pickers stay native. The New worktree branch field collects input and does not
 grant destructive approval.
 
-Plugin setup keeps action disclosure, executable and fixed arguments, installation
-and state, and instructions and removal open. Status/ownership checks and staged
-files start collapsed with main-computed summaries: metadata/ownership check counts,
-file count, total UTF-8 byte size and each file's SHA-256. Expanding preserves the
-full disclosure, including JSON-escaped file bytes in individually capped scrolling
-boxes. The dialog is capped at 800 CSS pixels (and the available window height),
-with a scrolling content region and an always-visible action footer. Tab reaches
-the native disclosure summaries and expanded byte boxes; Enter or Space toggles
-summaries. A new request starts collapsed and focuses Cancel.
+Plugin setup keeps the action disclosure, detail paragraph and instructions/removal
+visible. Executable/fixed arguments, installation/state, status/ownership checks
+and staged files start collapsed with main-computed summaries. The executable
+summary shows its basename and fixed arguments on one line, shortened in the middle
+when long, with the full command in its tooltip and accessible name. Installation
+summarizes the agent ID, ~/ install location and state. Staged files show the file
+count and total UTF-8 byte size, then one line per file: name, first 12 SHA-256 hex
+characters and byte size. Full hashes remain in each line's tooltip and the
+accessible summary name, and selectable with the file's bytes when expanded.
+Expanding preserves every original disclosure byte, including the complete
+executable, fixed argv, state conditions, status/ownership JSON and JSON-escaped
+file bytes in individually capped scrolling boxes. The dialog is capped at 800
+CSS pixels (and the available window height), with a scrolling content region
+and an always-visible action footer. Tab reaches the native disclosure summaries
+and expanded byte boxes; Enter or Space toggles summaries. A new request starts
+collapsed and focuses Cancel.

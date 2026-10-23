@@ -47,7 +47,14 @@ function structured(value: unknown): boolean {
           typeof entry["label"] === "string" &&
           strings(entry["items"]) &&
           (entry["arguments"] === undefined || typeof entry["arguments"] === "boolean") &&
-          (entry["summary"] === undefined || strings(entry["summary"])),
+          (entry["summary"] === undefined ||
+            (Array.isArray(entry["summary"]) &&
+              entry["summary"].every(
+                (line: unknown) =>
+                  record(line) &&
+                  typeof line["text"] === "string" &&
+                  (line["title"] === undefined || typeof line["title"] === "string"),
+              ))),
       )
     )
   )

@@ -415,6 +415,7 @@ export function ConfirmationPage() {
                 ))}
               </div>
             )}
+            {bounded && request.detail !== undefined && <p className="prose">{request.detail}</p>}
             {request.sections?.map((section) => {
               const contents = section.arguments ? (
                 <div className="argument-lines">
@@ -436,11 +437,16 @@ export function ConfirmationPage() {
               );
               return section.summary ? (
                 <details className="disclosure" key={section.label}>
-                  <summary>
+                  <summary
+                    aria-label={[
+                      section.label,
+                      ...section.summary.map((line) => line.title ?? line.text),
+                    ].join(" ")}
+                  >
                     <span className="label">{section.label}</span>
                     {section.summary.map((line) => (
-                      <span className="disclosure-summary" key={line}>
-                        {line}
+                      <span className="disclosure-summary" key={line.text} title={line.title}>
+                        {line.text}
                       </span>
                     ))}
                   </summary>
@@ -452,7 +458,7 @@ export function ConfirmationPage() {
                 </Section>
               );
             })}
-            {request.detail !== undefined && <p className="prose">{request.detail}</p>}
+            {!bounded && request.detail !== undefined && <p className="prose">{request.detail}</p>}
             {request.quiet && <p className="prose quiet">{request.quiet}</p>}
             {request.reply && (
               <>

@@ -15,11 +15,30 @@ const {
 
 async function checkCollapsedDisclosure(board, dialog, operation, captureScreenshots = true) {
   const details = dialog.locator("details");
-  await expect(details).toHaveCount(2);
-  await expect(details.locator("summary").first()).toContainText("Status and ownership checks");
-  await expect(details.locator("summary").last()).toContainText(/files · \d+ bytes/u);
-  await expect(details.locator("summary").last()).toContainText(/sha256 [a-f0-9]{64}/u);
+  const summaries = details.locator("summary");
+  const files = details.last();
+  await expect(details).toHaveCount(4);
+  await expect(summaries.nth(0)).toContainText("Executable and fixed arguments");
+  await expect(summaries.nth(1)).toContainText(
+    /agy · ~\/\.gemini\/config\/plugins\/foom · (not-installed|outdated|disabled)/u,
+  );
+  await expect(summaries.nth(2)).toContainText("Status and ownership checks");
+  await expect(summaries.last()).toContainText(/files · \d+ bytes/u);
+  const fileLines = files.locator(".disclosure-summary[title]");
+  for (const line of await fileLines.all()) {
+    await expect(line).toHaveText(/^[^\n]+ · [a-f0-9]{12} · \d+ B$/u);
+    await expect(line).toHaveAttribute("title", /SHA-256 [a-f0-9]{64}/u);
+    await expect
+      .poll(() => line.evaluate((node) => getComputedStyle(node).whiteSpace))
+      .toBe("nowrap");
+  }
+  const command = details.first().locator(".disclosure-summary");
+  await expect(command).toHaveAttribute("title", /^agy plugin /u);
+  await expect(command).toHaveText(/^agy plugin .*….*$/u);
   await expect(details.locator("code").first()).toBeHidden();
+  await expect
+    .poll(() => details.evaluateAll((nodes) => nodes.every((node) => !node.open)))
+    .toBe(true);
   const accept = dialog.getByRole("button", {
     name:
       operation === "reinstall"
@@ -43,6 +62,20 @@ async function checkCollapsedDisclosure(board, dialog, operation, captureScreens
       .toBe(true);
   };
   await visibleFooter();
+  // The decision preamble is visible without opening any of the four sections.
+  for (const preamble of [
+    dialog.locator(".prose").first(),
+    dialog.getByText(/CLI-owned opt-in Foom lifecycle plugin/u),
+  ]) {
+    await expect
+      .poll(() =>
+        preamble.evaluate((node) => {
+          const bounds = node.getBoundingClientRect();
+          return bounds.top >= 0 && bounds.bottom <= window.innerHeight;
+        }),
+      )
+      .toBe(true);
+  }
   await dialog.getByRole("button", { name: "Cancel" }).focus();
   await dialog.keyboard.press("Tab");
   await expect(accept).toBeFocused();
@@ -50,32 +83,58 @@ async function checkCollapsedDisclosure(board, dialog, operation, captureScreens
   const content = dialog.getByRole("region", { name: "Details" });
   if (await content.evaluate((element) => element === document.activeElement))
     await dialog.keyboard.press("Tab");
-  await expect(details.locator("summary").first()).toBeFocused();
-  await dialog.keyboard.press("Enter");
-  await expect(details.first()).toHaveAttribute("open", "");
-  await dialog.keyboard.press("Enter");
-  await expect(details.first()).not.toHaveAttribute("open", "");
-  await dialog.keyboard.press("Tab");
-  await expect(details.locator("summary").last()).toBeFocused();
-  await dialog.keyboard.press("Space");
-  await expect(details.last()).toHaveAttribute("open", "");
-  await dialog.keyboard.press("Tab");
-  await expect(details.last().locator("code").first()).toBeFocused();
-  await expect
-    .poll(() =>
-      details
-        .last()
+  for (let index = 0; index < 4; index++) {
+    const section = details.nth(index);
+    const summary = summaries.nth(index);
+    await expect(summary).toBeFocused();
+    const key = index % 2 === 0 ? "Enter" : "Space";
+    await dialog.keyboard.press(key);
+    await expect(section).toHaveAttribute("open", "");
+    await visibleFooter();
+    if (index === 1)
+      await expect(
+        section.getByText("~/.gemini/config/plugins/foom", { exact: true }),
+      ).toBeVisible();
+    if (index !== 1) {
+      await dialog.keyboard.press("Tab");
+      await expect(section.locator("code").first()).toBeFocused();
+      await dialog.keyboard.press("Shift+Tab");
+      await expect(summary).toBeFocused();
+    }
+    if (index === 3) {
+      const title = await fileLines.first().getAttribute("title");
+      const hash = title?.match(/[a-f0-9]{64}/u)?.[0];
+      if (!hash) throw Error("Missing full SHA-256");
+      await expect(summary).toHaveAccessibleName(new RegExp(hash));
+      const selected = await files
         .locator("code")
-        .evaluateAll(
-          (boxes) =>
-            boxes.every((box) => box.clientHeight <= 160) &&
-            boxes.some((box) => box.scrollHeight > box.clientHeight),
-        ),
-    )
-    .toBe(true);
-  await visibleFooter();
-  await assertAccessible(dialog);
-  await details.locator("summary").last().click();
+        .first()
+        .evaluate((node) => {
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          return selection.toString();
+        });
+      expect(selected).toContain(hash);
+      await expect
+        .poll(() =>
+          files
+            .locator("code")
+            .evaluateAll(
+              (boxes) =>
+                boxes.every((box) => box.clientHeight <= 160) &&
+                boxes.some((box) => box.scrollHeight > box.clientHeight),
+            ),
+        )
+        .toBe(true);
+      await assertAccessible(dialog);
+    }
+    await dialog.keyboard.press(key);
+    await expect(section).not.toHaveAttribute("open", "");
+    if (index < 3) await dialog.keyboard.press("Tab");
+  }
   if (captureScreenshots && process.env.FOOM_AGY_SCREENSHOTS) {
     await mkdir(process.env.FOOM_AGY_SCREENSHOTS, { recursive: true });
     for (const mode of ["light", "dark"]) {
@@ -88,8 +147,10 @@ async function checkCollapsedDisclosure(board, dialog, operation, captureScreens
         .toBe(mode);
       for (const state of ["collapsed", "expanded"]) {
         if (state === "expanded") {
-          await details.locator("summary").first().click();
-          await details.locator("summary").last().click();
+          for (const summary of await summaries.all()) await summary.click();
+          await expect
+            .poll(() => details.evaluateAll((nodes) => nodes.every((node) => node.open)))
+            .toBe(true);
         }
         await dialog.locator(".confirmation-content").evaluate((content) => {
           content.scrollTop = 0;
@@ -108,12 +169,20 @@ async function checkCollapsedDisclosure(board, dialog, operation, captureScreens
           path: path.join(process.env.FOOM_AGY_SCREENSHOTS, `${operation}-${mode}-${state}.png`),
         });
         if (state === "expanded") {
-          await details.locator("summary").first().click();
-          await details.locator("summary").last().click();
+          for (const summary of await summaries.all()) await summary.click();
+          await expect
+            .poll(() => details.evaluateAll((nodes) => nodes.every((node) => !node.open)))
+            .toBe(true);
         }
       }
     }
     if (operation === "install" && process.platform === "linux") {
+      await content.evaluate((node) => {
+        node.scrollTop = 0;
+      });
+      await dialog.screenshot({
+        path: path.join(process.env.FOOM_AGY_SCREENSHOTS, "install-dark-collapsed-overview.png"),
+      });
       require("node:child_process").execFileSync("import", [
         "-window",
         "root",
@@ -220,9 +289,9 @@ process.stdin.on('data', (data) => {
     await page.getByRole("button", { name: "Install", exact: true }).click();
     let disclosure = await confirmationPage(app);
     await checkCollapsedDisclosure(page, disclosure, "install", !firstRun);
-    await expect(
-      disclosure.getByText("~/.gemini/config/plugins/foom", { exact: true }),
-    ).toBeVisible();
+    await expect(disclosure.locator("details").nth(1).locator("summary")).toContainText(
+      "agy · ~/.gemini/config/plugins/foom · not-installed",
+    );
     await expect(
       disclosure.getByText(
         /observes only Foom launches, approves no tools, stores no credentials/u,
