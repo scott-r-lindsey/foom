@@ -8,7 +8,14 @@ const mappings = [
   [/^src\/renderer\/terminal\//, ["terminal", "webgl", "workspace", "previews"]],
   [
     /^src\/renderer\/sound\/(?:volume-control\.tsx|sound-controls\.tsx|recording\.ts)$/,
-    ["settings"],
+    [
+      "preflight",
+      "settings-accessibility",
+      "settings-appearance",
+      "settings-sound",
+      "settings-agents",
+      "settings-general",
+    ],
   ],
 ];
 

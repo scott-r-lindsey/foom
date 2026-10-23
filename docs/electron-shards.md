@@ -21,7 +21,12 @@ Test deadlines and step limits are unchanged.
 | `confirmations.test.js` | Trusted dialogs, quit and config argument consent |
 | `workspace.test.js` | Repositories, worktrees, sessions, windows, sidebar and tiles |
 | `previews.test.js` | Markdown/HTML views, focus, composition, security and reload |
-| `settings.test.js` | Preflight, accessibility, appearance, sound and persisted settings |
+| `preflight.test.js` | First-run setup, responsive steps and repository scans |
+| `settings-accessibility.test.js` | Fullscreen transitions, keyboard focus, zoom and section accessibility |
+| `settings-appearance.test.js` | Themes, native chrome, identity badges, fonts, window size and shared zoom |
+| `settings-sound.test.js` | Dragged volume, recordings and synchronized footer volume/zoom |
+| `settings-agents.test.js` | Environment, agent defaults, config menus and independent config shells |
+| `settings-general.test.js` | Legacy migration, forge hosts, navigation, repository names, updates and close-finished preference |
 | `agents.test.js` | Fixture agents, hooks, conversations, orchestration and plugins |
 | `application.test.js` | Native board startup, fonts/themes and production bundle |
 | `harness.test.js` | Launch environment, quit acknowledgement and cleanup contracts |
