@@ -14,7 +14,7 @@ import { Wordmark } from "../ui/wordmark";
 import { LaunchReplay } from "./launch-replay";
 
 export const SCOTT_NOTE =
-  "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.\n\nUt enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.";
+  'Foom was coined by Eliezer Yudkowsky in 2008 to describe a possible "fast takeoff". I chose the name "Foom" as the name for my terminal because as a developer formerly on the sidelines of AI, FOOM has become my lived experience. I\'m not sure what the destination is, but we\'re headed there fast. I hope this terminal can be a small part of the journey.';
 
 export function AboutDialog({ menu, close }: { menu: AppMenuApi; close: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
