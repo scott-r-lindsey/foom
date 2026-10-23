@@ -16,8 +16,13 @@ test("affected selection unions mapped areas deterministically", () => {
     full: false,
     reason: "All changed paths have explicit mappings",
     suites: [
+      "preflight.test.js",
       "previews.test.js",
-      "settings.test.js",
+      "settings-accessibility.test.js",
+      "settings-agents.test.js",
+      "settings-appearance.test.js",
+      "settings-general.test.js",
+      "settings-sound.test.js",
       "terminal.test.js",
       "webgl.test.js",
       "workspace.test.js",
@@ -27,10 +32,20 @@ test("affected selection unions mapped areas deterministically", () => {
     "previews.test.js",
   ]);
   assert.deepEqual(selectAffected(["src/renderer/sound/volume-control.tsx"]).suites, [
-    "settings.test.js",
+    "preflight.test.js",
+    "settings-accessibility.test.js",
+    "settings-agents.test.js",
+    "settings-appearance.test.js",
+    "settings-general.test.js",
+    "settings-sound.test.js",
   ]);
   assert.deepEqual(selectAffected(["src/renderer/sound/sound-controls.tsx"]).suites, [
-    "settings.test.js",
+    "preflight.test.js",
+    "settings-accessibility.test.js",
+    "settings-agents.test.js",
+    "settings-appearance.test.js",
+    "settings-general.test.js",
+    "settings-sound.test.js",
   ]);
   assert.deepEqual(selectAffected(paths), expected);
   assert.deepEqual(selectAffected([...paths].reverse().concat(paths)), expected);

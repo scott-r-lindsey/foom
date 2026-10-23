@@ -56,7 +56,9 @@ Every top-level `src/` directory is covered above: `cli`, `main`, `node-common`,
 plus `workspace.test.ts` and `orchestration-workspace.test.ts`; their shared setup
 and helpers live in `tests/unit/main/workspace/workspace-fixture.ts`. `tests/electron/agent-{config,launch,lifecycle,plugins,probe,restore,resume}.test.js`
 are distinct feature suites; `antigravity-plugin.test.js` covers plugin behavior.
-Other named feature suites, `harness.js`, `agent-isolation.js`, `test-policy.js`,
+`preflight.test.js` and `settings-{accessibility,appearance,sound,agents,general}.test.js`
+cover setup and Settings; sound affected runs select all six replacement suites
+to retain the former combined suite’s coverage. Other named feature suites, `harness.js`, `agent-isolation.js`, `test-policy.js`,
 `process-audit.js` and `shard-plan.json` own app fixtures, CLI isolation, deadlines,
 process cleanup and CI assignment. `tests/helpers/git.js` owns test Git isolation.
 Read [Electron sharding](electron-shards.md), [fixtures](electron-fixtures.md),
