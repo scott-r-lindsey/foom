@@ -1,9 +1,9 @@
-import { EventEmitter } from "node:events";
+import { getEventListeners } from "node:events";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 const mock = vi.hoisted(() => ({ get: vi.fn() }));
@@ -16,8 +16,7 @@ const cdn =
   "https://release-assets.githubusercontent.com/github-production-release-asset/1394006699/1234-abcd?token=asset";
 let directory: string;
 let requests: string[];
-let request: EventEmitter & {
-  destroy: ReturnType<typeof vi.fn>;
+let request: PassThrough & {
   setTimeout: ReturnType<typeof vi.fn>;
 };
 let responses: Array<{
@@ -37,10 +36,7 @@ beforeEach(async () => {
       callback: (response: IncomingMessage) => void,
     ) => {
       requests.push(url);
-      const current = Object.assign(new EventEmitter(), {
-        destroy: vi.fn((error: Error) => current.emit("error", error)),
-        setTimeout: vi.fn(),
-      });
+      const current = Object.assign(new PassThrough(), { setTimeout: vi.fn() });
       request = current;
       queueMicrotask(() => {
         const value = responses.shift();
@@ -166,12 +162,15 @@ test.each(["opt-out", "inactivity", "overall"])(
     vi.useFakeTimers();
     const controller = new AbortController();
     mock.get.mockImplementation((_url: string, options: { signal: AbortSignal }) => {
-      const current = Object.assign(new EventEmitter(), {
-        destroy: vi.fn((error: Error) => current.emit("error", error)),
-        setTimeout: vi.fn(),
-      });
+      const current = Object.assign(new PassThrough(), { setTimeout: vi.fn() });
       request = current;
-      options.signal.addEventListener("abort", () => current.emit("error", new Error("cancelled")));
+      const abort = () => {
+        current.destroy(new Error("cancelled"));
+      };
+      options.signal.addEventListener("abort", abort, { once: true });
+      current.once("close", () => {
+        options.signal.removeEventListener("abort", abort);
+      });
       return current;
     });
     const result = prepareLocalUpdate(
@@ -205,6 +204,176 @@ test("a ZIP exceeding the byte limit is discarded before a feed exists", async (
   ).rejects.toThrow("Update download failed");
   expect(await readdir(directory)).toEqual([]);
 });
+
+class EndlessResponse extends Readable {
+  readonly headers = { location: cdn };
+  bytes = 0;
+  reads = 0;
+  private timer: ReturnType<typeof setInterval> | undefined;
+
+  constructor(readonly statusCode = 302) {
+    super();
+  }
+
+  override _read(): void {
+    this.reads++;
+    this.timer ??= setInterval(() => {
+      const chunk = Buffer.alloc(1024);
+      this.bytes += chunk.length;
+      this.push(chunk);
+    }, 1);
+  }
+
+  override _destroy(error: Error | null, done: (error?: Error | null) => void): void {
+    clearInterval(this.timer);
+    done(error);
+  }
+}
+
+test.each(["complete", "opt-out"])(
+  "an endless allowed redirect is destroyed without reading; %s closes the entire chain",
+  async (outcome) => {
+    vi.useFakeTimers();
+    const caller = new AbortController();
+    const redirect = new EndlessResponse();
+    const zip = Object.assign(new PassThrough(), { statusCode: 200, headers: {} });
+    const streams = [redirect, zip];
+    const signals: AbortSignal[] = [];
+    const clients: Array<PassThrough & { setTimeout: ReturnType<typeof vi.fn> }> = [];
+    let responseIndex = 0;
+    mock.get.mockImplementation(
+      (
+        url: string,
+        options: { signal: AbortSignal },
+        callback: (response: IncomingMessage) => void,
+      ) => {
+        if (url === cdn) expect(redirect.destroyed).toBe(true);
+        signals.push(options.signal);
+        const current = Object.assign(new PassThrough(), { setTimeout: vi.fn() });
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        current.setTimeout.mockImplementation((milliseconds: number, listener?: () => void) => {
+          clearTimeout(timeout);
+          if (listener) current.on("timeout", listener);
+          if (milliseconds > 0)
+            timeout = setTimeout(() => {
+              current.emit("timeout");
+            }, milliseconds);
+          return current;
+        });
+        clients.push(current);
+        const response = streams[responseIndex++];
+        if (!response) throw new Error("Unexpected request");
+        queueMicrotask(() => {
+          callback(response as unknown as IncomingMessage);
+          if (response === zip && outcome === "complete") zip.end("fixture ZIP");
+        });
+        return current;
+      },
+    );
+    const pending = prepareLocalUpdate(
+      directory,
+      macUpdatePackage({ url: archive }, "arm64"),
+      caller.signal,
+    );
+    const completed =
+      outcome === "complete" ? pending : expect(pending).rejects.toThrow("Update download failed");
+    await vi.waitFor(() => {
+      expect(clients).toHaveLength(2);
+    });
+    expect(redirect.destroyed).toBe(true);
+    expect(redirect.reads).toBe(0);
+    if (outcome === "opt-out") caller.abort();
+    await completed;
+    if (outcome === "complete") {
+      const local = await pending;
+      await local.dispose();
+      caller.abort(); // Opt-out after success cannot leave a previous hop draining.
+    }
+    expect(signals[0]).toBe(signals[1]);
+    for (const internal of signals) {
+      expect(internal.aborted).toBe(true);
+      expect(getEventListeners(internal, "abort")).toHaveLength(0);
+    }
+    expect(getEventListeners(caller.signal, "abort")).toHaveLength(0);
+    expect(clients.every((client) => client.destroyed)).toBe(true);
+    expect(streams.every((stream) => stream.destroyed)).toBe(true);
+    for (const client of clients) {
+      expect(client.listenerCount("timeout")).toBe(0);
+      expect(client.listenerCount("error")).toBe(0);
+      expect(client.listenerCount("close")).toBe(0);
+      expect(client.setTimeout).toHaveBeenLastCalledWith(0);
+    }
+    const bytes = redirect.bytes;
+    await vi.advanceTimersByTimeAsync(20 * 60 * 1000 + 1);
+    expect(redirect.bytes).toBe(bytes);
+    expect(bytes).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(await readdir(directory)).toEqual([]);
+  },
+);
+
+test("headers arriving during opt-out are destroyed inside the same cancelled scope", async () => {
+  vi.useFakeTimers();
+  const caller = new AbortController();
+  const response = new EndlessResponse();
+  const signals: AbortSignal[] = [];
+  mock.get.mockImplementation(
+    (
+      _url: string,
+      options: { signal: AbortSignal },
+      callback: (response: IncomingMessage) => void,
+    ) => {
+      const current = Object.assign(new PassThrough(), { setTimeout: vi.fn() });
+      const headers = () => {
+        callback(response as unknown as IncomingMessage);
+      };
+      signals.push(options.signal);
+      options.signal.addEventListener("abort", headers, { once: true });
+      return current;
+    },
+  );
+  const pending = prepareLocalUpdate(
+    directory,
+    macUpdatePackage({ url: archive }, "arm64"),
+    caller.signal,
+  );
+  const failed = expect(pending).rejects.toThrow("Update download failed");
+  await vi.waitFor(() => {
+    expect(signals).toHaveLength(1);
+  });
+  caller.abort();
+  await failed;
+  expect(response.destroyed).toBe(true);
+  expect(response.reads).toBe(0);
+  for (const internal of signals) expect(getEventListeners(internal, "abort")).toHaveLength(0);
+  expect(getEventListeners(caller.signal, "abort")).toHaveLength(0);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test.each([304, 404, 500])(
+  "HTTP %i destroys an endless error body without draining it",
+  async (status) => {
+    vi.useFakeTimers();
+    const response = new EndlessResponse(status);
+    mock.get.mockImplementation(
+      (_url: string, _options: unknown, callback: (response: IncomingMessage) => void) => {
+        const current = Object.assign(new PassThrough(), { setTimeout: vi.fn() });
+        queueMicrotask(() => {
+          callback(response as unknown as IncomingMessage);
+        });
+        return current;
+      },
+    );
+    await expect(
+      prepareLocalUpdate(directory, macUpdatePackage({ url: archive }, "arm64"), signal()),
+    ).rejects.toThrow("Update download failed");
+    expect(response.destroyed).toBe(true);
+    expect(response.reads).toBe(0);
+    await vi.advanceTimersByTimeAsync(20 * 60 * 1000 + 1);
+    expect(response.bytes).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
 
 test.skipIf(process.platform !== "darwin")(
   "macOS Foundation can read the local feed and copy the local ZIP without HTTP",

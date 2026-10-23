@@ -1,6 +1,7 @@
 import { createWriteStream } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { get } from "node:https";
+import type { ClientRequest, IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -44,46 +45,84 @@ function assetRedirect(url: string): boolean {
   );
 }
 
+interface DownloadScope {
+  signal: AbortSignal;
+  size: number;
+  finished: Promise<void>[];
+  track(stream: ClientRequest | IncomingMessage): void;
+}
+
 async function download(
   url: string,
   target: string,
-  signal: AbortSignal,
+  scope: DownloadScope,
   redirects = 0,
 ): Promise<void> {
+  const { signal } = scope;
   signal.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
+    let discarded = false;
+    const failed = () => {
+      if (!discarded) reject(new Error("Update download failed"));
+    };
     const request = get(url, { signal, headers: { Accept: "application/zip" } }, (response) => {
-      response.on("error", reject);
+      scope.track(response);
+      response.on("error", failed);
+      response.once("close", () => {
+        response.removeListener("error", failed);
+      });
+      if (signal.aborted) {
+        response.destroy();
+        failed();
+        return;
+      }
       if ([301, 302, 303, 307, 308].includes(response.statusCode ?? 0)) {
-        response.resume();
+        // Never drain a redirect body, even from an allowed host. Its lifetime
+        // must end before the next request begins.
+        discarded = true;
+        response.destroy();
         const location = response.headers.location;
         try {
           if (!location || redirects >= 3 || !assetRedirect(location))
             throw new Error("Invalid update redirect");
-          void download(location, target, signal, redirects + 1).then(resolve, reject);
+          void download(location, target, scope, redirects + 1).then(resolve, reject);
         } catch {
           reject(new Error("Invalid update redirect"));
         }
         return;
       }
       if (response.statusCode !== 200) {
-        response.resume();
+        discarded = true;
+        response.destroy();
         reject(new Error("Update download failed"));
         return;
       }
-      let size = 0;
       const limit = new Transform({
         transform(chunk: Buffer, _encoding, callback) {
-          size += chunk.length;
-          callback(size > 1024 * 1024 * 1024 ? new Error("Update archive too large") : null, chunk);
+          scope.size += chunk.length;
+          callback(
+            scope.size > 1024 * 1024 * 1024 ? new Error("Update archive too large") : null,
+            chunk,
+          );
         },
       });
-      void pipeline(response, limit, createWriteStream(target, { flags: "wx", mode: 0o600 }), {
-        signal,
-      }).then(resolve, reject);
+      scope.finished.push(
+        pipeline(response, limit, createWriteStream(target, { flags: "wx", mode: 0o600 }), {
+          signal,
+        }).then(resolve, reject),
+      );
     });
-    request.setTimeout(15000, () => request.destroy(new Error("Update download timed out")));
-    request.on("error", reject);
+    scope.track(request);
+    const timeout = () => request.destroy(new Error("Update download timed out"));
+    request.setTimeout(15000, timeout);
+    request.on("error", failed);
+    signal.addEventListener("abort", failed, { once: true });
+    request.once("close", () => {
+      request.setTimeout(0);
+      request.removeListener("timeout", timeout);
+      request.removeListener("error", failed);
+      signal.removeEventListener("abort", failed);
+    });
   });
 }
 
@@ -96,6 +135,29 @@ export async function prepareLocalUpdate(
   const directory = await mkdtemp(join(userData, "update-"));
   const dispose = () => rm(directory, { recursive: true, force: true });
   const controller = new AbortController();
+  const streams = new Set<ClientRequest | IncomingMessage>();
+  const finished: Promise<void>[] = [];
+  const scope: DownloadScope = {
+    signal: controller.signal,
+    size: 0,
+    finished,
+    track(stream) {
+      streams.add(stream);
+      finished.push(
+        new Promise<void>((resolve) => {
+          stream.once("close", () => {
+            streams.delete(stream);
+            resolve();
+          });
+        }),
+      );
+      if (controller.signal.aborted) stream.destroy();
+    },
+  };
+  const stop = () => {
+    for (const stream of streams) stream.destroy();
+  };
+  controller.signal.addEventListener("abort", stop, { once: true });
   const timeout = setTimeout(
     () => {
       controller.abort();
@@ -109,7 +171,7 @@ export async function prepareLocalUpdate(
   try {
     signal.throwIfAborted();
     const archive = join(directory, "update.zip");
-    await download(update.url, archive, controller.signal);
+    await download(update.url, archive, scope);
     signal.throwIfAborted();
     const feed = join(directory, "feed.json");
     await writeFile(
@@ -126,6 +188,11 @@ export async function prepareLocalUpdate(
     await dispose();
     throw new Error("Update download failed");
   } finally {
+    // Completion is cancellation too: close the whole chain, including requests
+    // whose headers already resolved, before dropping its shared deadline.
+    controller.abort();
+    await Promise.all(finished);
+    controller.signal.removeEventListener("abort", stop);
     clearTimeout(timeout);
     signal.removeEventListener("abort", abort);
   }

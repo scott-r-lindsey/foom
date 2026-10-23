@@ -134,5 +134,8 @@ The same switch controls all three request kinds: macOS metadata at
 update.electronjs.org, the macOS ZIP from the two GitHub download hosts above,
 and GitHub Releases API notices at api.github.com. GitHub's download servers see
 the client IP and request metadata (including the offered version in the URL).
-No other hosts are added. Foom bounds and can abort its ZIP transfer; only local
+No other hosts are added. Redirect/error bodies are destroyed without being
+read. The chain shares one cancellation signal, size budget and total deadline;
+all requests close before preparation returns, including after success or opt-out.
+Foom bounds and can abort its ZIP transfer; only local
 native work already handed off is outside that cancellation boundary.

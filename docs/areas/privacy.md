@@ -49,7 +49,10 @@ identify a strictly newer stable version and an HTTPS ZIP under this repository'
 `github.com/scott-r-lindsey/foom/releases/download/vX.Y.Z/` path, with matching
 architecture and version in its filename. Foom follows at most three redirects,
 only to `release-assets.githubusercontent.com/github-production-release-asset/1394006699/`
-(Foom's repository ID). The transfer has inactivity, total time and size limits.
+(Foom's repository ID). The chain shares one abort signal, size budget and total
+deadline, with per-request inactivity limits. Redirect and error bodies are never
+drained: those responses are immediately destroyed. All hops close on completion,
+failure or opt-out before preparation returns.
 GitHub's download hosts see the IP and request metadata, including the offered
 version in the URL. No user/account credentials are attached; GitHub's temporary
 asset URL query is used only for the asset request. The same Settings switch

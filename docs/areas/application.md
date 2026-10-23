@@ -50,7 +50,12 @@ through that explicit path. No Windows native updater is configured.
 Foom fetches macOS metadata before invoking the updater, checks the version from
 its repository-bound ZIP path, and downloads the ZIP through the constrained
 adapter in `update-package.ts`. Only the exact GitHub repository download path
-and repository-ID-scoped release CDN redirects are accepted. The private local
+and repository-ID-scoped release CDN redirects are accepted. Non-final responses
+(including redirects and errors) are destroyed immediately without consuming
+their bodies. Every hop shares one abort signal, byte budget and total deadline;
+completion and failure abort that scope too. Preparation waits for all tracked
+requests/responses to close and removes its timeout and abort listeners before
+returning. The private local
 feed contains only the validated version and local ZIP URL; no remote fields or
 delta URLs pass to native code. The enabled flag and generation are rechecked
 after each awaited operation and immediately before the native check. Opt-out
