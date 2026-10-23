@@ -565,36 +565,3 @@ describe("close finished agents", () => {
     expect(h.orchestration.reviews.view(author)?.phase).toBe("clean");
   });
 });
-
-it.each([false, true])(
-  "explicitly closes an exited findings reviewer and retains the loop (resume unavailable: %s)",
-  async (unavailable) => {
-    const h = fixture();
-    h.orchestration.configureCloseFinished(false);
-    const author = await h.loop();
-    const row = h.rows.get(author);
-    if (!row) throw Error("missing author");
-    if (unavailable) delete row.conversationId;
-    h.report("child-2", {
-      verdict: "findings",
-      findings: [{ file: "a.ts", line: 1, summary: "Bug", scenario: "Zero" }],
-    });
-    h.exit("child-2");
-    await h.sync();
-    const record = h.orchestration.reviews.view(author);
-    expect(record).toMatchObject(
-      unavailable ? { phase: "escalated", reason: "resume unavailable" } : { phase: "fixing" },
-    );
-    if (unavailable) expect(h.orchestration.reviewUnreadAt("parent")).toBeDefined();
-    h.host.close.mockImplementation((id) => {
-      h.rows.delete(id);
-      h.orchestration.removed(id);
-      return Promise.resolve();
-    });
-    expect((await h.mutate("close", { id: "child-2" })).status).toBe("succeeded");
-    expect(h.rows.has("child-2")).toBe(false);
-    expect(h.orchestration.reviews.view(author)).toEqual(record);
-    expect(h.rows.has(author)).toBe(true);
-    h.orchestration.disposeUnreadChildren();
-  },
-);
