@@ -5,8 +5,8 @@ Decided implementation and security rules for this area. Read the [file map](../
 ## Console
 
 **Console helper and pairing implemented in #154.** `src/cli/` bundles as a Node 24
-console SEA; `src/node-common/` supplies bounded private discovery and validators
-to both console and main, without exposing Node to renderer/shared browser code.
+console SEA, without system Node or Electron's RunAsNode fuse; `src/node-common/`
+supplies bounded private discovery and validators to both console and main, without exposing Node to renderer/shared browser code.
 An exact protocol and instance envelope routes online commands to the same service.
 A separate `/control/v1/pair` endpoint accepts no bearer credentials, rejects browser
 origins and nonliteral hosts, bounds bodies to 4 KiB, and holds the response while
