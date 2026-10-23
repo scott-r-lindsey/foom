@@ -14,8 +14,19 @@ ownership checks in one place. `orchestration.d.ts` holds their host and state
 contracts. The main-only leaf modules `workspace/worktree-outcome.ts` and
 `control/orchestration-limits.ts` own the shared uncertain-creation error and unused
 worktree bound, so Git helpers and session persistence do not load orchestration
-implementations for these primitives. `WorkspaceContext` wires main's worktree
-creation, agent launch,
+implementations for these primitives.
+
+`review-effects.ts` owns review snapshot reads and durable stop/launch/resume effects;
+`ReviewLoops` retains phase and evidence ownership. Effects receive captured child
+capabilities that revalidate exact live parent/child identities after durable
+intent and in the host's pre-spawn callback. Authority alone reserves capacity
+and updates child membership/exit state. `finished-child-closer.ts` owns close
+eligibility, settled exit-observation interests and one-shot durable automatic
+closes, using owned-child capabilities and the loop's retention query. It retains
+the last participant and does not retry failed closes. `orchestration-automation.ts`
+only composes the child-event subscription and disposal for unread events, loops
+and the closer; it holds no authority state. `WorkspaceContext` wires main's
+worktree creation, agent launch,
 stop, close, host tail and removal effects. Role changes and child worktree/agent
 launches live in `orchestration-commands.ts`. The service delegates `create_worktree`, `launch`, `stop`, `close`, `remove_worktree`,
 `tail` and `wait_for` to it through an asynchronous `call`. MCP lists these tools
