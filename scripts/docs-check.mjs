@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import MarkdownIt from "markdown-it";
@@ -51,13 +51,16 @@ export function parseDocument(source) {
     if (token.type === "html_inline" || token.type === "html_block") {
       // Only real HTML tokens, never Markdown code examples or HTML comments.
       const html = token.content.replace(/<!--[\s\S]*?-->/g, "");
-      for (const tag of html.matchAll(/<[a-z][^>]*>/gi)) {
+      for (const tag of html.matchAll(/<[a-z](?:"[^"]*"|'[^']*'|[^"'<>])*>/gi)) {
         for (const attr of tag[0].matchAll(
-          /\b(id|name|href|src)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
+          /\s+([^\s=<>/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g,
         )) {
-          const value = attr[2] ?? attr[3];
+          // Consume complete attributes, including unrelated quoted values, so
+          // data-href and text such as title="see href=example" stay inert.
+          const value = attr[2] ?? attr[3] ?? attr[4];
+          if (value === undefined) continue;
           if (/^(id|name)$/i.test(attr[1])) anchors.add(value);
-          else links.push(value);
+          else if (/^(href|src)$/i.test(attr[1])) links.push(value);
         }
       }
     }
@@ -112,13 +115,25 @@ export function readingFor(file, rows) {
 export function checkDocs(root, files) {
   const errors = [];
   const documents = new Map();
+  const canonicalRoot = realpathSync(root);
+  function destination(file, escapeMessage) {
+    const absolute = realpathSync(path.join(canonicalRoot, file));
+    const relative = path.relative(canonicalRoot, absolute);
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      errors.push(escapeMessage);
+      return;
+    }
+    return { absolute, relative: relative.split(path.sep).join("/") };
+  }
   function document(file) {
+    const resolved = destination(file, `${file}: document escapes repository`);
+    if (!resolved || excluded.test(file) || excluded.test(resolved.relative)) return;
     if (!documents.has(file))
-      documents.set(file, parseDocument(readFileSync(path.join(root, file), "utf8")));
+      documents.set(file, parseDocument(readFileSync(resolved.absolute, "utf8")));
     return documents.get(file);
   }
   const sources = files.filter((file) => file.startsWith("src/") && !instruction.test(file));
-  const rows = mapRows(document("docs/map.md").tokens);
+  const rows = mapRows(document("docs/map.md")?.tokens ?? []);
   for (const row of rows) {
     if (!row.links.length) errors.push("docs/map.md: owner row has no required reading links");
     for (const pattern of row.patterns) {
@@ -133,7 +148,7 @@ export function checkDocs(root, files) {
     if (!readingFor(file, rows).length) errors.push(`docs/map.md: unmapped source: ${file}`);
   }
   for (const file of files.filter((file) => file.endsWith(".md") && !excluded.test(file))) {
-    for (const href of document(file).links) {
+    for (const href of document(file)?.links ?? []) {
       // No network checks. Protocol URLs, including hostile examples, are inert.
       if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(href)) continue;
       const hash = href.indexOf("#");
@@ -155,14 +170,20 @@ export function checkDocs(root, files) {
       if (!pathname) target = file;
       if (target === ".." || target.startsWith("../") || !existsSync(path.join(root, target))) {
         errors.push(`${file}: missing local link target: ${href}`);
-      } else if (
-        anchor &&
-        target.endsWith(".md") &&
-        statSync(path.join(root, target)).isFile() &&
-        !excluded.test(target) &&
-        !document(target).anchors.has(anchor)
-      ) {
-        errors.push(`${file}: missing anchor: ${href}`);
+      } else {
+        const resolved = destination(
+          target,
+          `${file}: local link target escapes repository: ${href}`,
+        );
+        if (!resolved || excluded.test(target) || excluded.test(resolved.relative)) continue;
+        if (
+          anchor &&
+          target.endsWith(".md") &&
+          statSync(resolved.absolute).isFile() &&
+          !document(target)?.anchors.has(anchor)
+        ) {
+          errors.push(`${file}: missing anchor: ${href}`);
+        }
       }
     }
   }

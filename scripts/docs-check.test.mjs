@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -178,4 +178,70 @@ test("repository representatives select their real feature docs in one hop", () 
     ["src/manual/manual.html", "areas/previews.md#bundled-manual-root"],
   ])
     assert.ok(readingFor(file, rows).includes(expected), `${file} must select ${expected}`);
+});
+
+test("tracked document aliases and link targets cannot escape the repository", (t) => {
+  const { root, files } = fixture(t, {
+    "README.md": "[outside](alias.md#outside)",
+  });
+  const outside = mkdtempSync(path.join(tmpdir(), "foom-docs-outside-"));
+  t.after(() => rmSync(outside, { recursive: true, force: true }));
+  writeFileSync(path.join(outside, "outside.md"), "# Outside\n[do not parse](missing-outside.md)");
+  symlinkSync(path.join(outside, "outside.md"), path.join(root, "alias.md"), "file");
+  files.push("alias.md");
+  assert.deepEqual(checkDocs(root, files), [
+    "README.md: local link target escapes repository: alias.md#outside",
+    "alias.md: document escapes repository",
+  ]);
+  // A symlinked ancestor must not bypass the same containment check.
+  symlinkSync(
+    outside,
+    path.join(root, "outside-dir"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  writeFileSync(path.join(root, "README.md"), "[outside](outside-dir/outside.md#outside)");
+  assert.deepEqual(checkDocs(root, files), [
+    "README.md: local link target escapes repository: outside-dir/outside.md#outside",
+    "alias.md: document escapes repository",
+  ]);
+});
+
+test("tracked aliases and anchor links preserve canonical preview exclusions", (t) => {
+  const { root, files } = fixture(t, {
+    "README.md": "[fixture](alias.md#missing) [directory](alias-dir/hostile.md#missing)",
+    "tests/fixtures/previews/hostile.md": "[attack](missing-hostile.md#missing)",
+  });
+  symlinkSync(
+    path.join(root, "tests/fixtures/previews/hostile.md"),
+    path.join(root, "alias.md"),
+    "file",
+  );
+  symlinkSync(
+    path.join(root, "tests/fixtures/previews"),
+    path.join(root, "alias-dir"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  files.push("alias.md", "alias-dir/hostile.md");
+  assert.deepEqual(checkDocs(root, files), []);
+});
+
+test("HTML href and src attributes support unquoted values at real attribute boundaries", (t) => {
+  const { root, files } = fixture(t, {
+    "README.md": `<a title="ignore > href='ignored-title.md'" href=missing-page.md>broken</a>
+<img src=missing-image.png>
+<a HREF='missing-single.md'>single</a>
+<a href="missing-double.md">double</a>
+<a data-href="ignored.md" data-src=ignored.png title="see href=ignored-title.md">inert</a>
+<a href=/docs/areas/app.md#start>valid root link</a>
+<img src=/src/main/entry.ts>
+<a id=legacy></a>
+[legacy](#legacy)
+`,
+  });
+  assert.deepEqual(checkDocs(root, files), [
+    "README.md: missing local link target: missing-page.md",
+    "README.md: missing local link target: missing-image.png",
+    "README.md: missing local link target: missing-single.md",
+    "README.md: missing local link target: missing-double.md",
+  ]);
 });
