@@ -960,6 +960,8 @@ it.each(["single", "batch"])(
     expect(tracker.readSettled(tree.repository, tree.path)).toMatchObject(closed);
     expect(tracker.readSettled("foreign", tree.path)).toBeUndefined();
     expect(tracker.readSettled(tree.repository, "missing")).toBeUndefined();
+    const beforeExit = tracker.revision();
+    expect(tracker.readSettled(tree.repository, tree.path, beforeExit)).toBeUndefined();
     const notifications = changed.mock.calls.length;
     let firstStarted = () => {};
     const first = new Promise<void>((resolve) => {
@@ -999,6 +1001,8 @@ it.each(["single", "batch"])(
     finishSecond();
     await tracker.poll();
     expect(tracker.readSettled(tree.repository, tree.path)).toMatchObject(closed);
+    expect(tracker.readSettled(tree.repository, tree.path, beforeExit)).toMatchObject(closed);
+    expect(tracker.readSettled(tree.repository, tree.path, tracker.revision())).toBeUndefined();
     expect(changed).toHaveBeenCalledTimes(notifications + 1);
     for (let index = 0; index < 10; index++) await tracker.poll();
     expect(lookup).toHaveBeenCalledTimes(3);

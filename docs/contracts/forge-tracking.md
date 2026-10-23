@@ -126,3 +126,9 @@ Single and batched completions carry the request generation. Older responses do
 not settle a newer request; only the latest successful sample can authorize close.
 Completion invalidates child metadata even if PR fields are unchanged, without new
 polling or requests. Missing, unavailable or pending evidence refuses auto-close.
+
+Each exit records the tracker's main-only request clock. Close evidence must come
+from a request started after that marker as well as settling the latest recheck.
+This also refuses cached data when exit publication precedes the queued refresh
+callback, and refuses an older request that completes after exit. Markers are
+reset for resumed launches and never persisted or exposed through IPC.

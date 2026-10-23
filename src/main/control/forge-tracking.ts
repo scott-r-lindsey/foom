@@ -14,6 +14,7 @@ interface Entry extends ForgeWorktree {
   orchestrator: boolean;
   refresh: number;
   sampledRefresh: number;
+  observation: number;
   followUp?: boolean;
   remote?: string;
   number?: number;
@@ -35,6 +36,7 @@ export class ForgeTracking {
   private closed = false;
   private enabled = false;
   private generation = 0;
+  private observation = 0;
   private readonly pauses = new Set<string>();
   onCompleted?: (tree: ForgeWorktree, pr: BoardPullRequest) => void;
   private stopped(): boolean {
@@ -140,6 +142,7 @@ export class ForgeTracking {
       orchestrator,
       refresh: 0,
       sampledRefresh: -1,
+      observation: 0,
       ...(number === undefined ? {} : { number }),
       available: false,
       failures: 0,
@@ -258,10 +261,15 @@ export class ForgeTracking {
     return entry?.repository === repository && entry.available ? pullRequest(entry.pr) : undefined;
   }
 
-  /** Main-only close evidence: every requested recheck must have completed first. */
-  readSettled(repository: string, path: string): PullRequest | undefined {
+  /** Main-only request clock. An exit records this before accepting later observations. */
+  revision(): number {
+    return this.observation;
+  }
+
+  /** Main-only close evidence: a later request, with every recheck completed first. */
+  readSettled(repository: string, path: string, after = -1): PullRequest | undefined {
     const entry = this.entries.get(path);
-    return entry && entry.sampledRefresh === entry.refresh
+    return entry && entry.observation > after && entry.sampledRefresh === entry.refresh
       ? this.read(repository, path)
       : undefined;
   }
@@ -298,6 +306,7 @@ export class ForgeTracking {
             return;
           }
           this.bind(entry, provider);
+          const observation = ++this.observation;
           const result = await provider
             ?.lookup(
               entry.branch,
@@ -315,6 +324,7 @@ export class ForgeTracking {
           entry.available = pr !== undefined;
           if (pr) {
             entry.pr = pr;
+            entry.observation = observation;
             entry.remote = remote;
             entry.failures = 0;
           } else entry.failures = Math.min(entry.failures + 1, 5);
@@ -385,6 +395,7 @@ export class ForgeTracking {
     const keys = new Set(matches.map((request) => JSON.stringify(request)));
     const selected = rows.filter((entry) => keys.has(JSON.stringify(match(entry))));
     const revisions = new Map(rows.map((entry) => [entry, entry.refresh]));
+    const observation = ++this.observation;
     const result = await provider.batch?.(matches).catch(() => undefined);
     if (this.stopped() || generation !== this.generation || this.pauses.size > 0) return;
     const remaining = rows.filter((entry) => !selected.includes(entry) && entry.available);
@@ -422,6 +433,7 @@ export class ForgeTracking {
       if (pr) {
         const { board, ...metadata } = pr;
         entry.pr = metadata;
+        entry.observation = observation;
         entry.board = board;
         if (provider.routedHost === undefined) delete entry.routedHost;
         else entry.routedHost = provider.routedHost;

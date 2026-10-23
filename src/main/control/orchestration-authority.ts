@@ -40,6 +40,7 @@ export class OrchestrationAuthority {
   private closeFinished = true;
   private readonly automation = new Map<string, { actor: Principal; operations: Operations }>();
   private readonly closing = new Set<string>();
+  private readonly exitObservations = new Map<string, number>();
 
   constructor(
     protected readonly host: OrchestrationHost,
@@ -102,6 +103,7 @@ export class OrchestrationAuthority {
     const child = parent.children.get(id);
     const row = this.host.terminals().find((entry) => entry.id === id);
     const review = row && this.reviewMetadata(row);
+    const after = this.exitObservations.get(id);
     return Boolean(
       this.closeFinished &&
         parent.active &&
@@ -118,8 +120,9 @@ export class OrchestrationAuthority {
           ? this.reviews.verdictRecorded(id)
           : (!review || review.phase === "clean" || review.phase === "escalated") &&
             this.reviews.unread(id) === undefined &&
+            after !== undefined &&
             ["MERGED", "CLOSED"].includes(
-              this.host.forge?.readSettled?.(row.repository, row.worktree)?.state ?? "",
+              this.host.forge?.readSettled?.(row.repository, row.worktree, after)?.state ?? "",
             )),
     );
   }
@@ -365,6 +368,7 @@ export class OrchestrationAuthority {
       takenOver: false,
       tailAt: 0,
     });
+    if (entry.exited) this.observeExit(entry.id);
     if (entry.review) this.reviews.restore(entry.id, entry.review);
     this.changed();
     return true;
@@ -382,6 +386,12 @@ export class OrchestrationAuthority {
     if (parent) this.retire(parent);
   }
 
+  private observeExit(id: string): void {
+    const revision = this.host.forge?.revision?.();
+    if (revision !== undefined && !this.exitObservations.has(id))
+      this.exitObservations.set(id, revision);
+  }
+
   /** Exit revokes the parent's authority; children keep running under human control. */
   exited(id: string): void {
     this.childEvents.publish();
@@ -392,9 +402,13 @@ export class OrchestrationAuthority {
     }
     const child = this.child(id);
     if (child) {
+      this.observeExit(id);
       child.exited = true;
       this.changed();
-    } else if (this.launching()) this.early.add(id);
+    } else if (this.launching()) {
+      this.observeExit(id);
+      this.early.add(id);
+    }
   }
 
   /** The session left the board. A parent's history goes with its row. */
@@ -403,6 +417,7 @@ export class OrchestrationAuthority {
     if (!this.reviews.verdictRecorded(id)) this.reviews.stop(id);
     this.reviews.forget(id);
     this.closing.delete(id);
+    this.exitObservations.delete(id);
     this.handoffs.remove(id);
     const parent = this.parents.get(id);
     if (parent) {
@@ -416,6 +431,7 @@ export class OrchestrationAuthority {
 
   /** A human relaunch under the same ID (resume, new conversation) is never the orchestrator's. */
   relaunched(id: string): void {
+    this.exitObservations.delete(id);
     this.reviews.stop(id);
     this.childEvents.publish();
     for (const parent of this.parents.values()) parent.children.delete(id);
@@ -630,7 +646,10 @@ export class OrchestrationAuthority {
       const resume = reviewer
         ? undefined
         : { id: authorId, conversationId: author.conversationId ?? "" };
-      if (!reviewer) child.exited = false;
+      if (!reviewer) {
+        child.exited = false;
+        this.exitObservations.delete(authorId);
+      }
       const id = await this.host.launch(
         actor.terminalId,
         parent.repository,
@@ -667,7 +686,7 @@ export class OrchestrationAuthority {
     } finally {
       parent.starting--;
       this.childEvents.publish();
-      if (!this.launching()) this.early.clear();
+      this.clearEarlyExits();
     }
   }
 
@@ -709,6 +728,12 @@ export class OrchestrationAuthority {
     return [...this.parents.values(), ...this.slots.values()].some(
       (parent) => parent.starting > 0 || parent.terminalId === null,
     );
+  }
+
+  protected clearEarlyExits(): void {
+    if (this.launching()) return;
+    for (const id of this.early) this.exitObservations.delete(id);
+    this.early.clear();
   }
 
   private retire(parent: Parent): void {

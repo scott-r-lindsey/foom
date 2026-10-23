@@ -389,8 +389,9 @@ describe("close finished agents", () => {
       () => ({ lookup }),
     );
     h.host.forge.read.mockImplementation((repository, path) => tracker.read(repository, path));
-    h.host.forge.readSettled.mockImplementation((repository, path) =>
-      tracker.readSettled(repository, path),
+    h.host.forge.revision.mockImplementation(() => tracker.revision());
+    h.host.forge.readSettled.mockImplementation((repository, path, after) =>
+      tracker.readSettled(repository, path, after),
     );
     try {
       tracker.track({
@@ -400,9 +401,12 @@ describe("close finished agents", () => {
         identity: "id-feature",
       });
       await tracker.poll();
+      // Exit can be published before the queued refresh callback runs.
+      h.exit(id);
+      await h.sync();
+      expect(h.host.close).not.toHaveBeenCalled();
       lookup.mockReturnValueOnce(pending);
       tracker.recheck(row.worktree);
-      h.exit(id);
       await h.sync();
       expect(lookup).toHaveBeenCalledTimes(2);
       expect(h.host.close).not.toHaveBeenCalled();
