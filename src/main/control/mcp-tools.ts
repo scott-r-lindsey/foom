@@ -124,6 +124,13 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
           properties: {
             rounds: { type: "integer", minimum: 1, maximum: 5, default: 3 },
             agent: { type: "string", enum: agents, default: "claude" },
+            parentWaitMinutes: {
+              type: "integer",
+              minimum: 1,
+              maximum: 1440,
+              description:
+                "Minutes to wait for a parent prompt after an author blocks (default 180).",
+            },
             postFindings: {
               type: "boolean",
               default: false,

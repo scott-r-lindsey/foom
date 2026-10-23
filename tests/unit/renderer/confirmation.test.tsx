@@ -491,3 +491,116 @@ test("batch review lists trusted snapshots, traps focus through selection and se
   fireEvent.click(view.getByRole("button", { name: "Approve all" }));
   expect(answer).toHaveBeenLastCalledWith("clean-only", ["one"]);
 });
+
+test("starts summaries collapsed, includes only visible disclosure controls in Tab order and resets each request", () => {
+  let receive: (value: DialogRequest | null) => void = () => undefined;
+  const answer = vi.fn();
+  const size = vi.fn();
+  let measure = () => {};
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(callback: () => void) {
+        measure = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  Object.defineProperty(window, "confirmation", {
+    configurable: true,
+    value: {
+      render(callback: typeof receive) {
+        receive = callback;
+        return () => undefined;
+      },
+      answer,
+      size,
+    },
+  });
+  const view = render(<ConfirmationPage />);
+  const request: DialogRequest = {
+    id: "collapsed",
+    title: "Install?",
+    accept: "Install",
+    theme: resolveInterfaceTheme("follow", false),
+    detail: "Runs as you.",
+    sections: [
+      { label: "Action", items: ["Install plugin"] },
+      {
+        label: "Checks",
+        summary: [{ text: "1 ownership requirement" }],
+        arguments: true,
+        items: ['{"status":"owned"}'],
+      },
+      {
+        label: "Files",
+        summary: [
+          { text: "1 file · 10000 bytes" },
+          {
+            text: "file · 0123456789ab · 10000 B",
+            title: `file · SHA-256 ${"0123456789abcdef".repeat(4)} · 10000 B`,
+          },
+        ],
+        arguments: true,
+        items: ["<img src=x>".repeat(1000)],
+      },
+      { label: "Other", summary: [], items: ["Literal <script>text</script>"] },
+    ],
+  };
+  act(() => {
+    receive(request);
+  });
+  expect(view.getByText("Install plugin")).toBeTruthy();
+  expect(view.getByText("Runs as you.").closest("details")).toBeNull();
+  const card = view.getByRole("alertdialog");
+  const content = view.getByRole("region", { name: "Details" });
+  const body = content.firstElementChild;
+  if (!body) throw Error("Missing content");
+  for (const [element, height] of [
+    [card, 800],
+    [content, 650],
+    [body, 2000],
+  ] as const)
+    element.getBoundingClientRect = () => DOMRect.fromRect({ height });
+  measure();
+  expect(size).toHaveBeenLastCalledWith({ width: 540, height: 800 });
+  const details = [...view.container.querySelectorAll("details")];
+  expect(details.every((detail) => !detail.open)).toBe(true);
+  expect(view.getByText("1 file · 10000 bytes")).toBeTruthy();
+  const digest = view.getByText("file · 0123456789ab · 10000 B");
+  expect(digest.title).toBe(`file · SHA-256 ${"0123456789abcdef".repeat(4)} · 10000 B`);
+  expect(digest.closest("summary")?.getAttribute("aria-label")).toContain(
+    "0123456789abcdef".repeat(4),
+  );
+  const checks = details[0];
+  const files = details[1];
+  if (!checks || !files) throw Error("Missing disclosures");
+  const cancel = view.getByRole("button", { name: "Cancel" });
+  const accept = view.getByRole("button", { name: "Install" });
+  fireEvent.keyDown(cancel, { key: "Tab" });
+  expect(document.activeElement).toBe(accept);
+  fireEvent.keyDown(accept, { key: "Tab" });
+  expect(document.activeElement).toBe(checks.querySelector("summary"));
+  fireEvent.keyDown(document.activeElement ?? view.container, { key: "Tab" });
+  expect(document.activeElement).toBe(files.querySelector("summary"));
+  files.open = true;
+  fireEvent.keyDown(document.activeElement ?? view.container, { key: "Tab" });
+  expect(document.activeElement).toBe(files.querySelector("code"));
+  expect(files.querySelector("code")?.textContent).toBe("<img src=x>".repeat(1000));
+  expect(view.container.querySelector("img")).toBeNull();
+  fireEvent.keyDown(document.activeElement ?? view.container, { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(files.querySelector("summary"));
+  act(() => {
+    receive({ ...request, id: "new" });
+  });
+  expect([...view.container.querySelectorAll("details")].every((detail) => !detail.open)).toBe(
+    true,
+  );
+  expect(document.activeElement).toBe(
+    cancel.isConnected ? cancel : view.getByRole("button", { name: "Cancel" }),
+  );
+  fireEvent.keyDown(view.getByRole("alertdialog"), { key: "Escape" });
+  expect(answer).toHaveBeenLastCalledWith("new", false);
+  vi.unstubAllGlobals();
+});

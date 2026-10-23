@@ -210,11 +210,21 @@ Reviewers consume the orchestrator's existing child slots and wait if full.
 New reviewer placement follows Show new children on the board; author resumes
 keep their existing tile. Neither step takes keyboard focus.
 The sidebar and tile show Building, Reviewing 2/3, Fixing 2/3, Review clean, or
-Escalated with a fixed reason. Every participant's handoffs remain available to
+Escalated with a fixed reason. Loop reviewers use a receiving robot with a lens,
+named Reviewer, in sidebar rows and tile headers. Authors and children launched
+without a loop keep the ordinary receiving mark. Every participant's handoffs remain available to
 the orchestrator. Clean also raises attention: the orchestrator verifies the
 result and remains the final merge gate.
 
-Blocked/failed reports, non-green or unknown checks, missing reports, reviewer
+A blocked author shows **Waiting on parent** until its own orchestrator sends a
+`prompt`. That explicit reply resumes Building or Fixing, and the next done report
+and exit proceed to review. Waiting does not spend a round. The launch option
+`review.parentWaitMinutes` (console: `--review-parent-wait-minutes`) bounds the wait
+to 1–1440 minutes, default three hours. Expiry escalates as Author blocked. Human
+terminal input and `send_keys` do not resume the loop. The author must keep its
+process running to receive the parent's prompt.
+
+Failed author reports, blocked/failed reviewer reports, non-green or unknown checks, missing reports, reviewer
 edits, the round cap and launch/resume failures stop the loop and escalate.
 Stopping or taking over a participant, or stopping/revoking its orchestrator,
 ends automation. After restart, saved participants stay dormant with

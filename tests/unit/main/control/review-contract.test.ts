@@ -25,6 +25,7 @@ describe("review contracts", () => {
       agent: "codex",
       postFindings: true,
     });
+    expect(reviewOptions({ parentWaitMinutes: 1440 }).parentWaitMinutes).toBe(1440);
     for (const value of [
       null,
       [],
@@ -38,6 +39,7 @@ describe("review contracts", () => {
       { agent: "--evil" },
       { postFindings: 1 },
       { unknown: true },
+      ...[null, 0, 1441, 1.5, "180"].map((parentWaitMinutes) => ({ parentWaitMinutes })),
     ])
       expect(() => reviewOptions(value)).toThrow("invalid_request");
   });
@@ -141,7 +143,11 @@ describe("review CLI launch flags", () => {
       agent: "claude",
       postFindings: false,
     });
+    expect(command([...args, "--review-parent-wait-minutes", "10"]).params["review"]).toMatchObject(
+      { parentWaitMinutes: 10 },
+    );
     for (const flags of [
+      ["--review-parent-wait-minutes", "0"],
       ["--review-rounds", "6"],
       ["--review-rounds", "0"],
       ["--review-post-findings", "yes"],

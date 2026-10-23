@@ -249,6 +249,27 @@ test("worker trim follows role and takeover metadata without remounting or reatt
   expect(mark.closest(".tile-title")).toBeTruthy();
   expect(mark.querySelector("title")?.textContent).toBe("Child of parent");
   expect(mark.getAttribute("data-kind")).toBe("rx");
+  const review = {
+    authorId: "permission",
+    agent: "claude",
+    postFindings: false,
+    rounds: 3,
+    round: 1,
+    phase: "reviewing" as const,
+  };
+  act(() => {
+    data.update("permission", { review });
+  });
+  expect(within(tile).getByRole("img", { name: "Worker" })).toBe(mark);
+  act(() => {
+    data.update("permission", { review: { ...review, authorId: "author" } });
+  });
+  expect(within(tile).getByRole("img", { name: "Reviewer" })).toBe(mark);
+  expect(mark.getAttribute("data-kind")).toBe("review");
+  expect(within(tile).getByText("Reviewing 1/3")).toBeTruthy();
+  act(() => {
+    data.update("permission", { review: undefined });
+  });
   const parent = data.getSnapshot()[1];
   if (!parent) throw new Error("Missing parent fixture");
   act(() => {

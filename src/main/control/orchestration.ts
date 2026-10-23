@@ -155,8 +155,13 @@ export class Orchestration extends OrchestrationMutations {
         try {
           authorize();
           if (!this.host.reply) throw new ControlError("unavailable");
+          const delivered = method === "prompt" ? this.reviews.parentPrompt(id) : () => {};
           writing = true;
           await this.host.reply(id, input);
+          active();
+          if (this.parent(actor) !== parent || !this.own(parent, id))
+            throw new ControlError("not_found");
+          delivered();
           return await this.finish(
             actor,
             parent,
