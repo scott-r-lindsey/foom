@@ -364,11 +364,16 @@ export class WorktreeService {
 
   // Background status reads must not refresh/write the index while removal is
   // deleting per-worktree Git metadata. --no-optional-locks keeps them read-only.
+  // Disable status caches so they cannot hide changes from a removal snapshot.
   async changes(repositoryPath: string, path: string, identity?: string): Promise<string> {
     const expected = identity ?? (await this.removalIdentity(repositoryPath, path));
     await this.checkRemovalIdentity(repositoryPath, path, expected);
     return git(path, [
       "--no-optional-locks",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.untrackedCache=false",
       "status",
       "--porcelain=v1",
       "-z",
@@ -380,6 +385,26 @@ export class WorktreeService {
   async cleanupChanges(repository: string, path: string, identity?: string): Promise<string> {
     const expected = identity ?? (await this.removalIdentity(repository, path));
     assertInside(await realpath(this.root), await realpath(path));
+    // Porcelain status cannot prove tracked files are unchanged when the index
+    // promises Git it can skip them. Refuse those promises, including sparse
+    // configurations whose current index happens to have no skip-worktree bits.
+    const sparse = (
+      await git(path, ["config", "--bool", "--default=false", "--get", "core.sparseCheckout"])
+    ).trim();
+    if (sparse !== "false") throw new Error("Sparse checkouts prevent cleanup");
+    const entries = await git(path, [
+      "--no-optional-locks",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.untrackedCache=false",
+      "ls-files",
+      "-v",
+      "-z",
+      "--",
+    ]);
+    if (entries.split("\0").some((entry) => /^[a-zS]/.test(entry)))
+      throw new Error("Index flags can hide tracked changes and prevent cleanup");
     const changes = await this.changes(repository, path, expected);
     if (changes.split("\0").some((entry) => entry && !entry.startsWith("?? ")))
       throw new Error("Tracked changes prevent cleanup");

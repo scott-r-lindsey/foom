@@ -281,6 +281,8 @@ describe("new group cleanup guards", () => {
     "outside",
     "redirected",
     "git-error",
+    "sparse-without-index-flags",
+    "invalid-sparse-config",
   ])("checks %s checkouts with real Git", async (mode) => {
     const { path } = await service.createWorktree(repo, "cleanup");
     await writeFile(join(path, "tracked.txt"), "original");
@@ -326,6 +328,13 @@ describe("new group cleanup guards", () => {
         ],
         { cwd: path },
       );
+    if (mode === "sparse-without-index-flags") {
+      await execute(["sparse-checkout", "init", "--no-cone"], { cwd: path });
+      await execute(["sparse-checkout", "set", "--no-cone", "/*"], { cwd: path });
+      expect((await execute(["ls-files", "-v"], { cwd: path })).stdout).toBe("H tracked.txt\n");
+    }
+    if (mode === "invalid-sparse-config")
+      await execute(["config", "core.sparseCheckout", "invalid"], { cwd: path });
     if (mode === "git-error")
       vi.spyOn(service, "changes").mockRejectedValueOnce(new Error("Git failed"));
     if (["branch", "detached", "untracked"].includes(mode)) {

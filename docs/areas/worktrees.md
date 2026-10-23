@@ -117,8 +117,11 @@ linked checkouts and trusted confirmation of tracked changes. Group cleanup also
 accepts detached HEADs and untracked-only leftovers. These additional candidates
 must resolve strictly inside Foom's configured worktree root, pass ordinary
 membership/identity/lock checks, have no tracked changes and have zero commits
-absent from local remote refs (`rev-list HEAD --not --remotes`). Git errors refuse
-eligibility. The existing freshly fetched default and merge containment checks
+absent from local remote refs (`rev-list HEAD --not --remotes`). They refuse sparse
+checkout configurations and any assume-unchanged or skip-worktree index entries
+(`git ls-files -v -z`), both during eligibility and final revalidation. Cleanup status reads
+disable fsmonitor and untracked-cache with command-scoped Git options so cached
+results cannot hide changes. Git errors refuse eligibility. The existing freshly fetched default and merge containment checks
 still apply. Clean branch candidates keep their established policy.
 
 The main-owned plan captures the complete NUL-delimited status. The trusted

@@ -756,3 +756,70 @@ it(
     }
   }),
 );
+
+it.each([
+  ["assume-unchanged", "eligibility"],
+  ["skip-worktree", "eligibility"],
+  ["sparse", "eligibility"],
+  ["assume-unchanged", "preview shutdown"],
+  ["skip-worktree", "preview shutdown"],
+  ["sparse", "preview shutdown"],
+])("group cleanup preserves hidden tracked edits with %s set during %s", async (mode, phase) => {
+  await writeFile(join(repo, "tracked.txt"), "original");
+  await git("add", ".");
+  await git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "tracked");
+  const { path } = await service.createWorktree(repo, "hidden-edit");
+  await git("clone", "--bare", repo, join(temporary, "remote.git"));
+  await git("remote", "add", "origin", join(temporary, "remote.git"));
+  await writeFile(join(path, "screenshot.png"), "untracked evidence");
+  const hide = async () => {
+    if (mode === "sparse") {
+      // Materialize every file, so sparse config is independent of skip-worktree.
+      await execute(["sparse-checkout", "init", "--no-cone"], { cwd: path });
+      await execute(["sparse-checkout", "set", "--no-cone", "/*"], { cwd: path });
+    }
+    await execute(
+      [
+        "update-index",
+        mode === "skip-worktree" ? "--skip-worktree" : "--assume-unchanged",
+        "tracked.txt",
+      ],
+      { cwd: path },
+    );
+    await writeFile(join(path, "tracked.txt"), "hidden edit must survive");
+    expect(
+      (
+        await execute(
+          ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+          { cwd: path },
+        )
+      ).stdout,
+    ).toBe("?? screenshot.png\0");
+  };
+  if (phase === "eligibility") await hide();
+  const prepare = vi.fn(async () => {
+    if (phase === "preview shutdown") await hide();
+    return () => {};
+  });
+  const workspace = cleanupWorkspace({ prepareWorktreeRemoval: prepare });
+  try {
+    await workspace.sidebarCommand(
+      { kind: "delete-merged-worktrees", repository: repo },
+      async (request) => {
+        if (request.kind !== "merged-worktrees" || !request.feed)
+          throw new Error("Missing cleanup");
+        await vi.waitFor(() => {
+          expect(request.feed?.current().stage).toBe("ready");
+        });
+        return true;
+      },
+    );
+    expect(await readFile(join(path, "tracked.txt"), "utf8")).toBe("hidden edit must survive");
+    expect(await readFile(join(path, "screenshot.png"), "utf8")).toBe("untracked evidence");
+    if (phase === "eligibility") expect(prepare).not.toHaveBeenCalled();
+    else expect(prepare).toHaveBeenCalledOnce();
+    expect(await git("branch", "--list", "hidden-edit")).toContain("hidden-edit");
+  } finally {
+    await workspace.dispose();
+  }
+});
