@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest";
+import { WorkspaceContext } from "../../../../src/main/workspace/workspace-context";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import { agents, configDep, deps, prepare, receiver, scan } from "./workspace-fixture";
 
@@ -282,5 +283,32 @@ test("restores config sessions only for the current config folder", async () => 
   expect(vi.spyOn(deps.terminals, "create")).toHaveBeenCalledWith(
     expect.objectContaining({ id: "config-shell" }),
   );
+  await workspace.dispose();
+});
+
+test("config credentials bound after an early host exit are revoked before inventory settles", async () => {
+  deps.config = configDep();
+  const workspace = new WorkspaceContext(deps);
+  const credential = await workspace.configCredential();
+  const broker = workspace.probes;
+  if (!broker) throw new Error("Missing probe broker");
+  const revoke = vi.spyOn(broker, "revoke");
+  const probeExit = vi.spyOn(broker, "exited");
+  const blocked = Promise.withResolvers<undefined>();
+  workspace.executionOwner.ensure("early");
+  const previous = workspace.enqueue("early", () => blocked.promise);
+  const exit = workspace.exited("early", 0);
+  expect(workspace.executionOwner.view("early").exitCode).toBeUndefined();
+  workspace.bindConfig("early", credential.token);
+  expect(workspace.configTokens.has("early")).toBe(false);
+  expect(revoke).toHaveBeenCalledExactlyOnceWith(credential.token);
+  blocked.resolve(undefined);
+  await previous;
+  await exit;
+  await workspace.exited("early", 9);
+  workspace.removed("early");
+  expect(revoke).toHaveBeenCalledTimes(1);
+  expect(probeExit).toHaveBeenCalledExactlyOnceWith("early");
+  expect(agents.release).toHaveBeenCalledExactlyOnceWith("early");
   await workspace.dispose();
 });

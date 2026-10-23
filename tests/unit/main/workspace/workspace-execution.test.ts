@@ -114,6 +114,8 @@ test("exit is final: releases the launch and ignores later quiet and hook events
   });
   await workspace.exited("t1", 0);
   expect(evaluated).toHaveLength(1);
+  workspace.removed("t1");
+  expect(agents.release).toHaveBeenCalledExactlyOnceWith("t1");
 });
 
 test("a failed host still produces an exit verdict without a tail", async () => {
@@ -530,3 +532,33 @@ test.each(["claude", "agy"] as const)(
     await workspace.dispose();
   },
 );
+
+test("host exit revokes authority and releases resources while inventory waits for its queue", async () => {
+  const workspace = await launched();
+  const slot = workspace.orchestration.reserve(repo.path);
+  if ("existing" in slot) throw new Error("Unexpected orchestrator");
+  slot.bind("t1");
+  slot.release();
+  const tail = Promise.withResolvers<string[]>();
+  terminalTail.mockReturnValueOnce(tail.promise);
+  const quiet = workspace.quiet("t1");
+  await vi.waitFor(() => {
+    expect(terminalTail).toHaveBeenCalled();
+  });
+  const exit = workspace.exited("t1", 0);
+  const duplicate = workspace.exited("t1", 9);
+  expect(workspace.orchestration.active(repo.path)).toBeUndefined();
+  expect(agents.release).toHaveBeenCalledExactlyOnceWith("t1");
+  expect(workspace.snapshot().terminals[0]).toMatchObject({
+    exited: false,
+    execution: { phase: "exited" },
+  });
+  expect(workspace.snapshot().terminals[0]?.exitCode).toBeUndefined();
+  tail.resolve([]);
+  await quiet;
+  await Promise.all([exit, duplicate]);
+  expect(workspace.snapshot().terminals[0]).toMatchObject({ exited: true, exitCode: 0 });
+  workspace.removed("t1");
+  expect(agents.release).toHaveBeenCalledTimes(1);
+  await workspace.dispose();
+});
