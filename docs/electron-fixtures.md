@@ -54,3 +54,20 @@ launches within one restore test are summed; they never represent shared apps
 between independent tests. These are observations on shared local hardware and
 hosted CI runners, not guaranteed speedups. CI case sums measure aggregate test
 compute; the longest shard and job/step wall times measure elapsed feedback.
+
+## Linux display isolation
+
+Every development and packaged GUI launch uses the shared
+`tests/electron/display-isolation.js` guard. Run under `xvfb-run -a`: the guard
+requires a local DISPLAY whose lock identifies Xvfb, with the matching authority
+file and an ancestor `xvfb-run` owner. An unset DISPLAY, a real X server, a foreign
+Xvfb server or a mismatched authority fails before launch. It does not fall back
+to a desktop display.
+
+The child environment drops WAYLAND_DISPLAY and WAYLAND_SOCKET and sets
+XDG_SESSION_TYPE and ELECTRON_OZONE_PLATFORM_HINT to `x11`. The effective override
+on Electron 44 is `--ozone-platform=x11`; the older hint is retained only for
+compatibility. Conflicting Ozone arguments are removed. See
+[Electron's breaking changes](https://www.electronjs.org/docs/latest/breaking-changes)
+for the removal of the environment hint. A real Electron harness test supplies
+fake Wayland settings and checks the effective main-process switch and environment.

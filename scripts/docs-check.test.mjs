@@ -118,11 +118,11 @@ Underlined heading
   ]);
 });
 
-test("escaped punctuation, balanced link parentheses, encoded paths and Unicode anchors work", (t) => {
+test("balanced link parentheses, encoded paths, URL queries and Unicode anchors work", (t) => {
   const { root, files } = fixture(t, {
     "docs/space (one).md": "# Café & tea\n",
     "README.md":
-      "[one](docs/space%20(one).md#caf%C3%A9--tea)\n[bad](%ZZ)\n[outside](../outside.md)",
+      "# Readme\n[one](docs/space%20(one).md#caf%C3%A9--tea)\n[root](/docs/space%20(one).md?raw=1#caf%C3%A9--tea)\n[query](?raw=1#readme)\n[fragment](#readme)\n[bad](%ZZ)\n[outside](../outside.md)",
   });
   assert.deepEqual(checkDocs(root, files), [
     "README.md: missing local link target: %25ZZ",

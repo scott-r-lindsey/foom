@@ -136,17 +136,16 @@ export function checkDocs(root, files) {
     for (const href of document(file).links) {
       // No network checks. Protocol URLs, including hostile examples, are inert.
       if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(href)) continue;
-      const [pathname, fragment] = href.split("#", 2);
+      const hash = href.indexOf("#");
+      const fragment = hash < 0 ? undefined : href.slice(hash + 1);
+      const pathname = (hash < 0 ? href : href.slice(0, hash)).split("?", 1)[0];
       let target;
       let anchor;
       try {
         target = path.posix.normalize(
           pathname.startsWith("/")
             ? decodeURIComponent(pathname.slice(1))
-            : path.posix.join(
-                path.posix.dirname(file),
-                decodeURIComponent(pathname.split("?", 1)[0]),
-              ),
+            : path.posix.join(path.posix.dirname(file), decodeURIComponent(pathname)),
         );
         anchor = fragment === undefined ? undefined : decodeURIComponent(fragment);
       } catch {
