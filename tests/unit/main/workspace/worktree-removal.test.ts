@@ -604,3 +604,21 @@ it.each([
   } else await expect(service.cleanupChanges(repo, path)).rejects.toThrow();
   expect(await stat(path)).toBeTruthy();
 });
+
+it("isolates cleanup reads from global and system filter configuration", async () => {
+  const { path } = await service.createWorktree(repo, "global-filters");
+  await git("clone", "--bare", repo, join(temporary, "remote.git"));
+  await git("remote", "add", "origin", join(temporary, "remote.git"));
+  await git("fetch", "origin");
+  const home = join(temporary, "fixture-home");
+  const config = join(home, "config");
+  await mkdir(join(config, "git"), { recursive: true });
+  await writeFile(
+    join(config, "git", "config"),
+    '[filter "fixture"]\nclean = fixture-must-not-run\n',
+  );
+  vi.stubEnv("HOME", home);
+  vi.stubEnv("USERPROFILE", home);
+  vi.stubEnv("XDG_CONFIG_HOME", config);
+  expect(await service.cleanupChanges(repo, path)).toBe("");
+});

@@ -156,7 +156,9 @@ Cleanup status and index reads disable fsmonitor and untracked-cache, force
 leftovers are refused. Cleanup also forces `core.ignoreStat=false`,
 `core.trustctime=true`, `core.checkStat=default`, `core.fileMode=true` and
 `core.symlinks=true`, `core.autocrlf=false`, `core.eol=lf` and an empty
-`core.attributesFile`; configured filter drivers are refused. Git subprocesses
+`core.attributesFile`; repository-local filter drivers are refused. Cleanup-only
+reads use the existing isolated Git runner to disable global/system configuration
+and system attributes. Git subprocesses
 strip inherited `GIT_*` directory/index selectors. Worktree configuration files,
 enabled `extensions.worktreeConfig`, `core.worktree` and bare configuration are
 refused, and the canonical `rev-parse --show-toplevel` must match the registered

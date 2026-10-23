@@ -379,7 +379,7 @@ export class WorktreeService {
     // Prune is repository-wide. Prove every prunable admin record safe before
     // invoking it, including worktrees whose checkout directory is already gone.
     const common = (
-      await git(repository, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+      await cleanupGit(repository, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
     ).trimEnd();
     const validate = async () => {
       const admins = await readdir(join(common, "worktrees"));
@@ -393,8 +393,7 @@ export class WorktreeService {
         if (checkout === path) found = true;
         await this.checkCleanupState(repository, admin);
         await this.checkCleanupEvidence(repository, admin);
-        const read = (args: string[]) =>
-          git(repository, ["--git-dir", admin, ...cleanupReadOptions, ...args]);
+        const read = (args: string[]) => cleanupGit(repository, ["--git-dir", admin, ...args]);
         if (
           (
             await read(["config", "--bool", "--default=false", "--get", "core.sparseCheckout"])
@@ -464,7 +463,7 @@ export class WorktreeService {
     head?: string | null,
   ): Promise<string> {
     const expected = identity ?? (await this.removalIdentity(repository, path));
-    const read = (args: string[]) => git(path, [...cleanupReadOptions, ...args]);
+    const read = (args: string[]) => cleanupGit(path, args);
     const expectedHead = head ?? (await read(["rev-parse", "--verify", "HEAD^{commit}"])).trim();
     const sparse = (
       await read(["config", "--bool", "--default=false", "--get", "core.sparseCheckout"])
@@ -517,11 +516,7 @@ export class WorktreeService {
   /** Only the registered directory and its own, remotely recoverable Git state may go. */
   private async checkCleanupEvidence(path: string, gitDirectory?: string): Promise<void> {
     const read = (args: string[]) =>
-      git(path, [
-        ...(gitDirectory ? ["--git-dir", gitDirectory] : []),
-        ...cleanupReadOptions,
-        ...args,
-      ]);
+      cleanupGit(path, [...(gitDirectory ? ["--git-dir", gitDirectory] : []), ...args]);
     const admin = gitDirectory ?? (await read(["rev-parse", "--absolute-git-dir"])).trimEnd();
     if (await exists(join(admin, "config.worktree")))
       throw new Error("Worktree configuration prevents cleanup");
@@ -588,11 +583,7 @@ export class WorktreeService {
 
   private async checkCleanupState(path: string, gitDirectory?: string): Promise<void> {
     const read = (args: string[]) =>
-      git(path, [
-        ...(gitDirectory ? ["--git-dir", gitDirectory] : []),
-        ...cleanupReadOptions,
-        ...args,
-      ]);
+      cleanupGit(path, [...(gitDirectory ? ["--git-dir", gitDirectory] : []), ...args]);
     if (
       (
         await read([
@@ -638,10 +629,10 @@ export class WorktreeService {
   ): Promise<string> {
     const expected = identity ?? (await this.removalIdentity(repository, path));
     const expectedHead =
-      head ?? (await git(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
+      head ?? (await cleanupGit(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
     assertInside(await realpath(this.root), await realpath(path));
     const unpushed = (
-      await git(path, ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"])
+      await cleanupGit(path, ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"])
     ).trim();
     if (unpushed !== "0") throw new Error("Unpushed commits prevent cleanup");
     const changes = await this.cleanupStatus(repository, path, expected, expectedHead);
@@ -1147,6 +1138,12 @@ const cleanupReadOptions = [
   "-c",
   "status.showUntrackedFiles=all",
 ];
+// Source-local configuration still applies and is audited above; user/system
+// configuration and system attributes cannot change these cleanup-only reads.
+function cleanupGit(path: string, args: string[]): Promise<string> {
+  return git(path, [...cleanupReadOptions, ...args], 30_000, undefined, true);
+}
+
 async function exists(path: string): Promise<boolean> {
   return lstat(path).then(
     () => true,
