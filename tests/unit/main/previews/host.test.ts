@@ -104,6 +104,25 @@ test("serves bundled assets and wraps Markdown with its restrictive CSP", async 
   expect(await asset.text()).toBe("bundled");
   await f.host.dispose(false);
 });
+test("protocol requests retain the root identity captured when the preview opened", async () => {
+  const f = await fixture();
+  const { id } = await f.open();
+  const serve = partition.protocol.handle.mock.calls[0]?.[1];
+  if (!serve) throw new Error("Missing protocol");
+  const root = fs.realpathSync.native(f.root);
+  const originalStat = fs.statSync;
+  vi.spyOn(fs, "statSync").mockImplementation((name) => {
+    const stat = originalStat(name, { bigint: true });
+    if (name === root) stat.ino += 1n;
+    return stat;
+  });
+  const read = vi.spyOn(fs, "readSync");
+  const response = serve({ url: `foom-preview://${id}/a.html` });
+  expect(response.status).toBe(403);
+  expect(await response.text()).toBe("Preview file unavailable");
+  expect(read).not.toHaveBeenCalled();
+  await f.host.dispose(false);
+});
 test("external requests always confirm, drop overlapping requests and revoke on close", async () => {
   let answer: (value: boolean) => void = () => {};
   const confirm = vi.fn(

@@ -20,7 +20,14 @@ CSP permits only local scripts; inline styles support xterm positioning and colo
 The `app://` protocol serves an explicit asset allowlist. Navigation, new windows,
 webviews and permission requests are blocked. IPC validates the owning window,
 sender URL, main frame and runtime payloads. Separate native preview views follow
-the [preview isolation contract](previews.md#previews).
+the [preview isolation contract](previews.md#previews). Preview reads authorize the
+opened descriptor before releasing bytes: Linux checks its procfs path, while
+macOS/Windows re-resolve and compare file identity. Each request also verifies the
+root identity captured at preview open. These are separate observations: on
+macOS/Windows, a writer controlling the root's parent and repeatedly flipping the
+root between checks is not excluded. A native opened-handle helper is the
+follow-up for that stronger boundary; the current checks are not an atomic
+filesystem sandbox.
 
 Production packages use ASAR and hardened Electron fuses and include compiled
 application files, package metadata and production dependencies. Native node-pty

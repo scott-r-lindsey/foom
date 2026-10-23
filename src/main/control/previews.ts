@@ -2,7 +2,7 @@ import type { PreviewOpenAction } from "../../shared/previews";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { canonicalRoot, openInside } from "../previews/contained-files";
+import { canonicalRoot, openInside, type CanonicalRoot } from "../previews/contained-files";
 import type { Principal } from "./types";
 import { ControlError, exact, object } from "../../node-common/control-validation";
 
@@ -74,7 +74,7 @@ export class PreviewBroker {
   private resolve(actor: Principal, raw: unknown) {
     if (typeof raw !== "string" || !raw || Buffer.byteLength(raw) > 1024 || /\p{Cc}/u.test(raw))
       throw new ControlError("invalid_request");
-    let root: string;
+    let root: CanonicalRoot;
     try {
       root = canonicalRoot(actor.worktree);
     } catch {
@@ -106,7 +106,8 @@ export class PreviewBroker {
     fs.closeSync(opened.fd);
     // A document-looking directory and a symlink onto an unsupported type are not documents.
     try {
-      if (!fs.statSync(path.resolve(root, relative)).isFile()) throw new ControlError("forbidden");
+      if (!fs.statSync(path.resolve(root.path, relative)).isFile())
+        throw new ControlError("forbidden");
     } catch (error) {
       if (error instanceof ControlError) throw error;
       throw new ControlError("not_found");
