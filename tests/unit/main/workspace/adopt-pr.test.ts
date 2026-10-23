@@ -8,7 +8,7 @@ import { git, gitSync } from "../../../helpers/git.js";
 import { FAKE_GH } from "../../../helpers/forge-cli.js";
 import { forgeProvider } from "../../../helpers/legacy-forge";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
-import { UncertainEffect } from "../../../../src/main/control/orchestration-mutations";
+import { UncertainEffect } from "../../../../src/main/workspace/worktree-outcome";
 let root: string;
 let repo: string;
 let remote: string;

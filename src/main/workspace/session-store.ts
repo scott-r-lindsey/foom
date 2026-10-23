@@ -5,7 +5,7 @@ import { knownAgentId as isAgentId } from "../agents/providers/registry";
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { conversationId } from "../agents/conversation";
-import { WORKTREE_LIMIT } from "../control/orchestration-authority";
+import { WORKTREE_LIMIT } from "../control/orchestration-limits";
 import type { OwnedWorktree, StoredSession } from "./session-restore.d";
 import type { OrchestrationEntry } from "../../shared/workspace";
 
