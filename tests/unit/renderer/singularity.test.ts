@@ -15,7 +15,7 @@ function fixture() {
     return image;
   });
   const gl = {
-    createShader: vi.fn(() => ({})),
+    createShader: vi.fn<() => WebGLShader | null>(() => ({})),
     shaderSource: vi.fn(),
     compileShader: vi.fn(),
     getShaderParameter: vi.fn(() => true),
@@ -24,7 +24,7 @@ function fixture() {
     linkProgram: vi.fn(),
     getProgramParameter: vi.fn(() => true),
     useProgram: vi.fn(),
-    createBuffer: vi.fn(() => ({})),
+    createBuffer: vi.fn<() => WebGLBuffer | null>(() => ({})),
     bindBuffer: vi.fn(),
     bufferData: vi.fn(),
     getAttribLocation: vi.fn(() => 0),
@@ -133,7 +133,7 @@ for (const failure of [
     const { gl, load, repaint } = fixture();
     if (failure === "getShaderParameter" || failure === "getProgramParameter")
       gl[failure].mockReturnValue(false);
-    else gl[failure].mockReturnValue(null as unknown as object);
+    else gl[failure].mockReturnValue(null);
     const view = createSingularity(repaint);
     load();
     view.draw(canvasContext().ctx, 500, 300, 250, 150, 30, 0, true);

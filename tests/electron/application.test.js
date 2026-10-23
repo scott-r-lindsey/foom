@@ -583,7 +583,7 @@ test("flight samples baked assets with WebGL, freezes reduced motion and stops a
       return original.apply(this, args);
     };
   });
-  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
   await page.evaluate(() => window.desktop.appMenu.execute("about"));
   const dialog = page.getByRole("dialog", { name: "About Foom", exact: true });
   await expect(dialog).toBeVisible();
@@ -607,20 +607,43 @@ test("flight samples baked assets with WebGL, freezes reduced motion and stops a
       return (await page.evaluate(() => document.documentElement.dataset.flightFrames)) === count;
     })
     .toBe(true);
-  const still = await pixels();
+  const still = await canvas.evaluateHandle(
+    (canvas) => canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data,
+  );
   const settledFrames = await page.evaluate(() => document.documentElement.dataset.flightFrames);
   // A settled reduced-motion surface paints on load/resize, with no frame loop.
   await page.waitForTimeout(250);
-  assert.deepEqual(await pixels(), still);
+  const maxDelta = await canvas.evaluate((canvas, before) => {
+    const after = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+    if (before.length !== after.length) return Infinity;
+    let maximum = 0;
+    for (let k = 0; k < after.length; k += 4) {
+      maximum = Math.max(maximum, Math.abs(after[k + 3] - before[k + 3]));
+      for (let channel = 0; channel < 3; channel++)
+        maximum = Math.max(
+          maximum,
+          Math.abs(
+            (after[k + channel] * after[k + 3]) / 255 - (before[k + channel] * before[k + 3]) / 255,
+          ),
+        );
+    }
+    return maximum;
+  }, still);
+  await still.dispose();
+  // Accelerated canvas readback can round an 8-bit channel by one unit, without
+  // another draw. Compare visible premultiplied colour and require zero redraws.
+  assert.ok(maxDelta <= 1, `Static frame changed by ${maxDelta} levels`);
   assert.equal(
     await page.evaluate(() => document.documentElement.dataset.flightFrames),
     settledFrames,
   );
-  const shadow = await canvas.evaluate((canvas) => {
-    const x = Math.round(canvas.width * 0.66),
-      y = Math.round(canvas.height * (0.36 - 0.11 * 0.3));
-    return Array.from(canvas.getContext("2d").getImageData(x, y, 1, 1).data);
-  });
+  const shadowPixel = () =>
+    canvas.evaluate((canvas) => {
+      const x = Math.round(canvas.width * 0.66),
+        y = Math.round(canvas.height * (0.36 - 0.11 * 0.3));
+      return Array.from(canvas.getContext("2d").getImageData(x, y, 1, 1).data);
+    });
+  const shadow = await shadowPixel();
   assert.ok(
     shadow[0] < 20 && shadow[1] < 20 && shadow[2] < 25 && shadow[3] === 255,
     `Opaque shadow: ${shadow}`,
@@ -631,7 +654,7 @@ test("flight samples baked assets with WebGL, freezes reduced motion and stops a
   await page.waitForTimeout(250);
   assert.equal(await page.evaluate(() => document.documentElement.dataset.flightFrames), frames);
   await pauseReplayClock(page);
-  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "no-preference" });
   await page.evaluate(() => window.desktop.appMenu.execute("about"));
   await expect(dialog).toBeVisible();
   await expect
@@ -657,6 +680,14 @@ test("flight samples baked assets with WebGL, freezes reduced motion and stops a
   await expect
     .poll(async () => (await ring()).every((value, i) => value > unaligned[i] + 80))
     .toBe(true);
+  const alignedShadow = await shadowPixel();
+  assert.ok(
+    alignedShadow[0] < 20 &&
+      alignedShadow[1] < 20 &&
+      alignedShadow[2] < 25 &&
+      alignedShadow[3] === 255,
+    `Aligned star leaked through the shadow: ${alignedShadow}`,
+  );
   await page.getByRole("button", { name: "Replay launch" }).click();
   await expect(page.locator(".launch")).toBeVisible();
   await page.clock.runFor(600);

@@ -16,6 +16,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 test("isolated flight CPU and trace measurement", async (t) => {
   const app = await launchApp(t, { fixture: "empty-board", renderer: "webgl" });
   const page = await boardPage(app);
+  await page.emulateMedia({ colorScheme: "dark" });
   const capture = async (phase) => {
     // Settle image decode, shader compilation and transition paints before sampling.
     await sleep(1000);
@@ -91,14 +92,17 @@ test("isolated flight CPU and trace measurement", async (t) => {
   await page.evaluate(() => window.desktop.appMenu.execute("about"));
   await expect(page.getByRole("dialog", { name: "About Foom", exact: true })).toBeVisible();
   await capture("about");
-  await page.getByRole("button", { name: "Replay launch" }).click();
+  const rocket = await page.getByRole("button", { name: "Replay launch" }).boundingBox();
+  if (!rocket) throw new Error("Missing replay rocket");
+  // Click its current centre: the intentional bob keeps its bounds moving.
+  await page.mouse.click(rocket.x + rocket.width / 2, rocket.y + rocket.height / 2);
   await expect(page.locator(".launch")).toBeVisible();
   await expect(page.locator(".about-dialog")).not.toBeVisible();
   await capture("launch");
   await page.keyboard.press("Escape");
   await expect(page.locator(".launch")).toHaveCount(0);
   await capture("closed");
-  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
   await page.evaluate(() => window.desktop.appMenu.execute("about"));
   await expect(page.getByRole("dialog", { name: "About Foom", exact: true })).toBeVisible();
   await capture("reduced");
