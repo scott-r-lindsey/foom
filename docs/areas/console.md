@@ -25,9 +25,13 @@ before inherited control credentials or pairing; it never opens discovery, keys,
 worktree state or userData. The standalone Node executable needs neither Foom nor
 a display, and also works while Foom is running. There is no config mutation.
 
-The path names one file, a config root, `themes`, `terminal-themes`, `sounds`, or
-one sound-kind folder. JSON files select their parser with `kind`; folder validation
-also checks placement (`settings.json`, `themes/*.json`, `terminal-themes/*.json`).
+The path names one file, a config root, `themes`, `terminal-themes`, `agents`,
+`forges`, `sounds`, or one sound-kind folder. JSON files select their parser with
+`kind`; folder validation also checks placement (`settings.json`, `themes/*.json`,
+`terminal-themes/*.json`, `agents/<id>.json`, `forges/<id>.json`). Agent and forge
+manifest filenames must match their validated IDs. Agent validation also replays
+saved screen captures; config-root traversal checks the supported built-in captures.
+See [capture/replay](../contracts/agent-report.md#saved-screen-rule-regressions-592).
 Only the documented config layout is walked. Unexpected entries, symlinks (including
 in-folder links), nonregular files and redirected directories are rejected. Reads
 use capped open descriptors, carry the validated parent identity through each read,
@@ -36,12 +40,16 @@ limited to 64 KiB and theme folders to 50 entries; sound kind folders to 100 ent
 with 8 MiB Working files and 2 MiB other files. Invalid entries count toward these
 offline traversal bounds so hostile directories cannot force unbounded work.
 
-Each invalid file produces a filename, JSON path and a fixed reason from the theme
-validation vocabulary. Text prints one problem per line; filenames are JSON-escaped
-to keep control characters inert. `--json` prints the same problem records as an
-array (empty for valid input). Exit status is 0 for valid, 1 for invalid and 2 for
-usage or I/O errors; I/O errors take precedence in mixed results. No file contents
-or parser exception messages appear in diagnostics. Offline sound checks use the
+Diagnostics contain a filename, JSON path and fixed reason from the validation
+vocabulary, with optional warning severity and fixed detail. Text prints one
+diagnostic per line, followed by sanitized agent capability and warning summaries;
+filenames are JSON-escaped to keep control characters inert. `--json` prints an
+object with `problems` and `agents` arrays, for example
+`{ "problems": [], "agents": [] }` for valid input without agent summaries. Agent
+entries include the validated ID, capability facts and warnings, matching the text
+summaries. Exit status is 0 for valid input (including warnings), 1 for invalid and
+2 for usage or I/O errors; I/O errors take precedence in mixed results. No file
+contents or parser exception messages appear in diagnostics. Offline sound checks use the
 shared filename, header, size and duration rules; `music-metadata` reads duration
 from bounded bytes through a tokenizer that checks token lengths before allocation.
 FLAC block and comment counts are checked before the parser can allocate tag arrays,

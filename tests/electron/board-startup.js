@@ -1,3 +1,38 @@
+async function waitForBoardDocument(window) {
+  const contents = window.webContents;
+  const loaded = () =>
+    contents.getURL() === "app://bundle/index.html" && !contents.isLoadingMainFrame();
+  let dispose = () => {};
+  try {
+    await new Promise((resolve, reject) => {
+      const finished = () => {
+        // Electron can emit did-finish-load before clearing its loading flag.
+        // The event itself establishes readiness for this document.
+        if (contents.getURL() === "app://bundle/index.html") resolve();
+      };
+      const closed = () => reject(new Error("Board closed before document readiness"));
+      const gone = (_event, details) =>
+        reject(new Error(`Board renderer exited before document readiness: ${details.reason}`));
+      const failed = (_event, code, description, url, mainFrame) => {
+        if (mainFrame) reject(new Error(`Board navigation failed: ${code} ${description} ${url}`));
+      };
+      dispose = () => {
+        window.removeListener("closed", closed);
+        contents.removeListener("did-finish-load", finished);
+        contents.removeListener("render-process-gone", gone);
+        contents.removeListener("did-fail-load", failed);
+      };
+      window.once("closed", closed);
+      contents.on("did-finish-load", finished);
+      contents.once("render-process-gone", gone);
+      contents.on("did-fail-load", failed);
+      if (loaded()) resolve();
+    });
+  } finally {
+    dispose();
+  }
+}
+
 // Wait for compositor output, not layout or device metadata. Initialization is
 // bounded by launchApp's existing hard watchdog, not the rAF assertion budget.
 async function waitForBoardCompositor(window, ready) {
@@ -29,6 +64,17 @@ async function waitForBoardCompositor(window, ready) {
 // a mapped window with a live frame sink. This never runs in the shipped app.
 function recordBoardStartup({ app, contentTracing }, trace) {
   const state = { events: [], compositorReady: new Set(), tracing: false, stopRequested: false };
+  // The first native window is the board. Workspace initialization (including
+  // private-file ACL checks on Windows) precedes its loadURL. Await navigation
+  // under the existing launch watchdog before checking Playwright's page list.
+  const boardCreated = new Promise((resolve) =>
+    app.once("browser-window-created", (_event, window) => resolve(window)),
+  );
+  const documentReady = boardCreated.then(waitForBoardDocument);
+  // Subscribe before navigation, even when Playwright attaches after load.
+  // Keep an early rejection available for the caller without an unhandled one.
+  void documentReady.catch(() => {});
+  state.waitForDocument = () => documentReady;
   state.waitForCompositor = (window) => waitForBoardCompositor(window, state.compositorReady);
   const recordApp = (event, details) => {
     if (state.events.length < 128) state.events.push({ event, at: performance.now(), details });
@@ -87,4 +133,4 @@ function recordBoardStartup({ app, contentTracing }, trace) {
   });
 }
 
-module.exports = { recordBoardStartup, waitForBoardCompositor };
+module.exports = { recordBoardStartup, waitForBoardCompositor, waitForBoardDocument };

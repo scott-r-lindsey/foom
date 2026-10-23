@@ -211,8 +211,8 @@ the saved choice; restoring the file and reopening Sound restores playback. Need
 you cannot select the same source/filename as Done or Refusal. Old soundscape settings
 migrate while preserving switches and volumes. Previews use the selected volume even
 when switched off; Working previews stop after five seconds. Sound credits are in
-Settings → Sound and packaged third-party notices, ready for the future About screen
-(#96). The 17 built-in CC0 recordings include drive chatter, teletype, typewriter,
+Settings → Sound and the packaged
+[About → Third-party notices](menus.md#application-menu-and-attention-badge) view. The 17 built-in CC0 recordings include drive chatter, teletype, typewriter,
 projector, bells, percussion and short refusal sounds.
 
 ### Foom config
@@ -243,7 +243,8 @@ retain their existing bypass disclosure. Running sessions keep their arguments;
 new, resumed and restored launches use the approved defaults.
 
 Valid agent manifests load without approval. Their installation, edits and removal
-refresh every board launch menu and the application menu without visiting Settings.
+refresh board launch options, including sidebar config launchers, without visiting
+Settings. The [application menu](../areas/commands.md) has no agent launch routes.
 MCP launch tool lists use the current provider registry.
 
 Below the folder, the section shows only what needs the user now: a held change,

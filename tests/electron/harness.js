@@ -111,6 +111,7 @@ async function boardPage(app) {
     );
   let page;
   try {
+    await app.evaluate(() => globalThis.boardStartup.waitForDocument());
     await expect
       .poll(() => {
         page = app.windows().find((page) => page.url() === "app://bundle/index.html");

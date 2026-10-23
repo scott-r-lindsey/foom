@@ -6,6 +6,7 @@ const { tmpdir } = require("node:os");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { FAKE_GH } = require("../helpers/forge-cli.js");
 const { deadline, expect } = require("./test-policy.js");
+const { waitForFixtureRecord } = require("./fixture-records.js");
 const {
   FAKE_ORCHESTRATED_CLAUDE,
   boardPage,
@@ -178,9 +179,15 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
-        signal: AbortSignal.timeout(deadline(5000)),
+        // Worktree creation and launch include Git, persistence and startup.
+        // Await completion under the case deadline; reads/input retain their
+        // short responsiveness bound as well as cancellation with the case.
+        signal:
+          method === "create_worktree" || method === "launch"
+            ? context.signal
+            : AbortSignal.any([context.signal, AbortSignal.timeout(deadline(5000))]),
       });
-      assert.equal(response.status, 200);
+      assert.equal(response.status, 200, `Control request ${method}`);
       return (await response.json()).result;
     };
     const parentId = (await call("whoami")).terminalId;
@@ -313,18 +320,14 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
       }
       return errors;
     };
-    const waitStep = async (step) => {
-      await expect
-        .poll(async () => {
-          const errors = await fixtureErrors();
-          return errors.length
-            ? errors.join("; ")
-            : existsSync(`${credentials}.${step}`)
-              ? "ready"
-              : "waiting";
-        })
-        .toBe("ready");
-    };
+    const waitStep = (step) =>
+      waitForFixtureRecord(
+        `${credentials}.${step}`,
+        ["hook-error", "handoff-error", "fixture-error", "unexpected-input"].map(
+          (suffix) => `${credentials}.${suffix}`,
+        ),
+        context.signal,
+      );
     const shot = async (name) => {
       await page.screenshot({ path: `test-results/review-loop-${scenario}-${name}.png` });
     };
@@ -423,7 +426,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
           { file: "a.ts", line: 1, summary: "Incorrect zero result", scenario: "Call with zero" },
         ],
       };
-      if (scenario === "clean") {
+      if (["clean", "fix", "cap"].includes(scenario)) {
         // The exited author remains visible while its reviewer can still find bugs.
         assert.equal((await call("session_state", { id: authorId })).state, "exited");
         await expect(row).toBeVisible();
@@ -443,6 +446,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         await waitStep("review-2");
         await expect(row.locator('[data-review-phase="reviewing"]')).toHaveText("Reviewing 2/3");
         await shot("reviewing-2");
+        assert.equal((await call("session_state", { id: authorId })).state, "exited");
         await go("review-2", { review: { verdict: "clean" } });
       }
       await expect

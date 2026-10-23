@@ -56,8 +56,9 @@ inherited environment); values stay in main until the user picks names.
 
 POSIX observers use `curl --noproxy '*'`. Windows observers pass `-NoProxy` on
 PowerShell 6+ and set an empty default proxy on 5.1, so hooks reach the loopback
-receiver behind any proxy. That change made the Windows Codex observer `codex-v2.ps1`
-(POSIX stays v1) and the Antigravity plugin version 2.
+receiver behind any proxy. Current observer versions and lifecycle ownership are
+defined in [Execution](execution.md#stable-codex-hook-health) and
+[Antigravity plugin ownership](execution.md#antigravity-plugin-ownership).
 
 `setHooksEnabled(false)` disables hook attachment for subsequent launches. A main-process integration supplies a fresh `AgentHooks` binding per launch, with a Claude stdin adapter command, a Codex argv adapter command, session credentials, and a cleanup callback. Claude settings attach prompt, tool, Stop, PermissionRequest, and Notification observer hooks as inline JSON in `--settings`; Codex 0.161+ receives stable lifecycle definitions and keeps `-c notify=[...]` until completion hooks are observed working. Older supported Codex versions receive notify only. No settings files are created in the user's HOME or workspace. Codex notifier fallback attaches per launch without a warning or confirmation. Confirmed lifecycle hooks remove that override on later launches. `release(terminalId)` must be called on exit/kill to revoke credentials and free the worktree; `dispose()` releases all bindings during shutdown after terminals are stopped. Spawn failures clean up immediately.
 
@@ -70,7 +71,7 @@ checkout creation/removal, config sessions and probe credentials), and
 evaluation). Each module has a narrow capability type
 in `feature-context.d.ts`; the coordinator retains shared locks and owner wiring.
 `workspace-types.d.ts` declares dependencies and feature method signatures.
-The coordinator scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/main/agents/providers/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity uses a separately installed opt-in observer plugin; only its Foom launches receive fresh hook credentials. Preflight's settings reach the workspace through `configure`: the hooks setting calls `setHooksEnabled`, and launching an agent that preflight turned off is refused. Launched agents and worktree shells appear immediately in stable repository groups on the board. Board, application-menu config and restored Codex sessions attach the notify fallback without notifier consent. Stored legacy `codexNotifierAcknowledged` values are ignored.
+The coordinator scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/main/agents/providers/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity uses a separately installed opt-in observer plugin; only its Foom launches receive fresh hook credentials. Preflight's settings reach the workspace through `configure`: the hooks setting calls `setHooksEnabled`, and launching an agent that preflight turned off is refused. Launched agents and worktree shells appear immediately in stable repository groups on the board. Board, sidebar config and restored Codex sessions attach the notify fallback without notifier consent. Stored legacy `codexNotifierAcknowledged` values are ignored.
 
 ### Main-owned child review steps (#690)
 

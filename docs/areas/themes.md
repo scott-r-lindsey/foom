@@ -27,7 +27,10 @@ reject the whole file; files cannot choose or replace a built-in ID.
 `main/themes/library.ts` reads at most 50 eligible JSON files per folder, at most
 64 KiB each. Names are at most 100 characters, nonhidden and path-free. Reads
 inspect an open descriptor, reject nonregular files and links outside the direct
-folder, bound allocation, and recheck file and directory identity. Subfolders and
+folder, bound allocation, and recheck file and directory identity. A file link to
+a target directly in that same folder is accepted by this library; the config
+scanner and [offline validator](console.md) reject file links, including in-folder
+links. Subfolders and
 redirected theme directories are refused. Invalid names and nonfiles do not consume
 the file budget. Previously loaded files are considered first so added files cannot
 evict their last-good versions; remaining names are sorted. Folder failures produce fixed diagnostics.

@@ -28,24 +28,6 @@ export function agentChoices(
   ];
 }
 
-/** What each signal means, for the tag's tooltip. */
-export const SIGNALS = {
-  hooks: "Observer hooks tell Foom when an agent works, stops or asks for permission.",
-  notify: "Codex runs Foom's notifier each time a turn completes.",
-  rules: "Foom reads the agent's output when it goes quiet and decides what it means.",
-} as const;
-
-/**
- * More about how this agent signals, for the tag's tooltip: Codex's notifier
- * replacement, or why an agent that normally has hooks can't use them.
- */
-export function signalNote(agent: AgentInstallation, hooks: boolean): string | undefined {
-  const how = signal(agent, hooks);
-  if (how === "notify") return "Replaces your own Codex notifier, for Foom's launches only.";
-  if (how === "rules" && hooks && !builtinAgent(agent.id)?.pluginSetup) return agent.reason;
-  return undefined;
-}
-
 /**
  * The version number in an agent's `--version` output, which each agent words
  * differently ("2.1.285 (Claude Code)", "codex-cli 0.155.1"); null when there isn't one.

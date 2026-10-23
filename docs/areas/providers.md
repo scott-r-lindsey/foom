@@ -46,7 +46,8 @@ grant. Supported config-session launches receive a separate manual-only MCP
 attachment with fresh per-launch credentials and exactly the `manual` tool; it
 has no repository, session, worktree, preview or orchestration authority and is
 revoked on exit. Config agents inherit All sessions environment settings; the
-existing per-agent Environment editors remain built-in scopes.
+per-agent Environment editors accept bounded valid provider IDs, including config
+providers, through the shared editor and persistence limits below.
 
 The hook receiver captures the loaded mapping at registration. Fixed top-level
 extractors discard all other fields, validate and pin conversation identity, and
