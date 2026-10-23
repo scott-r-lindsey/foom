@@ -192,6 +192,7 @@ export function ConfirmationPage() {
       request?.sessions ||
       request?.sections,
   );
+  const bounded = request?.sections?.some((section) => section.summary !== undefined) ?? false;
   const requestId = request?.id;
   useEffect(() => {
     if (!requestId) return;
@@ -229,7 +230,7 @@ export function ConfirmationPage() {
       const height = (element: Element) => element.getBoundingClientRect().height;
       window.confirmation.size({
         width: wide ? 540 : 500,
-        height: height(card) - height(content) + height(body),
+        height: Math.min(height(card) - height(content) + height(body), bounded ? 800 : Infinity),
       });
     };
     const observer = new ResizeObserver(measure);
@@ -239,7 +240,7 @@ export function ConfirmationPage() {
     return () => {
       observer.disconnect();
     };
-  }, [requestId, wide]);
+  }, [requestId, wide, bounded]);
   if (!request) return null;
   const cleanup = request.cleanup;
   const running = cleanup?.stage === "run";
@@ -265,9 +266,13 @@ export function ConfirmationPage() {
           event.preventDefault();
           const content = bodyRef.current?.parentElement;
           const targets = Array.from(
-            cardRef.current?.querySelectorAll<HTMLElement>(
-              "button:not(:disabled), input:not(:disabled)",
-            ) ?? [],
+            cardRef.current?.querySelectorAll<HTMLElement>("*") ?? [],
+          ).filter(
+            (element) =>
+              element.matches(
+                "button:not(:disabled), input:not(:disabled), summary, code[tabindex]",
+              ) &&
+              (element.tagName === "SUMMARY" || !element.closest("details:not([open])")),
           );
           const focusable =
             content && content.scrollHeight > content.clientHeight
@@ -283,7 +288,7 @@ export function ConfirmationPage() {
       <section
         ref={cardRef}
         key={request.id}
-        className={`confirmation-window${wide ? " wide" : ""}`}
+        className={`confirmation-window${wide ? " wide" : ""}${bounded ? " bounded" : ""}`}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirmation-title"
@@ -410,23 +415,43 @@ export function ConfirmationPage() {
                 ))}
               </div>
             )}
-            {request.sections?.map((section) => (
-              <Section key={section.label} label={section.label}>
-                {section.arguments ? (
-                  <div className="argument-lines">
-                    {section.items.map((item, index) => (
-                      <code key={`${String(index)}:${item}`}>{item}</code>
+            {request.sections?.map((section) => {
+              const contents = section.arguments ? (
+                <div className="argument-lines">
+                  {section.items.map((item, index) => (
+                    <code
+                      key={`${String(index)}:${item}`}
+                      tabIndex={section.summary ? 0 : undefined}
+                    >
+                      {item}
+                    </code>
+                  ))}
+                </div>
+              ) : (
+                <ul className="points">
+                  {section.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              );
+              return section.summary ? (
+                <details className="disclosure" key={section.label}>
+                  <summary>
+                    <span className="label">{section.label}</span>
+                    {section.summary.map((line) => (
+                      <span className="disclosure-summary" key={line}>
+                        {line}
+                      </span>
                     ))}
-                  </div>
-                ) : (
-                  <ul className="points">
-                    {section.items.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                )}
-              </Section>
-            ))}
+                  </summary>
+                  {contents}
+                </details>
+              ) : (
+                <Section key={section.label} label={section.label}>
+                  {contents}
+                </Section>
+              );
+            })}
             {request.detail !== undefined && <p className="prose">{request.detail}</p>}
             {request.quiet && <p className="prose quiet">{request.quiet}</p>}
             {request.reply && (

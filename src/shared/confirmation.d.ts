@@ -42,7 +42,13 @@ export interface DialogContent {
   subject?: string;
   glyph?: "trash" | "branch" | "power" | "orbit" | "link" | "shield" | "bell";
   note?: string;
-  sections?: readonly { label: string; items: readonly string[]; arguments?: boolean }[];
+  sections?: readonly {
+    label: string;
+    items: readonly string[];
+    arguments?: boolean;
+    /** Main-authored summary; its presence makes the full section collapsible. */
+    summary?: readonly string[];
+  }[];
   facts?: readonly { label: string; value: string; mono?: boolean }[];
   arguments?: readonly string[];
   pairing?: { code: string; expiresAt: number };

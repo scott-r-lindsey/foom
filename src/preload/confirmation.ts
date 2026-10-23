@@ -43,7 +43,11 @@ function structured(value: unknown): boolean {
       Array.isArray(value.sections) &&
       value.sections.every(
         (entry: unknown) =>
-          record(entry) && typeof entry["label"] === "string" && strings(entry["items"]),
+          record(entry) &&
+          typeof entry["label"] === "string" &&
+          strings(entry["items"]) &&
+          (entry["arguments"] === undefined || typeof entry["arguments"] === "boolean") &&
+          (entry["summary"] === undefined || strings(entry["summary"])),
       )
     )
   )

@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { cp, mkdtemp, mkdir, writeFile, readFile, rm, symlink, link } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
@@ -878,3 +879,68 @@ it.each([
     ["cancel", "uninstall-fails"].includes(failure) ? "outdated" : "not-installed",
   );
 });
+
+it.each(["install", "update", "reinstall"])(
+  "keeps every staged byte and computes collapsed %s summaries in main",
+  async (action) => {
+    const e = await environment();
+    if (action === "reinstall") {
+      const install = required(e.m.setup?.actions.find((entry) => entry.id === "install"));
+      e.m.setup?.actions.push({
+        ...install,
+        id: "reinstall",
+        label: "Reinstall plugin",
+        arguments: ["plugin", "reinstall", "{pluginDir}"],
+        when: { all: [], any: undefined },
+      });
+    }
+    if (action !== "install") await e.owned(action === "update" ? 1 : 2);
+    e.m.files.push({
+      name: "unicode.json",
+      scope: "plugin",
+      format: "json",
+      content: '{"text":"é 🌌 <img src=x>"}',
+      when: undefined,
+    });
+    const staging = await stagePlugin(e.m, e.home, {}, process.platform === "win32", e.home);
+    const contents = await Promise.all(
+      ["plugin.json", "unicode.json"].map(async (name) => ({
+        name,
+        content: await readFile(join(staging.directory, name), "utf8"),
+      })),
+    );
+    const confirm = vi.fn((dialog: DialogContent) => {
+      const sections = required(dialog.sections);
+      expect(
+        sections.filter((section) => section.summary === undefined).map((section) => section.label),
+      ).toEqual([
+        "Action disclosure",
+        "Executable and fixed arguments",
+        "Installation and state",
+        "Instructions and removal",
+      ]);
+      expect(
+        sections.find((section) => section.label === "Status and ownership checks"),
+      ).toMatchObject({
+        summary: [expect.stringMatching(/metadata checks · .* ownership requirements/u)],
+        items: [JSON.stringify(e.m.setup?.status)],
+      });
+      expect(
+        sections.find((section) => section.label === "Staged files (JSON-escaped bytes)"),
+      ).toMatchObject({
+        summary: [
+          `2 files · ${String(contents.reduce((total, file) => total + Buffer.byteLength(file.content), 0))} bytes`,
+          ...contents.map(
+            (file) =>
+              `${file.name} · sha256 ${createHash("sha256").update(file.content).digest("hex")}`,
+          ),
+        ],
+        items: contents.map((file) => `${file.name}: ${JSON.stringify(file.content)}`),
+      });
+      return Promise.resolve(false);
+    });
+    await e.service.change({ ...e.input(action, confirm), stage: () => Promise.resolve(staging) });
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(e.run.mock.calls.every((entry) => entry[1][1] === "list")).toBe(true);
+  },
+);

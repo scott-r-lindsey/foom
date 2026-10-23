@@ -13,6 +13,117 @@ const {
   removeAfterApps,
 } = require("./harness.js");
 
+async function checkCollapsedDisclosure(board, dialog, operation, captureScreenshots = true) {
+  const details = dialog.locator("details");
+  await expect(details).toHaveCount(2);
+  await expect(details.locator("summary").first()).toContainText("Status and ownership checks");
+  await expect(details.locator("summary").last()).toContainText(/files · \d+ bytes/u);
+  await expect(details.locator("summary").last()).toContainText(/sha256 [a-f0-9]{64}/u);
+  await expect(details.locator("code").first()).toBeHidden();
+  const accept = dialog.getByRole("button", {
+    name:
+      operation === "reinstall"
+        ? "Reinstall plugin"
+        : operation === "update"
+          ? "Update"
+          : "Install",
+    exact: true,
+  });
+  const visibleFooter = async () => {
+    await expect(accept).toBeVisible();
+    await expect
+      .poll(() =>
+        accept.evaluate((button) => {
+          const bounds = button.getBoundingClientRect();
+          return (
+            bounds.top >= 0 && bounds.bottom <= window.innerHeight && window.innerHeight <= 800
+          );
+        }),
+      )
+      .toBe(true);
+  };
+  await visibleFooter();
+  await dialog.getByRole("button", { name: "Cancel" }).focus();
+  await dialog.keyboard.press("Tab");
+  await expect(accept).toBeFocused();
+  await dialog.keyboard.press("Tab");
+  const content = dialog.getByRole("region", { name: "Details" });
+  if (await content.evaluate((element) => element === document.activeElement))
+    await dialog.keyboard.press("Tab");
+  await expect(details.locator("summary").first()).toBeFocused();
+  await dialog.keyboard.press("Enter");
+  await expect(details.first()).toHaveAttribute("open", "");
+  await dialog.keyboard.press("Enter");
+  await expect(details.first()).not.toHaveAttribute("open", "");
+  await dialog.keyboard.press("Tab");
+  await expect(details.locator("summary").last()).toBeFocused();
+  await dialog.keyboard.press("Space");
+  await expect(details.last()).toHaveAttribute("open", "");
+  await dialog.keyboard.press("Tab");
+  await expect(details.last().locator("code").first()).toBeFocused();
+  await expect
+    .poll(() =>
+      details
+        .last()
+        .locator("code")
+        .evaluateAll(
+          (boxes) =>
+            boxes.every((box) => box.clientHeight <= 160) &&
+            boxes.some((box) => box.scrollHeight > box.clientHeight),
+        ),
+    )
+    .toBe(true);
+  await visibleFooter();
+  await assertAccessible(dialog);
+  await details.locator("summary").last().click();
+  if (captureScreenshots && process.env.FOOM_AGY_SCREENSHOTS) {
+    await mkdir(process.env.FOOM_AGY_SCREENSHOTS, { recursive: true });
+    for (const mode of ["light", "dark"]) {
+      await board.evaluate(
+        (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
+        `eclipse-${mode}`,
+      );
+      await expect
+        .poll(() => dialog.evaluate(() => document.documentElement.style.colorScheme))
+        .toBe(mode);
+      for (const state of ["collapsed", "expanded"]) {
+        if (state === "expanded") {
+          await details.locator("summary").first().click();
+          await details.locator("summary").last().click();
+        }
+        await dialog.locator(".confirmation-content").evaluate((content) => {
+          content.scrollTop = 0;
+        });
+        await visibleFooter();
+        await dialog.screenshot({
+          path: path.join(
+            process.env.FOOM_AGY_SCREENSHOTS,
+            `${operation}-${mode}-${state}-overview.png`,
+          ),
+        });
+        if (state === "expanded")
+          await details.last().locator("code").first().scrollIntoViewIfNeeded();
+        else await details.locator("summary").last().scrollIntoViewIfNeeded();
+        await dialog.screenshot({
+          path: path.join(process.env.FOOM_AGY_SCREENSHOTS, `${operation}-${mode}-${state}.png`),
+        });
+        if (state === "expanded") {
+          await details.locator("summary").first().click();
+          await details.locator("summary").last().click();
+        }
+      }
+    }
+    if (operation === "install" && process.platform === "linux") {
+      require("node:child_process").execFileSync("import", [
+        "-window",
+        "root",
+        path.join(process.env.FOOM_AGY_SCREENSHOTS, "install-1920x1080-accept-visible.png"),
+      ]);
+    }
+  }
+  await dialog.getByRole("button", { name: "Cancel" }).focus();
+}
+
 for (const firstRun of [false, true]) {
   test(`Antigravity plugin ${firstRun ? "first run" : "Settings"} disclosure installs and removes an observer that reports lifecycle`, {
     timeout: deadline(60_000),
@@ -86,6 +197,15 @@ process.stdin.on('data', (data) => {
       env: { HOME: home, PATH: bin },
     });
     const page = await boardPage(app);
+    if (!firstRun && process.env.FOOM_AGY_SCREENSHOTS) {
+      await app.evaluate(({ BrowserWindow }) => {
+        const board = BrowserWindow.getAllWindows().find(
+          (window) => window.webContents.getURL() === "app://bundle/index.html",
+        );
+        if (!board) throw Error("Missing board");
+        board.setBounds({ x: 0, y: 0, width: 1920, height: 1080 });
+      });
+    }
     if (firstRun) await page.getByRole("button", { name: "Start preflight" }).click();
     else {
       await openSettingsScreen(page);
@@ -99,6 +219,7 @@ process.stdin.on('data', (data) => {
     await expect(agyRow.getByText("Screen rules active", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Install", exact: true }).click();
     let disclosure = await confirmationPage(app);
+    await checkCollapsedDisclosure(page, disclosure, "install", !firstRun);
     await expect(
       disclosure.getByText("~/.gemini/config/plugins/foom", { exact: true }),
     ).toBeVisible();
@@ -158,6 +279,7 @@ process.stdin.on('data', (data) => {
         disclosure.getByRole("heading", { name: "Reinstall Antigravity plugin?", exact: true }),
       ).toBeVisible();
       await expect(disclosure.getByText(/Reinstall first uninstalls/u)).toBeVisible();
+      await checkCollapsedDisclosure(page, disclosure, "reinstall");
       await capture("reinstall-pending", disclosure);
       await disclosure.getByRole("button", { name: "Reinstall plugin", exact: true }).click();
       await expect(agyRow.getByText("Plugin · installed", { exact: true })).toBeVisible();
@@ -167,6 +289,7 @@ process.stdin.on('data', (data) => {
       await capture("missing-observer-update");
       await agyRow.getByRole("button", { name: "Update", exact: true }).click();
       disclosure = await confirmationPage(app);
+      await checkCollapsedDisclosure(page, disclosure, "update");
       await disclosure.getByRole("button", { name: "Update", exact: true }).click();
       await expect(agyRow.getByText("Plugin · installed", { exact: true })).toBeVisible();
       const malformed = path.join(home, ".gemini/config/plugins/malformed");

@@ -224,6 +224,13 @@ export async function stagePlugin(
   return {
     directory,
     files: content.map((file) => `${file.name}: ${JSON.stringify(file.content)}`),
+    summary: [
+      `${String(content.length)} files · ${String(content.reduce((total, file) => total + Buffer.byteLength(file.content), 0))} bytes`,
+      ...content.map(
+        (file) =>
+          `${file.name} · sha256 ${createHash("sha256").update(file.content).digest("hex")}`,
+      ),
+    ],
     verify,
   };
 }

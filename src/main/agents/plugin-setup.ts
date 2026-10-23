@@ -253,7 +253,12 @@ export class PluginSetup {
     validate(): Promise<void>;
     facts(state?: AgentSetupState): Facts;
     confirm(content: DialogContent): Promise<boolean>;
-    stage(): Promise<{ directory: string; files: readonly string[]; verify(): Promise<void> }>;
+    stage(): Promise<{
+      directory: string;
+      files: readonly string[];
+      summary: readonly string[];
+      verify(): Promise<void>;
+    }>;
     signal: AbortSignal;
   }): Promise<void> {
     const { model, executable, signal } = input;
@@ -300,7 +305,15 @@ export class PluginSetup {
       const reinstall = args[1] === "reinstall";
       const target = setup.status.ownership?.directory.split("/").at(-1) ?? "";
       const accepted = await input.confirm(
-        this.disclosure(model, action, executable, before.state, args, staging?.files ?? []),
+        this.disclosure(
+          model,
+          action,
+          executable,
+          before.state,
+          args,
+          staging?.files ?? [],
+          staging?.summary ?? ["0 files · 0 bytes"],
+        ),
       );
       await setupOffers.answer(model.id);
       if (!accepted) return;
@@ -381,6 +394,7 @@ export class PluginSetup {
     state: string,
     args: string[],
     files: readonly string[],
+    summary: readonly string[],
   ): DialogContent {
     return {
       title:
@@ -422,10 +436,13 @@ export class PluginSetup {
         },
         {
           label: "Status and ownership checks",
+          summary: [
+            `${String(model.setup?.status.metadata.length ?? 0)} metadata checks · ${String(model.setup?.status.ownership?.require.length ?? 0)} ownership requirements`,
+          ],
           arguments: true,
           items: [JSON.stringify(model.setup?.status)],
         },
-        { label: "Staged files (JSON-escaped bytes)", arguments: true, items: files },
+        { label: "Staged files (JSON-escaped bytes)", summary, arguments: true, items: files },
         {
           label: "Instructions and removal",
           items: [

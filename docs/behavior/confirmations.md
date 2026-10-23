@@ -30,3 +30,13 @@ use solid ink; amber and magenta retain their status meanings.
 
 Folder pickers stay native. The New worktree branch field collects input and does not
 grant destructive approval.
+
+Plugin setup keeps action disclosure, executable and fixed arguments, installation
+and state, and instructions and removal open. Status/ownership checks and staged
+files start collapsed with main-computed summaries: metadata/ownership check counts,
+file count, total UTF-8 byte size and each file's SHA-256. Expanding preserves the
+full disclosure, including JSON-escaped file bytes in individually capped scrolling
+boxes. The dialog is capped at 800 CSS pixels (and the available window height),
+with a scrolling content region and an always-visible action footer. Tab reaches
+the native disclosure summaries and expanded byte boxes; Enter or Space toggles
+summaries. A new request starts collapsed and focuses Cancel.

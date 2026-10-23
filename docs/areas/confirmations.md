@@ -100,7 +100,7 @@ subject to window-manager restrictions (for example native Wayland). Quit approv
 does not need the board to render.
 Main serializes requests, supplies the current
 resolved theme and content, and gives each request a new ID. Content carries a glyph,
-subject, labeled disclosure sections, facts, argument chips and the pairing code with
+subject, labeled disclosure sections (with optional main-authored collapsed summaries), facts, argument chips and the pairing code with
 its main-owned expiry deadline. The sandboxed preload validates structured fields.
 The shared anatomy uses 500 CSS pixels for prose and 540 for lists and disclosures;
 main still applies zoom and the parent/work-area clamps. List names wrap in their own
@@ -122,8 +122,8 @@ The trusted session denies permissions and navigation, blocks new windows and
 webviews, and serves only its page, script, styles and bundled fonts. Context
 isolation and sandboxing stay enabled; Node integration stays disabled. Its CSP
 matches the board's restrictions. React renders titles, filenames and session
-metadata as text. The page traps focus within Cancel, the confirming button and (when scrolling)
-the content region,
+metadata as text. The page traps focus within Cancel, the confirming button, disclosure
+summaries, expanded byte boxes and (when scrolling) the content region,
 handles Escape, focuses Cancel for every request, and respects reduced motion.
 Quit inventories live terminals in main, including shells outside the workspace
 snapshot; it does not query the board. Renderer loss immediately releases a pending terminal view flush; a crashed board

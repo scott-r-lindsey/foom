@@ -53,7 +53,10 @@ test("rejects malformed structured fields and preserves literal data", async () 
     note: "Replacement",
     glyph: "link",
     arguments: ["--yolo"],
-    sections: [{ label: "It can", items: ["Create"] }],
+    sections: [
+      { label: "It can", items: ["Create"], arguments: true, summary: ["1 file · 6 bytes"] },
+      { label: "Open", items: [] },
+    ],
     facts: [
       { label: "Repository", value: "/repo", mono: true },
       { label: "Grants", value: "Read only" },
@@ -92,6 +95,10 @@ test("rejects malformed structured fields and preserves literal data", async () 
     { sections: [null] },
     { sections: [{ label: 1, items: [] }] },
     { sections: [{ label: "Can", items: [1] }] },
+    ...[null, false, "summary", [1]].map((summary) => ({
+      sections: [{ label: "Files", items: [], summary }],
+    })),
+    { sections: [{ label: "Files", items: [], arguments: "yes" }] },
     { facts: {} },
     { facts: [false] },
     { facts: [{ label: 1, value: "value" }] },
