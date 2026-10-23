@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
+import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace-types";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git as execute } from "../../../helpers/git.js";
 import { forgeProvider } from "../../../helpers/legacy-forge";
@@ -609,4 +610,149 @@ it.each(["detached", "untracked", "unpushed", "tracked", "external"])(
       await workspace.dispose();
     }
   },
+);
+
+function cleanupWorkspace(extra: Partial<WorkspaceDependencies> = {}): Workspace {
+  return new Workspace({
+    worktrees: service,
+    terminals: {
+      create: () => Promise.reject(new Error("No launch expected")),
+      kill: () => Promise.resolve(),
+      stop: () => Promise.resolve(),
+      tail: () => Promise.resolve([]),
+    },
+    verdicts: {
+      forget: vi.fn(),
+      classify: () => Promise.reject(new Error("No verdict expected")),
+      commit: () => Promise.resolve(),
+      recordAction: () => Promise.resolve(),
+    },
+    receiver: () => Promise.reject(new Error("No hooks expected")),
+    onState: () => {},
+    ...extra,
+  });
+}
+
+it.each(["tracked edit", "commit", "untracked set"])(
+  "merged cleanup preserves a real worktree gaining %s during preview shutdown",
+  async (change) => {
+    await writeFile(join(repo, "tracked.txt"), "original");
+    await git("add", ".");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "tracked",
+    );
+    const { path } = await service.createWorktree(repo, "preview-race");
+    await git("clone", "--bare", repo, join(temporary, "remote.git"));
+    await git("remote", "add", "origin", join(temporary, "remote.git"));
+    await writeFile(join(path, "approved.txt"), "approved untracked");
+    const prepare = vi.fn(async () => {
+      if (change === "tracked edit")
+        await writeFile(join(path, "tracked.txt"), "saved during shutdown");
+      else if (change === "untracked set") await writeFile(join(path, "new.txt"), "new untracked");
+      else
+        await execute(
+          [
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "new work during shutdown",
+          ],
+          { cwd: path },
+        );
+      return () => {};
+    });
+    const workspace = cleanupWorkspace({ prepareWorktreeRemoval: prepare });
+    try {
+      await workspace.sidebarCommand(
+        { kind: "delete-merged-worktrees", repository: repo },
+        async (request) => {
+          if (request.kind !== "merged-worktrees" || !request.feed)
+            throw new Error("Missing cleanup");
+          await vi.waitFor(() => {
+            expect(request.feed?.current().stage).toBe("ready");
+          });
+          return true;
+        },
+      );
+      expect(prepare).toHaveBeenCalledOnce();
+      expect(await readFile(join(path, "approved.txt"), "utf8")).toBe("approved untracked");
+      if (change === "tracked edit")
+        expect(await readFile(join(path, "tracked.txt"), "utf8")).toBe("saved during shutdown");
+      if (change === "untracked set")
+        expect(await readFile(join(path, "new.txt"), "utf8")).toBe("new untracked");
+      if (change === "commit")
+        expect((await execute(["log", "-1", "--format=%s"], { cwd: path })).stdout.trim()).toBe(
+          "new work during shutdown",
+        );
+    } finally {
+      await workspace.dispose();
+    }
+  },
+);
+
+it(
+  "detached group cleanup cannot release a later explicit removal reservation",
+  usingFixture(async () => {
+    const { path } = await service.createWorktree(repo, "detached-a");
+    await execute(["checkout", "--detach"], { cwd: path });
+    await git("clone", "--bare", repo, join(temporary, "remote.git"));
+    await git("remote", "add", "origin", join(temporary, "remote.git"));
+    const branchesEntered = Promise.withResolvers<undefined>();
+    const finishBranches = Promise.withResolvers<undefined>();
+    const confirmationEntered = Promise.withResolvers<undefined>();
+    const finishConfirmation = Promise.withResolvers<boolean>();
+    const deleteBranches = service.deleteMergedBranches.bind(service);
+    vi.spyOn(service, "deleteMergedBranches").mockImplementation(async (...args) => {
+      branchesEntered.resolve(undefined);
+      await finishBranches.promise;
+      return deleteBranches(...args);
+    });
+    const workspace = cleanupWorkspace();
+    const group = workspace.sidebarCommand(
+      { kind: "delete-merged-worktrees", repository: repo },
+      async (request) => {
+        if (request.kind !== "merged-worktrees" || !request.feed)
+          throw new Error("Missing cleanup");
+        await vi.waitFor(() => {
+          expect(request.feed?.current().stage).toBe("ready");
+        });
+        return true;
+      },
+    );
+    let first: Promise<void> | undefined;
+    try {
+      await branchesEntered.promise;
+      await expect(realpath(path)).rejects.toThrow();
+      const other = join(root, "detached-b");
+      await git("worktree", "add", "--detach", other, "HEAD");
+      const command = { kind: "remove-worktree" as const, repository: repo, worktree: other };
+      first = workspace.sidebarCommand(command, () => {
+        confirmationEntered.resolve(undefined);
+        return finishConfirmation.promise;
+      });
+      await confirmationEntered.promise;
+      finishBranches.resolve(undefined);
+      await group;
+      const secondConfirmation = vi.fn(() => Promise.resolve(false));
+      await expect(workspace.sidebarCommand(command, secondConfirmation)).rejects.toThrow(
+        "This worktree is busy",
+      );
+      expect(secondConfirmation).not.toHaveBeenCalled();
+    } finally {
+      finishBranches.resolve(undefined);
+      finishConfirmation.resolve(false);
+      await Promise.allSettled([group, ...(first ? [first] : [])]);
+      await workspace.dispose();
+    }
+  }),
 );

@@ -472,6 +472,7 @@ it("removes an orchestrator worktree only through the trusted dialog", async () 
       child.path,
       false,
       "identity",
+      expect.any(Function),
     );
   });
   expect(deps.dialog).toHaveBeenCalledWith(
@@ -579,6 +580,7 @@ it.each([
     child.path,
     ["dirty", "changed-before-delete"].includes(mode),
     "identity",
+    expect.any(Function),
   );
   if (mode === "enabled") expect(deps.worktrees.canAutoRemove).toHaveBeenCalledTimes(2);
 });

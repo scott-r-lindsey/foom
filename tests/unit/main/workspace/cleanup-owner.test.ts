@@ -69,6 +69,12 @@ function fixture() {
     const key = branch ?? "";
     if (locks.has(key)) throw new Error("This worktree is busy");
     locks.add(key);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      locks.delete(key);
+    };
   });
   const deps = {
     worktrees,
@@ -92,7 +98,7 @@ function fixture() {
         autoApprove,
       ]: Parameters<CleanupOwnerDependencies["withWorktreeRemoval"]>
     ): Promise<boolean> => {
-      acquireWorktree(repository, branch);
+      const release = acquireWorktree(repository, branch);
       let removed = false;
       try {
         removed = await owner.removeReservedTree(
@@ -105,12 +111,10 @@ function fixture() {
         );
         return removed;
       } finally {
-        if (!retainBranchLock || !removed) deps.releaseWorktree(repository, branch);
+        if (retainBranchLock && removed) retainBranchLock(release);
+        else release();
       }
     },
-    releaseWorktree: vi.fn((_repository: string, branch: string | null) => {
-      locks.delete(branch ?? "");
-    }),
     terminals: () => rows,
     running: vi.fn(() => false),
     exitCode: vi.fn<CleanupOwnerDependencies["exitCode"]>(() => 0),
@@ -212,6 +216,7 @@ it("stops exited terminal resources, removes Git worktree, then revokes capabili
     tree().path,
     false,
     "identity",
+    expect.any(Function),
   );
   expect(f.locks.size).toBe(0);
 });
@@ -365,6 +370,7 @@ it.each(["disabled", "eligible", "ineligible", "policy changed", "dirty", "cance
         tree().path,
         true,
         "identity",
+        expect.any(Function),
       );
     expect(f.locks.size).toBe(0);
   },
@@ -654,6 +660,7 @@ it("reviews bounded untracked paths and removes detached candidates with the new
     "/trees/screenshots",
     true,
     "identity",
+    expect.any(Function),
   );
   expect(f.worktrees.cleanupChanges).toHaveBeenCalled();
   expect(f.locks.size).toBe(0);

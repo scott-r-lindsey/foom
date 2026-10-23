@@ -93,6 +93,7 @@ test.each(["", "?? file.txt\0"])(
       tree.path,
       changes.length > 0,
       "identity",
+      expect.any(Function),
     );
     expect(workspace.snapshot().terminals).toEqual([]);
     await expect(workspace.removeWorktree("t1", () => Promise.resolve(true))).rejects.toThrow(

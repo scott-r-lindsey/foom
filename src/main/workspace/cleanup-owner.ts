@@ -34,10 +34,9 @@ export interface CleanupOwnerDependencies {
     branch: string | null,
     confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
     revalidate?: () => void | Promise<void>,
-    retainBranchLock?: boolean,
+    retainBranchLock?: (release: () => void) => void,
     autoApprove?: () => Promise<boolean>,
   ) => Promise<boolean>;
-  releaseWorktree: (repository: string, branch: string | null) => void;
   terminals: () => readonly WorkspaceTerminal[];
   running: (id: string) => boolean;
   exitCode: (id: string) => number | undefined;
@@ -119,7 +118,7 @@ export class CleanupOwner {
         return accepted;
       },
       available,
-      false,
+      undefined,
       async () => {
         await available();
         if (!this.autoRemoveMergedWorktrees) return false;
@@ -235,6 +234,13 @@ export class CleanupOwner {
         entry.worktree,
         changes.length > 0,
         identity,
+        async () => {
+          // Preview shutdown and the service's identity check both await external
+          // work. Validate the approved snapshot after them, next to Git removal.
+          await revalidate?.();
+          if ((await this.deps.worktrees.changes(repository, worktree, identity)) !== changes)
+            throw new Error("Worktree changes have changed. Review them and try again.");
+        },
       );
     } finally {
       release?.();
@@ -313,6 +319,7 @@ export class CleanupOwner {
       return;
     }
     return this.deps.withRepository(repository, async () => {
+      const releases = new Set<() => void>();
       const run = new CleanupRun({
         checkingCount: this.mergeEligibility.get(repository)?.count,
         fetchedAt: () => this.deps.worktrees.mergedFetchTime(repository),
@@ -334,7 +341,8 @@ export class CleanupOwner {
               ),
             );
           } finally {
-            for (const { tree } of removed) this.deps.releaseWorktree(repository, tree.branch);
+            for (const release of releases) release();
+            releases.clear();
           }
         },
         remove: async ({ tree, identity, changes = "" }, base) => {
@@ -376,7 +384,11 @@ export class CleanupOwner {
               return Promise.resolve(true);
             },
             revalidate,
-            tree.branch !== null,
+            tree.branch === null
+              ? undefined
+              : (release) => {
+                  releases.add(release);
+                },
           );
         },
       });

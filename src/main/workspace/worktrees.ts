@@ -709,12 +709,16 @@ export class WorktreeService {
     path: string,
     force = false,
     identity?: string,
+    beforeRemove?: () => Promise<void>,
   ): Promise<void> {
     const repository = this.repository(repositoryPath);
     validatePath(path);
     const resolved = resolve(path);
     const expected = identity ?? (await this.removalIdentity(repositoryPath, resolved));
     await this.checkRemovalIdentity(repositoryPath, resolved, expected);
+    // Callers with an approved snapshot must validate after the identity await,
+    // immediately before Git. Direct callers keep Git's existing dirty policy.
+    await beforeRemove?.();
     // Git performs its own dirty/locked checks before removing the tree.
     await git(repository.path, [
       "worktree",

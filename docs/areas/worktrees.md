@@ -32,7 +32,8 @@ forgetting, idle/owned worktree removal, automatic-removal policy and revalidati
 terminal stop/exit/removal callbacks and checkout-resource release. It receives
 capabilities, never the facade or coordinator object. `WorkspaceContext` in `workspace-context.ts` keeps the shared repository
 and branch launch/removal locks, terminal queues and cancellation; the cleanup owner
-acquires/releases those locks through callbacks. Execution and verdict state live in
+acquires those locks through callbacks that hand back an idempotent release
+capability for that acquisition. Execution and verdict state live in
 `ExecutionOwner`. Successful merged removals hold the shared branch locks until the checked-ref transaction finishes.
 Session restoration and persistence remain in `SessionOwner`. The coordinator preserves
 shutdown order: after PTYs stop, it marks itself closed and aborts launches, then
@@ -55,7 +56,7 @@ default-ref fetch. Either failed network operation refuses cleanup.
 
 Merged cleanup uses the same removal sequence with an additional main-owned
 revalidation callback. Candidate path, filesystem identity, branch and commit
-are captured before the trusted dialog. Both revalidation passes check Git membership and captured identity,
+are captured before the trusted dialog. Revalidation passes check Git membership and captured identity,
 session eligibility, clean status and either `merge-tree` containment against a freshly
 fetched default commit or a locally verified PR merge. The latter uses the existing
 forge lookup for a same-repository MERGED PR, requires its head SHA to equal the
@@ -70,7 +71,7 @@ start background eligibility scans. Before deletion begins, cleanup drains all
 existing scans, including superseded scans whose results will be discarded, so
 Windows directory handles held by their Git processes cannot block removal.
 Four workers run the existing removal
-path, retaining both revalidation passes. Successful removals retain their branch
+path, retaining its revalidation passes. Successful removals retain their branch
 launch locks through the ref transaction so Foom cannot recreate those branches
 while they are being deleted. Failed candidates release their locks immediately. Git removes
 separate per-worktree admin directories and checkout indexes; these operations
@@ -124,9 +125,14 @@ The main-owned plan captures the complete NUL-delimited status. The trusted
 cleanup dialog lists up to 50 untracked paths per checkout, truncates long paths,
 and names the accept action Force delete when any candidate needs it. Revalidation
 compares the entire status with the approved snapshot and repeats the additional
-checks around terminal shutdown. Detached candidates share the existing null-branch
-reservation, so a group serializes their removals and releases that reservation
-after each one; there is no branch ref to delete.
+checks around terminal and preview shutdown. The service invokes a final approved
+snapshot check after its asynchronous identity check, immediately before invoking
+Git removal. Clean snapshots use ordinary Git removal without `--force`. Detached
+candidates share the existing null-branch reservation, so a group serializes their
+removals and releases that reservation
+after each one; there is no branch ref to delete. The later ref transaction holds
+only the release capabilities of retained branch reservations, so it cannot release
+a newer detached removal reservation.
 
 Known prunable inventory entries return unavailable panel facts without raising
 `worktree-prunable`. Their sidebar rows say Broken checkout and offer only

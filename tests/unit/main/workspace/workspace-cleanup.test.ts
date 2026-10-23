@@ -74,6 +74,7 @@ test("merged cleanup lists every skip rule and continues after a changed candida
       candidate.path,
       false,
       "identity",
+      expect.any(Function),
     );
     expect(deps.worktrees.deleteMergedBranches).toHaveBeenCalledWith(
       repo.path,
