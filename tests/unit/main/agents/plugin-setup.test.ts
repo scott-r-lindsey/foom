@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { cp, mkdtemp, mkdir, writeFile, readFile, rm, symlink, link } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
@@ -303,6 +304,21 @@ it("keeps instruction actions inert, with a separate trusted disclosure and no C
   const confirm = vi.fn((_content: DialogContent) => Promise.resolve(true));
   await e.service.change(e.input("review", confirm));
   expect(JSON.stringify(confirm.mock.calls)).toContain("Open /hooks yourself.");
+  const sections = confirm.mock.calls[0]?.[0].sections;
+  expect(
+    sections?.find((section) => section.label === "Executable and fixed arguments")?.summary,
+  ).toEqual([
+    {
+      text: "fixture-cli",
+      title: /[\s"\\]/u.test(e.executable) ? JSON.stringify(e.executable) : e.executable,
+    },
+  ]);
+  expect(sections?.find((section) => section.label === "Installation and state")?.summary).toEqual([
+    {
+      text: "setup-fixture · No installation change · unavailable",
+      title: "setup-fixture · No installation change · unavailable",
+    },
+  ]);
   expect(e.run).not.toHaveBeenCalled();
 });
 it("evaluates metadata/probe selectors without inherited properties", async () => {
@@ -877,4 +893,179 @@ it.each([
   expect((await e.status()).state).toBe(
     ["cancel", "uninstall-fails"].includes(failure) ? "outdated" : "not-installed",
   );
+});
+
+it.each(["install", "update", "reinstall"])(
+  "keeps every staged byte and computes collapsed %s summaries in main",
+  async (action) => {
+    const e = await environment();
+    if (action === "reinstall") {
+      const install = required(e.m.setup?.actions.find((entry) => entry.id === "install"));
+      e.m.setup?.actions.push({
+        ...install,
+        id: "reinstall",
+        label: "Reinstall plugin",
+        arguments: ["plugin", "reinstall", "{pluginDir}"],
+        when: { all: [], any: undefined },
+      });
+    }
+    if (action !== "install") await e.owned(action === "update" ? 1 : 2);
+    e.m.files.push({
+      name: "unicode.json",
+      scope: "plugin",
+      format: "json",
+      content: '{"text":"é 🌌 <img src=x>"}',
+      when: undefined,
+    });
+    await mkdir(join(e.home, "profile space"));
+    const staging = await stagePlugin(
+      e.m,
+      join(e.home, "profile space"),
+      {},
+      process.platform === "win32",
+      e.home,
+    );
+    const contents = await Promise.all(
+      ["plugin.json", "unicode.json"].map(async (name) => ({
+        name,
+        content: await readFile(join(staging.directory, name), "utf8"),
+      })),
+    );
+    const confirm = vi.fn((dialog: DialogContent) => {
+      const sections = required(dialog.sections);
+      expect(
+        sections.filter((section) => section.summary === undefined).map((section) => section.label),
+      ).toEqual(["Action disclosure", "Instructions and removal"]);
+      expect(
+        sections.find((section) => section.label === "Status and ownership checks"),
+      ).toMatchObject({
+        summary: [{ text: "2 metadata checks · 2 ownership requirements" }],
+        items: [JSON.stringify(e.m.setup?.status)],
+      });
+      expect(
+        sections.find((section) => section.label === "Staged files (JSON-escaped bytes)"),
+      ).toMatchObject({
+        summary: [
+          {
+            text: `2 files · ${String(contents.reduce((total, file) => total + Buffer.byteLength(file.content), 0))} bytes`,
+          },
+          ...contents.map((file) => ({
+            text: `${file.name} · ${createHash("sha256").update(file.content).digest("hex").slice(0, 12)} · ${String(Buffer.byteLength(file.content))} B`,
+            title: `${file.name} · SHA-256 ${createHash("sha256").update(file.content).digest("hex")} · ${String(Buffer.byteLength(file.content))} B`,
+          })),
+        ],
+        items: contents.map(
+          (file) =>
+            `${file.name} · SHA-256 ${createHash("sha256").update(file.content).digest("hex")}\n${file.name}: ${JSON.stringify(file.content)}`,
+        ),
+      });
+      const executableSection = required(
+        sections.find((section) => section.label === "Executable and fixed arguments"),
+      );
+      const command = required(executableSection.summary?.[0]);
+      const expectedCommand =
+        action === "reinstall"
+          ? `fixture-cli plugin uninstall foom; fixture-cli plugin install ${JSON.stringify(staging.directory)}`
+          : `fixture-cli plugin install ${JSON.stringify(staging.directory)}`;
+      const fullExecutable = /[\s"\\]/u.test(e.executable)
+        ? JSON.stringify(e.executable)
+        : e.executable;
+      expect(command.title).toBe(expectedCommand.replaceAll("fixture-cli", fullExecutable));
+      expect(command.text).toBe(`${expectedCommand.slice(0, 38)}…${expectedCommand.slice(-29)}`);
+      expect(command.text).not.toMatch(/[\r\n]/u);
+      expect(executableSection.items).toContain(e.executable);
+      expect(sections.find((section) => section.label === "Installation and state")).toMatchObject({
+        summary: [
+          {
+            text: `setup-fixture · ~/.gemini/config/plugins/foom · ${action === "install" ? "not-installed" : action === "update" ? "outdated" : "installed"}`,
+          },
+        ],
+        items: [
+          "setup-fixture",
+          "~/.gemini/config/plugins/foom",
+          action === "install" ? "not-installed" : action === "update" ? "outdated" : "installed",
+          expect.any(String),
+        ],
+      });
+      return Promise.resolve(false);
+    });
+    await e.service.change({ ...e.input(action, confirm), stage: () => Promise.resolve(staging) });
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(e.run.mock.calls.every((entry) => entry[1][1] === "list")).toBe(true);
+  },
+);
+
+it("distinguishes absolute executables with the same basename in command titles", async () => {
+  const e = await environment();
+  const dialogs: DialogContent[] = [];
+  for (const directory of ["first", "second"]) {
+    const parent = join(e.home, directory);
+    await mkdir(parent);
+    const executable = join(parent, "fixture-cli");
+    await writeFile(executable, "fixture executable");
+    await e.service.change({
+      ...e.input("install", (dialog) => {
+        dialogs.push(dialog);
+        return Promise.resolve(false);
+      }),
+      executable,
+    });
+  }
+  const commands = dialogs.map((dialog) =>
+    required(
+      dialog.sections?.find((section) => section.label === "Executable and fixed arguments")
+        ?.summary?.[0],
+    ),
+  );
+  expect(commands[0]?.text).toBe(commands[1]?.text);
+  expect(commands[0]?.title).not.toBe(commands[1]?.title);
+  for (const [index, directory] of ["first", "second"].entries()) {
+    const executable = join(e.home, directory, "fixture-cli");
+    const quoted = /[\s"\\]/u.test(executable) ? JSON.stringify(executable) : executable;
+    expect(commands[index]?.title).toContain(`${quoted} plugin install `);
+  }
+});
+
+it.each(
+  [
+    "\0",
+    "\n",
+    "\r",
+    "\t",
+    "\u0085",
+    "\u2028",
+    "\u2029",
+    ...Array.from({ length: 5 }, (_, i) => String.fromCodePoint(0x202a + i)),
+    ...Array.from({ length: 4 }, (_, i) => String.fromCodePoint(0x2066 + i)),
+    "\u200e",
+    "\u200f",
+    "x".repeat(8193),
+    "x".repeat(1024 * 1024),
+  ].map((value, index) => ({ value, index })),
+)("refuses unsafe main summary $index before confirmation", async ({ value }) => {
+  const e = await environment();
+  const staging = await e.input().stage();
+  for (const field of ["text", "title"] as const) {
+    const confirm = vi.fn(() => Promise.resolve(false));
+    await expect(
+      e.service.change({
+        ...e.input("install", confirm),
+        stage: () => Promise.resolve({ ...staging, summary: [{ text: "safe", [field]: value }] }),
+      }),
+    ).rejects.toThrow("Invalid plugin confirmation summary");
+    expect(confirm).not.toHaveBeenCalled();
+  }
+});
+
+it("refuses executable bidi controls before formatting the command", async () => {
+  const e = await environment();
+  const parent = join(e.home, "alternate\u202e");
+  await mkdir(parent);
+  const executable = join(parent, "fixture-cli");
+  await writeFile(executable, "fixture executable");
+  const confirm = vi.fn(() => Promise.resolve(false));
+  await expect(e.service.change({ ...e.input("install", confirm), executable })).rejects.toThrow(
+    "Invalid plugin confirmation summary",
+  );
+  expect(confirm).not.toHaveBeenCalled();
 });

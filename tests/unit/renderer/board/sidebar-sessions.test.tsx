@@ -668,6 +668,21 @@ test("marks children in their own checkouts, highlights relationships and retain
       expanded: { "worktree:/foom": false, "repository:/foom": true, "worktree:/tree": true },
     }),
   );
+  const review = {
+    authorId: child.id,
+    agent: "claude",
+    postFindings: false,
+    rounds: 3,
+    round: 1,
+    phase: "reviewing" as const,
+  };
+  view.rerender(<Sidebar {...props} rows={[parent, { ...child, review }]} />);
+  expect(item.querySelector('.session-robot-mark[data-kind="rx"]')).toBeTruthy();
+  view.rerender(
+    <Sidebar {...props} rows={[parent, { ...child, review: { ...review, authorId: "author" } }]} />,
+  );
+  expect(view.getByRole("img", { name: "Reviewer" }).getAttribute("data-kind")).toBe("review");
+  expect(view.getByText("Reviewing 1/3")).toBeTruthy();
   view.rerender(<Sidebar {...props} rows={[child]} />);
   expect(view.container.querySelector('.session-robot-mark[data-kind="orphan"]')).toBeTruthy();
   expect(view.container.querySelector(".session-robot-mark")?.getAttribute("data-related")).toBe(

@@ -15,6 +15,10 @@ const state: ReviewState = {
 describe("review presentation and safe restore", () => {
   it("shows every phase in words including capacity waits", () => {
     expect(reviewLabel(state)).toBe("Building");
+    expect(reviewLabel({ ...state, phase: "waiting-on-parent" })).toBe("Waiting on parent");
+    expect(isReviewState({ ...state, phase: "waiting-on-parent", parentWaitMinutes: 180 })).toBe(
+      true,
+    );
     for (const phase of ["reviewing", "fixing"] as const) {
       expect(reviewLabel({ ...state, phase, round: 2 })).toBe(
         `${phase === "reviewing" ? "Reviewing" : "Fixing"} 2/3`,
@@ -47,6 +51,8 @@ describe("review presentation and safe restore", () => {
       { ...state, phase: "escalated" },
       { ...state, waiting: 1 },
       { ...state, extra: true },
+      ...[null, 0, 1441, 1.5, "180"].map((parentWaitMinutes) => ({ ...state, parentWaitMinutes })),
+      { ...state, phase: "waiting on parent" },
     ])
       expect(isReviewState(value)).toBe(false);
     const saved = {

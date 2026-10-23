@@ -93,8 +93,9 @@ As of #217, Foom never emits `checking` in control API or MCP session states. An
 
 ### Opt-in child review loop (#690)
 
-`launch` additionally accepts optional `review: {rounds?, agent?, postFindings?}`.
+`launch` additionally accepts optional `review: {rounds?, agent?, postFindings?, parentWaitMinutes?}`.
 Defaults on opt-in are 3 rounds, Claude and no posting; rounds must be 1–5.
+The optional `parentWaitMinutes` is an integer from 1–1440 (default 180).
 Unknown fields fail closed. Main requires installed reviewer and resume-capable
 providers. Only orchestrator-created, unused worktrees remain eligible for the
 initial launch. The loop's internal review/resume steps reuse that checkout with

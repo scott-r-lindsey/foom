@@ -416,9 +416,11 @@ export class TerminalManager {
   }
 
   /** Stop one process while retaining its screen and capability for recovery. */
-  async stop(id: string): Promise<void> {
+  async stop(id: string): Promise<boolean> {
     const session = this.get(id);
-    if (!session.exited) await this.stopSession(session);
+    if (session.exited) return false;
+    await this.stopSession(session);
+    return true;
   }
 
   private async stopSession(session: Session): Promise<void> {

@@ -28,22 +28,32 @@ import {
 
 /** OS-backed encryption for secret values (Electron `safeStorage` in the app). */
 export interface SecretCipher {
+  /** Reports platform support without accessing the keychain. */
+  supported(): boolean;
   available(): boolean;
   encrypt(text: string): Buffer;
   decrypt(data: Buffer): string;
 }
 
 /** Linux without a keyring falls back to a fixed key; that is not a secret store. */
-export function safeStorageCipher(storage: {
-  isEncryptionAvailable(): boolean;
-  getSelectedStorageBackend?: () => string;
-  encryptString(text: string): Buffer;
-  decryptString(data: Buffer): string;
-}): SecretCipher {
+export function safeStorageCipher(
+  storage: {
+    isEncryptionAvailable(): boolean;
+    getSelectedStorageBackend?: () => string;
+    encryptString(text: string): Buffer;
+    decryptString(data: Buffer): string;
+  },
+  platform: NodeJS.Platform = process.platform,
+): SecretCipher {
   return {
+    supported: () =>
+      platform !== "linux" ||
+      ["gnome_libsecret", "kwallet", "kwallet5", "kwallet6"].includes(
+        storage.getSelectedStorageBackend?.() ?? "unknown",
+      ),
     available: () =>
       storage.isEncryptionAvailable() &&
-      (process.platform !== "linux" || storage.getSelectedStorageBackend?.() !== "basic_text"),
+      (platform !== "linux" || storage.getSelectedStorageBackend?.() !== "basic_text"),
     encrypt: (text) => storage.encryptString(text),
     decrypt: (data) => storage.decryptString(data),
   };
@@ -53,6 +63,8 @@ interface Row {
   name: string;
   value: string;
   secret: boolean;
+  /** Reuse unchanged ciphertext when persisting unrelated edits. */
+  encrypted?: string | undefined;
 }
 type Lists = Record<"all" | "claude" | "codex" | "agy", Row[]> & Record<EnvironmentScope, Row[]>;
 
@@ -249,6 +261,7 @@ export class EnvironmentStore {
       return store;
     }
     if (!record(state) || state["version"] !== 1 || !record(state["lists"])) return store;
+    let available: boolean | undefined;
     for (const id of Object.keys(state["lists"]).slice(0, 100)) {
       if (id !== "all" && !validAgentId(id)) continue;
       store.lists[id] = [];
@@ -260,7 +273,12 @@ export class EnvironmentStore {
         const secret = row["secret"] === true;
         try {
           if (secret) {
-            if (typeof row["cipher"] !== "string" || !cipher.available()) continue;
+            if (typeof row["cipher"] !== "string") continue;
+            if (available === undefined) {
+              available = false;
+              available = cipher.available();
+            }
+            if (!available) continue;
             value = cipher.decrypt(Buffer.from(row["cipher"], "base64"));
           } else if (typeof row["value"] === "string") value = row["value"];
           else continue;
@@ -274,7 +292,12 @@ export class EnvironmentStore {
           store.lists[id].some((other) => foldName(other.name, windows) === foldName(name, windows))
         )
           continue;
-        store.lists[id].push({ name, value, secret });
+        store.lists[id].push({
+          name,
+          value,
+          secret,
+          encrypted: secret && typeof row["cipher"] === "string" ? row["cipher"] : undefined,
+        });
       }
     }
     return store;
@@ -293,7 +316,7 @@ export class EnvironmentStore {
         value: row.secret ? null : row.value,
         secret: row.secret,
       }));
-    return { lists, windows: this.windows, secrets: this.cipher.available() };
+    return { lists, windows: this.windows, secrets: this.cipher.supported() };
   }
 
   /** The layers for a launch: All sessions, then the agent's own. Shells get All only. */
@@ -354,6 +377,7 @@ export class EnvironmentStore {
         name: change.name,
         value,
         secret: change.secret || hasUrlCredentials(value),
+        encrypted: existing?.secret && existing.value === value ? existing.encrypted : undefined,
       };
       if (index < 0) rows.push(row);
       else rows[index] = row;
@@ -422,7 +446,15 @@ export class EnvironmentStore {
           if (lists.all.length >= ENVIRONMENT_ROW_LIMIT)
             throw new Error("Lists hold at most 64 variables");
           lists.all.push({ name, value, secret });
-        } else lists.all[index] = { name, value, secret };
+        } else {
+          const existing = lists.all[index];
+          lists.all[index] = {
+            name,
+            value,
+            secret,
+            encrypted: existing?.value === value ? existing.encrypted : undefined,
+          };
+        }
       }
     });
     this.candidates = new Map();
@@ -440,7 +472,9 @@ export class EnvironmentStore {
         change(next);
         if (Object.keys(next).length > 100) throw new Error("Too many environment lists");
         if (
-          Object.values(next).some((rows) => rows.some((row) => row.secret)) &&
+          Object.values(next).some((rows) =>
+            rows.some((row) => row.secret && row.encrypted === undefined),
+          ) &&
           !this.cipher.available()
         )
           throw new Error("Secrets need the system keychain, which is unavailable");
@@ -451,7 +485,7 @@ export class EnvironmentStore {
               ? {
                   name: row.name,
                   secret: true,
-                  cipher: this.cipher.encrypt(row.value).toString("base64"),
+                  cipher: (row.encrypted ??= this.cipher.encrypt(row.value).toString("base64")),
                 }
               : { name: row.name, value: row.value },
           );

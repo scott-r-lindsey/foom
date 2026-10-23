@@ -286,9 +286,9 @@ export function Tile({
               <AgentBadge mark={row.kind === "shell" ? ">_" : agentBadges.get(row.agent)} />
               {row.orchestration?.role === "child" && (
                 <OrchestrationMark
-                  kind="rx"
+                  kind={row.review && row.review.authorId !== row.id ? "review" : "rx"}
                   related={false}
-                  label="Worker"
+                  label={row.review && row.review.authorId !== row.id ? "Reviewer" : "Worker"}
                   title={`Child of ${parent ? sessionName(parent, preferences) : row.orchestration.parentId}${row.orchestration.takenOver ? " · Taken over" : ""}`}
                 />
               )}

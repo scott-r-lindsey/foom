@@ -28,7 +28,13 @@ if (isChild) {
   const resumed = args.includes("--resume");
   const step = reviewer ? (fs.existsSync(path.join(process.env.TEST_REVIEW_ROOT, "review-1.finished")) ? "review-2" : "review-1") : resumed ? "fix" : "build";
   record(step, JSON.stringify({ args, controlUrl: process.env.FOOM_CONTROL_URL, controlToken: process.env.FOOM_CONTROL_TOKEN, instanceId: process.env.FOOM_CONTROL_INSTANCE }));
-  process.stdin.on("data", () => { record("unexpected-input", "PTY input received"); process.exit(2); });
+  let parentReplied = false;
+  process.stdin.on("data", () => {
+    if (process.env.TEST_REVIEW_BLOCK === "1" && step === "build") {
+      parentReplied = true;
+      record("parent-replied", "received");
+    } else { record("unexpected-input", "PTY input received"); process.exit(2); }
+  });
   const fixtureError = error => { record("fixture-error", error instanceof Error ? error.message : String(error)); process.exit(2); };
   process.on("uncaughtException", fixtureError);
   process.on("unhandledRejection", fixtureError);
@@ -50,6 +56,8 @@ if (isChild) {
     const command = JSON.parse(fs.readFileSync(file, "utf8"));
     const hook = await fetch(process.env.FOOM_HOOK_URL, { method: "POST", headers: { Authorization: process.env.FOOM_TOKEN, "X-Foom-Session": process.env.FOOM_SESSION, "X-Foom-Event": "Stop", "X-Foom-Channel": "lifecycle", "X-Foom-Sequence": "1", "Content-Type": "application/json" }, body: JSON.stringify({ session_id: reviewer ? "review-" + step : "author-conversation", hook_event_name: "Stop" }) });
     if (hook.status !== 204) { record("hook-error", String(hook.status)); process.exit(2); }
+    if (command.edit) fs.writeFileSync("reviewer-edit.txt", "must escalate");
+    fs.writeFileSync(path.join(process.env.TEST_REVIEW_ROOT, step + ".finished"), "finished");
     const send = () => fetch(process.env.FOOM_CONTROL_URL, { method: "POST", headers: { Authorization: "Bearer " + process.env.FOOM_CONTROL_TOKEN, "Content-Type": "application/json" }, body: JSON.stringify({ version: 1, instanceId: process.env.FOOM_CONTROL_INSTANCE, method: "handoff", params: { status: command.status ?? "done", summary: "Fixture " + step, idempotencyKey: step, ...(command.review ? { review: command.review } : {}) } }) });
     let response;
     for (let attempt = 0; attempt < 12; attempt++) {
@@ -61,9 +69,20 @@ if (isChild) {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
     if (response.status !== 200) { record("handoff-error", String(response.status)); process.exit(2); }
-    if (command.edit) fs.writeFileSync("reviewer-edit.txt", "must escalate");
-    fs.writeFileSync(path.join(process.env.TEST_REVIEW_ROOT, step + ".finished"), "finished");
-    process.exit(0);
+    if (command.status === "blocked") {
+      const blockedAt = Date.now();
+      const resumeTimer = setInterval(async () => {
+        if (!parentReplied || !fs.existsSync(path.join(process.env.TEST_REVIEW_ROOT, "resume.go"))) return;
+        clearInterval(resumeTimer);
+        // Reuse the bounded handoff interval; never bypass production rate limits.
+        await new Promise(resolve => setTimeout(resolve, Math.max(0, 10000 - (Date.now() - blockedAt))));
+        record("unblocked", "done");
+        const response = await fetch(process.env.FOOM_CONTROL_URL, { method: "POST", headers: { Authorization: "Bearer " + process.env.FOOM_CONTROL_TOKEN, "Content-Type": "application/json" }, body: JSON.stringify({ version: 1, instanceId: process.env.FOOM_CONTROL_INSTANCE, method: "handoff", params: { status: "done", summary: "Unblocked fixture build", idempotencyKey: "unblocked" } }) });
+        if (response.status !== 200) { record("handoff-error", String(response.status)); process.exit(2); }
+        // Remain interactive until the host stops the session.
+      }, 50);
+    }
+    // Successful handoffs never exit this fixture; Foom owns termination.
   }, 50);
   return;
 }`,
@@ -129,6 +148,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         TEST_FAKE_CREDENTIALS: credentials,
         TEST_FORGE_STATE: forgeState,
         TEST_REVIEW_ROOT: root,
+        TEST_REVIEW_BLOCK: scenario === "blocked" ? "1" : "0",
         TEST_REVIEW_OUTPUT: scenario === "concurrent" ? "1" : "0",
       },
     };
@@ -323,13 +343,28 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
       await rename(file + ".tmp", file);
     };
     await go("build", scenario === "blocked" ? { status: "blocked" } : {});
-    if (["blocked", "red"].includes(scenario)) {
+    if (scenario === "blocked") {
+      await expect.poll(async () => (await state())?.phase).toBe("waiting-on-parent");
+      await expect(row.locator('[data-review-phase="waiting-on-parent"]')).toHaveText(
+        "Waiting on parent",
+      );
+      assert.notEqual((await call("session_state", { id: authorId })).state, "exited");
+      await shot("waiting-on-parent");
+      await call("prompt", {
+        id: authorId,
+        text: "Proceed within the existing scope",
+        idempotencyKey: "unblock",
+      });
+      await expect.poll(async () => (await state())?.phase).toBe("building");
+      await expect.poll(() => existsSync(`${credentials}.parent-replied`)).toBe(true);
+      await go("resume");
+      await waitStep("unblocked");
+    }
+    if (scenario === "red") {
       await expect.poll(async () => (await state())?.phase).toBe("escalated");
       assert.deepEqual(await fixtureErrors(), []);
-      assert.equal(
-        (await state()).reason,
-        scenario === "blocked" ? "author blocked" : "checks not green",
-      );
+      assert.equal((await state()).reason, "checks not green");
+      assert.notEqual((await call("session_state", { id: authorId })).state, "exited");
       assert.equal(existsSync(`${credentials}.review-1`), false);
     } else {
       await waitStep("review-1");
@@ -337,6 +372,51 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         `Reviewing 1/${scenario === "cap" ? 1 : 3}`,
       );
       await shot("reviewing");
+      if (scenario === "clean") {
+        const reviewer = page.locator(".session-entry").filter({
+          has: page.locator('.session-robot-mark[data-kind="review"]'),
+        });
+        await expect(reviewer.getByRole("img", { name: "Reviewer" })).toBeVisible();
+        await expect(reviewer.locator('[data-review-phase="reviewing"]')).toHaveText(
+          "Reviewing 1/3",
+        );
+        await expect(row.locator('.session-robot-mark[data-kind="rx"]')).toBeVisible();
+        await reviewer.locator(":scope > .board-row").click();
+        const tile = page.locator(".terminal-tile").filter({
+          has: page.getByRole("img", { name: "Reviewer" }),
+        });
+        await expect(tile.locator('[data-review-phase="reviewing"]')).toHaveText("Reviewing 1/3");
+        await parentRow.locator(":scope > .board-row").hover();
+        const wave = reviewer.locator(".robot-wave-inner");
+        await page.emulateMedia({ reducedMotion: "no-preference" });
+        await expect
+          .poll(() => wave.evaluate((node) => getComputedStyle(node).animationName))
+          .toBe("robot-receive");
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await expect
+          .poll(() => wave.evaluate((node) => getComputedStyle(node).animationName))
+          .toBe("none");
+        await page.mouse.move(1, 1);
+        for (const [colorScheme, fill] of [
+          ["light", "rgb(243, 240, 250)"],
+          ["dark", "rgb(5, 4, 10)"],
+        ]) {
+          await page.emulateMedia({ colorScheme });
+          await expect
+            .poll(() =>
+              reviewer.locator(".robot-lens").evaluate((node) => getComputedStyle(node).fill),
+            )
+            .toBe(fill);
+          await reviewer.screenshot({
+            path: `test-results/reviewer-mark-${colorScheme}-sidebar.png`,
+          });
+          await tile
+            .locator(".tile-title")
+            .screenshot({ path: `test-results/reviewer-mark-${colorScheme}-tile.png` });
+        }
+        await page.emulateMedia({ colorScheme: null, reducedMotion: null });
+      }
+
       const findings = {
         verdict: "findings",
         findings: [

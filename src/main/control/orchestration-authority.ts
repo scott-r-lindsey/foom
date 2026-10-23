@@ -1,3 +1,4 @@
+import type { ReviewSnapshot } from "./review-loops.d";
 import { reviewLabel } from "../../shared/review-state";
 import { randomUUID } from "node:crypto";
 import { ReviewLoops } from "./review-loops";
@@ -50,15 +51,8 @@ export class OrchestrationAuthority {
           const row = host.terminals().find((row) => row.id === id);
           return row ? this.pullRequest(row) : undefined;
         },
-        snapshot: async (id) => {
-          const run = this.reviewRuns.get(id);
-          if (!run) throw new ControlError("forbidden");
-          const parent = this.parent(run.actor);
-          const child = this.own(parent, id);
-          const tree = child && parent.worktrees.get(child.worktreeId);
-          if (!tree || !host.reviewSnapshot) throw new ControlError("unavailable");
-          return host.reviewSnapshot(parent.repository, tree.path, tree.identity);
-        },
+        snapshot: (id) => this.reviewSnapshot(id),
+        stop: (id, validate) => this.reviewStop(id, validate),
         step: (id, reviewer, prompt) => this.reviewStep(id, reviewer, prompt),
         changed: () => {
           this.changed();
@@ -422,6 +416,69 @@ export class OrchestrationAuthority {
       return at === undefined ? [] : [at];
     });
     return times.length ? Math.min(...times) : undefined;
+  }
+
+  private async reviewSnapshot(id: string): Promise<ReviewSnapshot> {
+    const run = this.reviewRuns.get(id);
+    if (!run) throw new ControlError("forbidden");
+    const parent = this.parent(run.actor);
+    const child = this.own(parent, id);
+    const tree = child && parent.worktrees.get(child.worktreeId);
+    if (!tree || !this.host.reviewSnapshot) throw new ControlError("unavailable");
+    return this.host.reviewSnapshot(parent.repository, tree.path, tree.identity);
+  }
+
+  private async reviewStop(
+    id: string,
+    validate: (snapshot: ReviewSnapshot) => boolean,
+  ): Promise<"stopped" | "changed" | "exited"> {
+    const state = this.reviews.view(id);
+    const run = state && this.reviewRuns.get(state.authorId);
+    if (!run) throw new ControlError("forbidden");
+    const { actor, operations } = run;
+    const parent = this.parent(actor);
+    const child = this.own(parent, id);
+    if (!child) throw new ControlError("forbidden");
+    const label = this.label(id);
+    const operation = await operations.begin(
+      actor,
+      "stop",
+      `review-stop-${randomUUID()}`,
+      JSON.stringify([id]),
+      id,
+    );
+    try {
+      const snapshot = await this.reviewSnapshot(state.authorId);
+      operations.lookup(actor, { operationId: operation.operationId });
+      this.parent(actor);
+      const current = this.reviews.view(id);
+      if (
+        this.own(parent, id) !== child ||
+        current?.phase !== state.phase ||
+        current.round !== state.round
+      )
+        throw new ControlError("conflict");
+      if (!validate(snapshot)) {
+        const record = await operations.finish(
+          actor,
+          operation.operationId,
+          "cancelled",
+          "completed",
+          id,
+        );
+        this.note(parent, this.entry(record, label));
+        return "changed";
+      }
+      // Unlike a human/parent stop, this validated completion preserves the loop.
+      const signaled = await this.host.stop(id);
+      await this.finish(actor, parent, operations, operation, label, "succeeded", id);
+      return signaled ? "stopped" : "exited";
+    } catch (error) {
+      await this.finish(actor, parent, operations, operation, label, "indeterminate").catch(
+        () => undefined,
+      );
+      throw error;
+    }
   }
 
   private async reviewStep(

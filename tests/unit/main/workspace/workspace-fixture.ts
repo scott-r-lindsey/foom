@@ -147,7 +147,7 @@ beforeEach(async () => {
       ),
     },
     terminals: {
-      stop: vi.fn(async () => {}),
+      stop: vi.fn(() => Promise.resolve(true)),
       kill: vi.fn(async () => {}),
       create: vi.fn(() => Promise.resolve("t1")),
       tail: terminalTail,

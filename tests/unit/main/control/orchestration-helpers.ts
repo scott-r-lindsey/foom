@@ -78,7 +78,7 @@ export function harness(overrides: Pick<OrchestrationHost, "reviewSnapshot"> = {
         identity: `id-${path.split("/").at(-1) ?? "child"}`,
       }),
     ),
-    stop: vi.fn((_id: string) => Promise.resolve()),
+    stop: vi.fn((_id: string) => Promise.resolve(true)),
     close: vi.fn((_id: string) => Promise.resolve()),
     place: vi.fn(),
     reply: vi.fn((_id: string, _input: ChildInput) => Promise.resolve()),

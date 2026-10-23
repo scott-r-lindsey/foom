@@ -451,7 +451,7 @@ it.each(["untracked", "commit", "forge"])(
       terminals: {
         create: () => Promise.reject(new Error("No launch expected")),
         kill: () => Promise.resolve(),
-        stop: () => Promise.resolve(),
+        stop: () => Promise.resolve(true),
         tail: () => Promise.resolve([]),
       },
       verdicts: {
@@ -573,7 +573,7 @@ it.each(["detached", "untracked", "unpushed", "tracked", "external"])(
       worktrees: service,
       terminals: {
         create: () => Promise.reject(new Error("No launch")),
-        stop: () => Promise.resolve(),
+        stop: () => Promise.resolve(true),
         kill: () => Promise.resolve(),
         tail: () => Promise.resolve([]),
       },
@@ -618,7 +618,7 @@ function cleanupWorkspace(extra: Partial<WorkspaceDependencies> = {}): Workspace
     terminals: {
       create: () => Promise.reject(new Error("No launch expected")),
       kill: () => Promise.resolve(),
-      stop: () => Promise.resolve(),
+      stop: () => Promise.resolve(true),
       tail: () => Promise.resolve([]),
     },
     verdicts: {

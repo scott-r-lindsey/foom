@@ -20,9 +20,10 @@ const contents = { mainFrame: frame };
 const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame };
 const cipher = {
-  available: () => true,
-  encrypt: (text: string) => Buffer.from(`enc:${text}`).reverse(),
-  decrypt: (data: Buffer) => Buffer.from(data).reverse().toString().slice(4),
+  supported: () => true,
+  available: vi.fn(() => true),
+  encrypt: vi.fn((text: string) => Buffer.from(`enc:${text}`).reverse()),
+  decrypt: vi.fn((data: Buffer) => Buffer.from(data).reverse().toString().slice(4)),
 };
 let dir: string;
 let changed: ReturnType<typeof vi.fn<() => void>>;
@@ -112,4 +113,13 @@ test("replies mask secrets and changes refresh redaction", async () => {
   });
   expect(changed).toHaveBeenCalledTimes(3);
   expect(JSON.stringify(await invoke("environment:state"))).not.toContain("pw@");
+});
+
+test("repeated Settings environment status requests make no cipher calls", async () => {
+  for (let request = 0; request < 4; request++)
+    expect(await invoke("environment:state")).toMatchObject({ secrets: true });
+  await invoke("environment:read-shell");
+  expect(cipher.available).not.toHaveBeenCalled();
+  expect(cipher.encrypt).not.toHaveBeenCalled();
+  expect(cipher.decrypt).not.toHaveBeenCalled();
 });

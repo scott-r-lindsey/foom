@@ -283,7 +283,9 @@ export class WorkspaceContext {
         this.sessions.isRestoring(id) ||
         (!this.launched.get(id)?.dormant && this.executionOwner.view(id).exitCode === undefined),
       exitCode: (id) => this.executionOwner.view(id).exitCode,
-      stop: (id) => deps.terminals.stop(id),
+      stop: async (id) => {
+        await deps.terminals.stop(id);
+      },
       exited: (id, code) => this.exited(id, code),
       kill: (id) => deps.terminals.kill(id),
       removed: (id) => {

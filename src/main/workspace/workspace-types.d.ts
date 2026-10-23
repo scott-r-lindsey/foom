@@ -190,7 +190,7 @@ export interface WorkspaceDependencies {
   terminals: {
     create(spec: TerminalSpec): Promise<string>;
     kill(id: string): Promise<void>;
-    stop(id: string): Promise<void>;
+    stop(id: string): Promise<boolean>;
     tail(id: string, lines: number): Promise<string[]>;
     childInput?(id: string, data: ChildInput): Promise<void>;
     reply?(id: string, data: string): Promise<void>;
