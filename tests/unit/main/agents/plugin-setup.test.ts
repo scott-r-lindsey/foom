@@ -307,7 +307,12 @@ it("keeps instruction actions inert, with a separate trusted disclosure and no C
   const sections = confirm.mock.calls[0]?.[0].sections;
   expect(
     sections?.find((section) => section.label === "Executable and fixed arguments")?.summary,
-  ).toEqual([{ text: "fixture-cli", title: "fixture-cli" }]);
+  ).toEqual([
+    {
+      text: "fixture-cli",
+      title: /[\s"\\]/u.test(e.executable) ? JSON.stringify(e.executable) : e.executable,
+    },
+  ]);
   expect(sections?.find((section) => section.label === "Installation and state")?.summary).toEqual([
     {
       text: "setup-fixture · No installation change · unavailable",
@@ -962,7 +967,10 @@ it.each(["install", "update", "reinstall"])(
         action === "reinstall"
           ? `fixture-cli plugin uninstall foom; fixture-cli plugin install ${JSON.stringify(staging.directory)}`
           : `fixture-cli plugin install ${JSON.stringify(staging.directory)}`;
-      expect(command.title).toBe(expectedCommand);
+      const fullExecutable = /[\s"\\]/u.test(e.executable)
+        ? JSON.stringify(e.executable)
+        : e.executable;
+      expect(command.title).toBe(expectedCommand.replaceAll("fixture-cli", fullExecutable));
       expect(command.text).toBe(`${expectedCommand.slice(0, 38)}…${expectedCommand.slice(-29)}`);
       expect(command.text).not.toMatch(/[\r\n]/u);
       expect(executableSection.items).toContain(e.executable);
@@ -986,3 +994,78 @@ it.each(["install", "update", "reinstall"])(
     expect(e.run.mock.calls.every((entry) => entry[1][1] === "list")).toBe(true);
   },
 );
+
+it("distinguishes absolute executables with the same basename in command titles", async () => {
+  const e = await environment();
+  const dialogs: DialogContent[] = [];
+  for (const directory of ["first", "second"]) {
+    const parent = join(e.home, directory);
+    await mkdir(parent);
+    const executable = join(parent, "fixture-cli");
+    await writeFile(executable, "fixture executable");
+    await e.service.change({
+      ...e.input("install", (dialog) => {
+        dialogs.push(dialog);
+        return Promise.resolve(false);
+      }),
+      executable,
+    });
+  }
+  const commands = dialogs.map((dialog) =>
+    required(
+      dialog.sections?.find((section) => section.label === "Executable and fixed arguments")
+        ?.summary?.[0],
+    ),
+  );
+  expect(commands[0]?.text).toBe(commands[1]?.text);
+  expect(commands[0]?.title).not.toBe(commands[1]?.title);
+  for (const [index, directory] of ["first", "second"].entries()) {
+    const executable = join(e.home, directory, "fixture-cli");
+    const quoted = /[\s"\\]/u.test(executable) ? JSON.stringify(executable) : executable;
+    expect(commands[index]?.title).toContain(`${quoted} plugin install `);
+  }
+});
+
+it.each(
+  [
+    "\0",
+    "\n",
+    "\r",
+    "\t",
+    "\u0085",
+    "\u2028",
+    "\u2029",
+    ...Array.from({ length: 5 }, (_, i) => String.fromCodePoint(0x202a + i)),
+    ...Array.from({ length: 4 }, (_, i) => String.fromCodePoint(0x2066 + i)),
+    "\u200e",
+    "\u200f",
+    "x".repeat(8193),
+    "x".repeat(1024 * 1024),
+  ].map((value, index) => ({ value, index })),
+)("refuses unsafe main summary $index before confirmation", async ({ value }) => {
+  const e = await environment();
+  const staging = await e.input().stage();
+  for (const field of ["text", "title"] as const) {
+    const confirm = vi.fn(() => Promise.resolve(false));
+    await expect(
+      e.service.change({
+        ...e.input("install", confirm),
+        stage: () => Promise.resolve({ ...staging, summary: [{ text: "safe", [field]: value }] }),
+      }),
+    ).rejects.toThrow("Invalid plugin confirmation summary");
+    expect(confirm).not.toHaveBeenCalled();
+  }
+});
+
+it("refuses executable bidi controls before formatting the command", async () => {
+  const e = await environment();
+  const parent = join(e.home, "alternate\u202e");
+  await mkdir(parent);
+  const executable = join(parent, "fixture-cli");
+  await writeFile(executable, "fixture executable");
+  const confirm = vi.fn(() => Promise.resolve(false));
+  await expect(e.service.change({ ...e.input("install", confirm), executable })).rejects.toThrow(
+    "Invalid plugin confirmation summary",
+  );
+  expect(confirm).not.toHaveBeenCalled();
+});

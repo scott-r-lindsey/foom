@@ -10,6 +10,11 @@ function structured(value: unknown): boolean {
     Boolean(entry) && typeof entry === "object";
   const strings = (entry: unknown): boolean =>
     Array.isArray(entry) && entry.every((item: unknown) => typeof item === "string");
+  // Keep in sync with plugin setup's source validation; sandbox permits no runtime helper import.
+  const summaryString = (entry: unknown): boolean =>
+    typeof entry === "string" &&
+    entry.length <= 8192 &&
+    !/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069\u200e\u200f]/u.test(entry);
   if (
     "removals" in value &&
     !(
@@ -52,8 +57,8 @@ function structured(value: unknown): boolean {
               entry["summary"].every(
                 (line: unknown) =>
                   record(line) &&
-                  typeof line["text"] === "string" &&
-                  (line["title"] === undefined || typeof line["title"] === "string"),
+                  summaryString(line["text"]) &&
+                  (line["title"] === undefined || summaryString(line["title"])),
               ))),
       )
     )

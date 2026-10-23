@@ -35,7 +35,8 @@ Plugin setup keeps the action disclosure, detail paragraph and instructions/remo
 visible. Executable/fixed arguments, installation/state, status/ownership checks
 and staged files start collapsed with main-computed summaries. The executable
 summary shows its basename and fixed arguments on one line, shortened in the middle
-when long, with the full command in its tooltip and accessible name. Installation
+when long, with the full absolute executable path and fixed arguments in its tooltip and
+accessible name. Installation
 summarizes the agent ID, ~/ install location and state. Staged files show the file
 count and total UTF-8 byte size, then one line per file: name, first 12 SHA-256 hex
 characters and byte size. Full hashes remain in each line's tooltip and the

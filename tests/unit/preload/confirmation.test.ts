@@ -132,3 +132,46 @@ test("rejects malformed structured fields and preserves literal data", async () 
   }
   dispose();
 });
+
+test("bounds summary text and titles and rejects control and bidi characters", async () => {
+  vi.resetModules();
+  mock.exposeInMainWorld.mockClear();
+  mock.on.mockClear();
+  await import("../../../src/preload/confirmation");
+  const api = mock.exposeInMainWorld.mock.calls[0]?.[1];
+  const listener = mock.on.mock.calls[0]?.[1];
+  if (!api || !listener) throw Error("Missing confirmation bridge");
+  const render = vi.fn();
+  const dispose = api.render(render);
+  const request = (line: { text: string; title?: string }) => ({
+    sections: [{ label: "Command", items: ["Full bytes\nremain reachable\0"], summary: [line] }],
+  });
+  const valid = request({ text: "·…🌌" + "x".repeat(8188), title: "x".repeat(8192) });
+  listener({}, valid);
+  expect(render).toHaveBeenLastCalledWith(valid);
+  const controls = [
+    "\0",
+    "\n",
+    "\r",
+    "\t",
+    "\u007f",
+    "\u0085",
+    "\u2028",
+    "\u2029",
+    ...Array.from({ length: 5 }, (_, i) => String.fromCodePoint(0x202a + i)),
+    ...Array.from({ length: 4 }, (_, i) => String.fromCodePoint(0x2066 + i)),
+    "\u200e",
+    "\u200f",
+  ];
+  for (const field of ["text", "title"] as const) {
+    for (const value of [
+      ...controls.map((control) => `agy${control}exe`),
+      "x".repeat(8193),
+      "x".repeat(1024 * 1024),
+    ]) {
+      listener({}, request({ text: "safe", [field]: value }));
+      expect(render).toHaveBeenLastCalledWith(null);
+    }
+  }
+  dispose();
+});

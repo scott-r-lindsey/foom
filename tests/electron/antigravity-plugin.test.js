@@ -33,7 +33,11 @@ async function checkCollapsedDisclosure(board, dialog, operation, captureScreens
       .toBe("nowrap");
   }
   const command = details.first().locator(".disclosure-summary");
-  await expect(command).toHaveAttribute("title", /^agy plugin /u);
+  const executable = await details.first().locator("code").first().textContent();
+  expect(await command.getAttribute("title")).toContain(`${executable} plugin `);
+  await expect(details.first().locator("summary")).toHaveAccessibleName(
+    new RegExp(executable.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")),
+  );
   await expect(command).toHaveText(/^agy plugin .*….*$/u);
   await expect(details.locator("code").first()).toBeHidden();
   await expect

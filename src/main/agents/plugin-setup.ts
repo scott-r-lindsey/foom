@@ -400,19 +400,29 @@ export class PluginSetup {
     const location = model.setup?.status.ownership
       ? `~/${model.setup.status.ownership.directory}`
       : "No installation change";
-    const command = (arguments_: readonly string[]) =>
-      [basename(executable), ...arguments_]
+    // Match the isolated preload boundary, including before command quoting can escape controls.
+    const summaryString = (value: string): void => {
+      if (
+        value.length > 8192 ||
+        /[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069\u200e\u200f]/u.test(value)
+      )
+        throw new Error("Invalid plugin confirmation summary");
+    };
+    [executable, ...args].forEach(summaryString);
+    const command = (program: string, arguments_: readonly string[]) =>
+      [program, ...arguments_]
         .map((arg) => (/[\s"\\]/u.test(arg) ? JSON.stringify(arg) : arg))
         .join(" ");
-    const commandLine =
+    const commandLine = (program: string) =>
       args[1] === "reinstall"
-        ? `${command(["plugin", "uninstall", model.setup?.status.ownership?.directory.split("/").at(-1) ?? ""])}; ${command(["plugin", "install", args[2] ?? ""])}`
-        : command(args);
+        ? `${command(program, ["plugin", "uninstall", model.setup?.status.ownership?.directory.split("/").at(-1) ?? ""])}; ${command(program, ["plugin", "install", args[2] ?? ""])}`
+        : command(program, args);
+    const visibleCommand = commandLine(basename(executable));
     const commandSummary =
-      commandLine.length > 68
-        ? `${commandLine.slice(0, 38)}…${commandLine.slice(-29)}`
-        : commandLine;
-    return {
+      visibleCommand.length > 68
+        ? `${visibleCommand.slice(0, 38)}…${visibleCommand.slice(-29)}`
+        : visibleCommand;
+    const content: DialogContent = {
       title:
         args[1] === "reinstall"
           ? `Reinstall ${model.name} plugin?`
@@ -425,7 +435,7 @@ export class PluginSetup {
         { label: "Action disclosure", items: [action.disclosure] },
         {
           label: "Executable and fixed arguments",
-          summary: [{ text: commandSummary, title: commandLine }],
+          summary: [{ text: commandSummary, title: commandLine(executable) }],
           arguments: true,
           items:
             args[1] === "reinstall"
@@ -472,5 +482,12 @@ export class PluginSetup {
         },
       ],
     };
+    for (const section of content.sections ?? []) {
+      for (const line of section.summary ?? []) {
+        summaryString(line.text);
+        if (line.title !== undefined) summaryString(line.title);
+      }
+    }
+    return content;
   }
 }

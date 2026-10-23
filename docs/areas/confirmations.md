@@ -103,11 +103,16 @@ resolved theme and content, and gives each request a new ID. Content carries a g
 subject, labeled disclosure sections (with optional main-authored collapsed summary
 lines and full tooltip/accessibility text), facts, argument chips and the pairing code with
 its main-owned expiry deadline. The sandboxed preload validates structured fields,
-including summary line text and optional full titles. Plugin staging computes
+including summary line text and optional full titles. Both are capped at 8,192
+UTF-16 code units and reject control characters, Unicode line/paragraph separators
+and bidi controls U+202A–U+202E, U+2066–U+2069, U+200E and U+200F. Main refuses
+unsafe plugin summaries before requesting confirmation, including raw executable
+and fixed argument strings before command quoting. Plugin staging computes
 12-character hash displays, full hashes and UTF-8 sizes in main; full hashes also
 remain selectable in the expanded file byte boxes. Plugin executable summaries
 use the executable basename and fixed argv, with middle truncation computed in
-main and full commands retained in titles. These presentation summaries never
+main and full commands, including the absolute executable path, retained in titles
+and accessible names. These presentation summaries never
 change the accepted action or its revalidation.
 The shared anatomy uses 500 CSS pixels for prose and 540 for lists and disclosures;
 main still applies zoom and the parent/work-area clamps. List names wrap in their own
