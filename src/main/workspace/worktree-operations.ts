@@ -35,6 +35,9 @@ export async function git(
     env: {
       ...env,
       GIT_TERMINAL_PROMPT: "0",
+      // Workspace decisions must use stored history, never local history overlays.
+      GIT_NO_REPLACE_OBJECTS: "1",
+      GIT_GRAFT_FILE: "/dev/null",
       ...(isolated
         ? {
             GIT_CONFIG_GLOBAL: "/dev/null",

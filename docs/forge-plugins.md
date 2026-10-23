@@ -645,13 +645,20 @@ requires exit zero plus one canonical OID equal to `H^{tree}`. Missing/ambiguous
 merge bases, conflicts, malformed output and Git errors fail closed. Patch IDs are
 not proof because they ignore hunk positions, even with `--verbatim`.
 
-Both containment and hint merges run in a disposable bare repository with a
+All cleanup ancestry, parent, merge-base and tree checks run in a disposable
+bare repository with a
 read-only view of the source object store. Global/system config and system
 attributes are disabled per subprocess. Main-owned info/attributes overrides
 versioned attributes with a built-in merge driver and no content conversion;
 fixed options disable renames and renormalization and retain built-in histogram diffing.
 Repository merge-driver definitions are never executed. Exact tree comparison
 preserves edit positions, binary data and line endings without decoding file bytes.
+All workspace Git calls, including source HEAD/tree reads, unpushed counts and
+final rechecks, ignore replacement objects and legacy grafts via fixed
+`GIT_NO_REPLACE_OBJECTS=1` and `GIT_GRAFT_FILE=/dev/null` after inherited Git variables
+are cleared. Alternates share objects without importing source replace refs,
+grafts or config; proof commands disable commit-graph caches and read stored
+commits. Forged ancestry from `git replace --graft` cannot qualify either forge.
 Only ancestry exit 1 means ordinary non-ancestry, permitting the alternative hint.
 The head-equality, same-project, final-refresh, clean and identity guards remain.
 See [Git merge-tree](https://git-scm.com/docs/git-merge-tree) and

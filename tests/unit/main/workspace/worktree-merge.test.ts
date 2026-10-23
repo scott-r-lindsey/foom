@@ -89,6 +89,8 @@ describe("merged worktree containment", () => {
   }
   it.each([
     "merged",
+    "merged replacement graft",
+    "merged legacy graft",
     "unmerged",
     "squash",
     "unpushed",
@@ -104,6 +106,7 @@ describe("merged worktree containment", () => {
     "staged",
   ])("auto-removal checks %s conservatively using real Git", async (mode) => {
     const tree = await feature();
+    if (!tree.head) throw new Error("Missing feature head");
     const identity = await service.removalIdentity(repo, tree.path);
     if (!["unmerged", "squash", "unpushed", "no-remote"].includes(mode)) {
       await git(
@@ -123,6 +126,33 @@ describe("merged worktree containment", () => {
       await commit(repo, "squash");
     }
     if (mode !== "no-remote") await remote();
+    if (mode.startsWith("merged ")) {
+      const integrated = (await git("rev-parse", "HEAD")).trim();
+      const parent = (await git("rev-parse", "HEAD^1")).trim();
+      if (mode.includes("replacement"))
+        await git(
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "replace",
+          "--graft",
+          integrated,
+          parent,
+        );
+      else {
+        await mkdir(join(repo, ".git/info"), { recursive: true });
+        await writeFile(join(repo, ".git/info/grafts"), `${integrated} ${parent}\n`);
+      }
+      await expect(git("merge-base", "--is-ancestor", tree.head, integrated)).rejects.toMatchObject(
+        {
+          code: 1,
+        },
+      );
+      expect(await service.mergedCommit(repo, tree, await service.mergedDefault(repo, true))).toBe(
+        true,
+      );
+    }
     if (mode === "unpushed") {
       // The tip is on the fetched default, but ahead of its configured upstream.
       await git(
@@ -180,7 +210,7 @@ describe("merged worktree containment", () => {
         mode === "main" ? repo : tree.path,
         mode === "replaced" ? "wrong" : identity,
       ),
-    ).toBe(mode === "merged");
+    ).toBe(mode.startsWith("merged"));
   });
 
   it.each(["merge", "squash", "rebase", "unmerged", "reverted"])(
@@ -432,7 +462,12 @@ describe("merged worktree containment", () => {
     "GitLab forced-text NUL after squash",
     "GitLab root squash",
     "GitLab empty squash",
+    "GitLab replacement graft",
+    "GitLab legacy graft",
+    "GitLab replaced tree",
+    "GitLab replacement graft without forge",
     "GitHub unrelated merge ancestor",
+    "GitHub replacement graft",
   ])("refuses %s claims for unmerged work through offline real Git", async (mode) => {
     const original = await feature();
     if (mode.includes("configured merge driver") || mode.includes("forced-text NUL"))
@@ -506,6 +541,33 @@ describe("merged worktree containment", () => {
     await remote();
     const tree = (await service.listWorktrees(repo)).find((tree) => tree.path === original.path);
     if (!tree?.head) throw new Error("Missing feature head");
+    if (mode.includes("replacement graft")) {
+      await git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "replace",
+        "--graft",
+        hint,
+        tree.head,
+      );
+      await git("merge-base", "--is-ancestor", tree.head, hint);
+    }
+    if (mode.includes("legacy graft")) {
+      await mkdir(join(repo, ".git/info"), { recursive: true });
+      await writeFile(join(repo, ".git/info/grafts"), `${hint} ${tree.head}\n`);
+      await git("merge-base", "--is-ancestor", tree.head, hint);
+    }
+    if (mode.includes("replaced tree")) {
+      const originalTree = (await git("rev-parse", `${hint}^{tree}`)).trim();
+      const featureTree = (await git("rev-parse", `${tree.head}^{tree}`)).trim();
+      await git("replace", originalTree, featureTree);
+      // The proof's alternates can read both objects, but must never inherit
+      // the source repository's mapping from one object to the other.
+      expect((await git("rev-parse", `${hint}^{tree}`)).trim()).toBe(originalTree);
+      expect(await git("ls-tree", "--name-only", hint)).toBe("feature.txt\n");
+    }
     const squash = mode.includes("squash");
     const github = mode.startsWith("GitHub");
     const row = github
@@ -558,13 +620,21 @@ describe("merged worktree containment", () => {
       headSha: tree.head,
       ...(squash ? { squashCommit: hint } : { mergeCommit: hint }),
     });
-    service = new WorktreeService(root, () => provider);
+    service = new WorktreeService(root, () =>
+      mode.includes("without forge") ? undefined : provider,
+    );
     await service.addRepository(repo);
     const base = await service.mergedDefault(repo, true);
-    expect(await service.mergedCommit(repo, tree, base)).toBe(false);
-    expect(
-      await service.canAutoRemove(repo, tree.path, await service.removalIdentity(repo, tree.path)),
-    ).toBe(false);
+    expect.soft(await service.mergedCommit(repo, tree, base)).toBe(false);
+    expect
+      .soft(
+        await service.canAutoRemove(
+          repo,
+          tree.path,
+          await service.removalIdentity(repo, tree.path),
+        ),
+      )
+      .toBe(false);
     expect(transport).toHaveBeenCalled();
   });
   it("refuses a stale squash hint when an identical edit moves to a repeated block", async () => {

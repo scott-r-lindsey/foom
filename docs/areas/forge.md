@@ -104,7 +104,10 @@ ancestry from the freshly fetched default: either the exact head is an ancestor
 of the hint, or the conflict-free merge of a single-parent hint's parent with
 the exact head must produce precisely the hint's tree OID. The latter uses
 `git merge-tree --write-tree` in a disposable repository with fixed attributes
-and config, not position-insensitive patch IDs. Unrelated/stale hints, moved
+and config, not position-insensitive patch IDs. All ancestry/parent/tree proofs use
+that same isolated repository; every workspace Git call disables replacement
+objects and grafts, including source HEAD reads and final auto-removal rechecks.
+Alternates share objects without importing local history overlays. Unrelated/stale hints, moved
 repeated-block edits, unavailable/ambiguous merge bases, conflicts, malformed
 output and Git errors cannot authorize cleanup. Exact-head, same-project, stable-refresh, clean-checkout
 and identity guards remain required. This covers squash-only merges (null merge SHA), separate merge

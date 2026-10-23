@@ -18,7 +18,11 @@ squash/rebase hint H must have exactly one parent P. Foom merges P with the
 worktree head using `git merge-tree --write-tree` and qualifies only if the merge
 is conflict-free and its tree OID exactly equals `H^{tree}`. This preserves edit
 positions and compares complete Git trees, including binary bytes and line endings.
-Missing/ambiguous merge bases, malformed output and Git errors fail closed.
+All ancestry and tree proofs use stored commit objects in an isolated repository.
+Local replacement refs and graft files are ignored throughout merge checks and
+auto-removal, including final HEAD/status rechecks. Sharing an object store does
+not share those history overlays. Missing/ambiguous merge bases, malformed output
+and Git errors fail closed.
 An old default commit or stale squash of an
 earlier head cannot authorize deletion of later work. These rules apply equally
 to GitHub and GitLab, with same-project, stable-refresh, clean-checkout and identity

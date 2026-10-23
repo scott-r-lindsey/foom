@@ -564,7 +564,8 @@ export class WorktreeService {
           )
         ).trim();
         if (unpushed !== "0") return false;
-        await git(path, ["merge-base", "--is-ancestor", head, base]);
+        if (!(await this.withMergeProof(repository, (run) => this.isAncestor(run, head, base))))
+          return false;
       }
       if ((await this.changes(repository, path, identity)) !== "") return false;
       return (
@@ -578,13 +579,16 @@ export class WorktreeService {
   }
 
   async mergedCommit(repository: string, tree: Worktree, base: string): Promise<boolean> {
-    if (!tree.branch || !tree.head || this.fetchFacts.get(repository)?.branch === tree.branch)
+    const head = tree.head;
+    if (!tree.branch || !head || this.fetchFacts.get(repository)?.branch === tree.branch)
       return false;
     await this.validateBranch(repository, tree.branch);
-    if (!/^[a-f0-9]{40,64}$/u.test(base) || !/^[a-f0-9]{40,64}$/u.test(tree.head))
-      throw new Error("Invalid commit ID");
+    if (!commitId.test(base) || !commitId.test(head)) throw new Error("Invalid commit ID");
     try {
-      if (await this.mergeMatchesTree(repository, base, tree.head, base)) return true;
+      if (
+        await this.withMergeProof(repository, (run) => this.mergeMatchesTree(run, base, head, base))
+      )
+        return true;
     } catch {
       // A content conflict does not rule out an earlier PR merge.
     }
@@ -615,14 +619,7 @@ export class WorktreeService {
       for (const commit of new Set([pr.mergeCommit, pr.squashCommit])) {
         if (!commit) continue;
         if (!commitId.test(commit)) return false;
-        try {
-          await git(repository, ["merge-base", "--is-ancestor", commit, base]);
-        } catch (error) {
-          // Exit 1 means non-ancestor; other errors make the proof unavailable.
-          if (record(error) && error["code"] === 1) continue;
-          return false;
-        }
-        if (await this.hintIntegratesHead(repository, commit, tree.head)) {
+        if (await this.hintIntegratesHead(repository, commit, tree.head, base)) {
           integrated = true;
           break;
         }
@@ -643,34 +640,44 @@ export class WorktreeService {
     repository: string,
     commit: string,
     head: string,
+    base: string,
   ): Promise<boolean> {
+    if (![commit, head, base].every((sha) => commitId.test(sha))) return false;
+    return this.withMergeProof(repository, async (run) => {
+      if (!(await this.isAncestor(run, commit, base))) return false;
+      if (await this.isAncestor(run, head, commit)) return true;
+      const parents = (await run(["rev-list", "--parents", "-n", "1", commit])).trim().split(" ");
+      const parent = parents[1];
+      if (parents.length !== 2 || parents[0] !== commit || !parent || !commitId.test(parent))
+        return false;
+      const mergeBase = (await run(["merge-base", "--all", parent, head])).trim();
+      // Multiple merge bases are ambiguous; never pick one using forge claims.
+      if (!commitId.test(mergeBase)) return false;
+      return this.mergeMatchesTree(run, parent, head, commit);
+    });
+  }
+
+  private async isAncestor(
+    run: (args: string[]) => Promise<string>,
+    ancestor: string,
+    descendant: string,
+  ): Promise<boolean> {
+    if (![ancestor, descendant].every((sha) => commitId.test(sha))) return false;
     try {
-      await git(repository, ["merge-base", "--is-ancestor", head, commit]);
+      await run(["merge-base", "--is-ancestor", ancestor, descendant]);
       return true;
     } catch (error) {
-      // Only an ordinary non-ancestor result permits trying squash/rebase proof.
+      // Only an ordinary non-ancestor result permits another proof or hint.
       if (!record(error) || error["code"] !== 1) throw error;
-    }
-    const parents = (await git(repository, ["rev-list", "--parents", "-n", "1", commit]))
-      .trim()
-      .split(" ");
-    const parent = parents[1];
-    if (parents.length !== 2 || parents[0] !== commit || !parent || !commitId.test(parent))
       return false;
-    const mergeBase = (await git(repository, ["merge-base", "--all", parent, head])).trim();
-    // Multiple merge bases are ambiguous; never pick one using forge claims.
-    if (!commitId.test(mergeBase)) return false;
-    return this.mergeMatchesTree(repository, parent, head, commit);
+    }
   }
 
   /** Never let repository attributes/configuration manufacture a cleanup proof. */
-  private async mergeMatchesTree(
+  private async withMergeProof(
     repository: string,
-    left: string,
-    head: string,
-    expected: string,
+    prove: (run: (args: string[]) => Promise<string>) => Promise<boolean>,
   ): Promise<boolean> {
-    if (![left, head, expected].every((sha) => commitId.test(sha))) return false;
     const objects = await realpath(
       (
         await git(repository, ["rev-parse", "--path-format=absolute", "--git-path", "objects"])
@@ -681,7 +688,8 @@ export class WorktreeService {
     if (format !== "sha1" && format !== "sha256") return false;
     const proof = await mkdtemp(join(tmpdir(), "foom-merge-proof-"));
     try {
-      const run = (args: string[]) => git(proof, args, 30_000, undefined, true);
+      const run = (args: string[]) =>
+        git(proof, ["-c", "core.commitGraph=false", ...args], 30_000, undefined, true);
       await run(["init", "--bare", "--template=", `--object-format=${format}`]);
       await Promise.all(
         ["info", "objects/info"].map((path) => mkdir(join(proof, path), { recursive: true })),
@@ -697,35 +705,47 @@ export class WorktreeService {
         "* merge=text -text -eol -filter -working-tree-encoding\n",
         { mode: 0o600 },
       );
-      const expectedTree = (await run(["rev-parse", "--verify", `${expected}^{tree}`])).trim();
-      if (!commitId.test(expectedTree)) return false;
-      // Config controls also work on Git versions whose merge-tree has no -X.
-      // The isolated repo has no other strategy or merge-driver configuration.
-      const merged = (
-        await run([
-          "-c",
-          "core.attributesFile=",
-          "-c",
-          "core.autocrlf=false",
-          "-c",
-          "merge.renormalize=false",
-          "-c",
-          "merge.renames=false",
-          "-c",
-          "merge.directoryRenames=false",
-          "-c",
-          "diff.algorithm=histogram",
-          "merge-tree",
-          "--write-tree",
-          "--no-messages",
-          left,
-          head,
-        ])
-      ).trim();
-      return commitId.test(merged) && merged === expectedTree;
+      // Alternates expose objects only, never source refs, grafts or config.
+      // Read raw commits rather than trusting cached graphs in that object store.
+      return await prove(run);
     } finally {
       await rm(proof, { recursive: true, force: true });
     }
+  }
+
+  private async mergeMatchesTree(
+    run: (args: string[]) => Promise<string>,
+    left: string,
+    head: string,
+    expected: string,
+  ): Promise<boolean> {
+    if (![left, head, expected].every((sha) => commitId.test(sha))) return false;
+    const expectedTree = (await run(["rev-parse", "--verify", `${expected}^{tree}`])).trim();
+    if (!commitId.test(expectedTree)) return false;
+    // Config controls also work on Git versions whose merge-tree has no -X.
+    // The isolated repo has no other strategy or merge-driver configuration.
+    const merged = (
+      await run([
+        "-c",
+        "core.attributesFile=",
+        "-c",
+        "core.autocrlf=false",
+        "-c",
+        "merge.renormalize=false",
+        "-c",
+        "merge.renames=false",
+        "-c",
+        "merge.directoryRenames=false",
+        "-c",
+        "diff.algorithm=histogram",
+        "merge-tree",
+        "--write-tree",
+        "--no-messages",
+        left,
+        head,
+      ])
+    ).trim();
+    return commitId.test(merged) && merged === expectedTree;
   }
 
   async deleteMergedBranch(repository: string, branch: string, head: string): Promise<void> {

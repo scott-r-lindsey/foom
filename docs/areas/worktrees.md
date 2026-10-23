@@ -69,7 +69,8 @@ Patch IDs are not evidence: they ignore hunk positions and can equate edits in
 different repeated blocks. Malformed OIDs, missing/ambiguous bases and command
 errors refuse proof. Only ordinary exit-1 ancestry queries permit another proof.
 
-Both ordinary containment and hint tree proofs run in a disposable bare repository,
+All cleanup ancestry, parent, merge-base and tree proofs run in the same disposable
+bare repository for each candidate,
 reading the source object store through a quoted alternates path. Global/system
 Git config and system attributes are disabled for those subprocesses; no user
 config is edited. A main-owned info/attributes file forces the built-in text merge
@@ -77,6 +78,12 @@ driver and disables text/EOL/filter/encoding conversion, overriding versioned
 attributes. Fixed options disable rename detection, directory renames and
 renormalization and retain built-in histogram diffing. Source repository merge drivers cannot
 run or manufacture a successful tree. Temporary merge output is removed afterward.
+Every workspace Git invocation, including source HEAD/tree reads, fetch validation,
+unpushed counts and final rechecks, sets `GIT_NO_REPLACE_OBJECTS=1` and
+`GIT_GRAFT_FILE=/dev/null` after clearing inherited Git variables. Local replace
+refs and legacy info/grafts cannot rewrite the history used for cleanup. Alternates
+share object bytes only; source refs, grafts and config are never copied. Proof
+commands also disable commit-graph caches so ancestry comes from stored commits.
 Only canonical OIDs are decoded: file bytes never round-trip through text or patch
 hashes. Same-project, exact-head, stable-refresh, clean and identity guards remain.
 
