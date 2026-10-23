@@ -699,6 +699,8 @@ export class WorktreeService {
       );
       const expectedTree = (await run(["rev-parse", "--verify", `${expected}^{tree}`])).trim();
       if (!commitId.test(expectedTree)) return false;
+      // Config controls also work on Git versions whose merge-tree has no -X.
+      // The isolated repo has no other strategy or merge-driver configuration.
       const merged = (
         await run([
           "-c",
@@ -712,12 +714,10 @@ export class WorktreeService {
           "-c",
           "merge.directoryRenames=false",
           "-c",
-          "diff.algorithm=myers",
+          "diff.algorithm=histogram",
           "merge-tree",
           "--write-tree",
           "--no-messages",
-          "-Xno-renames",
-          "-Xdiff-algorithm=myers",
           left,
           head,
         ])

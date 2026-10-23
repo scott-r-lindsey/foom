@@ -649,7 +649,7 @@ Both containment and hint merges run in a disposable bare repository with a
 read-only view of the source object store. Global/system config and system
 attributes are disabled per subprocess. Main-owned info/attributes overrides
 versioned attributes with a built-in merge driver and no content conversion;
-fixed options disable renames and renormalization and select Myers diffing.
+fixed options disable renames and renormalization and retain built-in histogram diffing.
 Repository merge-driver definitions are never executed. Exact tree comparison
 preserves edit positions, binary data and line endings without decoding file bytes.
 Only ancestry exit 1 means ordinary non-ancestry, permitting the alternative hint.

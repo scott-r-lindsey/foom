@@ -75,7 +75,7 @@ Git config and system attributes are disabled for those subprocesses; no user
 config is edited. A main-owned info/attributes file forces the built-in text merge
 driver and disables text/EOL/filter/encoding conversion, overriding versioned
 attributes. Fixed options disable rename detection, directory renames and
-renormalization and select Myers diffing. Source repository merge drivers cannot
+renormalization and retain built-in histogram diffing. Source repository merge drivers cannot
 run or manufacture a successful tree. Temporary merge output is removed afterward.
 Only canonical OIDs are decoded: file bytes never round-trip through text or patch
 hashes. Same-project, exact-head, stable-refresh, clean and identity guards remain.

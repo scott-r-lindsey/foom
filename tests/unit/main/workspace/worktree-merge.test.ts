@@ -435,6 +435,8 @@ describe("merged worktree containment", () => {
     "GitHub unrelated merge ancestor",
   ])("refuses %s claims for unmerged work through offline real Git", async (mode) => {
     const original = await feature();
+    if (mode.includes("configured merge driver") || mode.includes("forced-text NUL"))
+      await mkdir(join(repo, ".git/info"), { recursive: true });
     if (mode.includes("CRLF")) await git("config", "core.autocrlf", "false");
     if (mode.includes("configured merge driver")) {
       await writeFile(join(repo, ".git/info/attributes"), "feature.txt merge=tamper\n");
