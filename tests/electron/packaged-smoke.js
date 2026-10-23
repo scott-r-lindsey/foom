@@ -17,6 +17,7 @@ const {
 const { tmpdir } = require("node:os");
 const { spawn, execFile, execFileSync } = require("node:child_process");
 const { chromium } = require("@playwright/test");
+const { electronLaunch } = require("./display-isolation.js");
 const { deadline, expect } = require("./test-policy.js");
 const { auditProcesses } = require("./process-audit.js");
 const { smokeDiagnostics } = require("./smoke-diagnostics.js");
@@ -27,6 +28,7 @@ const { getCurrentFuseWire, FuseV1Options } = require("@electron/fuses");
 test("packaged utility host runs native PTYs with RunAsNode disabled", {
   timeout: deadline(45000),
 }, async (context) => {
+  const display = electronLaunch({ env: process.env, args: [] });
   checkpoint("test started", { test: context.name });
   context.after(() => checkpoint("test hooks reached", { test: context.name }));
   const root =
@@ -142,7 +144,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   );
   const wire = await getCurrentFuseWire(executable);
   assert.equal(wire[FuseV1Options.RunAsNode], 48, "RunAsNode fuse is disabled");
-  const env = { ...process.env };
+  const env = display.env;
   delete env.ELECTRON_RUN_AS_NODE;
   // Main's inspector is disabled in the package. CDP reaches only the renderer;
   // the probe exercises the same restricted bridge as the shipped application.
@@ -184,6 +186,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   const child = spawn(
     executable,
     [
+      ...display.args,
       "--remote-debugging-port=0",
       `--user-data-dir=${profile}`,
       "--mute-audio",

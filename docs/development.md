@@ -149,7 +149,17 @@ rows and read-only terminal text, never a real agent screen. Separate disposable
 homes, profiles, and three fixture Git repositories are created for each theme
 and removed after the app quits. The existing Electron harness controls the login
 shell and PATH, guards agent/forge CLI probes, audits processes and mutes audio.
-No real agent CLI or user configuration is used.
+No real agent CLI or user configuration is used. The shared launch guard verifies
+that the display belongs to the capture's Xvfb wrapper and explicitly forces X11,
+even when invoked from a Wayland session.
+
+The capture entry point owns one temporary root containing every home, profile,
+fixture and Xvfb authority directory. SIGINT, SIGTERM and SIGHUP terminate the
+runner and detached app process groups, remove that root, and exit with the
+signal's conventional code (130, 143 or 129). Normal completion removes it too.
+To check existing images without overwriting them, run
+`FOOM_COMPARE_PRODUCT_SHOTS=1 pnpm run start:samples --screenshots`; a changed or
+missing image fails comparison.
 
 Captures use a 1440 × 900 content area at device scale 1 and interface size 100%,
 bundled fonts, a fixed clock, a fixed four-tile layout, reduced motion and a

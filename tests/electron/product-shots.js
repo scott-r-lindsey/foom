@@ -1,7 +1,7 @@
 // Invoked only by pnpm run start:samples --screenshots, outside feature discovery.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { mkdir, mkdtemp, writeFile } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { git } = require("../helpers/git.js");
@@ -119,7 +119,10 @@ for (const [theme, background] of [
         0,
         `${name} must be settled`,
       );
-      await writeFile(path.join(directory, `${theme}-${name}.png`), bytes);
+      const file = path.join(directory, `${theme}-${name}.png`);
+      if (process.env.FOOM_COMPARE_PRODUCT_SHOTS === "1") {
+        assert.equal(Buffer.compare(await readFile(file), bytes), 0, `${file} changed`);
+      } else await writeFile(file, bytes);
     }
   });
 }
