@@ -12,6 +12,7 @@ export interface CleanupOwnerDependencies {
   worktrees: Pick<
     WorktreeService,
     | "changes"
+    | "cleanupChanges"
     | "removalIdentity"
     | "launchIdentity"
     | "removeWorktree"
@@ -261,16 +262,23 @@ export class CleanupOwner {
       trees.map(async (tree) => {
         let reason: CleanupReason | undefined;
         if (tree.path === repository || tree.bare) reason = "main checkout";
-        else if (tree.locked || tree.prunable || !tree.branch) reason = "unavailable";
+        else if (tree.locked || tree.prunable) reason = "unavailable";
         else reason = this.sessionSkip(tree.path);
+        let changes = "";
         if (!reason) {
           try {
-            if (await this.deps.worktrees.changes(repository, tree.path))
+            changes = await this.deps.worktrees.changes(repository, tree.path);
+            if (changes.split("\0").some((entry) => entry && !entry.startsWith("?? ")))
               reason = "uncommitted changes";
-            else if (!(await this.deps.worktrees.mergedCommit(repository, tree, base)))
+            else if (tree.branch === null || changes) {
+              // Existing clean branch cleanup keeps its established policy.
+              if ((await this.deps.worktrees.cleanupChanges(repository, tree.path)) !== changes)
+                reason = "worktree changed";
+            }
+            if (!reason && !(await this.deps.worktrees.mergedCommit(repository, tree, base)))
               reason = "not merged";
           } catch {
-            reason = "unavailable";
+            reason = changes ? "uncommitted changes" : "unavailable";
           }
         }
         if (reason) return { tree, reason };
@@ -278,6 +286,7 @@ export class CleanupOwner {
           return {
             tree,
             reason,
+            changes,
             identity: await this.deps.worktrees.removalIdentity(repository, tree.path),
           };
         } catch {
@@ -328,7 +337,7 @@ export class CleanupOwner {
             for (const { tree } of removed) this.deps.releaseWorktree(repository, tree.branch);
           }
         },
-        remove: async ({ tree, identity }, base) => {
+        remove: async ({ tree, identity, changes = "" }, base) => {
           const revalidate = async () => {
             const current = (await this.deps.inventory(repository)).find(
               (item) => item.path === tree.path,
@@ -342,8 +351,15 @@ export class CleanupOwner {
               throw new KeptWorktree("worktree changed");
             const reason = this.sessionSkip(tree.path);
             if (reason) throw new KeptWorktree(reason);
-            if (await this.deps.worktrees.changes(repository, tree.path, identity))
-              throw new KeptWorktree("uncommitted changes");
+            if ((await this.deps.worktrees.changes(repository, tree.path, identity)) !== changes)
+              throw new KeptWorktree("worktree changed");
+            if (tree.branch === null || changes) {
+              if (
+                (await this.deps.worktrees.cleanupChanges(repository, tree.path, identity)) !==
+                changes
+              )
+                throw new KeptWorktree("worktree changed");
+            }
             // Re-read forge hints and local evidence; the displayed plan alone
             // never authorizes a later deletion.
             if (!(await this.deps.worktrees.mergedCommit(repository, current, base)))
@@ -355,9 +371,12 @@ export class CleanupOwner {
             tree.branch,
             // The run is already approved; removeTree revalidates immediately
             // after this callback and again around terminal shutdown and removal.
-            () => Promise.resolve(true),
+            (_branch, currentChanges) => {
+              if (currentChanges !== changes) throw new KeptWorktree("worktree changed");
+              return Promise.resolve(true);
+            },
             revalidate,
-            true,
+            tree.branch !== null,
           );
         },
       });

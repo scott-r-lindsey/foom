@@ -70,6 +70,7 @@ beforeEach(() => {
       launchIdentity: vi.fn(() => Promise.resolve("identity")),
       removalIdentity: vi.fn(() => Promise.resolve("identity")),
       changes: vi.fn(() => Promise.resolve("")),
+      cleanupChanges: vi.fn(() => Promise.resolve("")),
       mergedFetchTime: vi.fn(() => 1000),
       mergedDefault: vi.fn(() => Promise.resolve("base")),
       mergedCommit: vi.fn(() => Promise.resolve(false)),

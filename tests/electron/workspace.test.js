@@ -3025,8 +3025,10 @@ test("prunable removal offers a coded modal; Enter is inert, Escape restores foc
     return window.desktop.createWorktree(repositories[0].path, "error-prune-test", "root");
   });
   const { rm } = require("node:fs/promises");
-  await rm(path.join(tree.path, ".git"));
+  // Capture the ordinary action before the checkout breaks: the coded recovery
+  // remains available for stale rows alongside the new direct cleanup action.
   await page.getByRole("button", { name: "Actions for error-prune-test", exact: true }).click();
+  await rm(path.join(tree.path, ".git"));
   await page.getByRole("menuitem", { name: "Delete worktree…" }).click();
   const modal = page.getByRole("dialog", { name: "Action failed" });
   await expect(modal).toBeVisible();
@@ -3053,4 +3055,153 @@ test("prunable removal offers a coded modal; Enter is inert, Escape restores foc
   });
   assert.ok(branches.local.some((branch) => branch.name === "error-prune-test"));
   await assert.rejects(readFile(path.join(tree.path, ".git")), { code: "ENOENT" });
+});
+
+test("broken checkout shows Clean up directly and removes leftover content without panel-facts errors", async (context) => {
+  const app = await launchApp(context, { fixture: "repository" });
+  let page = await boardPage(app);
+  const repository = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories[0].path,
+  );
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "initial",
+    ],
+    { cwd: repository },
+  );
+  const tree = await page.evaluate(
+    async (repository) => window.desktop.createWorktree(repository, "broken-leftovers", "root"),
+    repository,
+  );
+  const { rm } = require("node:fs/promises");
+  await mkdir(path.join(tree.path, "node_modules"));
+  await writeFile(path.join(tree.path, "node_modules", "leftover"), "fixture content");
+  await rm(path.join(tree.path, ".git"));
+  await page.reload();
+  page = await boardPage(app);
+  await page.getByRole("button", { name: "Actions for broken-leftovers", exact: true }).click();
+  const panel = page.getByRole("dialog", { name: "broken-leftovers details and commands" });
+  await expect(panel.getByRole("menuitem")).toHaveCount(1);
+  await expect(panel.getByRole("menuitem", { name: "Clean up", exact: true })).toBeVisible();
+  await expect(panel.getByText("Broken checkout", { exact: true })).toBeVisible();
+  for (let refresh = 0; refresh < 2; refresh++) {
+    const facts = await page.evaluate(
+      async ({ repository, worktree }) => window.desktop.panelFacts(repository, worktree),
+      { repository, worktree: tree.path },
+    );
+    assert.equal(facts.changes, null);
+  }
+  await mkdir("screenshots-729", { recursive: true });
+  for (const colorMode of ["light", "dark"]) {
+    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), colorMode);
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
+      .toBe(colorMode);
+    await page.screenshot({
+      path: `screenshots-729/broken-${colorMode}.png`,
+      animations: "disabled",
+    });
+  }
+  await assertAccessible(page);
+  await panel.getByRole("menuitem", { name: "Clean up", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Actions for broken-leftovers", exact: true }),
+  ).toHaveCount(0);
+  await assert.rejects(readFile(path.join(tree.path, "node_modules", "leftover")), {
+    code: "ENOENT",
+  });
+  const branches = await page.evaluate(
+    async (repository) => window.desktop.branches(repository),
+    repository,
+  );
+  assert.ok(branches.local.some((branch) => branch.name === "broken-leftovers"));
+});
+
+test("group cleanup reviews untracked files and removes detached checkouts inside its root", async (context) => {
+  const remoteRoot = await mkdtemp(path.join(tmpdir(), "foom-729-remote-"));
+  removeAfterApps(context, remoteRoot);
+  const app = await launchApp(context, { fixture: "repository" });
+  const page = await boardPage(app);
+  const repository = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories[0].path,
+  );
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "initial",
+    ],
+    { cwd: repository },
+  );
+  const trees = [];
+  for (const branch of ["review-detached-a", "review-detached-b", "untracked-evidence"])
+    trees.push(
+      await page.evaluate(
+        async ({ repository, branch }) => window.desktop.createWorktree(repository, branch, "root"),
+        { repository, branch },
+      ),
+    );
+  for (const tree of trees.slice(0, 2)) isolatedGit(["checkout", "--detach"], { cwd: tree.path });
+  const remote = path.join(remoteRoot, "remote.git");
+  isolatedGit(["clone", "--bare", repository, remote], { cwd: repository });
+  isolatedGit(["remote", "add", "origin", remote], { cwd: repository });
+  await writeFile(path.join(trees[2].path, "screenshot.png"), "fixture evidence");
+  // Rebuild inventory after the fixture's external Git operations.
+  await page.reload();
+  await boardPage(app);
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.sidebarInventory())).repositories[0]?.mergedCount,
+    )
+    .toBe(3);
+  const name = path.basename(repository);
+  await page.getByRole("button", { name: `Actions for ${name}`, exact: true }).click();
+  await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
+  const confirmation = await confirmationPage(app);
+  await expect(
+    confirmation.getByRole("button", { name: "Force delete 3", exact: true }),
+  ).toBeVisible();
+  await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
+    "screenshot.png",
+  );
+  await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
+    "Detached at",
+  );
+  await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await mkdir("screenshots-729", { recursive: true });
+  for (const colorMode of ["light", "dark"]) {
+    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), colorMode);
+    await expect
+      .poll(() => confirmation.evaluate(() => document.documentElement.style.colorScheme))
+      .toBe(colorMode);
+    await confirmation.screenshot({
+      path: `screenshots-729/force-${colorMode}.png`,
+      animations: "disabled",
+    });
+  }
+  const accessibility = await new AxeBuilder({ page: confirmation }).setLegacyMode().analyze();
+  assert.deepEqual(
+    accessibility.violations.filter((violation) =>
+      ["serious", "critical"].includes(violation.impact),
+    ),
+    [],
+  );
+  await confirmation.getByRole("button", { name: "Force delete 3", exact: true }).click();
+  await expect(confirmation.getByRole("button", { name: "Done", exact: true })).toBeVisible();
+  await expect(confirmation.locator('[data-cleanup="removed"]')).toHaveCount(3);
+  for (const tree of trees) await assert.rejects(realpath(tree.path), { code: "ENOENT" });
+  await confirmation.getByRole("button", { name: "Done", exact: true }).click();
 });

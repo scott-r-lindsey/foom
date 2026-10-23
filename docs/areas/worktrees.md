@@ -108,3 +108,28 @@ entry. It rechecks the folder's identity after Git returns before removing only
 that folder. Missing folders need no deletion. Branches are never deleted. As
 with normal removal, this does not isolate filesystem entries from another local
 process replacing them concurrently.
+
+## Additional group cleanup candidates (#729)
+
+The existing explicit removal contract above is unchanged, including external
+linked checkouts and trusted confirmation of tracked changes. Group cleanup also
+accepts detached HEADs and untracked-only leftovers. These additional candidates
+must resolve strictly inside Foom's configured worktree root, pass ordinary
+membership/identity/lock checks, have no tracked changes and have zero commits
+absent from local remote refs (`rev-list HEAD --not --remotes`). Git errors refuse
+eligibility. The existing freshly fetched default and merge containment checks
+still apply. Clean branch candidates keep their established policy.
+
+The main-owned plan captures the complete NUL-delimited status. The trusted
+cleanup dialog lists up to 50 untracked paths per checkout, truncates long paths,
+and names the accept action Force delete when any candidate needs it. Revalidation
+compares the entire status with the approved snapshot and repeats the additional
+checks around terminal shutdown. Detached candidates share the existing null-branch
+reservation, so a group serializes their removals and releases that reservation
+after each one; there is no branch ref to delete.
+
+Known prunable inventory entries return unavailable panel facts without raising
+`worktree-prunable`. Their sidebar rows say Broken checkout and offer only
+Clean up, which reuses the guarded prune command above. Sessions must be closed
+first. The coded-error Prune recovery remains available for a checkout that became
+prunable after its row was rendered.

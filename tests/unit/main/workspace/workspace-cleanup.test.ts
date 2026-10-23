@@ -33,7 +33,7 @@ test("merged cleanup lists every skip rule and continues after a changed candida
   ]);
   vi.mocked(deps.worktrees.changes).mockImplementation((_repo, path) => {
     if (path === unavailable.path) throw new Error("gone");
-    return Promise.resolve(path === dirty.path ? "?? file\0" : "");
+    return Promise.resolve(path === dirty.path ? " M file\0" : "");
   });
   vi.mocked(deps.worktrees.mergedCommit).mockImplementation((_repo, tree) =>
     Promise.resolve(tree.path !== unmerged.path),
@@ -61,7 +61,7 @@ test("merged cleanup lists every skip rule and continues after a changed candida
       { branch: "external" },
       { branch: "main", reason: "main checkout" },
       { branch: "locked", reason: "unavailable" },
-      { branch: "Detached checkout", reason: "unavailable" },
+      { branch: "detached · Detached at abc", reason: "unavailable" },
       { branch: "prunable", reason: "unavailable" },
       { branch: "unmerged", reason: "not merged" },
       { branch: "unavailable", reason: "unavailable" },

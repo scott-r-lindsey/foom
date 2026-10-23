@@ -142,3 +142,23 @@ it("reads the unambiguous forge remote locally without fetching", async () => {
   await git("remote", "add", "second", "https://example.invalid/other");
   expect(await service.forgeRemote(repo)).toBeUndefined();
 });
+
+it("returns unavailable facts for a known prunable checkout without raising worktree-prunable", async () => {
+  const { path } = await service.createWorktree(repo, "broken");
+  await rm(join(path, ".git"));
+  await writeFile(join(path, "leftover"), "keep until cleanup");
+  for (let refresh = 0; refresh < 2; refresh++)
+    await expect(service.panelFacts(repo, path)).resolves.toEqual({
+      changes: null,
+      upstream: null,
+      commit: null,
+      remote: null,
+      defaultBranch: null,
+      lastFetch: null,
+      fetchFailed: false,
+      merged: null,
+    });
+  await expect(service.panelFacts(repo, join(root, "not-recorded"))).rejects.toThrow(
+    "worktree-missing",
+  );
+});

@@ -234,7 +234,9 @@ describe("merged worktree containment", () => {
       expect(await service.mergedCommit(repo, tree, base)).toBe(
         mode !== "unmerged" && mode !== "reverted",
       );
-      expect(await service.mergedCommit(repo, { ...tree, branch: null }, base)).toBe(false);
+      expect(await service.mergedCommit(repo, { ...tree, branch: null }, base)).toBe(
+        mode === "merge" || mode === "squash" || mode === "rebase",
+      );
       await expect(service.mergedCommit(repo, tree, "--bad")).rejects.toThrow("Invalid commit");
       await expect(service.mergedCommit(repo, { ...tree, head: "bad" }, base)).rejects.toThrow(
         "Invalid commit",
@@ -527,3 +529,84 @@ it("status inspection never refreshes the index during concurrent cleanup", asyn
   await execute(["status", "--porcelain=v1"], { cwd: path });
   expect(await readFile(index)).not.toEqual(before);
 });
+
+it.each(["detached", "untracked", "unpushed", "tracked", "external"])(
+  "group cleanup handles %s with real repositories without changing explicit removal policy",
+  async (mode) => {
+    const path = (await service.createWorktree(repo, "group-cleanup")).path;
+    const other = join(root, "review-second");
+    if (mode === "detached") {
+      await execute(["checkout", "--detach"], { cwd: path });
+      await git("worktree", "add", "--detach", other, "HEAD");
+    }
+    const upstream = join(temporary, "remote.git");
+    await git("clone", "--bare", repo, upstream);
+    await git("remote", "add", "origin", upstream);
+    if (mode === "untracked" || mode === "unpushed")
+      await writeFile(join(path, "screenshots.png"), "evidence");
+    if (mode === "unpushed")
+      await execute(
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "unpushed",
+        ],
+        { cwd: path },
+      );
+    if (mode === "tracked") {
+      await writeFile(join(path, "staged.txt"), "keep");
+      await execute(["add", "."], { cwd: path });
+    }
+    let target = path;
+    if (mode === "external") {
+      target = join(temporary, "external-review");
+      await git("worktree", "add", "--detach", target, "HEAD");
+      await service.removeWorktree(repo, path);
+    }
+    const workspace = new Workspace({
+      worktrees: service,
+      terminals: {
+        create: () => Promise.reject(new Error("No launch")),
+        stop: () => Promise.resolve(),
+        kill: () => Promise.resolve(),
+        tail: () => Promise.resolve([]),
+      },
+      verdicts: {
+        forget: vi.fn(),
+        classify: () => Promise.reject(new Error("No verdict")),
+        commit: () => Promise.resolve(),
+        recordAction: () => Promise.resolve(),
+      },
+      receiver: () => Promise.reject(new Error("No hooks")),
+      onState: () => {},
+    });
+    try {
+      await workspace.sidebarCommand(
+        { kind: "delete-merged-worktrees", repository: repo },
+        async (request) => {
+          if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+          await vi.waitFor(() => {
+            expect(request.feed?.current().stage).toBe("ready");
+          });
+          const items = request.feed.current().progress.items;
+          if (mode === "untracked")
+            expect(items.find((item) => item.branch === "group-cleanup")?.changes).toBe(
+              "?? screenshots.png",
+            );
+          return true;
+        },
+      );
+      if (mode === "detached" || mode === "untracked") {
+        await expect(realpath(target)).rejects.toThrow();
+        if (mode === "detached") await expect(realpath(other)).rejects.toThrow();
+      } else expect(await realpath(target)).toBe(target);
+    } finally {
+      await workspace.dispose();
+    }
+  },
+);

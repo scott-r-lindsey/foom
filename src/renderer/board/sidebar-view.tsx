@@ -419,46 +419,61 @@ export function Sidebar(props: SidebarProps) {
                               }}
                               actions={
                                 !worktree.removed &&
-                                actions(wid, name, [
-                                  ...launchers(target),
-                                  {
-                                    label: "Resume conversation…",
-                                    expanded: menu?.id === wid && fieldOpen,
-                                    run: () => {
-                                      const anchor = anchorsRef.current.get(wid);
-                                      if (anchor) openField(wid, anchor);
-                                    },
-                                  },
-                                  ...(source.previews && !worktree.bare
+                                actions(
+                                  wid,
+                                  name,
+                                  worktree.prunable
                                     ? [
                                         {
-                                          label: "Preview file…",
-                                          run: () => pickPreview?.(worktree.path),
+                                          label: "Clean up",
+                                          glyph: "trash",
+                                          disabled: rows.some(
+                                            (session) => rowWorktree(session) === target.worktree,
+                                          ),
+                                          run: () => command({ kind: "prune-worktree", ...target }),
                                         },
                                       ]
-                                    : []),
-                                  ...(!main && !worktree.bare
-                                    ? [
-                                        null,
+                                    : [
+                                        ...launchers(target),
                                         {
-                                          label: "Delete worktree…",
-                                          disabled: rows.some(
-                                            (session) =>
-                                              rowRepository(session) === target.repository &&
-                                              rowWorktree(session) === target.worktree &&
-                                              !session.exited,
-                                          ),
-                                          glyph: "trash" as const,
+                                          label: "Resume conversation…",
+                                          expanded: menu?.id === wid && fieldOpen,
                                           run: () => {
-                                            return command({
-                                              kind: "remove-worktree",
-                                              ...target,
-                                            });
+                                            const anchor = anchorsRef.current.get(wid);
+                                            if (anchor) openField(wid, anchor);
                                           },
                                         },
-                                      ]
-                                    : []),
-                                ])
+                                        ...(source.previews && !worktree.bare
+                                          ? [
+                                              {
+                                                label: "Preview file…",
+                                                run: () => pickPreview?.(worktree.path),
+                                              },
+                                            ]
+                                          : []),
+                                        ...(!main && !worktree.bare
+                                          ? [
+                                              null,
+                                              {
+                                                label: "Delete worktree…",
+                                                disabled: rows.some(
+                                                  (session) =>
+                                                    rowRepository(session) === target.repository &&
+                                                    rowWorktree(session) === target.worktree &&
+                                                    !session.exited,
+                                                ),
+                                                glyph: "trash" as const,
+                                                run: () => {
+                                                  return command({
+                                                    kind: "remove-worktree",
+                                                    ...target,
+                                                  });
+                                                },
+                                              },
+                                            ]
+                                          : []),
+                                      ],
+                                )
                               }
                             >
                               {expanded && (

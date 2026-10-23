@@ -376,6 +376,22 @@ export class WorktreeService {
     ]);
   }
 
+  /** Extra guard for newly eligible detached and untracked-only group cleanup. */
+  async cleanupChanges(repository: string, path: string, identity?: string): Promise<string> {
+    const expected = identity ?? (await this.removalIdentity(repository, path));
+    assertInside(await realpath(this.root), await realpath(path));
+    const changes = await this.changes(repository, path, expected);
+    if (changes.split("\0").some((entry) => entry && !entry.startsWith("?? ")))
+      throw new Error("Tracked changes prevent cleanup");
+    // No remote refs (or any Git error) must never authorize a new cleanup path.
+    const unpushed = (
+      await git(path, ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"])
+    ).trim();
+    if (unpushed !== "0") throw new Error("Unpushed commits prevent cleanup");
+    await this.checkRemovalIdentity(repository, path, expected);
+    return changes;
+  }
+
   /** Local refs only: the branch field never waits on the network. */
   async branches(repositoryPath: string): Promise<BranchInventory> {
     const repository = this.repository(repositoryPath);
@@ -480,7 +496,23 @@ export class WorktreeService {
 
   /** Authorize even cache hits. Opening a panel never starts or awaits a network fetch. */
   async panelFacts(repository: string, worktree: string): Promise<GitPanelFacts> {
-    const identity = await this.launchIdentity(repository, worktree);
+    let identity: string;
+    try {
+      identity = await this.launchIdentity(repository, worktree);
+    } catch (error) {
+      if (!(error instanceof ApplicationError) || error.code !== "worktree-prunable") throw error;
+      // Known inventory state, not a failed panel operation.
+      return {
+        changes: null,
+        upstream: null,
+        commit: null,
+        remote: null,
+        defaultBranch: null,
+        lastFetch: null,
+        fetchFailed: false,
+        merged: null,
+      };
+    }
     const key = `${repository}\0${worktree}`;
     const cached = this.panelCache.get(key);
     if (cached?.identity === identity && Date.now() - cached.time < 3000) return cached.result;
@@ -576,9 +608,12 @@ export class WorktreeService {
   }
 
   async mergedCommit(repository: string, tree: Worktree, base: string): Promise<boolean> {
-    if (!tree.branch || !tree.head || this.fetchFacts.get(repository)?.branch === tree.branch)
+    if (
+      !tree.head ||
+      (tree.branch !== null && this.fetchFacts.get(repository)?.branch === tree.branch)
+    )
       return false;
-    await this.validateBranch(repository, tree.branch);
+    if (tree.branch) await this.validateBranch(repository, tree.branch);
     if (!/^[a-f0-9]{40,64}$/u.test(base) || !/^[a-f0-9]{40,64}$/u.test(tree.head))
       throw new Error("Invalid commit ID");
     const defaultTree = (await git(repository, ["rev-parse", `${base}^{tree}`])).trim();

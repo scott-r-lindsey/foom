@@ -128,6 +128,7 @@ beforeEach(async () => {
       validateBranch: vi.fn(async () => {}),
       launchIdentity: vi.fn(() => Promise.resolve("identity")),
       removalIdentity: vi.fn(() => Promise.resolve("identity")),
+      cleanupChanges: vi.fn(() => Promise.reject(new Error("unsafe cleanup"))),
       changes: vi.fn(() => Promise.resolve("")),
       mergedFetchTime: vi.fn(() => 1000),
       mergedDefault: vi.fn(() => Promise.resolve("base")),

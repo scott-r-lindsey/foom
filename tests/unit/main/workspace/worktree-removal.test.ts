@@ -266,3 +266,82 @@ describe("pruning stale worktrees", () => {
     }),
   );
 });
+
+// These restrictions belong to group cleanup; explicit removal retains its
+// existing dirty/external-checkout confirmation policy.
+describe("new group cleanup guards", () => {
+  it.each([
+    "branch",
+    "detached",
+    "untracked",
+    "tracked",
+    "staged",
+    "unpushed",
+    "no-remote",
+    "outside",
+    "redirected",
+    "git-error",
+  ])("checks %s checkouts with real Git", async (mode) => {
+    const { path } = await service.createWorktree(repo, "cleanup");
+    await writeFile(join(path, "tracked.txt"), "original");
+    await execute(["add", "."], { cwd: path });
+    await execute(
+      ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "tracked"],
+      { cwd: path },
+    );
+    if (mode !== "no-remote") {
+      // A local bare fixture is the only remote. No network or real worktrees.
+      const remote = join(temporary, "remote.git");
+      await git("clone", "--bare", repo, remote);
+      await git("remote", "add", "origin", remote);
+      await git("fetch", "origin");
+    }
+    let target = path;
+    if (mode === "outside") {
+      target = join(temporary, "external");
+      await git("worktree", "add", "--detach", target, "cleanup");
+    }
+    if (mode === "redirected") {
+      const moved = join(temporary, "moved-cleanup");
+      await rename(path, moved);
+      await symlink(moved, path, "junction");
+    }
+    if (mode === "detached") await execute(["checkout", "--detach"], { cwd: path });
+    if (mode === "untracked") await writeFile(join(path, "screenshots.png"), "evidence");
+    if (mode === "tracked" || mode === "staged") {
+      await writeFile(join(path, "tracked.txt"), "changed");
+      if (mode === "staged") await execute(["add", "."], { cwd: path });
+    }
+    if (mode === "unpushed")
+      await execute(
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "local only",
+        ],
+        { cwd: path },
+      );
+    if (mode === "git-error")
+      vi.spyOn(service, "changes").mockRejectedValueOnce(new Error("Git failed"));
+    if (["branch", "detached", "untracked"].includes(mode)) {
+      const identity = await service.removalIdentity(repo, target);
+      expect(await service.cleanupChanges(repo, target, identity)).toBe(
+        mode === "untracked" ? "?? screenshots.png\0" : "",
+      );
+    } else await expect(service.cleanupChanges(repo, target)).rejects.toThrow();
+    expect(await stat(target)).toBeTruthy();
+  });
+});
+
+it("prunes an empty broken folder", async () => {
+  const { path } = await service.createWorktree(repo, "empty-broken");
+  await rm(join(path, ".git"));
+  await service.pruneWorktree(repo, path);
+  await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await git("branch", "--list", "empty-broken")).toContain("empty-broken");
+});

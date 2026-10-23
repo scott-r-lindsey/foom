@@ -173,6 +173,7 @@ export interface WorkspaceDependencies {
     | "adoptWorktree"
     | "validateBranch"
     | "changes"
+    | "cleanupChanges"
     | "removalIdentity"
     | "launchIdentity"
     | "pruneWorktree"

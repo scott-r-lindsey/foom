@@ -30,7 +30,7 @@ Finished runs offer **Done**. The sidebar shows the same count and queued, remov
 removed, kept or error tags; a completion status reports the result when hidden.
 Removing uses the highlight, errors use failure ink, and reduced motion disables
 sweep and fold animations. Main checkouts, locked,
-prunable or detached worktrees, running sessions, dirty/untracked files and
+prunable worktrees, running sessions, tracked changes and
 exited resumable Claude/Codex/Antigravity conversations are retained. After confirmation,
 Foom fetches again, revalidates each candidate before and after stopping its
 exited terminal resources, then uses the existing safe removal path with at most
@@ -84,3 +84,21 @@ across it once and it flares twice in the accent (never amber: nothing needs you
 then keeps a tint and accent edge until hovered or focus leaves it. With reduced motion
 it shows the tint and edge without animating. The arrival is view state: it does not
 survive a reload or appear in other windows.
+
+### Detached and leftover checkouts
+
+Delete merged worktrees also considers detached HEADs and checkouts with only
+untracked files. These additional candidates must be inside Foom's worktree root,
+have no unpushed commits and satisfy the same merge checks. The confirmation lists
+untracked paths (up to 50 per checkout, with long paths shortened) and offers
+**Force delete**. Changed files or commits invalidate the approval. Detached rows
+in the checklist name the folder and short commit; they have no branch to delete.
+
+A prunable checkout shows **Broken checkout** in the sidebar and offers a single
+**Clean up** command. Close its sessions first. Cleanup reuses the existing safe
+prune operation, removes the recorded leftover folder only inside Foom's worktree
+root with no `.git` entry, and keeps branches. Known broken checkouts show
+unavailable Git facts without logging an error on each panel refresh.
+
+Ordinary **Delete worktree…** keeps its existing explicit confirmation behavior,
+including **Discard changes and remove** and external linked checkouts.
