@@ -1174,6 +1174,9 @@ async function walkCleanupDirectory(root: string, checkout: boolean): Promise<st
     const directory = await opendir(path);
     for await (const entry of directory) {
       if (--remaining < 0) throw new Error("Cleanup directory walk exceeded its limit");
+      // Dirent strings replace invalid filename bytes. Never inspect a different
+      // sibling through a lossy name (including a literal replacement character).
+      if (entry.name.includes("\ufffd")) throw new Error("Cannot inspect cleanup directory names");
       if (entry.name.toLowerCase() === ".git") {
         if (checkout && depth === 0) continue;
         throw new Error("Nested repositories prevent cleanup");

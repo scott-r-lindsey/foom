@@ -622,3 +622,52 @@ it("isolates cleanup reads from global and system filter configuration", async (
   vi.stubEnv("XDG_CONFIG_HOME", config);
   expect(await service.cleanupChanges(repo, path)).toBe("");
 });
+
+it.skipIf(process.platform !== "linux")(
+  "refuses ambiguous filename decoding without overlooking a nested repository",
+  async () => {
+    const rawDirectory = (base: string) =>
+      Buffer.concat([Buffer.from(`${base}/`), Buffer.from([0xff])]);
+    const rawFile = (base: string, suffix: string) =>
+      Buffer.concat([rawDirectory(base), Buffer.from(`/${suffix}`)]);
+    await mkdir(rawDirectory(repo));
+    await mkdir(join(repo, "\ufffd"));
+    await writeFile(rawFile(repo, "tracked.txt"), "outer contents");
+    await writeFile(join(repo, "\ufffd", "tracked.txt"), "outer contents");
+    await git("add", ".");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "Distinct raw and Unicode names",
+    );
+    const { path } = await service.createWorktree(repo, "raw-nested-review");
+    await git("clone", "--bare", repo, join(temporary, "remote.git"));
+    await git("remote", "add", "origin", join(temporary, "remote.git"));
+    await git("fetch", "origin");
+    const nested = join(temporary, "independent");
+    await mkdir(nested);
+    await execute(["init", "-b", "main"], { cwd: nested });
+    await writeFile(join(nested, "tracked.txt"), "outer contents");
+    await execute(["add", "."], { cwd: nested });
+    await execute(
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-m",
+        "Independent nested history",
+      ],
+      { cwd: nested },
+    );
+    await rename(join(nested, ".git"), rawFile(path, ".git"));
+    expect((await execute(["status", "--porcelain"], { cwd: path })).stdout).toBe("");
+    await expect(service.cleanupChanges(repo, path)).rejects.toThrow();
+    expect((await stat(rawFile(path, ".git/objects"))).isDirectory()).toBe(true);
+  },
+);

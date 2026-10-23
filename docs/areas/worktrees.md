@@ -163,7 +163,8 @@ strip inherited `GIT_*` directory/index selectors. Worktree configuration files,
 enabled `extensions.worktreeConfig`, `core.worktree` and bare configuration are
 refused, and the canonical `rev-parse --show-toplevel` must match the registered
 checkout. A streaming, non-symlink-following walk includes ignored directories,
-refuses nested `.git` markers, and fails closed on errors, directory changes,
+refuses nested `.git` markers and ambiguous filename decoding, and fails closed
+on errors, directory changes,
 more than 10,000 entries or depth over 64. For the additional detached/leftover candidates, the checkout’s own admin reflogs
 (including HEAD and per-worktree logs) must be present, readable and bounded;
 every old and new commit must be reachable from remote-tracking refs. Reflog
