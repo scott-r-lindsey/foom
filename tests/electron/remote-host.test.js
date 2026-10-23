@@ -166,7 +166,7 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   );
   await page.keyboard.press("Enter");
   await expect.poll(tail).toContain("REMOTE_READY:STILL_ALIVE:");
-  await expect.poll(tail).toContain(remoteHome);
+  await expect.poll(async () => (await tail()).replaceAll("\n", "")).toContain(remoteHome);
   const before = await tail();
   const pid = before.match(/REMOTE_READY:STILL_ALIVE:(\d+)/)?.[1];
   assert.ok(pid);
