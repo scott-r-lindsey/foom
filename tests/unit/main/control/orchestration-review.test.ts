@@ -43,6 +43,83 @@ function fixture() {
 }
 
 describe("orchestration review authority and reservations", () => {
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])(
+    "advances an authenticated done handoff without further author activity (blocked: %s, natural exit: %s)",
+    async (blocked, naturalExit) => {
+      const h = fixture();
+      try {
+        const id = await h.launch();
+        const row = h.rows.get(id);
+        if (!row) throw new Error("missing author");
+        const grant = h.service.prepare(repo, row.worktree, "agent", "parent");
+        grant.bind(id);
+        const actor = h.service.authenticate(grant.env["FOOM_CONTROL_TOKEN"] ?? "");
+        const report = (status: "blocked" | "done") =>
+          h.service.call(actor, {
+            version: 1,
+            instanceId: h.service.instanceId,
+            method: "handoff",
+            params: { status, summary: "Result", idempotencyKey: status },
+          });
+        const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+        if (blocked) {
+          await report("blocked");
+          await settle();
+          expect(h.orchestration.reviews.view(id)).toMatchObject({
+            phase: "waiting-on-parent",
+            round: 0,
+          });
+          await h.mutate("prompt", { id, text: "Proceed" });
+          h.advance(10_000);
+        }
+        row.state = {
+          id,
+          verdictId: null,
+          state: "done",
+          reason: "Turn finished",
+          signal: "hook:stop",
+          confidence: 1,
+          timestamp: 1,
+        };
+        let release: (() => void) | undefined;
+        if (naturalExit)
+          h.snapshot.mockImplementationOnce(
+            () =>
+              new Promise((resolve) => {
+                release = () => {
+                  resolve({ head: "head", digest: "initial" });
+                };
+              }),
+          );
+        await report("done");
+        // The accepted handoff must wake automation itself, without a manual sync
+        // or any later output, hook, PR update, or prompt from the author.
+        await settle();
+        if (naturalExit) {
+          h.exit(id);
+          release?.();
+          await settle();
+        }
+        if (!naturalExit) {
+          expect(h.host.stop).toHaveBeenCalledExactlyOnceWith(id);
+          expect(h.host.launch).toHaveBeenCalledTimes(1);
+          await settle();
+          expect(h.host.stop).toHaveBeenCalledTimes(1);
+          h.exit(id);
+          await settle();
+        } else expect(h.host.stop).not.toHaveBeenCalled();
+        expect(h.orchestration.reviews.view(id)).toMatchObject({ phase: "reviewing", round: 1 });
+        expect(h.host.launch).toHaveBeenCalledTimes(2);
+      } finally {
+        h.orchestration.disposeUnreadChildren();
+      }
+    },
+  );
   it("launches ordinary owned reviewers and resumes the same author without using the PTY input capability", async () => {
     const h = fixture();
     const id = await h.launch();
