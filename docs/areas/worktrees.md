@@ -128,9 +128,10 @@ from the checkout’s own `rev-parse --git-path`; refs are read inside that chec
 Cleanup status and index reads disable fsmonitor and untracked-cache, force
 `core.ignorecase=false`, `diff.ignoreSubmodules=none` and
 `status.showUntrackedFiles=all` with command-scoped Git options. Case-colliding
-leftovers are refused. The index is compared before and after status, and HEAD
-and filesystem identity are rechecked. Git errors refuse eligibility. The existing
-freshly fetched default and merge containment checks still apply. Clean branch
+leftovers are refused. Index listings are compared across metadata checks, and HEAD
+and filesystem identity are rechecked. Status is the final asynchronous read, so
+a tracked save during a preceding validation await invalidates approval. Git errors
+refuse eligibility. The existing freshly fetched default and merge containment checks still apply. Clean branch
 candidates keep their established location and remote-ref policy while sharing
 the snapshot guards.
 

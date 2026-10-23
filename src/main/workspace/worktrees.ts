@@ -473,6 +473,13 @@ export class WorktreeService {
     )
       throw new Error("Submodules prevent cleanup");
     await this.checkCleanupState(path);
+    if ((await read(["ls-files", "-v", "--stage", "-z", "--"])) !== index)
+      throw new Error("Index changed during cleanup checks");
+    await this.checkRemovalIdentity(repository, path, expected);
+    if ((await read(["rev-parse", "--verify", "HEAD^{commit}"])).trim() !== expectedHead)
+      throw new Error("HEAD changed during cleanup checks");
+    // Keep status last: a tracked save during any preceding validation await
+    // must be visible to the approved-snapshot comparison next to Git removal.
     const changes = await read([
       "status",
       "--porcelain=v1",
@@ -495,11 +502,6 @@ export class WorktreeService {
       )
     )
       throw new Error("Case-colliding paths prevent cleanup");
-    if ((await read(["ls-files", "-v", "--stage", "-z", "--"])) !== index)
-      throw new Error("Index changed during cleanup checks");
-    await this.checkRemovalIdentity(repository, path, expected);
-    if ((await read(["rev-parse", "--verify", "HEAD^{commit}"])).trim() !== expectedHead)
-      throw new Error("HEAD changed during cleanup checks");
     return changes;
   }
 
@@ -554,21 +556,21 @@ export class WorktreeService {
     head?: string | null,
   ): Promise<string> {
     const expected = identity ?? (await this.removalIdentity(repository, path));
+    const expectedHead =
+      head ?? (await git(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
     assertInside(await realpath(this.root), await realpath(path));
-    const changes = await this.cleanupStatus(repository, path, expected, head);
+    const unpushed = (
+      await git(path, ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"])
+    ).trim();
+    if (unpushed !== "0") throw new Error("Unpushed commits prevent cleanup");
+    const changes = await this.cleanupStatus(repository, path, expected, expectedHead);
+    // No asynchronous work after cleanupStatus's final status read.
     if (
       changes
         .split("\0")
         .some((entry) => entry && !entry.startsWith("?? ") && !entry.startsWith("!! "))
     )
       throw new Error("Tracked changes prevent cleanup");
-    const unpushed = (
-      await git(path, ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"])
-    ).trim();
-    if (unpushed !== "0") throw new Error("Unpushed commits prevent cleanup");
-    await this.checkRemovalIdentity(repository, path, expected);
-    if (head && (await git(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim() !== head)
-      throw new Error("HEAD changed during cleanup checks");
     return changes;
   }
 

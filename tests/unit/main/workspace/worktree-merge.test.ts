@@ -1015,3 +1015,58 @@ it("ignored-only leftovers are reviewed and removed without force", async () => 
     await workspace.dispose();
   }
 });
+
+it("preserves a tracked save during the final cleanup snapshot identity await", async () => {
+  await writeFile(join(repo, "tracked.txt"), "original");
+  await git("add", ".");
+  await git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "tracked");
+  const { path } = await service.createWorktree(repo, "final-snapshot-race");
+  await git("clone", "--bare", repo, join(temporary, "remote.git"));
+  await git("remote", "add", "origin", join(temporary, "remote.git"));
+  await writeFile(join(path, "approved.png"), "approved evidence");
+  let afterPreview = false;
+  let snapshot = 0;
+  let saved = false;
+  const status = service.cleanupStatus.bind(service);
+  vi.spyOn(service, "cleanupStatus").mockImplementation(async (...args) => {
+    if (afterPreview) snapshot++;
+    return status(...args);
+  });
+  const identity = service.removalIdentity.bind(service);
+  vi.spyOn(service, "removalIdentity").mockImplementation(async (...args) => {
+    const result = await identity(...args);
+    // The first post-preview snapshot belongs to merge revalidation. The
+    // second is the final approved snapshot, adjacent to forced Git removal.
+    if (snapshot === 2 && !saved) {
+      saved = true;
+      await writeFile(join(path, "tracked.txt"), "saved during final identity check");
+    }
+    return result;
+  });
+  const workspace = cleanupWorkspace({
+    prepareWorktreeRemoval: () => {
+      afterPreview = true;
+      return Promise.resolve(() => {});
+    },
+  });
+  try {
+    await workspace.sidebarCommand(
+      { kind: "delete-merged-worktrees", repository: repo },
+      async (request) => {
+        if (request.kind !== "merged-worktrees" || !request.feed)
+          throw new Error("Missing cleanup");
+        await vi.waitFor(() => {
+          expect(request.feed?.current().stage).toBe("ready");
+        });
+        return true;
+      },
+    );
+    expect(saved).toBe(true);
+    expect(await readFile(join(path, "tracked.txt"), "utf8")).toBe(
+      "saved during final identity check",
+    );
+    expect(await readFile(join(path, "approved.png"), "utf8")).toBe("approved evidence");
+  } finally {
+    await workspace.dispose();
+  }
+});
