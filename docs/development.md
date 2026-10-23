@@ -106,7 +106,7 @@ file can be deleted to force a miss. Reference and generated output directories
 are excluded. `pnpm run lint` and `pnpm run lint:fix` remain uncached.
 
 `pnpm run check:local` overlaps that local lint with one sequential lane of format,
-typecheck, unit tests and CI-policy tests. At most two stages run simultaneously;
+documentation integrity, typecheck, unit tests and CI-policy tests. At most two stages run simultaneously;
 unit/native tests never overlap CI-policy tests. Vitest uses at most four workers
 (and fewer on small machines); explicit native-test serialization still wins.
 Every stage finishes and failures are aggregated into a nonzero exit. Use the sequential authoritative gate on
