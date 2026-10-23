@@ -135,3 +135,27 @@ restored participants, do not advance on later invalidations.
 `postFindings: true` explicitly asks the reviewer to post its verdict and findings
 as a PR review comment using its own `gh` login. It is off by default. Main stores
 no forge tokens and performs no write; posting is the agent's own CLI action.
+
+Settings → General **Close finished agents** defaults to on. Existing child-event
+invalidations check exited owned agents: reviewers become eligible only after the
+loop accepts their verdict and observes their exit; authors and ordinary children
+need a MERGED or CLOSED PR. Active loop authors (including waiting on parent) stay
+open until the loop is clean or ended. Needs-you/unread attention, blocked sessions,
+takeover, starting or running sessions and children without a PR stay open (accepted
+reviewers need no PR). The normal sidebar close path discards the final screen and
+removes the tile and row, keeping the checkout, branch and remaining loop state.
+Closing an accepted reviewer must not cancel its author's loop. Automatic closes
+persist normal close intent and recheck the live parent, ownership, setting and
+eligibility after that write; audit failure leaves the session visible. Disabling
+the switch retains finished sessions. No polling, new timer, Git command or forge request is
+added; unchanged metadata settles, and failed close attempts retain the session
+without automatic retries.
+
+Loop attention is projected onto the parent: an author with unread review attention
+is ineligible even when its own row is quiet. Automatic close always leaves at least
+one loop participant on the board, retaining the review record and its persistence;
+the final participant requires explicit close, including after acknowledgment.
+PR-based closure uses only a successful observation after the exit-triggered
+recheck has settled. A response from an older in-flight read cannot qualify. The
+existing forge completion invalidation wakes closure even for unchanged PR metadata;
+the settled read is checked synchronously again immediately before close.

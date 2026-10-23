@@ -48,6 +48,7 @@ export class ControlService {
       Partial<
         Pick<
           Orchestration,
+          | "bindAutomation"
           | "childLimit"
           | "pullRequest"
           | "canHandoff"
@@ -122,6 +123,7 @@ export class ControlService {
           parentId,
           terminalId,
         });
+        this.orchestration?.bindAutomation?.(grant.principal, this.operations);
         if (mcp) {
           grant.mcp = "connecting";
           grant.mcpTimer = setTimeout(() => {
@@ -295,6 +297,7 @@ export class ControlService {
       parentId: null,
       grantedAt: new Date().toISOString(),
     });
+    this.orchestration?.bindAutomation?.(grant.principal, this.operations);
     if (current.role === "orchestrator") {
       this.operations.revoke(current);
       this.previews?.revoke(current);

@@ -207,17 +207,33 @@ for (const showNewChildren of [true, false]) {
     await expect
       .poll(async () => (await call("session_state", { id: child.resultId })).state)
       .toBe("exited");
-    const close = await tool("close", { id: child.resultId, idempotencyKey: "close-child" });
-    assert.equal(close.status, "succeeded");
+    let close;
+    if (showNewChildren) {
+      await writeFile(forgeState, JSON.stringify({ pr: { state: "MERGED" }, checks: [] }));
+      await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: true }));
+      await expect
+        .poll(
+          async () =>
+            (await page.evaluate(() => window.desktop.workspace())).terminals.some(
+              (row) => row.id === child.resultId,
+            ),
+          { timeout: deadline(60000) },
+        )
+        .toBe(false);
+    } else {
+      close = await tool("close", { id: child.resultId, idempotencyKey: "close-child" });
+      assert.equal(close.status, "succeeded");
+    }
     await expect(page.locator(`[data-drag-session="${child.resultId}"]`)).toHaveCount(0);
     await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(1);
     await expect(input).toBeFocused();
     assert.ok(existsSync(childRow.worktree));
     assert.match(git("branch", "--list", "child-one"), /child-one/);
-    assert.equal(
-      (await tool("close", { id: child.resultId, idempotencyKey: "close-child" })).operationId,
-      close.operationId,
-    );
+    if (close)
+      assert.equal(
+        (await tool("close", { id: child.resultId, idempotencyKey: "close-child" })).operationId,
+        close.operationId,
+      );
   });
 }
 

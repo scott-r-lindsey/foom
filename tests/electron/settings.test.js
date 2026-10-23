@@ -738,6 +738,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     hooks: true,
     restoreSessions: true,
     showNewChildren: true,
+    closeFinishedAgents: true,
     concurrentChildren: 4,
     recentRepositoryDays: 30,
     unreadChildMinutes: 5,
@@ -2716,4 +2717,40 @@ test("nested repository names follow the General toggle and retain their identit
   await expect(page.getByRole("menuitem", { name: "Action log", exact: true })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: /^Developer tools/ })).toBeVisible();
   await screenshot("developer-submenu-linux");
+});
+
+test("General close finished agents defaults on and saves immediately", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  const control = page.getByRole("checkbox", { name: "Close finished agents", exact: true });
+  await expect(control).toBeChecked();
+  await control.uncheck();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.setupState())).settings.closeFinishedAgents,
+    )
+    .toBe(false);
+  await control.check();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.setupState())).settings.closeFinishedAgents,
+    )
+    .toBe(true);
+  if (process.env.FOOM_CAPTURE_745 === "1") {
+    await mkdir("screenshots-745", { recursive: true });
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await expect
+        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+        .toBe(mode === "dark");
+      await control.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `screenshots-745/general-${mode}.png` });
+    }
+  }
+  await assertAccessible(page);
 });
