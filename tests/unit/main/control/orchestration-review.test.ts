@@ -50,6 +50,9 @@ describe("orchestration review authority and reservations", () => {
     if (!row) throw new Error("missing author");
     row.conversationId = "author-conversation";
     h.report(id);
+    await h.sync();
+    expect(h.host.stop).toHaveBeenLastCalledWith(id);
+    expect(h.host.launch).toHaveBeenCalledTimes(1);
     h.exit(id);
     await h.sync();
     expect(h.orchestration.reviews.view(id)).toMatchObject({ phase: "reviewing" });
@@ -72,6 +75,9 @@ describe("orchestration review authority and reservations", () => {
       verdict: "findings",
       findings: [{ file: "a.ts", line: 1, summary: "Wrong result", scenario: "Input zero" }],
     });
+    await h.sync();
+    expect(h.host.stop).toHaveBeenLastCalledWith("child-2");
+    expect(h.host.launch).toHaveBeenCalledTimes(2);
     h.exit("child-2");
     await h.sync();
     expect(h.orchestration.reviews.view(id)).toMatchObject({ phase: "fixing" });
@@ -321,3 +327,46 @@ it.each(["takeover", "revoke", "grant", "exit"])(
     h.orchestration.disposeUnreadChildren();
   },
 );
+
+it("rechecks the live grant before stopping a participant after its asynchronous snapshot", async () => {
+  const h = fixture();
+  const id = await h.launch();
+  h.snapshot.mockImplementationOnce(() => {
+    h.grant.dispose();
+    return Promise.resolve({ head: "head", digest: "initial" });
+  });
+  h.report(id);
+  await h.sync();
+  expect(h.host.stop).not.toHaveBeenCalled();
+  expect(h.orchestration.reviews.view(id)).toMatchObject({
+    phase: "escalated",
+    reason: "launch failed",
+  });
+  h.orchestration.disposeUnreadChildren();
+});
+
+it("cancels a completion stop when takeover races durable intent, and audits host stop failures", async () => {
+  const h = fixture();
+  const id = await h.launch();
+  h.persist.mockImplementationOnce(() => {
+    h.orchestration.takeOver(id);
+    return Promise.resolve();
+  });
+  h.report(id);
+  await h.sync();
+  expect(h.host.stop).not.toHaveBeenCalled();
+  expect(h.orchestration.reviews.view(id)?.reason).toBe("stopped");
+  h.orchestration.disposeUnreadChildren();
+  const f = fixture();
+  const author = await f.launch();
+  f.host.stop.mockRejectedValueOnce(new Error("host unavailable"));
+  f.report(author);
+  await f.sync();
+  expect(f.orchestration.reviews.view(author)?.reason).toBe("launch failed");
+  expect(f.persist.mock.calls.at(-1)?.[0].operation).toMatchObject({
+    action: "stop",
+    status: "indeterminate",
+    targetId: author,
+  });
+  f.orchestration.disposeUnreadChildren();
+});

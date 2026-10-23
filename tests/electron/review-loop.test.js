@@ -56,6 +56,8 @@ if (isChild) {
     const command = JSON.parse(fs.readFileSync(file, "utf8"));
     const hook = await fetch(process.env.FOOM_HOOK_URL, { method: "POST", headers: { Authorization: process.env.FOOM_TOKEN, "X-Foom-Session": process.env.FOOM_SESSION, "X-Foom-Event": "Stop", "X-Foom-Channel": "lifecycle", "X-Foom-Sequence": "1", "Content-Type": "application/json" }, body: JSON.stringify({ session_id: reviewer ? "review-" + step : "author-conversation", hook_event_name: "Stop" }) });
     if (hook.status !== 204) { record("hook-error", String(hook.status)); process.exit(2); }
+    if (command.edit) fs.writeFileSync("reviewer-edit.txt", "must escalate");
+    fs.writeFileSync(path.join(process.env.TEST_REVIEW_ROOT, step + ".finished"), "finished");
     const send = () => fetch(process.env.FOOM_CONTROL_URL, { method: "POST", headers: { Authorization: "Bearer " + process.env.FOOM_CONTROL_TOKEN, "Content-Type": "application/json" }, body: JSON.stringify({ version: 1, instanceId: process.env.FOOM_CONTROL_INSTANCE, method: "handoff", params: { status: command.status ?? "done", summary: "Fixture " + step, idempotencyKey: step, ...(command.review ? { review: command.review } : {}) } }) });
     let response;
     for (let attempt = 0; attempt < 12; attempt++) {
@@ -67,8 +69,6 @@ if (isChild) {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
     if (response.status !== 200) { record("handoff-error", String(response.status)); process.exit(2); }
-    if (command.edit) fs.writeFileSync("reviewer-edit.txt", "must escalate");
-    fs.writeFileSync(path.join(process.env.TEST_REVIEW_ROOT, step + ".finished"), "finished");
     if (command.status === "blocked") {
       const blockedAt = Date.now();
       const resumeTimer = setInterval(async () => {
@@ -76,12 +76,13 @@ if (isChild) {
         clearInterval(resumeTimer);
         // Reuse the bounded handoff interval; never bypass production rate limits.
         await new Promise(resolve => setTimeout(resolve, Math.max(0, 10000 - (Date.now() - blockedAt))));
+        record("unblocked", "done");
         const response = await fetch(process.env.FOOM_CONTROL_URL, { method: "POST", headers: { Authorization: "Bearer " + process.env.FOOM_CONTROL_TOKEN, "Content-Type": "application/json" }, body: JSON.stringify({ version: 1, instanceId: process.env.FOOM_CONTROL_INSTANCE, method: "handoff", params: { status: "done", summary: "Unblocked fixture build", idempotencyKey: "unblocked" } }) });
         if (response.status !== 200) { record("handoff-error", String(response.status)); process.exit(2); }
-        record("unblocked", "done");
-        process.exit(0);
+        // Remain interactive until the host stops the session.
       }, 50);
-    } else process.exit(0);
+    }
+    // Successful handoffs never exit this fixture; Foom owns termination.
   }, 50);
   return;
 }`,
@@ -347,6 +348,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
       await expect(row.locator('[data-review-phase="waiting-on-parent"]')).toHaveText(
         "Waiting on parent",
       );
+      assert.notEqual((await call("session_state", { id: authorId })).state, "exited");
       await shot("waiting-on-parent");
       await call("prompt", {
         id: authorId,
@@ -362,6 +364,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
       await expect.poll(async () => (await state())?.phase).toBe("escalated");
       assert.deepEqual(await fixtureErrors(), []);
       assert.equal((await state()).reason, "checks not green");
+      assert.notEqual((await call("session_state", { id: authorId })).state, "exited");
       assert.equal(existsSync(`${credentials}.review-1`), false);
     } else {
       await waitStep("review-1");

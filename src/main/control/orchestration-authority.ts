@@ -59,6 +59,7 @@ export class OrchestrationAuthority {
           if (!tree || !host.reviewSnapshot) throw new ControlError("unavailable");
           return host.reviewSnapshot(parent.repository, tree.path, tree.identity);
         },
+        stop: (id) => this.reviewStop(id),
         step: (id, reviewer, prompt) => this.reviewStep(id, reviewer, prompt),
         changed: () => {
           this.changed();
@@ -422,6 +423,43 @@ export class OrchestrationAuthority {
       return at === undefined ? [] : [at];
     });
     return times.length ? Math.min(...times) : undefined;
+  }
+
+  private async reviewStop(id: string): Promise<void> {
+    const state = this.reviews.view(id);
+    const run = state && this.reviewRuns.get(state.authorId);
+    if (!run) throw new ControlError("forbidden");
+    const { actor, operations } = run;
+    const parent = this.parent(actor);
+    const child = this.own(parent, id);
+    if (!child) throw new ControlError("forbidden");
+    const label = this.label(id);
+    const operation = await operations.begin(
+      actor,
+      "stop",
+      `review-stop-${randomUUID()}`,
+      JSON.stringify([id]),
+      id,
+    );
+    try {
+      operations.lookup(actor, { operationId: operation.operationId });
+      this.parent(actor);
+      const current = this.reviews.view(id);
+      if (
+        this.own(parent, id) !== child ||
+        current?.phase !== state.phase ||
+        current.round !== state.round
+      )
+        throw new ControlError("conflict");
+      // Unlike a human/parent stop, this validated completion preserves the loop.
+      await this.host.stop(id);
+      await this.finish(actor, parent, operations, operation, label, "succeeded", id);
+    } catch (error) {
+      await this.finish(actor, parent, operations, operation, label, "indeterminate").catch(
+        () => undefined,
+      );
+      throw error;
+    }
   }
 
   private async reviewStep(
