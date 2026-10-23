@@ -281,3 +281,47 @@ test("compositor readiness awaits output and releases subscriptions on output or
     assert.equal(contents.listenerCount("render-process-gone"), 0);
   }
 });
+
+test("Linux launch forces X11 despite inherited Wayland settings", {
+  skip: process.platform !== "linux",
+}, async (context) => {
+  const app = await launchApp(context, {
+    fixture: "empty-board",
+    env: {
+      WAYLAND_DISPLAY: "foom-fake-wayland",
+      WAYLAND_SOCKET: "9876",
+      XDG_SESSION_TYPE: "wayland",
+      ELECTRON_OZONE_PLATFORM_HINT: "wayland",
+    },
+    args: ["--ozone-platform=wayland"],
+  });
+  assert.deepEqual(
+    await app.evaluate(({ app }) => ({
+      platform: app.commandLine.getSwitchValue("ozone-platform"),
+      wayland: process.env.WAYLAND_DISPLAY ?? null,
+      socket: process.env.WAYLAND_SOCKET ?? null,
+      session: process.env.XDG_SESSION_TYPE,
+      hint: process.env.ELECTRON_OZONE_PLATFORM_HINT,
+      explicit: process.argv.includes("--ozone-platform=x11"),
+    })),
+    {
+      platform: "x11",
+      wayland: null,
+      socket: null,
+      session: "x11",
+      hint: "x11",
+      explicit: true,
+    },
+  );
+});
+
+test("Linux launch rejects absent or foreign displays before fixture creation", {
+  skip: process.platform !== "linux",
+}, async (context) => {
+  for (const DISPLAY of ["", ":0", "desktop-host:0"]) {
+    await assert.rejects(
+      launchApp(context, { fixture: "empty-board", env: { DISPLAY } }),
+      /own xvfb-run display/,
+    );
+  }
+});

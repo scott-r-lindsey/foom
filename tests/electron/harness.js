@@ -16,6 +16,7 @@ const { _electron: electron } = require("@playwright/test");
 const { deadline, expect } = require("./test-policy.js");
 const { auditProcesses } = require("./process-audit.js");
 const { isolatedEnvironment } = require("./agent-isolation.js");
+const { electronLaunch } = require("./display-isolation.js");
 
 // Opt-in native-window evidence on the isolated Linux test display (ImageMagick).
 function captureConfirmationDesktop(name) {
@@ -590,6 +591,10 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
       (options.fixture === "running-shell" && options.shell === "hidden"),
     "Only a running shell can be hidden",
   );
+  const display = electronLaunch({
+    env: { ...process.env, ...options.env },
+    args: options.args ?? [],
+  });
   const setupStart = performance.now();
   const traceStartup =
     firstBoardStartup && process.platform === "linux" && process.env.CI === "true";
@@ -601,7 +606,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
   const cleanup = fixtureCleanup(context);
   cleanup.timing.start = Math.min(cleanup.timing.start, setupStart);
   cleanup.audit ??= await auditProcesses(context);
-  const profile = await prepareProfile(options);
+  const profile = await prepareProfile({ ...options, args: display.args });
   if (profile.owned) removeAfterApps(context, profile.owned);
   const watchdog = setTimeout(() => {
     console.error("Electron test exceeded its hard deadline; terminating worker");
@@ -671,14 +676,16 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
     );
     entry = fixture;
   }
-  const env = {
-    ...process.env,
-    HOME: options.home,
-    USERPROFILE: options.home,
-    ...options.env,
-    ...isolated,
-  };
-  delete env.ELECTRON_RUN_AS_NODE;
+  const { env } = electronLaunch({
+    env: {
+      ...process.env,
+      HOME: options.home,
+      USERPROFILE: options.home,
+      ...options.env,
+      ...isolated,
+    },
+    args: [],
+  });
   const app = await electron
     .launch({
       chromiumSandbox: true,
