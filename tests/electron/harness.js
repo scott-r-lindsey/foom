@@ -17,6 +17,7 @@ const { deadline, expect } = require("./test-policy.js");
 const { auditProcesses } = require("./process-audit.js");
 const { isolatedEnvironment } = require("./agent-isolation.js");
 const { electronLaunch } = require("./display-isolation.js");
+const { createSessionData } = require("./session-storage.js");
 
 // Opt-in native-window evidence on the isolated Linux test display (ImageMagick).
 function captureConfirmationDesktop(name) {
@@ -425,6 +426,7 @@ function fixtureCleanup(context) {
       directories: new Set(),
       probeLogs: [],
       launches: new WeakMap(),
+      sessionData: new Map(),
       timing: { start: performance.now(), setup: 0, fixtures: [] },
     };
     fixtureCleanups.set(context, cleanup);
@@ -499,8 +501,8 @@ async function prepareProfile(options) {
   const given = options.args?.find((arg) => arg.startsWith("--user-data-dir="));
   const owned = given ? undefined : await mkdtemp(path.join(tmpdir(), "foom-profile-"));
   const profile = given ? given.slice("--user-data-dir=".length) : owned;
+  await mkdir(profile, { recursive: true });
   if (options.fixture !== "first-run") {
-    await mkdir(profile, { recursive: true });
     await writeFile(
       path.join(profile, "settings.json"),
       JSON.stringify({ version: 1, settings: { setupComplete: true, checkForUpdates: false } }),
@@ -517,6 +519,7 @@ async function prepareProfile(options) {
       "--mute-audio",
     ],
     owned,
+    directory: await realpath(profile),
   };
 }
 
@@ -608,6 +611,12 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
   cleanup.audit ??= await auditProcesses(context);
   const profile = await prepareProfile({ ...options, args: display.args });
   if (profile.owned) removeAfterApps(context, profile.owned);
+  let sessionData = cleanup.sessionData.get(profile.directory);
+  if (!sessionData) {
+    sessionData = await createSessionData();
+    cleanup.sessionData.set(profile.directory, sessionData);
+    removeAfterApps(context, sessionData);
+  }
   const watchdog = setTimeout(() => {
     console.error("Electron test exceeded its hard deadline; terminating worker");
     // Playwright's exit handler kills the process groups it launched.
@@ -670,6 +679,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
               `workspaceModule.Workspace = class extends ProductionWorkspace { constructor(deps) { super({ ...deps, probeWaitingMs: ${JSON.stringify(options.probeWaitingMs)} }); } };`,
             ]),
         `app.setPath("home", ${JSON.stringify(options.home)});`,
+        `app.setPath("sessionData", ${JSON.stringify(sessionData)});`,
         `app.setAppPath(${JSON.stringify(entry)});`,
         `require(${JSON.stringify(path.join(entry, "build/main/main.js"))});`,
       ].join("\n"),

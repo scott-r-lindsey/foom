@@ -34,6 +34,23 @@ animation-frame assertion and startup diagnostics. The sandbox, controlled login
 shell/PATH, agent guard, process audit and quit-before-directory-removal ordering
 are unchanged.
 
+## Chromium session storage
+
+Each isolated development profile gets a separate, disposable `sessionData`
+directory before Electron creates its default session. Restored launches within
+the same test reuse it, retaining board local storage and encryption metadata.
+This includes Chromium's preferences, network state, performance-observer database
+and caches; Foom's `userData` profile and Git fixtures retain their normal disk
+storage, including across restore launches. Browser session data is fresh for
+unrelated profiles and is removed only after every app in the test quits.
+
+On Linux, the harness uses `/dev/shm` when it is a writable tmpfs with at least
+128 MiB free. Otherwise, and on other platforms, it uses the fixture temporary
+directory. This avoids Chromium's native shutdown waiting for shared-disk journal
+commits for disposable browser files after Foom's quit barrier has completed.
+The graceful-quit deadline, normal-exit assertion and process audit are unchanged.
+Packaged smoke continues to exercise the package's ordinary profile storage.
+
 ## Timing method
 
 The harness emits `Fixture timing: {...}` diagnostics into Node's JUnit comments
