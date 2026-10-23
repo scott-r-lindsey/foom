@@ -30,7 +30,7 @@ artifact subdirectories intact, outside the repository or under ignored
 `test-results/`. Use a fresh source directory for each refresh:
 
 ```sh
-for run in 39918020774 39946804406 39970696968 39973853488; do
+for run in 39918020774 39946804406 39970696968 39973853488 39981523976; do
   gh run download "$run" --pattern 'electron-results-*' \
     --dir "test-results/rebalance/sources/$run"
 done

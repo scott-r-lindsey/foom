@@ -264,23 +264,26 @@ remain historical context, not this refresh's inputs.
 
 ## Rebalancing from current reports (#751)
 
-Refreshed all 183 current named cases using passing main runs
+Refreshed all 185 current named cases using passing main runs
 [39918020774](https://github.com/scott-r-lindsey/foom/actions/runs/39918020774)
 and [39970696968](https://github.com/scott-r-lindsey/foom/actions/runs/39970696968),
 plus passing PR runs
-[39946804406](https://github.com/scott-r-lindsey/foom/actions/runs/39946804406)
-and [39973853488](https://github.com/scott-r-lindsey/foom/actions/runs/39973853488).
+[39946804406](https://github.com/scott-r-lindsey/foom/actions/runs/39946804406),
+[39973853488](https://github.com/scott-r-lindsey/foom/actions/runs/39973853488),
+and [39981523976](https://github.com/scott-r-lindsey/foom/actions/runs/39981523976).
 All twelve Electron reports from each run are inputs. The newest main reports
 cover the GitLab cases added after this branch was created; the latest update PR
-reports measure the update-settings case subsequently merged into main. The existing script
+reports measure the update-settings case subsequently merged into main. The
+#750 reports also measure its two new harness cases after incorporating those
+flake fixes from main. The existing script
 uses per-case maxima across these runs; older runs may omit newer cases when
 another input measures them on every platform.
 
 | Platform | Before: shards 1 / 2 / 3 / 4 | After: shards 1 / 2 / 3 / 4 | After max/min spread | Case-sum headroom |
 | --- | --- | --- | --- | --- |
-| Linux | 307.3 / 345.8 / 378.0 / 341.6 | 345.5 / 343.9 / 342.3 / 341.0 | 1.3% | 74.5s / 17.7% |
-| Windows | 540.3 / 566.9 / 530.1 / 479.6 | 529.3 / 528.5 / 529.5 / 529.6 | 0.2% | 74.9s / 11.3% |
-| macOS | 401.7 / 484.7 / 464.3 / 402.6 | 440.7 / 436.6 / 437.3 / 438.7 | 0.9% | 159.3s / 26.6% |
+| Linux | 315.0 / 349.5 / 378.2 / 341.6 | 346.9 / 345.3 / 348.0 / 344.1 | 1.1% | 72.0s / 17.1% |
+| Windows | 560.7 / 574.1 / 548.1 / 487.1 | 540.3 / 546.2 / 545.3 / 538.2 | 1.5% | 53.8s / 9.0% |
+| macOS | 408.5 / 530.0 / 475.9 / 428.7 | 460.5 / 463.0 / 455.6 / 464.0 | 1.8% | 136.0s / 22.7% |
 
 Values are seconds; spread is `(maximum / minimum - 1) * 100`.
 Headroom subtracts the largest projected case sum from the unchanged step budget
