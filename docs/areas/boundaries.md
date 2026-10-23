@@ -95,8 +95,11 @@ Within those features:
 The `foom/process-boundaries` ESLint rule checks static imports, re-exports, literal dynamic imports and `require` calls. Process-owned code may depend on its own process and shared modules. Shared modules cannot depend on process-owned code. Only main and the console may import `node-common` utilities; the console cannot import main, Electron or terminal-host policy. Renderer and shared modules cannot import Node, Electron, node-pty or headless xterm. The sandboxed preload may import Electron at runtime and shared declarations as types. Its sole shared runtime dependency, `shared/board-commands.ts`, is pure browser-safe data and validation bundled inline by esbuild; the sandbox loader still requires only Electron. The boundary lint rule permits only this specific shared module.
 
 Import implementations and their types directly from their owning modules; do not
-add migration-only `export *` forwarding files. Provider launch helpers live in
-`main/agents/providers/{cli-launch,hook-launch,v2-observers,mcp-launch}.ts`;
+add migration-only `export *` forwarding files. Provider launch preparation lives
+in `main/agents/providers/v2.ts`, including
+prompt validation, MCP arguments and private launch-file cleanup. Prompt constants
+live in `providers/cli-launch.ts`; hook adapters live in
+`providers/{hook-launch,v2-observers}.ts`;
 private-file helpers and control validation live in
 `node-common/{private-files,control-validation}.ts`; browser-safe argument helpers
 live in `shared/providers/arguments.ts`. Source, tests and mocks use these same
