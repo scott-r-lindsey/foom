@@ -685,6 +685,7 @@ it("refuses an untracked snapshot that changes before group approval", async () 
   await f.owner.deleteMerged(repository, (request) => {
     if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
     f.worktrees.changes.mockResolvedValue("?? second.png\0");
+    f.worktrees.cleanupChanges.mockResolvedValue("?? second.png\0");
     return Promise.resolve(true);
   });
   expect(f.worktrees.removeWorktree).not.toHaveBeenCalled();

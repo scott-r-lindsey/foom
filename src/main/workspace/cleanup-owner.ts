@@ -286,7 +286,14 @@ export class CleanupOwner {
               reason = "uncommitted changes";
             else if (tree.branch === null || changes) {
               // Existing clean branch cleanup keeps its established policy.
-              if ((await this.deps.worktrees.cleanupChanges(repository, tree.path)) !== changes)
+              if (
+                (await this.deps.worktrees.cleanupChanges(
+                  repository,
+                  tree.path,
+                  undefined,
+                  tree.head,
+                )) !== changes
+              )
                 reason = "worktree changed";
             }
             if (!reason && !(await this.deps.worktrees.mergedCommit(repository, tree, base)))
@@ -354,6 +361,10 @@ export class CleanupOwner {
           }
         },
         remove: async ({ tree, identity, changes = "" }, base) => {
+          const readSnapshot = () =>
+            tree.branch === null || changes
+              ? this.deps.worktrees.cleanupChanges(repository, tree.path, identity, tree.head)
+              : this.deps.worktrees.cleanupStatus(repository, tree.path, identity, tree.head);
           const revalidate = async () => {
             const current = (await this.deps.inventory(repository)).find(
               (item) => item.path === tree.path,
@@ -367,22 +378,7 @@ export class CleanupOwner {
               throw new KeptWorktree("worktree changed");
             const reason = this.sessionSkip(tree.path);
             if (reason) throw new KeptWorktree(reason);
-            if (
-              (await this.deps.worktrees.cleanupStatus(
-                repository,
-                tree.path,
-                identity,
-                tree.head,
-              )) !== changes
-            )
-              throw new KeptWorktree("worktree changed");
-            if (tree.branch === null || changes) {
-              if (
-                (await this.deps.worktrees.cleanupChanges(repository, tree.path, identity)) !==
-                changes
-              )
-                throw new KeptWorktree("worktree changed");
-            }
+            if ((await readSnapshot()) !== changes) throw new KeptWorktree("worktree changed");
             // Re-read forge hints and local evidence; the displayed plan alone
             // never authorizes a later deletion.
             if (!(await this.deps.worktrees.mergedCommit(repository, current, base)))
@@ -405,7 +401,7 @@ export class CleanupOwner {
                   releases.add(release);
                 },
             undefined,
-            () => this.deps.worktrees.cleanupStatus(repository, tree.path, identity, tree.head),
+            readSnapshot,
           );
         },
       });

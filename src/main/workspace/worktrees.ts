@@ -449,7 +449,7 @@ export class WorktreeService {
     ]);
   }
 
-  /** A fresh, fail-closed snapshot for group cleanup, never explicit removal. */
+  /** A fresh config-neutral status snapshot for group cleanup, never explicit removal. */
   async cleanupStatus(
     repository: string,
     path: string,
@@ -482,14 +482,18 @@ export class WorktreeService {
       "--ignore-submodules=none",
     ]);
     const records = changes.split("\0").filter(Boolean);
-    if (records.some((entry) => !entry.startsWith("?? ") && !entry.startsWith("!! ")))
-      throw new Error("Tracked changes prevent cleanup");
     // A case-sensitive read exposes names hidden by core.ignorecase. Refuse
     // collisions rather than interpreting which spelling represents tracked data.
     const tracked = new Set(
       entries.map((entry) => entry.slice(entry.indexOf("\t") + 1).toLowerCase()),
     );
-    if (records.some((entry) => tracked.has(entry.slice(3).toLowerCase())))
+    if (
+      records.some(
+        (entry) =>
+          (entry.startsWith("?? ") || entry.startsWith("!! ")) &&
+          tracked.has(entry.slice(3).toLowerCase()),
+      )
+    )
       throw new Error("Case-colliding paths prevent cleanup");
     if ((await read(["ls-files", "-v", "--stage", "-z", "--"])) !== index)
       throw new Error("Index changed during cleanup checks");
@@ -543,15 +547,28 @@ export class WorktreeService {
   }
 
   /** Extra guards for newly eligible detached and leftover-only cleanup. */
-  async cleanupChanges(repository: string, path: string, identity?: string): Promise<string> {
+  async cleanupChanges(
+    repository: string,
+    path: string,
+    identity?: string,
+    head?: string | null,
+  ): Promise<string> {
     const expected = identity ?? (await this.removalIdentity(repository, path));
     assertInside(await realpath(this.root), await realpath(path));
-    const changes = await this.cleanupStatus(repository, path, expected);
+    const changes = await this.cleanupStatus(repository, path, expected, head);
+    if (
+      changes
+        .split("\0")
+        .some((entry) => entry && !entry.startsWith("?? ") && !entry.startsWith("!! "))
+    )
+      throw new Error("Tracked changes prevent cleanup");
     const unpushed = (
       await git(path, ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"])
     ).trim();
     if (unpushed !== "0") throw new Error("Unpushed commits prevent cleanup");
     await this.checkRemovalIdentity(repository, path, expected);
+    if (head && (await git(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim() !== head)
+      throw new Error("HEAD changed during cleanup checks");
     return changes;
   }
 

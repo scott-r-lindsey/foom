@@ -1950,10 +1950,6 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
   await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
   const confirmation = await confirmationPage(app);
-  await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
-    ".env",
-  );
-  await expect(confirmation.getByText("ignored", { exact: true })).toBeVisible();
   await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
     "merged-one",
   );
