@@ -1,28 +1,18 @@
-const { gitSync: isolatedGit } = require("../helpers/git.js");
+const { codexFixture } = require("./agent-fixture.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, realpath, writeFile } = require("node:fs/promises");
-const { tmpdir } = require("node:os");
+const { realpath } = require("node:fs/promises");
 const { deadline, expect } = require("./test-policy.js");
-const { boardPage, launchApp, openSettingsScreen, removeAfterApps } = require("./harness.js");
+const { openSettingsScreen } = require("./harness.js");
 
 test("agent hooks and titles publish execution transitions independently of terminal output", {
   timeout: deadline(30000),
   skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
 }, async (context) => {
-  const { chmod } = require("node:fs/promises");
-  const root = await mkdtemp(path.join(tmpdir(), "foom-inline-"));
-  removeAfterApps(context, root);
-  const bin = path.join(root, "bin");
-  const repo = path.join(root, "repo");
-  const home = path.join(root, "home");
-  await Promise.all([mkdir(bin), mkdir(repo), mkdir(home)]);
-  const help = path.join(root, "help");
-  const cli = path.join(bin, "codex");
-  await writeFile(
-    cli,
-    `#!/usr/bin/env node
+  const { page, repository, repo } = await codexFixture(context, {
+    helpText: "--no-alt-screen -c, --config <value>",
+    source: ({ help }) => `#!/usr/bin/env node
 const fs = require('node:fs');
 if (process.argv[2] === '--version') console.log('codex-cli 0.159.3');
 else if (process.argv[2] === '--help') console.log(fs.readFileSync(${JSON.stringify(help)}, 'utf8'));
@@ -42,29 +32,7 @@ else {
   });
 }
 `,
-  );
-  await chmod(cli, 0o755);
-  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
-  isolatedGit(
-    [
-      "-c",
-      "user.name=Foom",
-      "-c",
-      "user.email=foom@example.com",
-      "commit",
-      "--allow-empty",
-      "-qm",
-      "init",
-    ],
-    { cwd: repo },
-  );
-  await writeFile(help, "--no-alt-screen -c, --config <value>");
-  const app = await launchApp(context, { fixture: "agent", env: { HOME: home, PATH: bin } });
-  const page = await boardPage(app);
-  await app.evaluate(({ dialog }, repo) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
-  }, repo);
-  const repository = await page.evaluate(() => window.desktop.addRepository());
+  });
   assert.equal(repository.path, await realpath(repo));
   await expect(page.getByRole("treeitem", { name: "repo", exact: true })).toBeVisible();
   await page.evaluate(() => {
@@ -117,17 +85,9 @@ test("stable Codex observers drive execution and retire the notifier after a ver
     process.platform === "win32" &&
     "The fake CLI is a POSIX executable; native Windows observers have unit integration coverage",
 }, async (context) => {
-  const { chmod } = require("node:fs/promises");
-  const root = await mkdtemp(path.join(tmpdir(), "foom-codex-hooks-"));
-  removeAfterApps(context, root);
-  const bin = path.join(root, "bin");
-  const repo = path.join(root, "repo");
-  const home = path.join(root, "home");
-  await Promise.all([mkdir(bin), mkdir(repo), mkdir(home)]);
-  const cli = path.join(bin, "codex");
-  await writeFile(
-    cli,
-    `#!/usr/bin/env node
+  const { page, repository } = await codexFixture(context, {
+    prefix: "foom-codex-hooks-",
+    source: () => `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process');
 const args = process.argv.slice(2);
 if (args[0] === '--version') { console.log('codex-cli 0.161.0'); process.exit(0); }
@@ -159,28 +119,7 @@ process.stdin.on('data', data => {
   console.log('OBSERVED ' + key);
 });
 `,
-  );
-  await chmod(cli, 0o755);
-  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
-  isolatedGit(
-    [
-      "-c",
-      "user.name=Foom",
-      "-c",
-      "user.email=foom@example.com",
-      "commit",
-      "--allow-empty",
-      "-qm",
-      "init",
-    ],
-    { cwd: repo },
-  );
-  const app = await launchApp(context, { fixture: "agent", env: { HOME: home, PATH: bin } });
-  const page = await boardPage(app);
-  await app.evaluate(({ dialog }, repo) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
-  }, repo);
-  const repository = await page.evaluate(() => window.desktop.addRepository());
+  });
   const launch = (branch) =>
     page.evaluate(
       async ({ repository, branch }) => {

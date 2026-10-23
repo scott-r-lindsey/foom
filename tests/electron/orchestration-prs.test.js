@@ -1,3 +1,4 @@
+const { launchTrustedParent } = require("./agent-fixture.js");
 const { FAKE_GLAB, recordedGitlab } = require("../helpers/glab-cli.js");
 const { FAKE_GH } = require("../helpers/forge-cli.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
@@ -22,7 +23,7 @@ for (const showNewChildren of [true, false]) {
     : "an orchestrator adopts an open PR with child board placement off", {
     skip: process.platform === "win32" && "The fake agent is a POSIX script",
   }, async (context) => {
-    const { chmod, mkdir, readFile, symlink, writeFile } = require("node:fs/promises");
+    const { chmod, mkdir, symlink, writeFile } = require("node:fs/promises");
     const { existsSync } = require("node:fs");
     const root = await mkdtemp(path.join(tmpdir(), "foom-forge-adopt-"));
     removeAfterApps(context, root);
@@ -54,33 +55,20 @@ for (const showNewChildren of [true, false]) {
       JSON.stringify({ pr: { headRepositoryOwner: { login: "fixture" } }, checks: [] }),
     );
     const credentials = path.join(root, "credentials.json");
-    const app = await launchApp(context, {
-      fixture: "agent",
-      args: [`--user-data-dir=${path.join(root, "user-data")}`],
-      env: {
-        HOME: home,
-        PATH: [bin, "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter),
-        TEST_FAKE_CREDENTIALS: credentials,
-        TEST_FORGE_STATE: forgeState,
+    const { app, page, parent } = await launchTrustedParent(context, {
+      repo,
+      credentials,
+      options: {
+        fixture: "agent",
+        args: [`--user-data-dir=${path.join(root, "user-data")}`],
+        env: {
+          HOME: home,
+          PATH: [bin, "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter),
+          TEST_FAKE_CREDENTIALS: credentials,
+          TEST_FORGE_STATE: forgeState,
+        },
       },
     });
-    const page = await boardPage(app);
-    await app.evaluate(({ dialog }, directory) => {
-      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
-    }, repo);
-    const repository = await page.evaluate(async () => (await window.desktop.addRepository()).path);
-    await page.evaluate(
-      ({ repository }) =>
-        window.desktop.sidebarCommand({
-          kind: "launch",
-          repository,
-          worktree: repository,
-          run: "claude",
-        }),
-      { repository },
-    );
-    await expect.poll(() => existsSync(`${credentials}.app`)).toBe(true);
-    const parent = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
     const call = async (method, params = {}) => {
       const response = await fetch(parent.controlUrl, {
         method: "POST",
@@ -241,8 +229,7 @@ for (const showNewChildren of [true, false]) {
 test("an orchestrator wait_for wakes on a child PR required-check conclusion", {
   skip: process.platform === "win32" && "The fake agent is a POSIX script",
 }, async (context) => {
-  const { chmod, mkdir, readFile, symlink, writeFile } = require("node:fs/promises");
-  const { existsSync } = require("node:fs");
+  const { chmod, mkdir, symlink, writeFile } = require("node:fs/promises");
   const root = await mkdtemp(path.join(tmpdir(), "foom-forge-wait-"));
   removeAfterApps(context, root);
   const bin = path.join(root, "bin");
@@ -263,33 +250,20 @@ test("an orchestrator wait_for wakes on a child PR required-check conclusion", {
   const forgeState = path.join(root, "forge.json");
   await writeFile(forgeState, JSON.stringify({ checks: [{ bucket: "pending" }], exitCode: 8 }));
   const credentials = path.join(root, "credentials.json");
-  const app = await launchApp(context, {
-    fixture: "agent",
-    args: [`--user-data-dir=${path.join(root, "user-data")}`],
-    env: {
-      HOME: home,
-      PATH: bin,
-      TEST_FAKE_CREDENTIALS: credentials,
-      TEST_FORGE_STATE: forgeState,
+  const { app, page, parent } = await launchTrustedParent(context, {
+    repo,
+    credentials,
+    options: {
+      fixture: "agent",
+      args: [`--user-data-dir=${path.join(root, "user-data")}`],
+      env: {
+        HOME: home,
+        PATH: bin,
+        TEST_FAKE_CREDENTIALS: credentials,
+        TEST_FORGE_STATE: forgeState,
+      },
     },
   });
-  const page = await boardPage(app);
-  await app.evaluate(({ dialog }, directory) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
-  }, repo);
-  const repository = await page.evaluate(async () => (await window.desktop.addRepository()).path);
-  await page.evaluate(
-    ({ repository }) =>
-      window.desktop.sidebarCommand({
-        kind: "launch",
-        repository,
-        worktree: repository,
-        run: "claude",
-      }),
-    { repository },
-  );
-  await expect.poll(() => existsSync(`${credentials}.app`)).toBe(true);
-  const parent = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
   const call = async (method, params = {}) => {
     const response = await fetch(parent.controlUrl, {
       method: "POST",
