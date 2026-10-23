@@ -61,7 +61,9 @@ export function SidebarSessionRow({
       ? "tx"
       : row.orchestration?.role === "child" && !row.orchestration.takenOver
         ? parentName
-          ? "rx"
+          ? row.review && row.review.authorId !== row.id
+            ? "review"
+            : "rx"
           : "orphan"
         : undefined;
   const robot = mark ? <OrchestrationMark kind={mark} related={related} /> : null;

@@ -36,6 +36,7 @@ Terminal title bars show the state light, agent badge, location and session name
 an always-visible tile number with a chevron ("Tile N menu"). Maximize/Restore and
 Hide (running) or Close (exited) appear on hover, focus, or the focused tile.
 Child terminals also show the sidebar’s robot mark, named Worker, including after takeover.
+Review-loop reviewers use the lens variant named Reviewer; authors and other children keep Worker.
 Double-clicking the title bar toggles maximize. Right-click opens the same tile
 panel at the pointer. The panel matches the sidebar panels: commands on the left,
 state and reason, live columns × rows, location and agent facts on the right.

@@ -112,6 +112,7 @@ describe("main-owned sequential review loop", () => {
     await h.sync();
     expect(h.loop.view("author")).toMatchObject({ phase: "reviewing", round: 1, waiting: false });
     expect(h.host.step).toHaveBeenCalledWith("author", true, reviewerBrief(7, false));
+    expect(h.loop.view("reviewer-1")).toEqual(h.loop.view("author"));
     await h.reviewed({ verdict: "clean" });
     expect(h.loop.view("reviewer-1")).toMatchObject({ phase: "clean" });
     expect(h.loop.unread("author")).toBe(1000);

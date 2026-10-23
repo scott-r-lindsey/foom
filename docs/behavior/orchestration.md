@@ -210,7 +210,9 @@ Reviewers consume the orchestrator's existing child slots and wait if full.
 New reviewer placement follows Show new children on the board; author resumes
 keep their existing tile. Neither step takes keyboard focus.
 The sidebar and tile show Building, Reviewing 2/3, Fixing 2/3, Review clean, or
-Escalated with a fixed reason. Every participant's handoffs remain available to
+Escalated with a fixed reason. Loop reviewers use a receiving robot with a lens,
+named Reviewer, in sidebar rows and tile headers. Authors and children launched
+without a loop keep the ordinary receiving mark. Every participant's handoffs remain available to
 the orchestrator. Clean also raises attention: the orchestrator verifies the
 result and remains the final merge gate.
 

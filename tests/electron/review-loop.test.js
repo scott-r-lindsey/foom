@@ -337,6 +337,51 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         `Reviewing 1/${scenario === "cap" ? 1 : 3}`,
       );
       await shot("reviewing");
+      if (scenario === "clean") {
+        const reviewer = page.locator(".session-entry").filter({
+          has: page.locator('.session-robot-mark[data-kind="review"]'),
+        });
+        await expect(reviewer.getByRole("img", { name: "Reviewer" })).toBeVisible();
+        await expect(reviewer.locator('[data-review-phase="reviewing"]')).toHaveText(
+          "Reviewing 1/3",
+        );
+        await expect(row.locator('.session-robot-mark[data-kind="rx"]')).toBeVisible();
+        await reviewer.locator(":scope > .board-row").click();
+        const tile = page.locator(".terminal-tile").filter({
+          has: page.getByRole("img", { name: "Reviewer" }),
+        });
+        await expect(tile.locator('[data-review-phase="reviewing"]')).toHaveText("Reviewing 1/3");
+        await parentRow.locator(":scope > .board-row").hover();
+        const wave = reviewer.locator(".robot-wave-inner");
+        await page.emulateMedia({ reducedMotion: "no-preference" });
+        await expect
+          .poll(() => wave.evaluate((node) => getComputedStyle(node).animationName))
+          .toBe("robot-receive");
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await expect
+          .poll(() => wave.evaluate((node) => getComputedStyle(node).animationName))
+          .toBe("none");
+        await page.mouse.move(1, 1);
+        for (const [colorScheme, fill] of [
+          ["light", "rgb(243, 240, 250)"],
+          ["dark", "rgb(5, 4, 10)"],
+        ]) {
+          await page.emulateMedia({ colorScheme });
+          await expect
+            .poll(() =>
+              reviewer.locator(".robot-lens").evaluate((node) => getComputedStyle(node).fill),
+            )
+            .toBe(fill);
+          await reviewer.screenshot({
+            path: `test-results/reviewer-mark-${colorScheme}-sidebar.png`,
+          });
+          await tile
+            .locator(".tile-title")
+            .screenshot({ path: `test-results/reviewer-mark-${colorScheme}-tile.png` });
+        }
+        await page.emulateMedia({ colorScheme: null, reducedMotion: null });
+      }
+
       const findings = {
         verdict: "findings",
         findings: [
