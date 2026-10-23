@@ -457,14 +457,19 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
     }
     if (scenario === "clean") {
       await expect(page.locator('.session-robot-mark[data-kind="review"]')).toHaveCount(0);
+      // A repeated true setting is a no-op. Disable board observations first so
+      // re-enabling after the fake merge requests a read even when the reviewer's
+      // exit-triggered read already observed OPEN (settled polling takes 2 min).
+      await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: false }));
       await writeFile(
-        forgeState,
+        `${forgeState}.tmp`,
         JSON.stringify({
           pr: { headRefOid: headSha, state: "MERGED" },
           checks: [{ bucket: "pass" }],
         }),
       );
-      // Reuse the existing tracker setting invalidation; no test-only main API.
+      await rename(`${forgeState}.tmp`, forgeState);
+      // Reuse the existing tracker setting transition; no test-only main API.
       await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: true }));
       await expect
         .poll(async () => (await call("session_state", { id: authorId })).pullRequest?.state, {
