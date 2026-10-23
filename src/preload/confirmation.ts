@@ -89,6 +89,22 @@ function structured(value: unknown): boolean {
   )
     return false;
   if ("cleanup" in value && record(value.cleanup)) {
+    const progress = value.cleanup["progress"];
+    if (
+      record(progress) &&
+      Array.isArray(progress["items"]) &&
+      progress["items"].some(
+        (item: unknown) =>
+          record(item) &&
+          ((item["changes"] !== undefined &&
+            (typeof item["changes"] !== "string" || item["changes"].length > 25_050)) ||
+            (item["omittedChanges"] !== undefined &&
+              (typeof item["omittedChanges"] !== "number" ||
+                !Number.isSafeInteger(item["omittedChanges"]) ||
+                item["omittedChanges"] < 0))),
+      )
+    )
+      return false;
     for (const key of ["checkingCount", "fetchedAt"] as const) {
       const field = value.cleanup[key];
       if (

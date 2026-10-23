@@ -278,9 +278,6 @@ export class WorkspaceContext {
       reserveRepositoryRemoval: (repository, validate) =>
         this.reserveRepositoryRemoval(repository, validate),
       withWorktreeRemoval: (...args) => this.removeTree(...args),
-      releaseWorktree: (repository, branch) => {
-        this.busyWorktrees.delete(`${repository}\0${branch ?? ""}`);
-      },
       terminals: () => [...this.launched.values()],
       running: (id) =>
         this.sessions.isRestoring(id) ||
@@ -564,12 +561,21 @@ export class WorkspaceContext {
     branch: string | null,
     confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
     revalidate?: () => void | Promise<void>,
-    retainBranchLock = false,
+    retainBranchLock?: (release: () => void) => void,
     autoApprove?: () => Promise<boolean>,
+    readSnapshot?: () => Promise<string>,
   ): Promise<boolean> {
     const key = `${repository}\0${branch ?? ""}`;
     if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
+    // This capability belongs to this acquisition, not to whichever operation
+    // happens to own the same branch key when a delayed release runs.
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      this.busyWorktrees.delete(key);
+    };
     let removed = false;
     try {
       removed = await this.cleanup.removeReservedTree(
@@ -579,10 +585,12 @@ export class WorkspaceContext {
         confirm,
         revalidate,
         autoApprove,
+        readSnapshot,
       );
       return removed;
     } finally {
-      if (!retainBranchLock || !removed) this.busyWorktrees.delete(key);
+      if (retainBranchLock && removed) retainBranchLock(release);
+      else release();
     }
   }
 
