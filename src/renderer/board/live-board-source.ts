@@ -186,7 +186,10 @@ export function createAppSource(): BoardSource {
         .find((repo) => repo.path === entry.repository)
         ?.worktrees.find((tree) => tree.path === entry.worktree);
       if (entry.execution) acceptExecution(entry.execution);
-      if (entry.state) snapshotStates.set(entry.id, entry.state);
+      // A queued restore has no host yet; its old exited verdict is not a
+      // failure of the replacement that is still starting.
+      if (entry.state && !(entry.dormant && entry.exited === false))
+        snapshotStates.set(entry.id, entry.state);
       else snapshotStates.delete(entry.id);
       return latest({
         id: entry.id,

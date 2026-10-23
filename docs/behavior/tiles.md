@@ -129,8 +129,7 @@ are unchanged. The main-process command list drives menus and shortcut handling.
 
 Plain terminal control keys remain terminal input. The split tree, ratios, leaf
 identities, focus and assigned session IDs persist as local view preferences.
-Maximize is temporary. On restart, unavailable sessions leave empty tiles; terminal
-PTYs are recreated for eligible running sessions; screens and scrollback are not restored. Visible terminals use WebGL within a per-page budget, with DOM fallback; see [terminal rendering](../areas/terminal-rendering.md#webgl-renderer-620).
+Maximize is temporary. On restart, exited or unavailable sessions leave empty space and keep their sidebar rows. Eligible running sessions keep their tile positions while fresh PTYs are created; a skeleton with the agent glyph and session name stays until the new attachment renders its first frame. Restore failures and roles that cannot be restored leave empty space and retain their sidebar error state. Screens and scrollback are not restored. Visible terminals use WebGL within a per-page budget, with DOM fallback; see [terminal rendering](../areas/terminal-rendering.md#webgl-renderer-620).
 
 Drag a sidebar session onto a tile center to replace its session (the previous
 session keeps running hidden), or onto one of its four edges to split it in half.

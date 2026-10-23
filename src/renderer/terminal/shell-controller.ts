@@ -97,7 +97,19 @@ export function createShell(
     view.status = hostFailed ? terminalStatus : prefix;
     publish();
   };
+  let parsedFrame = false;
+  let frameGeneration = 0;
+  const frame = terminal.onRender(() => {
+    if (!attached || !parsedFrame || view.firstFrame) return;
+    view.firstFrame = true;
+    publish();
+  });
   const visibility = (visible: boolean) => {
+    if (!visible) {
+      ++frameGeneration;
+      parsedFrame = false;
+      view.firstFrame = false;
+    }
     attached = visible;
     container.hidden = !visible;
     renderer.visible(visible);
@@ -140,7 +152,9 @@ export function createShell(
   const offData = window.desktop.onData((id, token, data) => {
     if (id !== activeId || !attached) return;
     // A restored snapshot may show the cursor again; keep exited screens read-only.
+    const current = frameGeneration;
     terminal.write(exited ? `${data}\x1b[?25l` : data, () => {
+      if (!isDisposed() && attached && current === frameGeneration) parsedFrame = true;
       window.desktop.acknowledge(id, token, data.length);
     });
   });
@@ -359,6 +373,7 @@ export function createShell(
     board?.removeEventListener("transitionrun", sidebarTransition);
     board?.removeEventListener("transitionend", sidebarTransition);
     board?.removeEventListener("transitioncancel", sidebarTransition);
+    frame.dispose();
     offData();
     offExit();
     offRemoved();

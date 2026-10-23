@@ -82,6 +82,8 @@ const mock = vi.hoisted(() => {
     fit: vi.fn(),
     observe: vi.fn(),
     disconnect: vi.fn(),
+    onRender: vi.fn<(callback: () => void) => { dispose: () => void }>(),
+    offRender: vi.fn(),
     onInput: vi.fn<(callback: (data: string) => void) => void>(),
     onData: vi.fn<(callback: (id: string, token: string, data: string) => void) => () => void>(),
     onTerminalAvailability:
@@ -125,6 +127,7 @@ vi.mock("@xterm/xterm", () => ({
     focus = mock.focus;
     dispose = mock.dispose;
     onData = mock.onInput;
+    onRender = mock.onRender;
     attachCustomKeyEventHandler = mock.key;
     attachCustomWheelEventHandler = mock.wheel;
     buffer = { active: { type: "alternate" } };
@@ -192,6 +195,7 @@ beforeEach(() => {
   document.documentElement.style.setProperty("--ink", "#F4EFFF");
   mock.create.mockResolvedValue({ id: "one", title: "bash — /project" });
   mock.onData.mockReturnValue(mock.offData);
+  mock.onRender.mockReturnValue({ dispose: mock.offRender });
   mock.onTerminalAvailability.mockReturnValue(() => {});
   mock.onExit.mockReturnValue(mock.offExit);
 });
@@ -1284,4 +1288,34 @@ test("renderer fallback refits the attached grid without resetting or reattachin
   expect(mock.attach).toHaveBeenCalledTimes(attaches);
   expect(mock.reset).toHaveBeenCalledTimes(resets);
   controller.dispose();
+});
+
+test("first frame follows parsed attachment data and a render, and resets on hide", async () => {
+  const update = vi.fn<(view: ShellView) => void>();
+  const element = document.createElement("div");
+  document.body.append(element);
+  const shell = createShell(element, update, false, undefined, false);
+  await shell.open("restored");
+  const renderFrame = mock.onRender.mock.calls[0]?.[0];
+  const data = mock.onData.mock.calls[0]?.[0];
+  renderFrame?.();
+  expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ firstFrame: false }));
+  mock.write.mockImplementation(() => {});
+  data?.("restored", "snapshot", "first screen");
+  renderFrame?.();
+  expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ firstFrame: false }));
+  mock.write.mock.lastCall?.[1]?.();
+  renderFrame?.();
+  expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ firstFrame: true }));
+  const count = update.mock.calls.length;
+  renderFrame?.();
+  expect(update).toHaveBeenCalledTimes(count);
+  await shell.hide();
+  expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ firstFrame: false }));
+  // A delayed write from the old attachment cannot satisfy a new frame.
+  mock.write.mock.lastCall?.[1]?.();
+  renderFrame?.();
+  expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ firstFrame: false }));
+  shell.dispose();
+  expect(mock.offRender).toHaveBeenCalledOnce();
 });

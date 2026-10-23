@@ -60,9 +60,9 @@ Rows launched with a known bypass argument also show a neutral ◇ Bypass label.
 This records launch flags, not inferred global agent policy; changing defaults does not
 change existing rows.
 Names persist as local UI metadata keyed by terminal ID. Session rows and recorded
-conversation IDs survive Foom restarts. Sessions running at quit restart when Restore sessions on launch is on; exited sessions stay exited. Terminal screens and scrollback are never persisted.
+conversation IDs survive Foom restarts. Sessions running at quit restart when Restore sessions on launch is on; exited sessions stay exited in the sidebar without board tiles. Resume or New conversation places their new terminal normally. Terminal screens and scrollback are never persisted.
 Hover and keyboard focus do not preview terminal output or switch the pane. Click or press Enter to show
-its terminal and focus input, using the [tile placement rules](tiles.md). Needs you remains; Done and Failed dim once seen.
+its terminal and focus input, using the [tile placement rules](tiles.md). Saved exited rows have no screen to show until resumed. Needs you remains; Done and Failed dim once seen.
 
 Previews appear beneath their worktree with a document glyph and no light or attention state.
 Their rows show the worktree-relative path and shared tile number. Agent-opened previews nest beneath the opener’s session and name that agent. Clicking a visible row focuses its preview; showing a sidebar-only preview uses human placement.
