@@ -94,7 +94,7 @@ Bundled v2 manifests and the remaining `main/evaluator/agent-rules/*.json` files
 minimum engine version, provenance, ordered priorities, region, matchers, exclusions
 and the source rationale. Herdr-derived rules are a capture-backed subset; the
 Apache-2.0 license and modification notice are included in generated third-party
-notices. The future About screen (#96) can consume that same notice bundle.
+notices, accessible through [About → Third-party notices](../behavior/menus.md#application-menu-and-attention-badge).
 
 The headless host listens to OSC 0/2 titles and parses OSC 9;4 progress without a
 view. It retains only sanitized titles (512 code units, no control/format chars)

@@ -34,7 +34,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `workspace:start` | renderer → main (invoke) | `{ repository, branch, run }` → terminal ID or null on cancellation; the board no longer uses it |
 | `confirmation:scrim` | main → requesting board | boolean visibility only; cosmetic dimming, no dialog content or approval capability |
 | `confirmation:size` | trusted renderer → main | finite positive `{ width, height }` in CSS pixels; exact trusted main frame, URL and pending request required; zoomed and clamped to parent content and display work area |
-| `confirmation:answer` | trusted renderer → main | request ID and boolean; exact trusted window, main frame, URL and pending ID required |
+| `confirmation:answer` | trusted renderer → main | request ID and boolean for ordinary/single-removal and cleanup answers, or a nonempty unique subset of displayed operation IDs for grouped removals; exact trusted window, main frame, URL and pending ID plus reachability checks required; see [confirmation validation](confirmations.md#confirmations) |
 | `workspace:remove` | renderer → main (invoke) | terminal ID → boolean; main owns confirmation and dirty-file inspection |
 | `agents:scan` | renderer → main (invoke) | `refresh` → `{ warning, agents }` (no PATH) |
 | `agents:launch` | renderer → main (invoke) | `{ agent, repository, worktree, cols, rows }` → `{ id, attention }` or null on cancellation |
