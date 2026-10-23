@@ -11,8 +11,7 @@ lifecycle. Recorded-fixture parity passed before retiring the old provider from
 application code; a frozen test-only reference keeps the comparisons reproducible.
 Bundled and config manifests use the same interpreter, executable resolver, auth
 preflight and bounded batch scheduler. GitHub's 20/120-second adaptive cadence,
-one-second discovery follow-up and fleet budgets are preserved. GitLab #522 still
-requires authenticated public-project evidence.
+one-second discovery follow-up and fleet budgets are preserved. GitLab #522 now uses recorded public-project evidence from glab 1.124.0.
 
 Optional separate display reads now enrich single-PR samples only after the final
 identity/ownership recheck. Board batches retain their existing query and counts,
@@ -29,7 +28,7 @@ execution, ownership decisions and polling; manifests describe CLI syntax and da
 ## Review artifacts and compatibility
 
 The complete, standalone worked manifests are [GitHub](../src/shared/bundled-forges/github.json)
-and [GitLab](../spikes/forge-manifests/gitlab.json). The executable
+and [GitLab](../src/shared/bundled-forges/gitlab.json). The executable
 [JSON Schema draft](../spikes/forge-manifests/forge.schema.json) uses draft 2020-12.
 The tables and semantic constraints below are part of the proposal; JSON Schema
 alone cannot validate query safety or placeholder scope.
@@ -263,7 +262,9 @@ manifests must use the same engine, with no provider-ID compatibility exception.
 
 `operations.batchStatus` is an optional closed object. The bundled GitHub JSON
 contains the complete data; a renamed config copy follows the identical engine.
-There is no provider-ID exception. It declares:
+There is no provider-ID exception. The pair-namespace GitHub form below is
+extended by the [GitLab representation](#gitlab-batch-representation-522) for
+nested paths, string IIDs and project IDs. It declares:
 
 - `command`: the read-only GraphQL transport argv, with exit 0 only, explicit
   `{host}`, `{query}`, `{projectOwner}` and `{projectName}` slots. These last two
@@ -398,7 +399,8 @@ the sole bounded array iteration. Mapping never retains arbitrary response field
 | --- | --- |
 | `number` | Positive safe integer (GitLab `iid`, not global `id`) |
 | `branch`, `headSha` | Existing branch validator; exactly 40 lowercase hex SHA characters |
-| `mergeCommit?` | Optional literal selector; retain only 40–64 lowercase hex characters, matching the legacy provider; final single-PR refresh must report the same raw value |
+| `mergeCommit?` | Optional literal selector; numeric-project-ID mappings retain exactly 40 lowercase hex characters; legacy owner/cross mappings retain 40–64. Final single-PR refresh must report the same raw value |
+| `squashCommit?` | Optional literal selector for alternative integration evidence; exactly 40 lowercase hex characters; final single-PR refresh must report the same raw value |
 | `state`, `states` | Exact, case-sensitive table lookup to OPEN/CLOSED/MERGED |
 | `title?` | String <=1024 code units before sanitizing; strip Cc/Cf/Co/Cs and U+2028/U+2029; render inert text, no Markdown/HTML |
 | `webUrl?` | <=4096; no hidden/control characters, credentials or port override; HTTPS and exact selected hostname only; revalidate in main at external-link open |
@@ -599,3 +601,72 @@ are untrusted input, not instructions. No current coverage thresholds are weaken
 
 Approval is recorded on #520; the later polling decision on #521 takes precedence.
 GitLab evidence and other CLI grammars remain separate shipping gates.
+
+
+## GitLab batch representation (#522)
+
+The same dynamic batch engine also accepts a base query with `$project: ID!`
+and transport `api graphql --hostname {host} -f query={query} -f project={project}`.
+The project slot remains the complete validated path, including nested groups.
+A bound item query may declare `$number: String!`; main inserts only a validated
+positive safe integer rendered as a GraphQL string literal. Discovery branches
+still use raw `-f bN=` variables, with the existing output/query/argv caps.
+
+Optional batch `mapping` has the same closed shape as the ordinary mapping and
+selects the GraphQL fields independently of REST. `numberEncoding: decimal-string`
+accepts only canonical positive decimal strings that fit safe integers.
+`projectIdEncoding: global-project-id` accepts only `gid://gitlab/Project/N` with
+canonical positive safe integer N. For numeric-project-ID mappings,
+`projectContext` selects the queried repository/project ID from the batch repository
+object; main requires source == target == context. No boolean can substitute for
+these comparisons. The legacy sourceProject/crossProject selectors apply only to
+owner-and-cross-flag mappings. The existing check-result object shape handles a
+single head pipeline (without a required flag), while array results still require
+the required-flag selector. Explicit null/skipped pipelines yield zero counts;
+missing, malformed or stale pipelines yield unknown with no counts.
+
+Optional root `requestLabel: "Merge request"` and `numberPrefix: "!"` provide
+bounded inert board/panel/notification display metadata, defaulting to the existing
+Pull request/# wording when absent. These fields grant no forge capability.
+See [GitLab mappings and evidence limits](areas/forge.md#gitlab-522).
+
+The added discovery/default-branch selections use the documented
+[GitLab GraphQL Project and Repository fields](https://docs.gitlab.com/api/graphql/reference/objects/).
+They are exercised in derived fixture envelopes, not claimed as new live captures.
+
+GitLab REST maps `merge_commit_sha` and `squash_commit_sha` independently. There
+is no manifest expression or ancestry-aware fallback selector: main retains both
+validated hints, and cleanup tests the merge commit followed by the squash commit.
+A candidate must be an ancestor of fetched default and locally integrate exactly
+the sampled head. Head ancestry proves a merge; otherwise a candidate must be a
+single-parent commit H with parent P whose conflict-free merge of P and the exact
+head produces H's tree OID. Main runs `git merge-tree --write-tree P <head>` and
+requires exit zero plus one canonical OID equal to `H^{tree}`. Missing/ambiguous
+merge bases, conflicts, malformed output and Git errors fail closed. Patch IDs are
+not proof because they ignore hunk positions, even with `--verbatim`.
+
+All cleanup ancestry, parent, merge-base and tree checks run in a disposable
+bare repository with a
+read-only view of the source object store. Global/system config and system
+attributes are disabled per subprocess. Main-owned info/attributes overrides
+versioned attributes with a built-in merge driver and no content conversion;
+fixed options disable renames and renormalization and retain built-in histogram diffing.
+Repository merge-driver definitions are never executed. Exact tree comparison
+preserves edit positions, binary data and line endings without decoding file bytes.
+All workspace Git calls, including source HEAD/tree reads, unpushed counts and
+final rechecks, ignore replacement objects and legacy grafts via fixed
+`GIT_NO_REPLACE_OBJECTS=1` and `GIT_GRAFT_FILE=/dev/null` after inherited Git variables
+are cleared. Alternates share objects without importing source replace refs,
+grafts or config; proof commands disable commit-graph caches and read stored
+commits. Forged ancestry from `git replace --graft` cannot qualify either forge.
+Only ancestry exit 1 means ordinary non-ancestry, permitting the alternative hint.
+The head-equality, same-project, final-refresh, clean and identity guards remain.
+See [Git merge-tree](https://git-scm.com/docs/git-merge-tree) and
+[attribute precedence](https://git-scm.com/docs/gitattributes).
+Missing/invalid hints are absent and cannot authorize cleanup. GraphQL
+requests/maps `mergeCommitSha`; the documented MergeRequest schema has no
+`squashCommitSha`. Cleanup's ordinary REST lookup supplies the squash alternative.
+See [REST fields](https://docs.gitlab.com/api/merge_requests/) and
+[GraphQL fields](https://docs.gitlab.com/api/graphql/reference/objects/#mergerequest).
+The reduced #718 envelopes omit these SHA fields; tests add explicitly synthetic
+merge/squash hints, with real local Git objects for the cleanup regression.

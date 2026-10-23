@@ -11,10 +11,23 @@ branch is merged when `git merge-tree --write-tree <default> <branch>` produces
 the default branch's tree: merging it would change nothing. This works for merge,
 squash and rebase merges without GitHub access. Alternatively, a same-repository
 PR reported MERGED qualifies only when its reported head exactly matches the local
-worktree HEAD and its validated merge commit is locally verified as an ancestor of
-the fetched default with `git merge-base --is-ancestor`. Forge data is only a hint;
-missing or malformed evidence never qualifies. This also recognizes squash and
-rebase merges after the default branch changes the same lines. A failed fetch refuses cleanup;
+worktree HEAD and local Git proves that a validated integration hint contains that
+head's changes. The hint must be an ancestor of the freshly fetched default. A
+merge commit qualifies only if the worktree head is its ancestor. Otherwise, a
+squash/rebase hint H must have exactly one parent P. Foom merges P with the
+worktree head using `git merge-tree --write-tree` and qualifies only if the merge
+is conflict-free and its tree OID exactly equals `H^{tree}`. This preserves edit
+positions and compares complete Git trees, including binary bytes and line endings.
+All ancestry and tree proofs use stored commit objects in an isolated repository.
+Local replacement refs and graft files are ignored throughout merge checks and
+auto-removal, including final HEAD/status rechecks. Sharing an object store does
+not share those history overlays. Missing/ambiguous merge bases, malformed output
+and Git errors fail closed.
+An old default commit or stale squash of an
+earlier head cannot authorize deletion of later work. These rules apply equally
+to GitHub and GitLab, with same-project, stable-refresh, clean-checkout and identity
+guards retained. Forge claims alone never authorize cleanup. This also recognizes
+squash and rebase merges after the default branch changes the same lines. A failed fetch refuses cleanup;
 Foom never falls back to a stale default branch. Local inventory returns immediately;
 background cleanup eligibility is cached for up to one minute and published when
 ready. A plan less than one minute old fills the dialog immediately without fetching.
@@ -40,7 +53,7 @@ also removed only if it still points to the exact checked commit. Branch deletio
 share one checked-ref transaction after removals. Moved or checked-out branches
 are kept and reported; a concurrent ref race aborts the transaction safely.
 
-Worktree rows show a matched GitHub PR as **#N** and a check glyph with a status
+Worktree rows show a matched GitHub PR as **#N** or GitLab MR as **!N** and a check glyph with a status
 label in its accessible name and its plain-text title in the tooltip. Running checks are neutral, passed checks
 green, failed checks magenta; merged/closed PRs are muted without a check mark.
 Click the number to open the PR in the default browser. The checkout panel shows
@@ -54,7 +67,7 @@ When observed checks finish, Foom raises a desktop notification with the PR numb
 and failure count. A pass notifies only if no agent in that checkout is working.
 Clicking focuses the checkout in the sidebar. The existing Sound alert switch and
 mute preference suppress these notifications; notifications are silent. Missing or
-logged-out `gh`, unknown remotes and unavailable results show no board error.
+logged-out `gh` or `glab`, unknown remotes and unavailable results show no board error.
 
 ### New worktree
 

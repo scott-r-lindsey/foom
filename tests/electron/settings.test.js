@@ -731,8 +731,8 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   ]);
   const effective = (await page.evaluate(() => window.desktop.setupState())).settings;
   assert.deepEqual(effective, {
-    forges: { github: true },
-    forgeHosts: { "github.com": "github" },
+    forges: { github: true, gitlab: true },
+    forgeHosts: { "github.com": "github", "gitlab.com": "gitlab" },
     agyPluginOfferAnswered: false,
     setupComplete: true,
     hooks: true,
@@ -2520,9 +2520,10 @@ test("Settings forge cards persist user host assignments without activating prov
   assert.equal(before.settings.forgeHosts["git.example.org"], "custom");
   await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
   const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
-  assert.deepEqual(saved.settings.forges, { github: true, custom: false });
+  assert.deepEqual(saved.settings.forges, { github: true, gitlab: true, custom: false });
   assert.deepEqual(saved.settings.forgeHosts, {
     "github.com": "github",
+    "gitlab.com": "gitlab",
     "git.example.org": "custom",
   });
   const restarted = await launchApp(context, {

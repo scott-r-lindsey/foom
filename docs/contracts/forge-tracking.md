@@ -2,7 +2,7 @@
 
 ## Child PR and required checks (#340)
 
-Forge tracking, adoption and merged-PR hints use the bundled GitHub manifest through
+Forge tracking, adoption and merged-PR hints use the bundled GitHub and GitLab manifests through
 the shared lifecycle. Recorded-fixture parity passed before the production legacy
 provider was removed; its frozen test-only reference preserves comparisons.
 Configured copies use the same interpreter. Main owns fork/same-repository and
@@ -22,7 +22,7 @@ forge provider from the repository's origin URL (or its sole remote). GitHub on
 hosts, missing or logged-out CLIs and unavailable/malformed PR results omit PR
 metadata; they do not fail a control request. Unavailable check results preserve
 verified PR fields with an `unknown` conclusion. No additional opt-in is required by
-the 2026-10-13 decision. GitLab and enterprise hosts await providers.
+the 2026-10-13 decision. GitLab now uses the bundled glab manifest; explicit host assignments support self-hosted instances. See [GitLab semantics](../areas/forge.md#gitlab-522).
 
 The provider’s single-PR branch lookup is reusable by #337; repository polling uses the batched contract below. It runs only fixed `gh pr list`,
 `gh pr view`, `gh pr checks --required` and read-only `gh api graphql` queries

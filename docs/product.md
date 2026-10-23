@@ -7,6 +7,10 @@ The target is about 10 concurrent agents. Bundled agents are Claude Code (`claud
 
 Start with the [file map](map.md) and read the rules for the area you are changing. Decided rules live in the linked area and behavior documents; protocol details live in the contract documents. Changes to established decisions require their own PR and matching docs.
 
+Bundled forge support reads GitHub pull requests through `gh` and GitLab merge
+requests/head pipelines through `glab`, using existing CLI logins and explicit host
+assignments. See [forge behavior](behavior/worktrees.md) and [ownership](areas/forge.md).
+
 ## Terms
 
 See [Terms](behavior/overview.md#terms).
