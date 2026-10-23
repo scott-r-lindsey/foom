@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { hex, renderBlackHole, toneMap } from "./blackhole.mjs";
 import { encodeIcns, encodeIco, ICNS_TYPES } from "./containers.mjs";
-import { downsample, encodePng, toBytes } from "./png.mjs";
+import { downsample, encodePng, toDitheredBytes } from "./png.mjs";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 /** Git-ignored and outside every Electron build fingerprint input. */
@@ -91,14 +91,17 @@ export function iconImage(N, view, tone) {
   return rgba;
 }
 
-/** 8-bit RGBA for every size in SIZES. Render sizes must divide evenly into them. */
+/**
+ * Dithered 8-bit RGBA for every size in SIZES. Render sizes must divide evenly
+ * into them.
+ */
 export function iconImages({ mainSize = 2048, smallSize = 768, render = iconImage } = {}) {
   const main = render(mainSize, VIEW, TONE);
   const small = render(smallSize, SMALL_VIEW, SMALL_TONE);
   return new Map(
     SIZES.map((size) => {
       const [source, n] = size <= SMALL_MAX ? [small, smallSize] : [main, mainSize];
-      return [size, toBytes(downsample(source, n, n, n / size))];
+      return [size, toDitheredBytes(downsample(source, n, n, n / size), size)];
     }),
   );
 }

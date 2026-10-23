@@ -17,7 +17,7 @@ import {
   tileMask,
   writeIcons,
 } from "./icon/foom-icon.mjs";
-import { blur, crc32, downsample, encodePng, toBytes } from "./icon/png.mjs";
+import { blur, crc32, downsample, encodePng, toBytes, toDitheredBytes } from "./icon/png.mjs";
 
 function readPng(png) {
   assert.deepEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -65,6 +65,19 @@ test("PNG encoding round-trips 8-bit RGBA with valid checksums", () => {
   assert.equal(png.height, 1);
   assert.deepEqual(png.bytes, bytes);
   assert.throws(() => encodePng(bytes, 3, 1), /does not match/);
+});
+
+test("ordered dithering splits in-between levels evenly and leaves alpha alone", () => {
+  const flat = new Float32Array(4 * 4 * 4).fill(100.5 / 255);
+  const bytes = toDitheredBytes(flat, 4);
+  for (let channel = 0; channel < 3; channel++) {
+    const values = [...bytes].filter((_, k) => k % 4 === channel);
+    assert.equal(values.filter((v) => v === 101).length, 8);
+    assert.equal(values.filter((v) => v === 100).length, 8);
+  }
+  for (let k = 3; k < bytes.length; k += 4) assert.equal(bytes[k], 101);
+  const exact = toDitheredBytes(new Float32Array([0, 1, 40 / 255, 1, 2, -1, 0, 0]), 2);
+  assert.deepEqual([...exact], [...toBytes(new Float32Array([0, 1, 40 / 255, 1, 2, -1, 0, 0]))]);
 });
 
 test("downsampling weights colour by coverage and rejects uneven factors", () => {

@@ -30,6 +30,24 @@ export function toBytes(rgba) {
   return out;
 }
 
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+
+/**
+ * Quantizes like toBytes, with a 4x4 Bayer ordered dither of ±½ step on colour
+ * (not alpha). It breaks up banding in smooth gradients such as the disk glow.
+ */
+export function toDitheredBytes(rgba, width) {
+  const out = new Uint8Array(rgba.length);
+  for (let k = 0; k < rgba.length; k++) {
+    const pixel = k >> 2;
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    const offset = (k & 3) === 3 ? 0 : (BAYER[(y & 3) * 4 + (x & 3)] + 0.5) / 16 - 0.5;
+    out[k] = Math.max(0, Math.min(255, Math.round(rgba[k] * 255 + offset)));
+  }
+  return out;
+}
+
 /** Encodes 8-bit straight-alpha RGBA as a PNG. */
 export function encodePng(bytes, width, height) {
   if (bytes.length !== width * height * 4) throw new Error("PNG pixel data does not match size");

@@ -121,7 +121,9 @@ is lensed into the arch over the shadow and the crescent under it, with a crisp
 photon ring and Doppler beaming. The camera is rolled −25° and sits 7° above the
 disk plane. The disk light uses only the brand violet-to-white ramp, never amber
 or orange. Sizes up to 64 px use simplified art: a tighter crop, no disk streaks
-and a heavier photon ring.
+and a heavier photon ring. Every size is quantized to 8 bits with a 4×4 Bayer
+ordered dither (±½ step on colour, alpha untouched), which removes banding in
+the disk glow.
 
 `scripts/icon/` is the master. `blackhole.mjs` traces null geodesics and returns
 linear light, shadow coverage and a lens map for other art to reuse. `foom-icon.mjs`
