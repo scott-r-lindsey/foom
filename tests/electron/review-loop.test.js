@@ -426,7 +426,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
           { file: "a.ts", line: 1, summary: "Incorrect zero result", scenario: "Call with zero" },
         ],
       };
-      if (scenario === "clean") {
+      if (["clean", "fix", "cap"].includes(scenario)) {
         // The exited author remains visible while its reviewer can still find bugs.
         assert.equal((await call("session_state", { id: authorId })).state, "exited");
         await expect(row).toBeVisible();
@@ -446,6 +446,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         await waitStep("review-2");
         await expect(row.locator('[data-review-phase="reviewing"]')).toHaveText("Reviewing 2/3");
         await shot("reviewing-2");
+        assert.equal((await call("session_state", { id: authorId })).state, "exited");
         await go("review-2", { review: { verdict: "clean" } });
       }
       await expect
