@@ -5,7 +5,7 @@ import type { HostResponse } from "../../shared/terminal-host";
 import type { RemoteRequest, RemoteResponse } from "../../shared/remote-host";
 import {
   RemoteFrames,
-  remoteFrame,
+  remoteResponseFrames,
   remoteRequest,
   remoteResponse,
 } from "../../shared/remote-host-protocol";
@@ -18,27 +18,56 @@ export function serveHost(build: string, home = homedir()) {
   const path = hostSocket(home);
   const sessions = new Map<string, Session>();
   const sockets = new Set<Socket>();
-  const send = (socket: Socket, message: RemoteResponse) => {
+  const outgoing = new WeakMap<Socket, { chain: Promise<void>; queued: number }>();
+  const send = (
+    socket: Socket,
+    message: Exclude<RemoteResponse, { type: "fragment" }>,
+    replay = false,
+  ): Promise<void> => {
     if (!remoteResponse(message)) {
       socket.destroy();
-      return;
+      return Promise.resolve();
     }
-    try {
-      // A slow/disconnected hub cannot retain unbounded output in the daemon.
-      if (socket.writableLength > 1024 * 1024) {
-        socket.destroy();
-        return;
-      }
-      socket.write(remoteFrame(message));
-    } catch {
+    const state = outgoing.get(socket) ?? { chain: Promise.resolve(), queued: 0 };
+    outgoing.set(socket, state);
+    const cost = replay ? 0 : Buffer.byteLength(JSON.stringify(message));
+    state.queued += cost;
+    if (state.queued > 1024 * 1024 || socket.writableLength > 1024 * 1024) {
       socket.destroy();
+      return Promise.resolve();
     }
+    state.chain = state.chain
+      .then(async () => {
+        // One frame in flight. A large replay cannot fill the socket queue or
+        // interleave live output/results; attach waits before accepting another replay.
+        for (const frame of remoteResponseFrames(message)) {
+          if (socket.destroyed) return;
+          await new Promise<void>((resolve, reject) => {
+            const closed = () => {
+              reject(new Error("Remote disconnected"));
+            };
+            socket.once("close", closed);
+            socket.write(frame, (error) => {
+              socket.removeListener("close", closed);
+              if (error) reject(error);
+              else resolve();
+            });
+          });
+        }
+      })
+      .catch(() => {
+        socket.destroy();
+      })
+      .finally(() => {
+        state.queued -= cost;
+      });
+    return state.chain;
   };
   const event = (message: HostResponse) => {
     if (message.type === "activity") return;
     const session = sessions.get(message.id);
     if (message.type === "exit" && session) session.exited = message.code;
-    if (session?.connection) send(session.connection, message);
+    if (session?.connection) void send(session.connection, message);
   };
   const manager = new TerminalManager((id, code) => {
     event({ type: "exit", id, code });
@@ -62,7 +91,7 @@ export function serveHost(build: string, home = homedir()) {
           throw new Error("Host version mismatch");
         negotiated = true;
         clearTimeout(deadline);
-        send(socket, { type: "hello", build });
+        await send(socket, { type: "hello", build });
         return;
       }
       if (message.type === "hello") throw new Error("Repeated negotiation");
@@ -86,7 +115,7 @@ export function serveHost(build: string, home = homedir()) {
           session.connection.destroy();
         }
         session.connection = socket;
-        send(socket, { type: "result", id, request: message.request, lines: [] });
+        await send(socket, { type: "result", id, request: message.request, lines: [] });
         return;
       }
       if (!id || message.id !== id || sessions.get(id)?.connection !== socket)
@@ -95,18 +124,29 @@ export function serveHost(build: string, home = homedir()) {
       let signaled: boolean | undefined;
       let screen: { title: string; cols: number; rows: number } | undefined;
       switch (message.type) {
-        case "attach":
+        case "attach": {
+          let snapshot = true;
+          let replay = Promise.resolve();
           await manager.attach(
             message.id,
             (token, data) => {
-              if (sessions.get(message.id)?.connection === socket)
-                send(socket, { type: "data", id: message.id, view: message.view, token, data });
+              if (sessions.get(message.id)?.connection === socket) {
+                const sent = send(
+                  socket,
+                  { type: "data", id: message.id, view: message.view, token, data },
+                  snapshot,
+                );
+                if (snapshot) replay = sent;
+                snapshot = false;
+              }
             },
             true,
           );
+          await replay;
           if (sessions.get(id)?.exited !== undefined)
             event({ type: "exit", id, code: sessions.get(id)?.exited ?? -1 });
           break;
+        }
         case "detach":
           manager.detach(id);
           break;
@@ -140,7 +180,7 @@ export function serveHost(build: string, home = homedir()) {
           sessions.delete(id);
           break;
       }
-      send(socket, {
+      await send(socket, {
         type: "result",
         request: message.request,
         id,

@@ -4,6 +4,7 @@ import type { HostRequest } from "../../shared/terminal-host";
 import type { RemoteTarget, RemoteRequest } from "../../shared/remote-host";
 import {
   RemoteFrames,
+  RemoteMessages,
   remoteFrame,
   remoteHost,
   remoteRequest,
@@ -27,6 +28,7 @@ export class RemoteTransport extends EventEmitter {
   private pending = new Map<number, string>();
   private internal = Number.MAX_SAFE_INTEGER;
   private restoring: number | undefined;
+  private restoration = new Set<number>();
 
   constructor(
     private readonly target: RemoteTarget,
@@ -87,6 +89,7 @@ export class RemoteTransport extends EventEmitter {
     let bootstrapped = false;
     let uploading = false;
     const frames = new RemoteFrames();
+    const responses = new RemoteMessages();
     const deadline = setTimeout(() => child.kill(), 120000);
     const receive = (bytes: Buffer) => {
       if (this.child !== child || this.closed) return;
@@ -114,8 +117,12 @@ export class RemoteTransport extends EventEmitter {
             break;
           }
         }
-        frames.push(bytes, (value) => {
-          if (!remoteResponse(value)) throw new Error("Invalid remote response");
+        frames.push(bytes, (wire) => {
+          if (!remoteResponse(wire)) throw new Error("Invalid remote response");
+          if (wire.type === "fragment" && (!this.ready || wire.id !== this.session?.id))
+            throw new Error("Foreign remote fragment");
+          const value = responses.push(wire);
+          if (!value) return;
           if (!this.ready) {
             if (value.type !== "hello" || value.build !== artifact.sha256)
               throw new Error("Host version mismatch");
@@ -148,9 +155,18 @@ export class RemoteTransport extends EventEmitter {
             if (value.request === this.restoring) {
               if (value.type === "error") throw new Error("Reattach failed");
               this.restoring = undefined;
-              this.retries = 0;
               for (const command of [this.theme, this.dimensions, this.attachment])
-                if (command) this.send({ ...command, request: --this.internal });
+                if (command) {
+                  const request = --this.internal;
+                  this.restoration.add(request);
+                  this.send({ ...command, request });
+                }
+              return;
+            }
+            if (this.restoration.delete(value.request)) {
+              if (value.type === "error") throw new Error("View restoration failed");
+              // Attach's result follows the entire replay, including all fragments.
+              if (this.restoration.size === 0) this.retries = 0;
               return;
             }
             if (value.request >= this.internal) return;
@@ -179,6 +195,8 @@ export class RemoteTransport extends EventEmitter {
       if (this.child !== child || this.closed) return;
       this.child = undefined;
       this.ready = false;
+      this.restoring = undefined;
+      this.restoration.clear();
       for (const [request, id] of this.pending)
         this.emit("message", { type: "error", request, id });
       this.pending.clear();

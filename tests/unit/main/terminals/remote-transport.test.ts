@@ -1,7 +1,11 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { remoteFrame, RemoteFrames } from "../../../../src/shared/remote-host-protocol";
+import {
+  remoteFrame,
+  remoteResponseFrames,
+  RemoteFrames,
+} from "../../../../src/shared/remote-host-protocol";
 import type { HostRequest } from "../../../../src/shared/terminal-host";
 const mock = vi.hoisted(() => ({ spawn: vi.fn(), artifact: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mock.spawn }));
@@ -217,4 +221,102 @@ test("failed artifacts and cancellation never start SSH; hosts reject options sy
   await Promise.resolve();
   expect(bad.kill()).toBe(false);
   bad.postMessage("shutdown");
+});
+
+function requestOf(child: Child, type: string): number {
+  const message = child.messages.find(
+    (value) =>
+      typeof value === "object" && value !== null && "type" in value && value.type === type,
+  );
+  if (
+    typeof message !== "object" ||
+    message === null ||
+    !("request" in message) ||
+    typeof message.request !== "number"
+  )
+    throw new Error("Missing request");
+  return message.request;
+}
+
+test.each(["partial", "complete"])(
+  "open acknowledgements and %s replay without attach completion exhaust exactly five reconnect attempts",
+  async (kind) => {
+    await ready();
+    transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
+    const exit = vi.fn();
+    transport.on("exit", exit);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      child.emit("close");
+      child = new Child();
+      mock.spawn.mockReturnValue(child);
+      await vi.advanceTimersByTimeAsync(1000);
+      child.greet();
+      child.message({ type: "result", id: "one", request: requestOf(child, "open"), lines: [] });
+      child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+      const replay = {
+        type: "data",
+        id: "one",
+        view: "v",
+        token: "t",
+        data: "screen".repeat(20000),
+      } as const;
+      for (const frame of remoteResponseFrames(replay)) {
+        child.stdout.write(frame);
+        if (kind === "partial") break;
+      }
+    }
+    child.emit("close");
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(mock.spawn).toHaveBeenCalledTimes(6);
+    expect(exit).toHaveBeenCalledTimes(1);
+    expect(
+      events.filter(
+        (event) =>
+          typeof event === "object" && event !== null && "type" in event && event.type === "data",
+      ),
+    ).toHaveLength(kind === "complete" ? 5 : 0);
+    expect(transport.kill()).toBe(false);
+  },
+);
+
+test("a complete fragmented replay and attach result restore the retry allowance", async () => {
+  await ready();
+  transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
+  for (let attempt = 0; attempt < 6; attempt++) {
+    child.emit("close");
+    child = new Child();
+    mock.spawn.mockReturnValue(child);
+    await vi.advanceTimersByTimeAsync(1000);
+    child.greet();
+    child.message({ type: "result", id: "one", request: requestOf(child, "open"), lines: [] });
+    child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+    const replay = {
+      type: "data",
+      id: "one",
+      view: "v",
+      token: "t",
+      data: "screen".repeat(20000),
+    } as const;
+    for (const frame of remoteResponseFrames(replay)) child.stdout.write(frame);
+    child.message({ type: "result", id: "one", request: requestOf(child, "attach"), lines: [] });
+    expect(events).toContainEqual(replay);
+  }
+  expect(mock.spawn).toHaveBeenCalledTimes(7);
+  expect(transport.kill()).toBe(true);
+});
+
+test("foreign fragments and failed restoration responses terminate the SSH stream", async () => {
+  await ready();
+  child.stdout.write(
+    remoteFrame({ type: "fragment", id: "other", offset: 0, total: 1, data: "x" }),
+  );
+  expect(child.kill).toHaveBeenCalled();
+  child.emit("close");
+  child = new Child();
+  mock.spawn.mockReturnValue(child);
+  await vi.advanceTimersByTimeAsync(1000);
+  child.greet();
+  child.message({ type: "result", id: "one", request: requestOf(child, "open"), lines: [] });
+  child.message({ type: "error", id: "one", request: requestOf(child, "theme") });
+  expect(child.kill).toHaveBeenCalled();
 });

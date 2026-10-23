@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { RemoteFrames, remoteFrame } from "../../../../src/shared/remote-host-protocol";
+import {
+  RemoteFrames,
+  RemoteMessages,
+  remoteResponse,
+  MAX_REMOTE_MESSAGE,
+  remoteFrame,
+} from "../../../../src/shared/remote-host-protocol";
 import type { RemoteRequest } from "../../../../src/shared/remote-host";
 const mock = vi.hoisted(() => ({
   create: vi.fn(),
@@ -254,7 +260,7 @@ test.skipIf(process.platform === "win32")(
     const large = await open();
     mock.attach.mockImplementationOnce(
       (_id: string, send: (token: string, data: string) => void) => {
-        send("t", "x".repeat(8 * 1024 * 1024));
+        send("t", "x".repeat(MAX_REMOTE_MESSAGE));
         return Promise.resolve();
       },
     );
@@ -308,5 +314,43 @@ test.skipIf(process.platform === "win32")(
     await host.close();
     await closed;
     expect(c.socket.destroyed).toBe(true);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "streams replay beyond the frame cap to a paused reader before attach completion and live output",
+  async () => {
+    await start();
+    const c = await open();
+    const data = "\x1b[31mA\x1b[32mB".repeat(40 * 10000);
+    mock.attach.mockImplementationOnce(
+      (_id: string, send: (token: string, data: string) => void) => {
+        send("t", data);
+        send("t", "live");
+        return Promise.resolve();
+      },
+    );
+    c.socket.pause();
+    c.send({ type: "attach", id: "one", view: "v", request: 2 });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    c.socket.resume();
+    const responses = new RemoteMessages();
+    const complete: unknown[] = [];
+    const frames = new RemoteFrames();
+    c.socket.on("data", (bytes: Buffer) => {
+      frames.push(bytes, (wire) => {
+        if (!remoteResponse(wire)) throw new Error("Invalid response");
+        const response = responses.push(wire);
+        if (response) complete.push(response);
+      });
+    });
+    while (complete.length < 3) await once(c.socket, "data");
+    expect(complete).toEqual([
+      { type: "data", id: "one", view: "v", token: "t", data },
+      { type: "data", id: "one", view: "v", token: "t", data: "live" },
+      { type: "result", id: "one", request: 2, lines: [] },
+    ]);
+    expect(c.socket.destroyed).toBe(false);
+    expect(mock.kill).not.toHaveBeenCalled();
   },
 );

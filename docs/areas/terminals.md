@@ -88,6 +88,14 @@ is unavailable.
 The wire format is a 4-byte unsigned big-endian byte count followed by UTF-8 JSON
 `{version:1,message:...}`. Frames are capped at 8 MiB before allocation; invalid
 lengths, UTF-8, JSON, envelope versions, payloads and foreign IDs close the channel.
+Responses above 65,536 UTF-16 units are transmitted as ordered fragments, each
+with terminal ID, offset and total. The client permits one contiguous response
+at a time, requires fixed-size chunks except the final chunk, bounds the total
+to 32 Mi UTF-16 units (64 MiB of string storage), and validates the reassembled
+response before publishing it. Malformed, interleaved or excessive responses
+close the channel. The 8 MiB per-frame cap remains unchanged. The daemon writes
+one frame at a time, queues live output behind replay, and finishes replay before
+acknowledging attach or processing another attachment.
 Both peers negotiate the SHA-256 build identity before operations. The shell-only
 protocol permits open, attach/replay, input, resize, theme, acknowledgement, screen,
 tail, stop and close; it cannot create arbitrary commands, send hooks/MCP, or shut
@@ -111,9 +119,12 @@ attempts, opening the same terminal ID and replaying a fresh screen with reset,
 then live output. The PTY owner includes the reset in its counted snapshot, so
 renderer acknowledgments account for exactly the bytes it delivered, including
 large replay above the view high-water mark. It restores dimensions/theme and
-gives the view a fresh token.
+gives the view a fresh token. Only successful completion of all restoration
+operations, including the attach result after the complete replay, resets the
+retry allowance. An open acknowledgement followed by a replay disconnect still
+consumes an attempt; five such attempts terminate the transport and fail the tile.
 Input interrupted by disconnect is failed rather than replayed. Slow output above
-1 MiB of queued socket writes disconnects the view; headless parsing continues.
+1 MiB of queued non-replay responses or socket writes disconnects the view; headless parsing continues.
 Quit/dispose disconnects remote shells; explicit Stop or Close terminates them.
 The phase-1 hub retains IDs only in memory: rediscovery after hub restart is phase 4.
 See [measurements and fixture verification](../../spikes/remote-host/phase-1.md).

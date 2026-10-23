@@ -1,6 +1,10 @@
 import { expect, test } from "vitest";
 import {
   MAX_REMOTE_FRAME,
+  MAX_REMOTE_MESSAGE,
+  REMOTE_FRAGMENT_SIZE,
+  RemoteMessages,
+  remoteResponseFrames,
   RemoteFrames,
   remoteFrame,
   remoteHost,
@@ -103,4 +107,96 @@ test("frames survive arbitrary fragmentation and coalescing without exceeding th
   expect(() => {
     new RemoteFrames().push(Uint8Array.of(0, 0, 0, 1, 255), () => {});
   }).toThrow();
+});
+
+test("ANSI-rich retained screens larger than a frame reassemble exactly through bounded frames", async () => {
+  const { Terminal } = await import("@xterm/headless");
+  const { SerializeAddon } = await import("@xterm/addon-serialize");
+  const screen = new Terminal({ cols: 80, rows: 24, scrollback: 10000, allowProposedApi: true });
+  const serializer = new SerializeAddon();
+  screen.loadAddon(serializer);
+  try {
+    await new Promise<void>((resolve) => {
+      screen.write(("\x1b[31mA\x1b[32mB".repeat(40) + "\r\n").repeat(10000), resolve);
+    });
+    const message = {
+      type: "data",
+      id: "one",
+      view: "v",
+      token: "t",
+      data: "\x1bc" + serializer.serialize(),
+    } as const;
+    expect(() => remoteFrame(message)).toThrow("large");
+    const frames = new RemoteFrames();
+    const responses = new RemoteMessages();
+    const received: unknown[] = [];
+    let count = 0;
+    for (const frame of remoteResponseFrames(message)) {
+      count++;
+      expect(frame.length - 4).toBeLessThanOrEqual(MAX_REMOTE_FRAME);
+      frames.push(frame, (wire) => {
+        expect(remoteResponse(wire)).toBe(true);
+        if (!remoteResponse(wire)) throw new Error("Invalid wire response");
+        const response = responses.push(wire);
+        if (response) received.push(response);
+      });
+    }
+    expect(count).toBeGreaterThan(1);
+    expect(received).toEqual([message]);
+  } finally {
+    screen.dispose();
+  }
+});
+
+test("reassembly rejects excessive totals, gaps, mismatched identity, interleaving and nested payloads", () => {
+  const first = {
+    type: "fragment",
+    id: "one",
+    offset: 0,
+    total: REMOTE_FRAGMENT_SIZE + 1,
+    data: "x".repeat(REMOTE_FRAGMENT_SIZE),
+  } as const;
+  for (const invalid of [
+    { ...first, total: MAX_REMOTE_MESSAGE + 1 },
+    { ...first, total: 0 },
+    { ...first, offset: -1 },
+    { ...first, data: "" },
+  ]) {
+    expect(remoteResponse(invalid)).toBe(false);
+    expect(() => new RemoteMessages().push(invalid)).toThrow("fragment");
+  }
+  for (const next of [
+    { ...first, offset: 1 },
+    { ...first, id: "two" },
+    { ...first, total: first.total + 1 },
+    { type: "exit", id: "one", code: 0 },
+  ] as const) {
+    const messages = new RemoteMessages();
+    messages.push(first);
+    expect(() => messages.push(next)).toThrow();
+  }
+  expect(() => new RemoteMessages().push({ ...first, offset: 1 })).toThrow("Noncontiguous");
+  for (const value of [
+    "not json",
+    JSON.stringify({ type: "fragment", id: "one" }),
+    JSON.stringify({ type: "exit", id: "two", code: 0 }),
+  ])
+    expect(() =>
+      new RemoteMessages().push({
+        type: "fragment",
+        id: "one",
+        offset: 0,
+        total: value.length,
+        data: value,
+      }),
+    ).toThrow();
+  expect(() => [
+    ...remoteResponseFrames({
+      type: "data",
+      id: "one",
+      view: "v",
+      token: "t",
+      data: "x".repeat(MAX_REMOTE_MESSAGE),
+    }),
+  ]).toThrow("large");
 });
