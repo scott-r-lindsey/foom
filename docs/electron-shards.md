@@ -261,3 +261,31 @@ overhead, and combine maxima that need not occur in the same run. Check actual
 PR step wall times against the unchanged 420s Linux / 600s Windows and macOS
 limits before calling the balance validated. The earlier measurements above
 remain historical context, not this refresh's inputs.
+
+## Rebalancing from current reports (#751)
+
+Refreshed all 183 current named cases using passing main runs
+[39918020774](https://github.com/scott-r-lindsey/foom/actions/runs/39918020774)
+and [39970696968](https://github.com/scott-r-lindsey/foom/actions/runs/39970696968),
+plus passing PR runs
+[39946804406](https://github.com/scott-r-lindsey/foom/actions/runs/39946804406)
+and [39973853488](https://github.com/scott-r-lindsey/foom/actions/runs/39973853488).
+All twelve Electron reports from each run are inputs. The newest main reports
+cover the GitLab cases added after this branch was created; the latest update PR
+reports measure the update-settings case subsequently merged into main. The existing script
+uses per-case maxima across these runs; older runs may omit newer cases when
+another input measures them on every platform.
+
+| Platform | Before: shards 1 / 2 / 3 / 4 | After: shards 1 / 2 / 3 / 4 | After max/min spread | Case-sum headroom |
+| --- | --- | --- | --- | --- |
+| Linux | 307.3 / 345.8 / 378.0 / 341.6 | 345.5 / 343.9 / 342.3 / 341.0 | 1.3% | 74.5s / 17.7% |
+| Windows | 540.3 / 566.9 / 530.1 / 479.6 | 529.3 / 528.5 / 529.5 / 529.6 | 0.2% | 74.9s / 11.3% |
+| macOS | 401.7 / 484.7 / 464.3 / 402.6 | 440.7 / 436.6 / 437.3 / 438.7 | 0.9% | 159.3s / 26.6% |
+
+Values are seconds; spread is `(maximum / minimum - 1) * 100`.
+Headroom subtracts the largest projected case sum from the unchanged step budget
+(420s Linux, 600s Windows/macOS). These conservative projections combine maxima
+that may come from different runs and exclude build/runner overhead. Actual PR
+step times remain the validation evidence. No shard count, workflow budget or
+test deadline changed. The [validation guide](validation.md#refreshing-the-electron-shard-plan)
+includes the repeatable refresh procedure.

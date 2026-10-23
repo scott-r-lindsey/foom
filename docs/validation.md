@@ -22,6 +22,35 @@ files no test imports; only declarations are excluded. Thresholds are defined in
 
 PR checks enforce the contributor changed-line coverage threshold and fail if a changed application file is missing from LCOV. The scripts under `scripts/` adapt the reporting tools from the Crab Attack II reference, with stricter enforcement and regression tests.
 
+## Refreshing the Electron shard plan
+
+Use Node 24 and installed dependencies. Download all twelve `electron-results-*`
+artifacts per selected recent passing CI run. Keep numeric run-ID directories and
+artifact subdirectories intact, outside the repository or under ignored
+`test-results/`. Use a fresh source directory for each refresh:
+
+```sh
+for run in 39918020774 39946804406 39970696968 39973853488; do
+  gh run download "$run" --pattern 'electron-results-*' \
+    --dir "test-results/rebalance/sources/$run"
+done
+# Preview with the same measurements for both assignments, then regenerate:
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/*
+node scripts/rebalance-electron-shards.mjs test-results/rebalance/sources/* --write
+pnpm run format
+node --require ./tests/helpers/setup.js --test scripts/electron-shard.test.mjs
+```
+
+Replace the example IDs with recent runs covering every current case on all three
+platforms. The script rejects failed cases, missing reports and unmeasured current
+cases. It takes each case's maximum duration per platform and includes hash
+assignments for previously unplanned cases in the before projection. Review balance
+and headroom under the unchanged 420s Linux / 600s Windows and macOS step limits.
+Case sums exclude build/runner overhead; compare actual CI step times before
+calling the refresh validated. Regenerate after incorporating new tests from main
+and run full contributor validation. See the [sharding guide](electron-shards.md)
+for the assignment method and measurement history.
+
 ## CI and packages
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on pull requests and pushes to `main`, plus scheduled and manual runs:
