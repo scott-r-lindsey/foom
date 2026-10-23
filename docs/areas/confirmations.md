@@ -100,8 +100,20 @@ subject to window-manager restrictions (for example native Wayland). Quit approv
 does not need the board to render.
 Main serializes requests, supplies the current
 resolved theme and content, and gives each request a new ID. Content carries a glyph,
-subject, labeled disclosure sections, facts, argument chips and the pairing code with
-its main-owned expiry deadline. The sandboxed preload validates structured fields.
+subject, labeled disclosure sections (with optional main-authored collapsed summary
+lines and full tooltip/accessibility text), facts, argument chips and the pairing code with
+its main-owned expiry deadline. The sandboxed preload validates structured fields,
+including summary line text and optional full titles. Both are capped at 8,192
+UTF-16 code units and reject control characters, Unicode line/paragraph separators
+and bidi controls U+202A–U+202E, U+2066–U+2069, U+200E and U+200F. Main refuses
+unsafe plugin summaries before requesting confirmation, including raw executable
+and fixed argument strings before command quoting. Plugin staging computes
+12-character hash displays, full hashes and UTF-8 sizes in main; full hashes also
+remain selectable in the expanded file byte boxes. Plugin executable summaries
+use the executable basename and fixed argv, with middle truncation computed in
+main and full commands, including the absolute executable path, retained in titles
+and accessible names. These presentation summaries never
+change the accepted action or its revalidation.
 The shared anatomy uses 500 CSS pixels for prose and 540 for lists and disclosures;
 main still applies zoom and the parent/work-area clamps. List names wrap in their own
 grid column; state and retention labels never wrap. Pairing counts down to the actual
@@ -122,8 +134,8 @@ The trusted session denies permissions and navigation, blocks new windows and
 webviews, and serves only its page, script, styles and bundled fonts. Context
 isolation and sandboxing stay enabled; Node integration stays disabled. Its CSP
 matches the board's restrictions. React renders titles, filenames and session
-metadata as text. The page traps focus within Cancel, the confirming button and (when scrolling)
-the content region,
+metadata as text. The page traps focus within Cancel, the confirming button, disclosure
+summaries, expanded byte boxes and (when scrolling) the content region,
 handles Escape, focuses Cancel for every request, and respects reduced motion.
 Quit inventories live terminals in main, including shells outside the workspace
 snapshot; it does not query the board. Renderer loss immediately releases a pending terminal view flush; a crashed board

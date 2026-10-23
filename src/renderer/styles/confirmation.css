@@ -479,3 +479,43 @@ li[data-dirty="true"] > .row > .why svg {
   stroke: currentColor;
   stroke-width: 1.5;
 }
+
+.confirmation-window.bounded {
+  max-height: min(800px, 100vh);
+}
+.disclosure summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.disclosure summary .label {
+  display: inline;
+}
+.disclosure-summary {
+  display: block;
+  margin-top: 4px;
+  font: 11px / 1.5 var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.disclosure[open] > .argument-lines {
+  margin-top: 8px;
+}
+.disclosure .argument-lines code {
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px;
+  background: var(--bg);
+  border: var(--shape-border, 1px) solid var(--line);
+  border-radius: var(--shape-panel-radius, 8px);
+}
+.disclosure summary:focus-visible,
+.disclosure code:focus-visible {
+  outline: 2px solid var(--state-focus, var(--highlight));
+  outline-offset: 2px;
+}
+
+.bounded .confirmation-content > div {
+  gap: 12px;
+  padding-block: 14px 18px;
+}
