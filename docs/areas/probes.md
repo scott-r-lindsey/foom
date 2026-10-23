@@ -89,12 +89,14 @@ awaiting ConfigService.refresh(), and has no decision or settings-write authorit
 The guide requires checking it and explaining held settings to the human.
 
 After a changed provider registry finishes discovery, main publishes setup changes
-and refreshes workspace and application menus. Board launch options subscribe to
-setup changes, discarding stale asynchronous results. Application routes are rebuilt
-from loaded provider identities, with absent enablement meaning enabled, matching
-workspace launches. Preload accepts bounded syntactic via-provider commands; main
-still validates installed IDs and launch authority. MCP tools/list resolves the
-current registry for each request, including existing MCP sessions.
+and refreshes workspace launch options, including sidebar config launchers. Board
+launch options subscribe to setup changes, discarding stale asynchronous results,
+and derive their entries from loaded provider identities, with absent enablement
+meaning enabled. Main validates installed IDs and launch authority. The
+[application command registry](commands.md) has no agent launch routes or
+agent-discovery refresh; syntactic preload acceptance of via-provider commands
+does not create a route. MCP tools/list resolves the current registry for each
+request, including existing MCP sessions.
 
 ### Probe verification (#593)
 

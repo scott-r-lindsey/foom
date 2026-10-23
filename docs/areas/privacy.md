@@ -5,8 +5,12 @@ Decided implementation and security rules for this area. Read the [file map](../
 ## Secrets
 
 Use Electron `safeStorage` for any secret Foom stores; never store plaintext or expose
-secrets to the renderer. Terminal content stays local except the explicit
-[config-owned probe screen capability](probes.md).
+secrets to the renderer. Local evaluation makes no model requests. Foom itself
+sends no terminal content to model or network services. The explicit
+[config-owned probe screen capability](probes.md) and
+[orchestrator child tails/reports](../contracts/control-privacy.md#output-privacy-and-visibility)
+can return output to the requesting agent’s context, where it may reach that
+agent’s model provider under its own provider settings.
 On profile load, `SettingsStore` drops legacy `inference` and `inferenceTimeoutMs`
 fields and atomically saves the migrated settings. It deletes the three fixed
 `inference-{anthropic,openai,google}.key` ciphertext files and strictly UUID-named

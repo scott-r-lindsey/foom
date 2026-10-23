@@ -13,8 +13,9 @@ switches and volumes. The existing setup IPC and atomic store persist choices.
 `main/sounds/library.ts` creates `~/.foom/config/sounds/{working,done,needs-you,refusal}`
 and merges its catalogs with read-only `build/sounds/` inside the packaged resources.
 The build copies the approved OGG/Opus recordings, manifest and notices; notices also
-feed `build/THIRD_PARTY_NOTICES.txt`. Settings exposes sound credits until the About
-screen (#96) consumes the shared notices. The manifest records original authors,
+feed `build/THIRD_PARTY_NOTICES.txt`, accessible through
+[About → Third-party notices](../behavior/menus.md#application-menu-and-attention-badge).
+Settings → Sound also exposes sound credits. The manifest records original authors,
 URLs, CC0 licenses, retrieval dates, source and derivative checksums, and edits.
 
 `sound:list` and `sound:read` validate the main window's top-level sender and exact

@@ -25,10 +25,12 @@ the [preview isolation contract](previews.md#previews).
 Production packages use ASAR and hardened Electron fuses and include compiled
 application files, package metadata and production dependencies. Native node-pty
 binaries and spawn helpers are unpacked. Windows uses node-pty's bundled ConPTY
-DLL; RunAsNode stays disabled. Main owns secrets and uses Electron `safeStorage`;
-Foom sends no terminal content to a model or network service except screens of
-config-owned agent probes requested by their owning config session (#591). See [secrets](privacy.md#secrets)
-and [control-plane privacy](../contracts/control-privacy.md#output-privacy-and-visibility).
+DLL; RunAsNode stays disabled. Main owns secrets and uses Electron `safeStorage`.
+Local evaluation makes no model requests. Foom itself sends no terminal content to
+model or network services; scoped [probe screens](probes.md) and child tails/reports
+can enter the requesting agent’s context and reach its model provider. See
+[secrets](privacy.md#secrets) and
+[control-plane privacy](../contracts/control-privacy.md#output-privacy-and-visibility).
 
 ## Source layout
 

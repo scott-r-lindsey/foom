@@ -30,12 +30,14 @@ Probes are never restored. They stop after ten minutes, when their owning config
 session exits, or when Foom quits; Foom removes the scratch repository after the
 process stops.
 
-Foom sends no terminal content to models or network services, with one exception:
-a config session can request the current visible screen and OSC title of a probe
+Foom itself sends no terminal content to models or network services. Through the
+scoped probe capability, a config session can request the current visible screen and OSC title of a probe
 it started. That output enters the config agent's context and may go to its model
 provider. No scrollback is exposed. Other sessions, including other config
 sessions' probes, remain unreadable through this capability. Probe IDs are random
-and bound to the calling config session's private credential.
+and bound to the calling config session's private credential. The separate
+[orchestration privacy rules](orchestration.md#orchestration-and-privacy) cover
+child tails and reports returned to a parent agent.
 
 The CLI provides `start <agent> [--manifest <path>] [--resume <conversationId>]`,
 `send <probe> <text>` (text followed by Enter),
