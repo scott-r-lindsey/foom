@@ -88,17 +88,20 @@ survive a reload or appear in other windows.
 ### Detached and leftover checkouts
 
 Delete merged worktrees also considers detached HEADs and checkouts with only
-untracked files. These additional candidates must be inside Foom's worktree root,
+untracked or ignored files. These additional candidates must be inside Foom’s
+worktree root,
 have no unpushed commits and satisfy the same merge checks. The confirmation lists
-untracked paths (up to 50 per checkout, with long paths shortened) and offers
+untracked and ignored paths (up to 50 per checkout, with long paths shortened
+and a count of omitted paths) and offers
 **Force delete**. Changed files or commits invalidate the approval. Detached rows
 in the checklist name the folder and short commit; they have no branch to delete.
 
 A prunable checkout shows **Broken checkout** in the sidebar and offers a single
-**Clean up** command. Close its sessions first. Cleanup reuses the existing safe
-prune operation, removes the recorded leftover folder only inside Foom's worktree
-root with no `.git` entry, and keeps branches. Known broken checkouts show
-unavailable Git facts without logging an error on each panel refresh.
+**Clean up** command. Close its sessions first. Cleanup refuses leftover content
+that cannot be safely inspected, a nonempty index, unpushed commits, private refs,
+sparse checkout and unfinished Git operations. Only an absent or empty folder
+inside Foom’s worktree root can be cleaned up; branches are kept. Known broken
+checkouts show unavailable Git facts without logging an error on each panel refresh.
 
 Ordinary **Delete worktree…** keeps its existing explicit confirmation behavior,
 including **Discard changes and remove** and external linked checkouts.

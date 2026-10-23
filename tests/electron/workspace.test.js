@@ -1950,6 +1950,10 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
   await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
   const confirmation = await confirmationPage(app);
+  await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
+    ".env",
+  );
+  await expect(confirmation.getByText("ignored", { exact: true })).toBeVisible();
   await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
     "merged-one",
   );
@@ -3078,7 +3082,7 @@ test("prunable removal offers a coded modal; Enter is inert, Escape restores foc
   });
 });
 
-test("broken checkout shows Clean up directly and removes leftover content without panel-facts errors", async (context) => {
+test("broken checkout shows Clean up directly and refuses uninspectable leftover content", async (context) => {
   const app = await launchApp(context, { fixture: "repository" });
   let page = await boardPage(app);
   const repository = await page.evaluate(
@@ -3104,6 +3108,10 @@ test("broken checkout shows Clean up directly and removes leftover content witho
   const { rm } = require("node:fs/promises");
   await mkdir(path.join(tree.path, "node_modules"));
   await writeFile(path.join(tree.path, "node_modules", "leftover"), "fixture content");
+  const remote = path.join(path.dirname(repository), "broken-remote.git");
+  isolatedGit(["clone", "--bare", repository, remote], { cwd: repository });
+  isolatedGit(["remote", "add", "origin", remote], { cwd: repository });
+  isolatedGit(["fetch", "origin"], { cwd: repository });
   await rm(path.join(tree.path, ".git"));
   await page.reload();
   page = await boardPage(app);
@@ -3132,6 +3140,15 @@ test("broken checkout shows Clean up directly and removes leftover content witho
   }
   await assertAccessible(page);
   await panel.getByRole("menuitem", { name: "Clean up", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Action failed" })).toBeVisible();
+  assert.equal(
+    await readFile(path.join(tree.path, "node_modules", "leftover"), "utf8"),
+    "fixture content",
+  );
+  await page.keyboard.press("Escape");
+  await rm(path.join(tree.path, "node_modules"), { recursive: true });
+  await page.getByRole("button", { name: "Actions for broken-leftovers", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Clean up", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Actions for broken-leftovers", exact: true }),
   ).toHaveCount(0);
@@ -3179,6 +3196,11 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
     );
   for (const tree of trees.slice(0, 2)) isolatedGit(["checkout", "--detach"], { cwd: tree.path });
   await writeFile(path.join(trees[2].path, "screenshot.png"), "fixture evidence");
+  isolatedGit(["config", "core.excludesFile", path.join(remoteRoot, "ignored")], {
+    cwd: repository,
+  });
+  await writeFile(path.join(remoteRoot, "ignored"), ".env\n");
+  await writeFile(path.join(trees[2].path, ".env"), "fixture secret");
   // Rebuild inventory after the fixture's external Git operations.
   await page.reload();
   await boardPage(app);
@@ -3198,6 +3220,10 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
   await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
     "screenshot.png",
   );
+  await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
+    ".env",
+  );
+  await expect(confirmation.getByText("ignored", { exact: true })).toBeVisible();
   await expect(confirmation.getByRole("list", { name: "Cleanup checklist" })).toContainText(
     "Detached at",
   );

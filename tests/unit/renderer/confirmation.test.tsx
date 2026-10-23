@@ -225,7 +225,8 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
               id: "untracked",
               branch: "screenshots",
               state: "queued",
-              changes: "?? proof.png\0",
+              changes: "?? proof.png\0!! .env\0",
+              omittedChanges: 7,
             },
           ],
         },
@@ -235,6 +236,9 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
   expect(view.getByRole("list", { name: "Uncommitted changes" }).textContent).toContain(
     "proof.png",
   );
+  expect(view.getByText("ignored", { exact: true })).toBeTruthy();
+  expect(view.getByText(".env", { exact: true })).toBeTruthy();
+  expect(view.getByText("7 more paths", { exact: true })).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Force delete 1" }));
   expect(answer).toHaveBeenLastCalledWith("cleanup", true);
   act(() => {

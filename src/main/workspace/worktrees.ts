@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  rmdir,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { ApplicationError } from "../../shared/application-errors";
@@ -353,6 +363,64 @@ export class WorktreeService {
     await this.save();
   }
 
+  /** Broken-row cleanup never recursively deletes an uninspectable directory. */
+  async cleanupBrokenWorktree(repository: string, path: string): Promise<void> {
+    this.repository(repository);
+    const trees = await this.listWorktrees(repository);
+    const selected = trees.find((tree) => tree.path === path);
+    if (!selected?.prunable || selected.locked || selected.bare || path === repository)
+      throw new ApplicationError("prune-unsafe");
+    assertInside(await realpath(this.root), resolve(path));
+    // Prune is repository-wide. Prove every prunable admin record safe before
+    // invoking it, including worktrees whose checkout directory is already gone.
+    const common = (
+      await git(repository, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+    ).trimEnd();
+    const validate = async () => {
+      const admins = await readdir(join(common, "worktrees"));
+      let found = false;
+      for (const name of admins) {
+        const admin = join(common, "worktrees", name);
+        const checkout = resolve(
+          dirname((await readFile(join(admin, "gitdir"), "utf8")).trimEnd()),
+        );
+        if (!trees.some((tree) => tree.prunable && tree.path === checkout)) continue;
+        if (checkout === path) found = true;
+        await this.checkCleanupState(repository, admin);
+        const read = (args: string[]) =>
+          git(repository, ["--git-dir", admin, ...cleanupReadOptions, ...args]);
+        if (
+          (
+            await read(["config", "--bool", "--default=false", "--get", "core.sparseCheckout"])
+          ).trim() !== "false"
+        )
+          throw new ApplicationError("prune-unsafe");
+        const index = await read(["ls-files", "-v", "--stage", "-z"]);
+        // Without a checkout marker there is no trustworthy status snapshot. Keep
+        // any nonempty index, including staged blobs, gitlinks and sparse entries.
+        if (
+          index ||
+          (await read(["rev-list", "--count", "HEAD", "--not", "--remotes"])).trim() !== "0"
+        )
+          throw new ApplicationError("prune-unsafe");
+      }
+      if (!found) throw new ApplicationError("prune-unsafe");
+    };
+    await validate();
+    // rmdir is deliberately nonrecursive: new or undisclosed contents fail closed.
+    // Reuse the canonical/symlink/marker guards of prune without its rm path by
+    // first requiring the directory to be absent. Only an empty directory may go.
+    if (await exists(path)) {
+      if ((await realpath(path)) !== path || !(await lstat(path)).isDirectory())
+        throw new ApplicationError("prune-unsafe");
+      await rmdir(path);
+    }
+    await validate();
+    await git(repository, ["worktree", "prune"]);
+    this.managed.delete(path);
+    await this.save();
+  }
+
   private async checkRemovalIdentity(
     repositoryPath: string,
     path: string,
@@ -381,34 +449,104 @@ export class WorktreeService {
     ]);
   }
 
-  /** Extra guard for newly eligible detached and untracked-only group cleanup. */
+  /** A fresh, fail-closed snapshot for group cleanup, never explicit removal. */
+  async cleanupStatus(
+    repository: string,
+    path: string,
+    identity?: string,
+    head?: string | null,
+  ): Promise<string> {
+    const expected = identity ?? (await this.removalIdentity(repository, path));
+    const read = (args: string[]) => git(path, [...cleanupReadOptions, ...args]);
+    const expectedHead = head ?? (await read(["rev-parse", "--verify", "HEAD^{commit}"])).trim();
+    const sparse = (
+      await read(["config", "--bool", "--default=false", "--get", "core.sparseCheckout"])
+    ).trim();
+    if (sparse !== "false") throw new Error("Sparse checkouts prevent cleanup");
+    const index = await read(["ls-files", "-v", "--stage", "-z", "--"]);
+    const entries = index.split("\0").filter(Boolean);
+    if (entries.some((entry) => /^[a-zS]/.test(entry)))
+      throw new Error("Index flags can hide tracked changes and prevent cleanup");
+    if (
+      entries.some((entry) => entry.slice(2).startsWith("160000 ")) ||
+      (await exists(join(path, ".gitmodules")))
+    )
+      throw new Error("Submodules prevent cleanup");
+    await this.checkCleanupState(path);
+    const changes = await read([
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--ignored=matching",
+      "--ignore-submodules=none",
+    ]);
+    const records = changes.split("\0").filter(Boolean);
+    if (records.some((entry) => !entry.startsWith("?? ") && !entry.startsWith("!! ")))
+      throw new Error("Tracked changes prevent cleanup");
+    // A case-sensitive read exposes names hidden by core.ignorecase. Refuse
+    // collisions rather than interpreting which spelling represents tracked data.
+    const tracked = new Set(
+      entries.map((entry) => entry.slice(entry.indexOf("\t") + 1).toLowerCase()),
+    );
+    if (records.some((entry) => tracked.has(entry.slice(3).toLowerCase())))
+      throw new Error("Case-colliding paths prevent cleanup");
+    if ((await read(["ls-files", "-v", "--stage", "-z", "--"])) !== index)
+      throw new Error("Index changed during cleanup checks");
+    await this.checkRemovalIdentity(repository, path, expected);
+    if ((await read(["rev-parse", "--verify", "HEAD^{commit}"])).trim() !== expectedHead)
+      throw new Error("HEAD changed during cleanup checks");
+    return changes;
+  }
+
+  private async checkCleanupState(path: string, gitDirectory?: string): Promise<void> {
+    const read = (args: string[]) =>
+      git(path, [
+        ...(gitDirectory ? ["--git-dir", gitDirectory] : []),
+        ...cleanupReadOptions,
+        ...args,
+      ]);
+    if (
+      (
+        await read([
+          "for-each-ref",
+          "--format=%(refname)",
+          "refs/worktree/",
+          "refs/bisect/",
+          "refs/rewritten/",
+        ])
+      ).trim()
+    )
+      throw new Error("Worktree-private refs prevent cleanup");
+    const names = [
+      "MERGE_HEAD",
+      "CHERRY_PICK_HEAD",
+      "REVERT_HEAD",
+      "rebase-merge",
+      "rebase-apply",
+      "sequencer",
+      "BISECT_LOG",
+      "BISECT_START",
+    ];
+    const paths = (
+      await read([
+        "rev-parse",
+        "--path-format=absolute",
+        ...names.flatMap((name) => ["--git-path", name]),
+      ])
+    )
+      .trimEnd()
+      .split("\n");
+    if (paths.length !== names.length) throw new Error("Cannot inspect Git operation state");
+    if ((await Promise.all(paths.map(exists))).some(Boolean))
+      throw new Error("An in-progress Git operation prevents cleanup");
+  }
+
+  /** Extra guards for newly eligible detached and leftover-only cleanup. */
   async cleanupChanges(repository: string, path: string, identity?: string): Promise<string> {
     const expected = identity ?? (await this.removalIdentity(repository, path));
     assertInside(await realpath(this.root), await realpath(path));
-    // Porcelain status cannot prove tracked files are unchanged when the index
-    // promises Git it can skip them. Refuse those promises, including sparse
-    // configurations whose current index happens to have no skip-worktree bits.
-    const sparse = (
-      await git(path, ["config", "--bool", "--default=false", "--get", "core.sparseCheckout"])
-    ).trim();
-    if (sparse !== "false") throw new Error("Sparse checkouts prevent cleanup");
-    const entries = await git(path, [
-      "--no-optional-locks",
-      "-c",
-      "core.fsmonitor=false",
-      "-c",
-      "core.untrackedCache=false",
-      "ls-files",
-      "-v",
-      "-z",
-      "--",
-    ]);
-    if (entries.split("\0").some((entry) => /^[a-zS]/.test(entry)))
-      throw new Error("Index flags can hide tracked changes and prevent cleanup");
-    const changes = await this.changes(repository, path, expected);
-    if (changes.split("\0").some((entry) => entry && !entry.startsWith("?? ")))
-      throw new Error("Tracked changes prevent cleanup");
-    // No remote refs (or any Git error) must never authorize a new cleanup path.
+    const changes = await this.cleanupStatus(repository, path, expected);
     const unpushed = (
       await git(path, ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"])
     ).trim();
@@ -755,4 +893,28 @@ export class WorktreeService {
     this.managed.delete(resolved);
     await this.save();
   }
+}
+
+// Command-scoped overrides: repository configuration cannot suppress evidence.
+const cleanupReadOptions = [
+  "--no-optional-locks",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.untrackedCache=false",
+  "-c",
+  "core.ignorecase=false",
+  "-c",
+  "diff.ignoreSubmodules=none",
+  "-c",
+  "status.showUntrackedFiles=all",
+];
+async function exists(path: string): Promise<boolean> {
+  return lstat(path).then(
+    () => true,
+    (error: unknown) => {
+      if (record(error) && error["code"] === "ENOENT") return false;
+      throw error;
+    },
+  );
 }

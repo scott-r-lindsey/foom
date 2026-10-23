@@ -96,8 +96,12 @@ function structured(value: unknown): boolean {
       progress["items"].some(
         (item: unknown) =>
           record(item) &&
-          item["changes"] !== undefined &&
-          (typeof item["changes"] !== "string" || item["changes"].length > 25_050),
+          ((item["changes"] !== undefined &&
+            (typeof item["changes"] !== "string" || item["changes"].length > 25_050)) ||
+            (item["omittedChanges"] !== undefined &&
+              (typeof item["omittedChanges"] !== "number" ||
+                !Number.isSafeInteger(item["omittedChanges"]) ||
+                item["omittedChanges"] < 0))),
       )
     )
       return false;

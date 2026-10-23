@@ -50,7 +50,7 @@ function Section({
     </div>
   );
 }
-function Changes({ value, bounded = false }: { value: string; bounded?: boolean }) {
+function Changes({ value, omitted = 0 }: { value: string; omitted?: number | undefined }) {
   const records = value.split("\0").filter(Boolean);
   const items = [];
   for (let index = 0; index < records.length; index++) {
@@ -61,24 +61,23 @@ function Changes({ value, bounded = false }: { value: string; bounded?: boolean 
     const label =
       status === "??"
         ? "untracked"
-        : status.includes("R")
-          ? "renamed"
-          : status.includes("C")
-            ? "copied"
-            : status.includes("D")
-              ? "deleted"
-              : status.includes("A")
-                ? "added"
-                : status.includes("U")
-                  ? "unmerged"
-                  : "modified";
+        : status === "!!"
+          ? "ignored"
+          : status.includes("R")
+            ? "renamed"
+            : status.includes("C")
+              ? "copied"
+              : status.includes("D")
+                ? "deleted"
+                : status.includes("A")
+                  ? "added"
+                  : status.includes("U")
+                    ? "unmerged"
+                    : "modified";
     items.push({ path: record.slice(3), label, old: renamed ? records[++index] : undefined });
   }
   return (
-    <Section
-      label={bounded && items.length === 50 ? "Discarded · first 50 paths" : "Discarded"}
-      count={items.length}
-    >
+    <Section label="Discarded" count={items.length + omitted}>
       <ul className="well" aria-label="Uncommitted changes">
         {items.map((item) => (
           <li className="row change" key={item.path}>
@@ -90,6 +89,7 @@ function Changes({ value, bounded = false }: { value: string; bounded?: boolean 
           </li>
         ))}
       </ul>
+      {omitted > 0 && <p className="sub">{omitted} more paths</p>}
     </Section>
   );
 }
@@ -104,6 +104,7 @@ function Worktrees({
     reason?: string;
     state?: string;
     changes?: string;
+    omittedChanges?: number;
   }[];
   running?: boolean;
   label: string;
@@ -129,7 +130,7 @@ function Worktrees({
           </span>
           <div className="name">
             {item.branch}
-            {item.changes && <Changes value={item.changes} bounded />}
+            {item.changes && <Changes value={item.changes} omitted={item.omittedChanges} />}
           </div>
           <span className="why">
             {item.state === "error"

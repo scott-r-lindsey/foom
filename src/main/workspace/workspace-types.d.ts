@@ -174,6 +174,8 @@ export interface WorkspaceDependencies {
     | "validateBranch"
     | "changes"
     | "cleanupChanges"
+    | "cleanupStatus"
+    | "cleanupBrokenWorktree"
     | "removalIdentity"
     | "launchIdentity"
     | "pruneWorktree"

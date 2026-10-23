@@ -74,12 +74,13 @@ export class CleanupRun implements CleanupFeed {
       ...(fetchedAt !== undefined ? { fetchedAt } : {}),
       progress: {
         ...progress,
-        items: progress.items.map(({ id, branch, state, reason, changes }) => ({
+        items: progress.items.map(({ id, branch, state, reason, changes, omittedChanges }) => ({
           id,
           branch,
           state,
           ...(reason ? { reason } : {}),
           ...(changes ? { changes } : {}),
+          ...(omittedChanges ? { omittedChanges } : {}),
         })),
       },
     };
@@ -106,6 +107,7 @@ export class CleanupRun implements CleanupFeed {
       ...(reason ? { reason } : {}),
       ...(changes
         ? {
+            omittedChanges: Math.max(0, changes.split("\0").filter(Boolean).length - 50),
             changes: changes
               .split("\0")
               .filter(Boolean)

@@ -114,23 +114,37 @@ process replacing them concurrently.
 
 The existing explicit removal contract above is unchanged, including external
 linked checkouts and trusted confirmation of tracked changes. Group cleanup also
-accepts detached HEADs and untracked-only leftovers. These additional candidates
+accepts detached HEADs and untracked-only or ignored-only leftovers. These
+additional candidates
 must resolve strictly inside Foom's configured worktree root, pass ordinary
 membership/identity/lock checks, have no tracked changes and have zero commits
 absent from local remote refs (`rev-list HEAD --not --remotes`). They refuse sparse
 checkout configurations and any assume-unchanged or skip-worktree index entries
-(`git ls-files -v -z`), both during eligibility and final revalidation. Cleanup status reads
-disable fsmonitor and untracked-cache with command-scoped Git options so cached
-results cannot hide changes. Git errors refuse eligibility. The existing freshly fetched default and merge containment checks
-still apply. Clean branch candidates keep their established policy.
+(`git ls-files -v -z`), both during eligibility and final revalidation. Every
+group candidate also refuses index gitlinks, any `.gitmodules` entry,
+worktree-private refs under `refs/worktree/`, `refs/bisect/` or `refs/rewritten/`,
+and merge, rebase, cherry-pick, revert, bisect or am state. Operation paths come
+from the checkout’s own `rev-parse --git-path`; refs are read inside that checkout.
+Cleanup status and index reads disable fsmonitor and untracked-cache, force
+`core.ignorecase=false`, `diff.ignoreSubmodules=none` and
+`status.showUntrackedFiles=all` with command-scoped Git options. Case-colliding
+leftovers are refused. The index is compared before and after status, and HEAD
+and filesystem identity are rechecked. Git errors refuse eligibility. The existing
+freshly fetched default and merge containment checks still apply. Clean branch
+candidates keep their established location and remote-ref policy while sharing
+the snapshot guards.
 
 The main-owned plan captures the complete NUL-delimited status. The trusted
-cleanup dialog lists up to 50 untracked paths per checkout, truncates long paths,
-and names the accept action Force delete when any candidate needs it. Revalidation
+cleanup dialog lists up to 50 untracked and ignored paths per checkout, truncates
+long paths,
+labels ignored entries and counts all omitted paths. Ignored directories stay
+collapsed (`status --ignored=matching`). Ignored-only leftovers require approval.
+The accept action says Force delete when any candidate has leftovers. Revalidation
 compares the entire status with the approved snapshot and repeats the additional
 checks around terminal and preview shutdown. The service invokes a final approved
 snapshot check after its asynchronous identity check, immediately before invoking
-Git removal. Clean snapshots use ordinary Git removal without `--force`. Detached
+Git removal. Snapshots without untracked paths use ordinary Git removal without
+`--force`. Detached
 candidates share the existing null-branch reservation, so a group serializes their
 removals and releases that reservation
 after each one; there is no branch ref to delete. The later ref transaction holds
@@ -139,6 +153,12 @@ a newer detached removal reservation.
 
 Known prunable inventory entries return unavailable panel facts without raising
 `worktree-prunable`. Their sidebar rows say Broken checkout and offer only
-Clean up, which reuses the guarded prune command above. Sessions must be closed
-first. The coded-error Prune recovery remains available for a checkout that became
+Clean up. This new `cleanup-worktree` command is separate from legacy Prune.
+It never recursively deletes a broken folder whose contents cannot be inspected
+through Git: only an absent or empty folder is eligible, and `rmdir` fails if
+anything appears. Before repository-wide pruning, every prunable admin record
+must have an empty index, zero unpushed commits, no sparse configuration, private
+refs or operation state. These checks repeat after removing an empty folder.
+Sessions must be closed first. The coded-error Prune recovery remains available
+for a checkout that became
 prunable after its row was rendered.

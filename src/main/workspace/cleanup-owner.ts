@@ -13,6 +13,7 @@ export interface CleanupOwnerDependencies {
     WorktreeService,
     | "changes"
     | "cleanupChanges"
+    | "cleanupStatus"
     | "removalIdentity"
     | "launchIdentity"
     | "removeWorktree"
@@ -36,6 +37,7 @@ export interface CleanupOwnerDependencies {
     revalidate?: () => void | Promise<void>,
     retainBranchLock?: (release: () => void) => void,
     autoApprove?: () => Promise<boolean>,
+    readSnapshot?: () => Promise<string>,
   ) => Promise<boolean>;
   terminals: () => readonly WorkspaceTerminal[];
   running: (id: string) => boolean;
@@ -187,20 +189,20 @@ export class CleanupOwner {
     confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
     revalidate?: () => void | Promise<void>,
     autoApprove?: () => Promise<boolean>,
+    readSnapshot?: () => Promise<string>,
   ): Promise<boolean> {
     const entry = { repository, worktree, branch };
     const identity = await this.deps.worktrees.removalIdentity(entry.repository, entry.worktree);
-    let changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
+    const readChanges =
+      readSnapshot ?? (() => this.deps.worktrees.changes(repository, worktree, identity));
+    let changes = await readChanges();
     const automatic = changes === "" && (await autoApprove?.()) === true;
     const accepted = automatic
       ? await confirm(entry.branch ?? entry.worktree, changes, true)
       : await confirm(entry.branch ?? entry.worktree, changes);
     if (!accepted) return false;
     await revalidate?.();
-    if (
-      !automatic &&
-      (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
-    )
+    if (!automatic && (await readChanges()) !== changes)
       throw new Error("Worktree changes have changed. Review them and try again.");
     const entries = this.deps.terminals().filter((item) => item.worktree === entry.worktree);
     for (const item of entries) {
@@ -209,21 +211,16 @@ export class CleanupOwner {
       await this.deps.exited(item.id, -1);
     }
     await revalidate?.();
-    if (
-      !automatic &&
-      (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
-    )
+    if (!automatic && (await readChanges()) !== changes)
       throw new Error("Worktree changes have changed. Review them and try again.");
     // Automatic approval awaits another policy check below. Ordinary confirmation
     // has no intervening work before the final revalidation, so do it only once.
     if (automatic) await revalidate?.();
     if (automatic && !(await autoApprove?.())) {
-      changes = await this.deps.worktrees.changes(entry.repository, entry.worktree, identity);
+      changes = await readChanges();
       if (!(await confirm(entry.branch ?? entry.worktree, changes))) return false;
       await revalidate?.();
-      if (
-        (await this.deps.worktrees.changes(entry.repository, entry.worktree, identity)) !== changes
-      )
+      if ((await readChanges()) !== changes)
         throw new Error("Worktree changes have changed. Review them and try again.");
     }
     await revalidate?.();
@@ -232,13 +229,15 @@ export class CleanupOwner {
       await this.deps.worktrees.removeWorktree(
         entry.repository,
         entry.worktree,
-        changes.length > 0,
+        readSnapshot
+          ? changes.split("\0").some((entry) => entry.startsWith("?? "))
+          : changes.length > 0,
         identity,
         async () => {
           // Preview shutdown and the service's identity check both await external
           // work. Validate the approved snapshot after them, next to Git removal.
           await revalidate?.();
-          if ((await this.deps.worktrees.changes(repository, worktree, identity)) !== changes)
+          if ((await readChanges()) !== changes)
             throw new Error("Worktree changes have changed. Review them and try again.");
         },
       );
@@ -273,8 +272,17 @@ export class CleanupOwner {
         let changes = "";
         if (!reason) {
           try {
-            changes = await this.deps.worktrees.changes(repository, tree.path);
-            if (changes.split("\0").some((entry) => entry && !entry.startsWith("?? ")))
+            changes = await this.deps.worktrees.cleanupStatus(
+              repository,
+              tree.path,
+              undefined,
+              tree.head,
+            );
+            if (
+              changes
+                .split("\0")
+                .some((entry) => entry && !entry.startsWith("?? ") && !entry.startsWith("!! "))
+            )
               reason = "uncommitted changes";
             else if (tree.branch === null || changes) {
               // Existing clean branch cleanup keeps its established policy.
@@ -359,7 +367,14 @@ export class CleanupOwner {
               throw new KeptWorktree("worktree changed");
             const reason = this.sessionSkip(tree.path);
             if (reason) throw new KeptWorktree(reason);
-            if ((await this.deps.worktrees.changes(repository, tree.path, identity)) !== changes)
+            if (
+              (await this.deps.worktrees.cleanupStatus(
+                repository,
+                tree.path,
+                identity,
+                tree.head,
+              )) !== changes
+            )
               throw new KeptWorktree("worktree changed");
             if (tree.branch === null || changes) {
               if (
@@ -389,6 +404,8 @@ export class CleanupOwner {
               : (release) => {
                   releases.add(release);
                 },
+            undefined,
+            () => this.deps.worktrees.cleanupStatus(repository, tree.path, identity, tree.head),
           );
         },
       });

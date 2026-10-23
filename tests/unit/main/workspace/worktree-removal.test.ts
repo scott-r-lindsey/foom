@@ -336,7 +336,7 @@ describe("new group cleanup guards", () => {
     if (mode === "invalid-sparse-config")
       await execute(["config", "core.sparseCheckout", "invalid"], { cwd: path });
     if (mode === "git-error")
-      vi.spyOn(service, "changes").mockRejectedValueOnce(new Error("Git failed"));
+      vi.spyOn(service, "cleanupStatus").mockRejectedValueOnce(new Error("Git failed"));
     if (["branch", "detached", "untracked"].includes(mode)) {
       const identity = await service.removalIdentity(repo, target);
       expect(await service.cleanupChanges(repo, target, identity)).toBe(
@@ -353,4 +353,93 @@ it("prunes an empty broken folder", async () => {
   await service.pruneWorktree(repo, path);
   await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
   expect(await git("branch", "--list", "empty-broken")).toContain("empty-broken");
+});
+
+it.each([
+  "empty",
+  "missing",
+  "leftovers",
+  "index",
+  "unpushed",
+  "private refs",
+  "operation",
+  "unknown",
+  "redirected",
+])("broken-row cleanup fails closed around real Git %s", async (mode) => {
+  const { path } = await service.createWorktree(repo, "broken-review");
+  await git("clone", "--bare", repo, join(temporary, "remote.git"));
+  await git("remote", "add", "origin", join(temporary, "remote.git"));
+  await git("fetch", "origin");
+  if (mode === "index") {
+    await writeFile(join(path, "staged.txt"), "uncommitted blob");
+    await execute(["add", "."], { cwd: path });
+    await rm(join(path, "staged.txt"));
+  }
+  if (mode === "private refs")
+    await execute(["update-ref", "refs/worktree/saved", "HEAD"], { cwd: path });
+  if (mode === "operation") {
+    const admin = (
+      await execute(["rev-parse", "--path-format=absolute", "--git-path", "rebase-apply"], {
+        cwd: path,
+      })
+    ).stdout.trim();
+    await mkdir(admin);
+  }
+  if (mode === "unpushed")
+    await execute(
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "local",
+      ],
+      { cwd: path },
+    );
+  await rm(join(path, ".git"));
+  if (mode === "leftovers") await writeFile(join(path, ".env"), "do not delete");
+  if (mode === "missing") await rm(path, { recursive: true });
+  if (mode === "redirected") {
+    await rename(path, join(temporary, "redirect-target"));
+    await symlink(join(temporary, "redirect-target"), path, "junction");
+  }
+  const target = mode === "unknown" ? repo : path;
+  if (mode === "empty" || mode === "missing") {
+    await service.cleanupBrokenWorktree(repo, target);
+    expect((await service.listWorktrees(repo)).some((tree) => tree.path === path)).toBe(false);
+  } else {
+    await expect(service.cleanupBrokenWorktree(repo, target)).rejects.toThrow();
+    expect((await service.listWorktrees(repo)).some((tree) => tree.path === path)).toBe(true);
+    if (mode === "leftovers")
+      expect(await readFile(join(path, ".env"), "utf8")).toBe("do not delete");
+  }
+});
+
+it.each(["refs/bisect/saved", "refs/rewritten/saved"])(
+  "refuses private %s even with a clean detached checkout",
+  async (ref) => {
+    const { path } = await service.createWorktree(repo, "private-review");
+    await execute(["checkout", "--detach"], { cwd: path });
+    await execute(["update-ref", ref, "HEAD"], { cwd: path });
+    await expect(service.cleanupStatus(repo, path)).rejects.toThrow("Worktree-private refs");
+  },
+);
+
+it("refuses .gitmodules even without index gitlinks", async () => {
+  const { path } = await service.createWorktree(repo, "modules-review");
+  await writeFile(join(path, ".gitmodules"), "untracked config");
+  await expect(service.cleanupStatus(repo, path)).rejects.toThrow("Submodules");
+});
+
+it("preserves legacy explicit removal behavior for ignored files", async () => {
+  const { path } = await service.createWorktree(repo, "legacy-ignored");
+  await execute(["config", "core.excludesFile", join(temporary, "excludes")], { cwd: path });
+  await writeFile(join(temporary, "excludes"), ".env\n");
+  await writeFile(join(path, ".env"), "legacy undisclosed ignored content");
+  expect(await service.changes(repo, path)).toBe("");
+  await service.removeWorktree(repo, path);
+  await expect(realpath(path)).rejects.toThrow();
 });

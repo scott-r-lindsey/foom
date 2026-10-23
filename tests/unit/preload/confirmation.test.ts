@@ -81,6 +81,9 @@ test("rejects malformed structured fields and preserves literal data", async () 
     1,
     "text",
     { cancel: "Install now" },
+    ...[-1, 1.5, Number.NaN, "7"].map((omittedChanges) => ({
+      cleanup: { progress: { items: [{ omittedChanges }] } },
+    })),
     { cleanup: { progress: { items: [{ changes: 42 }] } } },
     { cleanup: { progress: { items: [{ changes: "x".repeat(25_051) }] } } },
     { removals: {} },

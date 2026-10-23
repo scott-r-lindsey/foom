@@ -128,6 +128,10 @@ beforeEach(async () => {
       validateBranch: vi.fn(async () => {}),
       launchIdentity: vi.fn(() => Promise.resolve("identity")),
       removalIdentity: vi.fn(() => Promise.resolve("identity")),
+      cleanupBrokenWorktree: vi.fn(async () => {}),
+      cleanupStatus: vi.fn((repository: string, path: string) =>
+        deps.worktrees.changes(repository, path),
+      ),
       cleanupChanges: vi.fn(() => Promise.reject(new Error("unsafe cleanup"))),
       changes: vi.fn(() => Promise.resolve("")),
       mergedFetchTime: vi.fn(() => 1000),

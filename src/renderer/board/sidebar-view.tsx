@@ -430,7 +430,8 @@ export function Sidebar(props: SidebarProps) {
                                           disabled: rows.some(
                                             (session) => rowWorktree(session) === target.worktree,
                                           ),
-                                          run: () => command({ kind: "prune-worktree", ...target }),
+                                          run: () =>
+                                            command({ kind: "cleanup-worktree", ...target }),
                                         },
                                       ]
                                     : [

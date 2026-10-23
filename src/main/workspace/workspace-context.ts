@@ -561,6 +561,7 @@ export class WorkspaceContext {
     revalidate?: () => void | Promise<void>,
     retainBranchLock?: (release: () => void) => void,
     autoApprove?: () => Promise<boolean>,
+    readSnapshot?: () => Promise<string>,
   ): Promise<boolean> {
     const key = `${repository}\0${branch ?? ""}`;
     if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
@@ -582,6 +583,7 @@ export class WorkspaceContext {
         confirm,
         revalidate,
         autoApprove,
+        readSnapshot,
       );
       return removed;
     } finally {

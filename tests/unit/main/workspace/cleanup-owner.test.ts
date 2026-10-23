@@ -41,8 +41,14 @@ function fixture() {
     repositoryReserved = false;
   });
   const events: string[] = [];
+  const changes = vi.fn<CleanupOwnerDependencies["worktrees"]["changes"]>(() =>
+    Promise.resolve(""),
+  );
   const worktrees = {
-    changes: vi.fn<CleanupOwnerDependencies["worktrees"]["changes"]>(() => Promise.resolve("")),
+    changes,
+    cleanupStatus: vi.fn<CleanupOwnerDependencies["worktrees"]["cleanupStatus"]>(
+      (repo, path, identity) => changes(repo, path, identity),
+    ),
     cleanupChanges: vi.fn<CleanupOwnerDependencies["worktrees"]["cleanupChanges"]>(() =>
       Promise.reject(new Error("unsafe")),
     ),
@@ -96,6 +102,7 @@ function fixture() {
         revalidate,
         retainBranchLock,
         autoApprove,
+        readSnapshot,
       ]: Parameters<CleanupOwnerDependencies["withWorktreeRemoval"]>
     ): Promise<boolean> => {
       const release = acquireWorktree(repository, branch);
@@ -108,6 +115,7 @@ function fixture() {
           confirm,
           revalidate,
           autoApprove,
+          readSnapshot,
         );
         return removed;
       } finally {

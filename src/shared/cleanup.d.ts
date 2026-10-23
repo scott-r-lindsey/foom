@@ -16,8 +16,9 @@ export interface CleanupItem {
   branch: string;
   state: "queued" | "removing" | "removed" | "kept" | "error";
   reason?: CleanupReason;
-  /** Bounded untracked paths reviewed before force removal. */
+  /** Bounded untracked and ignored paths reviewed before force removal. */
   changes?: string;
+  omittedChanges?: number;
 }
 export interface CleanupProgress {
   id?: string;
