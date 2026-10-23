@@ -122,7 +122,7 @@ function sidebarCommand(value: unknown): SidebarCommand {
   if (!text(value["repository"])) throw new Error("Invalid repository");
   const repository = value["repository"];
   if (
-    kind === "prune-worktree" &&
+    (kind === "prune-worktree" || kind === "cleanup-worktree") &&
     (Object.keys(value).length !== 3 ||
       Object.keys(value).some((key) => !["kind", "repository", "worktree"].includes(key)))
   )
@@ -133,6 +133,7 @@ function sidebarCommand(value: unknown): SidebarCommand {
   const worktree = value["worktree"];
   if (
     kind === "remove-worktree" ||
+    kind === "cleanup-worktree" ||
     kind === "prune-worktree" ||
     kind === "copy-worktree-path" ||
     kind === "open-pull-request"

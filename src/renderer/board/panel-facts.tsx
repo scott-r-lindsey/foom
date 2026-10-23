@@ -286,6 +286,7 @@ export function PanelFacts({
       )}
       {subject.kind === "worktree" && (
         <>
+          {subject.tree.prunable && <Fact label="State">Broken checkout</Fact>}
           {subject.tree.pullRequest && (
             <>
               <Fact label={subject.tree.pullRequest.requestLabel ?? "Pull request"}>

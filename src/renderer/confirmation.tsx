@@ -50,7 +50,7 @@ function Section({
     </div>
   );
 }
-function Changes({ value }: { value: string }) {
+function Changes({ value, omitted = 0 }: { value: string; omitted?: number | undefined }) {
   const records = value.split("\0").filter(Boolean);
   const items = [];
   for (let index = 0; index < records.length; index++) {
@@ -61,21 +61,23 @@ function Changes({ value }: { value: string }) {
     const label =
       status === "??"
         ? "untracked"
-        : status.includes("R")
-          ? "renamed"
-          : status.includes("C")
-            ? "copied"
-            : status.includes("D")
-              ? "deleted"
-              : status.includes("A")
-                ? "added"
-                : status.includes("U")
-                  ? "unmerged"
-                  : "modified";
+        : status === "!!"
+          ? "ignored"
+          : status.includes("R")
+            ? "renamed"
+            : status.includes("C")
+              ? "copied"
+              : status.includes("D")
+                ? "deleted"
+                : status.includes("A")
+                  ? "added"
+                  : status.includes("U")
+                    ? "unmerged"
+                    : "modified";
     items.push({ path: record.slice(3), label, old: renamed ? records[++index] : undefined });
   }
   return (
-    <Section label="Discarded" count={items.length}>
+    <Section label="Discarded" count={items.length + omitted}>
       <ul className="well" aria-label="Uncommitted changes">
         {items.map((item) => (
           <li className="row change" key={item.path}>
@@ -87,6 +89,7 @@ function Changes({ value }: { value: string }) {
           </li>
         ))}
       </ul>
+      {omitted > 0 && <p className="sub">{omitted} more paths</p>}
     </Section>
   );
 }
@@ -95,7 +98,14 @@ function Worktrees({
   running = false,
   label,
 }: {
-  items: readonly { id?: string; branch: string; reason?: string; state?: string }[];
+  items: readonly {
+    id?: string;
+    branch: string;
+    reason?: string;
+    state?: string;
+    changes?: string;
+    omittedChanges?: number;
+  }[];
   running?: boolean;
   label: string;
 }) {
@@ -118,7 +128,10 @@ function Worktrees({
               }
             />
           </span>
-          <span className="name">{item.branch}</span>
+          <div className="name">
+            {item.branch}
+            {item.changes && <Changes value={item.changes} omitted={item.omittedChanges} />}
+          </div>
           <span className="why">
             {item.state === "error"
               ? "removal failed"
@@ -243,6 +256,9 @@ export function ConfirmationPage() {
   }, [requestId, wide, bounded]);
   if (!request) return null;
   const cleanup = request.cleanup;
+  const forceCleanup =
+    cleanup?.stage === "ready" &&
+    cleanup.progress.items.some((item) => item.state === "queued" && item.changes);
   const running = cleanup?.stage === "run";
   const finished = running && cleanup.progress.phase === "finished";
   const disabled =
@@ -601,7 +617,7 @@ export function ConfirmationPage() {
                 : cleanup
                   ? cleanup.stage === "checking"
                     ? "Delete"
-                    : `Delete ${String(cleanup.progress.total)}`
+                    : `${forceCleanup ? "Force delete" : "Delete"} ${String(cleanup.progress.total)}`
                   : request.removals?.some((item) => item.changes)
                     ? "Discard changes and remove all"
                     : request.accept}

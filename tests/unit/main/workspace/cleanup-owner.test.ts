@@ -41,8 +41,17 @@ function fixture() {
     repositoryReserved = false;
   });
   const events: string[] = [];
+  const changes = vi.fn<CleanupOwnerDependencies["worktrees"]["changes"]>(() =>
+    Promise.resolve(""),
+  );
   const worktrees = {
-    changes: vi.fn<CleanupOwnerDependencies["worktrees"]["changes"]>(() => Promise.resolve("")),
+    changes,
+    cleanupStatus: vi.fn<CleanupOwnerDependencies["worktrees"]["cleanupStatus"]>(
+      (repo, path, identity) => changes(repo, path, identity),
+    ),
+    cleanupChanges: vi.fn<CleanupOwnerDependencies["worktrees"]["cleanupChanges"]>(() =>
+      Promise.reject(new Error("unsafe")),
+    ),
     removalIdentity: vi.fn<CleanupOwnerDependencies["worktrees"]["removalIdentity"]>(() =>
       Promise.resolve("identity"),
     ),
@@ -66,6 +75,12 @@ function fixture() {
     const key = branch ?? "";
     if (locks.has(key)) throw new Error("This worktree is busy");
     locks.add(key);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      locks.delete(key);
+    };
   });
   const deps = {
     worktrees,
@@ -87,9 +102,10 @@ function fixture() {
         revalidate,
         retainBranchLock,
         autoApprove,
+        readSnapshot,
       ]: Parameters<CleanupOwnerDependencies["withWorktreeRemoval"]>
     ): Promise<boolean> => {
-      acquireWorktree(repository, branch);
+      const release = acquireWorktree(repository, branch);
       let removed = false;
       try {
         removed = await owner.removeReservedTree(
@@ -99,15 +115,14 @@ function fixture() {
           confirm,
           revalidate,
           autoApprove,
+          readSnapshot,
         );
         return removed;
       } finally {
-        if (!retainBranchLock || !removed) deps.releaseWorktree(repository, branch);
+        if (retainBranchLock && removed) retainBranchLock(release);
+        else release();
       }
     },
-    releaseWorktree: vi.fn((_repository: string, branch: string | null) => {
-      locks.delete(branch ?? "");
-    }),
     terminals: () => rows,
     running: vi.fn(() => false),
     exitCode: vi.fn<CleanupOwnerDependencies["exitCode"]>(() => 0),
@@ -209,6 +224,7 @@ it("stops exited terminal resources, removes Git worktree, then revokes capabili
     tree().path,
     false,
     "identity",
+    expect.any(Function),
   );
   expect(f.locks.size).toBe(0);
 });
@@ -362,6 +378,7 @@ it.each(["disabled", "eligible", "ineligible", "policy changed", "dirty", "cance
         tree().path,
         true,
         "identity",
+        expect.any(Function),
       );
     expect(f.locks.size).toBe(0);
   },
@@ -620,4 +637,56 @@ it("holds repository reservation during confirmation and releases it after cance
   expect(f.releaseRepository).toHaveBeenCalledTimes(2);
   await f.owner.removeRepository(repository);
   expect(f.releaseRepository).toHaveBeenCalledTimes(3);
+});
+
+it("reviews bounded untracked paths and removes detached candidates with the new guards", async () => {
+  const f = fixture();
+  f.trees([
+    tree("review-a", { branch: null }),
+    tree("review-b", { branch: null }),
+    tree("screenshots"),
+  ]);
+  const changes = Array.from(
+    { length: 60 },
+    (_, index) => `?? screenshot-${String(index)}.png\0`,
+  ).join("");
+  f.worktrees.changes.mockImplementation((_repo, path) =>
+    Promise.resolve(path.endsWith("screenshots") ? changes : ""),
+  );
+  f.worktrees.cleanupChanges.mockImplementation((_repo, path) =>
+    Promise.resolve(path.endsWith("screenshots") ? changes : ""),
+  );
+  await f.run((feed) => {
+    const reviewed = feed.current().progress.items.find((item) => item.branch === "screenshots");
+    expect(reviewed?.changes?.split("\0")).toHaveLength(50);
+    expect(reviewed?.changes).toContain("screenshot-49.png");
+    expect(reviewed?.changes).not.toContain("screenshot-50.png");
+  });
+  expect(f.worktrees.removeWorktree).toHaveBeenCalledTimes(3);
+  expect(f.worktrees.removeWorktree).toHaveBeenCalledWith(
+    repository,
+    "/trees/screenshots",
+    true,
+    "identity",
+    expect.any(Function),
+  );
+  expect(f.worktrees.cleanupChanges).toHaveBeenCalled();
+  expect(f.locks.size).toBe(0);
+  expect(f.worktrees.deleteMergedBranches).toHaveBeenCalledWith(repository, [
+    { branch: "screenshots", head: "abc" },
+  ]);
+});
+
+it("refuses an untracked snapshot that changes before group approval", async () => {
+  const f = fixture();
+  f.worktrees.changes.mockResolvedValue("?? first.png\0");
+  f.worktrees.cleanupChanges.mockResolvedValue("?? first.png\0");
+  await f.scan();
+  await f.owner.deleteMerged(repository, (request) => {
+    if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+    f.worktrees.changes.mockResolvedValue("?? second.png\0");
+    f.worktrees.cleanupChanges.mockResolvedValue("?? second.png\0");
+    return Promise.resolve(true);
+  });
+  expect(f.worktrees.removeWorktree).not.toHaveBeenCalled();
 });
