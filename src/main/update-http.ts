@@ -10,6 +10,9 @@ export function getUpdateRelease(
   if (
     !/^https:\/\/api\.github\.com\/repos\/scott-r-lindsey\/foom\/releases\/(?:latest|tags\/nightly)$/.test(
       url,
+    ) &&
+    !/^https:\/\/update\.electronjs\.org\/scott-r-lindsey\/foom\/darwin-(?:arm64|x64)\/\d+\.\d+\.\d+$/.test(
+      url,
     )
   )
     return Promise.reject(new Error("Invalid update endpoint"));
@@ -27,7 +30,7 @@ export function getUpdateRelease(
         response.on("error", () => {
           reject(new Error("Update check failed"));
         });
-        if (response.statusCode === 404) {
+        if (response.statusCode === 404 || response.statusCode === 204) {
           response.resume();
           resolve(null);
           return;

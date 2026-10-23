@@ -1,3 +1,4 @@
+import type * as UpdatePackageModule from "../../../src/main/update-package";
 const updateMock = vi.hoisted(() => ({
   updater: {
     setFeedURL: vi.fn(),
@@ -6,7 +7,19 @@ const updateMock = vi.hoisted(() => ({
     on: vi.fn<(event: string, callback: () => void) => void>(),
     removeListener: vi.fn(),
   },
-  getRelease: vi.fn(() => Promise.resolve({ draft: false, prerelease: false, tag_name: "v0.1.0" })),
+  prepareUpdate: vi.fn(() =>
+    Promise.resolve({
+      url: "file:///test/feed.json",
+      dispose: () => Promise.resolve(),
+    }),
+  ),
+  getRelease: vi.fn<() => Promise<unknown>>(() =>
+    Promise.resolve({ draft: false, prerelease: false, tag_name: "v0.1.0" }),
+  ),
+}));
+vi.mock("../../../src/main/update-package", async (original) => ({
+  ...(await original<typeof UpdatePackageModule>()),
+  prepareLocalUpdate: updateMock.prepareUpdate,
 }));
 vi.mock("../../../src/main/update-http", () => ({ getUpdateRelease: updateMock.getRelease }));
 const forgeHostStatus = vi.hoisted(() => vi.fn(() => Promise.resolve("ready" as const)));
@@ -561,6 +574,7 @@ const mock = vi.hoisted(() => {
     readyEvents,
     ready: vi.fn<() => Promise<void>>(),
     quit: vi.fn(),
+    exit: vi.fn(),
     lock: vi.fn(() => true),
     setPath: vi.fn(),
     packaged: false,
@@ -627,6 +641,7 @@ vi.mock("electron", () => ({
     requestSingleInstanceLock: mock.lock,
     getPath: () => "/test/user-data",
     quit: mock.quit,
+    exit: mock.exit,
     on: (name: string, handler: (event: { preventDefault(): void }) => void) => {
       mock.appEvents.set(name, handler);
     },
@@ -2685,6 +2700,10 @@ test("windowless Manual opens a board with the fixed preview instead of a native
 test("downloaded macOS restart waits for confirmation and PTY shutdown before native installation", async ({
   onTestFinished,
 }) => {
+  updateMock.getRelease.mockResolvedValueOnce({
+    url: "https://github.com/scott-r-lindsey/foom/releases/download/v0.2.0/Foom-darwin-arm64-0.2.0.zip",
+  });
+  vi.spyOn(process, "arch", "get").mockReturnValue("arm64");
   vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
   mock.packaged = true;
   Object.defineProperty(process, "resourcesPath", { configurable: true, value: "/test/resources" });
@@ -2701,6 +2720,17 @@ test("downloaded macOS restart waits for confirmation and PTY shutdown before na
     expect(mock.window.loadURL).toHaveBeenCalled();
   });
   wiring.updates.configure(true);
+  await vi.waitFor(() => {
+    expect(updateMock.updater.checkForUpdates).toHaveBeenCalledOnce();
+  });
+  expect(updateMock.prepareUpdate).toHaveBeenCalledWith(
+    "/test/user-data",
+    {
+      version: "0.2.0",
+      url: "https://github.com/scott-r-lindsey/foom/releases/download/v0.2.0/Foom-darwin-arm64-0.2.0.zip",
+    },
+    expect.any(AbortSignal),
+  );
   const downloaded = updateMock.updater.on.mock.calls.find(
     ([event]) => event === "update-downloaded",
   )?.[1];
@@ -2724,11 +2754,22 @@ test("downloaded macOS restart waits for confirmation and PTY shutdown before na
     expect(mock.terminals.shutdown).toHaveBeenCalledOnce();
   });
   expect(updateMock.updater.quitAndInstall).not.toHaveBeenCalled();
+  vi.useFakeTimers();
+  onTestFinished(() => {
+    vi.useRealTimers();
+  });
   finish();
+  await vi.waitFor(() => {
+    expect(updateMock.updater.quitAndInstall).toHaveBeenCalledOnce();
+  });
   await quitting;
   expect(mock.workspace.dispose).toHaveBeenCalled();
   expect(updateMock.updater.quitAndInstall).toHaveBeenCalledOnce();
   expect(mock.quit).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(mock.quit).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(mock.exit).toHaveBeenCalledWith(0);
 });
 
 test("stable Linux startup uses only the fake anonymous release HTTP adapter", async ({

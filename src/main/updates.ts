@@ -1,7 +1,9 @@
+import { macUpdatePackage } from "./update-package";
+import type { LocalUpdate, UpdatePackage } from "./update-package";
 import type { UpdateState } from "../shared/updates";
 
 export interface NativeUpdater {
-  setFeedURL(options: { url: string }): void;
+  setFeedURL(options: { url: string; serverType: "json" }): void;
   checkForUpdates(): void;
   quitAndInstall(): void;
   on(event: string, listener: () => void): unknown;
@@ -16,6 +18,9 @@ export interface UpdateDependencies {
   nightlyDate?: unknown;
   updater: NativeUpdater;
   getRelease(url: string, signal: AbortSignal): Promise<unknown>;
+  prepareUpdate(update: UpdatePackage, signal: AbortSignal): Promise<LocalUpdate>;
+  quit(): void;
+  exit(): void;
   changed(): void;
   /** Enters the existing confirmation, session freeze and PTY shutdown path. */
   requestQuit(): Promise<void>;
@@ -49,6 +54,10 @@ export class Updates {
   private request: AbortController | undefined;
   private generation = 0;
   private restart = false;
+  private local: LocalUpdate | undefined;
+  private installing = false;
+  private quitTimer: ReturnType<typeof setTimeout> | undefined;
+  private exitTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly nightly: RegExpExecArray | null;
   private readonly native: boolean;
   private readonly listeners: ReadonlyArray<readonly [string, () => void]>;
@@ -72,6 +81,7 @@ export class Updates {
       [
         "error",
         () => {
+          if (this.installing) this.fallbackQuit();
           this.finish("error");
         },
       ],
@@ -98,6 +108,7 @@ export class Updates {
     this.request?.abort();
     this.request = undefined;
     if (!enabled) {
+      this.releaseLocal();
       this.status = "idle";
       this.restart = false;
       this.deps.changed();
@@ -114,6 +125,7 @@ export class Updates {
   }
 
   private finish(status: UpdateState["status"]): void {
+    if (status !== "checking") this.releaseLocal();
     if (!this.enabled) return;
     this.status = status;
     this.deps.changed();
@@ -130,22 +142,36 @@ export class Updates {
     const generation = this.generation;
     this.finish("checking");
     try {
-      if (this.native) {
-        this.deps.updater.setFeedURL({
-          url: `https://update.electronjs.org/scott-r-lindsey/foom/darwin-${this.deps.arch}/${this.deps.version}`,
-        });
-        this.deps.updater.checkForUpdates();
-        return;
-      }
       const request = new AbortController();
       this.request = request;
       const release = await this.deps.getRelease(
-        `${API}${this.nightly ? "tags/nightly" : "latest"}`,
+        this.native
+          ? `https://update.electronjs.org/scott-r-lindsey/foom/darwin-${this.deps.arch}/${this.deps.version}`
+          : `${API}${this.nightly ? "tags/nightly" : "latest"}`,
         request.signal,
       );
       if (generation !== this.generation) return;
       if (release === null) {
         this.finish("idle");
+        return;
+      }
+      if (this.native) {
+        const update = macUpdatePackage(release, this.deps.arch);
+        if (!newerStable(update.version, this.deps.version)) {
+          this.finish("idle");
+          return;
+        }
+        const local = await this.deps.prepareUpdate(update, request.signal);
+        if (!this.current(generation)) {
+          await local.dispose();
+          return;
+        }
+        this.local = local;
+        // No await between the final opt-out check and native invocation. Both
+        // feed and ZIP are private local files; Squirrel has no outbound URL.
+        this.deps.updater.setFeedURL({ url: local.url, serverType: "json" });
+        if (!this.current(generation)) return;
+        this.deps.updater.checkForUpdates();
         return;
       }
       if (
@@ -183,6 +209,10 @@ export class Updates {
     }
   }
 
+  private current(generation: number): boolean {
+    return this.enabled && generation === this.generation;
+  }
+
   async restartToUpdate(): Promise<void> {
     if (!this.enabled || this.status !== "downloaded" || this.restart) return;
     this.restart = true;
@@ -196,21 +226,46 @@ export class Updates {
   /** Called only after successful normal quit preparation and PTY shutdown. */
   quitting(): boolean {
     if (!this.restart || !this.enabled || this.status !== "downloaded") return false;
-    // An explicit human request reaches this only after session save and PTY shutdown.
+    // Shutdown has completed. A native failure must never leave a headless app.
+    this.installing = true;
+    this.quitTimer = setTimeout(() => {
+      this.fallbackQuit();
+    }, 5000);
+    this.quitTimer.unref();
     try {
       this.deps.updater.quitAndInstall();
-      return true;
     } catch {
-      this.finish("error");
-      return false;
+      this.fallbackQuit();
     }
+    return true;
+  }
+
+  private fallbackQuit(): void {
+    if (this.exitTimer) return;
+    if (this.quitTimer) clearTimeout(this.quitTimer);
+    this.exitTimer = setTimeout(() => {
+      this.deps.exit();
+    }, 1000);
+    this.exitTimer.unref();
+    try {
+      this.deps.quit();
+    } catch {
+      /* The exit watchdog remains armed. */
+    }
+  }
+
+  private releaseLocal(): void {
+    const local = this.local;
+    this.local = undefined;
+    void local?.dispose().catch(() => undefined);
   }
 
   dispose(): void {
     this.configure(false);
+    this.releaseLocal();
     if (this.native)
-      // Native downloads cannot be cancelled. Keep the error listener quiet until
-      // process exit so a late native failure cannot become an unhandled event.
+      // Keep the error listener (and installation watchdog) after disposal so a
+      // late native failure still exits safely and cannot be unhandled.
       for (const [event, listener] of this.listeners)
         if (event !== "error") this.deps.updater.removeListener(event, listener);
   }

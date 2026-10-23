@@ -4,6 +4,8 @@ import { newerStable, Updates } from "../../../src/main/updates";
 import type { UpdateDependencies } from "../../../src/main/updates";
 
 const active: Updates[] = [];
+const archive =
+  "https://github.com/scott-r-lindsey/foom/releases/download/v0.2.0/Foom-darwin-arm64-0.2.0.zip";
 afterEach(() => {
   for (const updates of active) updates.dispose();
   active.length = 0;
@@ -19,6 +21,7 @@ function fixture(
     checkForUpdates: vi.fn(),
     quitAndInstall: vi.fn(),
   });
+  const local = { url: "file:///test/feed.json", dispose: vi.fn(async () => {}) };
   const deps = {
     packaged: true,
     version: "0.1.0",
@@ -28,20 +31,28 @@ function fixture(
     getRelease: vi
       .fn<UpdateDependencies["getRelease"]>()
       .mockResolvedValue({ draft: false, prerelease: false, tag_name: "v0.2.0" }),
+    prepareUpdate: vi.fn<UpdateDependencies["prepareUpdate"]>().mockResolvedValue(local),
+    quit: vi.fn(),
+    exit: vi.fn(),
     changed: vi.fn(),
     requestQuit: vi.fn(async () => {}),
     ...overrides,
   };
+  if (deps.platform === "darwin" && !deps.version.includes("nightly"))
+    deps.getRelease.mockResolvedValue({ url: archive });
   const updates = new Updates(deps);
   active.push(updates);
-  return { updates, deps, updater };
+  return { updates, deps, updater, local };
 }
 
 test("stable macOS stages silently; explicit restart only relaunches behind the normal quit barrier", async () => {
   const { updates, deps, updater } = fixture();
   updates.configure(true);
-  expect(updater.setFeedURL).toHaveBeenCalledWith({
-    url: "https://update.electronjs.org/scott-r-lindsey/foom/darwin-arm64/0.1.0",
+  await vi.waitFor(() => {
+    expect(updater.setFeedURL).toHaveBeenCalledWith({
+      url: "file:///test/feed.json",
+      serverType: "json",
+    });
   });
   await updates.restartToUpdate();
   expect(deps.requestQuit).not.toHaveBeenCalled();
@@ -58,7 +69,7 @@ test("stable macOS stages silently; explicit restart only relaunches behind the 
   });
   await updates.restartToUpdate();
   expect(updater.quitAndInstall).toHaveBeenCalledOnce();
-  expect(deps.getRelease).not.toHaveBeenCalled();
+  expect(deps.getRelease).toHaveBeenCalledOnce();
 });
 
 test("cancelled or failed quit cannot relaunch, and duplicate restart requests share the quit", async () => {
@@ -106,6 +117,7 @@ test("off switch stops retries and ignores late native events; errors use fixed 
   vi.useFakeTimers();
   const { updates, updater } = fixture();
   updates.configure(true);
+  await vi.advanceTimersByTimeAsync(0);
   updater.emit("error", new Error("secret remote text"));
   expect(updates.state(0).status).toBe("error");
   await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
@@ -126,7 +138,7 @@ test("off switch stops retries and ignores late native events; errors use fixed 
     throw new Error("failed");
   });
   updater.emit("update-not-available");
-  await updates.check();
+  await vi.advanceTimersByTimeAsync(0);
   expect(updates.state(0).status).toBe("error");
 });
 
@@ -280,25 +292,133 @@ test.each([
   expect(updates.state(0).status).toBe(status);
 });
 
-test("an explicit native installation failure falls back to ordinary quit", async () => {
-  const { updates, deps, updater } = fixture();
-  updates.configure(true);
-  updater.emit("update-downloaded");
-  updater.quitAndInstall.mockImplementation(() => {
-    throw new Error("failed native install");
-  });
-  deps.requestQuit.mockImplementation(() => {
-    expect(updates.quitting()).toBe(false);
-    return Promise.resolve();
-  });
-  await updates.restartToUpdate();
-  expect(updates.state(0).status).toBe("error");
-});
-
 test("late native errors during exit remain handled after disposal", () => {
   const { updates, updater } = fixture();
   updates.configure(true);
   updates.dispose();
   expect(() => updater.emit("error", new Error("late download failure"))).not.toThrow();
   expect(updates.state(0).status).toBe("idle");
+});
+
+test.each(["0.1.0", "0.0.9"])(
+  "native path rejects equal/older %s before archive download",
+  async (version) => {
+    const { updates, deps, updater } = fixture();
+    deps.getRelease.mockResolvedValue({ url: archive.replaceAll("0.2.0", version) });
+    updates.configure(true);
+    await vi.waitFor(() => {
+      expect(deps.getRelease).toHaveResolved();
+    });
+    expect(updates.state(0).status).toBe("idle");
+    expect(deps.prepareUpdate).not.toHaveBeenCalled();
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
+  },
+);
+
+test("opting out during native metadata prevents both ZIP and native work, even after re-enable", async () => {
+  const { updates, deps, updater } = fixture();
+  let complete: (value: unknown) => void = () => {};
+  deps.getRelease.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+  );
+  updates.configure(true);
+  const signal = deps.getRelease.mock.calls[0]?.[1];
+  updates.configure(false);
+  expect(signal?.aborted).toBe(true);
+  complete({ url: archive });
+  await Promise.resolve();
+  expect(deps.prepareUpdate).not.toHaveBeenCalled();
+  expect(updater.checkForUpdates).not.toHaveBeenCalled();
+  updates.configure(true);
+  await vi.waitFor(() => {
+    expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+  });
+});
+
+test("opting out during the ZIP download aborts it and disposes a stale completed feed", async () => {
+  const { updates, deps, updater, local } = fixture();
+  let complete: (value: typeof local) => void = () => {};
+  deps.prepareUpdate.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+  );
+  updates.configure(true);
+  await vi.waitFor(() => {
+    expect(deps.prepareUpdate).toHaveBeenCalledOnce();
+  });
+  const signal = deps.prepareUpdate.mock.calls[0]?.[1];
+  updates.configure(false);
+  expect(signal?.aborted).toBe(true);
+  complete(local);
+  await vi.waitFor(() => {
+    expect(local.dispose).toHaveBeenCalledOnce();
+  });
+  expect(updater.setFeedURL).not.toHaveBeenCalled();
+  expect(updater.checkForUpdates).not.toHaveBeenCalled();
+});
+
+test("last opt-out guard runs immediately before the native check", async () => {
+  const { updates, updater } = fixture();
+  updater.setFeedURL.mockImplementationOnce(() => {
+    updates.configure(false);
+  });
+  updates.configure(true);
+  await vi.waitFor(() => {
+    expect(updater.setFeedURL).toHaveBeenCalledOnce();
+  });
+  expect(updater.checkForUpdates).not.toHaveBeenCalled();
+});
+
+test.each(["throw", "error", "stall", "quit throws"])(
+  "native restart %s has a bounded shutdown fallback after disposal",
+  async (failure) => {
+    vi.useFakeTimers();
+    const { updates, deps, updater } = fixture();
+    updates.configure(true);
+    await vi.advanceTimersByTimeAsync(0);
+    updater.emit("update-downloaded");
+    if (failure === "throw")
+      updater.quitAndInstall.mockImplementationOnce(() => {
+        throw new Error("native failed");
+      });
+    if (failure === "quit throws")
+      deps.quit.mockImplementationOnce(() => {
+        throw new Error("quit failed");
+      });
+    deps.requestQuit.mockImplementation(() => {
+      expect(updates.quitting()).toBe(true);
+      updates.dispose();
+      return Promise.resolve();
+    });
+    await updates.restartToUpdate();
+    if (failure === "error") {
+      updater.emit("error");
+      updater.emit("error");
+    }
+    if (failure === "stall" || failure === "quit throws") {
+      expect(deps.quit).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(5000);
+    }
+    expect(deps.quit).toHaveBeenCalledOnce();
+    expect(deps.exit).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(deps.exit).toHaveBeenCalledOnce();
+  },
+);
+
+test("a hostile macOS feed never reaches ZIP preparation or native code", async () => {
+  const { updates, deps, updater } = fixture();
+  deps.getRelease.mockResolvedValue({ url: "https://evil.example/update.zip", version: "99.0.0" });
+  updates.configure(true);
+  await vi.waitFor(() => {
+    expect(updates.state(0).status).toBe("error");
+  });
+  expect(deps.prepareUpdate).not.toHaveBeenCalled();
+  expect(updater.setFeedURL).not.toHaveBeenCalled();
+  expect(updater.checkForUpdates).not.toHaveBeenCalled();
 });

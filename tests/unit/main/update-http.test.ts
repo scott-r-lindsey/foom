@@ -136,3 +136,24 @@ test.each([404, 500])(
     await settled;
   },
 );
+
+test.each([200, 204])(
+  "macOS metadata uses the fixed allowlisted endpoint, HTTP %i",
+  async (status) => {
+    const endpoint = "https://update.electronjs.org/scott-r-lindsey/foom/darwin-arm64/0.1.0";
+    const result = getUpdateRelease("0.1.0", "darwin", endpoint, signal());
+    respond(status, '{"url":"untrusted"}');
+    await expect(result).resolves.toEqual(status === 204 ? null : { url: "untrusted" });
+  },
+);
+
+test.each([
+  "https://update.electronjs.org/other/foom/darwin-arm64/0.1.0",
+  "https://update.electronjs.org/scott-r-lindsey/foom/darwin-arm64/0.1.0?next=evil",
+  "https://update.electronjs.org/scott-r-lindsey/foom/darwin-arm64/0.1.0/extra",
+])("rejects altered macOS metadata route %s", async (endpoint) => {
+  await expect(getUpdateRelease("0.1.0", "darwin", endpoint, signal())).rejects.toThrow(
+    "Invalid update endpoint",
+  );
+  expect(mock.get).not.toHaveBeenCalled();
+});

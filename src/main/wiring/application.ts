@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { autoUpdater } from "electron";
 import { Updates } from "../updates";
+import { prepareLocalUpdate } from "../update-package";
 import { getUpdateRelease } from "../update-http";
 import {
   app,
@@ -299,6 +300,13 @@ export function runApplication() {
     arch: process.arch,
     updater: autoUpdater,
     getRelease: (url, signal) => getUpdateRelease(app.getVersion(), process.platform, url, signal),
+    prepareUpdate: (update, signal) => prepareLocalUpdate(app.getPath("userData"), update, signal),
+    quit: () => {
+      app.quit();
+    },
+    exit: () => {
+      app.exit(0);
+    },
     changed: publishSettings,
     requestQuit,
   });
