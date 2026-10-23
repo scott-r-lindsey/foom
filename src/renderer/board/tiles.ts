@@ -252,14 +252,7 @@ export function placeContent(
     (tile) => contentId(tile.content) === contentId(content) && tile.content?.kind === content.kind,
   );
   const focused = tiles.find((tile) => tile.id === layout.focused);
-  const target = replace
-    ? focused
-    : (visible ??
-      (layout.landing
-        ? landingSpace(layout)
-        : focused?.content === null
-          ? focused
-          : landingSpace(layout)));
+  const target = replace ? focused : (visible ?? landingSpace(layout));
   if (!target) {
     if (replace) return null;
     const cols = columns(layout.tree);
@@ -644,27 +637,20 @@ export function placeAgentPreview(
     )
   )
     return { layout, placement: "existing" };
-  const empty = leaves(layout.tree).filter((tile) => tile.content === null);
-  const target = empty.find((tile) => tile.id === layout.landing) ?? empty[0];
-  if (!target) {
-    const next = placeContent(layout, { kind: "preview", preview: id }, false, {
-      ...placement,
-      preserveFocus: true,
-    });
-    if (!next) return { layout, placement: "sidebar" };
-    return {
-      layout: { ...next, focused: layout.focused, maximized: layout.maximized },
-      placement: leaves(next.tree).length > leaves(layout.tree).length ? "column" : "replace",
-    };
-  }
-  const fill = (node: TileNode): TileNode =>
-    node.kind === "tile"
-      ? node.id === target.id
-        ? { ...node, content: { kind: "preview", preview: id } }
-        : node
-      : { ...node, first: fill(node.first), second: fill(node.second) };
+  const target = landingSpace(layout);
+  const next = placeContent(layout, { kind: "preview", preview: id }, false, {
+    ...placement,
+    preserveFocus: true,
+  });
+  if (!next) return { layout, placement: "sidebar" };
   return {
-    layout: { ...layout, tree: fill(layout.tree) },
-    placement: target.id === layout.landing ? "landing" : "empty",
+    layout: { ...next, focused: layout.focused, maximized: layout.maximized },
+    placement: target
+      ? target.id === layout.landing
+        ? "landing"
+        : "empty"
+      : leaves(next.tree).length > leaves(layout.tree).length
+        ? "column"
+        : "replace",
   };
 }

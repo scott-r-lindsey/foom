@@ -24,6 +24,11 @@ export interface RemovalFeed {
   subscribe(listener: () => void): () => void;
   select(ids: readonly string[]): void;
 }
+export interface DialogSummaryLine {
+  text: string;
+  /** Main-owned full text for the tooltip and accessible summary name. */
+  title?: string;
+}
 export interface DialogContent {
   /** Main-only grouping key and removal snapshot. */
   removal?: { group: string; item: RemovalItem };
@@ -42,7 +47,13 @@ export interface DialogContent {
   subject?: string;
   glyph?: "trash" | "branch" | "power" | "orbit" | "link" | "shield" | "bell";
   note?: string;
-  sections?: readonly { label: string; items: readonly string[]; arguments?: boolean }[];
+  sections?: readonly {
+    label: string;
+    items: readonly string[];
+    arguments?: boolean;
+    /** Main-authored summary; its presence makes the full section collapsible. */
+    summary?: readonly DialogSummaryLine[];
+  }[];
   facts?: readonly { label: string; value: string; mono?: boolean }[];
   arguments?: readonly string[];
   pairing?: { code: string; expiresAt: number };

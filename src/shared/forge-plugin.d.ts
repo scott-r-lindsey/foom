@@ -58,6 +58,10 @@ export type ForgeProjects =
     }
   | { mode: "numeric-project-ids"; source: ForgePath; target: ForgePath; context: ForgePath };
 export interface ForgeBatchPlan {
+  mapping?: ForgeManifest["mapping"];
+  numberEncoding?: "decimal-string";
+  projectIdEncoding?: "global-project-id";
+  projectContext?: ForgePath;
   command: ForgeCommand;
   /** Query with one ...FoomBatch insertion point; item queries each select one field. */
   query: string;
@@ -79,6 +83,8 @@ export interface ForgeManifest {
   name: string;
   badge: string;
   executables: readonly string[];
+  requestLabel?: "Merge request";
+  numberPrefix?: "!";
   remote: {
     hosts: readonly string[];
     namespace: "pair" | "nested";
@@ -103,6 +109,7 @@ export interface ForgeManifest {
     branch: ForgePath;
     headSha: ForgePath;
     mergeCommit: ForgePath | undefined;
+    squashCommit?: ForgePath;
     state: ForgePath;
     states: Readonly<Record<string, ForgeState>>;
     title: ForgePath | undefined;

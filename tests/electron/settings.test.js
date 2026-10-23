@@ -640,6 +640,12 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await page.getByRole("button", { name: /Go \/ no-go/ }).click();
   await page.getByText("All stations go.").waitFor();
   await assertAccessible(page);
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(2200, 1000);
+  });
+  await page.waitForFunction(() => innerWidth === 2200);
   await tabTo(page, "Launch");
   await page.keyboard.press("Enter");
 
@@ -653,6 +659,14 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     (entry) => entry.worktree === "foom:manual",
   );
   assert.ok(firstManual);
+  await expect(page.locator(".terminal-tile").first()).toHaveAttribute("data-kind", "preview");
+  const firstRunGeometry = await page
+    .locator(".terminal-tile")
+    .evaluateAll((tiles) =>
+      tiles.map((tile) => ({ left: tile.style.left, width: tile.style.width })),
+    );
+  assert.equal(firstRunGeometry.length, 2);
+
   if (process.env.FOOM_MANUAL_SCREENSHOTS === "1" && process.platform === "linux") {
     await mkdir("screenshots-680", { recursive: true });
     const handle = await app.evaluate(({ BrowserWindow }) => {
@@ -690,6 +704,15 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await launchCheckoutShell(app, page);
   const shellRow = page.locator(".board-row[data-kind='shell']");
   await shellRow.waitFor({ timeout: deadline(10000) });
+  assert.deepEqual(
+    await page
+      .locator(".terminal-tile")
+      .evaluateAll((tiles) =>
+        tiles.map((tile) => ({ left: tile.style.left, width: tile.style.width })),
+      ),
+    firstRunGeometry,
+  );
+
   const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
   // The profile keeps only profile settings; agent-editable ones live in Foom config.
   assert.equal(saved.version, 2);
@@ -708,13 +731,14 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   ]);
   const effective = (await page.evaluate(() => window.desktop.setupState())).settings;
   assert.deepEqual(effective, {
-    forges: { github: true },
-    forgeHosts: { "github.com": "github" },
+    forges: { github: true, gitlab: true },
+    forgeHosts: { "github.com": "github", "gitlab.com": "gitlab" },
     agyPluginOfferAnswered: false,
     setupComplete: true,
     hooks: true,
     restoreSessions: true,
     showNewChildren: true,
+    closeFinishedAgents: true,
     concurrentChildren: 4,
     recentRepositoryDays: 30,
     unreadChildMinutes: 5,
@@ -2496,9 +2520,10 @@ test("Settings forge cards persist user host assignments without activating prov
   assert.equal(before.settings.forgeHosts["git.example.org"], "custom");
   await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
   const saved = JSON.parse(await readFile(path.join(userData, "settings.json"), "utf8"));
-  assert.deepEqual(saved.settings.forges, { github: true, custom: false });
+  assert.deepEqual(saved.settings.forges, { github: true, gitlab: true, custom: false });
   assert.deepEqual(saved.settings.forgeHosts, {
     "github.com": "github",
+    "gitlab.com": "gitlab",
     "git.example.org": "custom",
   });
   const restarted = await launchApp(context, {
@@ -2693,4 +2718,40 @@ test("nested repository names follow the General toggle and retain their identit
   await expect(page.getByRole("menuitem", { name: "Action log", exact: true })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: /^Developer tools/ })).toBeVisible();
   await screenshot("developer-submenu-linux");
+});
+
+test("General close finished agents defaults on and saves immediately", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  const control = page.getByRole("checkbox", { name: "Close finished agents", exact: true });
+  await expect(control).toBeChecked();
+  await control.uncheck();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.setupState())).settings.closeFinishedAgents,
+    )
+    .toBe(false);
+  await control.check();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.setupState())).settings.closeFinishedAgents,
+    )
+    .toBe(true);
+  if (process.env.FOOM_CAPTURE_745 === "1") {
+    await mkdir("screenshots-745", { recursive: true });
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await expect
+        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+        .toBe(mode === "dark");
+      await control.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `screenshots-745/general-${mode}.png` });
+    }
+  }
+  await assertAccessible(page);
 });

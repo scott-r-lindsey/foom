@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, within } from "@testing-library/react"
 import { beforeEach, afterEach, expect, test, vi } from "vitest";
 import type { BoardCommand } from "../../../../src/shared/board-command";
 import type { PreviewSummary, SidebarCommand } from "../../../../src/shared/workspace";
+import type { BoardRow } from "../../../../src/renderer/board/board.d";
 import type { BoardSource } from "../../../../src/renderer/board/board-source.d";
 import { Board } from "../../../../src/renderer/board/board-view";
 import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
@@ -254,6 +255,27 @@ test("worker trim follows role and takeover metadata without remounting or reatt
   expect(mark.closest(".tile-title")).toBeTruthy();
   expect(mark.querySelector("title")?.textContent).toBe("Child of parent");
   expect(mark.getAttribute("data-kind")).toBe("rx");
+  const review = {
+    authorId: "permission",
+    agent: "claude",
+    postFindings: false,
+    rounds: 3,
+    round: 1,
+    phase: "reviewing" as const,
+  };
+  act(() => {
+    data.update("permission", { review });
+  });
+  expect(within(tile).getByRole("img", { name: "Worker" })).toBe(mark);
+  act(() => {
+    data.update("permission", { review: { ...review, authorId: "author" } });
+  });
+  expect(within(tile).getByRole("img", { name: "Reviewer" })).toBe(mark);
+  expect(mark.getAttribute("data-kind")).toBe("review");
+  expect(within(tile).getByText("Reviewing 1/3")).toBeTruthy();
+  act(() => {
+    data.update("permission", { review: undefined });
+  });
   const parent = data.getSnapshot()[1];
   if (!parent) throw new Error("Missing parent fixture");
   act(() => {
@@ -1604,5 +1626,57 @@ test.each(["Terminal host failed. Restart the shell to continue.", "Unable to op
     expect(screen.container.querySelector('.terminal-tile[data-empty="false"]')).toBeTruthy();
     expect(screen.container.querySelector(".tile-restoring")).toBeNull();
     expect(screen.container.querySelector(".tile-status")?.textContent).toBe(status);
+  },
+);
+
+test.each([100, 200, 300])(
+  "background child arrivals split blank boards at %i cells without requesting focus",
+  async (columns) => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return DOMRect.fromRect({ width: this.classList.contains("tile-area") ? columns * 8.4 : 0 });
+    });
+    const { screen, source, views } = setup();
+    let navigate: ((id: string, background?: boolean) => void) | undefined;
+    source.appMenu = {
+      platform: "darwin",
+      legal: vi.fn(),
+      onLegal: vi.fn(),
+      version: vi.fn(),
+      setView: vi.fn().mockResolvedValue(undefined),
+      commands: vi.fn().mockResolvedValue([]),
+      shortcuts: vi.fn().mockResolvedValue([]),
+      onShortcuts: () => () => {},
+      execute: vi.fn().mockResolvedValue(undefined),
+      onOpen: () => () => {},
+      onSession: (callback) => {
+        navigate = callback;
+        return () => {};
+      },
+    };
+    const row = source.getSnapshot()[0];
+    if (!row) throw new Error("Missing row");
+    const rows: BoardRow[] = [
+      { ...row, orchestration: { role: "child", parentId: "parent", takenOver: false } },
+    ];
+    screen.rerender(<Board source={{ ...source, getSnapshot: () => rows }} />);
+    const focusCalls = views.map((view) => view.focus.mock.calls.length);
+    act(() => {
+      navigate?.(row.id, true);
+    });
+    await act(async () => {});
+    const tiles = [...screen.container.querySelectorAll<HTMLElement>(".terminal-tile")];
+    expect(tiles).toHaveLength(columns / 100);
+    expect(tiles[0]?.getAttribute("data-kind")).toBe("agent");
+    expect(tiles[0]?.style.left).toBe("0%");
+    expect(Number.parseFloat(tiles[0]?.style.width ?? "")).toBeCloseTo(100 / (columns / 100));
+    expect(views.slice(0, focusCalls.length).map((view) => view.focus.mock.calls.length)).toEqual(
+      focusCalls,
+    );
+    expect(views.slice(focusCalls.length).every((view) => view.focus.mock.calls.length === 0)).toBe(
+      true,
+    );
+    vi.restoreAllMocks();
   },
 );

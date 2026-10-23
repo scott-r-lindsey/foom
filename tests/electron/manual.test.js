@@ -3,7 +3,101 @@ const assert = require("node:assert/strict");
 const { mkdir, readFile, writeFile } = require("node:fs/promises");
 const { execFileSync } = require("node:child_process");
 const { deadline, expect } = require("./test-policy.js");
-const { launchApp, boardPage } = require("./harness.js");
+const { launchApp, boardPage, launchCheckoutShell } = require("./harness.js");
+
+test("blank-window manual and terminals share the leftmost column geometry", async (context) => {
+  const app = await launchApp(context, { fixture: "repository" });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(2200, 1000);
+  });
+  await page.waitForFunction(() => innerWidth === 2200);
+  await page.evaluate(() => window.desktop.appMenu.execute("manual"));
+  const manual = page.locator('.terminal-tile[data-kind="preview"]');
+  await expect(manual).toBeVisible();
+  const geometry = () =>
+    page.locator(".terminal-tile").evaluateAll((tiles) =>
+      tiles.map((tile) => ({
+        left: tile.style.left,
+        top: tile.style.top,
+        width: tile.style.width,
+        height: tile.style.height,
+      })),
+    );
+  const manualGeometry = await geometry();
+  assert.equal(manualGeometry.length, 2);
+  await expect(page.locator(".terminal-tile").first()).toHaveAttribute("data-kind", "preview");
+  await launchCheckoutShell(app, page);
+  await expect(page.locator('.terminal-tile[data-kind="shell"]')).toBeVisible();
+  assert.deepEqual(await geometry(), manualGeometry);
+  if (process.env.FOOM_PLACEMENT_SCREENSHOTS === "1" && process.platform === "linux") {
+    await mkdir("screenshots-746", { recursive: true });
+    const handle = await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .getNativeWindowHandle()
+        .readUInt32LE(),
+    );
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await page.waitForFunction(
+        (mode) => document.documentElement.style.colorScheme === mode,
+        mode,
+      );
+      await expect
+        .poll(() =>
+          app.evaluate(async ({ webContents }) => {
+            const contents = webContents
+              .getAllWebContents()
+              .find((entry) => entry.getURL().startsWith("foom-preview://"));
+            return contents.executeJavaScript(
+              "getComputedStyle(document.documentElement).backgroundColor",
+            );
+          }),
+        )
+        .toBe(mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)");
+      await app.evaluate(async ({ webContents }) => {
+        const contents = webContents
+          .getAllWebContents()
+          .find((entry) => entry.getURL().startsWith("foom-preview://"));
+        await contents.executeJavaScript(
+          "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+        );
+      });
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
+      execFileSync("import", [
+        "-window",
+        String(handle),
+        `screenshots-746/manual-terminal-${mode}.png`,
+      ]);
+    }
+  }
+  const id = (await page.evaluate(() => window.desktop.sidebarInventory())).previews[0].id;
+  await page.evaluate((id) => window.desktop.previews.close(id), id);
+  // Return to one blank leaf, then launch a terminal into the same available width.
+  await page.evaluate(() => {
+    localStorage.setItem(
+      `foom.tiles.v1.${window.desktop.windows.id}`,
+      JSON.stringify({
+        version: 2,
+        tree: { kind: "tile", id: "blank", content: null },
+        focused: "blank",
+        maximized: null,
+      }),
+    );
+  });
+  await page.reload();
+  await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(1);
+  await launchCheckoutShell(app, page);
+  await expect(page.locator('.terminal-tile[data-kind="shell"]')).toBeVisible();
+  assert.deepEqual(await geometry(), manualGeometry);
+  await expect(page.locator(".terminal-tile").first()).toHaveAttribute("data-kind", "shell");
+});
 
 test("Help Manual opens a contained offline guide and focuses the existing tile", {
   timeout: deadline(45000),

@@ -9,7 +9,8 @@ import type { Principal } from "./types";
 
 /** Main-owned effects. Every path is chosen by main; the API only names IDs. */
 export interface OrchestrationHost {
-  forge?: Pick<ForgeTracking, "track" | "read">;
+  forge?: Pick<ForgeTracking, "track" | "read"> &
+    Partial<Pick<ForgeTracking, "readSettled" | "revision" | "waitForRead">>;
   adoptWorktree?(
     repository: string,
     number: number,
@@ -49,7 +50,7 @@ export interface OrchestrationHost {
   ): Promise<{ branch: string; identity: string } | undefined>;
   /** Whether the user's default arguments for this agent bypass permissions. */
   bypassDefaults?(agent: AgentId): boolean;
-  stop(id: string): Promise<void>;
+  stop(id: string): Promise<boolean>;
   close(id: string): Promise<void>;
   place?(id: string, parentId: string): void;
   /** Starting restored sessions do not yet have a stoppable PTY. */

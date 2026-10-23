@@ -131,6 +131,7 @@ test.each(["", "?? reviewed.txt\0"])(
     const stop = vi.spyOn(deps.terminals, "stop").mockImplementationOnce(async () => {
       await shutdown.promise;
       vi.spyOn(deps.worktrees, "changes").mockResolvedValue(changed);
+      return true;
     });
     const removal = workspace.removeWorktree("t1", () => Promise.resolve(true));
     const rejected = expect(removal).rejects.toThrow("Review them");
@@ -435,7 +436,7 @@ test("removing a shared worktree clears all exited sessions before the final sta
   const stopped: string[] = [];
   vi.spyOn(deps.terminals, "stop").mockImplementation((id) => {
     stopped.push(id);
-    return Promise.resolve();
+    return Promise.resolve(true);
   });
   for (const id of ["s1", "s2", "a1"]) {
     tails.set(id, []);

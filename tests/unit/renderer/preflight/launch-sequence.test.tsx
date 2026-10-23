@@ -18,7 +18,9 @@ beforeEach(() => {
     value: () => ({ matches: reduced }),
   });
   context = ctx;
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => context);
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation((kind) =>
+    kind === "2d" ? context : null,
+  );
   // Draw exactly once per test; the loop re-queues itself.
   vi.stubGlobal(
     "requestAnimationFrame",

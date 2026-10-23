@@ -1,3 +1,4 @@
+import { createSingularity } from "./singularity";
 import { useEffect, useRef } from "react";
 import { createFlightArt, flightPathGeometry, type Palette } from "./flight-art";
 
@@ -9,11 +10,13 @@ export function prefersReducedMotion(): boolean {
 
 /** Decorative animation, disposed with its surface and paused while unfocused. */
 export function FlightCanvas({
+  active = true,
   launch = false,
   reduced = false,
   initialElapsedMs = 0,
   onReplay,
 }: {
+  active?: boolean;
   launch?: boolean;
   reduced?: boolean;
   initialElapsedMs?: number;
@@ -25,10 +28,14 @@ export function FlightCanvas({
     const canvas = ref.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
-    const draw = createFlightArt();
+    if (!active) return;
+    const singularity = createSingularity(() => {
+      paint();
+    });
+    const draw = createFlightArt(singularity);
     const start = performance.now();
     let frame = 0;
-    let paused = false;
+    let paused = document.hidden;
     const paint = () => {
       if (!canvas.isConnected) return;
       const style = getComputedStyle(canvas);
@@ -48,8 +55,12 @@ export function FlightCanvas({
       const ratio = window.devicePixelRatio || 1;
       const w = canvas.clientWidth,
         h = canvas.clientHeight;
-      canvas.width = Math.round(w * ratio);
-      canvas.height = Math.round(h * ratio);
+      const width = Math.round(w * ratio),
+        height = Math.round(h * ratio);
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       const elapsed = performance.now() - start + initialElapsedMs;
       draw(ctx, w, h, elapsed, P, launch, reduced);
@@ -76,7 +87,11 @@ export function FlightCanvas({
     const resume = () => {
       stop();
       paused = false;
-      tick();
+      if (!document.hidden) tick();
+    };
+    const visibility = () => {
+      if (document.hidden) stop();
+      else resume();
     };
     tick();
     // Reduced motion and blurred windows have no frame loop to notice layout changes.
@@ -87,15 +102,18 @@ export function FlightCanvas({
           })
         : undefined;
     observer?.observe(canvas);
+    document.addEventListener("visibilitychange", visibility);
     window.addEventListener("blur", stop);
     window.addEventListener("focus", resume);
     return () => {
       stop();
+      singularity.dispose();
       observer?.disconnect();
+      document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("blur", stop);
       window.removeEventListener("focus", resume);
     };
-  }, [initialElapsedMs, launch, reduced]);
+  }, [active, initialElapsedMs, launch, reduced]);
   return (
     <>
       <canvas ref={ref} className="flight-canvas" aria-hidden="true" />

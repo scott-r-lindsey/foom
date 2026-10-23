@@ -14,6 +14,11 @@ export interface ReviewLoopHost {
   snapshot: (id: string) => Promise<ReviewSnapshot>;
   /** Reserves capacity and rechecks ownership immediately before spawning. Undefined means wait. */
   step: (authorId: string, reviewer: boolean, prompt: string) => Promise<string | undefined>;
+  /** Normal session stop, with ownership checked immediately before signaling. */
+  stop: (
+    id: string,
+    validate: (snapshot: ReviewSnapshot) => boolean,
+  ) => Promise<"stopped" | "changed" | "exited">;
   changed: () => void;
   save: () => Promise<void>;
 }
@@ -21,10 +26,14 @@ export interface ReviewLoop {
   state: ReviewState;
   currentId: string;
   afterSeq: number;
+  stoppingId?: string;
+  awaitingExitId?: string;
   snapshot?: ReviewSnapshot;
   number?: number;
   prompt?: string;
   busy: boolean;
   again?: boolean;
   unreadAt?: number;
+  parentTimer?: ReturnType<typeof setTimeout>;
+  authorPhase?: "building" | "fixing";
 }

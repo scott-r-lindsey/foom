@@ -260,7 +260,9 @@ export async function configCredential(
           throw error;
         }
       },
-      stop: (id) => this.deps.terminals.stop(id),
+      stop: async (id) => {
+        await this.deps.terminals.stop(id);
+      },
       kill: (id) => this.deps.terminals.kill(id),
       reply: async (id, data) => {
         if (!this.deps.terminals.reply) throw new Error("Probe input unavailable");

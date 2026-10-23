@@ -4,6 +4,9 @@ import { afterEach, expect, test, vi } from "vitest";
 import { createFlightArt, type Palette } from "../../../src/renderer/ui/flight-art";
 import { FlightCanvas } from "../../../src/renderer/ui/flight-canvas";
 import { canvasContext } from "./flight-canvas-fixture";
+vi.mock("../../../src/renderer/ui/singularity", () => ({
+  createSingularity: () => ({ draw: vi.fn(), dispose: vi.fn() }),
+}));
 const palette: Palette = {
   mode: "dark",
   star: "#F4EFFF",
@@ -134,3 +137,52 @@ for (const reduced of [false, true]) {
     expect(draw.clearRect).toHaveBeenCalledTimes(paints);
   });
 }
+
+test("inactive and reduced-motion surfaces schedule no recurring frames", () => {
+  const { ctx } = canvasContext();
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx);
+  vi.stubGlobal(
+    "requestAnimationFrame",
+    vi.fn(() => 1),
+  );
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  const view = render(<FlightCanvas active={false} />);
+  expect(requestAnimationFrame).not.toHaveBeenCalled();
+  view.rerender(<FlightCanvas reduced />);
+  expect(requestAnimationFrame).not.toHaveBeenCalled();
+  fireEvent.focus(window);
+  expect(requestAnimationFrame).not.toHaveBeenCalled();
+  view.rerender(<FlightCanvas />);
+  expect(requestAnimationFrame).toHaveBeenCalledOnce();
+  Object.defineProperty(document, "hidden", { configurable: true, value: true });
+  fireEvent(document, new Event("visibilitychange"));
+  expect(cancelAnimationFrame).toHaveBeenCalled();
+  const count = vi.mocked(requestAnimationFrame).mock.calls.length;
+  fireEvent.focus(window);
+  expect(requestAnimationFrame).toHaveBeenCalledTimes(count);
+  Object.defineProperty(document, "hidden", { configurable: true, value: false });
+  fireEvent(document, new Event("visibilitychange"));
+  expect(requestAnimationFrame).toHaveBeenCalledTimes(count + 1);
+});
+
+test("baked singularity is behind the rocket on both surfaces", () => {
+  const { ctx, draw } = canvasContext();
+  const paint = vi.fn();
+  const art = createFlightArt({ draw: paint, dispose: vi.fn() });
+  for (const launch of [true, false]) {
+    art(ctx, 1000, 650, 2500, palette, launch, false);
+    expect(paint).toHaveBeenLastCalledWith(
+      ctx,
+      1000,
+      650,
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      2500,
+      true,
+    );
+    expect(paint.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      draw.rotate.mock.invocationCallOrder.at(-1) ?? 0,
+    );
+  }
+});

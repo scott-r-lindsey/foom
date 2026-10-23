@@ -62,10 +62,10 @@ test("gutters clamp finite ratios and leave leaves untouched", () => {
   expect(resized.tree).toMatchObject({ ratio: 0.85 });
   expect(rectangles(resized.tree).gutters[0]?.rect.y).toBe(85);
 });
-test("placing focuses visible sessions, uses focused empty then first empty, replaces the oldest eligible when full, and explicit replace moves once", () => {
+test("placing focuses visible sessions, uses landing then first empty, replaces the oldest eligible when full, and explicit replace moves once", () => {
   let layout = arrangedLayout(initialLayout(), "main2");
   const ids = leaves(layout.tree).map((tile) => tile.id);
-  layout = place({ ...layout, focused: ids[1] ?? "" }, "a");
+  layout = place({ ...layout, focused: ids[1] ?? "", landing: ids[1] ?? "" }, "a");
   expect(layout.focused).toBe(ids[1]);
   layout = place(layout, "b");
   expect(layout.focused).toBe(ids[0]);
@@ -773,3 +773,80 @@ test("sidebar width persists per window and untrusted values fall back to the de
     ).toBeUndefined();
   }
 });
+
+test.each([100, 200, 300])("all content shares blank-window geometry at %i cells", (columns) => {
+  const start = initialLayout();
+  const terminal = placeSession(start, "terminal", false, { columns });
+  const child = placeSession(start, "child", false, { columns, preserveFocus: true });
+  const preview = placeAgentPreview(start, "preview", { columns }).layout;
+  const manual = placeAgentPreview(start, "manual", { columns }).layout;
+  const reopened = placeContent(start, { kind: "preview", preview: "sidebar" }, false, { columns });
+  if (!terminal || !child || !reopened) throw new Error("Missing placement");
+  const geometry = (layout: TileLayout) => rectangles(layout.tree).tiles.map(({ rect }) => rect);
+  expect(leaves(terminal.tree)).toHaveLength(columns / 100);
+  for (const layout of [terminal, child, preview, manual, reopened]) {
+    expect(geometry(layout)).toEqual(geometry(terminal));
+    expect(leaves(layout.tree)[0]?.content).not.toBeNull();
+    expect(
+      leaves(layout.tree)
+        .slice(1)
+        .every((tile) => tile.content === null),
+    ).toBe(true);
+    expect(layout.focused).toBe(start.focused);
+  }
+});
+
+test("placement uses tree-order space rather than a focused empty tile without a landing", () => {
+  const start = arrangedLayout(initialLayout(), "grid");
+  const tiles = leaves(start.tree);
+  const layout = { ...start, focused: tiles[3]?.id ?? "missing" };
+  const next = placeSession(layout, "terminal");
+  expect(leaves(next?.tree ?? start.tree)[0]?.content).toEqual({
+    kind: "terminal",
+    session: "terminal",
+  });
+  expect(leaves(placeAgentPreview(layout, "preview").layout.tree)[0]?.content).toEqual({
+    kind: "preview",
+    preview: "preview",
+  });
+});
+
+test.each(["terminal", "child", "preview", "manual", "sidebar"] as const)(
+  "%s keeps arranged trees and shares landing, empty, growth and replacement placement",
+  (kind) => {
+    const placeKind = (layout: TileLayout, columns: number) => {
+      const options = {
+        columns,
+        preserveFocus: kind === "child" || kind === "preview" || kind === "manual",
+      };
+      const next =
+        kind === "terminal" || kind === "child"
+          ? placeSession(layout, "arrival", false, options)
+          : kind === "sidebar"
+            ? placeContent(layout, { kind: "preview", preview: "arrival" }, false, options)
+            : placeAgentPreview(layout, "arrival", options).layout;
+      if (!next) throw new Error("Missing placement");
+      return next;
+    };
+    const arranged = arrangedLayout(initialLayout(), "grid");
+    const tiles = leaves(arranged.tree);
+    const start = { ...arranged, landing: tiles[2]?.id ?? "missing" };
+    const landed = placeKind(start, 1000);
+    expect(leaves(landed.tree).find((tile) => tile.content)?.id).toBe(start.landing);
+    expect(rectangles(landed.tree).tiles.map(({ rect }) => rect)).toEqual(
+      rectangles(start.tree).tiles.map(({ rect }) => rect),
+    );
+    expect(leaves(placeKind(arranged, 1000).tree).find((tile) => tile.content)?.id).toBe(
+      tiles[0]?.id,
+    );
+    let full = arranged;
+    for (const session of ["a", "b", "c", "d"]) full = place(full, session);
+    const grown = placeKind(full, 1000);
+    expect(leaves(grown.tree)).toHaveLength(5);
+    expect(contentId(leaves(grown.tree).at(-1)?.content)).toBe("arrival");
+    const replaced = placeKind(full, 80);
+    expect(leaves(replaced.tree)).toHaveLength(4);
+    expect(contentId(leaves(replaced.tree)[0]?.content)).toBe("arrival");
+    expect(leaves(replaced.tree).at(-1)?.content).toEqual(leaves(full.tree).at(-1)?.content);
+  },
+);

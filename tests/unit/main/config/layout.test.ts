@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { themeRecord } from "../../../../src/shared/theme-validation";
 import { expect, test } from "vitest";
 import { Ajv2020 } from "ajv/dist/2020";
 import {
@@ -121,4 +122,17 @@ test("every worked guide attachment validates on its first pass", async () => {
     );
     expect(() => parseAgentManifest(JSON.stringify(draft), "bundled"), String(flag)).not.toThrow();
   }
+});
+
+test("the previous settings schema remains refreshable after adding close finished agents", () => {
+  const current = OWNED_FILES["schemas/settings.schema.json"] ?? "";
+  const previous = themeRecord(JSON.parse(current), "$");
+  const properties = themeRecord(previous["properties"], "$.properties");
+  delete properties["closeFinishedAgents"];
+  expect(
+    refreshable(
+      "schemas/settings.schema.json",
+      new TextEncoder().encode(`${JSON.stringify(previous, null, 2)}\n`),
+    ),
+  ).toBe(true);
 });

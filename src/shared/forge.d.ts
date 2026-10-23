@@ -1,6 +1,8 @@
 /** Validated, main-owned forge display metadata; never grants a capability. */
 export interface BoardPullRequest {
   number: number;
+  requestLabel?: "Merge request";
+  numberPrefix?: "!";
   title?: string;
   url?: string;
   sourceName?: string;

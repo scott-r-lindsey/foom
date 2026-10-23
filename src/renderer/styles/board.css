@@ -1620,6 +1620,16 @@
   stroke-width: 1.3;
   stroke-linejoin: round;
 }
+.session-robot-mark[data-kind="review"] .robot-body {
+  stroke-linecap: round;
+}
+.session-robot-mark .robot-lens {
+  fill: var(--bg);
+}
+.session-robot-mark .robot-handle {
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
 .session-robot-mark .robot-eye {
   fill: currentColor;
   stroke: none;
@@ -1641,11 +1651,13 @@
   .session-robot-mark[data-related="true"][data-kind="tx"] .robot-wave {
     animation: robot-transmit 1.2s ease-out infinite;
   }
-  .session-robot-mark[data-related="true"][data-kind="rx"] .robot-wave {
+  .session-robot-mark[data-related="true"][data-kind="rx"] .robot-wave,
+  .session-robot-mark[data-related="true"][data-kind="review"] .robot-wave {
     animation: robot-receive 1.2s ease-in infinite;
   }
   .session-robot-mark[data-kind="tx"] .robot-wave-outer,
-  .session-robot-mark[data-kind="rx"] .robot-wave-inner {
+  .session-robot-mark[data-kind="rx"] .robot-wave-inner,
+  .session-robot-mark[data-kind="review"] .robot-wave-inner {
     animation-delay: 0.2s;
   }
 }

@@ -203,18 +203,30 @@ as reviewer; an installed reviewer provider with resume support can be selected.
 The human New-worktree flow has no review option. Ask the orchestrator to launch
 a child when a loop is wanted.
 
-The author hands off after its PR's required checks are green and exits. Foom
-launches a reviewer in that checkout, then resumes the author's conversation with
-quoted findings when fixes are needed. Only one step runs in a checkout at a time.
+The author hands off after its PR's required checks are green. Foom validates the
+report, stops the author, and waits for exit before launching a reviewer in that
+checkout. After a valid verdict Foom stops the reviewer and resumes the author's
+conversation with quoted findings when fixes are needed. Only one step runs in a
+checkout at a time.
 Reviewers consume the orchestrator's existing child slots and wait if full.
 New reviewer placement follows Show new children on the board; author resumes
 keep their existing tile. Neither step takes keyboard focus.
 The sidebar and tile show Building, Reviewing 2/3, Fixing 2/3, Review clean, or
-Escalated with a fixed reason. Every participant's handoffs remain available to
+Escalated with a fixed reason. Loop reviewers use a receiving robot with a lens,
+named Reviewer, in sidebar rows and tile headers. Authors and children launched
+without a loop keep the ordinary receiving mark. Every participant's handoffs remain available to
 the orchestrator. Clean also raises attention: the orchestrator verifies the
 result and remains the final merge gate.
 
-Blocked/failed reports, non-green or unknown checks, missing reports, reviewer
+A blocked author shows **Waiting on parent** until its own orchestrator sends a
+`prompt`. That explicit reply resumes Building or Fixing, and the next done report
+and exit proceed to review. Waiting does not spend a round. The launch option
+`review.parentWaitMinutes` (console: `--review-parent-wait-minutes`) bounds the wait
+to 1–1440 minutes, default three hours. Expiry escalates as Author blocked. Human
+terminal input and `send_keys` do not resume the loop. The author must keep its
+process running to receive the parent's prompt.
+
+Failed author reports, blocked/failed reviewer reports, non-green or unknown checks, missing reports, reviewer
 edits, the round cap and launch/resume failures stop the loop and escalate.
 Stopping or taking over a participant, or stopping/revoking its orchestrator,
 ends automation. After restart, saved participants stay dormant with
@@ -225,3 +237,16 @@ is told to post its verdict and findings as a PR review comment using its own
 `gh` login. Foom itself makes no forge writes and stores no tokens. Review notes
 are untrusted data; Foom only quotes bounded structured findings inside its fixed
 resume brief. It never types loop prompts into a running terminal.
+
+Settings → General **Close finished agents** is on by default. Exited reviewers
+close after their verdict is accepted. Exited authors and other children close
+when their PR is merged or closed, once an author's review loop is clean or ended.
+A session that needs you, has unread attention, or was taken over stays open.
+Children without a PR stay open unless they are accepted reviewers. Closing
+removes the tile and sidebar row and discards the final screen; the worktree,
+branch and author's review state remain. Turn the setting off to retain them.
+
+A loop author also stays open while its review attention is unread on the parent.
+The final loop participant stays open to keep the review record; close it explicitly
+when you no longer need it. Other PR-based closes wait for the existing exit status
+refresh to finish, so a stale closed-PR observation cannot close a reopened PR.

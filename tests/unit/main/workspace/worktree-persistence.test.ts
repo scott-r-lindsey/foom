@@ -265,7 +265,10 @@ it.each([false, true])(
       terminals: {
         create: () => Promise.resolve("terminal"),
         kill: () => Promise.resolve(),
-        stop: () => writeFile(join(tree, "NEW-AFTER-CONFIRM.txt"), "must survive"),
+        stop: async () => {
+          await writeFile(join(tree, "NEW-AFTER-CONFIRM.txt"), "must survive");
+          return true;
+        },
         tail: () => Promise.resolve([]),
       },
       verdicts: {

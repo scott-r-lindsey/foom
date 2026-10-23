@@ -7,7 +7,13 @@ import type {
   PullRequest,
 } from "./forge.d";
 import { forgeBranch, pullRequest } from "./forge";
-import { forgeDisplay, forgeIdentity, forgeValue, reduceForgeChecks } from "./forge-mapping";
+import {
+  forgeDisplay,
+  forgeIdentity,
+  forgeMergeCommits,
+  forgeValue,
+  reduceForgeChecks,
+} from "./forge-mapping";
 import { manifestBatchSize, manifestForgeBatch } from "./forge-manifest-batch";
 import { expandForgeArguments, forgeJson } from "./forge-execution";
 
@@ -103,9 +109,7 @@ export function manifestForgeProvider(
         const candidate = pullRequest({
           number: found.number,
           headSha: forgeValue(row, manifest.mapping.headSha),
-          mergeCommit: manifest.mapping.mergeCommit
-            ? forgeValue(row, manifest.mapping.mergeCommit)
-            : undefined,
+          ...forgeMergeCommits(manifest.mapping, row),
           state: found.state,
           requiredChecks: "unknown",
         });
@@ -134,9 +138,9 @@ export function manifestForgeProvider(
           verified.number !== candidate.number ||
           verified.state !== candidate.state ||
           forgeValue(refreshed, manifest.mapping.headSha) !== candidate.headSha ||
-          (manifest.mapping.mergeCommit !== undefined &&
-            forgeValue(refreshed, manifest.mapping.mergeCommit) !==
-              forgeValue(row, manifest.mapping.mergeCommit))
+          [manifest.mapping.mergeCommit, manifest.mapping.squashCommit].some(
+            (path) => path !== undefined && forgeValue(refreshed, path) !== forgeValue(row, path),
+          )
         )
           return undefined;
         let display = {};
@@ -161,7 +165,14 @@ export function manifestForgeProvider(
             // Optional display failures cannot change verified status.
           }
         }
-        return { ...candidate, requiredChecks, checksMeaning: manifest.checks.meaning, ...display };
+        return {
+          ...candidate,
+          ...(manifest.requestLabel ? { requestLabel: manifest.requestLabel } : {}),
+          ...(manifest.numberPrefix ? { numberPrefix: manifest.numberPrefix } : {}),
+          requiredChecks,
+          checksMeaning: manifest.checks.meaning,
+          ...display,
+        };
       } catch {
         return undefined;
       }

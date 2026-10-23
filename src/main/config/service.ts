@@ -1,6 +1,6 @@
 import { ConfigCatalog } from "./catalog";
 import { ConfigFiles, decode, ignore, settle } from "./files";
-import { githubManifest } from "../control/forge-manifests";
+import { bundledForgeManifests } from "../control/forge-manifests";
 import type { LoadedForgeManifest } from "./plugins";
 import type { AgentProvider } from "../agents/providers/registry";
 import { watch } from "node:fs";
@@ -507,12 +507,12 @@ export class ConfigService {
       .sort((a, b) => a.file.localeCompare(b.file));
     return {
       forgePlugins: [
-        {
-          id: githubManifest.id,
-          name: githubManifest.name,
-          badge: githubManifest.badge,
-          executables: githubManifest.executables,
-        },
+        ...bundledForgeManifests.map((manifest) => ({
+          id: manifest.id,
+          name: manifest.name,
+          badge: manifest.badge,
+          executables: manifest.executables,
+        })),
         ...[...this.plugins.loadedPlugins].flatMap(([file, entry]) =>
           entry.kind === "forge"
             ? [

@@ -109,12 +109,12 @@ See [area rules](contracts/control-previews.md#agent-previews-297).
 ## Opt-in review launch (#690)
 
 The orchestrator-only `launch` tool accepts optional
-`review: {rounds?: 1..5, agent?: PROVIDER, postFindings?: boolean}`. Defaults when
-enabled are 3, `claude`, and false. Omit `review` to disable the loop.
+`review: {rounds?: 1..5, agent?: PROVIDER, postFindings?: boolean, parentWaitMinutes?: 1..1440}`. Defaults when
+enabled are 3, `claude`, false, and 180 minutes. Omit `review` to disable the loop.
 The author and reviewer must have resume support. CLI equivalents:
 
 ```text
-foom launch WORKTREE_ID --agent PROVIDER --prompt TEXT --review-rounds 3 --review-agent claude --review-post-findings false --idempotency-key KEY
+foom launch WORKTREE_ID --agent PROVIDER --prompt TEXT --review-rounds 3 --review-agent claude --review-post-findings false --review-parent-wait-minutes 180 --idempotency-key KEY
 ```
 
 Any review flag enables the option with defaults for omitted fields. Posting is
