@@ -189,3 +189,10 @@ test("capture screen dimensions cannot cross the host boundary with invalid runt
     }),
   ).toBe(true);
 });
+
+test("stop acknowledgements validate a boolean at the host boundary", () => {
+  for (const signaled of [true, false])
+    expect(hostResponse({ ...base, type: "result", lines: [], signaled })).toBe(true);
+  for (const signaled of [0, 1, "true", null, {}])
+    expect(hostResponse({ ...base, type: "result", lines: [], signaled })).toBe(false);
+});

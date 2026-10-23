@@ -47,6 +47,7 @@ function fixture(rounds = 3, parentWaitMinutes?: number) {
       rows.set(id, { ...author, id, exited: false });
       return Promise.resolve(id);
     }),
+    stop: vi.fn(() => Promise.resolve("stopped" as const)),
     save: vi.fn(() => Promise.resolve()),
     changed: vi.fn(),
   };
@@ -105,7 +106,7 @@ function fixture(rounds = 3, parentWaitMinutes?: number) {
 }
 
 describe("main-owned sequential review loop", () => {
-  it("waits for handoff AND exit, then clean on first review and raises a readable event", async () => {
+  it("stops a validated author and waits for observed exit, then clean on first review and raises a readable event", async () => {
     const h = fixture();
     expect(h.loop.view("unknown")).toBeUndefined();
     await h.sync();
@@ -113,6 +114,9 @@ describe("main-owned sequential review loop", () => {
     h.handoff("author");
     await h.sync();
     expect(h.host.step).not.toHaveBeenCalled();
+    expect(h.host.stop).toHaveBeenCalledExactlyOnceWith("author", expect.any(Function));
+    await h.sync();
+    expect(h.host.stop).toHaveBeenCalledTimes(1);
     h.exit("author");
     await h.sync();
     expect(h.loop.view("author")).toMatchObject({ phase: "reviewing", round: 1, waiting: false });
@@ -166,6 +170,7 @@ describe("main-owned sequential review loop", () => {
     expect(h.loop.view("author")).toMatchObject(
       status === "blocked" ? { phase: "waiting-on-parent" } : { reason: "author failed" },
     );
+    expect(h.host.stop).not.toHaveBeenCalled();
     h.loop.stop("author");
     const f = fixture();
     await f.authorDone();
@@ -188,7 +193,9 @@ describe("main-owned sequential review loop", () => {
     for (const checks of invalidChecks) {
       const h = fixture();
       h.setChecks(checks);
-      await h.authorDone();
+      h.handoff("author");
+      await h.sync();
+      expect(h.host.stop).not.toHaveBeenCalled();
       expect(h.loop.view("author")).toMatchObject({ reason: "checks not green" });
       expect(h.host.step).not.toHaveBeenCalled();
     }
@@ -494,3 +501,79 @@ it("ignores done before the parent prompt and refuses stale delivery completions
   await g.sync();
   expect(g.loop.view("author")?.reason).toBe("author failed");
 });
+
+it("ends a reviewer after a valid verdict and resumes only after its signal exit is observed", async () => {
+  const h = fixture();
+  await h.authorDone();
+  h.handoff("reviewer-1", "done", findings);
+  await h.sync();
+  expect(h.host.stop).toHaveBeenCalledExactlyOnceWith("reviewer-1", expect.any(Function));
+  expect(h.host.step).toHaveBeenCalledTimes(1);
+  await h.sync();
+  expect(h.host.stop).toHaveBeenCalledTimes(1);
+  const reviewer = h.rows.get("reviewer-1");
+  if (!reviewer) throw new Error("missing reviewer");
+  reviewer.exitCode = 143;
+  h.exit("reviewer-1");
+  await h.sync();
+  expect(h.host.step).toHaveBeenLastCalledWith("author", false, findingsBrief(7, findings));
+  h.handoff("author");
+  await h.sync();
+  expect(h.host.stop).toHaveBeenLastCalledWith("author", expect.any(Function));
+  const author = h.rows.get("author");
+  if (!author) throw new Error("missing author");
+  author.exitCode = 137;
+  h.exit("author");
+  await h.sync();
+  expect(h.loop.view("author")).toMatchObject({ phase: "reviewing", round: 2 });
+});
+
+it("leaves invalid reviewers running and escalates failed stops", async () => {
+  for (const edited of [false, true]) {
+    const h = fixture();
+    await h.authorDone();
+    if (edited) h.setDigest("edited");
+    h.handoff("reviewer-1", "done", edited ? { verdict: "clean" } : undefined);
+    await h.sync();
+    expect(h.host.stop).not.toHaveBeenCalled();
+    expect(h.loop.view("author")?.reason).toBe(edited ? "worktree changed" : "missing verdict");
+  }
+  const h = fixture();
+  vi.mocked(h.host.stop).mockRejectedValue(new Error("stop failed"));
+  h.handoff("author");
+  await h.sync();
+  expect(h.loop.view("author")).toMatchObject({ phase: "escalated", reason: "launch failed" });
+  expect(h.host.step).not.toHaveBeenCalled();
+});
+
+it.each(["stopped", "exited"] as const)(
+  "coalesces two concurrent %s acknowledgements until each exit is observed",
+  async (result) => {
+    const h = fixture();
+    const author = h.rows.get("author");
+    if (!author) throw new Error("missing author");
+    h.rows.set("second", { ...author, id: "second" });
+    h.loop.start("second", { rounds: 3, agent: "claude", postFindings: false });
+    const releases: (() => void)[] = [];
+    vi.mocked(h.host.stop).mockImplementation(
+      () =>
+        new Promise((resolve) =>
+          releases.push(() => {
+            resolve(result);
+          }),
+        ),
+    );
+    h.handoff("author");
+    h.handoff("second");
+    h.loop.sync();
+    h.loop.sync();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(h.host.stop).toHaveBeenCalledTimes(2);
+    for (const release of releases) release();
+    await h.sync();
+    expect(h.host.stop).toHaveBeenCalledTimes(2);
+    expect(h.host.step).not.toHaveBeenCalled();
+    expect(h.loop.view("author")?.phase).toBe("building");
+    expect(h.loop.view("second")?.phase).toBe("building");
+  },
+);

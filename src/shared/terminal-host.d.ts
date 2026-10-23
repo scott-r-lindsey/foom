@@ -28,6 +28,7 @@ export type HostResponse =
       request: number;
       id: string;
       lines: string[];
+      signaled?: boolean;
       title?: string;
       cols?: number;
       rows?: number;

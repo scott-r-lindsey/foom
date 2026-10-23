@@ -203,9 +203,11 @@ as reviewer; an installed reviewer provider with resume support can be selected.
 The human New-worktree flow has no review option. Ask the orchestrator to launch
 a child when a loop is wanted.
 
-The author hands off after its PR's required checks are green and exits. Foom
-launches a reviewer in that checkout, then resumes the author's conversation with
-quoted findings when fixes are needed. Only one step runs in a checkout at a time.
+The author hands off after its PR's required checks are green. Foom validates the
+report, stops the author, and waits for exit before launching a reviewer in that
+checkout. After a valid verdict Foom stops the reviewer and resumes the author's
+conversation with quoted findings when fixes are needed. Only one step runs in a
+checkout at a time.
 Reviewers consume the orchestrator's existing child slots and wait if full.
 New reviewer placement follows Show new children on the board; author resumes
 keep their existing tile. Neither step takes keyboard focus.

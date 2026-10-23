@@ -230,3 +230,19 @@ test("returns only the host screen and title through the ID-scoped response", as
     title: "title",
   });
 });
+
+test.each([true, false])(
+  "stop reports whether the host signaled the participant: %s",
+  async (signaled) => {
+    await message({ type: "create", id: "one", request: 1, spec });
+    mock.stop.mockResolvedValueOnce(signaled);
+    await message({ type: "stop", id: "one", request: 2 });
+    expect(port.postMessage).toHaveBeenLastCalledWith({
+      type: "result",
+      id: "one",
+      request: 2,
+      lines: [],
+      signaled,
+    });
+  },
+);
