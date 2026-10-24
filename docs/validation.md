@@ -31,10 +31,17 @@ root for the concurrent-review fixture, and an optional Linux tmpfs root for
 browser storage. It waits for the runner, then synchronously removes and checks all roots on success,
 failure or worker timeout. An inert invalid `.git` file prevents non-repository
 fixtures from discovering an enclosing worktree when `TMPDIR` is inside one. Interrupts forward to the runner's Unix process group
-(or the Windows runner), with a bounded forced termination fallback. Normal
+(or the Windows runner), with a bounded forced termination fallback. After any
+Unix runner exit, the parent probes the entire process group, sends SIGTERM to
+remaining members, allows five seconds before SIGKILL, and waits up to five more
+seconds for the group probe to report ESRCH before deleting roots. A surviving
+group fails cleanup loudly and retains its roots. Successful cleanup preserves
+the runner or interruption exit code. Windows has no Unix process-group probe;
+only runner termination is guaranteed there. Normal
 Electron teardown still quits apps and audits processes before fixture removal.
 Runner tests cover assertion failures, hard exits, actual test-worker timeouts,
-interrupts and preservation of unrelated entries. CI uses these same commands;
+interrupts, SIGTERM-ignoring descendants after normal and interrupted exits,
+removal only after those descendants die, and preservation of unrelated entries. CI uses these same commands;
 every unit and Electron run performs the temp leak check. A killed parent
 (`SIGKILL`) or machine failure cannot run cleanup; no shared-directory sweep is
 performed.

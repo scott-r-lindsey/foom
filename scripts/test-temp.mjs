@@ -3,6 +3,7 @@ import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { constants, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 // The parent owns these roots, so a failed assertion, worker timeout or hard worker
 // exit cannot skip cleanup. Never enumerate or sweep the shared temporary directory.
@@ -31,20 +32,47 @@ const root = allocate(tmpdir(), "foom-tests-");
 let child;
 let force;
 let interrupted;
+const kill = (signal) => {
+  if (!child?.pid) return;
+  try {
+    if (process.platform === "win32") child.kill(signal);
+    else process.kill(-child.pid, signal);
+  } catch (error) {
+    if (error.code !== "ESRCH") throw error;
+  }
+};
 const stop = (signal) => {
   interrupted ??= signal;
-  const kill = (next) => {
-    if (!child?.pid) return;
-    try {
-      // Include test workers when the runner is interrupted on Unix.
-      if (process.platform === "win32") child.kill(next);
-      else process.kill(-child.pid, next);
-    } catch (error) {
-      if (error.code !== "ESRCH") throw error;
-    }
-  };
   kill(signal);
   force ??= setTimeout(() => kill("SIGKILL"), 5000);
+};
+const groupExists = () => {
+  try {
+    process.kill(-child.pid, 0);
+    return true;
+  } catch (error) {
+    if (error.code === "ESRCH") return false;
+    throw error;
+  }
+};
+const waitForGroup = async () => {
+  const deadline = Date.now() + 5000;
+  while (groupExists()) {
+    if (Date.now() >= deadline) return false;
+    await delay(25);
+  }
+  return true;
+};
+const drainGroup = async () => {
+  // Windows has no negative-PID group probe; only the runner is guaranteed dead.
+  if (process.platform === "win32" || !child?.pid || !groupExists()) return;
+  kill("SIGTERM");
+  if (await waitForGroup()) return;
+  kill("SIGKILL");
+  if (await waitForGroup()) return;
+  throw new Error(
+    `Test process group ${child.pid} survived SIGKILL; retaining temporary roots: ${roots.join(", ")}`,
+  );
 };
 const handlers = new Map(
   ["SIGINT", "SIGTERM", "SIGHUP"].map((signal) => [signal, () => stop(signal)]),
@@ -68,6 +96,8 @@ try {
       if (!["ENOENT", "ENOTDIR", "EACCES", "ENOSPC", "EROFS"].includes(error.code)) throw error;
     }
   }
+  // From here, exit-time deletion cannot safely assume descendants are dead.
+  process.removeListener("exit", remove);
   child = spawn(process.execPath, process.argv.slice(2), {
     stdio: "inherit",
     detached: process.platform !== "win32",
@@ -85,9 +115,14 @@ try {
     ? 128 + constants.signals[interrupted]
     : (code ?? 128 + (constants.signals[signal] ?? 1));
 } finally {
-  clearTimeout(force);
-  for (const [signal, handler] of handlers) process.removeListener(signal, handler);
-  remove();
-  process.removeListener("exit", remove);
-  console.info("Test temp leak check: all owned run directories removed.");
+  try {
+    await drainGroup();
+    if (interrupted) process.exitCode = 128 + constants.signals[interrupted];
+    remove();
+    console.info("Test temp leak check: all owned run directories removed.");
+  } finally {
+    clearTimeout(force);
+    for (const [signal, handler] of handlers) process.removeListener(signal, handler);
+    process.removeListener("exit", remove);
+  }
 }
