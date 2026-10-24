@@ -229,43 +229,143 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   });
   // Hub quit disconnects without terminating the daemon or its shell.
   assert.equal(daemon.exitCode, null);
-  const {
-    RemoteFrames,
-    remoteFrame,
-    remoteResponse,
-  } = require("../../build/shared/remote-host-protocol.js");
+  const retained = await hostChannel(socket, manifest.sha256, id, cleanup);
+  try {
+    await retained.ask({
+      type: "write",
+      data: 'printf \'AFTER_HUB_QUIT:%s:%s\\n\' "$persist" "$$"\r',
+    });
+    await expect
+      .poll(async () => (await retained.ask({ type: "tail", lines: 40 })).lines.join("\n"))
+      .toContain(`AFTER_HUB_QUIT:STILL_ALIVE:${pid}`);
+  } finally {
+    retained.close();
+  }
+  await wideReplay(root, socket, manifest.sha256, cleanup);
+});
+
+async function hostChannel(socket, build, id, cleanup, cols = 80, rows = 24) {
+  const { RemoteFrames, RemoteMessages, remoteFrame, remoteResponse } =
+    require("../../build/shared/remote-host-protocol.js");
   const channel = createConnection(socket);
+  cleanup.apps.unshift(async () => {
+    channel.destroy();
+  });
   const pending = new Map();
-  const bus = new EventEmitter();
+  const events = new EventEmitter();
   const reader = new RemoteFrames();
+  const messages = new RemoteMessages();
+  const failed = () => {
+    for (const request of pending.values())
+      request.reject(new Error("Remote fixture channel closed"));
+    pending.clear();
+  };
+  channel.on("error", failed);
+  channel.once("close", failed);
   channel.on("data", (bytes) =>
-    reader.push(bytes, (message) => {
-      assert.ok(remoteResponse(message));
-      if (message.type === "hello") bus.emit("hello");
-      else if (message.type === "result" || message.type === "error") {
-        pending.get(message.request)?.(message);
-        pending.delete(message.request);
+    reader.push(bytes, (wire) => {
+      assert.ok(remoteResponse(wire));
+      const message = messages.push(wire);
+      if (!message) return;
+      if (message.type === "data") events.emit("data", message);
+      const key = message.type === "hello" ? 0 : message.request;
+      const request = pending.get(key);
+      if (request) {
+        pending.delete(key);
+        if (message.type === "error") request.reject(new Error("Remote fixture request failed"));
+        else request.resolve(message);
       }
     }),
   );
+  await once(channel, "connect");
+  const greeted = new Promise((resolve, reject) => pending.set(0, { resolve, reject }));
+  channel.write(remoteFrame({ type: "hello", build }));
+  assert.equal((await greeted).build, build);
+  let request = 100;
+  const ask = (message) =>
+    new Promise((resolve, reject) => {
+      const number = ++request;
+      pending.set(number, { resolve, reject });
+      channel.write(remoteFrame({ ...message, id, request: number }));
+    });
+  await ask({ type: "open", cols, rows });
+  return { ask, events, close: () => channel.destroy() };
+}
+
+async function wideReplay(root, socket, build, cleanup) {
+  const { Terminal } = require("@xterm/headless");
+  const { SerializeAddon } = require("@xterm/addon-serialize");
+  const { MAX_REMOTE_MESSAGE } = require("../../build/shared/remote-host-protocol.js");
+  const options = { cols: 400, rows: 24, scrollback: 10000, allowProposedApi: true };
+  const reference = new Terminal(options);
+  const view = new Terminal(options);
+  const addon = new SerializeAddon();
+  reference.loadAddon(addon);
+  const line = "\x1b[31mA\x1b[32mB".repeat(200) + "\r\n";
+  const write = (terminal, data) =>
+    new Promise((resolve) => {
+      terminal.write(data, resolve);
+    });
+  const visible = (terminal) =>
+    Array.from({ length: 24 }, (_, y) =>
+      terminal.buffer.active.getLine(terminal.buffer.active.baseY + y)?.translateToString(true),
+    );
+  let peer;
   try {
-    await once(channel, "connect");
-    const greeted = once(bus, "hello");
-    channel.write(remoteFrame({ type: "hello", build: manifest.sha256 }));
-    await greeted;
-    let request = 100;
-    const ask = (message) =>
-      new Promise((resolve) => {
-        const number = ++request;
-        pending.set(number, resolve);
-        channel.write(remoteFrame({ ...message, id, request: number }));
-      });
-    await ask({ type: "open", cols: 80, rows: 24 });
-    await ask({ type: "write", data: 'printf \'AFTER_HUB_QUIT:%s:%s\\n\' "$persist" "$$"\r' });
+    // This native-host integration case uses real serialization without V8 unit
+    // coverage instrumentation; neither fixture generation nor replay is mocked.
+    await write(reference, line.repeat(10000));
+    assert.ok(JSON.stringify(addon.serialize()).length > MAX_REMOTE_MESSAGE);
+    const generator = path.join(root, "wide-output.cjs");
+    const pidFile = path.join(root, "wide-shell-pid");
+    await writeFile(
+      generator,
+      `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.ppid));\n` +
+        `process.stdout.write(${JSON.stringify("\x1bc")} + ${JSON.stringify(line)}.repeat(10000) + ${JSON.stringify("\x1b]0;WIDE_READY\x07")});\n`,
+    );
+    peer = await hostChannel(socket, build, "wide", cleanup, 400, 24);
+    const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+    const command = [process.execPath, generator].map(quote).join(" ");
+    await peer.ask({ type: "write", data: `PS1=''; widePersist=WIDE_ALIVE; ${command}\r` });
+    let expected;
     await expect
-      .poll(async () => (await ask({ type: "tail", lines: 40 })).lines.join("\n"))
-      .toContain(`AFTER_HUB_QUIT:STILL_ALIVE:${pid}`);
+      .poll(async () => {
+        expected = await peer.ask({ type: "screen" });
+        return expected.title;
+      })
+      .toBe("WIDE_READY");
+    assert.deepEqual(expected.lines, visible(reference));
+    const pid = (await readFile(pidFile, "utf8")).trim();
+    peer.close();
+    peer = await hostChannel(socket, build, "wide", cleanup, 400, 24);
+    const replayed = once(peer.events, "data");
+    const [[replay]] = await Promise.all([
+      replayed,
+      peer.ask({ type: "attach", view: "wide-view" }),
+    ]);
+    assert.ok(JSON.stringify(replay).length <= MAX_REMOTE_MESSAGE);
+    await write(view, replay.data);
+    assert.deepEqual(visible(view), expected.lines);
+    assert.equal(view.buffer.normal.baseY, 0);
+    assert.equal(view.buffer.active.cursorX, reference.buffer.active.cursorX);
+    assert.equal(view.buffer.active.cursorY, reference.buffer.active.cursorY);
+    const colors = (terminal) =>
+      Array.from({ length: 23 }, (_, y) => {
+        const row = terminal.buffer.active.getLine(terminal.buffer.active.baseY + y);
+        return Array.from({ length: 400 }, (_, x) => row.getCell(x).getFgColor());
+      });
+    assert.deepEqual(colors(view), colors(reference));
+    await peer.ask({ type: "acknowledge", token: replay.token, count: replay.data.length });
+    const retained = await peer.ask({ type: "tail", lines: 10000 });
+    assert.equal(retained.lines.length, 10000);
+    assert.ok(retained.lines.every((row) => row === "AB".repeat(200)));
+    await peer.ask({ type: "write", data: 'printf \'WIDE_AFTER:%s:%s\\n\' "$widePersist" "$$"\r' });
+    await expect
+      .poll(async () => (await peer.ask({ type: "tail", lines: 4 })).lines.join("\n"))
+      .toContain(`WIDE_AFTER:WIDE_ALIVE:${pid}`);
   } finally {
-    channel.destroy();
+    peer?.close();
+    reference.dispose();
+    view.dispose();
   }
-});
+}

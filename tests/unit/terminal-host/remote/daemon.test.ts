@@ -259,8 +259,16 @@ test.skipIf(process.platform === "win32")(
     await invalidClosed;
     const large = await open();
     mock.attach.mockImplementationOnce(
-      (_id: string, send: (token: string, data: string) => void) => {
-        send("t", "x".repeat(MAX_REMOTE_MESSAGE));
+      (
+        _id: string,
+        send: (token: string, data: string) => void,
+        _reset: boolean,
+        fits: (token: string, data: string) => boolean,
+      ) => {
+        const excessive = "x".repeat(MAX_REMOTE_MESSAGE);
+        expect(fits("t", excessive)).toBe(false);
+        expect(fits("t", "small")).toBe(true);
+        send("t", excessive);
         return Promise.resolve();
       },
     );

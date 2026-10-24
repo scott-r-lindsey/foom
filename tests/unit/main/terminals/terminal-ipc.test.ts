@@ -1390,3 +1390,44 @@ test("remote replay reset belongs to the host's counted snapshot and releases vi
   output("LIVE_AFTER_REPLAY");
   expect((await manager.tail(id, 1)).join("")).toContain("LIVE_AFTER_REPLAY");
 });
+
+test("snapshot budgets include reset, colors and token while preserving retained host history", async () => {
+  const id = manager.create({ ...spec, cols: 20, rows: 8 });
+  let budget = 0;
+  await manager.attach(
+    id,
+    (token, data) => {
+      budget = JSON.stringify({ token, data }).length + 300;
+    },
+    true,
+  );
+  manager.detach(id);
+  for (let i = 0; i < 100; i++) output(`line ${String(i)}\r\n`);
+  const expected = await manager.screen(id);
+  const fits = vi.fn(
+    (token: string, data: string) => JSON.stringify({ token, data }).length <= budget,
+  );
+  const send = vi.fn<(token: string, data: string) => void>();
+  await manager.attach(id, send, true, fits);
+  const replay = send.mock.calls[0];
+  if (!replay) throw new Error("Missing replay");
+  expect(fits.mock.results.some((result) => result.type === "return" && !result.value)).toBe(true);
+  expect(
+    fits.mock.calls.every(([token, data]) => token === replay[0] && data.startsWith("\x1bc")),
+  ).toBe(true);
+  expect(JSON.stringify({ token: replay[0], data: replay[1] }).length).toBeLessThanOrEqual(budget);
+  const view = new Terminal({ cols: 20, rows: 8, allowProposedApi: true });
+  try {
+    await new Promise<void>((resolve) => {
+      view.write(replay[1], resolve);
+    });
+    expect(view.buffer.normal.baseY).toBe(0);
+    expect(
+      Array.from({ length: 8 }, (_, y) => view.buffer.active.getLine(y)?.translateToString(true)),
+    ).toEqual(expected.lines);
+    expect(await manager.tail(id, 100)).toHaveLength(100);
+    manager.acknowledge(id, replay[0], replay[1].length);
+  } finally {
+    view.dispose();
+  }
+});
