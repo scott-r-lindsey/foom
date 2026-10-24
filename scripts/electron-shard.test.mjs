@@ -37,12 +37,18 @@ test("Electron shards register every test exactly once, preserve filtering and r
       readFileSync(new URL("../tests/electron/shard-plan.json", import.meta.url), "utf8"),
     );
     const discoveredFiles = suiteFiles().map((file) => path.basename(file));
+    const previewSuites = selectAffected(["src/renderer/preview/markdown.ts"]).suites;
     const terminalSuites = selectAffected(["src/renderer/terminal/shell-controller.ts"]).suites;
     for (const [original, replacements] of Object.entries(plan.suiteSplits)) {
       assert.ok(!discoveredFiles.includes(original), `Retired suite: ${original}`);
       assert.equal(new Set(replacements).size, replacements.length);
       for (const replacement of replacements) {
         assert.ok(discoveredFiles.includes(replacement), `Missing suite: ${replacement}`);
+        if (original === "previews.test.js")
+          assert.ok(
+            previewSuites.includes(replacement),
+            `Missing preview coverage: ${replacement}`,
+          );
         assert.ok(
           terminalSuites.includes(replacement),
           `Missing terminal coverage: ${replacement}`,

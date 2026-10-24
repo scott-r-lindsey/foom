@@ -25,7 +25,13 @@ Test deadlines and step limits are unchanged.
 | `workspace-sidebar.test.js` | Sidebar focus, accessibility, panels and preferences |
 | `workspace-tiles.test.js` | Tile placement, drag/split/swap, restore and focus |
 | `workspace-windows.test.js` | Profile locks, exclusive views and window restore |
-| `previews.test.js` | Markdown/HTML views, focus, composition, security and reload |
+| `previews-files.test.js` | Contained file picks, persistence, removal and Markdown rendering |
+| `previews-focus.test.js` | Native keyboard focus, navigation handoff and board shortcuts |
+| `previews-security.test.js` | Page isolation, trusted external links and local HTTPS permissions |
+| `previews-agent.test.js` | Agent preview columns, ownership, focus and human close |
+| `previews-composition.test.js` | Panels, scrims, native frames, hit testing and gutter attachment |
+| `previews-reload.test.js` | File saves, assets, missing files, scroll, watchers and symlink retargeting |
+| `previews-move.test.js` | HTML/Markdown window moves and destination placement recovery |
 | `preflight.test.js` | First-run setup, responsive steps and repository scans |
 | `settings-accessibility.test.js` | Fullscreen transitions, keyboard focus, zoom and section accessibility |
 | `settings-appearance.test.js` | Themes, native chrome, identity badges, fonts, window size and shared zoom |

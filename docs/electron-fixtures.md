@@ -53,6 +53,15 @@ retaining real private-file writes, atomic replacement and restart persistence.
 Cleanup quits every app before removing its profile. Other platforms use the
 ordinary temporary directory.
 
+`tests/electron/preview-fixture.js` registers no tests. It shares file picking,
+bounded native-content inspection, view-state checks and native keyboard input
+across the seven preview suites. Each caller creates its own isolated app and
+registers cleanup through the existing harness. `composedPreview` is shared by
+composition and focus scenarios; `movePreviewTile` is shared by move and agent
+scenarios. Their native attachment, focus, identity and cleanup assertions remain
+in the shared implementations. Scenario-specific frame helpers, stuck handoffs,
+agent setup and moved-pixel inspection stay in their owning suites.
+
 ## Chromium session storage
 
 `createMemoryFixture(context, prefix)` owns all shared-memory fixture allocation
