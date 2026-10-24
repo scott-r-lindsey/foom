@@ -46,6 +46,13 @@ launch options. Trust approval, control requests and scenario assertions remain
 in the test files. Both helpers use the existing harness readiness, display
 isolation, agent guard and quit-before-removal cleanup.
 
+The owned child review-loop scenarios keep their disposable Linux profiles in
+`/dev/shm`, separately from their checkouts and fake CLIs. This isolates mandatory
+audit and operation `fsync` calls from concurrent build/packaging disk I/O while
+retaining real private-file writes, atomic replacement and restart persistence.
+Cleanup quits every app before removing its profile. Other platforms use the
+ordinary temporary directory.
+
 ## Timing method
 
 The harness emits `Fixture timing: {...}` diagnostics into Node's JUnit comments
