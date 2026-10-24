@@ -77,6 +77,10 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   const pidFile = path.join(root, "ssh-pids");
   const sshLog = path.resolve("test-results/remote-ssh-fixture.log");
   await writeFile(sshLog, "");
+  // A fixture executable accepts the daemon's login flags without loading
+  // system/user login profiles or changing the controlled PATH.
+  const shell = path.join(bin, "remote-shell");
+  await writeFile(shell, "#!/bin/sh\nexec /bin/sh -i\n", { mode: 0o700 });
   const ssh = path.join(bin, "ssh");
   await writeFile(
     ssh,
@@ -88,7 +92,7 @@ const split = args.indexOf('--');
 if (split < 0 || args[split + 1] !== 'fixture-cloud') process.exit(2);
 appendFileSync(${JSON.stringify(pidFile)}, process.pid + '\\n');
 appendFileSync(${JSON.stringify(sshLog)}, 'fixture ssh started\\n');
-const child = spawn('/bin/sh', ['-c', 'exec ' + args.slice(split + 2).join(' ')], { env: { HOME: ${JSON.stringify(remoteHome)}, PATH: ${JSON.stringify(bin)}, LANG: 'C' }, stdio: ['pipe', 'pipe', 'pipe'] });
+const child = spawn('/bin/sh', ['-c', 'exec ' + args.slice(split + 2).join(' ')], { env: { HOME: ${JSON.stringify(remoteHome)}, PATH: ${JSON.stringify(bin)}, SHELL: ${JSON.stringify(shell)}, LANG: 'C' }, stdio: ['pipe', 'pipe', 'pipe'] });
 process.stdin.pipe(child.stdin); child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr);
 child.stdin.on('error', () => {});
 process.on('SIGTERM', () => child.kill('SIGTERM'));
@@ -101,7 +105,7 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   await chmod(ssh, 0o700);
   const started = performance.now();
   const daemon = spawn(artifact, ["--daemon"], {
-    env: { HOME: remoteHome, PATH: bin, LANG: "C" },
+    env: { HOME: remoteHome, PATH: bin, SHELL: shell, LANG: "C" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   cleanup.audit.add(daemon.pid);

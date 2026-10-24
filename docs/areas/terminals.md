@@ -105,10 +105,17 @@ history is not erased and remains available to tail requests.
 Both peers negotiate the SHA-256 build identity before operations. The shell-only
 protocol permits open, attach/replay, input, resize, theme, acknowledgement, screen,
 tail, stop and close; it cannot create arbitrary commands, send hooks/MCP, or shut
-down the daemon. The daemon chooses `/bin/sh -i`, its own HOME and environment.
+down the daemon. The daemon chooses its own HOME and environment, and starts an
+interactive login shell (`-i -l`): its own `SHELL` if it is an absolute path to an
+existing executable regular file, otherwise the account shell from
+`os.userInfo().shell` under the same validation, finally `/bin/sh` if neither is
+valid (including unavailable account lookup). Neither hub nor protocol selects it.
 It supports at most 32 sessions and connections, serializes operations per connection,
 and rejects a backlog above 256 operations. Only the current connection can operate
-on its selected ID. Taking over an ID disconnects its prior connection.
+on its selected ID. An `open` with an existing ID transfers the session and
+disconnects its prior connection; its only protection is the 0600 socket plus an
+unguessable terminal ID, so IDs must never be exposed to remote processes through
+environment, arguments or files, and future remote agents (#755) must preserve this.
 
 The detached per-user daemon owns PTYs, headless screens and independent parser
 backpressure. It listens only on a 0600 Unix socket `~/.foom-host/host.sock` under
@@ -145,4 +152,16 @@ Input interrupted by disconnect is failed rather than replayed. Slow output abov
 1 MiB of queued live updates or socket writes disconnects the view; headless parsing continues.
 Quit/dispose disconnects remote shells; explicit Stop or Close terminates them.
 The phase-1 hub retains IDs only in memory: rediscovery after hub restart is phase 4.
+To bound unreachable shells across hub restarts, a session with no connected owner
+is stopped, its PTY disposed and its slot released after a fixed **24-hour**
+grace period (`DETACHED_SESSION_GRACE_MS`). This comfortably exceeds the whole
+reconnect window (five 120-second attempts plus one-second retry delays, under
+11 minutes) and preserves shells across overnight disconnections. This is a
+phase-1 bound only: phase 4 (#757) replaces timeout reaping with hub-driven
+reconciliation of known IDs. Opening the same ID within the grace period cancels
+reaping; a later disconnect starts a fresh grace period. Hiding a view alone does
+not start the timer while its connection remains. Exited sessions are removed as
+soon as no connection owns them, retaining exit replay while still connected.
+Expiry follows explicit kill's stop/disposal path, including forced cleanup if
+graceful stop fails; shutdown cancels pending reap timers.
 See [measurements and fixture verification](../../spikes/remote-host/phase-1.md).

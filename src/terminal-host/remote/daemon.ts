@@ -1,6 +1,7 @@
-import { chmodSync } from "node:fs";
+import { accessSync, chmodSync, constants, statSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
+import { isAbsolute } from "node:path";
 import type { HostResponse } from "../../shared/terminal-host";
 import type { RemoteRequest, RemoteResponse } from "../../shared/remote-host";
 import {
@@ -13,11 +14,45 @@ import {
 import { TerminalManager } from "../terminal-manager";
 import { hostSocket } from "./private-path";
 
-type Session = { connection?: Socket; exited?: number };
+export const DETACHED_SESSION_GRACE_MS = 24 * 60 * 60 * 1000;
+
+/** Only remote account facts can choose the executable; never protocol input. */
+export function remoteShell(shell = process.env["SHELL"], accountShell = () => userInfo().shell) {
+  const valid = (path: string | null | undefined): path is string => {
+    if (!path || !isAbsolute(path)) return false;
+    try {
+      if (!statSync(path).isFile()) return false;
+      accessSync(path, constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  if (valid(shell)) return shell;
+  try {
+    const account = accountShell();
+    if (valid(account)) return account;
+  } catch {
+    // Account lookup may be unavailable; the POSIX fallback remains local.
+  }
+  return "/bin/sh";
+}
+
+type Session = {
+  connection?: Socket;
+  exited?: number;
+  reap?: ReturnType<typeof setTimeout>;
+  removing?: Promise<void>;
+};
 /** One per-user daemon. Connections have authority over one shell, never hub control. */
-export function serveHost(build: string, home = homedir()) {
+export function serveHost(
+  build: string,
+  home = homedir(),
+  timers: Pick<typeof globalThis, "setTimeout" | "clearTimeout"> = globalThis,
+) {
   const path = hostSocket(home);
   const sessions = new Map<string, Session>();
+  let shuttingDown = false;
   const sockets = new Set<Socket>();
   const outgoing = new WeakMap<Socket, { chain: Promise<void>; queued: number }>();
   const send = (
@@ -67,11 +102,33 @@ export function serveHost(build: string, home = homedir()) {
       });
     return state.chain;
   };
+  const cancelReap = (session: Session) => {
+    timers.clearTimeout(session.reap);
+    delete session.reap;
+  };
+  const remove = (id: string, session: Session): Promise<void> => {
+    if (session.removing) return session.removing;
+    cancelReap(session);
+    session.removing = Promise.resolve().then(async () => {
+      try {
+        await manager.stop(id);
+      } finally {
+        sessions.delete(id);
+        manager.kill(id);
+      }
+    });
+    return session.removing;
+  };
+  const reap = (id: string, session: Session) => {
+    // stop can time out; remove still kills/disposes and releases the slot.
+    void remove(id, session).catch(() => {});
+  };
   const event = (message: HostResponse) => {
     if (message.type === "activity") return;
     const session = sessions.get(message.id);
     if (message.type === "exit" && session) session.exited = message.code;
     if (session?.connection) void send(session.connection, message);
+    else if (message.type === "exit" && session && !shuttingDown) reap(message.id, session);
   };
   const manager = new TerminalManager((id, code) => {
     event({ type: "exit", id, code });
@@ -108,12 +165,20 @@ export function serveHost(build: string, home = homedir()) {
           // The remote chooses its own shell, HOME and environment. No hub
           // paths, startup files, environment values or credentials are copied.
           manager.create(
-            { command: "/bin/sh", args: ["-i"], cwd: home, cols: message.cols, rows: message.rows },
+            {
+              command: remoteShell(),
+              args: ["-i", "-l"],
+              cwd: home,
+              cols: message.cols,
+              rows: message.rows,
+            },
             id,
           );
           session = {};
           sessions.set(id, session);
         }
+        if (session.removing) throw new Error("Session expired");
+        cancelReap(session);
         if (session.connection && session.connection !== socket) {
           manager.detach(id);
           session.connection.destroy();
@@ -182,9 +247,10 @@ export function serveHost(build: string, home = homedir()) {
           signaled = await manager.stop(id);
           break;
         case "kill":
-          await manager.stop(id);
-          manager.kill(id);
-          sessions.delete(id);
+          {
+            const session = sessions.get(id);
+            if (session) await remove(id, session);
+          }
           break;
       }
       await send(socket, {
@@ -218,9 +284,17 @@ export function serveHost(build: string, home = homedir()) {
     socket.on("close", () => {
       clearTimeout(deadline);
       sockets.delete(socket);
-      if (id && sessions.get(id)?.connection === socket) {
-        delete sessions.get(id)?.connection;
-        manager.detach(id);
+      const sessionId = id;
+      if (sessionId && sessions.get(sessionId)?.connection === socket) {
+        const session = sessions.get(sessionId);
+        if (!session) return;
+        delete session.connection;
+        manager.detach(sessionId);
+        if (session.exited !== undefined) reap(sessionId, session);
+        else
+          session.reap = timers.setTimeout(() => {
+            reap(sessionId, session);
+          }, DETACHED_SESSION_GRACE_MS);
       }
     });
   });
@@ -236,14 +310,19 @@ export function serveHost(build: string, home = homedir()) {
     server,
     close(): Promise<void> {
       if (closing) return closing;
+      shuttingDown = true;
       closing = (async () => {
         // Revoke attachments before native shutdown disposes manager sessions;
         // a later socket-close callback must not address a disposed terminal.
         for (const [id, session] of sessions) {
+          cancelReap(session);
           delete session.connection;
           manager.detach(id);
         }
         for (const socket of sockets) socket.destroy();
+        await Promise.allSettled(
+          [...sessions.values()].flatMap((session) => (session.removing ? [session.removing] : [])),
+        );
         await manager.shutdown();
         if (server.listening)
           await new Promise<void>((resolve, reject) =>
@@ -256,6 +335,7 @@ export function serveHost(build: string, home = homedir()) {
         // Never unlink here: another daemon may own a pre-existing/replaced path.
       })().catch((error: unknown) => {
         closing = undefined;
+        shuttingDown = false;
         throw error;
       });
       return closing;

@@ -46,13 +46,14 @@ vi.mock("../../../../src/terminal-host/terminal-manager", () => ({
     }
   },
 }));
-import { serveHost } from "../../../../src/terminal-host/remote/daemon";
+import { DETACHED_SESSION_GRACE_MS, serveHost } from "../../../../src/terminal-host/remote/daemon";
 let root: string;
 let host: ReturnType<typeof serveHost>;
 const clients: Socket[] = [];
 const build = "a".repeat(64);
 beforeEach(async () => {
   vi.clearAllMocks();
+  vi.stubEnv("SHELL", "/bin/sh");
   root = await realpath(await mkdtemp(join(tmpdir(), "host-daemon-")));
   mock.stop.mockResolvedValue(true);
   mock.tail.mockResolvedValue(["tail"]);
@@ -62,13 +63,16 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const socket of clients.splice(0)) socket.destroy();
   await host.close();
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
   await rm(root, { recursive: true, force: true });
 });
 async function start() {
-  host = serveHost(build, root);
+  host = serveHost(build, root, { setTimeout, clearTimeout });
   await once(host.server, "listening");
 }
 async function client() {
+  const connected = new Promise<Socket>((resolve) => host.server.once("connection", resolve));
   const socket = createConnection(join(root, ".foom-host/host.sock"));
   clients.push(socket);
   socket.on("error", () => {});
@@ -79,6 +83,7 @@ async function client() {
     frames.push(bytes, (value) => messages.push(value));
   });
   return {
+    serverSocket: await connected,
     socket,
     messages,
     send(message: RemoteRequest) {
@@ -104,7 +109,7 @@ test.skipIf(process.platform === "win32")(
     expect((await stat(join(root, ".foom-host/host.sock"))).mode & 0o777).toBe(0o600);
     const c = await open();
     expect(mock.create).toHaveBeenCalledWith(
-      expect.objectContaining({ command: "/bin/sh", cwd: root }),
+      { command: "/bin/sh", args: ["-i", "-l"], cwd: root, cols: 80, rows: 24 },
       "one",
     );
     mock.attach.mockImplementation((_id: string, send: (token: string, data: string) => void) => {
@@ -276,7 +281,8 @@ test.skipIf(process.platform === "win32")(
     large.send({ type: "attach", id: "one", request: 3, view: "v" });
     await largeClosed;
     mock.exited("unknown", 1);
-    expect(mock.kill).not.toHaveBeenCalled();
+    // Exited disconnected sessions are now disposed immediately.
+    expect(mock.kill).toHaveBeenCalledWith("one");
     const errored = await open();
     const erroredClosed = once(errored.socket, "close");
     host.server.emit("error", new Error("fixture server failure"));
@@ -389,5 +395,115 @@ test.skipIf(process.platform === "win32")(
     c.send({ type: "write", id: "one", request: 3, data: "still attached" });
     while (complete.length < 2) await once(c.socket, "data");
     expect(mock.write).toHaveBeenCalledWith("one", "still attached");
+  },
+);
+
+async function disconnect(c: Awaited<ReturnType<typeof client>>) {
+  const closed = Promise.all([once(c.socket, "close"), once(c.serverSocket, "close")]);
+  c.socket.destroy();
+  await closed;
+}
+
+test.skipIf(process.platform === "win32")(
+  "reaps detached sessions after the grace period and cancels reaping on reattach",
+  async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await start();
+    await disconnect(await open("abandoned"));
+    await disconnect(await open("returning"));
+    // A laptop disconnected overnight still owns a live shell.
+    await vi.advanceTimersByTimeAsync(12 * 60 * 60 * 1000);
+    expect(mock.kill).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(DETACHED_SESSION_GRACE_MS - 12 * 60 * 60 * 1000 - 1);
+    expect(mock.kill).not.toHaveBeenCalled();
+    const returning = await open("returning");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mock.stop).toHaveBeenCalledWith("abandoned");
+    expect(mock.kill).toHaveBeenCalledExactlyOnceWith("abandoned");
+    await vi.advanceTimersByTimeAsync(DETACHED_SESSION_GRACE_MS * 2);
+    expect(mock.kill).toHaveBeenCalledTimes(1);
+    returning.send({ type: "write", id: "returning", request: 2, data: "alive" });
+    await returning.wait(3);
+    expect(mock.write).toHaveBeenCalledWith("returning", "alive");
+    await disconnect(returning);
+    await vi.advanceTimersByTimeAsync(DETACHED_SESSION_GRACE_MS);
+    expect(mock.kill).toHaveBeenCalledWith("returning");
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "exited sessions free their slot when disconnected, including exit after disconnect",
+  async () => {
+    await start();
+    const first = await open("exited-attached");
+    mock.exited("exited-attached", 0);
+    await first.wait(3);
+    expect(mock.kill).not.toHaveBeenCalled();
+    await disconnect(first);
+    await vi.waitFor(() => {
+      expect(mock.kill).toHaveBeenCalledWith("exited-attached");
+    });
+    await open("exited-attached");
+    expect(mock.create).toHaveBeenCalledTimes(2);
+    const second = await open("exited-detached");
+    await disconnect(second);
+    mock.exited("exited-detached", 1);
+    await vi.waitFor(() => {
+      expect(mock.kill).toHaveBeenCalledWith("exited-detached");
+    });
+    await open("exited-detached");
+    expect(mock.create).toHaveBeenCalledTimes(4);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "recovers the 32 session limit after reaping, even if graceful stop fails",
+  async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await start();
+    for (let index = 0; index < 32; index++)
+      await disconnect(await open(`orphan-${String(index)}`));
+    const excess = await client();
+    excess.send({ type: "hello", build });
+    await excess.wait(1);
+    const refused = once(excess.socket, "close");
+    excess.send({ type: "open", id: "excess", request: 1, cols: 80, rows: 24 });
+    await refused;
+    expect(mock.create).toHaveBeenCalledTimes(32);
+    mock.stop.mockRejectedValueOnce(new Error("graceful stop timeout"));
+    await vi.advanceTimersByTimeAsync(DETACHED_SESSION_GRACE_MS);
+    expect(mock.kill).toHaveBeenCalledTimes(32);
+    await open("recovered");
+    expect(mock.create).toHaveBeenCalledTimes(33);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "never puts the terminal capability in the shell environment, arguments or cwd",
+  async () => {
+    await start();
+    const id = "secret-terminal-capability-85ac4f";
+    await open(id);
+    const spec: unknown = mock.create.mock.calls[0]?.[0];
+    expect(spec).toEqual({ command: "/bin/sh", args: ["-i", "-l"], cwd: root, cols: 80, rows: 24 });
+    expect(JSON.stringify(spec)).not.toContain(id);
+    expect(JSON.stringify(process.env)).not.toContain(id);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "shutdown cancels orphan timers and owns disposal of shutdown exits",
+  async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await start();
+    await disconnect(await open("shutdown-orphan"));
+    mock.shutdown.mockImplementationOnce(() => {
+      mock.exited("shutdown-orphan", 0);
+      return Promise.resolve();
+    });
+    await host.close();
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+    expect(mock.kill).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
   },
 );
