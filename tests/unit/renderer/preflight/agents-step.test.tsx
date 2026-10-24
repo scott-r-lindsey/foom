@@ -1,35 +1,11 @@
-import type { ReactNode } from "react";
-import type { RenderOptions } from "@testing-library/react";
-import {
-  ErrorPresentation,
-  BackgroundErrorMark,
-} from "../../../../src/renderer/board/error-presentation";
+import { renderWithErrors as render } from "../../../fixtures/render-with-errors";
 // @vitest-environment jsdom
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render as renderView,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { AgentsStep } from "../../../../src/renderer/preflight/agents-step";
 import type { ConfigStatus } from "../../../../src/shared/foom-config";
 import type { SetupSource } from "../../../../src/renderer/preflight/setup-source.d";
 import { installation, report, setupState } from "../../../fixtures/setup";
-
-const render = (ui: ReactNode, options?: RenderOptions) =>
-  renderView(ui, {
-    ...options,
-    wrapper: ({ children }) => (
-      <ErrorPresentation>
-        {children}
-        <BackgroundErrorMark />
-      </ErrorPresentation>
-    ),
-  });
 
 afterEach(cleanup);
 const pending: ConfigStatus = {
