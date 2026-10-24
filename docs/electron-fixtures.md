@@ -76,6 +76,12 @@ commits for disposable browser files after Foom's quit barrier has completed.
 The graceful-quit deadline, normal-exit assertion and process audit are unchanged.
 Packaged smoke continues to exercise the package's ordinary profile storage.
 
+The test runner supplies an owned enclosing tmpfs root when available, and a
+separate owned root on the worktree filesystem for the concurrent-review fixture.
+It removes these after the runner exits, including a worker killed by a timeout.
+Direct standalone fixture checks retain the ordinary temporary/shared-memory
+fallbacks below; use the package test commands for parent-owned cleanup.
+
 A synchronous worker exit handler also removes all storage directories allocated
 by that worker when the hard watchdog calls `process.exit(1)`, which skips test
 after hooks. It checks the original directory identity and owner with `lstat`
