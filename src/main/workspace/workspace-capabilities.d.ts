@@ -239,7 +239,9 @@ export interface OrchestrationHostContext {
   readonly busyWorktrees: Set<string>;
   readonly cleanup: Pick<CleanupOwner, "removeOwnedTree">;
   readonly closed: boolean;
-  readonly control: Promise<Partial<Pick<ControlRuntime, "audit">>> | undefined;
+  readonly control:
+    | Promise<{ readonly audit?: Pick<ControlRuntime["audit"], "handoff"> }>
+    | undefined;
   readonly createChildWorktree: WorkspaceMethods["createChildWorktree"];
   readonly defaultArguments: Settings["agentArguments"];
   readonly input: WorkspaceMethods["input"];

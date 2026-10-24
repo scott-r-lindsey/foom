@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import type { Principal } from "../../../../src/main/control/types";
+import type { Handoff } from "../../../../src/shared/handoff";
 import type { OrchestrationHostContext } from "../../../../src/main/workspace/workspace-capabilities";
 import { workspaceOrchestrationHost } from "../../../../src/main/workspace/workspace-orchestration-host";
 
@@ -79,4 +81,80 @@ describe("isolated orchestration host capabilities", () => {
     expect([...capabilities.busyWorktrees]).toEqual(["/repo\0feature"]);
     expect(capabilities.refresh).toHaveBeenCalledOnce();
   });
+});
+
+const actor: Principal = {
+  grantedAt: new Date(0).toISOString(),
+  generation: "generation",
+  sessionId: "session",
+  repository: "/repo",
+  worktree: "/trees/feature",
+  terminalId: "child",
+  parentId: "parent",
+  role: "agent",
+};
+const report: Handoff = {
+  seq: 1,
+  status: "done",
+  summary: "Completed",
+  links: [],
+  timestamp: new Date(0).toISOString(),
+};
+
+it("refuses handoff auditing without an available audit capability", async () => {
+  const caps = hostFixture();
+  await expect(
+    workspaceOrchestrationHost(caps).auditHandoff?.(actor, report),
+  ).rejects.toMatchObject({
+    code: "unavailable",
+  });
+  await expect(
+    workspaceOrchestrationHost({ ...caps, control: Promise.resolve({}) }).auditHandoff?.(
+      actor,
+      report,
+    ),
+  ).rejects.toMatchObject({ code: "unavailable" });
+});
+
+it("awaits durable handoff auditing before reporting success and propagates audit failures", async () => {
+  const pending = Promise.withResolvers<undefined>();
+  const handoff = vi.fn(() => pending.promise);
+  const host = workspaceOrchestrationHost({
+    ...hostFixture(),
+    control: Promise.resolve({ audit: { handoff } }),
+  });
+  const result = host.auditHandoff?.(actor, report);
+  let settled = false;
+  void result?.then(() => {
+    settled = true;
+  });
+  await vi.waitFor(() => {
+    expect(handoff).toHaveBeenCalledWith(actor, report);
+  });
+  expect(settled).toBe(false);
+  pending.resolve(undefined);
+  await result;
+  expect(settled).toBe(true);
+  handoff.mockRejectedValueOnce(new Error("audit unavailable"));
+  await expect(host.auditHandoff?.(actor, report)).rejects.toThrow("audit unavailable");
+});
+
+it("reveals only the requested session through the optional navigation capability", () => {
+  const caps = hostFixture();
+  const reveal = vi.fn();
+  workspaceOrchestrationHost({ ...caps, deps: { ...caps.deps, reveal } }).reveal?.("child");
+  expect(reveal).toHaveBeenCalledExactlyOnceWith("child");
+  expect(() => workspaceOrchestrationHost(caps).reveal?.("child")).not.toThrow();
+});
+
+it("does not persist or refresh host changes after shutdown", () => {
+  const caps = hostFixture();
+  workspaceOrchestrationHost(caps).changed();
+  expect(caps.persist).toHaveBeenCalledOnce();
+  expect(caps.refresh).toHaveBeenCalledOnce();
+  vi.mocked(caps.persist).mockClear();
+  vi.mocked(caps.refresh).mockClear();
+  workspaceOrchestrationHost({ ...caps, closed: true }).changed();
+  expect(caps.persist).not.toHaveBeenCalled();
+  expect(caps.refresh).not.toHaveBeenCalled();
 });
