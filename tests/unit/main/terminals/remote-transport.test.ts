@@ -18,7 +18,7 @@ class Child extends EventEmitter {
   stdin = new PassThrough();
   stdout = new PassThrough();
   stderr = new PassThrough();
-  kill = vi.fn(() => true);
+  kill = vi.fn<(signal?: NodeJS.Signals) => boolean>(() => true);
   messages: unknown[] = [];
   frames = new RemoteFrames();
   constructor() {
@@ -371,6 +371,163 @@ test("replies buffered after restoration expiry cannot renew the retry budget", 
   expect(exit).toHaveBeenCalledOnce();
   expect(vi.getTimerCount()).toBe(0);
   expect(transport.kill()).toBe(false);
+});
+
+test.each(["deadline", "protocol"])(
+  "%s retirement ignores buffered replies and exhausts retries even when SSH never closes",
+  async (cause) => {
+    await ready();
+    transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
+    child.message({ type: "result", id: "one", request: 2, lines: [] });
+    const exit = vi.fn();
+    transport.on("exit", exit);
+    child.emit("close");
+    const retired: Child[] = [];
+    for (let attempt = 0; attempt < 5; attempt++) {
+      child = new Child();
+      mock.spawn.mockReturnValue(child);
+      await vi.advanceTimersByTimeAsync(1000);
+      child.greet();
+      child.message({ type: "result", id: "one", request: requestOf(child, "open"), lines: [] });
+      child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+      const before = [...events];
+      if (cause === "deadline") await vi.advanceTimersByTimeAsync(120000);
+      else child.message({ type: "fragment", id: "foreign", offset: 0, total: 1, data: "x" });
+      expect(child.kill.mock.calls).toEqual([["SIGTERM"]]);
+      child.message({ type: "result", id: "one", request: requestOf(child, "attach"), lines: [] });
+      child.message({ type: "data", id: "one", view: "v", token: "late", data: "stale" });
+      expect(events).toEqual(before);
+      retired.push(child);
+      // No exit or close, even after either signal. Each next iteration must
+      // reconnect anyway; the last iteration must fail the terminal anyway.
+    }
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+    for (const old of retired) {
+      expect(old.kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+      expect(old.stdin.destroyed).toBe(true);
+      expect(old.stdout.destroyed).toBe(true);
+      expect(old.stderr.destroyed).toBe(true);
+      old.emit("exit");
+      old.emit("close");
+    }
+    expect(mock.spawn).toHaveBeenCalledTimes(6);
+    expect(exit).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(transport.kill()).toBe(false);
+  },
+);
+
+test.each(["close", "deadline"])(
+  "%s first retires each connection once when close and the deadline race",
+  async (first) => {
+    await ready();
+    const exit = vi.fn();
+    transport.on("exit", exit);
+    child.emit("close");
+    for (let attempt = 0; attempt < 5; attempt++) {
+      child = new Child();
+      mock.spawn.mockReturnValue(child);
+      await vi.advanceTimersByTimeAsync(attempt > 0 && first === "close" ? 999 : 1000);
+      child.greet();
+      await vi.advanceTimersByTimeAsync(119999);
+      if (first === "close") child.emit("close");
+      await vi.advanceTimersByTimeAsync(1);
+      child.emit("close");
+      child.emit("exit");
+      child.stdin.emit("error", new Error("late stream error"));
+      expect(child.kill.mock.calls).toEqual(first === "close" ? [] : [["SIGTERM"]]);
+      expect(mock.spawn).toHaveBeenCalledTimes(attempt + 2);
+    }
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+    expect(mock.spawn).toHaveBeenCalledTimes(6);
+    expect(exit).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
+
+test.each(["stdin", "process", "write", "dispose", "exit"])(
+  "%s uses the same retirement and bounded cleanup path",
+  async (cause) => {
+    await ready();
+    const old = child;
+    old.kill.mockImplementation((signal) => {
+      if (signal === "SIGTERM") throw new Error("signal failed");
+      return true;
+    });
+    if (cause === "stdin") old.stdin.emit("error", new Error("broken pipe"));
+    if (cause === "process") old.emit("error", new Error("process failure"));
+    if (cause === "write") {
+      old.stdin.end();
+      expect(() => {
+        transport.postMessage({ type: "write", id: "one", request: 2, data: "x" });
+      }).toThrow("unavailable");
+      expect(events).toContainEqual({ type: "error", request: 2, id: "one" });
+    }
+    if (cause === "dispose") transport.kill();
+    if (cause === "exit") old.emit("exit"); // Stdio remains open after process exit.
+    const before = [...events];
+    old.message({ type: "data", id: "one", view: "v", token: "late", data: "stale" });
+    expect(events).toEqual(before);
+    child = new Child();
+    mock.spawn.mockReturnValue(child);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(old.stdout.destroyed).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(old.kill.mock.calls).toEqual(cause === "exit" ? [] : [["SIGTERM"], ["SIGKILL"]]);
+    expect(old.stdout.destroyed).toBe(true);
+    expect(mock.spawn).toHaveBeenCalledTimes(cause === "dispose" ? 1 : 2);
+    old.emit("close");
+    if (cause !== "dispose") child.greet();
+    // Old close must not clear the new connection's deadline or schedule another retry.
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mock.spawn).toHaveBeenCalledTimes(cause === "dispose" ? 1 : 2);
+  },
+);
+
+test("disposal during a frame callback drops the rest of that buffered batch", async () => {
+  await ready();
+  transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
+  transport.on("message", (value: unknown) => {
+    if (typeof value === "object" && value !== null && "data" in value && value.data === "first")
+      transport.kill();
+  });
+  child.stdout.write(
+    Buffer.concat(
+      ["first", "stale"].map((data) =>
+        remoteFrame({
+          type: "data",
+          id: "one",
+          view: "v",
+          token: "t",
+          data,
+        }),
+      ),
+    ),
+  );
+  expect(events).toContainEqual(expect.objectContaining({ data: "first" }));
+  expect(events).not.toContainEqual(expect.objectContaining({ data: "stale" }));
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(child.kill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
+  expect(mock.spawn).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test("process exit with inherited pipes open retires once and still releases stdio", async () => {
+  await ready();
+  child.message({ type: "fragment", id: "foreign", offset: 0, total: 1, data: "x" });
+  const old = child;
+  old.emit("exit");
+  child = new Child();
+  mock.spawn.mockReturnValue(child);
+  await vi.advanceTimersByTimeAsync(1000);
+  child.greet();
+  expect(old.kill.mock.calls).toEqual([["SIGTERM"]]);
+  expect(old.stdout.destroyed).toBe(true);
+  old.emit("close");
+  expect(mock.spawn).toHaveBeenCalledTimes(2);
+  transport.kill();
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(vi.getTimerCount()).toBe(0);
 });
 
 test("foreign fragments and failed restoration responses terminate the SSH stream", async () => {

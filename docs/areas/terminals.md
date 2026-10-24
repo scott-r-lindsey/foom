@@ -132,9 +132,15 @@ consumes an attempt; five such attempts terminate the transport and fail the til
 The 120-second connection deadline remains active throughout reconnect negotiation,
 open, state restoration and replay, and is cleared only after all restoration
 acknowledgements arrive. An unanswered internal request kills that SSH stream and
-consumes an attempt; partial progress does not extend the deadline. Expiry invalidates
-the connection before signalling SSH, so buffered acknowledgements received before
-process close cannot finish restoration or renew the retry allowance.
+consumes an attempt; partial progress does not extend the deadline. All connection
+retirement (deadline, protocol/stream/process errors, exit/close and disposal)
+invalidates the connection before signalling SSH. Buffered responses cannot finish
+restoration or renew the retry allowance. Retirement consumes an attempt once and
+schedules retry or terminal failure without waiting for process close. A retired
+SSH process receives SIGTERM, then SIGKILL after a one-second grace if it has not
+exited; its remaining stdio is released after that grace. Late process events
+cannot consume another attempt or affect the replacement connection. Disposal
+uses the same bounded cleanup without reconnecting.
 Input interrupted by disconnect is failed rather than replayed. Slow output above
 1 MiB of queued live updates or socket writes disconnects the view; headless parsing continues.
 Quit/dispose disconnects remote shells; explicit Stop or Close terminates them.

@@ -12,9 +12,18 @@ import {
 } from "../../shared/remote-host-protocol";
 import { bootstrapArguments, hostArtifact } from "./remote-bootstrap";
 
+type Connection = {
+  child: ChildProcess;
+  dead: boolean;
+  exited: boolean;
+  closed: boolean;
+  deadline: ReturnType<typeof setTimeout> | undefined;
+  grace: ReturnType<typeof setTimeout> | undefined;
+};
+
 /** Utility-client-shaped adapter. It never exposes SSH/daemon text as diagnostics. */
 export class RemoteTransport extends EventEmitter {
-  private child: ChildProcess | undefined;
+  private connection: Connection | undefined;
   private artifact: Awaited<ReturnType<typeof hostArtifact>> | undefined;
   private closed = false;
   private ready = false;
@@ -47,9 +56,64 @@ export class RemoteTransport extends EventEmitter {
       .catch(() => this.kill());
   }
   private send(message: RemoteRequest): void {
-    if (!remoteRequest(message) || !this.child?.stdin?.writable)
+    const connection = this.connection;
+    try {
+      if (!remoteRequest(message) || !connection?.child.stdin?.writable)
+        throw new Error("Remote unavailable");
+      connection.child.stdin.write(remoteFrame(message));
+    } catch {
+      if (connection) this.retireConnection(connection, "failure");
       throw new Error("Remote unavailable");
-    this.child.stdin.write(remoteFrame(message));
+    }
+  }
+  private retireConnection(
+    connection: Connection,
+    reason: "failure" | "exit" | "close" | "dispose",
+  ): void {
+    if (connection.dead) return;
+    // Detach synchronously, before signalling or notifying callers. Neither a
+    // buffered response nor a reentrant/late process event can revive this stream.
+    connection.dead = true;
+    clearTimeout(connection.deadline);
+    this.connection = undefined;
+    this.ready = false;
+    this.restoring = undefined;
+    this.restoration.clear();
+    const pending = [...this.pending];
+    this.pending.clear();
+    const signal = (name: NodeJS.Signals) => {
+      try {
+        connection.child.kill(name);
+      } catch {
+        // A failed graceful signal must not prevent escalation or retry progress.
+      }
+    };
+    if (!connection.closed) {
+      connection.grace = setTimeout(() => {
+        connection.grace = undefined;
+        if (!connection.exited) signal("SIGKILL");
+        // Descendants can hold SSH's pipes open even after its process exits.
+        connection.child.stdin?.destroy();
+        connection.child.stdout?.destroy();
+        connection.child.stderr?.destroy();
+      }, 1000);
+      if (!connection.exited) signal("SIGTERM");
+    }
+    for (const [request, id] of pending) this.emit("message", { type: "error", request, id });
+    if (reason === "dispose" || this.closed) return;
+    // Reserve one of five reconnect attempts exactly once, independently of close.
+    if (!this.opened || this.retries >= 5) {
+      this.kill();
+      return;
+    }
+    this.retries++;
+    this.timer = setTimeout(() => {
+      try {
+        this.connect();
+      } catch {
+        this.kill();
+      }
+    }, 1000);
   }
   private connect(): void {
     const artifact = this.artifact;
@@ -84,21 +148,26 @@ export class RemoteTransport extends EventEmitter {
       ),
       { env, shell: false, stdio: ["pipe", "pipe", "pipe"] },
     );
-    this.child = child;
+    const connection: Connection = {
+      child,
+      dead: false,
+      exited: false,
+      closed: false,
+      deadline: undefined,
+      grace: undefined,
+    };
+    this.connection = connection;
     let header = Buffer.alloc(0);
     let bootstrapped = false;
     let uploading = false;
     const frames = new RemoteFrames();
     const responses = new RemoteMessages();
-    let dead = false;
     const deadline = setTimeout(() => {
-      // Invalidate before SIGTERM: buffered replies can arrive before close.
-      dead = true;
-      this.ready = false;
-      child.kill();
+      this.retireConnection(connection, "failure");
     }, 120000);
+    connection.deadline = deadline;
     const receive = (bytes: Buffer) => {
-      if (dead || this.child !== child || this.closed) return;
+      if (connection.dead || this.connection !== connection || this.closed) return;
       try {
         if (!bootstrapped) {
           header = Buffer.concat([header, bytes]);
@@ -124,6 +193,7 @@ export class RemoteTransport extends EventEmitter {
           }
         }
         frames.push(bytes, (wire) => {
+          if (connection.dead || this.closed) return;
           if (!remoteResponse(wire)) throw new Error("Invalid remote response");
           if (wire.type === "fragment" && (!this.ready || wire.id !== this.session?.id))
             throw new Error("Foreign remote fragment");
@@ -193,33 +263,30 @@ export class RemoteTransport extends EventEmitter {
           this.emit("message", value);
         });
       } catch {
-        child.kill();
+        this.retireConnection(connection, "failure");
       }
     };
     child.stdout.on("data", receive);
-    child.stdin.on("error", () => child.kill());
+    child.stdin.on("error", () => {
+      this.retireConnection(connection, "failure");
+    });
     // stderr is deliberately drained without logging: a remote host controls it.
     child.stderr.resume();
-    child.once("error", () => child.kill());
+    child.once("error", () => {
+      this.retireConnection(connection, "failure");
+    });
+    child.once("exit", () => {
+      connection.exited = true;
+      this.retireConnection(connection, "exit");
+    });
     child.once("close", () => {
-      clearTimeout(deadline);
-      if (this.child !== child || this.closed) return;
-      this.child = undefined;
-      this.ready = false;
-      this.restoring = undefined;
-      this.restoration.clear();
-      for (const [request, id] of this.pending)
-        this.emit("message", { type: "error", request, id });
-      this.pending.clear();
-      if (!this.opened || this.retries++ >= 5) {
-        this.kill();
-        return;
-      }
-      this.timer = setTimeout(() => {
-        this.connect();
-      }, 1000);
+      connection.exited = true;
+      connection.closed = true;
+      clearTimeout(connection.grace);
+      this.retireConnection(connection, "close");
     });
   }
+
   postMessage(message: HostRequest | "shutdown"): void {
     if (message === "shutdown") {
       this.kill();
@@ -271,8 +338,7 @@ export class RemoteTransport extends EventEmitter {
     if (this.closed) return false;
     this.closed = true;
     clearTimeout(this.timer);
-    this.child?.kill();
-    this.child = undefined;
+    if (this.connection) this.retireConnection(this.connection, "dispose");
     queueMicrotask(() => this.emit("exit", 0));
     return true;
   }
