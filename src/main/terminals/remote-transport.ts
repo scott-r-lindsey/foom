@@ -9,6 +9,7 @@ import {
   remoteHost,
   remoteRequest,
   remoteResponse,
+  REMOTE_GONE_EXIT_CODE,
 } from "../../shared/remote-host-protocol";
 import { bootstrapArguments, hostArtifact } from "./remote-bootstrap";
 
@@ -218,6 +219,7 @@ export class RemoteTransport extends EventEmitter {
                 request,
                 cols: session.spec.cols,
                 rows: session.spec.rows,
+                reattach: this.opened,
               });
             }
             return;
@@ -229,9 +231,19 @@ export class RemoteTransport extends EventEmitter {
             value.id !== this.session.id
           )
             throw new Error("Foreign remote response");
-          if (value.type === "result" || value.type === "error") {
+          if (value.type === "open-result") {
             if (value.request === this.restoring) {
-              if (value.type === "error") throw new Error("Reattach failed");
+              if (value.state !== "live") {
+                // A definitive terminal outcome preserves the last displayed
+                // screen and cannot consume/restart a transport retry allowance.
+                this.kill();
+                this.emit("message", {
+                  type: "exit",
+                  id: value.id,
+                  code: value.state === "exited" ? value.code : REMOTE_GONE_EXIT_CODE,
+                });
+                return;
+              }
               this.restoring = undefined;
               for (const command of [this.theme, this.dimensions, this.attachment])
                 if (command) {
@@ -241,6 +253,25 @@ export class RemoteTransport extends EventEmitter {
                 }
               return;
             }
+            if (
+              this.opened ||
+              value.request !== this.session.request ||
+              !this.pending.delete(value.request) ||
+              value.state !== "live"
+            )
+              throw new Error("Unexpected open result");
+            this.opened = true;
+            if (this.theme) this.send({ ...this.theme, request: --this.internal });
+            this.emit("message", {
+              type: "result",
+              id: value.id,
+              request: value.request,
+              lines: [],
+            });
+            return;
+          }
+          if (value.type === "result" || value.type === "error") {
+            if (value.request === this.restoring) throw new Error("Invalid open result");
             if (this.restoration.delete(value.request)) {
               if (value.type === "error") throw new Error("View restoration failed");
               // Attach's result follows the entire replay, including all fragments.
@@ -250,12 +281,10 @@ export class RemoteTransport extends EventEmitter {
               }
               return;
             }
+            if (!this.opened && value.request === this.session.request)
+              throw new Error("Invalid initial open result");
             if (value.request >= this.internal) return;
             if (!this.pending.delete(value.request)) return;
-            if (value.request === this.session.request && value.type === "result") {
-              this.opened = true;
-              if (this.theme) this.send({ ...this.theme, request: --this.internal });
-            }
           }
           if (value.type === "data") {
             if (value.view !== this.attachment?.view) return;
@@ -330,6 +359,7 @@ export class RemoteTransport extends EventEmitter {
               request: message.request,
               cols: message.spec.cols,
               rows: message.spec.rows,
+              reattach: false,
             }
           : message,
       );

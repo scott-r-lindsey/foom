@@ -237,7 +237,7 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   });
   // Hub quit disconnects without terminating the daemon or its shell.
   assert.equal(daemon.exitCode, null);
-  const retained = await hostChannel(socket, manifest.sha256, id, cleanup);
+  const retained = await hostChannel(socket, manifest.sha256, id, cleanup, 80, 24, true);
   try {
     await retained.ask({
       type: "write",
@@ -250,9 +250,12 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
     retained.close();
   }
   await wideReplay(root, socket, manifest.sha256, cleanup);
+  const gone = await hostChannel(socket, manifest.sha256, "never-created", cleanup, 80, 24, true);
+  assert.equal(gone.opened.state, "gone");
+  gone.close();
 });
 
-async function hostChannel(socket, build, id, cleanup, cols = 80, rows = 24) {
+async function hostChannel(socket, build, id, cleanup, cols = 80, rows = 24, reattach = false) {
   const { RemoteFrames, RemoteMessages, remoteFrame, remoteResponse } =
     require("../../build/shared/remote-host-protocol.js");
   const channel = createConnection(socket);
@@ -296,8 +299,8 @@ async function hostChannel(socket, build, id, cleanup, cols = 80, rows = 24) {
       pending.set(number, { resolve, reject });
       channel.write(remoteFrame({ ...message, id, request: number }));
     });
-  await ask({ type: "open", cols, rows });
-  return { ask, events, close: () => channel.destroy() };
+  const opened = await ask({ type: "open", cols, rows, reattach });
+  return { ask, events, opened, close: () => channel.destroy() };
 }
 
 async function wideReplay(root, socket, build, cleanup) {
@@ -345,7 +348,7 @@ async function wideReplay(root, socket, build, cleanup) {
     assert.deepEqual(expected.lines, visible(reference));
     const pid = (await readFile(pidFile, "utf8")).trim();
     peer.close();
-    peer = await hostChannel(socket, build, "wide", cleanup, 400, 24);
+    peer = await hostChannel(socket, build, "wide", cleanup, 400, 24, true);
     const replayed = once(peer.events, "data");
     const [[replay]] = await Promise.all([
       replayed,

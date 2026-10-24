@@ -77,7 +77,7 @@ async function ready() {
   transport.postMessage(create);
   await Promise.resolve();
   child.greet();
-  child.message({ type: "result", request: 1, id: "one", lines: [] });
+  child.message({ type: "open-result", request: 1, id: "one", state: "live" });
 }
 test("uploads only on request, negotiates exact build, strips local launch facts and forwards operations", async () => {
   transport.postMessage(create);
@@ -91,7 +91,7 @@ test("uploads only on request, negotiates exact build, strips local launch facts
     expect.objectContaining({ shell: false }),
   );
   expect(JSON.stringify(child.messages)).not.toContain("NEVER SENT");
-  child.message({ type: "result", request: 1, id: "one", lines: [] });
+  child.message({ type: "open-result", request: 1, id: "one", state: "live" });
   transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
   child.message({ type: "data", id: "one", view: "old", token: "t", data: "stale" });
   child.message({ type: "data", id: "one", view: "v", token: "t", data: "screen" });
@@ -148,7 +148,7 @@ test("reconnect opens the same ID, restores view state, resets snapshot and neve
     typeof open.request !== "number"
   )
     throw new Error("Missing reopen");
-  second.message({ type: "result", id: "one", request: open.request, lines: [] });
+  second.message({ type: "open-result", id: "one", request: open.request, state: "live" });
   expect(JSON.stringify(second.messages)).not.toContain("do-once");
   expect(JSON.stringify(second.messages)).not.toContain("offline");
   expect(second.messages).toContainEqual(expect.objectContaining({ type: "resize", cols: 100 }));
@@ -251,7 +251,12 @@ test.each(["partial", "complete"])(
       mock.spawn.mockReturnValue(child);
       await vi.advanceTimersByTimeAsync(1000);
       child.greet();
-      child.message({ type: "result", id: "one", request: requestOf(child, "open"), lines: [] });
+      child.message({
+        type: "open-result",
+        id: "one",
+        request: requestOf(child, "open"),
+        state: "live",
+      });
       child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
       const replay = {
         type: "data",
@@ -288,7 +293,12 @@ test("a complete fragmented replay and attach result restore the retry allowance
     mock.spawn.mockReturnValue(child);
     await vi.advanceTimersByTimeAsync(1000);
     child.greet();
-    child.message({ type: "result", id: "one", request: requestOf(child, "open"), lines: [] });
+    child.message({
+      type: "open-result",
+      id: "one",
+      request: requestOf(child, "open"),
+      state: "live",
+    });
     child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
     const replay = {
       type: "data",
@@ -327,7 +337,12 @@ test.each(["open", "theme", "attach"])(
       await vi.advanceTimersByTimeAsync(1000);
       child.greet();
       if (stalled !== "open")
-        child.message({ type: "result", id: "one", request: requestOf(child, "open"), lines: [] });
+        child.message({
+          type: "open-result",
+          id: "one",
+          request: requestOf(child, "open"),
+          state: "live",
+        });
       if (stalled === "attach")
         child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
       await vi.advanceTimersByTimeAsync(119999);
@@ -355,7 +370,12 @@ test("replies buffered after restoration expiry cannot renew the retry budget", 
     mock.spawn.mockReturnValue(child);
     await vi.advanceTimersByTimeAsync(1000);
     child.greet();
-    child.message({ type: "result", id: "one", request: requestOf(child, "open"), lines: [] });
+    child.message({
+      type: "open-result",
+      id: "one",
+      request: requestOf(child, "open"),
+      state: "live",
+    });
     child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
     await vi.advanceTimersByTimeAsync(120000);
     expect(child.kill).toHaveBeenCalledOnce();
@@ -388,7 +408,12 @@ test.each(["deadline", "protocol"])(
       mock.spawn.mockReturnValue(child);
       await vi.advanceTimersByTimeAsync(1000);
       child.greet();
-      child.message({ type: "result", id: "one", request: requestOf(child, "open"), lines: [] });
+      child.message({
+        type: "open-result",
+        id: "one",
+        request: requestOf(child, "open"),
+        state: "live",
+      });
       child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
       const before = [...events];
       if (cause === "deadline") await vi.advanceTimersByTimeAsync(120000);
@@ -541,7 +566,76 @@ test("foreign fragments and failed restoration responses terminate the SSH strea
   mock.spawn.mockReturnValue(child);
   await vi.advanceTimersByTimeAsync(1000);
   child.greet();
-  child.message({ type: "result", id: "one", request: requestOf(child, "open"), lines: [] });
+  child.message({
+    type: "open-result",
+    id: "one",
+    request: requestOf(child, "open"),
+    state: "live",
+  });
   child.message({ type: "error", id: "one", request: requestOf(child, "theme") });
   expect(child.kill).toHaveBeenCalled();
 });
+
+test.each([{ state: "gone" }, { state: "exited", code: 0 }, { state: "exited", code: 7 }] as const)(
+  "a definitive reconnect outcome %j exits normally without replay, replacement or further retries",
+  async (outcome) => {
+    await ready();
+    expect(child.messages).toContainEqual(
+      expect.objectContaining({ type: "open", reattach: false }),
+    );
+    transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
+    child.message({
+      type: "data",
+      id: "one",
+      view: "v",
+      token: "last",
+      data: "last displayed screen",
+    });
+    child.emit("close");
+    child = new Child();
+    mock.spawn.mockReturnValue(child);
+    await vi.advanceTimersByTimeAsync(1000);
+    child.greet();
+    expect(child.messages).toContainEqual(
+      expect.objectContaining({ type: "open", reattach: true }),
+    );
+    const count = events.length;
+    child.message({
+      type: "open-result",
+      id: "one",
+      request: requestOf(child, "open"),
+      ...outcome,
+    });
+    expect(events.slice(count)).toEqual([
+      { type: "exit", id: "one", code: outcome.state === "exited" ? outcome.code : -1 },
+    ]);
+    expect(child.messages).not.toContainEqual(expect.objectContaining({ type: "attach" }));
+    child.message({ type: "data", id: "one", view: "v", token: "replacement", data: "new shell" });
+    child.emit("close");
+    await vi.advanceTimersByTimeAsync(48 * 60 * 60 * 1000);
+    expect(mock.spawn).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(events).not.toContainEqual(expect.objectContaining({ data: "new shell" }));
+    expect(transport.kill()).toBe(false);
+  },
+);
+
+test.each(["legacy", "foreign-request", "ended-first-open"])(
+  "rejects unexpected %s open replies",
+  async (kind) => {
+    transport.postMessage(create);
+    await Promise.resolve();
+    child.greet();
+    if (kind === "legacy") child.message({ type: "result", id: "one", request: 1, lines: [] });
+    else
+      child.message({
+        type: "open-result",
+        id: "one",
+        request: kind === "foreign-request" ? 2 : 1,
+        state: kind === "ended-first-open" ? "gone" : "live",
+      });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(child.kill).toHaveBeenCalled();
+    expect(mock.spawn).toHaveBeenCalledOnce();
+  },
+);

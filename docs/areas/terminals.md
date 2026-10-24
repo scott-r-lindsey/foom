@@ -110,7 +110,7 @@ interactive login shell (`-i -l`): its own `SHELL` if it is an absolute path to 
 existing executable regular file, otherwise the account shell from
 `os.userInfo().shell` under the same validation, finally `/bin/sh` if neither is
 valid (including unavailable account lookup). Neither hub nor protocol selects it.
-It supports at most 32 sessions and connections, serializes operations per connection,
+It supports at most 32 full sessions and connections, serializes operations per connection,
 and rejects a backlog above 256 operations. Only the current connection can operate
 on its selected ID. An `open` with an existing ID transfers the session and
 disconnects its prior connection; its only protection is the 0600 socket plus an
@@ -129,7 +129,14 @@ replaces a daemon. SIGTERM/SIGINT stop its PTYs and remove the socket.
 Disconnect detaches only the view, so hidden/disconnected shells keep consuming
 output. After an established SSH stream drops, the hub makes up to five reconnect
 attempts, opening the same terminal ID and replaying a fresh screen with reset,
-then live output. The PTY owner includes the reset in its counted snapshot, so
+then live output. Every `open` requires a runtime-validated boolean `reattach`:
+first creation sends false, restoration sends true. Its typed `open-result`
+reports `live`, `exited` (with the real exit code), or `gone`. A reattach never
+creates a shell: a missing or currently removing ID returns `gone`. The hub ends
+the tile through its normal terminal-exit path (fixed code -1 for `gone`), without
+replaying/resetting its last displayed screen, counting a transport failure or
+retrying. An exited tombstone supplies its real exit code instead. No fresh shell
+can silently replace a disconnected tile. The PTY owner includes the reset in its counted snapshot, so
 renderer acknowledgments account for exactly the bytes it delivered, including
 large replay above the view high-water mark. It restores dimensions/theme and
 gives the view a fresh token. Only successful completion of all restoration
@@ -158,10 +165,17 @@ grace period (`DETACHED_SESSION_GRACE_MS`). This comfortably exceeds the whole
 reconnect window (five 120-second attempts plus one-second retry delays, under
 11 minutes) and preserves shells across overnight disconnections. This is a
 phase-1 bound only: phase 4 (#757) replaces timeout reaping with hub-driven
-reconciliation of known IDs. Opening the same ID within the grace period cancels
-reaping; a later disconnect starts a fresh grace period. Hiding a view alone does
-not start the timer while its connection remains. Exited sessions are removed as
-soon as no connection owns them, retaining exit replay while still connected.
+reconciliation of known IDs. Reattaching a live session within the grace period
+cancels reaping; a later disconnect starts a fresh grace period. Hiding a view alone does
+not start the timer while its connection remains. Exited sessions retain their
+screen while connected. Once disconnected, their PTY/headless screen is disposed
+and only a small exit-code tombstone plus expiry timer is retained. Tombstones do
+not consume the 32 full-session slots; at most 64 are kept, with the oldest exit
+record dropped first. Their expiry remains the original 24-hour detach deadline,
+including when the shell exits later during that period; querying a tombstone
+does not renew it. Once dropped or expired, reattach returns `gone`. Output that
+was never delivered before a disconnected exit cannot be recovered from an
+exit-code-only tombstone; the hub retains its last received display.
 Expiry follows explicit kill's stop/disposal path, including forced cleanup if
 graceful stop fails; shutdown cancels pending reap timers.
 See [measurements and fixture verification](../../spikes/remote-host/phase-1.md).

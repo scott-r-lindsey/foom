@@ -2,7 +2,7 @@ import type { HostRequest, HostResponse } from "./terminal-host";
 export type RemoteTarget = { host: string; artifact: string };
 export type RemoteRequest =
   | { type: "hello"; build: string }
-  | { type: "open"; request: number; id: string; cols: number; rows: number }
+  | { type: "open"; request: number; id: string; cols: number; rows: number; reattach: boolean }
   | Exclude<HostRequest, { type: "create" | "shutdown" | "child-input" }>;
 export type RemoteFragment = {
   type: "fragment";
@@ -11,5 +11,13 @@ export type RemoteFragment = {
   total: number;
   data: string;
 };
-export type RemoteResponse = { type: "hello"; build: string } | HostResponse | RemoteFragment;
+export type RemoteOpenResult = { type: "open-result"; request: number; id: string } & (
+  | { state: "live" | "gone" }
+  | { state: "exited"; code: number }
+);
+export type RemoteResponse =
+  | { type: "hello"; build: string }
+  | HostResponse
+  | RemoteFragment
+  | RemoteOpenResult;
 export type RemoteEnvelope = { version: 1; message: RemoteRequest | RemoteResponse };

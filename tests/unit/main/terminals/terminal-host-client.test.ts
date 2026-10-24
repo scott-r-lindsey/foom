@@ -629,3 +629,23 @@ test("remote quit disconnects without requesting PTY termination; failed remote 
   ).rejects.toThrow("failed");
   expect(client.runningCount).toBe(0);
 });
+
+test.each([0, 7, -1])(
+  "a definitive remote exit %s reaches onExit once before transport cleanup",
+  async (code) => {
+    const remote = remoteChild();
+    mock.remote.mockReturnValue(remote);
+    const id = await client.create({
+      ...spec,
+      remote: { host: "fixture", artifact: "/fixture/foom-host" },
+    });
+    const send = vi.fn();
+    await client.attach(id, send);
+    remote.data(id, "last received screen");
+    remote.emit("message", { type: "exit", id, code });
+    remote.emit("exit", 0);
+    expect(exited).toHaveBeenCalledExactlyOnceWith(id, code);
+    expect(client.runningCount).toBe(0);
+    expect(send).toHaveBeenCalledExactlyOnceWith("view", "last received screen");
+  },
+);

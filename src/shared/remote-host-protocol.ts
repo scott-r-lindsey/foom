@@ -2,6 +2,7 @@ import type { RemoteRequest, RemoteResponse } from "./remote-host";
 import { hostRequest, hostResponse } from "./terminal-host-protocol";
 
 export const REMOTE_PROTOCOL = 1;
+export const REMOTE_GONE_EXIT_CODE = -1;
 export const MAX_REMOTE_FRAME = 8 * 1024 * 1024;
 // Fragment offsets and totals count UTF-16 units, bounding string storage to 64 MiB.
 export const MAX_REMOTE_MESSAGE = 32 * 1024 * 1024;
@@ -33,17 +34,21 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
   if (hello(value)) return true;
   if (!("id" in value) || !remoteId(value.id)) return false;
   if (value.type === "open")
-    return hostRequest({
-      ...value,
-      type: "create",
-      spec: {
-        command: "/bin/sh",
-        args: [],
-        cwd: "/",
-        cols: "cols" in value ? value.cols : null,
-        rows: "rows" in value ? value.rows : null,
-      },
-    });
+    return (
+      "reattach" in value &&
+      typeof value.reattach === "boolean" &&
+      hostRequest({
+        ...value,
+        type: "create",
+        spec: {
+          command: "/bin/sh",
+          args: [],
+          cwd: "/",
+          cols: "cols" in value ? value.cols : null,
+          rows: "rows" in value ? value.rows : null,
+        },
+      })
+    );
   return (
     value.type !== "create" &&
     value.type !== "shutdown" &&
@@ -53,6 +58,18 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
 }
 export function remoteResponse(value: unknown): value is RemoteResponse {
   if (typeof value !== "object" || value === null) return false;
+  if ("type" in value && value.type === "open-result")
+    return (
+      "id" in value &&
+      remoteId(value.id) &&
+      "request" in value &&
+      hostResponse({ type: "error", id: value.id, request: value.request }) &&
+      "state" in value &&
+      (((value.state === "live" || value.state === "gone") && !("code" in value)) ||
+        (value.state === "exited" &&
+          "code" in value &&
+          hostResponse({ type: "exit", id: value.id, code: value.code })))
+    );
   if ("type" in value && value.type === "fragment")
     return (
       "id" in value &&
@@ -177,7 +194,13 @@ export class RemoteMessages {
     if (partial.used < partial.total) return;
     const value: unknown = JSON.parse(partial.parts.join(""));
     this.partial = undefined;
-    if (!hostResponse(value) || value.type === "activity" || value.id !== partial.id)
+    if (
+      !remoteResponse(value) ||
+      value.type === "hello" ||
+      value.type === "fragment" ||
+      value.type === "activity" ||
+      value.id !== partial.id
+    )
       throw new Error("Invalid reassembled response");
     return value;
   }

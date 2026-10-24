@@ -50,11 +50,11 @@ test("only shell operations and runtime-validated responses cross the remote bou
     { ...base, type: "create" },
     { ...base, type: "shutdown" },
     { ...base, type: "child-input" },
-    { ...base, type: "open", cols: 0, rows: 24 },
+    { ...base, type: "open", reattach: false, cols: 0, rows: 24 },
     { ...base, id: "../x", type: "detach" },
   ])
     expect(remoteRequest(value)).toBe(false);
-  expect(remoteRequest({ ...base, type: "open", cols: 80, rows: 24 })).toBe(true);
+  expect(remoteRequest({ ...base, type: "open", reattach: false, cols: 80, rows: 24 })).toBe(true);
   expect(remoteRequest({ ...base, type: "write", data: "x" })).toBe(true);
   for (const value of [
     null,
@@ -199,4 +199,39 @@ test("reassembly rejects excessive totals, gaps, mismatched identity, interleavi
       data: "x".repeat(MAX_REMOTE_MESSAGE),
     }),
   ]).toThrow("large");
+});
+
+test("open intent is a required boolean and terminal outcomes are typed and validated", () => {
+  const open = { type: "open", id: "one", request: 1, cols: 80, rows: 24 };
+  for (const reattach of [false, true]) expect(remoteRequest({ ...open, reattach })).toBe(true);
+  for (const reattach of [undefined, null, "true", 1, {}, []])
+    expect(remoteRequest({ ...open, reattach })).toBe(false);
+  const base = { type: "open-result", id: "one", request: 1 };
+  for (const outcome of [
+    { state: "live" },
+    { state: "gone" },
+    { state: "exited", code: 0 },
+    { state: "exited", code: 7 },
+  ])
+    expect(remoteResponse({ ...base, ...outcome })).toBe(true);
+  for (const invalid of [
+    base,
+    { ...base, id: "../bad", state: "gone" },
+    { ...base, request: 0, state: "gone" },
+    { ...base, state: "unknown" },
+    { ...base, state: "exited" },
+    { ...base, state: "exited", code: NaN },
+    { ...base, state: "exited", code: "0" },
+    { ...base, state: "gone", code: 0 },
+    { ...base, state: "live", code: 0 },
+  ])
+    expect(remoteResponse(invalid)).toBe(false);
+});
+
+test("a reassembled open outcome is validated as a remote response", () => {
+  const outcome = { type: "open-result", id: "one", request: 1, state: "exited", code: 7 };
+  const data = JSON.stringify(outcome);
+  expect(
+    new RemoteMessages().push({ type: "fragment", id: "one", offset: 0, total: data.length, data }),
+  ).toEqual(outcome);
 });

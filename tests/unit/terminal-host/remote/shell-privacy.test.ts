@@ -43,7 +43,9 @@ test.skipIf(process.platform === "win32")(
         expect(messages).toHaveLength(1);
       });
       const id = "private-terminal-capability-436d5c64";
-      socket.write(remoteFrame({ type: "open", id, request: 1, cols: 80, rows: 24 }));
+      socket.write(
+        remoteFrame({ type: "open", reattach: false, id, request: 1, cols: 80, rows: 24 }),
+      );
       await vi.waitFor(() => {
         expect(messages).toHaveLength(2);
       });
