@@ -1968,11 +1968,21 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
   await page.getByRole("button", { name: "Actions for repo", exact: true }).click();
   await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
   await expect(confirmation.getByRole("button", { name: "Delete 2", exact: true })).toBeVisible();
+  await expect(confirmation.getByRole("checkbox", { name: "Close when completed" })).toBeChecked();
   const cleanupStarted = performance.now();
   await confirmation.getByRole("button", { name: "Delete 2", exact: true }).click();
   try {
-    await expect(confirmation.getByRole("button", { name: "Done", exact: true })).toBeVisible();
-    await expect(confirmation.locator('[data-cleanup="removed"]')).toHaveCount(2);
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()
+            .find(
+              (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+            )
+            .isVisible(),
+        ),
+      )
+      .toBe(false);
     assert.equal(
       (await page.evaluate((repository) => window.desktop.worktrees(repository), repository))
         .length,
@@ -1982,7 +1992,7 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
     context.diagnostic(
       `Merged cleanup: ${JSON.stringify({
         elapsedMs: performance.now() - cleanupStarted,
-        checklist: await confirmation.locator(".cleanup").innerText(),
+        checklist: await confirmation.locator("body").innerText(),
       })}`,
     );
   }
@@ -3242,6 +3252,13 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
     ),
     [],
   );
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).focus();
+  await confirmation.keyboard.press("Shift+Tab");
+  await expect(confirmation.getByRole("checkbox", { name: "Close when completed" })).toBeFocused();
+  await confirmation.keyboard.press("Space");
+  await expect(
+    confirmation.getByRole("checkbox", { name: "Close when completed" }),
+  ).not.toBeChecked();
   await confirmation.getByRole("button", { name: "Force delete 3", exact: true }).click();
   await expect(confirmation.getByRole("button", { name: "Done", exact: true })).toBeVisible();
   await expect(confirmation.locator('[data-cleanup="removed"]')).toHaveCount(3);
