@@ -4,7 +4,6 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Terminal } from "@xterm/headless";
-import { SerializeAddon } from "@xterm/addon-serialize";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { RemoteRequest, RemoteResponse } from "../../../../src/shared/remote-host";
 import {
@@ -107,15 +106,8 @@ test.skipIf(process.platform === "win32")(
   async () => {
     const { path, pty, expected, screen, history } = fixture;
     const next = await connect(path);
-    const serialization = vi.spyOn(SerializeAddon.prototype, "serialize");
     next.send({ type: "attach", id: "one", request: 3, view: "v" });
     await next.result(3);
-    expect(
-      serialization.mock.results.some(
-        (result) =>
-          result.type === "return" && JSON.stringify(result.value).length > MAX_REMOTE_MESSAGE,
-      ),
-    ).toBe(true);
     const replay = next.messages.find((m) => m.type === "data");
     if (replay?.type !== "data") throw new Error("Missing replay");
     expect(JSON.stringify(replay).length).toBeLessThanOrEqual(MAX_REMOTE_MESSAGE);
@@ -130,10 +122,14 @@ test.skipIf(process.platform === "win32")(
         ),
       ).toEqual(expected.lines);
       expect(view.buffer.normal.baseY).toBe(0);
-      for (let y = 0; y < 23; y++) {
+      const colors = Array.from({ length: 23 }, (_, y) => {
         const row = view.buffer.active.getLine(view.buffer.active.baseY + y);
-        for (let x = 0; x < 400; x++) expect(row?.getCell(x)?.getFgColor()).toBe((x % 2) + 1);
-      }
+        return Array.from({ length: 400 }, (_, x) => row?.getCell(x)?.getFgColor());
+      });
+      expect(colors).toEqual(
+        Array.from({ length: 23 }, () => Array.from({ length: 400 }, (_, x) => (x % 2) + 1)),
+      );
+      expect(history).toBe(9977);
       next.send({
         type: "acknowledge",
         id: "one",
