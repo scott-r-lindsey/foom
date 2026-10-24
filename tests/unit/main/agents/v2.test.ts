@@ -275,10 +275,6 @@ it("prepares ordered argv, UUID, display and prompt; resume adds no greeting or 
     fresh.install,
   );
   expect(fresh.provider.needsNotifier(fresh.install, undefined)).toBe(false);
-  await expect(fresh.provider.prepareMcp("http://example.com")).rejects.toThrow("context");
-  expect(() =>
-    fresh.provider.arguments(fresh.install, request, [], [], undefined, undefined, false, false),
-  ).toThrow("preparation");
   const greeting = await launch(model(), {}, [], undefined, true);
   expect(greeting.prepared.args.at(-1)).toContain("greet the user");
   const unsupported = await launch(model(), {}, [], undefined, true, "fixture 1.2.3", "--inline");
@@ -593,4 +589,66 @@ it("keeps an environment-selected data file when its separate MCP argv attachmen
   const path = required(prepared.environment?.[0]).value;
   expect(await readFile(path, "utf8")).toBe('{"name":"launch data"}');
   expect(prepared.args).not.toContain(path);
+});
+
+it("releases hooks without an unhandled rejection when launch-file removal fails", async () => {
+  const provider = v2Provider(model(), () => Promise.resolve());
+  const installation = provider.discover(
+    "/fixture/agent",
+    "fixture 1.2.3",
+    "--inline --prompt --mcp",
+  );
+  const dispose = vi.fn();
+  const prepared = await provider.prepareLaunch(installation, request, [], control, false, false, {
+    observerCommand: "/fixture/observer",
+    observerArgv: [],
+    env: {},
+    dispose,
+  });
+  let file: string | undefined;
+  const failedRemoval = vi.spyOn(fs, "rm").mockRejectedValueOnce(Error("Directory unavailable"));
+  try {
+    expect(prepared.args).toContain("--mcp");
+    file = required(prepared.args[prepared.args.indexOf("--mcp") + 1]);
+    expect(() => {
+      prepared.dispose();
+    }).not.toThrow();
+    expect(dispose).toHaveBeenCalledOnce();
+    await vi.waitFor(() => {
+      expect(failedRemoval).toHaveBeenCalledOnce();
+    });
+    await expect(readFile(file, "utf8")).resolves.toContain("Bearer ${FOOM_CONTROL_TOKEN}");
+  } finally {
+    failedRemoval.mockRestore();
+    prepared.dispose();
+    if (file) {
+      const createdFile = file;
+      await vi.waitFor(async () => {
+        await expect(readFile(createdFile, "utf8")).rejects.toThrow();
+      });
+    }
+  }
+});
+
+it("keeps launch capabilities unavailable when discovery metadata is missing", async () => {
+  const provider = v2Provider(model(), () => Promise.resolve());
+  const installation = {
+    id: fixture.id,
+    path: null,
+    version: null,
+    hooks: false,
+    reason: "Not found on PATH.",
+  };
+  expect(provider.needsNotifier(installation, undefined)).toBe(false);
+  const prepared = await provider.prepareLaunch(installation, request, [], control, false, true);
+  try {
+    expect(prepared.mcp).toBe(false);
+    expect(prepared.args).not.toContain("--mcp");
+    expect(prepared.args).not.toContain("--inline");
+  } finally {
+    prepared.dispose();
+  }
+  await expect(
+    provider.prepareLaunch(installation, { ...request, prompt: "task" }, [], control, false, true),
+  ).rejects.toThrow("cannot take an initial prompt");
 });

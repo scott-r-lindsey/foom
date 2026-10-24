@@ -5,21 +5,8 @@ import agy from "../../fixtures/agent-plugins-v2/agy.json";
 import copilot from "../../fixtures/agent-plugins-v2/copilot.json";
 import { parseAgentManifest } from "../../../src/shared/agent-plugin-parser";
 import { AgentManifestError } from "../../../src/shared/agent-manifest";
-function changed(fixture: unknown, path: string, value: unknown, remove = false): string {
-  const draft: unknown = structuredClone(fixture);
-  let parent: unknown = draft;
-  const keys = path.split(".");
-  const last = keys.pop();
-  for (const key of keys) {
-    if (typeof parent !== "object" || parent === null) throw Error("Bad test path");
-    parent = Reflect.get(parent, key);
-  }
-  if (typeof parent !== "object" || parent === null || last === undefined)
-    throw Error("Bad test path");
-  if (remove) Reflect.deleteProperty(parent, last);
-  else Reflect.set(parent, last, value);
-  return JSON.stringify(draft);
-}
+import { changed } from "../../fixtures/manifest-mutation";
+
 const parse = (source: string) => parseAgentManifest(source, "bundled");
 const test = (field: unknown, op = "eq", value: unknown = true) => ({ field, op, value });
 const when = (field: unknown, op = "eq", value: unknown = true) => ({
