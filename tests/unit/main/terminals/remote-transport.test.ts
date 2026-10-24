@@ -343,6 +343,36 @@ test.each(["open", "theme", "attach"])(
   },
 );
 
+test("replies buffered after restoration expiry cannot renew the retry budget", async () => {
+  await ready();
+  transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
+  child.message({ type: "result", id: "one", request: 2, lines: [] });
+  const exit = vi.fn();
+  transport.on("exit", exit);
+  child.emit("close");
+  for (let attempt = 0; attempt < 5; attempt++) {
+    child = new Child();
+    mock.spawn.mockReturnValue(child);
+    await vi.advanceTimersByTimeAsync(1000);
+    child.greet();
+    child.message({ type: "result", id: "one", request: requestOf(child, "open"), lines: [] });
+    child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+    await vi.advanceTimersByTimeAsync(120000);
+    expect(child.kill).toHaveBeenCalledOnce();
+    const before = [...events];
+    // SIGTERM has happened, but the fixture deliberately delays close.
+    child.message({ type: "result", id: "one", request: requestOf(child, "attach"), lines: [] });
+    child.message({ type: "data", id: "one", view: "v", token: "late", data: "stale" });
+    expect(events).toEqual(before);
+    child.emit("close");
+  }
+  await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+  expect(mock.spawn).toHaveBeenCalledTimes(6);
+  expect(exit).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
+  expect(transport.kill()).toBe(false);
+});
+
 test("foreign fragments and failed restoration responses terminate the SSH stream", async () => {
   await ready();
   child.stdout.write(

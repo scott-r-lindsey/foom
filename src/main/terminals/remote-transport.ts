@@ -90,9 +90,15 @@ export class RemoteTransport extends EventEmitter {
     let uploading = false;
     const frames = new RemoteFrames();
     const responses = new RemoteMessages();
-    const deadline = setTimeout(() => child.kill(), 120000);
+    let dead = false;
+    const deadline = setTimeout(() => {
+      // Invalidate before SIGTERM: buffered replies can arrive before close.
+      dead = true;
+      this.ready = false;
+      child.kill();
+    }, 120000);
     const receive = (bytes: Buffer) => {
-      if (this.child !== child || this.closed) return;
+      if (dead || this.child !== child || this.closed) return;
       try {
         if (!bootstrapped) {
           header = Buffer.concat([header, bytes]);

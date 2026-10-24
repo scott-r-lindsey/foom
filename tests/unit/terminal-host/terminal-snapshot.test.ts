@@ -94,6 +94,65 @@ test.each([false, true])(
   },
 );
 
+test.each([false, true])(
+  "bounded replay preserves blank-cell backgrounds in both buffers (alternate=%s)",
+  async (alternate) => {
+    const host = new Terminal({ cols: 20, rows: 8, allowProposedApi: true });
+    const view = new Terminal({ cols: 20, rows: 8, allowProposedApi: true });
+    const addon = new SerializeAddon();
+    host.loadAddon(addon);
+    const cells = (terminal: Terminal) =>
+      Array.from({ length: terminal.rows }, (_, row) =>
+        Array.from({ length: terminal.cols }, (_, col) => {
+          const cell = terminal.buffer.active
+            .getLine(terminal.buffer.active.baseY + row)
+            ?.getCell(col);
+          return [cell?.getChars(), cell?.getBgColorMode(), cell?.getBgColor()];
+        }),
+      );
+    try {
+      await write(host, "\x1b[41m" + "red\r\n".repeat(40));
+      await write(
+        host,
+        "\x1b[48;2;245;244;243m\x1b[2J\x1b[HNORMAL\x1b[3;4H\x1b[44m\x1b[5X\x1b[31;42m",
+      );
+      if (alternate)
+        await write(
+          host,
+          "\x1b[?1049h\x1b[41m\x1b[2J\x1b[HALT\x1b[4;5H\x1b[48;2;245;244;243m\x1b[7X\x1b[31;42m",
+        );
+      await write(
+        host,
+        "\x1b[2;8H\x1b[49m\x1b[2X\x1b[3;1H\x1b[48;5;200m\x1b[2X\x1b[3;3H\x1b[103m\x1b[2X\x1b[3;5H界\x1b[31;42m",
+      );
+      const history = host.buffer.normal.baseY;
+      // Force the real serializer down its bounded, zero-scrollback path.
+      let attempts = 0;
+      const data = terminalSnapshot(host, addon, () => ++attempts > 1);
+      expect(attempts).toBe(2);
+      expect(host.buffer.normal.baseY).toBe(history);
+      await write(view, data);
+      expect(view.buffer.normal.baseY).toBe(0);
+      expect(cells(view)).toEqual(cells(host));
+      expect(view.buffer.active.cursorX).toBe(host.buffer.active.cursorX);
+      expect(view.buffer.active.cursorY).toBe(host.buffer.active.cursorY);
+      expect(view.modes).toEqual(host.modes);
+      // Subsequent erasure checks the restored current pen as well as cells.
+      for (const data of ["\x1b[X", "\x1b[?1049l", "\x1b[X"]) {
+        await write(host, data);
+        await write(view, data);
+        expect(cells(view)).toEqual(cells(host));
+        expect(view.buffer.active.cursorX).toBe(host.buffer.active.cursorX);
+        expect(view.buffer.active.cursorY).toBe(host.buffer.active.cursorY);
+      }
+      expect(host.buffer.normal.baseY).toBe(history);
+    } finally {
+      host.dispose();
+      view.dispose();
+    }
+  },
+);
+
 test("fails explicitly if the pinned xterm margin representation changes", () => {
   const host = new Terminal({ cols: 20, rows: 8, allowProposedApi: true });
   const addon = new SerializeAddon();
@@ -160,9 +219,14 @@ for (const alternate of [false, true]) {
   }
 }
 
-test.each([false, true])(
-  "pending wrap preserves styled wide cells and the pen (alternate=%s)",
-  async (alternate) => {
+test.each([
+  { alternate: false, bounded: false },
+  { alternate: true, bounded: false },
+  { alternate: false, bounded: true },
+  { alternate: true, bounded: true },
+])(
+  "pending wrap preserves styled wide cells and the pen ($alternate, bounded=$bounded)",
+  async ({ alternate, bounded }) => {
     const host = new Terminal({ cols: 10, rows: 6, allowProposedApi: true });
     const view = new Terminal({ cols: 10, rows: 6, allowProposedApi: true });
     const addon = new SerializeAddon();
@@ -172,7 +236,8 @@ test.each([false, true])(
       await write(host, "\x1b[2;5r\x1b[3;1H0123456789");
       if (alternate) await write(host, "\x1b[?1049h");
       await write(host, "\x1b[2;5r\x1b[5;1H\x1b[31;44;1m12  5678界\x1b[0;32m\x1b[4h");
-      await write(view, terminalSnapshot(host, addon));
+      let attempts = 0;
+      await write(view, terminalSnapshot(host, addon, bounded ? () => ++attempts > 1 : undefined));
       const cells = (terminal: Terminal) =>
         Array.from({ length: terminal.rows }, (_, y) =>
           Array.from({ length: terminal.cols }, (_, x) => {

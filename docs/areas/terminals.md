@@ -99,7 +99,9 @@ acknowledging attach or processing another attachment.
 Replay budgets include the complete JSON-encoded response, reset and color state.
 If retained history exceeds the message cap, replay falls back to the visible
 normal/alternate buffers, cursor and modes, omitting scrollback from that replay.
-The daemon's retained history is not erased and remains available to tail requests.
+Blank visible cells retain their background colors in both buffers, including
+trailing blank rows omitted by the pinned serializer. The daemon's retained
+history is not erased and remains available to tail requests.
 Both peers negotiate the SHA-256 build identity before operations. The shell-only
 protocol permits open, attach/replay, input, resize, theme, acknowledgement, screen,
 tail, stop and close; it cannot create arbitrary commands, send hooks/MCP, or shut
@@ -130,7 +132,9 @@ consumes an attempt; five such attempts terminate the transport and fail the til
 The 120-second connection deadline remains active throughout reconnect negotiation,
 open, state restoration and replay, and is cleared only after all restoration
 acknowledgements arrive. An unanswered internal request kills that SSH stream and
-consumes an attempt; partial progress does not extend the deadline.
+consumes an attempt; partial progress does not extend the deadline. Expiry invalidates
+the connection before signalling SSH, so buffered acknowledgements received before
+process close cannot finish restoration or renew the retry allowance.
 Input interrupted by disconnect is failed rather than replayed. Slow output above
 1 MiB of queued live updates or socket writes disconnects the view; headless parsing continues.
 Quit/dispose disconnects remote shells; explicit Stop or Close terminates them.
