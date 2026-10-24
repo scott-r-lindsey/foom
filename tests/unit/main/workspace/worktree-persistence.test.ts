@@ -1,14 +1,4 @@
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rename,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
@@ -16,19 +6,13 @@ import { Workspace } from "../../../../src/main/workspace/workspace";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git as execute } from "../../../helpers/git.js";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
+import { createWorktreeFixture } from "./worktree-git-fixture";
 
 // Real Git startup and filesystem IO are slower on Windows (run 39076862694).
 vi.setConfig({ testTimeout: nativeDeadline(5000), hookTimeout: nativeDeadline(10_000) });
 
-// Vitest timeouts do not cancel async callbacks. Keep the entire operation alive
-// through teardown, including any Git commands it starts after the timeout.
-let fixtureWork: Promise<void> | undefined;
-function usingFixture(work: () => Promise<void>): () => Promise<void> {
-  return () => {
-    fixtureWork = work();
-    return fixtureWork;
-  };
-}
+const fixture = createWorktreeFixture();
+const usingFixture = fixture.usingFixture;
 
 let temporary: string;
 let repo: string;
@@ -40,30 +24,11 @@ async function git(...args: string[]): Promise<string> {
 }
 beforeEach(
   usingFixture(async () => {
-    temporary = await realpath(await mkdtemp(join(tmpdir(), "foom-worktrees-")));
-    repo = join(temporary, "repo with spaces");
-    root = join(temporary, "root");
-    await mkdir(repo);
-    await git("init", "-b", "main");
-    await git(
-      "-c",
-      "user.name=Test",
-      "-c",
-      "user.email=test@example.com",
-      "commit",
-      "--allow-empty",
-      "-m",
-      "Initial",
-    );
-    service = new WorktreeService(root);
-    await service.addRepository(repo);
+    ({ temporary, repo, root, service } = await fixture.create());
   }),
 );
 afterEach(async () => {
-  await Promise.allSettled(fixtureWork ? [fixtureWork] : []);
-  fixtureWork = undefined;
-  vi.unstubAllEnvs();
-  await rm(temporary, { recursive: true, force: true });
+  await fixture.cleanup();
 });
 
 describe("persistent ownership", () => {

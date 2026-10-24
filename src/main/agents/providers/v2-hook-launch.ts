@@ -6,6 +6,7 @@ import { writeOwnedFile, readOwnedFile } from "./v2-files";
 import { V2ExecutionHooks } from "./v2-health";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { userInfo } from "node:os";
 import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
@@ -26,7 +27,6 @@ export async function prepareV2Hooks(
   installed = false,
 ): Promise<AgentHooks & { disposeAndWait(): Promise<void> }> {
   const temporary = await mkdtemp(join(scratch, "foom-v2-hooks-"));
-  const cleanupState: { removal?: Promise<void> } = {};
   try {
     const directory = await privateDirectory(temporary);
     const stableRoot = await privateDirectory(
@@ -39,11 +39,18 @@ export async function prepareV2Hooks(
     const env: Record<string, string> = {};
     let disposed = false;
     const dispose = () => {
-      if (disposed) return;
-      disposed = true;
-      launch?.revoke();
-      bind(key, undefined);
-      cleanupState.removal = rm(temporary, { recursive: true, force: true }).catch(() => undefined);
+      if (!disposed) {
+        disposed = true;
+        launch?.revoke();
+        bind(key, undefined);
+      }
+      // dispose is also called by synchronous quit paths; finish before returning.
+      // A repeated dispose can retry removal without restoring credentials.
+      try {
+        rmSync(temporary, { recursive: true, force: true, maxRetries: 3 });
+      } catch (error) {
+        console.warn("Unable to remove agent hook files", error);
+      }
     };
     try {
       for (const channel of model.hooks?.channels ?? []) {
@@ -151,9 +158,9 @@ export async function prepareV2Hooks(
           if (!disposed) bind(key, terminal);
         },
         dispose,
-        disposeAndWait: async () => {
+        disposeAndWait: () => {
           dispose();
-          await cleanupState.removal;
+          return Promise.resolve();
         },
       };
     } catch (error) {
@@ -161,7 +168,7 @@ export async function prepareV2Hooks(
       throw error;
     }
   } catch (error) {
-    await (cleanupState.removal ?? rm(temporary, { recursive: true, force: true }));
+    await rm(temporary, { recursive: true, force: true });
     throw error;
   }
 }

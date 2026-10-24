@@ -50,6 +50,28 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 
 The renderer names repositories and worktrees only by paths main returned, and agents by ID. Main copies the known launch fields, checks the repository is registered and the checkout is authorized for that launch, and resolves the executable itself. A launched terminal belongs to the app; only its view is window-scoped.
 
+## Preload response validation (#780)
+
+The sandboxed bridges receive IPC values as `unknown` and validate required and
+optional nested fields before exposing typed data. This includes workspace and
+sidebar inventories, agent reports, settings/themes, config status, environment
+rows, scans, menus, fonts and sound replies. Numeric fields must be finite;
+counts and revisions must be nonnegative safe integers, and enum values must be
+known. Malformed replies reject; malformed events never reach typed callbacks.
+The existing window/audio read fallbacks remain empty/disabled valid state.
+Invoke replies are recursively rebuilt from validated fields, including nested
+arrays, unions and explicitly declared dictionaries; undeclared object properties
+are not exposed. Byte replies are copied. Void capabilities discard internal
+main-process return values.
+
+`preview:place` validates its UUID request, 128-bit hex preview ID and positive
+safe-integer expiry before buffering or dispatch. Expired requests are discarded;
+human moves retain main's existing maximum-safe-integer expiry. The existing
+256-request queue bound and main-side placement validation remain in force.
+
+Validators stay inline in each preload. No runtime loader dependency or
+main-side sender/payload validation changes.
+
 ## Error codes
 
 Capability rejections and their fixed renderer messages follow the [coded error contract](errors.md#coded-capability-errors). `workspace:sidebar-command` additionally accepts `prune-worktree` with exactly `kind`, `repository` and `worktree`; main owns its [filesystem checks](worktrees.md#pruning-stale-worktrees).

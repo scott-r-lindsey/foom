@@ -19,7 +19,7 @@ import { stagePlugin } from "../agents/plugin-staging";
 import { observerHealth } from "../agents/providers/installed-observers";
 import { agentProvider, knownAgentId, providerRevision } from "../agents/providers/registry";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
-import type { AgentSetupContext, WorktreeLaunchContext } from "./feature-context";
+import type { AgentSetupContext, WorktreeLaunchContext } from "./workspace-capabilities";
 import { homeDirectory, shellPath } from "./home-shell";
 
 export async function confirmAgentLaunch(

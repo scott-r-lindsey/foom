@@ -19,8 +19,19 @@ Test deadlines and step limits are unchanged.
 | --- | --- |
 | `terminal.test.js` | Shell I/O, cursor, PTY host, output, input and restart |
 | `confirmations.test.js` | Trusted dialogs, quit and config argument consent |
-| `workspace.test.js` | Repositories, worktrees, sessions, windows, sidebar and tiles |
-| `previews.test.js` | Markdown/HTML views, focus, composition, security and reload |
+| `workspace-cleanup.test.js` | Merged worktree cleanup, review and progress |
+| `workspace-commands.test.js` | Application menu and native keyboard commands |
+| `workspace-repositories.test.js` | Repository inventory, worktrees and guarded removal |
+| `workspace-sidebar.test.js` | Sidebar focus, accessibility, panels and preferences |
+| `workspace-tiles.test.js` | Tile placement, drag/split/swap, restore and focus |
+| `workspace-windows.test.js` | Profile locks, exclusive views and window restore |
+| `previews-files.test.js` | Contained file picks, persistence, removal and Markdown rendering |
+| `previews-focus.test.js` | Native keyboard focus, navigation handoff and board shortcuts |
+| `previews-security.test.js` | Page isolation, trusted external links and local HTTPS permissions |
+| `previews-agent.test.js` | Agent preview columns, ownership, focus and human close |
+| `previews-composition.test.js` | Panels, scrims, native frames, hit testing and gutter attachment |
+| `previews-reload.test.js` | File saves, assets, missing files, scroll, watchers and symlink retargeting |
+| `previews-move.test.js` | HTML/Markdown window moves and destination placement recovery |
 | `preflight.test.js` | First-run setup, responsive steps and repository scans |
 | `settings-accessibility.test.js` | Fullscreen transitions, keyboard focus, zoom and section accessibility |
 | `settings-appearance.test.js` | Themes, native chrome, identity badges, fonts, window size and shared zoom |
@@ -30,6 +41,7 @@ Test deadlines and step limits are unchanged.
 | `agents.test.js` | Fixture agents, hooks, conversations, orchestration and plugins |
 | `application.test.js` | Native board startup, fonts/themes and production bundle |
 | `harness.test.js` | Launch environment, quit acknowledgement and cleanup contracts |
+| `session-storage.test.js` | Chromium storage isolation, restore, temporary-directory fallback and cleanup |
 
 `harness.js` owns reusable launch, fixture, cleanup, diagnostics and interaction
 helpers. Feature-specific helpers stay beside their scenarios. It registers no

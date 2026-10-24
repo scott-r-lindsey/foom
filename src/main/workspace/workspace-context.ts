@@ -1,7 +1,7 @@
-import { reviewSnapshot } from "./review-snapshot";
+import { workspaceFeatureWiring } from "./workspace-feature-wiring";
+import { workspaceOrchestrationHost } from "./workspace-orchestration-host";
 import * as orchestrationCommands from "./orchestration-commands";
 
-import { ControlError } from "../../node-common/control-validation";
 import type { ActionLogPage } from "../../shared/action-log";
 import type { AgentHooks, AgentId, AgentLaunch } from "../../shared/agents";
 import type { ConfirmWorkspace } from "../../shared/confirmation";
@@ -11,7 +11,7 @@ import type { McpConnection, WorkspaceSnapshot, WorkspaceTerminal } from "../../
 import type { BranchInventory, Repository, Worktree } from "../../shared/worktrees";
 import { AgentService } from "../agents/agents";
 import { AgyPlugin } from "../agents/agy-plugin";
-import { EMPTY_AGENT_ARGUMENTS, hasBypassArgument } from "../agents/default-arguments";
+import { EMPTY_AGENT_ARGUMENTS } from "../agents/default-arguments";
 import type { ProbeHttp } from "../agents/probe-http";
 import type { AgentProbes } from "../agents/probes";
 import { prepareHookLaunch } from "../agents/providers/hook-launch";
@@ -22,6 +22,7 @@ import type { ControlLaunch } from "../control/types";
 import { CleanupOwner } from "./cleanup-owner";
 import { ExecutionOwner } from "./execution-owner";
 import type { homeShellFacts } from "./home-shell";
+import { SessionLifecycle } from "./session-lifecycle";
 import { SessionOwner } from "./session-owner";
 import * as sidebarCommands from "./sidebar-commands";
 import type { Agents, WorkspaceDependencies, WorkspaceMethods } from "./workspace-types";
@@ -33,6 +34,7 @@ import * as worktreeLaunch from "./worktree-launch";
  * identifiers crossing into evaluation; agent text never does.
  */
 export class WorkspaceContext {
+  private readonly features = workspaceFeatureWiring(this);
   /** Repository orchestrators and their children; the control service delegates here. */
   readonly orchestration: Orchestration;
   readonly agents: Agents;
@@ -44,6 +46,7 @@ export class WorkspaceContext {
   readonly cleanup: CleanupOwner;
   readonly launched = new Map<string, WorkspaceTerminal>();
   readonly executionOwner: ExecutionOwner;
+  readonly lifecycle: SessionLifecycle;
   private sidebarRead: ReturnType<WorkspaceMethods["sidebarInventory"]> | undefined;
   readonly agyPlugin = new AgyPlugin();
   readonly hookKeys = new Map<string, string>();
@@ -96,7 +99,9 @@ export class WorkspaceContext {
     await audit.clearAudit();
   }
 
-  auditHuman: WorkspaceMethods["auditHuman"] = orchestrationCommands.auditHuman.bind(this);
+  auditHuman: WorkspaceMethods["auditHuman"] = orchestrationCommands.auditHuman.bind(
+    this.features.orchestrationCommands,
+  );
 
   constructor(readonly deps: WorkspaceDependencies) {
     this.now = deps.now ?? Date.now;
@@ -142,94 +147,24 @@ export class WorkspaceContext {
         }
       : undefined;
     this.orchestration = new Orchestration(
-      {
-        ...(deps.forge === undefined ? {} : { forge: deps.forge }),
-        terminals: () => this.snapshot().terminals,
-        auditHandoff: async (actor, report) => {
-          const audit = (await this.control)?.audit;
-          if (!audit) throw new ControlError("unavailable");
-          await audit.handoff(actor, report);
-        },
-        saveHandoffs: async () => {
-          await this.sessions.save();
-        },
-        createWorktree: (repository, branch) => this.createChildWorktree(repository, branch),
-        adoptWorktree: (repository, number, unused, revalidate) =>
-          this.withRepository(repository, async () => {
-            const key = `${repository}\0:adopt-pr-${String(number)}`;
-            if (this.busyWorktrees.has(key)) throw new ControlError("branch_in_use");
-            this.busyWorktrees.add(key);
-            let branchKey: string | undefined;
-            try {
-              return await this.deps.worktrees.adoptWorktree(
-                repository,
-                number,
-                unused,
-                (path, branch) => {
-                  if (branchKey === undefined) {
-                    const candidate = `${repository}\0${branch ?? ""}`;
-                    if (this.busyWorktrees.has(candidate)) throw new ControlError("branch_in_use");
-                    branchKey = candidate;
-                    this.busyWorktrees.add(candidate);
-                  }
-                  revalidate(path, branch);
-                  if (this.snapshot().terminals.some((row) => row.worktree === path && !row.exited))
-                    throw new ControlError("branch_in_use");
-                },
-                this.location,
-              );
-            } finally {
-              this.busyWorktrees.delete(key);
-              if (branchKey !== undefined) this.busyWorktrees.delete(branchKey);
-              this.refresh();
-            }
-          }),
-        launch: (parentId, repository, worktree, identity, agent, prompt, step) =>
-          this.launchChild(parentId, repository, worktree, identity, agent, prompt, step),
-        reviewSnapshot: (repository, worktree, identity) =>
-          reviewSnapshot(this.deps.worktrees, repository, worktree, identity),
-        reviewAvailable: async (agent) =>
-          (await this.scanAgents(false)).agents.some(
-            (item) => item.id === agent && item.path !== null && item.resume === true,
-          ),
-        bypassDefaults: (agent) => hasBypassArgument(agent, this.defaultArguments[agent] ?? []),
-        restoreWorktree: async (repository, path) => {
-          if (path === repository) return undefined;
-          const tree = (await this.deps.worktrees.listWorktrees(repository)).find(
-            (item) => item.path === path,
-          );
-          if (!tree?.managed || tree.bare || tree.locked || tree.prunable || tree.branch === null)
-            return undefined;
-          const identity = await this.deps.worktrees.launchIdentity(repository, path);
-          return { branch: tree.branch, identity };
-        },
-        stop: (id) => this.deps.terminals.stop(id),
-        close: (id) => this.sidebarCommand({ kind: "close", id }, () => Promise.resolve(true)),
-        place: (id, parentId) => {
-          if (this.showNewChildren) this.deps.placeChild?.(id, parentId);
-        },
-        starting: (id) => this.sessions.isRestoring(id),
-        reply: async (id, data) => {
-          if (!this.deps.terminals.childInput) throw new Error("Child input adapter unavailable");
-          this.input(id);
-          await this.deps.terminals.childInput(id, data);
-        },
-        reveal: (id) => this.deps.reveal?.(id),
-        tail: (id, lines) => this.deps.terminals.tail(id, lines),
-        remove: async (repository, worktree, identity, confirm, revalidate) => {
-          return this.cleanup.removeOwnedTree(repository, worktree, identity, confirm, revalidate);
-        },
-        dialog: (content, signal) => this.deps.dialog?.(content, signal) ?? Promise.resolve(false),
-        changed: () => {
-          if (!this.closed) {
-            this.persist();
-            this.refresh();
-          }
-        },
-      },
+      workspaceOrchestrationHost(this.features.orchestrationHost),
       this.now,
       () => this.concurrentChildren,
     );
+    this.lifecycle = new SessionLifecycle({
+      release: (id) => {
+        this.revokeConfig(id);
+        void this.probes?.exited(id).catch(() => undefined);
+        this.agents.release(id);
+      },
+      observed: (id) => {
+        this.orchestration.exited(id);
+      },
+      evaluate: (id, code) => this.executionOwner.exited(id, code),
+      inventorySettled: () => {
+        this.persist();
+      },
+    });
     this.executionOwner = new ExecutionOwner({
       terminal: (id) => this.launched.get(id),
       tail: (id, lines) => deps.terminals.tail(id, lines),
@@ -244,9 +179,10 @@ export class WorkspaceContext {
         if (entry?.kind === "agent") deps.forge?.recheck(entry.worktree);
       },
       exited: (id) => {
-        this.revokeConfig(id);
-        void this.probes?.exited(id).catch(() => undefined);
-        this.persist();
+        this.lifecycle.inventorySettled(id);
+      },
+      reset: (id) => {
+        this.lifecycle.reset(id);
       },
       publishChildEvents: () => {
         this.orchestration.childEvents.publish();
@@ -435,23 +371,28 @@ export class WorkspaceContext {
     this.refresh();
   }
 
-  probeState: WorkspaceMethods["probeState"] = sidebarCommands.probeState.bind(this);
+  probeState: WorkspaceMethods["probeState"] = sidebarCommands.probeState.bind(
+    this.features.configLaunch,
+  );
   snapshot(): WorkspaceSnapshot {
     return {
       repositories: this.deps.worktrees.listRepositories(),
       terminals: [...this.launched.values()].map((entry) => {
         const view = this.executionOwner.view(entry.id);
+        const exit = this.lifecycle.exit(entry.id);
+        // Dormant restored/failed launches have no host observation in this process.
+        const exitCode = exit && exit.phase !== "host-observed" ? exit.code : view.exitCode;
         return {
           ...entry,
           ...(view.execution ? { execution: view.execution } : {}),
-          ...(view.exitCode !== undefined ? { exitCode: view.exitCode } : {}),
-          foregroundProgram: view.exitCode === undefined ? (view.foregroundProgram ?? "") : "",
+          ...(exitCode !== undefined ? { exitCode } : {}),
+          foregroundProgram: exitCode === undefined ? (view.foregroundProgram ?? "") : "",
           state: this.probeState(entry.id, this.executionOwner.currentState(entry.id)),
           outputRevision: view.outputRevision,
           inputRevision: view.inputRevision,
           exited:
             !this.sessions.isRestoring(entry.id) &&
-            (entry.dormant === true || view.exitCode !== undefined),
+            (entry.dormant === true || exitCode !== undefined),
           ...this.orchestrationView(entry.id),
           ...(this.sessions.roleNotRestored(entry.id) ? { roleNotRestored: true } : {}),
           mcpConnection: this.mcpConnections.get(entry.id),
@@ -532,27 +473,42 @@ export class WorkspaceContext {
   }
 
   /** Create only: nothing launches. Without a location, the configured one applies. */
-  createWorktree: WorkspaceMethods["createWorktree"] = sidebarCommands.createWorktree.bind(this);
+  createWorktree: WorkspaceMethods["createWorktree"] = sidebarCommands.createWorktree.bind(
+    this.features.repositoryOperations,
+  );
 
-  addWorktree: WorkspaceMethods["addWorktree"] = sidebarCommands.addWorktree.bind(this);
+  addWorktree: WorkspaceMethods["addWorktree"] = sidebarCommands.addWorktree.bind(
+    this.features.repositoryOperations,
+  );
 
   scannedProviders = -1;
-  scanAgents: WorkspaceMethods["scanAgents"] = worktreeLaunch.scanAgents.bind(this);
-  changeAgentSetup: WorkspaceMethods["changeAgentSetup"] =
-    worktreeLaunch.changeAgentSetup.bind(this);
+  scanAgents: WorkspaceMethods["scanAgents"] = worktreeLaunch.scanAgents.bind(
+    this.features.agentSetup,
+  );
+  changeAgentSetup: WorkspaceMethods["changeAgentSetup"] = worktreeLaunch.changeAgentSetup.bind(
+    this.features.agentSetup,
+  );
 
-  changeAgyPlugin: WorkspaceMethods["changeAgyPlugin"] = worktreeLaunch.changeAgyPlugin.bind(this);
+  changeAgyPlugin: WorkspaceMethods["changeAgyPlugin"] = worktreeLaunch.changeAgyPlugin.bind(
+    this.features.agentSetup,
+  );
 
   confirmAgentLaunch: WorkspaceMethods["confirmAgentLaunch"] =
-    worktreeLaunch.confirmAgentLaunch.bind(this);
+    worktreeLaunch.confirmAgentLaunch.bind(this.features.worktreeLaunch);
 
-  launch: WorkspaceMethods["launch"] = worktreeLaunch.launch.bind(this);
+  launch: WorkspaceMethods["launch"] = worktreeLaunch.launch.bind(this.features.worktreeLaunch);
 
-  launchAgent: WorkspaceMethods["launchAgent"] = worktreeLaunch.launchAgent.bind(this);
+  launchAgent: WorkspaceMethods["launchAgent"] = worktreeLaunch.launchAgent.bind(
+    this.features.worktreeLaunch,
+  );
 
-  startWorktree: WorkspaceMethods["startWorktree"] = worktreeLaunch.startWorktree.bind(this);
+  startWorktree: WorkspaceMethods["startWorktree"] = worktreeLaunch.startWorktree.bind(
+    this.features.worktreeLaunch,
+  );
 
-  removeWorktree: WorkspaceMethods["removeWorktree"] = sidebarCommands.removeWorktree.bind(this);
+  removeWorktree: WorkspaceMethods["removeWorktree"] = sidebarCommands.removeWorktree.bind(
+    this.features.repositoryOperations,
+  );
 
   /** Shared launch/removal reservation; cleanup owns the removal sequence. */
   async removeTree(
@@ -601,8 +557,9 @@ export class WorkspaceContext {
   }
 
   /** Shells get the All sessions layer only; `pathFirst` stays ahead of its PATH entries. */
-  shellEnvironment: WorkspaceMethods["shellEnvironment"] =
-    worktreeLaunch.shellEnvironment.bind(this);
+  shellEnvironment: WorkspaceMethods["shellEnvironment"] = worktreeLaunch.shellEnvironment.bind(
+    this.features.worktreeLaunch,
+  );
 
   /**
    * Reusing a terminal ID resets the renderer's row and advances its launch version.
@@ -615,27 +572,39 @@ export class WorkspaceContext {
   }
 
   /** Shared shell launch path; callers validate their location before spawning. */
-  startShell: WorkspaceMethods["startShell"] = worktreeLaunch.startShell.bind(this);
+  startShell: WorkspaceMethods["startShell"] = worktreeLaunch.startShell.bind(
+    this.features.worktreeLaunch,
+  );
 
-  startHomeShell: WorkspaceMethods["startHomeShell"] = worktreeLaunch.startHomeShell.bind(this);
+  startHomeShell: WorkspaceMethods["startHomeShell"] = worktreeLaunch.startHomeShell.bind(
+    this.features.worktreeLaunch,
+  );
 
-  revokeConfig: WorkspaceMethods["revokeConfig"] = sidebarCommands.revokeConfig.bind(this);
+  revokeConfig: WorkspaceMethods["revokeConfig"] = sidebarCommands.revokeConfig.bind(
+    this.features.configLaunch,
+  );
   bindConfig(id: string, token: string): void {
     this.configTokens.set(id, token);
-    if (this.executionOwner.view(id).exitCode !== undefined) this.revokeConfig(id);
+    if (this.lifecycle.exit(id) || this.executionOwner.view(id).exitCode !== undefined)
+      this.revokeConfig(id);
   }
-  ensureProbeOpen: WorkspaceMethods["ensureProbeOpen"] = sidebarCommands.ensureProbeOpen.bind(this);
-  configCredential: WorkspaceMethods["configCredential"] =
-    sidebarCommands.configCredential.bind(this);
+  ensureProbeOpen: WorkspaceMethods["ensureProbeOpen"] = sidebarCommands.ensureProbeOpen.bind(
+    this.features.configLaunch,
+  );
+  configCredential: WorkspaceMethods["configCredential"] = sidebarCommands.configCredential.bind(
+    this.features.configLaunch,
+  );
 
   /** Config sessions have no worktree or repository grants. */
-  startConfig: WorkspaceMethods["startConfig"] = sidebarCommands.startConfig.bind(this);
+  startConfig: WorkspaceMethods["startConfig"] = sidebarCommands.startConfig.bind(
+    this.features.configLaunch,
+  );
 
   sidebarInventory: WorkspaceMethods["sidebarInventory"] = () => {
     if (this.sidebarRead) return this.sidebarRead;
     // Several windows and preview placement can request the same expensive inventory.
     // Share only work in flight; refresh/configure invalidate it for later callers.
-    const pending = sidebarCommands.sidebarInventory.call(this);
+    const pending = sidebarCommands.sidebarInventory.call(this.features.sidebarCommands);
     this.sidebarRead = pending;
     const clear = () => {
       if (this.sidebarRead === pending) this.sidebarRead = undefined;
@@ -644,14 +613,20 @@ export class WorkspaceContext {
     return pending;
   };
 
-  sidebarCommand: WorkspaceMethods["sidebarCommand"] = sidebarCommands.sidebarCommand.bind(this);
+  sidebarCommand: WorkspaceMethods["sidebarCommand"] = sidebarCommands.sidebarCommand.bind(
+    this.features.sidebarCommands,
+  );
 
-  resumeId: WorkspaceMethods["resumeId"] = worktreeLaunch.resumeId.bind(this);
+  resumeId: WorkspaceMethods["resumeId"] = worktreeLaunch.resumeId.bind(
+    this.features.worktreeLaunch,
+  );
 
-  startExisting: WorkspaceMethods["startExisting"] = worktreeLaunch.startExisting.bind(this);
+  startExisting: WorkspaceMethods["startExisting"] = worktreeLaunch.startExisting.bind(
+    this.features.worktreeLaunch,
+  );
 
   orchestrationView: WorkspaceMethods["orchestrationView"] =
-    orchestrationCommands.orchestrationView.bind(this);
+    orchestrationCommands.orchestrationView.bind(this.features.orchestrationCommands);
 
   /**
    * The session menu's Make orchestrator: main swaps the running session's grant, so no
@@ -659,41 +634,63 @@ export class WorkspaceContext {
    * is revoked once the human accepts the transfer, and its children stay with the human.
    */
   makeOrchestrator: WorkspaceMethods["makeOrchestrator"] =
-    orchestrationCommands.makeOrchestrator.bind(this);
+    orchestrationCommands.makeOrchestrator.bind(this.features.orchestrationCommands);
 
   /** Ends orchestration as exit does; the session keeps running as an ordinary agent. */
   revokeOrchestrator: WorkspaceMethods["revokeOrchestrator"] =
-    orchestrationCommands.revokeOrchestrator.bind(this);
+    orchestrationCommands.revokeOrchestrator.bind(this.features.orchestrationCommands);
 
   /** A new branch and worktree for an orchestrator child, under the same branch lock. */
   createChildWorktree: WorkspaceMethods["createChildWorktree"] =
-    orchestrationCommands.createChildWorktree.bind(this);
+    orchestrationCommands.createChildWorktree.bind(this.features.orchestrationCommands);
 
   /** An ordinary child with a read-only grant, no bypass defaults and no confirmation prompts. */
-  launchChild: WorkspaceMethods["launchChild"] = orchestrationCommands.launchChild.bind(this);
+  launchChild: WorkspaceMethods["launchChild"] = orchestrationCommands.launchChild.bind(
+    this.features.orchestrationCommands,
+  );
 
   subscribeExecution(listener: (event: ExecutionTransition) => void): () => void {
     return this.executionOwner.subscribeExecution(listener);
   }
 
   /** Evaluations remain ordered across invocations reusing the same terminal ID. */
-  enqueue: WorkspaceMethods["enqueue"] = orchestrationCommands.enqueue.bind(this);
+  enqueue: WorkspaceMethods["enqueue"] = orchestrationCommands.enqueue.bind(
+    this.features.executionEvents,
+  );
 
-  foreground: WorkspaceMethods["foreground"] = orchestrationCommands.foreground.bind(this);
-  shellState: WorkspaceMethods["shellState"] = orchestrationCommands.shellState.bind(this);
-  output: WorkspaceMethods["output"] = orchestrationCommands.output.bind(this);
-  evidence: WorkspaceMethods["evidence"] = orchestrationCommands.evidence.bind(this);
-  quiet: WorkspaceMethods["quiet"] = orchestrationCommands.quiet.bind(this);
+  foreground: WorkspaceMethods["foreground"] = orchestrationCommands.foreground.bind(
+    this.features.executionEvents,
+  );
+  shellState: WorkspaceMethods["shellState"] = orchestrationCommands.shellState.bind(
+    this.features.executionEvents,
+  );
+  output: WorkspaceMethods["output"] = orchestrationCommands.output.bind(
+    this.features.executionEvents,
+  );
+  evidence: WorkspaceMethods["evidence"] = orchestrationCommands.evidence.bind(
+    this.features.executionEvents,
+  );
+  quiet: WorkspaceMethods["quiet"] = orchestrationCommands.quiet.bind(
+    this.features.executionEvents,
+  );
 
   /** Resolve per-launch capabilities and persist validated conversation identity here. */
-  hook: WorkspaceMethods["hook"] = orchestrationCommands.hook.bind(this);
+  hook: WorkspaceMethods["hook"] = orchestrationCommands.hook.bind(this.features.executionEvents);
 
-  exited: WorkspaceMethods["exited"] = orchestrationCommands.exited.bind(this);
+  exited: WorkspaceMethods["exited"] = orchestrationCommands.exited.bind(
+    this.features.executionEvents,
+  );
 
-  removed: WorkspaceMethods["removed"] = orchestrationCommands.removed.bind(this);
+  removed: WorkspaceMethods["removed"] = orchestrationCommands.removed.bind(
+    this.features.executionEvents,
+  );
 
-  input: WorkspaceMethods["input"] = orchestrationCommands.input.bind(this);
-  feedback: WorkspaceMethods["feedback"] = orchestrationCommands.feedback.bind(this);
+  input: WorkspaceMethods["input"] = orchestrationCommands.input.bind(
+    this.features.executionEvents,
+  );
+  feedback: WorkspaceMethods["feedback"] = orchestrationCommands.feedback.bind(
+    this.features.executionEvents,
+  );
 
   /** Call after terminals have stopped. Revokes every launch and closes the receiver. */
   async dispose(): Promise<void> {

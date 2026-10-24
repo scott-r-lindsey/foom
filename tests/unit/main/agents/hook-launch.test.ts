@@ -2,6 +2,7 @@ import { replaceConfigProviders } from "../../../../src/main/agents/providers/re
 import type * as Fs from "node:fs/promises";
 import type * as HookPreparation from "../../../../src/main/agents/providers/v2-hook-launch";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
+import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { mkdtemp, readdir, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -39,8 +40,7 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   replaceConfigProviders([]);
   try {
-    // dispose() removes its launch directory asynchronously. Wait for it before
-    // deleting the parent: concurrent recursive removals can fail with EPERM on Windows.
+    // No launch files may remain after disposal or failed preparation.
     await vi.waitFor(async () => {
       expect(await launchDirectories()).toEqual([]);
     });
@@ -77,6 +77,7 @@ test("writes a private POSIX adapter and quotes its path for the hook shell", as
     hooks.bind?.("terminal-1");
     expect(bind).toHaveBeenCalledWith(key, "terminal-1");
     hooks.dispose();
+    expect(existsSync(join(scratch, directory))).toBe(false);
     hooks.dispose();
     hooks.bind?.("terminal-2");
     expect(revoke).toHaveBeenCalledOnce();
