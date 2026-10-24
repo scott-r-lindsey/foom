@@ -4,7 +4,18 @@ import { suiteFiles } from "../tests/electron/test-suites.js";
 
 // Deliberately narrow: new areas require an explicit coverage review here.
 const mappings = [
-  [/^src\/renderer\/preview\//, ["previews"]],
+  [
+    /^src\/renderer\/preview\//,
+    [
+      "previews-files",
+      "previews-focus",
+      "previews-security",
+      "previews-agent",
+      "previews-composition",
+      "previews-reload",
+      "previews-move",
+    ],
+  ],
   [
     /^src\/renderer\/terminal\//,
     [
@@ -16,7 +27,13 @@ const mappings = [
       "workspace-sidebar",
       "workspace-tiles",
       "workspace-windows",
-      "previews",
+      "previews-files",
+      "previews-focus",
+      "previews-security",
+      "previews-agent",
+      "previews-composition",
+      "previews-reload",
+      "previews-move",
     ],
   ],
   [
