@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Terminal } from "@xterm/headless";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { RemoteRequest, RemoteResponse } from "../../../../src/shared/remote-host";
 import {
   MAX_REMOTE_MESSAGE,
@@ -23,6 +23,10 @@ let host: ReturnType<typeof serveHost> | undefined;
 let root: string | undefined;
 const sockets: Socket[] = [];
 const build = "a".repeat(64);
+let fixture: Awaited<ReturnType<typeof prepareReplay>>;
+beforeEach(async () => {
+  fixture = await prepareReplay();
+});
 afterEach(async () => {
   for (const socket of sockets.splice(0)) socket.destroy();
   await host?.close();
@@ -59,41 +63,50 @@ async function connect(path: string) {
   return { socket, messages, send, result };
 }
 
+async function prepareReplay() {
+  let output = (_data: string) => {};
+  const exits = new Set<(event: { exitCode: number }) => void>();
+  const pty = {
+    write: vi.fn(),
+    resize: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    onData: (listener: typeof output) => {
+      output = listener;
+      return { dispose: () => {} };
+    },
+    onExit: (listener: (event: { exitCode: number }) => void) => {
+      exits.add(listener);
+      return { dispose: () => exits.delete(listener) };
+    },
+    kill: vi.fn(() => {
+      for (const exited of exits) exited({ exitCode: 0 });
+    }),
+  };
+  mock.spawn.mockReturnValue(pty);
+  root = await realpath(await mkdtemp(join(tmpdir(), "remote-replay-")));
+  host = serveHost(build, root);
+  await once(host.server, "listening");
+  const path = join(root, ".foom-host/host.sock");
+  const first = await connect(path);
+  const writes = vi.spyOn(Terminal.prototype, "write");
+  output(("\x1b[31mA\x1b[32mB".repeat(200) + "\r\n").repeat(10000));
+  first.send({ type: "screen", id: "one", request: 2 });
+  const expected = await first.result(2);
+  const screen = writes.mock.contexts.find((value) => value instanceof Terminal);
+  if (!(screen instanceof Terminal)) throw new Error("Missing host screen");
+  writes.mockRestore();
+  const closed = once(first.socket, "close");
+  first.socket.destroy();
+  await closed;
+  return { path, pty, expected, screen, history: screen.buffer.normal.baseY };
+}
+
 test.skipIf(process.platform === "win32")(
   "reattaches a real 400-column 10000-line ANSI screen above the message cap without losing visible rows",
   async () => {
-    let output = (_data: string) => {};
-    const exits = new Set<(event: { exitCode: number }) => void>();
-    const pty = {
-      write: vi.fn(),
-      resize: vi.fn(),
-      pause: vi.fn(),
-      resume: vi.fn(),
-      onData: (listener: typeof output) => {
-        output = listener;
-        return { dispose: () => {} };
-      },
-      onExit: (listener: (event: { exitCode: number }) => void) => {
-        exits.add(listener);
-        return { dispose: () => exits.delete(listener) };
-      },
-      kill: vi.fn(() => {
-        for (const exited of exits) exited({ exitCode: 0 });
-      }),
-    };
-    mock.spawn.mockReturnValue(pty);
-    root = await realpath(await mkdtemp(join(tmpdir(), "remote-replay-")));
-    host = serveHost(build, root);
-    await once(host.server, "listening");
-    const path = join(root, ".foom-host/host.sock");
-    const first = await connect(path);
-    const closed = once(first.socket, "close");
-    first.socket.destroy();
-    await closed;
-    output(("\x1b[31mA\x1b[32mB".repeat(200) + "\r\n").repeat(10000));
+    const { path, pty, expected, screen, history } = fixture;
     const next = await connect(path);
-    next.send({ type: "screen", id: "one", request: 2 });
-    const expected = await next.result(2);
     const serialization = vi.spyOn(SerializeAddon.prototype, "serialize");
     next.send({ type: "attach", id: "one", request: 3, view: "v" });
     await next.result(3);
@@ -129,8 +142,11 @@ test.skipIf(process.platform === "win32")(
         count: replay.data.length,
       });
       await next.result(4);
-      next.send({ type: "tail", id: "one", request: 5, lines: 10000 });
-      expect((await next.result(5)).lines).toHaveLength(10000);
+      expect(screen.buffer.normal.baseY).toBe(history);
+      expect(screen.buffer.normal.getLine(0)?.translateToString(true)).toBe("AB".repeat(200));
+      next.send({ type: "write", id: "one", request: 5, data: "fixture-input" });
+      await next.result(5);
+      expect(pty.write).toHaveBeenCalledWith("fixture-input");
       expect(mock.spawn).toHaveBeenCalledOnce();
       expect(pty.kill).not.toHaveBeenCalled();
       expect(next.socket.destroyed).toBe(false);
