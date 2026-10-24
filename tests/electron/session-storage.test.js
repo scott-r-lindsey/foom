@@ -14,8 +14,14 @@ const {
 } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
-const { boardPage, launchApp, quitAndWait, removeAfterApps } = require("./harness.js");
-const { createSessionData } = require("./session-storage.js");
+const {
+  boardPage,
+  createMemoryFixture,
+  launchApp,
+  quitAndWait,
+  removeAfterApps,
+} = require("./harness.js");
+const { createFixtureStorage } = require("./fixture-storage.js");
 const { deadline } = require("./test-policy.js");
 
 test("Chromium fixture storage survives restore, stays separate from Foom data and is cleaned after quit", async (context) => {
@@ -69,7 +75,7 @@ test("Chromium session storage falls back when shared memory is unavailable", as
   const temporary = await realpath(await mkdtemp(path.join(tmpdir(), "foom-session-storage-")));
   removeAfterApps(context, temporary);
   for (const platform of ["linux", "darwin", "win32"]) {
-    const directory = await createSessionData({
+    const directory = await createFixtureStorage("foom-chromium-", {
       platform,
       temporary,
       sharedMemory: path.join(temporary, "missing"),
@@ -79,23 +85,27 @@ test("Chromium session storage falls back when shared memory is unavailable", as
   }
 });
 
-test("Chromium fixture storage is removed when its worker hard-exits", async (context) => {
+test("Disposable Chromium and review storage is removed when its worker hard-exits", async (context) => {
   const temporary = await realpath(await mkdtemp(path.join(tmpdir(), "foom-session-exit-")));
   removeAfterApps(context, temporary);
   const child = spawnSync(
     process.execPath,
     [
       "-e",
-      `const { createSessionData } = require(process.argv[1]);
+      `const { createFixtureStorage } = require(process.argv[1]);
        const { writeFileSync, writeSync } = require('node:fs');
        const path = require('node:path');
        (async () => {
-         const directory = await createSessionData({ temporary: process.argv[2] });
-         writeFileSync(path.join(directory, 'browser-state'), Buffer.alloc(1024 * 1024));
-         writeSync(1, directory);
+         const directories = [];
+         for (const prefix of ['foom-chromium-', 'foom-review-profile-']) {
+           const directory = await createFixtureStorage(prefix, { temporary: process.argv[2] });
+           writeFileSync(path.join(directory, 'browser-state'), Buffer.alloc(1024 * 1024));
+           directories.push(directory);
+         }
+         writeSync(1, JSON.stringify(directories));
          process.exit(1);
        })().catch(error => { console.error(error); process.exit(2); });`,
-      require.resolve("./session-storage.js"),
+      require.resolve("./fixture-storage.js"),
       temporary,
     ],
     { encoding: "utf8", timeout: deadline(10_000) },
@@ -103,11 +113,15 @@ test("Chromium fixture storage is removed when its worker hard-exits", async (co
   assert.ifError(child.error);
   assert.equal(child.status, 1, child.stderr);
   assert.equal(child.signal, null);
-  assert.ok(path.basename(child.stdout).startsWith("foom-chromium-"));
-  await assert.rejects(realpath(child.stdout), { code: "ENOENT" });
+  const directories = JSON.parse(child.stdout);
+  assert.equal(directories.length, 2);
+  for (const [index, prefix] of ["foom-chromium-", "foom-review-profile-"].entries()) {
+    assert.ok(path.basename(directories[index]).startsWith(prefix));
+    await assert.rejects(realpath(directories[index]), { code: "ENOENT" });
+  }
 });
 
-test("Chromium hard-exit cleanup preserves a substituted directory symlink", async (context) => {
+test("Disposable storage hard-exit cleanup preserves a substituted directory symlink", async (context) => {
   const temporary = await realpath(await mkdtemp(path.join(tmpdir(), "foom-session-exit-")));
   removeAfterApps(context, temporary);
   const target = path.join(temporary, "unowned");
@@ -117,16 +131,16 @@ test("Chromium hard-exit cleanup preserves a substituted directory symlink", asy
     process.execPath,
     [
       "-e",
-      `const { createSessionData } = require(process.argv[1]);
+      `const { createFixtureStorage } = require(process.argv[1]);
        const { renameSync, symlinkSync, writeSync } = require('node:fs');
        (async () => {
-         const directory = await createSessionData({ platform: 'darwin', temporary: process.argv[2] });
+         const directory = await createFixtureStorage("foom-review-profile-", { platform: 'darwin', temporary: process.argv[2] });
          renameSync(directory, directory + '-moved');
          symlinkSync(process.argv[3], directory, 'junction');
          writeSync(1, directory);
          process.exit(1);
        })().catch(error => { console.error(error); process.exit(2); });`,
-      require.resolve("./session-storage.js"),
+      require.resolve("./fixture-storage.js"),
       temporary,
       target,
     ],
@@ -136,4 +150,24 @@ test("Chromium hard-exit cleanup preserves a substituted directory symlink", asy
   assert.equal(child.status, 1, child.stderr);
   assert.equal((await lstat(child.stdout)).isSymbolicLink(), true);
   assert.equal(await readFile(path.join(target, "keep"), "utf8"), "preserved");
+});
+
+test("Review fixture user data and Chromium session storage stay separate and are cleaned together", async (context) => {
+  const profile = await createMemoryFixture(context, "foom-review-profile-");
+  const app = await launchApp(context, {
+    fixture: "empty-board",
+    args: [`--user-data-dir=${profile}`],
+  });
+  const paths = await app.evaluate(({ app }) => ({
+    profile: app.getPath("userData"),
+    session: app.getPath("sessionData"),
+  }));
+  assert.equal(await realpath(paths.profile), await realpath(profile));
+  assert.notEqual(await realpath(paths.session), await realpath(profile));
+  assert.ok(path.basename(await realpath(paths.session)).startsWith("foom-chromium-"));
+  assert.ok(path.basename(await realpath(profile)).startsWith("foom-review-profile-"));
+  context.after(async () => {
+    await assert.rejects(realpath(profile), { code: "ENOENT" });
+    await assert.rejects(realpath(paths.session), { code: "ENOENT" });
+  });
 });

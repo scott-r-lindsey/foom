@@ -80,3 +80,25 @@ and relaunched. Restoration failures and roles that cannot be restored lose thei
 tile assignment and retain the existing sidebar error state. Manual resume uses normal
 launch placement. [Board loading](board.md#restored-tile-placement-732) owns the
 attachment readiness gate and loading presentation.
+
+## Exit observation and release (#767)
+
+`session-lifecycle.ts` owns immutable exit facts per invocation. Host observation
+synchronously releases config/probe/agent resources once and notifies orchestration
+to revoke authority, before execution transitions or asynchronous evaluation.
+Removal uses the same release path; duplicate exits retain the first exit code.
+A removal tombstone rejects delayed exit notifications until an explicit invocation
+reset. Config credentials bound after an early host exit are revoked at binding.
+
+The terminal queue then publishes exit metadata (`inventory-settled`), persists the
+row and runs final classification. Completion advances the internal fact to
+`evaluation-settled`. Inventory retains its existing timing: host observation alone
+does not mark the row exited; dormant saved/failed launches remain separate from
+live host facts. Orchestration consumes the synchronous host observation while
+snapshot projection consumes inventory-ready facts. Review stop acknowledgements
+still distinguish signaled exits from natural exits and wait for inventory readiness.
+
+Resume resets lifecycle facts with execution state after draining the old queue.
+Queued exit work captures the execution invocation identity; reset or removal
+invalidates it before it can set exit metadata or classify a replacement invocation.
+Completion of old evaluation likewise cannot settle a replacement lifecycle fact.

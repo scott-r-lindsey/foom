@@ -22,6 +22,7 @@ import type { ControlLaunch } from "../control/types";
 import { CleanupOwner } from "./cleanup-owner";
 import { ExecutionOwner } from "./execution-owner";
 import type { homeShellFacts } from "./home-shell";
+import { SessionLifecycle } from "./session-lifecycle";
 import { SessionOwner } from "./session-owner";
 import * as sidebarCommands from "./sidebar-commands";
 import type { Agents, WorkspaceDependencies, WorkspaceMethods } from "./workspace-types";
@@ -44,6 +45,7 @@ export class WorkspaceContext {
   readonly cleanup: CleanupOwner;
   readonly launched = new Map<string, WorkspaceTerminal>();
   readonly executionOwner: ExecutionOwner;
+  readonly lifecycle: SessionLifecycle;
   private sidebarRead: ReturnType<WorkspaceMethods["sidebarInventory"]> | undefined;
   readonly agyPlugin = new AgyPlugin();
   readonly hookKeys = new Map<string, string>();
@@ -230,6 +232,20 @@ export class WorkspaceContext {
       this.now,
       () => this.concurrentChildren,
     );
+    this.lifecycle = new SessionLifecycle({
+      release: (id) => {
+        this.revokeConfig(id);
+        void this.probes?.exited(id).catch(() => undefined);
+        this.agents.release(id);
+      },
+      observed: (id) => {
+        this.orchestration.exited(id);
+      },
+      evaluate: (id, code) => this.executionOwner.exited(id, code),
+      inventorySettled: () => {
+        this.persist();
+      },
+    });
     this.executionOwner = new ExecutionOwner({
       terminal: (id) => this.launched.get(id),
       tail: (id, lines) => deps.terminals.tail(id, lines),
@@ -244,9 +260,10 @@ export class WorkspaceContext {
         if (entry?.kind === "agent") deps.forge?.recheck(entry.worktree);
       },
       exited: (id) => {
-        this.revokeConfig(id);
-        void this.probes?.exited(id).catch(() => undefined);
-        this.persist();
+        this.lifecycle.inventorySettled(id);
+      },
+      reset: (id) => {
+        this.lifecycle.reset(id);
       },
       publishChildEvents: () => {
         this.orchestration.childEvents.publish();
@@ -441,17 +458,20 @@ export class WorkspaceContext {
       repositories: this.deps.worktrees.listRepositories(),
       terminals: [...this.launched.values()].map((entry) => {
         const view = this.executionOwner.view(entry.id);
+        const exit = this.lifecycle.exit(entry.id);
+        // Dormant restored/failed launches have no host observation in this process.
+        const exitCode = exit && exit.phase !== "host-observed" ? exit.code : view.exitCode;
         return {
           ...entry,
           ...(view.execution ? { execution: view.execution } : {}),
-          ...(view.exitCode !== undefined ? { exitCode: view.exitCode } : {}),
-          foregroundProgram: view.exitCode === undefined ? (view.foregroundProgram ?? "") : "",
+          ...(exitCode !== undefined ? { exitCode } : {}),
+          foregroundProgram: exitCode === undefined ? (view.foregroundProgram ?? "") : "",
           state: this.probeState(entry.id, this.executionOwner.currentState(entry.id)),
           outputRevision: view.outputRevision,
           inputRevision: view.inputRevision,
           exited:
             !this.sessions.isRestoring(entry.id) &&
-            (entry.dormant === true || view.exitCode !== undefined),
+            (entry.dormant === true || exitCode !== undefined),
           ...this.orchestrationView(entry.id),
           ...(this.sessions.roleNotRestored(entry.id) ? { roleNotRestored: true } : {}),
           mcpConnection: this.mcpConnections.get(entry.id),
@@ -622,7 +642,8 @@ export class WorkspaceContext {
   revokeConfig: WorkspaceMethods["revokeConfig"] = sidebarCommands.revokeConfig.bind(this);
   bindConfig(id: string, token: string): void {
     this.configTokens.set(id, token);
-    if (this.executionOwner.view(id).exitCode !== undefined) this.revokeConfig(id);
+    if (this.lifecycle.exit(id) || this.executionOwner.view(id).exitCode !== undefined)
+      this.revokeConfig(id);
   }
   ensureProbeOpen: WorkspaceMethods["ensureProbeOpen"] = sidebarCommands.ensureProbeOpen.bind(this);
   configCredential: WorkspaceMethods["configCredential"] =

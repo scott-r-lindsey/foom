@@ -539,6 +539,68 @@ it("discards in-flight batch replies on pause, disable and checkout replacement"
   }
 });
 
+it.each(["single", "batch"] as const)(
+  "does not let an in-flight %s read postpone a newer board-setting refresh",
+  async (mode) => {
+    const open = { ...pending, requiredChecks: "success" as const };
+    const merged = { ...open, state: "MERGED" as const };
+    let result: PullRequest = open;
+    const lookup = vi.fn((): Promise<PullRequest> => Promise.resolve(result));
+    const batch = async () => {
+      const pr = await lookup();
+      return new Map([
+        [
+          tree.branch,
+          {
+            ...pr,
+            board: {
+              number: pr.number,
+              title: "PR",
+              url: "https://github.com/o/r/pull/340",
+              state: pr.state,
+              checks: { passed: 1, failed: 0, pending: 0 },
+            },
+          },
+        ],
+      ]);
+    };
+    const tracker = new ForgeTracking(
+      directory,
+      () => Promise.resolve("https://github.com/o/r"),
+      vi.fn(),
+      () => (mode === "batch" ? { lookup, batch } : { lookup }),
+      () => 100,
+    );
+    trackers.push(tracker);
+    tracker.setEnabled(true);
+    tracker.track(tree, 340);
+    await tracker.poll();
+    let announce = () => {};
+    const started = new Promise<void>((resolve) => {
+      announce = resolve;
+    });
+    let finish: (pr: PullRequest) => void = () => {};
+    lookup.mockImplementationOnce(() => {
+      announce();
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
+    tracker.recheck(tree.path);
+    await started;
+    tracker.setEnabled(false);
+    result = merged;
+    tracker.setEnabled(true);
+    finish(open);
+    // No clock advance: the newer request must survive the stale completion,
+    // rather than waiting for the regular poll cadence.
+    await tracker.poll();
+    expect(lookup).toHaveBeenCalledTimes(3);
+    expect(tracker.read(tree.repository, tree.path)).toEqual(merged);
+    expect(tracker.readSettled(tree.repository, tree.path)).toEqual(merged);
+  },
+);
+
 it("does not lose an idle refresh that arrives during an in-flight repository read", async () => {
   const h = batched();
   h.tracker.setEnabled(true);

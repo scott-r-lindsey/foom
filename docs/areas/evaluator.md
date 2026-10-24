@@ -32,8 +32,9 @@ revision when evaluation begins, then checks those plus invocation identity and
 closure after asynchronous classification and verdict storage. Replies, output, lifecycle transitions, replacement, removal and
 shutdown therefore reject stale evidence. Resume drains the queue before resetting
 the invocation; a fresh execution machine advances launch identity even when the ID
-is reused. Exit still releases agent/orchestration resources before queued final
-classification and persistence. Child-event publications and unread-child reminder
+is reused. The session lifecycle owner releases config/probe/agent resources and notifies
+orchestration synchronously before queued final classification and persistence;
+see [exit phases](sessions.md#exit-observation-and-release-767). Child-event publications and unread-child reminder
 projection continue through the same orchestration capabilities. After PTYs stop,
 the coordinator closes and aborts launches, drains cleanup, clears execution subscriptions,
 disposes unread reminders/watchers, forgets verdicts, releases agents and closes forge,

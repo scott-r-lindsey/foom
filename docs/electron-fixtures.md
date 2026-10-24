@@ -46,14 +46,27 @@ launch options. Trust approval, control requests and scenario assertions remain
 in the test files. Both helpers use the existing harness readiness, display
 isolation, agent guard and quit-before-removal cleanup.
 
+The owned child review-loop scenarios keep their disposable Linux profiles in
+`/dev/shm`, separately from their checkouts and fake CLIs. This isolates mandatory
+audit and operation `fsync` calls from concurrent build/packaging disk I/O while
+retaining real private-file writes, atomic replacement and restart persistence.
+Cleanup quits every app before removing its profile. Other platforms use the
+ordinary temporary directory.
+
 ## Chromium session storage
+
+`createMemoryFixture(context, prefix)` owns all shared-memory fixture allocation
+and both normal and hard-exit cleanup. Review-loop user-data profiles and Chromium
+session storage use distinct allocations and names. It selects writable Linux
+tmpfs with at least 128 MiB free, with ordinary temporary storage as fallback.
 
 Each isolated development profile gets a separate, disposable `sessionData`
 directory before Electron creates its default session. Restored launches within
 the same test reuse it, retaining board local storage and encryption metadata.
 This includes Chromium's preferences, network state, performance-observer database
-and caches; Foom's `userData` profile and Git fixtures retain their normal disk
-storage, including across restore launches. Browser session data is fresh for
+and caches; Foom's ordinary `userData` profiles and Git fixtures retain their
+normal disk storage. The explicit review-loop profile above uses its own separate
+allocation, including across restore launches. Browser session data is fresh for
 unrelated profiles and is removed only after every app in the test quits.
 
 On Linux, the harness uses `/dev/shm` when it is a writable tmpfs with at least
@@ -63,7 +76,7 @@ commits for disposable browser files after Foom's quit barrier has completed.
 The graceful-quit deadline, normal-exit assertion and process audit are unchanged.
 Packaged smoke continues to exercise the package's ordinary profile storage.
 
-A synchronous worker exit handler also removes the browser directories allocated
+A synchronous worker exit handler also removes all storage directories allocated
 by that worker when the hard watchdog calls `process.exit(1)`, which skips test
 after hooks. It checks the original directory identity and owner with `lstat`
 and refuses substituted symlinks. Normal teardown still quits apps before

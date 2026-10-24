@@ -17,7 +17,7 @@ const { deadline, expect } = require("./test-policy.js");
 const { auditProcesses } = require("./process-audit.js");
 const { isolatedEnvironment } = require("./agent-isolation.js");
 const { electronLaunch } = require("./display-isolation.js");
-const { createSessionData } = require("./session-storage.js");
+const { createFixtureStorage } = require("./fixture-storage.js");
 
 // Opt-in native-window evidence on the isolated Linux test display (ImageMagick).
 function captureConfirmationDesktop(name) {
@@ -490,6 +490,12 @@ function fixtureCleanup(context) {
   return cleanup;
 }
 
+async function createMemoryFixture(context, prefix) {
+  const directory = await createFixtureStorage(prefix);
+  removeAfterApps(context, directory);
+  return directory;
+}
+
 function removeAfterApps(context, directory) {
   fixtureCleanup(context).directories.add(directory);
 }
@@ -613,9 +619,8 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
   if (profile.owned) removeAfterApps(context, profile.owned);
   let sessionData = cleanup.sessionData.get(profile.directory);
   if (!sessionData) {
-    sessionData = await createSessionData();
+    sessionData = await createMemoryFixture(context, "foom-chromium-");
     cleanup.sessionData.set(profile.directory, sessionData);
-    removeAfterApps(context, sessionData);
   }
   const watchdog = setTimeout(() => {
     console.error("Electron test exceeded its hard deadline; terminating worker");
@@ -1010,6 +1015,7 @@ module.exports = {
   launchApp,
   boardPage,
   removeAfterApps,
+  createMemoryFixture,
   fixtureCleanup,
   captureConfirmationDesktop,
   assertConfirmationFocus,

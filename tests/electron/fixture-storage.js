@@ -19,27 +19,25 @@ process.once("exit", () => {
         rmSync(directory, { recursive: true, force: true });
     } catch (error) {
       if (error.code !== "ENOENT")
-        console.warn(`Unable to remove Chromium fixture ${directory}:`, error);
+        console.warn(`Unable to remove storage fixture ${directory}:`, error);
     }
   }
 });
 
-function allocate(root) {
+function allocate(root, prefix) {
   // Allocation and registration are synchronous, so process.exit cannot occur
   // between creating the directory and taking responsibility for its cleanup.
-  const directory = mkdtempSync(path.join(root, "foom-chromium-"));
+  const directory = mkdtempSync(path.join(root, prefix));
   allocated.set(directory, lstatSync(directory));
   return directory;
 }
 
-// Chromium flushes disposable browser state during native shutdown,
-// after Foom's quit barrier. Keep those writes off a contended Linux disk while
-// leaving the actual Foom profile and repository fixtures on their usual disk.
-async function createSessionData({
-  platform = process.platform,
-  temporary = tmpdir(),
-  sharedMemory = "/dev/shm",
-} = {}) {
+// Keep disposable browser state and explicitly isolated review profiles off a
+// contended Linux disk. Every allocation shares the same hard-exit owner.
+async function createFixtureStorage(
+  prefix,
+  { platform = process.platform, temporary = tmpdir(), sharedMemory = "/dev/shm" } = {},
+) {
   if (platform === "linux") {
     try {
       const filesystem = await statfs(sharedMemory);
@@ -48,12 +46,12 @@ async function createSessionData({
         filesystem.type === 0x01021994 &&
         filesystem.bavail * filesystem.bsize >= 128 * 1024 * 1024
       )
-        return allocate(sharedMemory);
+        return allocate(sharedMemory, prefix);
     } catch (error) {
       if (!["ENOENT", "ENOTDIR", "EACCES", "ENOSPC", "EROFS"].includes(error.code)) throw error;
     }
   }
-  return allocate(temporary);
+  return allocate(temporary, prefix);
 }
 
-module.exports = { createSessionData };
+module.exports = { createFixtureStorage };
