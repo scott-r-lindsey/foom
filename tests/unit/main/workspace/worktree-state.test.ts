@@ -3,7 +3,10 @@ import { expect, it, vi } from "vitest";
 import { fetchAdvertisedDefault } from "../../../../src/main/workspace/fetch-default";
 import { WorktreeFetchState } from "../../../../src/main/workspace/worktree-fetch-state";
 import { git } from "../../../../src/main/workspace/worktree-operations";
-import { WorktreePanelFacts } from "../../../../src/main/workspace/worktree-panel-facts";
+import {
+  readPanelFacts,
+  WorktreePanelFacts,
+} from "../../../../src/main/workspace/worktree-panel-facts";
 
 vi.mock("../../../../src/main/workspace/fetch-default", () => ({
   fetchAdvertisedDefault: vi.fn(),
@@ -87,3 +90,35 @@ it("queues forced refreshes through failure and invalidates panels on both outco
     head: "b".repeat(40),
   });
 });
+
+it.each(["equal", "different", "failed"])(
+  "projects %s local panel merge facts and counts rename records once",
+  async (result) => {
+    const head = "a".repeat(40);
+    const tree = "b".repeat(40);
+    vi.mocked(git).mockImplementation((_path, args) => {
+      if (args[0] === "remote")
+        return Promise.resolve(args.length === 1 ? "origin\n" : "local-remote\n");
+      if (args[0] === "--no-optional-locks")
+        return Promise.resolve("R  new.txt\0old.txt\0?? other.txt\0");
+      if (args[0] === "rev-list") return Promise.resolve("2 3\n");
+      if (args[0] === "log") return Promise.resolve([head, "subject", "123"].join("\0"));
+      if (args[0] === "symbolic-ref") return Promise.resolve("refs/remotes/origin/main\n");
+      if (args[0] === "merge-tree")
+        return result === "failed"
+          ? Promise.reject(new Error("conflict"))
+          : Promise.resolve(result === "equal" ? tree : head);
+      return Promise.resolve(args.includes(`${head}^{tree}`) ? tree : "");
+    });
+    const facts = await readPanelFacts(
+      () => ({ branch: "main", head, failed: false, time: 1000 }),
+      "repo",
+      "tree",
+    );
+    expect(facts).toMatchObject({
+      changes: 2,
+      upstream: { ahead: 2, behind: 3 },
+      merged: result === "failed" ? null : result === "equal",
+    });
+  },
+);

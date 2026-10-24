@@ -340,3 +340,19 @@ it("never advances a branch checked out elsewhere immediately before the ref upd
   expect((await git(["rev-parse", "HEAD"], { cwd: external })).stdout).toBe(before);
   expect((await git(["status", "--porcelain"], { cwd: external })).stdout).toBe("");
 });
+
+it.each(["unavailable", "unchanged"])(
+  "checks %s inventory after a failed PR checkout creation",
+  async (inventory) => {
+    const original = await service.listWorktrees(repo);
+    const failure = new Error("checkout creation refused");
+    vi.spyOn(service, "createWorktree").mockRejectedValueOnce(failure);
+    const list = vi.spyOn(service, "listWorktrees").mockResolvedValueOnce(original);
+    if (inventory === "unavailable") list.mockRejectedValueOnce(new Error("inventory unavailable"));
+    else list.mockResolvedValueOnce(original);
+    if (inventory === "unavailable") await expect(adopt()).rejects.toBeInstanceOf(UncertainEffect);
+    else await expect(adopt()).rejects.toBe(failure);
+    list.mockRestore();
+    expect(await service.listWorktrees(repo)).toEqual(original);
+  },
+);
