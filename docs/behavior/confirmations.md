@@ -48,3 +48,10 @@ CSS pixels (and the available window height), with a scrolling content region
 and an always-visible action footer. Tab reaches the native disclosure summaries
 and expanded byte boxes; Enter or Space toggles summaries. A new request starts
 collapsed and focuses Cancel.
+
+Merged-worktree cleanup offers **Close when completed** to the left of its footer
+buttons before deletion and while running. It starts checked on every opening and
+is not saved. A checked run closes after every selected worktree is removed;
+failed or refused removals stay visible for **Done**. Unchecking keeps the finished
+state open. **Hide** and Escape still hide a running cleanup without stopping it,
+and hidden completion follows the existing cleanup reporting behavior.
