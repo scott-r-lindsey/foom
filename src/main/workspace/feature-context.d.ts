@@ -5,6 +5,7 @@ export type ExecutionEventsContext = Pick<
   WorkspaceContext,
   | "queues"
   | "executionOwner"
+  | "lifecycle"
   | "closed"
   | "probes"
   | "probeIds"
