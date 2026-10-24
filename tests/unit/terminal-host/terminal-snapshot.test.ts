@@ -63,6 +63,37 @@ test.each([false, true])(
   },
 );
 
+test.each([false, true])(
+  "bounded history retains both visible buffers and state (alternate=%s)",
+  async (alternate) => {
+    const host = new Terminal({ cols: 20, rows: 8, allowProposedApi: true });
+    const view = new Terminal({ cols: 20, rows: 8, allowProposedApi: true });
+    const addon = new SerializeAddon();
+    host.loadAddon(addon);
+    try {
+      await write(host, Array.from({ length: 100 }, (_, i) => `line ${String(i)}\r\n`).join(""));
+      if (alternate) await write(host, "\x1b[?1049hALT\x1b[2;6r\x1b[?6h\x1b[3;2H");
+      const before = host.buffer.normal.baseY;
+      const data = terminalSnapshot(host, addon, (data) => data.length < 600);
+      expect(data.length).toBeLessThan(600);
+      expect(host.buffer.normal.baseY).toBe(before);
+      await write(view, data);
+      expect(view.buffer.normal.baseY).toBeLessThan(before);
+      expect(lines(view)).toEqual(lines(host));
+      expect(view.buffer.active.cursorX).toBe(host.buffer.active.cursorX);
+      expect(view.buffer.active.cursorY).toBe(host.buffer.active.cursorY);
+      expect(view.modes.originMode).toBe(host.modes.originMode);
+      await write(host, "\x1b[?1049l");
+      await write(view, "\x1b[?1049l");
+      expect(lines(view)).toEqual(lines(host));
+      expect(() => terminalSnapshot(host, addon, () => false)).toThrow("Visible terminal");
+    } finally {
+      host.dispose();
+      view.dispose();
+    }
+  },
+);
+
 test("fails explicitly if the pinned xterm margin representation changes", () => {
   const host = new Terminal({ cols: 20, rows: 8, allowProposedApi: true });
   const addon = new SerializeAddon();

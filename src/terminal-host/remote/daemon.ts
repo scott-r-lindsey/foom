@@ -5,6 +5,7 @@ import type { HostResponse } from "../../shared/terminal-host";
 import type { RemoteRequest, RemoteResponse } from "../../shared/remote-host";
 import {
   RemoteFrames,
+  MAX_REMOTE_MESSAGE,
   remoteResponseFrames,
   remoteRequest,
   remoteResponse,
@@ -144,6 +145,9 @@ export function serveHost(build: string, home = homedir()) {
               }
             },
             true,
+            (token, data) =>
+              JSON.stringify({ type: "data", id: message.id, view: message.view, token, data })
+                .length <= MAX_REMOTE_MESSAGE,
           );
           await replay;
           if (sessions.get(id)?.exited !== undefined)

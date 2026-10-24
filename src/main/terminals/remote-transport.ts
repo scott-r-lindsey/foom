@@ -126,7 +126,9 @@ export class RemoteTransport extends EventEmitter {
           if (!this.ready) {
             if (value.type !== "hello" || value.build !== artifact.sha256)
               throw new Error("Host version mismatch");
-            clearTimeout(deadline);
+            // Reconnect's deadline covers open, state restoration and the entire
+            // replay. Internal requests have no TerminalHostClient request timer.
+            if (!this.opened) clearTimeout(deadline);
             this.ready = true;
             const session = this.session;
             if (session) {
@@ -166,7 +168,10 @@ export class RemoteTransport extends EventEmitter {
             if (this.restoration.delete(value.request)) {
               if (value.type === "error") throw new Error("View restoration failed");
               // Attach's result follows the entire replay, including all fragments.
-              if (this.restoration.size === 0) this.retries = 0;
+              if (this.restoration.size === 0) {
+                clearTimeout(deadline);
+                this.retries = 0;
+              }
               return;
             }
             if (value.request >= this.internal) return;

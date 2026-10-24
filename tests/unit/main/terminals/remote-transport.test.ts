@@ -302,8 +302,46 @@ test("a complete fragmented replay and attach result restore the retry allowance
     expect(events).toContainEqual(replay);
   }
   expect(mock.spawn).toHaveBeenCalledTimes(7);
+  await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+  expect(child.kill).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
   expect(transport.kill()).toBe(true);
 });
+
+test.each(["open", "theme", "attach"])(
+  "an unanswered reconnect %s expires the whole restoration deadline and exhausts retries",
+  async (stalled) => {
+    await ready();
+    transport.postMessage({ type: "attach", id: "one", request: 2, view: "v" });
+    child.message({ type: "result", id: "one", request: 2, lines: [] });
+    const exit = vi.fn();
+    transport.on("exit", exit);
+    child.emit("close");
+    for (let attempt = 0; attempt < 5; attempt++) {
+      child = new Child();
+      child.kill.mockImplementation(() => {
+        child.emit("close");
+        return true;
+      });
+      mock.spawn.mockReturnValue(child);
+      await vi.advanceTimersByTimeAsync(1000);
+      child.greet();
+      if (stalled !== "open")
+        child.message({ type: "result", id: "one", request: requestOf(child, "open"), lines: [] });
+      if (stalled === "attach")
+        child.message({ type: "result", id: "one", request: requestOf(child, "theme"), lines: [] });
+      await vi.advanceTimersByTimeAsync(119999);
+      expect(child.kill).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(child.kill).toHaveBeenCalledOnce();
+    }
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+    expect(mock.spawn).toHaveBeenCalledTimes(6);
+    expect(exit).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(transport.kill()).toBe(false);
+  },
+);
 
 test("foreign fragments and failed restoration responses terminate the SSH stream", async () => {
   await ready();

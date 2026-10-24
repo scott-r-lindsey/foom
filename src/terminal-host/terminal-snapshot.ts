@@ -82,13 +82,14 @@ function restore(
 }
 
 /** Called at the host parser barrier, before any subsequent live output. */
-export function terminalSnapshot(screen: Terminal, serialize: SerializeAddon): string {
+function snapshot(screen: Terminal, serialize: SerializeAddon, scrollback?: number): string {
   const cursor = cursorSnapshot(screen);
-  const snapshot = serialize.serialize();
+  const options = scrollback === undefined ? {} : { scrollback };
+  const snapshot = serialize.serialize(options);
   const active = screen.buffer.active;
   if (active.type === "normal")
     return snapshot + restore(screen, serialize, active, screen.modes.originMode) + cursor;
-  const normal = serialize.serialize({ excludeAltBuffer: true, excludeModes: true });
+  const normal = serialize.serialize({ ...options, excludeAltBuffer: true, excludeModes: true });
   // Restore the inactive normal buffer before 1049h saves its cursor. The active
   // alternate buffer and modes are then serialized in their original order.
   return (
@@ -98,4 +99,20 @@ export function terminalSnapshot(screen: Terminal, serialize: SerializeAddon): s
     restore(screen, serialize, active, screen.modes.originMode) +
     cursor
   );
+}
+
+/** Reduce only replayed history; both visible buffers and the host's history stay intact. */
+export function terminalSnapshot(
+  screen: Terminal,
+  serialize: SerializeAddon,
+  fits?: (data: string) => boolean,
+): string {
+  let scrollback: number | undefined;
+  for (;;) {
+    const data = snapshot(screen, serialize, scrollback);
+    if (!fits || fits(data)) return data;
+    if (scrollback === 0) throw new Error("Visible terminal exceeds snapshot budget");
+    // Geometric reduction bounds reserialization work and always preserves visible rows.
+    scrollback = Math.floor((scrollback ?? screen.buffer.normal.baseY) / 2);
+  }
 }

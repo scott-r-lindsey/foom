@@ -96,6 +96,10 @@ response before publishing it. Malformed, interleaved or excessive responses
 close the channel. The 8 MiB per-frame cap remains unchanged. The daemon writes
 one frame at a time, queues live output behind replay, and finishes replay before
 acknowledging attach or processing another attachment.
+Replay budgets include the complete JSON-encoded response, reset and color state.
+If retained history exceeds the message cap, serialization progressively drops
+the oldest replayed scrollback until it fits, preserving visible normal/alternate
+buffers, cursor and modes. The daemon's retained history is not erased.
 Both peers negotiate the SHA-256 build identity before operations. The shell-only
 protocol permits open, attach/replay, input, resize, theme, acknowledgement, screen,
 tail, stop and close; it cannot create arbitrary commands, send hooks/MCP, or shut
@@ -123,6 +127,10 @@ gives the view a fresh token. Only successful completion of all restoration
 operations, including the attach result after the complete replay, resets the
 retry allowance. An open acknowledgement followed by a replay disconnect still
 consumes an attempt; five such attempts terminate the transport and fail the tile.
+The 120-second connection deadline remains active throughout reconnect negotiation,
+open, state restoration and replay, and is cleared only after all restoration
+acknowledgements arrive. An unanswered internal request kills that SSH stream and
+consumes an attempt; partial progress does not extend the deadline.
 Input interrupted by disconnect is failed rather than replayed. Slow output above
 1 MiB of queued live updates or socket writes disconnects the view; headless parsing continues.
 Quit/dispose disconnects remote shells; explicit Stop or Close terminates them.
