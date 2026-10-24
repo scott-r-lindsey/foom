@@ -63,6 +63,13 @@ commits for disposable browser files after Foom's quit barrier has completed.
 The graceful-quit deadline, normal-exit assertion and process audit are unchanged.
 Packaged smoke continues to exercise the package's ordinary profile storage.
 
+A synchronous worker exit handler also removes the browser directories allocated
+by that worker when the hard watchdog calls `process.exit(1)`, which skips test
+after hooks. It checks the original directory identity and owner with `lstat`
+and refuses substituted symlinks. Normal teardown still quits apps before
+removing fixtures. This does not cover `SIGKILL` or machine failure; the harness
+does not sweep unmarked shared-memory entries whose ownership it cannot prove.
+
 ## Timing method
 
 The harness emits `Fixture timing: {...}` diagnostics into Node's JUnit comments
