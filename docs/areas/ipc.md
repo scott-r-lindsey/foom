@@ -59,7 +59,10 @@ rows, scans, menus, fonts and sound replies. Numeric fields must be finite;
 counts and revisions must be nonnegative safe integers, and enum values must be
 known. Malformed replies reject; malformed events never reach typed callbacks.
 The existing window/audio read fallbacks remain empty/disabled valid state.
-Void capabilities discard internal main-process return values.
+Invoke replies are recursively rebuilt from validated fields, including nested
+arrays, unions and explicitly declared dictionaries; undeclared object properties
+are not exposed. Byte replies are copied. Void capabilities discard internal
+main-process return values.
 
 `preview:place` validates its UUID request, 128-bit hex preview ID and positive
 safe-integer expiry before buffering or dispatch. Expired requests are discarded;

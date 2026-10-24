@@ -1,5 +1,5 @@
 import { interfaceThemes } from "../../../src/shared/interface-themes";
-import { malformedValues } from "./malformed-values";
+import { malformedValues, withUndeclaredFields } from "./malformed-values";
 import { dialog, theme } from "./preload-fixtures";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { ConfirmationWindowApi, DialogRequest } from "../../../src/shared/confirmation";
@@ -251,4 +251,47 @@ test("requires the complete dialog, including theme, cleanup, reply and session 
     },
   );
   expect(render).toHaveBeenLastCalledWith(expect.objectContaining({ id: "minimal" }));
+});
+
+test("publishes only validated confirmation fields, including buffered and live nested content", async () => {
+  await import("../../../src/preload/confirmation");
+  const api = mock.exposeInMainWorld.mock.calls[0]?.[1];
+  const listener = mock.on.mock.calls[0]?.[1];
+  if (!api || !listener) throw Error("Missing confirmation bridge");
+  const injected = withUndeclaredFields(dialog);
+  listener({}, injected);
+  const render = vi.fn<(request: DialogRequest | null) => void>();
+  api.render(render);
+  expect(render).toHaveBeenLastCalledWith(dialog);
+  const published = render.mock.lastCall?.[0];
+  expect(published).toStrictEqual(dialog);
+  expect(published).not.toBe(injected);
+  expect(Object.getPrototypeOf(published)).toBe(Object.prototype);
+  expect(Object.hasOwn(published ?? {}, "__proto__")).toBe(false);
+  listener({}, { ...dialog, worktrees: [{ branch: "merged-branch", changes: {} }] });
+  expect(render).toHaveBeenLastCalledWith({ ...dialog, worktrees: [{ branch: "merged-branch" }] });
+  listener({}, { ...dialog, worktrees: [{ branch: "merged-branch", reason: {} }] });
+  expect(render).toHaveBeenLastCalledWith(null);
+});
+
+test("rebuilds size and selection payloads and drops malformed confirmation answers", async () => {
+  await import("../../../src/preload/confirmation");
+  const api = mock.exposeInMainWorld.mock.calls[0]?.[1];
+  if (!api) throw Error("Missing confirmation bridge");
+  const size = { width: 440, height: 240, unexpected: { changes: {} }, ["__proto__"]: {} };
+  api.size(size);
+  expect(mock.send.mock.lastCall).toStrictEqual(["confirmation:size", { width: 440, height: 240 }]);
+  const selected = ["one", "two"];
+  Object.defineProperty(selected, "unexpected", { value: {}, enumerable: true });
+  api.answer("request", selected);
+  expect(mock.send.mock.lastCall).toStrictEqual(["confirmation:answer", "request", ["one", "two"]]);
+  expect(mock.send.mock.lastCall?.[2]).not.toBe(selected);
+  mock.send.mockClear();
+  for (const value of [0, -1, NaN, Infinity]) {
+    api.size({ width: value, height: 240 });
+    api.size({ width: 440, height: value });
+  }
+  api.answer("", true);
+  for (const selected of [[], [""], ["one", "one"]]) api.answer("request", selected);
+  expect(mock.send).not.toHaveBeenCalled();
 });

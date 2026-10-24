@@ -35,3 +35,41 @@ export function* malformedValues(
     for (const bad of invalid) yield { path, value: bad };
   }
 }
+
+/** Add structured-cloneable unknown data at every object/array boundary. */
+export function withUndeclaredFields(
+  value: unknown,
+  dictionaries: ReadonlySet<string> = new Set(),
+  path = "$",
+): unknown {
+  const extra = { unexpected: { text: {} }, __proto__: null };
+  if (value instanceof Uint8Array) {
+    const copy = Uint8Array.from(value);
+    Object.defineProperty(copy, "unexpected", { value: extra, enumerable: true });
+    return copy;
+  }
+  if (Array.isArray(value)) {
+    const items: unknown[] = value;
+    const copy = items.map((entry, index) =>
+      withUndeclaredFields(entry, dictionaries, `${path}[${String(index)}]`),
+    );
+    Object.defineProperty(copy, "unexpected", { value: extra, enumerable: true });
+    return copy;
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries([
+      ...Object.entries(value).map(([key, entry]) => [
+        key,
+        withUndeclaredFields(entry, dictionaries, `${path}.${key}`),
+      ]),
+      ...(dictionaries.has(path)
+        ? []
+        : [
+            ["unexpected", extra],
+            ["__proto__", { changes: {} }],
+            ["constructor", extra],
+          ]),
+    ]);
+  }
+  return value;
+}

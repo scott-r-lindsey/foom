@@ -1,5 +1,5 @@
 import { DEFAULT_SETTINGS } from "../../../src/main/setup/settings";
-import { malformedValues } from "./malformed-values";
+import { malformedValues, withUndeclaredFields } from "./malformed-values";
 import {
   replies,
   setup,
@@ -1308,4 +1308,34 @@ test("sound replies cannot claim both the byte and error branches", async () => 
       api.sounds.read({ kind: "done", source: "user", file: "bell.wav" }),
     ).rejects.toThrow(/Invalid/);
   }
+});
+
+test.each(Object.entries(invokeReply))(
+  "%s reconstructs validated replies without undeclared nested data",
+  async (channel, call) => {
+    const api = await bridge();
+    const dictionaries = new Set([
+      "$.settings.agentHooks",
+      "$.settings.forges",
+      "$.settings.forgeHosts",
+      "$.settings.agents",
+      "$.settings.agentArguments",
+      "$.settings.agentBypassAcknowledged",
+      "$.lists",
+    ]);
+    const valid = replies[channel];
+    const injected = withUndeclaredFields(valid, dictionaries);
+    mock.invoke.mockResolvedValue(injected);
+    const published = await call(api);
+    expect(published).toStrictEqual(valid);
+    if (valid !== null && typeof valid === "object") expect(published).not.toBe(injected);
+  },
+);
+
+test("reconstructs the error branch of a sound reply", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue({ error: "Unavailable", unexpected: {}, ["__proto__"]: {} });
+  await expect(
+    api.sounds.read({ kind: "done", source: "user", file: "bell.wav" }),
+  ).resolves.toStrictEqual({ error: "Unavailable" });
 });

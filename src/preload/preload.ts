@@ -62,6 +62,17 @@ function object(value: unknown): value is Record<string, unknown> {
 }
 // Keep these checks inline: the sandboxed loader can require only Electron.
 type Validator<T> = (value: unknown) => value is T;
+// Composite validators also describe the fields that may cross the bridge.
+const copies = new WeakMap<Validator<unknown>, (value: unknown) => unknown>();
+function copying<T>(check: Validator<T>, copy: (value: unknown) => unknown): Validator<T> {
+  copies.set(check, copy);
+  return check;
+}
+function project(check: Validator<unknown>, value: unknown): unknown {
+  const copy = copies.get(check);
+  // An unregistered object validator must never forward its input unchanged.
+  return copy ? copy(value) : value !== null && typeof value === "object" ? undefined : value;
+}
 const text: Validator<string> = (value): value is string => typeof value === "string";
 const finite: Validator<number> = (value): value is number =>
   typeof value === "number" && Number.isFinite(value);
@@ -76,15 +87,35 @@ function literal<const T extends readonly (string | number | boolean | null | un
 function either<T extends readonly Validator<unknown>[]>(
   ...checks: T
 ): Validator<T[number] extends Validator<infer U> ? U : never> {
-  return (value): value is T[number] extends Validator<infer U> ? U : never =>
-    checks.some((check) => check(value));
+  return copying(
+    (value): value is T[number] extends Validator<infer U> ? U : never =>
+      checks.some((check) => check(value)),
+    (value) => {
+      const check = checks.find((candidate) => candidate(value));
+      return check ? project(check, value) : undefined;
+    },
+  );
 }
 function array<T>(check: Validator<T>): Validator<T[]> {
-  return (value): value is T[] =>
-    Array.isArray(value) && Array.from(value).every((entry: unknown) => check(entry));
+  return copying(
+    (value): value is T[] =>
+      Array.isArray(value) && Array.from(value).every((entry: unknown) => check(entry)),
+    (value) =>
+      Array.isArray(value)
+        ? Array.from(value, (entry: unknown) => project(check, entry))
+        : undefined,
+  );
 }
 function dictionary<T>(check: Validator<T>): Validator<Record<string, T>> {
-  return (value): value is Record<string, T> => object(value) && Object.values(value).every(check);
+  return copying(
+    (value): value is Record<string, T> => object(value) && Object.values(value).every(check),
+    (value) =>
+      object(value)
+        ? Object.fromEntries(
+            Object.entries(value).map(([key, entry]) => [key, project(check, entry)]),
+          )
+        : undefined,
+  );
 }
 // Require validators for optional fields too, so contract additions cannot be silently skipped.
 type Contract<T> = { [K in keyof T]-?: Validator<T[K]> };
@@ -95,17 +126,39 @@ type Fields<T> = {
   [K in keyof T as undefined extends Checked<T[K]> ? K : never]?: Exclude<Checked<T[K]>, undefined>;
 };
 function shape<T extends Record<string, Validator<unknown>>>(fields: T): Validator<Fields<T>> {
-  return (value): value is Fields<T> =>
-    object(value) && Object.entries(fields).every(([key, check]) => check(value[key]));
+  return copying(
+    (value): value is Fields<T> =>
+      object(value) && Object.entries(fields).every(([key, check]) => check(value[key])),
+    (value) =>
+      object(value)
+        ? Object.fromEntries(
+            Object.entries(fields)
+              .filter(([key]) => Object.hasOwn(value, key))
+              .map(([key, check]) => [key, project(check, value[key])]),
+          )
+        : undefined,
+  );
 }
 function both<A, B>(first: Validator<A>, second: Validator<B>): Validator<A & B> {
-  return (value): value is A & B => first(value) && second(value);
+  return copying(
+    (value): value is A & B => first(value) && second(value),
+    (value) => {
+      const left = project(first, value);
+      const right = project(second, value);
+      return object(left) && object(right)
+        ? Object.fromEntries([...Object.entries(left), ...Object.entries(right)])
+        : undefined;
+    },
+  );
 }
 const userThemeId: Validator<`user:${string}`> = (value): value is `user:${string}` =>
   typeof value === "string" && /^user:.+$/u.test(value);
 
-const bytes: Validator<Uint8Array> = (value): value is Uint8Array =>
-  value instanceof Uint8Array && value.byteLength <= 8 * 1024 * 1024;
+const bytes: Validator<Uint8Array> = copying(
+  (value): value is Uint8Array =>
+    value instanceof Uint8Array && value.byteLength <= 8 * 1024 * 1024,
+  (value) => (value instanceof Uint8Array ? Uint8Array.from(value) : undefined),
+);
 const count: Validator<number> = (value): value is number =>
   finite(value) && Number.isSafeInteger(value) && value >= 0;
 const positiveCount: Validator<number> = (value): value is number => count(value) && value > 0;
@@ -119,9 +172,19 @@ function range(min: number, max: number, integer = false): Validator<number> {
 function partial<T extends Record<string, Validator<unknown>>>(
   fields: T,
 ): Validator<Partial<Fields<T>>> {
-  return (value): value is Partial<Fields<T>> =>
-    object(value) &&
-    Object.entries(fields).every(([key, check]) => value[key] === undefined || check(value[key]));
+  return copying(
+    (value): value is Partial<Fields<T>> =>
+      object(value) &&
+      Object.entries(fields).every(([key, check]) => value[key] === undefined || check(value[key])),
+    (value) =>
+      object(value)
+        ? Object.fromEntries(
+            Object.entries(fields)
+              .filter(([key]) => Object.hasOwn(value, key))
+              .map(([key, check]) => [key, project(check, value[key])]),
+          )
+        : undefined,
+  );
 }
 const validUpdateState: Validator<UpdateState> = shape({
   status: literal("idle", "checking", "available", "downloaded", "error"),
@@ -839,8 +902,11 @@ const environmentRow = shape({
   value: either(nil, text),
   secret: boolean,
 } satisfies Contract<EnvironmentRow>);
-const validEnvironmentRow: Validator<EnvironmentRow> = (value): value is EnvironmentRow =>
-  environmentRow(value) && (!value.secret || value.value === null);
+const validEnvironmentRow: Validator<EnvironmentRow> = copying(
+  (value): value is EnvironmentRow =>
+    environmentRow(value) && (!value.secret || value.value === null),
+  (value) => project(environmentRow, value),
+);
 
 const validEnvironmentState: Validator<EnvironmentState> = shape({
   lists: both(
@@ -905,12 +971,18 @@ const validSoundEntry: Validator<SoundEntry> = shape({
   file: text,
 } satisfies Contract<SoundEntry>);
 
-const validSoundRead: Validator<SoundRead> = (value): value is SoundRead => {
-  if (!object(value)) return false;
-  // Consumers discriminate by property presence; contradictory branches are invalid.
-  if ("bytes" in value) return !("error" in value) && bytes(value["bytes"]);
-  return text(value["error"]);
-};
+const validSoundRead: Validator<SoundRead> = copying(
+  (value): value is SoundRead => {
+    if (!object(value)) return false;
+    // Consumers discriminate by property presence; contradictory branches are invalid.
+    if ("bytes" in value) return !("error" in value) && bytes(value["bytes"]);
+    return text(value["error"]);
+  },
+  (value) => {
+    if (!object(value)) return undefined;
+    return "bytes" in value ? { bytes: project(bytes, value["bytes"]) } : { error: value["error"] };
+  },
+);
 
 const validCommandItem: Validator<CommandItem> = shape({
   id: nonempty,
@@ -961,7 +1033,9 @@ const validShortcutGroup: Validator<ShortcutGroup> = shape({
 async function reply<T>(channel: string, check: Validator<T>, ...args: unknown[]): Promise<T> {
   const value: unknown = await ipcRenderer.invoke(channel, ...args);
   if (!check(value)) throw new Error(`Invalid ${channel} response`);
-  return value;
+  const clean = project(check, value);
+  if (!check(clean)) throw new Error(`Invalid ${channel} response`);
+  return clean;
 }
 // Void capabilities expose no reply data, regardless of main's internal return value.
 async function invokeVoid(channel: string, ...args: unknown[]): Promise<void> {
@@ -1146,7 +1220,9 @@ const desktop: DesktopApi = {
     audio: {
       state: async () => {
         const value: unknown = await ipcRenderer.invoke("windows:audio-state");
-        return audioState(value) ? value : { enabled: false, focusedId: null };
+        return audioState(value)
+          ? { enabled: value.enabled, focusedId: value.focusedId }
+          : { enabled: false, focusedId: null };
       },
       focus: (id) => invokeVoid("windows:audio-focus", id),
       refuse: () => invokeVoid("windows:refuse"),
@@ -1177,7 +1253,7 @@ const desktop: DesktopApi = {
     popout: (id) => invokeVoid("windows:popout", id),
     snapshot: async () => {
       const value: unknown = await ipcRenderer.invoke("windows:views");
-      return windowViews(value) ? value : [];
+      return windowViews(value) ? value.map(({ id, window }) => ({ id, window })) : [];
     },
     onChanged: (callback) => {
       const listener = (_event: IpcRendererEvent, value: unknown) => {
@@ -1380,7 +1456,7 @@ const desktop: DesktopApi = {
   async tail(id, lines) {
     const reply: unknown = await ipcRenderer.invoke("terminal:tail", id, lines);
     if (!array(text)(reply) || reply.length > 10000) throw new Error("Invalid terminal tail");
-    return reply;
+    return Array.from(reply);
   },
   onActivity(callback) {
     const listener = (_event: IpcRendererEvent, batch: unknown) => {
@@ -1461,18 +1537,26 @@ const desktop: DesktopApi = {
   checkReadiness: async () => {
     const value: unknown = await ipcRenderer.invoke("setup:readiness");
     if (!readinessReport(value)) throw new Error("Invalid readiness response");
-    return value;
+    return {
+      git: value.git,
+      platform: value.platform,
+      forges: value.forges.map(({ host, status }) => ({ host, status })),
+    };
   },
   restartToUpdate: () => invokeVoid("setup:restart-update"),
   setupState: async () => {
     const value: unknown = await ipcRenderer.invoke("setup:state");
     if (!validSetupState(value)) throw new Error("Invalid setup response");
-    return value;
+    const clean = project(validSetupState, value);
+    if (!validSetupState(clean)) throw new Error("Invalid setup response");
+    return clean;
   },
   saveSetup: async (patch) => {
     const value: unknown = await ipcRenderer.invoke("setup:save", patch);
     if (!validSetupState(value)) throw new Error("Invalid setup response");
-    return value;
+    const clean = project(validSetupState, value);
+    if (!validSetupState(clean)) throw new Error("Invalid setup response");
+    return clean;
   },
   environmentState: () => reply("environment:state", validEnvironmentState),
   saveEnvironment: (change) => reply("environment:save", validEnvironmentState, change),

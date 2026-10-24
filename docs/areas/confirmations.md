@@ -104,7 +104,10 @@ subject, labeled disclosure sections (with optional main-authored collapsed summ
 lines and full tooltip/accessibility text), facts, argument chips and the pairing code with
 its main-owned expiry deadline. The sandboxed preload requires the request ID, complete resolved theme, title
 and accept label, and validates every optional nested disclosure, removal, cleanup,
-reply, pairing and session field before buffering or publishing a request. A
+reply, pairing and session field before buffering or publishing a request. It
+recursively rebuilds requests from these validated fields, stripping undeclared
+properties (including nested properties and prototype keys). Size and selection
+payloads are rebuilt too. A
 malformed request clears the rendered request to null. This includes summary line
 text and optional full titles. Both are capped at 8,192
 UTF-16 code units and reject control characters, Unicode line/paragraph separators

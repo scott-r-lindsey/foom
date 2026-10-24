@@ -15,6 +15,17 @@ function object(value: unknown): value is Record<string, unknown> {
 }
 // Keep these checks inline: the sandboxed loader can require only Electron.
 type Validator<T> = (value: unknown) => value is T;
+// Composite validators also describe the fields that may cross the bridge.
+const copies = new WeakMap<Validator<unknown>, (value: unknown) => unknown>();
+function copying<T>(check: Validator<T>, copy: (value: unknown) => unknown): Validator<T> {
+  copies.set(check, copy);
+  return check;
+}
+function project(check: Validator<unknown>, value: unknown): unknown {
+  const copy = copies.get(check);
+  // An unregistered object validator must never forward its input unchanged.
+  return copy ? copy(value) : value !== null && typeof value === "object" ? undefined : value;
+}
 const text: Validator<string> = (value): value is string => typeof value === "string";
 const finite: Validator<number> = (value): value is number =>
   typeof value === "number" && Number.isFinite(value);
@@ -28,12 +39,24 @@ function literal<const T extends readonly (string | number | boolean | null | un
 function either<T extends readonly Validator<unknown>[]>(
   ...checks: T
 ): Validator<T[number] extends Validator<infer U> ? U : never> {
-  return (value): value is T[number] extends Validator<infer U> ? U : never =>
-    checks.some((check) => check(value));
+  return copying(
+    (value): value is T[number] extends Validator<infer U> ? U : never =>
+      checks.some((check) => check(value)),
+    (value) => {
+      const check = checks.find((candidate) => candidate(value));
+      return check ? project(check, value) : undefined;
+    },
+  );
 }
 function array<T>(check: Validator<T>): Validator<T[]> {
-  return (value): value is T[] =>
-    Array.isArray(value) && Array.from(value).every((entry: unknown) => check(entry));
+  return copying(
+    (value): value is T[] =>
+      Array.isArray(value) && Array.from(value).every((entry: unknown) => check(entry)),
+    (value) =>
+      Array.isArray(value)
+        ? Array.from(value, (entry: unknown) => project(check, entry))
+        : undefined,
+  );
 }
 // Require validators for optional fields too, so contract additions cannot be silently skipped.
 type Contract<T> = { [K in keyof T]-?: Validator<T[K]> };
@@ -44,8 +67,18 @@ type Fields<T> = {
   [K in keyof T as undefined extends Checked<T[K]> ? K : never]?: Exclude<Checked<T[K]>, undefined>;
 };
 function shape<T extends Record<string, Validator<unknown>>>(fields: T): Validator<Fields<T>> {
-  return (value): value is Fields<T> =>
-    object(value) && Object.entries(fields).every(([key, check]) => check(value[key]));
+  return copying(
+    (value): value is Fields<T> =>
+      object(value) && Object.entries(fields).every(([key, check]) => check(value[key])),
+    (value) =>
+      object(value)
+        ? Object.fromEntries(
+            Object.entries(fields)
+              .filter(([key]) => Object.hasOwn(value, key))
+              .map(([key, check]) => [key, project(check, value[key])]),
+          )
+        : undefined,
+  );
 }
 const count: Validator<number> = (value): value is number =>
   finite(value) && Number.isSafeInteger(value) && value >= 0;
@@ -60,9 +93,19 @@ function range(min: number, max: number, integer = false): Validator<number> {
 function partial<T extends Record<string, Validator<unknown>>>(
   fields: T,
 ): Validator<Partial<Fields<T>>> {
-  return (value): value is Partial<Fields<T>> =>
-    object(value) &&
-    Object.entries(fields).every(([key, check]) => value[key] === undefined || check(value[key]));
+  return copying(
+    (value): value is Partial<Fields<T>> =>
+      object(value) &&
+      Object.entries(fields).every(([key, check]) => value[key] === undefined || check(value[key])),
+    (value) =>
+      object(value)
+        ? Object.fromEntries(
+            Object.entries(fields)
+              .filter(([key]) => Object.hasOwn(value, key))
+              .map(([key, check]) => [key, project(check, value[key])]),
+          )
+        : undefined,
+  );
 }
 const interfaceColorFields = {
   bg: color,
@@ -252,7 +295,8 @@ const validDialogRequest: Validator<DialogRequest> = shape({
   ),
 } satisfies Contract<DialogRequest>);
 ipcRenderer.on("confirmation:render", (_event: IpcRendererEvent, request: unknown) => {
-  current = validDialogRequest(request) ? request : null;
+  const clean = validDialogRequest(request) ? project(validDialogRequest, request) : null;
+  current = validDialogRequest(clean) ? clean : null;
   for (const listener of listeners) listener(current);
 });
 const api: ConfirmationWindowApi = {
@@ -264,10 +308,25 @@ const api: ConfirmationWindowApi = {
     };
   },
   size(value) {
-    ipcRenderer.send("confirmation:size", value);
+    if (
+      !object(value) ||
+      !finite(value.width) ||
+      !finite(value.height) ||
+      value.width <= 0 ||
+      value.height <= 0
+    )
+      return;
+    ipcRenderer.send("confirmation:size", { width: value.width, height: value.height });
   },
   answer(id, accepted) {
-    ipcRenderer.send("confirmation:answer", id, accepted);
+    if (!nonempty(id)) return;
+    if (boolean(accepted)) ipcRenderer.send("confirmation:answer", id, accepted);
+    else if (
+      array(nonempty)(accepted) &&
+      accepted.length > 0 &&
+      new Set(accepted).size === accepted.length
+    )
+      ipcRenderer.send("confirmation:answer", id, Array.from(accepted));
   },
 };
 contextBridge.exposeInMainWorld("confirmation", api);
