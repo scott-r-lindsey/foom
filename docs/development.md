@@ -43,7 +43,8 @@ Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xt
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm run check` | Formatting, lint, all type checks, unit tests and CI-policy tests; also the pre-commit check |
+| `pnpm run check` | Formatting, documentation integrity, lint, all type checks, unit tests and CI-policy tests; also the pre-commit check |
+| `pnpm run docs:check` | Check tracked Markdown local links/anchors and complete source-to-feature map coverage without network requests |
 | `pnpm run format` | Apply Biome formatting |
 | `pnpm run format:check` | Check formatting without changing files |
 | `pnpm run lint` / `pnpm run lint:fix` | Type-aware ESLint checks / safe autofixes |
@@ -105,7 +106,7 @@ file can be deleted to force a miss. Reference and generated output directories
 are excluded. `pnpm run lint` and `pnpm run lint:fix` remain uncached.
 
 `pnpm run check:local` overlaps that local lint with one sequential lane of format,
-typecheck, unit tests and CI-policy tests. At most two stages run simultaneously;
+documentation integrity, typecheck, unit tests and CI-policy tests. At most two stages run simultaneously;
 unit/native tests never overlap CI-policy tests. Vitest uses at most four workers
 (and fewer on small machines); explicit native-test serialization still wins.
 Every stage finishes and failures are aggregated into a nonzero exit. Use the sequential authoritative gate on

@@ -76,8 +76,7 @@ Sessions that exited before quit keep their sidebar rows and Resume/New conversa
 commands, but their saved board assignments become empty spaces: no screen or
 scrollback exists to draw. Disabled or ineligible restores likewise stay in the
 sidebar. Eligible running sessions keep their saved tile positions while queued
-and relaunched. A neutral skeleton with the agent glyph and session name covers
-the tile until the new attachment's snapshot has been parsed and its first frame
-rendered. Restoration failures and roles that cannot be restored lose their tile
-assignment and retain the existing sidebar error state. Manual resume uses normal
-launch placement. Live tiles retain their split geometry and hidden-space rules.
+and relaunched. Restoration failures and roles that cannot be restored lose their
+tile assignment and retain the existing sidebar error state. Manual resume uses normal
+launch placement. [Board loading](board.md#restored-tile-placement-732) owns the
+attachment readiness gate and loading presentation.
