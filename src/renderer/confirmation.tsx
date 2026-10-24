@@ -150,11 +150,19 @@ export function ConfirmationPage() {
   const bodyRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const acceptRef = useRef<HTMLButtonElement>(null);
+  const [closeWhenCompleted, setCloseWhenCompleted] = useState(true);
+  const openingIdRef = useRef<string | undefined>(undefined);
+  const closedIdRef = useRef<string | undefined>(undefined);
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [now, setNow] = useState(Date.now);
   useEffect(
     () =>
       window.confirmation.render((value) => {
+        if (openingIdRef.current !== value?.id) {
+          openingIdRef.current = value?.id;
+          closedIdRef.current = undefined;
+          setCloseWhenCompleted(true);
+        }
         setRequest(value);
         setSelected([]);
         setNow(Date.now());
@@ -254,6 +262,23 @@ export function ConfirmationPage() {
       observer.disconnect();
     };
   }, [requestId, wide, bounded]);
+  useEffect(() => {
+    const cleanup = request?.cleanup;
+    if (
+      request &&
+      closeWhenCompleted &&
+      cleanup?.stage === "run" &&
+      cleanup.progress.phase === "finished" &&
+      !cleanup.error &&
+      cleanup.progress.total > 0 &&
+      cleanup.progress.items.filter((item) => item.state === "removed").length ===
+        cleanup.progress.total &&
+      closedIdRef.current !== request.id
+    ) {
+      closedIdRef.current = request.id;
+      window.confirmation.answer(request.id, false);
+    }
+  }, [request, closeWhenCompleted]);
   if (!request) return null;
   const cleanup = request.cleanup;
   const forceCleanup =
@@ -569,6 +594,18 @@ export function ConfirmationPage() {
           </div>
         </div>
         <footer>
+          {cleanup && !finished && (
+            <label className="close-when-completed">
+              <input
+                type="checkbox"
+                checked={closeWhenCompleted}
+                onChange={(event) => {
+                  setCloseWhenCompleted(event.target.checked);
+                }}
+              />
+              Close when completed
+            </label>
+          )}
           <button
             type="button"
             ref={cancelRef}
