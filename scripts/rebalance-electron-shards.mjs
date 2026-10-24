@@ -219,6 +219,7 @@ function main(args) {
   }
   if (args.includes("--write")) {
     writePlan(planPath, {
+      ...old,
       sourceRuns: sources.map((source) => Number(basename(source))),
       platforms: old.platforms,
       shards,

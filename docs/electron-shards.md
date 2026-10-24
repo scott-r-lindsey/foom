@@ -19,7 +19,12 @@ Test deadlines and step limits are unchanged.
 | --- | --- |
 | `terminal.test.js` | Shell I/O, cursor, PTY host, output, input and restart |
 | `confirmations.test.js` | Trusted dialogs, quit and config argument consent |
-| `workspace.test.js` | Repositories, worktrees, sessions, windows, sidebar and tiles |
+| `workspace-cleanup.test.js` | Merged worktree cleanup, review and progress |
+| `workspace-commands.test.js` | Application menu and native keyboard commands |
+| `workspace-repositories.test.js` | Repository inventory, worktrees and guarded removal |
+| `workspace-sidebar.test.js` | Sidebar focus, accessibility, panels and preferences |
+| `workspace-tiles.test.js` | Tile placement, drag/split/swap, restore and focus |
+| `workspace-windows.test.js` | Profile locks, exclusive views and window restore |
 | `previews.test.js` | Markdown/HTML views, focus, composition, security and reload |
 | `preflight.test.js` | First-run setup, responsive steps and repository scans |
 | `settings-accessibility.test.js` | Fullscreen transitions, keyboard focus, zoom and section accessibility |
