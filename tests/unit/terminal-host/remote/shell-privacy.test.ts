@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +10,8 @@ import { RemoteFrames, remoteFrame } from "../../../../src/shared/remote-host-pr
 test.skipIf(process.platform === "win32")(
   "the real spawned remote shell receives no terminal ID in argv, environment or cwd",
   async () => {
-    const root = await realpath(await mkdtemp(join(tmpdir(), "shell-privacy-")));
+    const root = join(await realpath(tmpdir()), "rs");
+    await mkdir(root, { mode: 0o700 });
     const shell = join(root, "shell");
     const probe = join(root, "probe.cjs");
     const record = join(root, "record.json");

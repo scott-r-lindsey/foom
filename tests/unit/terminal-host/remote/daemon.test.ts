@@ -1,5 +1,5 @@
 import { createConnection, type Socket } from "node:net";
-import { mkdtemp, rm, stat, realpath } from "node:fs/promises";
+import { mkdir, rm, stat, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
@@ -54,7 +54,9 @@ const build = "a".repeat(64);
 beforeEach(async () => {
   vi.clearAllMocks();
   vi.stubEnv("SHELL", "/bin/sh");
-  root = await realpath(await mkdtemp(join(tmpdir(), "host-daemon-")));
+  // Each test run owns tmpdir(); keep HOME short enough for macOS Unix sockets.
+  root = join(await realpath(tmpdir()), "rd");
+  await mkdir(root, { mode: 0o700 });
   mock.stop.mockResolvedValue(true);
   mock.tail.mockResolvedValue(["tail"]);
   mock.screen.mockResolvedValue({ lines: ["screen"], title: "shell", cols: 80, rows: 24 });
