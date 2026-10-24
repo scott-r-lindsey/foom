@@ -1293,3 +1293,19 @@ test("a secret row carrying plaintext cannot cross the environment response boun
   mock.invoke.mockResolvedValue(value);
   await expect(api.environmentState()).rejects.toThrow(/Invalid/);
 });
+
+test("sound replies cannot claim both the byte and error branches", async () => {
+  const api = await bridge();
+  for (const value of [
+    { bytes: new Uint8Array([1]), error: "Unavailable" },
+    { bytes: 42, error: "Unavailable" },
+    { bytes: undefined, error: "Unavailable" },
+    { bytes: new Uint8Array([1]), error: 42 },
+    { error: 42 },
+  ]) {
+    mock.invoke.mockResolvedValue(value);
+    await expect(
+      api.sounds.read({ kind: "done", source: "user", file: "bell.wav" }),
+    ).rejects.toThrow(/Invalid/);
+  }
+});

@@ -905,14 +905,12 @@ const validSoundEntry: Validator<SoundEntry> = shape({
   file: text,
 } satisfies Contract<SoundEntry>);
 
-const validSoundRead: Validator<SoundRead> = either(
-  shape({
-    bytes: bytes,
-  }),
-  shape({
-    error: text,
-  }),
-);
+const validSoundRead: Validator<SoundRead> = (value): value is SoundRead => {
+  if (!object(value)) return false;
+  // Consumers discriminate by property presence; contradictory branches are invalid.
+  if ("bytes" in value) return !("error" in value) && bytes(value["bytes"]);
+  return text(value["error"]);
+};
 
 const validCommandItem: Validator<CommandItem> = shape({
   id: nonempty,
