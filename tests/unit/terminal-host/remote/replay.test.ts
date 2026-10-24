@@ -4,6 +4,7 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Terminal } from "@xterm/headless";
+import { SerializeAddon } from "@xterm/addon-serialize";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { RemoteRequest, RemoteResponse } from "../../../../src/shared/remote-host";
 import {
@@ -23,8 +24,12 @@ let root: string | undefined;
 const sockets: Socket[] = [];
 const build = "a".repeat(64);
 let fixture: Awaited<ReturnType<typeof prepareReplay>>;
+let serialized: ReturnType<typeof prepareSerialization>;
 beforeEach(async () => {
   fixture = await prepareReplay();
+});
+beforeEach(() => {
+  serialized = prepareSerialization();
 });
 afterEach(async () => {
   for (const socket of sockets.splice(0)) socket.destroy();
@@ -101,11 +106,26 @@ async function prepareReplay() {
   return { path, pty, expected, screen, history: screen.buffer.normal.baseY };
 }
 
+function prepareSerialization() {
+  const addon = new SerializeAddon();
+  fixture.screen.loadAddon(addon);
+  const serialize = addon.serialize.bind(addon);
+  const full = serialize();
+  expect(JSON.stringify(full).length).toBeGreaterThan(MAX_REMOTE_MESSAGE);
+  return { full, serialize };
+}
+
 test.skipIf(process.platform === "win32")(
   "reattaches a real 400-column 10000-line ANSI screen above the message cap without losing visible rows",
   async () => {
     const { path, pty, expected, screen, history } = fixture;
     const next = await connect(path);
+    // This immutable real-xterm fixture is built above. Keep the bounded replay
+    // test about transport/policy, rather than repeating expensive fixture work
+    // under coverage. The fallback still serializes the actual visible buffers.
+    vi.spyOn(SerializeAddon.prototype, "serialize").mockImplementation((options) =>
+      options?.scrollback === undefined ? serialized.full : serialized.serialize(options),
+    );
     next.send({ type: "attach", id: "one", request: 3, view: "v" });
     await next.result(3);
     const replay = next.messages.find((m) => m.type === "data");
