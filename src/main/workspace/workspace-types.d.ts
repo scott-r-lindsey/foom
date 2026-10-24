@@ -150,7 +150,7 @@ export interface WorkspaceMethods {
     branch: string | null,
     confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
     revalidate?: () => void | Promise<void>,
-    retainBranchLock?: boolean,
+    retainBranchLock?: (release: () => void) => void,
     autoApprove?: () => Promise<boolean>,
   ): Promise<boolean>;
   panelFacts(repository: string, worktree: string): ReturnType<WorktreeService["panelFacts"]>;
@@ -173,6 +173,9 @@ export interface WorkspaceDependencies {
     | "adoptWorktree"
     | "validateBranch"
     | "changes"
+    | "cleanupChanges"
+    | "cleanupStatus"
+    | "cleanupBrokenWorktree"
     | "removalIdentity"
     | "launchIdentity"
     | "pruneWorktree"

@@ -53,6 +53,7 @@ const commandFailures: Readonly<Record<SidebarCommand["kind"], string>> = {
   "copy-worktree-path": "Unable to copy worktree path.",
   launch: "Unable to launch session.",
   "remove-worktree": "Unable to remove worktree.",
+  "cleanup-worktree": "Unable to clean up worktree.",
   "prune-worktree": "Unable to prune worktree.",
   "delete-merged-worktrees": "Unable to delete merged worktrees.",
   "remove-repository": "Unable to remove repository.",

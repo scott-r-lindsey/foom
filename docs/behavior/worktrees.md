@@ -43,7 +43,7 @@ Finished runs offer **Done**. The sidebar shows the same count and queued, remov
 removed, kept or error tags; a completion status reports the result when hidden.
 Removing uses the highlight, errors use failure ink, and reduced motion disables
 sweep and fold animations. Main checkouts, locked,
-prunable or detached worktrees, running sessions, dirty/untracked files and
+prunable worktrees, running sessions, tracked changes and
 exited resumable Claude/Codex/Antigravity conversations are retained. After confirmation,
 Foom fetches again, revalidates each candidate before and after stopping its
 exited terminal resources, then uses the existing safe removal path with at most
@@ -86,9 +86,10 @@ rule the name breaks, in the failure color with a matching border. Main validate
 Enter does nothing for an invalid name or a bare prefix. Esc, or Left Arrow on an empty
 field, returns to New worktree; Esc again closes the panel.
 
-Enter disables the field and shows `Creating from <head>…` or `Checking out…`; a failure
-shows Git's message there and re-enables the field. Creating starts nothing: the panel
-closes and focus moves to the new worktree's row, whose own panel offers the launchers.
+Enter disables the field and shows `Creating from <head>…` or `Checking out…`. A failure
+opens the [action error dialog](errors.md#error-presentation); dismissing it returns
+focus to the re-enabled branch field, retaining the typed name for retry. Creating
+starts nothing: the panel closes and focus moves to the new worktree's row, whose own panel offers the launchers.
 A branch already checked out creates nothing; its row arrives instead. A branch only on
 the repository's remote (origin, or its only remote) is checked out tracking it; other new
 branches start from the repository's HEAD. Branch data comes from refs already present;
@@ -97,3 +98,24 @@ across it once and it flares twice in the accent (never amber: nothing needs you
 then keeps a tint and accent edge until hovered or focus leaves it. With reduced motion
 it shows the tint and edge without animating. The arrival is view state: it does not
 survive a reload or appear in other windows.
+
+### Detached and leftover checkouts
+
+Delete merged worktrees also considers detached HEADs and checkouts with only
+untracked or ignored files. These additional candidates must be inside Foom’s
+worktree root,
+have no unpushed commits and satisfy the same merge checks. The confirmation lists
+untracked and ignored paths (up to 50 per checkout, with long paths shortened
+and a count of omitted paths) and offers
+**Force delete**. Changed files or commits invalidate the approval. Detached rows
+in the checklist name the folder and short commit; they have no branch to delete.
+
+A prunable checkout shows **Broken checkout** in the sidebar and offers a single
+**Clean up** command. Close its sessions first. Cleanup refuses leftover content
+that cannot be safely inspected, a nonempty index, unpushed commits, private refs,
+sparse checkout and unfinished Git operations. Only an absent or empty folder
+inside Foom’s worktree root can be cleaned up; branches are kept. Known broken
+checkouts show unavailable Git facts without logging an error on each panel refresh.
+
+Ordinary **Delete worktree…** keeps its existing explicit confirmation behavior,
+including **Discard changes and remove** and external linked checkouts.

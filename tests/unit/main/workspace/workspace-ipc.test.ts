@@ -712,30 +712,33 @@ test("handoff links resolve from owned records and require trusted confirmation"
   expect(mock.openExternal).not.toHaveBeenCalled();
 });
 
-test("prune copies only repository and worktree and rejects extra authority fields", async () => {
-  const command = { kind: "prune-worktree", repository: "/repo", worktree: "/tree" };
-  const sidebar = vi.fn(() => Promise.resolve());
-  attached.dispose();
-  mock.handle.mockClear();
-  attached = attachWorkspace(
-    window,
-    { ...workspace, sidebarCommand: sidebar } as unknown as Workspace,
-    owns,
-    requestDialog,
-  );
-  await invoke("workspace:sidebar-command", [command]);
-  expect(sidebar).toHaveBeenCalledWith(command, expect.any(Function));
-  for (const invalid of [
-    { ...command, force: true },
-    { kind: "prune-worktree", repository: "/repo", unexpected: "/tree" },
-    { ...command, worktree: "" },
-    { ...command, repository: null },
-  ]) {
-    expect(() => invoke("workspace:sidebar-command", [invalid])).toThrow(
-      "foom-error:operation-failed",
+test.each(["prune-worktree", "cleanup-worktree"])(
+  "%s copies only repository and worktree and rejects extra authority fields",
+  async (kind) => {
+    const command = { kind, repository: "/repo", worktree: "/tree" };
+    const sidebar = vi.fn(() => Promise.resolve());
+    attached.dispose();
+    mock.handle.mockClear();
+    attached = attachWorkspace(
+      window,
+      { ...workspace, sidebarCommand: sidebar } as unknown as Workspace,
+      owns,
+      requestDialog,
     );
-  }
-});
+    await invoke("workspace:sidebar-command", [command]);
+    expect(sidebar).toHaveBeenCalledWith(command, expect.any(Function));
+    for (const invalid of [
+      { ...command, force: true },
+      { kind, repository: "/repo", unexpected: "/tree" },
+      { ...command, worktree: "" },
+      { ...command, repository: null },
+    ]) {
+      expect(() => invoke("workspace:sidebar-command", [invalid])).toThrow(
+        "foom-error:operation-failed",
+      );
+    }
+  },
+);
 
 test("workspace rejections contain only a selected code, never raw exception details", async () => {
   const { ApplicationError } = await import("../../../../src/shared/application-errors");

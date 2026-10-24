@@ -1,25 +1,10 @@
-import type { ReactNode } from "react";
-import type { RenderOptions } from "@testing-library/react";
-import {
-  ErrorPresentation,
-  BackgroundErrorMark,
-} from "../../../../src/renderer/board/error-presentation";
+import { renderWithErrors as render } from "../../../fixtures/render-with-errors";
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render as renderView, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { SoundControls } from "../../../../src/renderer/sound/sound-controls";
 import { DEFAULT_SOUND } from "../../../../src/shared/sounds";
 import type { SoundKind, SoundEntry } from "../../../../src/shared/sound";
-const render = (ui: ReactNode, options?: RenderOptions) =>
-  renderView(ui, {
-    ...options,
-    wrapper: ({ children }) => (
-      <ErrorPresentation>
-        {children}
-        <BackgroundErrorMark />
-      </ErrorPresentation>
-    ),
-  });
 
 const sink = vi.hoisted(() => ({
   configure: vi.fn(),

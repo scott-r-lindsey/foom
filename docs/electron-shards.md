@@ -268,6 +268,34 @@ PR step wall times against the unchanged 420s Linux / 600s Windows and macOS
 limits before calling the balance validated. The earlier measurements above
 remain historical context, not this refresh's inputs.
 
+## Merged worktree cleanup validation (#729)
+
+After merging main's newer desktop scenarios, PR #736's Windows shard 2 reached
+its ten-minute step limit twice in run
+[39977391256](https://github.com/scott-r-lindsey/foom/actions/runs/39977391256).
+The second attempt completed cases with normal fixture timings but could not
+finish the assigned workload. These interrupted reports are diagnostic evidence,
+not passing validation or inputs to the rebalance tool.
+
+Refresh the plan from the unmodified JUnit reports of green PR run
+[39946613615](https://github.com/scott-r-lindsey/foom/actions/runs/39946613615)
+and green merged-main run
+[39970696968](https://github.com/scott-r-lindsey/foom/actions/runs/39970696968).
+Together their 24 reports measure all 184 current registered cases on all three
+platforms, including the cleanup scenarios and newly merged desktop cases.
+The existing rebalance script takes per-case maxima across both sources and
+keeps the same four shards and registration checks.
+
+| Platform | Before: shards 1 / 2 / 3 / 4 | After: shards 1 / 2 / 3 / 4 |
+| --- | --- | --- |
+| Linux | 304.7 / 332.9 / 340.7 / 316.8 | 320.6 / 327.2 / 322.8 / 324.5 |
+| Windows | 442.5 / 586.6 / 510.4 / 442.8 | 493.6 / 497.2 / 496.0 / 495.5 |
+| macOS | 350.2 / 433.5 / 440.6 / 373.2 | 403.0 / 391.8 / 401.3 / 401.2 |
+
+These are conservative case sums in seconds, excluding build and runner overhead.
+Windows shard 2 previously left only 13.4 seconds for that overhead; the refreshed
+maximum leaves 102.8 seconds. Actual CI outcomes remain the validation evidence.
+Test deadlines and workflow step limits retain their existing values.
 ## Rebalancing from current reports (#751)
 
 Refreshed all 185 current named cases using passing main runs
@@ -298,3 +326,23 @@ that may come from different runs and exclude build/runner overhead. Actual PR
 step times remain the validation evidence. No shard count, workflow budget or
 test deadline changed. The [validation guide](validation.md#refreshing-the-electron-shard-plan)
 includes the repeatable refresh procedure.
+
+## Combined cleanup and current-main measurements (#729)
+
+Merging main at `529b53d2` brings the #751 refresh and three newer named cases.
+Regenerate from the union of the two refreshes' green sources: the five runs
+listed above plus [39946613615](https://github.com/scott-r-lindsey/foom/actions/runs/39946613615).
+All 72 unmodified Electron reports feed the existing script; its per-platform
+maxima cover all 187 current registrations, including both new cleanup cases.
+Both earlier refresh descriptions remain historical evidence.
+
+| Platform | Main plan plus hash fallback | Combined measured plan |
+| --- | --- | --- |
+| Linux | 348.5 / 351.9 / 354.1 / 345.4 | 351.0 / 351.0 / 345.3 / 352.7 |
+| Windows | 555.8 / 585.1 / 560.4 / 551.0 | 563.2 / 565.8 / 562.0 / 561.3 |
+| macOS | 463.1 / 481.8 / 461.8 / 467.5 | 462.9 / 470.4 / 469.4 / 471.6 |
+
+Values are conservative case sums in seconds, excluding build/runner overhead.
+The largest sums leave 67.3s Linux, 34.2s Windows and 128.4s macOS step headroom.
+Four shards, test deadlines, coverage thresholds and workflow budgets retain
+main's values. Actual CI step outcomes remain the validation evidence.

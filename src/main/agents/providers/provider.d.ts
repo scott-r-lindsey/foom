@@ -1,7 +1,6 @@
 import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
 import type { McpAttachment } from "../../control/types";
 import type { AgentHooks, AgentId, AgentInstallation, AgentLaunch } from "../../../shared/agents";
-import type { prepareMcpLaunch } from "./mcp-launch";
 export interface PreparedLaunch {
   args: string[];
   environment?: readonly { name: string; value: string }[];
@@ -32,7 +31,6 @@ export interface AgentProvider {
   readonly mark: string;
   validate?(): Promise<void>;
   resume(id: unknown): string[];
-  prepareMcp(endpoint: string): ReturnType<typeof prepareMcpLaunch>;
   readonly executableNames: readonly string[];
   discover(executable: string, version: string, help: string): AgentInstallation;
   enrich(installation: AgentInstallation, plugin?: unknown): Promise<AgentInstallation>;
@@ -41,14 +39,4 @@ export interface AgentProvider {
     binding: AgentHooks | undefined,
     healthTrusted?: boolean,
   ): boolean;
-  arguments(
-    installation: AgentInstallation,
-    request: AgentLaunch,
-    defaults: readonly string[],
-    resume: readonly string[],
-    binding: AgentHooks | undefined,
-    mcp: Awaited<ReturnType<typeof prepareMcpLaunch>> | undefined,
-    control: boolean,
-    configSession: boolean,
-  ): string[];
 }

@@ -14,7 +14,10 @@ export async function checkLocal(run) {
       }
     }
   }
-  await Promise.all([lane(["lint:local"]), lane(["format:check", "typecheck", "test", "test:ci"])]);
+  await Promise.all([
+    lane(["lint:local"]),
+    lane(["format:check", "docs:check", "typecheck", "test", "test:ci"]),
+  ]);
   return results;
 }
 

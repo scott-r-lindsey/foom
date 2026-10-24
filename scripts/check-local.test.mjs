@@ -17,7 +17,7 @@ test("local checks bound concurrency, serialize tests and aggregate every failur
     return stage === "lint:local" || stage === "test" ? 1 : 0;
   });
   assert.equal(peak, 2);
-  assert.equal(results.length, 5);
+  assert.equal(results.length, 6);
   assert.deepEqual(
     results
       .filter(({ code }) => code !== 0)
