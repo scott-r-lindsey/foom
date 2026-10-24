@@ -78,7 +78,7 @@ test.each([false, true])(
       expect(data.length).toBeLessThan(600);
       expect(host.buffer.normal.baseY).toBe(before);
       await write(view, data);
-      expect(view.buffer.normal.baseY).toBeLessThan(before);
+      expect(view.buffer.normal.baseY).toBe(0);
       expect(lines(view)).toEqual(lines(host));
       expect(view.buffer.active.cursorX).toBe(host.buffer.active.cursorX);
       expect(view.buffer.active.cursorY).toBe(host.buffer.active.cursorY);

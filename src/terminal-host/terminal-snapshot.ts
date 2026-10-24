@@ -112,7 +112,7 @@ export function terminalSnapshot(
     const data = snapshot(screen, serialize, scrollback);
     if (!fits || fits(data)) return data;
     if (scrollback === 0) throw new Error("Visible terminal exceeds snapshot budget");
-    // Geometric reduction bounds reserialization work and always preserves visible rows.
-    scrollback = Math.floor((scrollback ?? screen.buffer.normal.baseY) / 2);
+    // One fallback bounds reserialization work and preserves both visible buffers.
+    scrollback = 0;
   }
 }

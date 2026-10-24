@@ -97,9 +97,9 @@ close the channel. The 8 MiB per-frame cap remains unchanged. The daemon writes
 one frame at a time, queues live output behind replay, and finishes replay before
 acknowledging attach or processing another attachment.
 Replay budgets include the complete JSON-encoded response, reset and color state.
-If retained history exceeds the message cap, serialization progressively drops
-the oldest replayed scrollback until it fits, preserving visible normal/alternate
-buffers, cursor and modes. The daemon's retained history is not erased.
+If retained history exceeds the message cap, replay falls back to the visible
+normal/alternate buffers, cursor and modes, omitting scrollback from that replay.
+The daemon's retained history is not erased and remains available to tail requests.
 Both peers negotiate the SHA-256 build identity before operations. The shell-only
 protocol permits open, attach/replay, input, resize, theme, acknowledgement, screen,
 tail, stop and close; it cannot create arbitrary commands, send hooks/MCP, or shut

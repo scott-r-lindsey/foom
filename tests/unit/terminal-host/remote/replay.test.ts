@@ -116,7 +116,7 @@ test.skipIf(process.platform === "win32")(
           view.buffer.active.getLine(view.buffer.active.baseY + y)?.translateToString(true),
         ),
       ).toEqual(expected.lines);
-      expect(view.buffer.normal.baseY).toBeLessThan(10000 - 24);
+      expect(view.buffer.normal.baseY).toBe(0);
       for (let y = 0; y < 23; y++) {
         const row = view.buffer.active.getLine(view.buffer.active.baseY + y);
         for (let x = 0; x < 400; x++) expect(row?.getCell(x)?.getFgColor()).toBe((x % 2) + 1);
