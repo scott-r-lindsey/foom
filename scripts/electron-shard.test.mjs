@@ -1,3 +1,4 @@
+import { selectAffected } from "./electron-affected.mjs";
 import { suiteFiles } from "../tests/electron/test-suites.js";
 import { createRequire } from "node:module";
 import { runInNewContext } from "node:vm";
@@ -35,6 +36,19 @@ test("Electron shards register every test exactly once, preserve filtering and r
     const plan = JSON.parse(
       readFileSync(new URL("../tests/electron/shard-plan.json", import.meta.url), "utf8"),
     );
+    const discoveredFiles = suiteFiles().map((file) => path.basename(file));
+    const terminalSuites = selectAffected(["src/renderer/terminal/shell-controller.ts"]).suites;
+    for (const [original, replacements] of Object.entries(plan.suiteSplits)) {
+      assert.ok(!discoveredFiles.includes(original), `Retired suite: ${original}`);
+      assert.equal(new Set(replacements).size, replacements.length);
+      for (const replacement of replacements) {
+        assert.ok(discoveredFiles.includes(replacement), `Missing suite: ${replacement}`);
+        assert.ok(
+          terminalSuites.includes(replacement),
+          `Missing terminal coverage: ${replacement}`,
+        );
+      }
+    }
     const plannedNames = plan.shards.flatMap(Object.keys);
     assert.equal(new Set(plannedNames).size, plannedNames.length, "duplicate planned test");
     assert.ok(
