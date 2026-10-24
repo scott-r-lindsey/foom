@@ -81,21 +81,83 @@ function restore(
   return `${margins}\r\x1b[0m\x1b[4l${replay}${buffer.type === screen.buffer.active.type && screen.modes.insertMode ? "\x1b[4h" : ""}`;
 }
 
+/** Seed BCE cells that the pinned serializer can omit in trailing blank rows. */
+function blankBackground(screen: Terminal, buffer: IBuffer): string {
+  let data = "";
+  for (let row = 0; row < screen.rows; row++) {
+    const line = buffer.getLine(buffer.baseY + row);
+    for (let col = 0; col < screen.cols; col++) {
+      const cell = line?.getCell(col);
+      if (!cell || cell.getChars() !== "" || cell.getWidth() === 0 || cell.isBgDefault()) continue;
+      const color = cell.getBgColor();
+      const sgr = cell.isBgRGB()
+        ? `48;2;${String((color >>> 16) & 255)};${String((color >>> 8) & 255)};${String(color & 255)}`
+        : color >= 16
+          ? `48;5;${String(color)}`
+          : String(color & 8 ? 100 + (color & 7) : 40 + (color & 7));
+      let end = col + 1;
+      while (end < screen.cols) {
+        const next = line?.getCell(end);
+        if (
+          !next ||
+          next.getChars() !== "" ||
+          next.getWidth() === 0 ||
+          next.getBgColorMode() !== cell.getBgColorMode() ||
+          next.getBgColor() !== color
+        )
+          break;
+        end++;
+      }
+      data += `\x1b[${String(row + 1)};${String(col + 1)}H\x1b[${sgr}m\x1b[${String(end - col)}X`;
+      col = end - 1;
+    }
+  }
+  // Serialization assumes a default pen and a cursor at the top left. Seed
+  // before it runs so its own final pen/cursor/mode restoration stays authoritative.
+  return `\x1b[0m\x1b[2J\x1b[H${data}\x1b[0m\x1b[H`;
+}
+
 /** Called at the host parser barrier, before any subsequent live output. */
-export function terminalSnapshot(screen: Terminal, serialize: SerializeAddon): string {
+function snapshot(screen: Terminal, serialize: SerializeAddon, scrollback?: number): string {
   const cursor = cursorSnapshot(screen);
-  const snapshot = serialize.serialize();
+  const options = scrollback === undefined ? {} : { scrollback };
+  const serialized = serialize.serialize(options);
+  const normalBackground = scrollback === 0 ? blankBackground(screen, screen.buffer.normal) : "";
   const active = screen.buffer.active;
   if (active.type === "normal")
-    return snapshot + restore(screen, serialize, active, screen.modes.originMode) + cursor;
-  const normal = serialize.serialize({ excludeAltBuffer: true, excludeModes: true });
+    return (
+      normalBackground +
+      serialized +
+      restore(screen, serialize, active, screen.modes.originMode) +
+      cursor
+    );
+  const normal = serialize.serialize({ ...options, excludeAltBuffer: true, excludeModes: true });
   // Restore the inactive normal buffer before 1049h saves its cursor. The active
   // alternate buffer and modes are then serialized in their original order.
   return (
+    normalBackground +
     normal +
     restore(screen, serialize, screen.buffer.normal, false) +
-    snapshot.slice(normal.length) +
+    (scrollback === 0
+      ? `\x1b[?1049h\x1b[H${blankBackground(screen, active)}${serialized.slice(normal.length + "\x1b[?1049h\x1b[H".length)}`
+      : serialized.slice(normal.length)) +
     restore(screen, serialize, active, screen.modes.originMode) +
     cursor
   );
+}
+
+/** Reduce only replayed history; both visible buffers and the host's history stay intact. */
+export function terminalSnapshot(
+  screen: Terminal,
+  serialize: SerializeAddon,
+  fits?: (data: string) => boolean,
+): string {
+  let scrollback: number | undefined;
+  for (;;) {
+    const data = snapshot(screen, serialize, scrollback);
+    if (!fits || fits(data)) return data;
+    if (scrollback === 0) throw new Error("Visible terminal exceeds snapshot budget");
+    // One fallback bounds reserialization work and preserves both visible buffers.
+    scrollback = 0;
+  }
 }

@@ -1,5 +1,7 @@
 # Remote host research (#518)
 
+The phase-1 implementation for #754 is documented in [phase-1.md](phase-1.md).
+
 Research only, **2026-10-15**, Linux x64. No shipped application code or settings.
 The recommendation in [remote-machines.md](../../docs/research/remote-machines.md)
 is **proposed, not decided**. This is remote terminal hosting, not #67 UI mirroring.

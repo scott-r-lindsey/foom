@@ -26,11 +26,11 @@ Production packages use ASAR and hardened Electron fuses and include compiled
 application files, package metadata and production dependencies. Native node-pty
 binaries and spawn helpers are unpacked. Windows uses node-pty's bundled ConPTY
 DLL; RunAsNode stays disabled. Main owns secrets and uses Electron `safeStorage`.
-Local evaluation makes no model requests. Foom itself sends no terminal content to
-model or network services; scoped [probe screens](probes.md) and child tails/reports
-can enter the requesting agent’s context and reach its model provider. See
-[secrets](privacy.md#secrets) and
-[control-plane privacy](../contracts/control-privacy.md#output-privacy-and-visibility).
+Local evaluation makes no model requests. Terminal transport stays local except
+SSH between the user's own Foom and user-provided hosts (#753). Scoped
+[probe screens](probes.md) and child tails/reports can enter the requesting
+agent’s context and reach its model provider. See [secrets](privacy.md#secrets)
+and [control-plane privacy](../contracts/control-privacy.md#output-privacy-and-visibility).
 
 ## Source layout
 
@@ -108,3 +108,15 @@ without a `main/control` forwarding layer. These locations do not expand process
 permissions or the sandboxed preload's runtime imports.
 
 Tests live outside `src/`; production compilation excludes them. Coverage still includes every executable source file regardless of its directory. The build emits main at `build/main/main.js`, preload at `build/preload/preload.js`, and the host at `build/terminal-host/terminal-host.js`. Renderer TypeScript is type-checked without emitting; esbuild produces the browser bundle. This prevents the renderer compiler from overwriting main’s CommonJS shared modules with unbundled ES modules. Renderer asset URLs remain unchanged.
+
+
+## Remote shell spike (#754)
+
+`src/terminal-host/remote/` is also built as a separate Node 24 SEA with no
+Electron/display imports. It reuses the terminal manager and browser-safe shared
+protocol validators. Main's `remote-transport.ts` adapts the SSH stdio stream to
+the existing terminal client; all renderer capabilities and sender checks stay in
+`terminal-ipc.ts`. No remote operation can select a hub executable, cwd, file,
+control grant, hook or MCP endpoint. Native loading is confined to the SEA's
+embedded, hash-verified pinned node-pty prebuild. The remote chooses its own shell
+and environment. See [the spike contract](terminals.md#remote-shell-spike-754).
