@@ -86,9 +86,10 @@ rule the name breaks, in the failure color with a matching border. Main validate
 Enter does nothing for an invalid name or a bare prefix. Esc, or Left Arrow on an empty
 field, returns to New worktree; Esc again closes the panel.
 
-Enter disables the field and shows `Creating from <head>…` or `Checking out…`; a failure
-shows Git's message there and re-enables the field. Creating starts nothing: the panel
-closes and focus moves to the new worktree's row, whose own panel offers the launchers.
+Enter disables the field and shows `Creating from <head>…` or `Checking out…`. A failure
+opens the [action error dialog](errors.md#error-presentation); dismissing it returns
+focus to the re-enabled branch field, retaining the typed name for retry. Creating
+starts nothing: the panel closes and focus moves to the new worktree's row, whose own panel offers the launchers.
 A branch already checked out creates nothing; its row arrives instead. A branch only on
 the repository's remote (origin, or its only remote) is checked out tracking it; other new
 branches start from the repository's HEAD. Branch data comes from refs already present;

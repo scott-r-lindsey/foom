@@ -1,28 +1,5 @@
-import type { AgentInstallation } from "../../../shared/agents";
-
 export const CHILD_PROMPT =
   "Task from your Foom orchestrator (another agent, not the user):\nBefore stopping when finished, blocked, or CI fails, report to your parent with handoff({ status: done|blocked|failed, summary, links?, idempotencyKey }), or foom handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL] --idempotency-key KEY. Handoffs are pull-only; they never type into a terminal.";
-
-/**
- * An orchestrator child's initial prompt as one argv entry. Claude Code and Codex take
- * it positionally after an option terminator; Antigravity composes it through `--prompt-interactive`. A fixed
- * provenance line comes first, so the entry can never name a subcommand (`logout`).
- */
-export function initialPrompt(
-  _agent: Pick<AgentInstallation, "id" | "cliGuidance">,
-  prompt: string | undefined,
-): { guidance: string[]; positional: string[] } {
-  if (prompt === undefined) return { guidance: [], positional: [] };
-  if (
-    prompt.length === 0 ||
-    Buffer.byteLength(prompt) > 16384 ||
-    prompt.trimStart().startsWith("-") ||
-    /[^\P{Cc}\n\t]/u.test(prompt)
-  )
-    throw new Error("Invalid initial prompt");
-  const task = `${CHILD_PROMPT}\n\n${prompt}`;
-  return { guidance: [], positional: ["--", task] };
-}
 
 /**
  * Antigravity has no per-launch MCP, so its launch prompt explains the CLI. The human may
