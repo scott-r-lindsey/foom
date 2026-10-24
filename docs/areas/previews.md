@@ -71,16 +71,33 @@ symlink targets. The isolated stylesheet uses Eclipse tokens and follows
 Bundled dependency licenses are included in `THIRD_PARTY_NOTICES.txt`.
 Every non-hidden file in the captured worktree is readable by a preview page.
 
-Post-open verification closes the ancestor/root link replacement between initial
-resolution and the later stat, including Windows junctions. On macOS and Windows,
-a writer controlling the parent of the preview root can still repeatedly flip
-the root between these separate checks; that adversary is not excluded. This is
-not atomic directory traversal or a general-purpose filesystem sandbox. A native
-opened-handle helper is the follow-up if that stronger guarantee is needed.
-Linux's procfs check derives the target path from the descriptor; the subsequent
-root identity check is still a separate filesystem observation. Native containment
-tests run on Linux, macOS and Windows, including Windows junctions; deterministic
-failure-path tests exercise both strategies on every OS.
+Post-open verification uses separate filesystem observations and does not exclude
+all ancestor/root replacements. The user accepts these residuals with no native
+helper:
+
+- On macOS and Windows, a writer with permission to modify an in-root ancestor's
+  parent (for example, the root itself for `docs/`) can switch that ancestor to an
+  outside symlink/junction for the pre-open stat and open, restore it for the
+  post-open containment resolution, then switch it again for the identity stat.
+  The descriptor and final stat can identify the same outside file while the
+  captured root remains unchanged. A writer controlling the root's parent can
+  also repeatedly replace the root between checks.
+- On Linux, procfs derives a point-in-time target path from the descriptor, and
+  root identity is checked later. A writer controlling both the root's parent and
+  the outside directory's parent can rename the root away, move the opened
+  outside directory to the captured root's spelling for procfs lookup, then
+  restore both before root identity verification. Those parents may be the same
+  directory; the procfs path can appear contained while the later root identity
+  still matches.
+
+The accepted threat model's realistic writer is an agent running as the same user,
+which can usually read those files directly. Preview response bytes go to the
+human's preview tile; no Foom MCP or agent tool returns preview contents, and
+previews have network disabled by default.
+These checks are not atomic directory traversal or a general-purpose filesystem
+sandbox. Native containment tests run on Linux, macOS and Windows, including
+Windows junctions; deterministic failure-path tests exercise both strategies on
+every OS.
 
 The main-owned registry stores `{ id, worktree, relativePath, network: false }`
 per stable window ID in profile JSON, with bounded validation and serialized

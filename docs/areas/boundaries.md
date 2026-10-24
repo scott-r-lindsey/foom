@@ -23,11 +23,24 @@ sender URL, main frame and runtime payloads. Separate native preview views follo
 the [preview isolation contract](previews.md#previews). Preview reads authorize the
 opened descriptor before releasing bytes: Linux checks its procfs path, while
 macOS/Windows re-resolve and compare file identity. Each request also verifies the
-root identity captured at preview open. These are separate observations: on
-macOS/Windows, a writer controlling the root's parent and repeatedly flipping the
-root between checks is not excluded. A native opened-handle helper is the
-follow-up for that stronger boundary; the current checks are not an atomic
-filesystem sandbox.
+root identity captured at preview open. These are separate observations, with
+accepted residual races and no native helper:
+
+- On macOS/Windows, a writer with permission to modify an in-root ancestor's
+  parent (for example, the root itself for `docs/`) can switch that ancestor to an
+  outside link/junction for open and identity lookup, restoring it for containment
+  resolution. A writer controlling the root's parent can also repeatedly replace
+  the root between checks.
+- On Linux, a writer controlling both the root's parent and the outside
+  directory's parent can rename the root away, move the outside directory to the
+  root's spelling during procfs lookup, then restore both before root identity
+  verification. Those parents may be the same directory.
+
+The accepted threat model's realistic writer is an agent running as the same user,
+which can usually read those files directly. Preview response bytes go to the
+human's preview tile; no Foom MCP or agent tool returns preview contents, and
+previews have network disabled by default.
+The current checks are not atomic directory traversal or a filesystem sandbox.
 
 Production packages use ASAR and hardened Electron fuses and include compiled
 application files, package metadata and production dependencies. Native node-pty
