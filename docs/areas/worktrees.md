@@ -122,6 +122,27 @@ As with ordinary removal, this does not isolate concurrent filesystem mutations
 by external local processes. Fetches disable interactive credential prompts and
 Git commands have a 30-second process deadline.
 
+## Worktree service ownership (#766)
+
+`WorktreeService` remains the registration and membership authority and public
+compatibility facade. `worktree-store.ts` owns versioned decoding and serialized
+atomic writes; decoded records still require the facade's live Git, root and
+filesystem validation before entering inventory. `worktree-identity.ts` owns
+fresh marker identity and checkout membership/common-directory checks.
+`worktree-fetch-state.ts` owns fetch history, the one-minute inventory fetch
+cache and per-repository fetch serialization. `worktree-panel-facts.ts` owns only
+the three-second presentation cache, authorizes even cache hits and consumes
+fetch facts without starting network operations. Successful and failed fetches
+invalidate that presentation cache.
+
+`worktree-merge-policy.ts` consumes narrow identity, fetch, inventory and Forge
+capabilities for automatic-removal and merged-commit eligibility. `merge-proof.ts`
+owns the disposable isolated bare repository and ancestry/exact-tree proofs; it
+never removes checkouts or refs. `worktree-branch-cleanup.ts` owns the checked-ref
+compare-and-swap deletion and grouped transaction. Cleanup snapshot, configuration,
+reflog, nested-repository and broken-row guards retain their existing service
+paths and final revalidation order.
+
 ## Pruning stale worktrees
 
 `prune-worktree` is a validated sidebar command naming a registered repository and

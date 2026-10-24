@@ -1,10 +1,8 @@
 import { execFile } from "node:child_process";
-import { constants } from "node:fs";
-import { lstat, mkdir, open, realpath, rmdir, stat as fileStat } from "node:fs/promises";
+import { mkdir, realpath, rmdir } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { ControlError } from "../../node-common/control-validation";
-import type { GitPanelFacts } from "../../shared/panel";
 import type { CreatedWorktree, CreateWorktreeOptions } from "../../shared/worktrees";
 import { forgeBranch } from "../control/forge";
 import type { ForgeProviderFactory } from "../control/forge.d";
@@ -12,10 +10,11 @@ import { UncertainEffect } from "./worktree-outcome";
 import type {
   AdoptionService,
   CreationContext,
-  FetchFacts,
   ForgeProviderFor,
   ForgeService,
 } from "./worktree-features.d";
+import { worktreeIdentity } from "./worktree-identity";
+export { worktreeIdentity } from "./worktree-identity";
 
 const execute = promisify(execFile);
 
@@ -87,50 +86,6 @@ export async function prepareParent(root: string, path: string): Promise<void> {
   }
   // Reject an existing destination, including empty directories and symlinks.
   await mkdir(path);
-}
-
-/** Read only the checkout's own Git marker, never search ancestors or trust a cache.
- * Membership and common-directory authorization still use Git in checkoutIdentity. */
-async function checkoutGitDirectory(path: string): Promise<string> {
-  const marker = join(path, ".git");
-  const markerMetadata = await fileStat(marker);
-  if (markerMetadata.isDirectory()) return realpath(marker);
-  if (!markerMetadata.isFile() || markerMetadata.size > 64 * 1024) {
-    throw new Error("Invalid Git marker");
-  }
-  // Refuse special files before opening; recheck the descriptor in case the marker changed.
-  const flags =
-    process.platform === "win32"
-      ? constants.O_RDONLY
-      : constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY;
-  const handle = await open(marker, flags);
-  try {
-    const metadata = await handle.stat();
-    if (!metadata.isFile() || metadata.size > 64 * 1024) throw new Error("Invalid Git marker");
-    const bytes = Buffer.alloc(64 * 1024 + 1);
-    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
-    if (bytesRead > 64 * 1024) throw new Error("Invalid Git marker");
-    const text = bytes.subarray(0, bytesRead).toString("utf8");
-    if (!text.startsWith("gitdir: ") || text.includes("\0")) throw new Error("Invalid Git marker");
-    const directory = text.slice(8).replace(/[\r\n]+$/u, "");
-    if (!directory) throw new Error("Invalid Git marker");
-    return await realpath(resolve(path, directory));
-  } finally {
-    await handle.close();
-  }
-}
-
-// Bind confirmation to both the filesystem entries and Git's per-worktree metadata.
-// Birth time distinguishes recreated entries even when the filesystem reuses an inode.
-export async function worktreeIdentity(path: string): Promise<string> {
-  const gitDirectory = await checkoutGitDirectory(path);
-  const entries = await Promise.all(
-    [path, join(path, ".git"), gitDirectory].map(async (entry) => {
-      const stat = await lstat(entry, { bigint: true });
-      return [stat.dev, stat.ino, stat.birthtimeNs].map(String);
-    }),
-  );
-  return JSON.stringify([gitDirectory, entries]);
 }
 
 /** The repository's remote: origin, or its only remote. */
@@ -439,69 +394,4 @@ export async function createWorktree(
   });
   await context.save();
   return { path, outcome: exists ? "existing" : onRemote ? "origin" : "new" };
-}
-
-export async function readPanelFacts(
-  fetchFacts: ReadonlyMap<string, FetchFacts>,
-  repository: string,
-  worktree: string,
-): Promise<GitPanelFacts> {
-  const read = (args: string[]) => git(worktree, args, 3000).catch(() => null);
-  const remoteName = pickRemote((await read(["remote"])) ?? "");
-  const [status, upstream, log, remote, localDefault, fetchPath] = await Promise.all([
-    read(["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=normal"]),
-    read(["rev-list", "--left-right", "--count", "HEAD...@{upstream}", "--"]),
-    read(["log", "-1", "--format=%H%x00%s%x00%ct", "--"]),
-    remoteName ? read(["remote", "get-url", "--", remoteName]) : null,
-    remoteName ? read(["symbolic-ref", "--quiet", `refs/remotes/${remoteName}/HEAD`]) : null,
-    read(["rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD"]),
-  ]);
-  let changes: number | null = null;
-  if (status !== null) {
-    changes = 0;
-    const records = status.split("\0");
-    for (let index = 0; index < records.length; index++) {
-      const record = records[index];
-      if (!record) continue;
-      changes++;
-      if (/[RC]/u.test(record.slice(0, 2))) index++;
-    }
-  }
-  const counts = upstream?.trim().match(/^(\d+)\s+(\d+)$/u);
-  const [hash, subject, seconds] = log?.trim().split("\0") ?? [];
-  const fetch = fetchFacts.get(repository);
-  const localFetch =
-    fetchPath && isAbsolute(fetchPath.trim())
-      ? await lstat(fetchPath.trim()).then(
-          (stat) => (stat.isFile() ? stat.mtimeMs : null),
-          () => null,
-        )
-      : null;
-  const prefix = `refs/remotes/${remoteName ?? ""}/`;
-  const localBranch = localDefault?.startsWith(prefix)
-    ? localDefault.trim().slice(prefix.length)
-    : null;
-  let merged: boolean | null = null;
-  if (fetch?.head && !fetch.failed && hash && /^[a-f0-9]{40,64}$/u.test(hash)) {
-    const tree = await read(["rev-parse", `${fetch.head}^{tree}`]);
-    const merge = await read(["merge-tree", "--write-tree", fetch.head, hash]);
-    if (tree !== null && merge !== null) merged = tree.trim() === merge.trim();
-  }
-  return {
-    changes,
-    upstream: counts ? { ahead: Number(counts[1]), behind: Number(counts[2]) } : null,
-    commit:
-      hash &&
-      subject !== undefined &&
-      seconds &&
-      /^[a-f0-9]{40,64}$/u.test(hash) &&
-      /^\d+$/u.test(seconds)
-        ? { hash, subject: subject.slice(0, 500), timestamp: Number(seconds) * 1000 }
-        : null,
-    remote: remote?.trim().slice(0, 4096) || null,
-    defaultBranch: fetch?.branch ?? localBranch,
-    lastFetch: fetch?.time ?? localFetch,
-    fetchFailed: fetch?.failed ?? false,
-    merged,
-  };
 }

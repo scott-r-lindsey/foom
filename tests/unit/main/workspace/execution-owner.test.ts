@@ -52,6 +52,7 @@ function setup(agent = false) {
     refresh: vi.fn(),
     recheck: vi.fn(),
     exited: vi.fn(),
+    reset: vi.fn(),
     publishChildEvents: vi.fn(),
     waitingOn: () => waiting,
     unreadAt: () => unread,
@@ -471,3 +472,28 @@ test("early metadata is reconsidered once launch facts arrive", async () => {
   await owner.quiet("t1");
   expect(owner.view("t1").execution?.phase).toBe("working");
 });
+
+test.each(["reset", "removed"] as const)(
+  "queued exit cannot mark an invocation created after %s as exited",
+  async (change) => {
+    const { owner, deps } = setup(true);
+    const blocked = deferred<string[]>();
+    vi.mocked(deps.tail).mockReturnValueOnce(blocked.promise);
+    const quiet = owner.quiet("t1");
+    await vi.waitFor(() => {
+      expect(deps.tail).toHaveBeenCalled();
+    });
+    const exit = owner.exited("t1", 9);
+    expect(owner.view("t1").execution?.phase).toBe("exited");
+    owner[change]("t1");
+    owner.ensure("t1");
+    owner.launched("t1");
+    blocked.resolve([]);
+    await quiet;
+    await exit;
+    expect(owner.view("t1").exitCode).toBeUndefined();
+    expect(owner.view("t1").execution?.phase).toBe("starting");
+    expect(deps.exited).not.toHaveBeenCalled();
+    expect(deps.verdicts.commit).not.toHaveBeenCalled();
+  },
+);

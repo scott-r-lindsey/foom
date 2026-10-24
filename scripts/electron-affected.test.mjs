@@ -25,7 +25,12 @@ test("affected selection unions mapped areas deterministically", () => {
       "settings-sound.test.js",
       "terminal.test.js",
       "webgl.test.js",
-      "workspace.test.js",
+      "workspace-cleanup.test.js",
+      "workspace-commands.test.js",
+      "workspace-repositories.test.js",
+      "workspace-sidebar.test.js",
+      "workspace-tiles.test.js",
+      "workspace-windows.test.js",
     ],
   };
   assert.deepEqual(selectAffected(["src/renderer/preview/markdown.ts"]).suites, [
