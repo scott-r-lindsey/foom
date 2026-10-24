@@ -35,9 +35,13 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   removeAfterApps(context, root);
   const cleanup = fixtureCleanup(context);
   cleanup.audit ??= await auditProcesses(context);
-  const remoteHome = path.join(root, "home");
+  // Keep the canonical socket path below the daemon's 100-byte limit even
+  // under macOS's long temp prefix plus the parent-owned test-run directory.
+  // This suite has one remote HOME; its run root isolates it from other runs.
+  const remoteHome = path.join(await realpath(tmpdir()), "rh");
   const bin = path.join(root, "bin");
   await mkdir(remoteHome, { mode: 0o700 });
+  removeAfterApps(context, remoteHome);
   await mkdir(bin, { mode: 0o700 });
   // Only explicitly required tools. No inherited PATH, real ssh, SSH material,
   // agent CLI, network, system install, or user shell startup files.
