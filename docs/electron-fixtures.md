@@ -34,6 +34,25 @@ animation-frame assertion and startup diagnostics. The sandbox, controlled login
 shell/PATH, agent guard, process audit and quit-before-directory-removal ordering
 are unchanged.
 
+## Shared scenario setup
+
+`tests/electron/agent-fixture.js` registers no tests. `codexFixture` creates an
+isolated checkout, home and fixture-only CLI PATH and registers cleanup before
+launch. Its caller supplies the fake CLI source and optional help text.
+`launchTrustedParent` registers a caller-owned checkout, launches its fixture
+Claude and reads the existing atomic credential record under case cancellation.
+Callers register their root with `removeAfterApps` first and supply explicit
+launch options. Trust approval, control requests and scenario assertions remain
+in the test files. Both helpers use the existing harness readiness, display
+isolation, agent guard and quit-before-removal cleanup.
+
+The owned child review-loop scenarios keep their disposable Linux profiles in
+`/dev/shm`, separately from their checkouts and fake CLIs. This isolates mandatory
+audit and operation `fsync` calls from concurrent build/packaging disk I/O while
+retaining real private-file writes, atomic replacement and restart persistence.
+Cleanup quits every app before removing its profile. Other platforms use the
+ordinary temporary directory.
+
 ## Timing method
 
 The harness emits `Fixture timing: {...}` diagnostics into Node's JUnit comments

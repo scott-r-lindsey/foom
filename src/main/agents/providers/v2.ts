@@ -152,17 +152,6 @@ export function v2Provider(
       }
       return replacement;
     },
-    prepareMcp: () =>
-      Promise.reject(
-        new Error(
-          model.launch.mcp
-            ? "MCP requires launch context"
-            : "Per-launch MCP attachment is unsupported",
-        ),
-      ),
-    arguments: () => {
-      throw new Error("v2 requires launch preparation");
-    },
     async prepareLaunch(
       installation,
       request,
