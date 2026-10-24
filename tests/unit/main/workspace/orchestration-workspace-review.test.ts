@@ -96,7 +96,12 @@ it.each([false, true])(
         waiting: false,
       });
     });
-    expect(snapshot).toHaveBeenCalledWith(deps.worktrees, repo.path, child.path, "identity");
+    const snapshotCall = snapshot.mock.calls[0];
+    expect(snapshotCall?.slice(1)).toEqual([repo.path, child.path, "identity"]);
+    const snapshotService = snapshotCall?.[0];
+    if (!snapshotService) throw new Error("missing snapshot capability");
+    await expect(snapshotService.launchIdentity(repo.path, child.path)).resolves.toBe("identity");
+    expect(deps.worktrees.launchIdentity).toHaveBeenLastCalledWith(repo.path, child.path);
     expect(deps.placeChild).toHaveBeenLastCalledWith("child-2", "parent");
     workspace.configure({
       hooks: false,

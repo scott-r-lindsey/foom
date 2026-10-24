@@ -10,7 +10,10 @@ import type { WorkspaceTerminal } from "../../shared/workspace";
 import { AGENTS } from "../agents/agent-list";
 import { conversationId } from "../agents/conversation";
 import { UncertainEffect } from "./worktree-outcome";
-import type { ExecutionEventsContext, OrchestrationCommandsContext } from "./feature-context";
+import type {
+  ExecutionEventsContext,
+  OrchestrationCommandsContext,
+} from "./workspace-capabilities";
 
 export async function auditHuman(
   this: OrchestrationCommandsContext,
