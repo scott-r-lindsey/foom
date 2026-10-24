@@ -1,3 +1,4 @@
+import { worktreeFake } from "./worktree-fake";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -119,37 +120,18 @@ beforeEach(async () => {
   };
   deps = {
     agentPluginDirectory: await mkdtemp(join(tmpdir(), "foom-health-")),
-    worktrees: {
-      canAutoRemove: vi.fn(() => Promise.resolve(false)),
-      panelFacts: vi.fn(),
-      listRepositories: vi.fn(() => [repo]),
-      addRepository: vi.fn(() => Promise.resolve(repo)),
-      listWorktrees: vi.fn(() => Promise.resolve([tree])),
-      validateBranch: vi.fn(async () => {}),
-      launchIdentity: vi.fn(() => Promise.resolve("identity")),
-      removalIdentity: vi.fn(() => Promise.resolve("identity")),
-      cleanupBrokenWorktree: vi.fn(async () => {}),
+    worktrees: worktreeFake(repo, tree, {
       cleanupStatus: vi.fn((repository: string, path: string) =>
         deps.worktrees.changes(repository, path),
       ),
       cleanupChanges: vi.fn(() => Promise.reject(new Error("unsafe cleanup"))),
-      changes: vi.fn(() => Promise.resolve("")),
-      mergedFetchTime: vi.fn(() => 1000),
-      mergedDefault: vi.fn(() => Promise.resolve("base")),
-      mergedCommit: vi.fn(() => Promise.resolve(false)),
-      deleteMergedBranches: vi.fn(() => Promise.resolve([])),
-      deleteMergedBranch: vi.fn(async () => {}),
-      removeRepository: vi.fn(async () => {}),
-      pruneWorktree: vi.fn(async () => {}),
-      removeWorktree: vi.fn(async () => {}),
-      adoptWorktree: vi.fn(),
       createWorktree: vi.fn(
         (): Promise<CreatedWorktree> => Promise.resolve({ path: tree.path, outcome: "new" }),
       ),
       branches: vi.fn(() =>
         Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
       ),
-    },
+    }),
     terminals: {
       stop: vi.fn(() => Promise.resolve(true)),
       kill: vi.fn(async () => {}),

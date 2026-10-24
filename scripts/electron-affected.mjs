@@ -5,7 +5,20 @@ import { suiteFiles } from "../tests/electron/test-suites.js";
 // Deliberately narrow: new areas require an explicit coverage review here.
 const mappings = [
   [/^src\/renderer\/preview\//, ["previews"]],
-  [/^src\/renderer\/terminal\//, ["terminal", "webgl", "workspace", "previews"]],
+  [
+    /^src\/renderer\/terminal\//,
+    [
+      "terminal",
+      "webgl",
+      "workspace-cleanup",
+      "workspace-commands",
+      "workspace-repositories",
+      "workspace-sidebar",
+      "workspace-tiles",
+      "workspace-windows",
+      "previews",
+    ],
+  ],
   [
     /^src\/renderer\/sound\/(?:volume-control\.tsx|sound-controls\.tsx|recording\.ts)$/,
     [

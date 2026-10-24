@@ -1,5 +1,15 @@
 {
   "sourceRuns": [39918020774, 39946613615, 39946804406, 39970696968, 39973853488, 39981523976],
+  "suiteSplits": {
+    "workspace.test.js": [
+      "workspace-cleanup.test.js",
+      "workspace-commands.test.js",
+      "workspace-repositories.test.js",
+      "workspace-sidebar.test.js",
+      "workspace-tiles.test.js",
+      "workspace-windows.test.js"
+    ]
+  },
   "platforms": ["ubuntu-24.04", "windows-2025", "macos-15"],
   "shards": [
     {

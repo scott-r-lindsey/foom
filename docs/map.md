@@ -104,8 +104,9 @@ Every top-level `src/` directory has an intentional route: `cli`, `main`, `manua
 
 `tests/unit/` mirrors process/feature ownership. Workspace tests are split into
 `workspace-{agent-setup,attention,cleanup,config-launch,config-probes,execution,forge,provider-hooks,repository-operations,sessions,sidebar}.test.ts`
-plus `workspace.test.ts` and `orchestration-workspace.test.ts`; their shared setup
-and helpers live in `tests/unit/main/workspace/workspace-fixture.ts`. AgentService coverage lives in
+plus `workspace.test.ts` and `orchestration-workspace-{authority,children,removal,restore,history,adoption,attention,review}.test.ts`; their shared setup
+and helpers live in `tests/unit/main/workspace/workspace-fixture.ts` and
+`orchestration-workspace-fixture.ts`, sharing the hook-free `worktree-fake.ts` builder. AgentService coverage lives in
 `tests/unit/main/agents/agents-{detection,launch,resume-control,observers-config,v2-security}.test.ts`,
 with shared process/fs mocks and setup in `agents-fixture.ts`. `tests/electron/agent-{config,launch,lifecycle,plugins,probe,restore,resume}.test.js`
 are distinct feature suites; `antigravity-plugin.test.js` covers plugin behavior.
