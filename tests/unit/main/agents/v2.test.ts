@@ -1,5 +1,8 @@
 import { PluginSetup } from "../../../../src/main/agents/plugin-setup";
 import { afterEach, expect, it, vi } from "vitest";
+import { existsSync } from "node:fs";
+import * as syncFs from "node:fs";
+vi.mock("node:fs", async (original) => ({ ...(await original<typeof syncFs>()) }));
 import { readFile, stat } from "node:fs/promises";
 import * as fs from "node:fs/promises";
 vi.mock("node:fs/promises", async (original) => ({ ...(await original<typeof fs>()) }));
@@ -573,6 +576,8 @@ it("delivers a private MCP file through environment alone and omits unselected v
   expect(prepared.args).not.toContain(file);
   expect(await readFile(file, "utf8")).toContain("Bearer ${FOOM_CONTROL_TOKEN}");
   expect(await readFile(file, "utf8")).toContain("http://127.0.0.1:23456/mcp");
+  prepared.dispose();
+  expect(existsSync(file)).toBe(false);
   expect((await launch(validated)).prepared.environment).toEqual([
     { name: "AGENT_MODE", value: "fixed" },
   ]);
@@ -606,7 +611,10 @@ it("releases hooks without an unhandled rejection when launch-file removal fails
     dispose,
   });
   let file: string | undefined;
-  const failedRemoval = vi.spyOn(fs, "rm").mockRejectedValueOnce(Error("Directory unavailable"));
+  const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const failedRemoval = vi.spyOn(syncFs, "rmSync").mockImplementationOnce(() => {
+    throw Error("Directory unavailable");
+  });
   try {
     expect(prepared.args).toContain("--mcp");
     file = required(prepared.args[prepared.args.indexOf("--mcp") + 1]);
@@ -620,7 +628,9 @@ it("releases hooks without an unhandled rejection when launch-file removal fails
     await expect(readFile(file, "utf8")).resolves.toContain("Bearer ${FOOM_CONTROL_TOKEN}");
   } finally {
     failedRemoval.mockRestore();
+    expect(warning).toHaveBeenCalledOnce();
     prepared.dispose();
+    warning.mockRestore();
     if (file) {
       const createdFile = file;
       await vi.waitFor(async () => {

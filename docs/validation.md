@@ -22,6 +22,45 @@ files no test imports; only declarations are excluded. Thresholds are defined in
 
 PR checks enforce the contributor changed-line coverage threshold and fail if a changed application file is missing from LCOV. The scripts under `scripts/` adapt the reporting tools from the Crab Attack II reference, with stricter enforcement and regression tests.
 
+## Temporary-directory ownership (#813)
+
+The unit, watch, coverage, CI-policy, Electron (including affected suites), and
+packaged test commands run through `scripts/test-temp.mjs`. The parent allocates
+one private `foom-tests-*` root, supplies it as `TMPDIR`, `TMP` and `TEMP`, waits
+for the runner, and synchronously removes and checks that root on success,
+failure or worker timeout. An inert invalid `.git` file prevents non-repository
+fixtures from discovering an enclosing worktree when `TMPDIR` is inside one. Interrupts forward to the runner's Unix process group
+(or the Windows runner), with a bounded forced termination fallback. Normal
+Electron teardown still quits apps and audits processes before fixture removal.
+Runner tests cover assertion failures, hard exits, actual test-worker timeouts,
+interrupts and preservation of unrelated entries. CI uses these same commands;
+every unit and Electron run performs the temp leak check. A killed parent
+(`SIGKILL`) or machine failure cannot run cleanup; no shared-directory sweep is
+performed.
+
+The reported prefixes have these owners on current main:
+
+| Prefix | Owner and lifetime |
+| --- | --- |
+| `foom-v2-hooks-*` | Runtime per-launch hook adapters/counters; credentials are revoked and files removed synchronously on release, quit or failed preparation. |
+| `foom-v2-*` | Runtime per-launch manifest/MCP data without a hook directory; removed synchronously by launch disposal. |
+| `foom-hooks-*` | Historical hook adapters; no current allocator. |
+| `foom-shell-*` | Terminal host Bash startup files; synchronous removal on spawn failure and native PTY exit, including shutdown. |
+| `foom-health-*` | Unit workspace fixture's observer/plugin directory; ordinary afterEach cleanup plus the run root. Runtime health is persistent profile-owned state, not this temp prefix. |
+| `foom-verdict-*`, `foom-environment-*` | Unit evaluator/settings fixtures; ordinary afterEach cleanup plus the run root. |
+| `foom-probe-verification-*` | Unit probe fixture; finally cleanup plus the run root. Unix fixtures now link Node instead of copying it (#791). |
+| `foom-entry-*`, `foom-agent-isolation-*` | Electron bootstrap and fixture CLI guard directories; quit-before-removal harness cleanup plus the run root. |
+| `scoped_dir*`, `electron-download-*`, `playwright-artifacts-*` | Chromium, Electron download/extraction and Playwright scratch; inherited run root covers residual files from failures. Chromium shared-memory fixtures additionally retain their identity-checked worker cleanup. |
+
+To measure a full local unit and Electron run, allocate a dedicated empty directory
+inside ignored `test-results/`, set all three temp variables to its absolute path
+**inside** any external validation wrapper that replaces `TMPDIR`, run `pnpm test`
+and `xvfb-run -a pnpm run test:electron`, then list that dedicated directory.
+It must contain no new `foom-*` entries. Never inspect or remove other runs' files
+in the real temporary directory. Test-run cleanup is a fallback for fixtures;
+product lifecycle regressions separately assert immediate hook/MCP removal and
+shell removal on native exit and shutdown.
+
 ## Refreshing the Electron shard plan
 
 Use Node 24 and installed dependencies. Download all twelve `electron-results-*`
