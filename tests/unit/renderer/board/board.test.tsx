@@ -17,7 +17,7 @@ import { createSampleSource } from "../../../../src/renderer/board/sample-board-
 import type { BoardRow } from "../../../../src/renderer/board/board.d";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { installation } from "../../../fixtures/setup";
-import { groupRows, light, nextWaiting, waitTime } from "../../../../src/renderer/board/board";
+import { light, nextWaiting, waitTime } from "../../../../src/renderer/board/board";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -306,17 +306,6 @@ test("next waiting refocuses an already open terminal from its controls", () => 
   key("n");
   expect(document.activeElement).toBe(dialog.querySelector('.terminal-tile[data-focused="true"]'));
   board.dispose();
-});
-
-test("groups by first repository appearance and preserves row order across verdict changes", () => {
-  const rows = sampleRows(0);
-  const first = rows[0];
-  if (!first) throw new Error("Missing row");
-  const reordered = [...rows.slice(3), ...rows.slice(0, 3)];
-  expect([...groupRows(reordered).keys()]).toEqual(["observatory", "launchpad", "foom"]);
-  const before = [...groupRows(reordered).values()].flat().map((row) => row.id);
-  first.state = "done";
-  expect([...groupRows(reordered).values()].flat().map((row) => row.id)).toEqual(before);
 });
 
 test("hover and focus do not preview terminal output", async () => {

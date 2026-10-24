@@ -32,7 +32,8 @@ forgetting, idle/owned worktree removal, automatic-removal policy and revalidati
 terminal stop/exit/removal callbacks and checkout-resource release. It receives
 capabilities, never the facade or coordinator object. `WorkspaceContext` in `workspace-context.ts` keeps the shared repository
 and branch launch/removal locks, terminal queues and cancellation; the cleanup owner
-acquires/releases those locks through callbacks. Execution and verdict state live in
+acquires those locks through callbacks that hand back an idempotent release
+capability for that acquisition. Execution and verdict state live in
 `ExecutionOwner`. Successful merged removals hold the shared branch locks until the checked-ref transaction finishes.
 Session restoration and persistence remain in `SessionOwner`. The coordinator preserves
 shutdown order: after PTYs stop, it marks itself closed and aborts launches, then
@@ -55,7 +56,7 @@ default-ref fetch. Either failed network operation refuses cleanup.
 
 Merged cleanup uses the same removal sequence with an additional main-owned
 revalidation callback. Candidate path, filesystem identity, branch and commit
-are captured before the trusted dialog. Both revalidation passes check Git membership and captured identity,
+are captured before the trusted dialog. Revalidation passes check Git membership and captured identity,
 session eligibility, clean status and either `merge-tree` containment against a freshly
 fetched default commit or a locally verified PR merge. The latter uses the existing
 forge lookup for a same-repository MERGED PR, requires its head SHA to equal the
@@ -95,7 +96,7 @@ start background eligibility scans. Before deletion begins, cleanup drains all
 existing scans, including superseded scans whose results will be discarded, so
 Windows directory handles held by their Git processes cannot block removal.
 Four workers run the existing removal
-path, retaining both revalidation passes. Successful removals retain their branch
+path, retaining its revalidation passes. Successful removals retain their branch
 launch locks through the ref transaction so Foom cannot recreate those branches
 while they are being deleted. Failed candidates release their locks immediately. Git removes
 separate per-worktree admin directories and checkout indexes; these operations
@@ -121,6 +122,27 @@ As with ordinary removal, this does not isolate concurrent filesystem mutations
 by external local processes. Fetches disable interactive credential prompts and
 Git commands have a 30-second process deadline.
 
+## Worktree service ownership (#766)
+
+`WorktreeService` remains the registration and membership authority and public
+compatibility facade. `worktree-store.ts` owns versioned decoding and serialized
+atomic writes; decoded records still require the facade's live Git, root and
+filesystem validation before entering inventory. `worktree-identity.ts` owns
+fresh marker identity and checkout membership/common-directory checks.
+`worktree-fetch-state.ts` owns fetch history, the one-minute inventory fetch
+cache and per-repository fetch serialization. `worktree-panel-facts.ts` owns only
+the three-second presentation cache, authorizes even cache hits and consumes
+fetch facts without starting network operations. Successful and failed fetches
+invalidate that presentation cache.
+
+`worktree-merge-policy.ts` consumes narrow identity, fetch, inventory and Forge
+capabilities for automatic-removal and merged-commit eligibility. `merge-proof.ts`
+owns the disposable isolated bare repository and ancestry/exact-tree proofs; it
+never removes checkouts or refs. `worktree-branch-cleanup.ts` owns the checked-ref
+compare-and-swap deletion and grouped transaction. Cleanup snapshot, configuration,
+reflog, nested-repository and broken-row guards retain their existing service
+paths and final revalidation order.
+
 ## Pruning stale worktrees
 
 `prune-worktree` is a validated sidebar command naming a registered repository and
@@ -133,3 +155,82 @@ entry. It rechecks the folder's identity after Git returns before removing only
 that folder. Missing folders need no deletion. Branches are never deleted. As
 with normal removal, this does not isolate filesystem entries from another local
 process replacing them concurrently.
+
+## Additional group cleanup candidates (#729)
+
+The existing explicit removal contract above is unchanged, including external
+linked checkouts and trusted confirmation of tracked changes. Group cleanup also
+accepts detached HEADs and untracked-only or ignored-only leftovers. These
+additional candidates
+must resolve strictly inside Foom's configured worktree root, pass ordinary
+membership/identity/lock checks, have no tracked changes and have zero commits
+absent from local remote refs (`rev-list HEAD --not --remotes`). They refuse sparse
+checkout configurations and any assume-unchanged or skip-worktree index entries
+(`git ls-files -v -z`), both during eligibility and final revalidation. Every
+group candidate also refuses index gitlinks, any `.gitmodules` entry,
+worktree-private refs under `refs/worktree/`, `refs/bisect/` or `refs/rewritten/`,
+and merge, rebase, cherry-pick, revert, bisect or am state. Operation paths come
+from the checkout’s own `rev-parse --git-path`; refs are read inside that checkout.
+Cleanup status and index reads disable fsmonitor and untracked-cache, force
+`core.ignorecase=false`, `diff.ignoreSubmodules=none` and
+`status.showUntrackedFiles=all` with command-scoped Git options. Case-colliding
+leftovers are refused. Cleanup also forces `core.ignoreStat=false`,
+`core.trustctime=true`, `core.checkStat=default`, `core.fileMode=true` and
+`core.symlinks=true`, `core.autocrlf=false`, `core.eol=lf` and an empty
+`core.attributesFile`; repository-local filter drivers are refused. Tracked paths
+also refuse active `ident` and `working-tree-encoding` attributes, including
+attributes from Git’s info directory, so built-in conversion cannot hide edited
+contents from status. Ordinary text/EOL attributes remain supported. Cleanup-only
+reads use the existing isolated Git runner to disable global/system configuration
+and system attributes. Git subprocesses
+strip inherited `GIT_*` directory/index selectors. Worktree configuration files,
+enabled `extensions.worktreeConfig`, `core.worktree` and bare configuration are
+refused, and the canonical `rev-parse --show-toplevel` must match the registered
+checkout. A streaming, non-symlink-following walk includes ignored directories,
+refuses nested `.git` markers and ambiguous filename decoding, and fails closed
+on errors, directory changes,
+more than 10,000 entries or depth over 64. For the additional detached/leftover candidates, the checkout’s own admin reflogs
+(including HEAD and per-worktree logs) must be present, readable and bounded;
+every old and new commit must be reachable from remote-tracking refs. Reflog
+reads are limited to 4 MiB in total, and reachability reads disable commit-graph caches. These guards repeat at final revalidation.
+The removal owner reads the full snapshot after asynchronous merge-proof
+revalidation rather than duplicating it inside that proof. Configuration and Git
+directory queries are batched; valueless boolean settings retain Git’s true
+semantics. The final full policy read remains after preview shutdown and service
+identity validation. Index listings are compared across metadata checks, and HEAD
+and filesystem identity are rechecked. Status is the final asynchronous read, so
+a tracked save during a preceding validation await invalidates approval. Git errors
+refuse eligibility. The existing freshly fetched default and merge containment checks still apply. Clean branch
+candidates keep their established location and merge-evidence policy while sharing
+the status, configuration and nested-repository guards. The new reflog reachability
+restriction applies to detached/leftover candidates and broken-row cleanup.
+
+The main-owned plan captures the complete NUL-delimited status. The trusted
+cleanup dialog lists up to 50 untracked and ignored paths per checkout, truncates
+long paths,
+labels ignored entries and counts all omitted paths. Ignored directories stay
+collapsed (`status --ignored=matching`). Ignored-only leftovers require approval.
+The accept action says Force delete when any candidate has leftovers. Revalidation
+compares the entire status with the approved snapshot and repeats the additional
+checks around terminal and preview shutdown. The service invokes a final approved
+snapshot check after its asynchronous identity check, immediately before invoking
+Git removal. Snapshots without untracked paths use ordinary Git removal without
+`--force`. Detached
+candidates share the existing null-branch reservation, so a group serializes their
+removals and releases that reservation
+after each one; there is no branch ref to delete. The later ref transaction holds
+only the release capabilities of retained branch reservations, so it cannot release
+a newer detached removal reservation.
+
+Known prunable inventory entries return unavailable panel facts without raising
+`worktree-prunable`. Their sidebar rows say Broken checkout and offer only
+Clean up. This new `cleanup-worktree` command is separate from legacy Prune.
+It never recursively deletes a broken folder whose contents cannot be inspected
+through Git: only an absent or empty folder is eligible, and `rmdir` fails if
+anything appears. Before repository-wide pruning, every prunable admin record
+must have an empty index, zero unpushed commits, no sparse configuration, private
+refs or operation state, and must pass the same configuration and reflog guards.
+These checks repeat after removing an empty folder.
+Sessions must be closed first. The coded-error Prune recovery remains available
+for a checkout that became
+prunable after its row was rendered.

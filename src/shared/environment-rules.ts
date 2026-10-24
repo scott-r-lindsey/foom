@@ -1,7 +1,4 @@
-import type { EnvironmentScope } from "./environment";
-
 /** Rules shared by Settings (inline reasons) and main (authoritative, on save and launch). */
-export const ENVIRONMENT_SCOPES: readonly EnvironmentScope[] = ["all", "claude", "codex", "agy"];
 export const ENVIRONMENT_VALUE_LIMIT = 4096;
 export const ENVIRONMENT_NAME_LIMIT = 256;
 export const ENVIRONMENT_ROW_LIMIT = 64;

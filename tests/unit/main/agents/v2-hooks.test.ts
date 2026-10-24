@@ -1,3 +1,5 @@
+import * as syncFs from "node:fs";
+vi.mock("node:fs", async (original) => ({ ...(await original<typeof syncFs>()) }));
 import * as fs from "node:fs/promises";
 vi.mock("node:fs/promises", async (original) => ({ ...(await original<typeof fs>()) }));
 import { afterEach, expect, it, vi } from "vitest";
@@ -576,13 +578,24 @@ it("rejects file replacement during an owned read and tolerates cleanup failure 
     false,
     root,
   );
-  const remove = vi.spyOn(fs, "rm").mockRejectedValueOnce(Error("cleanup unavailable"));
-  binding.dispose();
-  expect(revoke).toHaveBeenCalledOnce();
-  await vi.waitFor(() => {
-    expect(remove).toHaveBeenCalledOnce();
+  const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const remove = vi.spyOn(syncFs, "rmSync").mockImplementationOnce(() => {
+    throw Error("cleanup unavailable");
   });
-  remove.mockRestore();
+  try {
+    expect(() => {
+      binding.dispose();
+    }).not.toThrow();
+    expect(revoke).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledOnce();
+    expect(warning).toHaveBeenCalledOnce();
+  } finally {
+    remove.mockRestore();
+    binding.dispose();
+    warning.mockRestore();
+  }
+  expect(syncFs.existsSync(String(binding.v2?.values["hookDir"]))).toBe(false);
+  expect(revoke).toHaveBeenCalledOnce();
 });
 it("allocates independent sequence state and observers for multiple ordered channels", async () => {
   const root = await directory();

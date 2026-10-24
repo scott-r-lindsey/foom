@@ -7,9 +7,11 @@ Config-session launch and probe-credential plumbing live in `main/workspace/side
 ## Foom config environment (#84)
 
 `~/.foom/config` is the agent-editable configuration folder. It is not Electron's
-userData: API keys, worktree ownership, the repository list and
-consent records stay in the profile. The folder holds `settings.json`, `themes/`,
-`terminal-themes/`, `sounds/{working,done,needs-you,refusal}/`, and Foom-owned
+userData: encrypted Environment secrets, worktree ownership, the repository list
+and consent records stay in the profile; legacy inference keys are
+[deleted on load](privacy.md#secrets). The folder holds `settings.json`, `themes/`,
+`terminal-themes/`, `agents/`, `forges/`, `sounds/{working,done,needs-you,refusal}/`,
+private saved probe `captures/`, and Foom-owned
 `README.md`, `AGENTS.md`, `CLAUDE.md`, `.gitignore`, `examples/` (a strict JSON v2
 agent starter with field notes) and `schemas/` (settings, both theme formats and
 v2 agents, derived from shared validators). Config shells use the discovered
@@ -56,19 +58,22 @@ file, and retains the existing file, applied values and pending approval.
 
 **Live reload.** Main watches `settings.json`, `themes/` and `terminal-themes/`,
 waits 250 ms after the last event and scans serially. When `themes` or
-`terminal-themes` is replaced, the root watcher resubscribes to it. Reads refuse
-links, nonregular files and files over 64 KiB; a theme folder that is a link or
-resolves elsewhere is refused for reads, writes and removals, so nothing outside the
-folder is read or deleted. `settings.json` is compared with the text Foom last
-applied. Settings use the #206 parser and theme files the #205 parser; an invalid
+`terminal-themes` is replaced, the root watcher resubscribes to it. The config
+scanner (`config/files.ts`) refuses file links, nonregular files and files over
+64 KiB; [offline validation](console.md) also rejects in-folder links. The separate
+[theme library](themes.md#custom-theme-files-205) resolves named entries and accepts
+a file link only when its target is directly in the same theme folder. Both reject
+linked or redirected theme folders; reads, writes and removals cannot escape them.
+`settings.json` is compared with the text Foom last applied. Settings use the #206 parser and theme files the #205 parser; an invalid
 file is rejected whole with a filename, JSON path and fixed reason, and the last
 good version stays in effect. A valid settings change applies live; the theme
 library applies theme additions, edits and removals through its own watcher.
 Sound catalogs still refresh when Settings → Sound opens.
 
 **Approval.** A change is held instead of applied when, compared with the effective
-settings in force, it turns alerts off, sets the alert volume to 0, turns hooks off,
-or turns an agent off, enables restoreSessions, or changes any agentArguments list. A missing key means the default. Sizes and turning things on apply without approval. `showNewChildren` is a display preference and applies without approval in either direction: it changes placement only, leaving attention and permissions intact. Theme changes follow the
+settings in force, it turns alerts off, sets alert or master volume from positive
+to 0, turns master mute on, turns hooks or an agent off, enables restoreSessions,
+or changes any agentArguments list. See the [user-visible hold rules](../behavior/settings.md#foom-config). A missing key means the default. Sizes and turning things on apply without approval. `showNewChildren` is a display preference and applies without approval in either direction: it changes placement only, leaving attention and permissions intact. Theme changes follow the
 attention-distinctness hold described below. Settings → Foom config
 and the config footer dock show the held change in amber. The held change carries an ID,
 the digest of its text, and a decision must name it: if an agent replaced the

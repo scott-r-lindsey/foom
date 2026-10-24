@@ -2,7 +2,7 @@
 
 Decided implementation and security rules for this area. Read the [file map](../map.md) to locate related owners.
 
-Workspace composition lives behind the public `main/workspace/workspace.ts` facade. `workspace-context.ts` owns shared locks, queues, owner wiring and shutdown; bound feature methods live in `worktree-launch.ts`, `sidebar-commands.ts` and `orchestration-commands.ts`. Narrow feature capabilities and dependency/method declarations live in `feature-context.d.ts` and `workspace-types.d.ts`. Owners receive capabilities rather than the coordinator object.
+Workspace composition lives behind the public `main/workspace/workspace.ts` facade. `workspace-context.ts` owns shared locks, queues, owner wiring and shutdown; bound feature methods live in `worktree-launch.ts`, `sidebar-commands.ts` and `orchestration-commands.ts`. Narrow feature capabilities and dependency/method declarations live in `workspace-capabilities.d.ts` and `workspace-types.d.ts`. `workspace-feature-wiring.ts` constructs each dependency slice and live state view. `workspace-orchestration-host.ts` adapts orchestration effects under the context’s shared reservations. Owners receive capabilities rather than the coordinator object.
 
 ## Process model
 
@@ -32,10 +32,12 @@ filesystem sandbox.
 Production packages use ASAR and hardened Electron fuses and include compiled
 application files, package metadata and production dependencies. Native node-pty
 binaries and spawn helpers are unpacked. Windows uses node-pty's bundled ConPTY
-DLL; RunAsNode stays disabled. Main owns secrets and uses Electron `safeStorage`;
-Foom sends no terminal content to a model or network service except screens of
-config-owned agent probes requested by their owning config session (#591). See [secrets](privacy.md#secrets)
-and [control-plane privacy](../contracts/control-privacy.md#output-privacy-and-visibility).
+DLL; RunAsNode stays disabled. Main owns secrets and uses Electron `safeStorage`.
+Local evaluation makes no model requests. Foom itself sends no terminal content to
+model or network services; scoped [probe screens](probes.md) and child tails/reports
+can enter the requesting agent’s context and reach its model provider. See
+[secrets](privacy.md#secrets) and
+[control-plane privacy](../contracts/control-privacy.md#output-privacy-and-visibility).
 
 ## Source layout
 
@@ -95,13 +97,16 @@ Within those features:
 
 - `preflight-view.tsx` coordinates navigation, scans, persistence, errors, heading focus and launch. `settings-frame.tsx` renders the Settings section navigation and controls frame. Welcome, agents, repositories and readiness render in their own `*-step.tsx` modules; they receive state and actions from the coordinator. The welcome step shows instead of tells: `welcome-noise.tsx` tiles ten made-up terminals like a window manager, then folds them into ten lights, one of which needs you. `welcome-noise-output.ts` generates their output: colored, bursty, with streamed prose and per-agent status lines, and each light follows its own terminal's output rate. It is decorative (`aria-hidden`) and shows its final frame under reduced motion.
 - `board.ts` contains production board helpers. `sample-rows.ts` holds development fixture rows and is imported only by the sample source and tests.
-- `styles/styles.css` is an ordered import manifest for base, board/terminal, preflight, appearance, welcome, welcome animation, repository picker, layout overrides, tooltips, agent cards and branch field styles. The build bundles it into the existing `styles.css` asset; there are no runtime imports or new asset permissions. Keep the import order: the later preflight/layout/card rules intentionally follow the base feature rules.
+- `styles/styles.css` is an ordered import manifest for base, board/terminal, preflight, appearance, welcome, welcome animation, repository picker, layout overrides, agent cards and branch field styles. The build bundles it into the existing `styles.css` asset; there are no runtime imports or new asset permissions. Keep the import order: the later preflight/layout/card rules intentionally follow the base feature rules.
 
 The `foom/process-boundaries` ESLint rule checks static imports, re-exports, literal dynamic imports and `require` calls. Process-owned code may depend on its own process and shared modules. Shared modules cannot depend on process-owned code. Only main and the console may import `node-common` utilities; the console cannot import main, Electron or terminal-host policy. Renderer and shared modules cannot import Node, Electron, node-pty or headless xterm. The sandboxed preload may import Electron at runtime and shared declarations as types. Its sole shared runtime dependency, `shared/board-commands.ts`, is pure browser-safe data and validation bundled inline by esbuild; the sandbox loader still requires only Electron. The boundary lint rule permits only this specific shared module.
 
 Import implementations and their types directly from their owning modules; do not
-add migration-only `export *` forwarding files. Provider launch helpers live in
-`main/agents/providers/{cli-launch,hook-launch,v2-observers,mcp-launch}.ts`;
+add migration-only `export *` forwarding files. Provider launch preparation lives
+in `main/agents/providers/v2.ts`, including
+prompt validation, MCP arguments and private launch-file cleanup. Prompt constants
+live in `providers/cli-launch.ts`; hook adapters live in
+`providers/{hook-launch,v2-observers}.ts`;
 private-file helpers and control validation live in
 `node-common/{private-files,control-validation}.ts`; browser-safe argument helpers
 live in `shared/providers/arguments.ts`. Source, tests and mocks use these same

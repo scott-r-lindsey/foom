@@ -216,6 +216,35 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
     receive({
       ...base,
       cleanup: {
+        stage: "ready",
+        progress: {
+          ...progress,
+          items: [
+            {
+              ...progress.items[0],
+              id: "untracked",
+              branch: "screenshots",
+              state: "queued",
+              changes: "?? proof.png\0!! .env\0",
+              omittedChanges: 7,
+            },
+          ],
+        },
+      },
+    });
+  });
+  expect(view.getByRole("list", { name: "Uncommitted changes" }).textContent).toContain(
+    "proof.png",
+  );
+  expect(view.getByText("ignored", { exact: true })).toBeTruthy();
+  expect(view.getByText(".env", { exact: true })).toBeTruthy();
+  expect(view.getByText("7 more paths", { exact: true })).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Force delete 1" }));
+  expect(answer).toHaveBeenLastCalledWith("cleanup", true);
+  act(() => {
+    receive({
+      ...base,
+      cleanup: {
         stage: "run",
         progress: {
           ...progress,
@@ -603,4 +632,99 @@ test("starts summaries collapsed, includes only visible disclosure controls in T
   fireEvent.keyDown(view.getByRole("alertdialog"), { key: "Escape" });
   expect(answer).toHaveBeenLastCalledWith("new", false);
   vi.unstubAllGlobals();
+});
+
+test("cleanup closes only complete successful runs and resets its choice on every opening", () => {
+  let receive: (request: DialogRequest | null) => void = () => {};
+  const answer = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  Object.defineProperty(window, "confirmation", {
+    configurable: true,
+    value: {
+      render(callback: typeof receive) {
+        receive = callback;
+        return () => {};
+      },
+      answer,
+      size: vi.fn(),
+    },
+  });
+  const view = render(<ConfirmationPage />);
+  const base: DialogRequest = {
+    id: "first",
+    title: "Delete merged worktrees?",
+    accept: "Delete",
+    theme: resolveInterfaceTheme("follow", false),
+    cleanup: {
+      stage: "ready",
+      progress: {
+        total: 1,
+        done: 0,
+        phase: "fetch",
+        stopped: false,
+        items: [
+          { id: "selected", branch: "feature", state: "queued" },
+          { id: "main", branch: "main", state: "kept", reason: "main checkout" },
+        ],
+      },
+    },
+  };
+  const open = (request = base) => {
+    act(() => {
+      receive(request);
+    });
+  };
+  const finish = (state: "removed" | "error" | "kept" = "removed", stopped = false) => {
+    if (!base.cleanup) throw new Error("Missing cleanup");
+    open({
+      ...base,
+      cleanup: {
+        stage: "run",
+        progress: {
+          ...base.cleanup.progress,
+          phase: "finished",
+          done: 1,
+          stopped,
+          items: [
+            { id: "selected", branch: "feature", state },
+            { id: "main", branch: "main", state: "kept", reason: "main checkout" },
+          ],
+        },
+      },
+    });
+  };
+  open();
+  const checkbox = view.getByRole("checkbox", { name: "Close when completed" });
+  expect(checkbox).toHaveProperty("checked", true);
+  fireEvent.keyDown(view.getByRole("button", { name: "Cancel" }), { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(checkbox);
+  fireEvent.click(view.getByText("Close when completed"));
+  expect(checkbox).toHaveProperty("checked", false);
+  open(); // Same request updates do not reset the user's choice.
+  expect(checkbox).toHaveProperty("checked", false);
+  finish();
+  expect(answer).not.toHaveBeenCalled();
+  act(() => {
+    receive(null);
+  });
+  open();
+  expect(view.getByRole("checkbox")).toHaveProperty("checked", true);
+  finish("error");
+  expect(answer).not.toHaveBeenCalled();
+  finish("kept");
+  expect(answer).not.toHaveBeenCalled();
+  finish("kept", true);
+  expect(answer).not.toHaveBeenCalled();
+  finish();
+  expect(answer).toHaveBeenCalledExactlyOnceWith("first", false);
+  finish();
+  expect(answer).toHaveBeenCalledTimes(1);
+  open({ ...base, id: "second" });
+  expect(view.getByRole("checkbox")).toHaveProperty("checked", true);
 });

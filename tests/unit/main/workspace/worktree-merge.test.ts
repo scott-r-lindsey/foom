@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, realpath, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
+import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace-types";
 import { manifestForgeProvider } from "../../../../src/main/control/forge-interpreter";
 import { githubManifest, gitlabManifest } from "../../../../src/main/control/forge-manifests";
 import { forgeValue } from "../../../../src/main/control/forge-mapping";
@@ -10,19 +10,13 @@ import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git as execute } from "../../../helpers/git.js";
 import { forgeProvider } from "../../../helpers/legacy-forge";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
+import { createWorktreeFixture } from "./worktree-git-fixture";
 
 // Real Git startup and filesystem IO are slower on Windows (run 39076862694).
 vi.setConfig({ testTimeout: nativeDeadline(5000), hookTimeout: nativeDeadline(10_000) });
 
-// Vitest timeouts do not cancel async callbacks. Keep the entire operation alive
-// through teardown, including any Git commands it starts after the timeout.
-let fixtureWork: Promise<void> | undefined;
-function usingFixture(work: () => Promise<void>): () => Promise<void> {
-  return () => {
-    fixtureWork = work();
-    return fixtureWork;
-  };
-}
+const fixture = createWorktreeFixture();
+const usingFixture = fixture.usingFixture;
 
 let temporary: string;
 let repo: string;
@@ -34,30 +28,11 @@ async function git(...args: string[]): Promise<string> {
 }
 beforeEach(
   usingFixture(async () => {
-    temporary = await realpath(await mkdtemp(join(tmpdir(), "foom-worktrees-")));
-    repo = join(temporary, "repo with spaces");
-    root = join(temporary, "root");
-    await mkdir(repo);
-    await git("init", "-b", "main");
-    await git(
-      "-c",
-      "user.name=Test",
-      "-c",
-      "user.email=test@example.com",
-      "commit",
-      "--allow-empty",
-      "-m",
-      "Initial",
-    );
-    service = new WorktreeService(root);
-    await service.addRepository(repo);
+    ({ temporary, repo, root, service } = await fixture.create());
   }),
 );
 afterEach(async () => {
-  await Promise.allSettled(fixtureWork ? [fixtureWork] : []);
-  fixtureWork = undefined;
-  vi.unstubAllEnvs();
-  await rm(temporary, { recursive: true, force: true });
+  await fixture.cleanup();
 });
 
 describe("merged worktree containment", () => {
@@ -267,7 +242,9 @@ describe("merged worktree containment", () => {
       expect(await service.mergedCommit(repo, tree, base)).toBe(
         mode !== "unmerged" && mode !== "reverted",
       );
-      expect(await service.mergedCommit(repo, { ...tree, branch: null }, base)).toBe(false);
+      expect(await service.mergedCommit(repo, { ...tree, branch: null }, base)).toBe(
+        mode === "merge" || mode === "squash" || mode === "rebase",
+      );
       await expect(service.mergedCommit(repo, tree, "--bad")).rejects.toThrow("Invalid commit");
       await expect(service.mergedCommit(repo, { ...tree, head: "bad" }, base)).rejects.toThrow(
         "Invalid commit",
@@ -970,4 +947,590 @@ it("status inspection never refreshes the index during concurrent cleanup", asyn
   // Establish that ordinary status would write the stale stat cache in this fixture.
   await execute(["status", "--porcelain=v1"], { cwd: path });
   expect(await readFile(index)).not.toEqual(before);
+});
+
+it.each(["detached", "untracked", "unpushed", "tracked", "external", "clean branch reset history"])(
+  "group cleanup handles %s with real repositories without changing explicit removal policy",
+  async (mode) => {
+    const path = (await service.createWorktree(repo, "group-cleanup")).path;
+    const other = join(root, "review-second");
+    if (mode === "detached") {
+      await execute(["checkout", "--detach"], { cwd: path });
+      await git("worktree", "add", "--detach", other, "HEAD");
+    }
+    const upstream = join(temporary, "remote.git");
+    await git("clone", "--bare", repo, upstream);
+    await git("remote", "add", "origin", upstream);
+    if (mode === "clean branch reset history") {
+      await git("fetch", "origin");
+      await execute(
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "Private reset history",
+        ],
+        { cwd: path },
+      );
+      await execute(["reset", "--hard", "HEAD~1"], { cwd: path });
+      // New detached/leftover flows must retain this recovery history. Ordinary
+      // clean branch removal keeps main's existing merge-evidence policy.
+      await expect(service.cleanupChanges(repo, path)).rejects.toThrow("reflog");
+    }
+    if (mode === "untracked" || mode === "unpushed")
+      await writeFile(join(path, "screenshots.png"), "evidence");
+    if (mode === "unpushed")
+      await execute(
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "unpushed",
+        ],
+        { cwd: path },
+      );
+    if (mode === "tracked") {
+      await writeFile(join(path, "staged.txt"), "keep");
+      await execute(["add", "."], { cwd: path });
+    }
+    let target = path;
+    if (mode === "external") {
+      target = join(temporary, "external-review");
+      await git("worktree", "add", "--detach", target, "HEAD");
+      await service.removeWorktree(repo, path);
+    }
+    const workspace = new Workspace({
+      worktrees: service,
+      terminals: {
+        create: () => Promise.reject(new Error("No launch")),
+        stop: () => Promise.resolve(true),
+        kill: () => Promise.resolve(),
+        tail: () => Promise.resolve([]),
+      },
+      verdicts: {
+        forget: vi.fn(),
+        classify: () => Promise.reject(new Error("No verdict")),
+        commit: () => Promise.resolve(),
+        recordAction: () => Promise.resolve(),
+      },
+      receiver: () => Promise.reject(new Error("No hooks")),
+      onState: () => {},
+    });
+    try {
+      await workspace.sidebarCommand(
+        { kind: "delete-merged-worktrees", repository: repo },
+        async (request) => {
+          if (request.kind !== "merged-worktrees" || !request.feed) throw new Error("Missing feed");
+          await vi.waitFor(() => {
+            expect(request.feed?.current().stage).toBe("ready");
+          });
+          const items = request.feed.current().progress.items;
+          if (mode === "untracked")
+            expect(items.find((item) => item.branch === "group-cleanup")?.changes).toBe(
+              "?? screenshots.png",
+            );
+          return true;
+        },
+      );
+      if (mode === "detached" || mode === "untracked" || mode === "clean branch reset history") {
+        await expect(realpath(target)).rejects.toThrow();
+        if (mode === "detached") await expect(realpath(other)).rejects.toThrow();
+      } else expect(await realpath(target)).toBe(target);
+    } finally {
+      await workspace.dispose();
+    }
+  },
+);
+
+function cleanupWorkspace(extra: Partial<WorkspaceDependencies> = {}): Workspace {
+  return new Workspace({
+    worktrees: service,
+    terminals: {
+      create: () => Promise.reject(new Error("No launch expected")),
+      kill: () => Promise.resolve(),
+      stop: () => Promise.resolve(true),
+      tail: () => Promise.resolve([]),
+    },
+    verdicts: {
+      forget: vi.fn(),
+      classify: () => Promise.reject(new Error("No verdict expected")),
+      commit: () => Promise.resolve(),
+      recordAction: () => Promise.resolve(),
+    },
+    receiver: () => Promise.reject(new Error("No hooks expected")),
+    onState: () => {},
+    ...extra,
+  });
+}
+
+it.each(["tracked edit", "commit", "untracked set"])(
+  "merged cleanup preserves a real worktree gaining %s during preview shutdown",
+  async (change) => {
+    await writeFile(join(repo, "tracked.txt"), "original");
+    await git("add", ".");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "tracked",
+    );
+    const { path } = await service.createWorktree(repo, "preview-race");
+    await git("clone", "--bare", repo, join(temporary, "remote.git"));
+    await git("remote", "add", "origin", join(temporary, "remote.git"));
+    await writeFile(join(path, "approved.txt"), "approved untracked");
+    const prepare = vi.fn(async () => {
+      if (change === "tracked edit")
+        await writeFile(join(path, "tracked.txt"), "saved during shutdown");
+      else if (change === "untracked set") await writeFile(join(path, "new.txt"), "new untracked");
+      else
+        await execute(
+          [
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "new work during shutdown",
+          ],
+          { cwd: path },
+        );
+      return () => {};
+    });
+    const workspace = cleanupWorkspace({ prepareWorktreeRemoval: prepare });
+    try {
+      await workspace.sidebarCommand(
+        { kind: "delete-merged-worktrees", repository: repo },
+        async (request) => {
+          if (request.kind !== "merged-worktrees" || !request.feed)
+            throw new Error("Missing cleanup");
+          await vi.waitFor(() => {
+            expect(request.feed?.current().stage).toBe("ready");
+          });
+          return true;
+        },
+      );
+      expect(prepare).toHaveBeenCalledOnce();
+      expect(await readFile(join(path, "approved.txt"), "utf8")).toBe("approved untracked");
+      if (change === "tracked edit")
+        expect(await readFile(join(path, "tracked.txt"), "utf8")).toBe("saved during shutdown");
+      if (change === "untracked set")
+        expect(await readFile(join(path, "new.txt"), "utf8")).toBe("new untracked");
+      if (change === "commit")
+        expect((await execute(["log", "-1", "--format=%s"], { cwd: path })).stdout.trim()).toBe(
+          "new work during shutdown",
+        );
+    } finally {
+      await workspace.dispose();
+    }
+  },
+);
+
+it(
+  "detached group cleanup cannot release a later explicit removal reservation",
+  usingFixture(async () => {
+    const { path } = await service.createWorktree(repo, "detached-a");
+    await execute(["checkout", "--detach"], { cwd: path });
+    await git("clone", "--bare", repo, join(temporary, "remote.git"));
+    await git("remote", "add", "origin", join(temporary, "remote.git"));
+    const branchesEntered = Promise.withResolvers<undefined>();
+    const finishBranches = Promise.withResolvers<undefined>();
+    const confirmationEntered = Promise.withResolvers<undefined>();
+    const finishConfirmation = Promise.withResolvers<boolean>();
+    const deleteBranches = service.deleteMergedBranches.bind(service);
+    vi.spyOn(service, "deleteMergedBranches").mockImplementation(async (...args) => {
+      branchesEntered.resolve(undefined);
+      await finishBranches.promise;
+      return deleteBranches(...args);
+    });
+    const workspace = cleanupWorkspace();
+    const group = workspace.sidebarCommand(
+      { kind: "delete-merged-worktrees", repository: repo },
+      async (request) => {
+        if (request.kind !== "merged-worktrees" || !request.feed)
+          throw new Error("Missing cleanup");
+        await vi.waitFor(() => {
+          expect(request.feed?.current().stage).toBe("ready");
+        });
+        return true;
+      },
+    );
+    let first: Promise<void> | undefined;
+    try {
+      await branchesEntered.promise;
+      await expect(realpath(path)).rejects.toThrow();
+      const other = join(root, "detached-b");
+      await git("worktree", "add", "--detach", other, "HEAD");
+      const command = { kind: "remove-worktree" as const, repository: repo, worktree: other };
+      first = workspace.sidebarCommand(command, () => {
+        confirmationEntered.resolve(undefined);
+        return finishConfirmation.promise;
+      });
+      await confirmationEntered.promise;
+      finishBranches.resolve(undefined);
+      await group;
+      const secondConfirmation = vi.fn(() => Promise.resolve(false));
+      await expect(workspace.sidebarCommand(command, secondConfirmation)).rejects.toThrow(
+        "This worktree is busy",
+      );
+      expect(secondConfirmation).not.toHaveBeenCalled();
+    } finally {
+      finishBranches.resolve(undefined);
+      finishConfirmation.resolve(false);
+      await Promise.allSettled([group, ...(first ? [first] : [])]);
+      await workspace.dispose();
+    }
+  }),
+);
+
+it.each([
+  ["assume-unchanged", "eligibility"],
+  ["skip-worktree", "eligibility"],
+  ["sparse", "eligibility"],
+  ["assume-unchanged", "preview shutdown"],
+  ["skip-worktree", "preview shutdown"],
+  ["sparse", "preview shutdown"],
+])("group cleanup preserves hidden tracked edits with %s set during %s", async (mode, phase) => {
+  await writeFile(join(repo, "tracked.txt"), "original");
+  await git("add", ".");
+  await git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "tracked");
+  const { path } = await service.createWorktree(repo, "hidden-edit");
+  await git("clone", "--bare", repo, join(temporary, "remote.git"));
+  await git("remote", "add", "origin", join(temporary, "remote.git"));
+  await writeFile(join(path, "screenshot.png"), "untracked evidence");
+  const hide = async () => {
+    if (mode === "sparse") {
+      // Materialize every file, so sparse config is independent of skip-worktree.
+      await execute(["sparse-checkout", "init", "--no-cone"], { cwd: path });
+      await execute(["sparse-checkout", "set", "--no-cone", "/*"], { cwd: path });
+    }
+    await execute(
+      [
+        "update-index",
+        mode === "skip-worktree" ? "--skip-worktree" : "--assume-unchanged",
+        "tracked.txt",
+      ],
+      { cwd: path },
+    );
+    await writeFile(join(path, "tracked.txt"), "hidden edit must survive");
+    expect(
+      (
+        await execute(
+          ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+          { cwd: path },
+        )
+      ).stdout,
+    ).toBe("?? screenshot.png\0");
+  };
+  if (phase === "eligibility") await hide();
+  const prepare = vi.fn(async () => {
+    if (phase === "preview shutdown") await hide();
+    return () => {};
+  });
+  const workspace = cleanupWorkspace({ prepareWorktreeRemoval: prepare });
+  try {
+    await workspace.sidebarCommand(
+      { kind: "delete-merged-worktrees", repository: repo },
+      async (request) => {
+        if (request.kind !== "merged-worktrees" || !request.feed)
+          throw new Error("Missing cleanup");
+        await vi.waitFor(() => {
+          expect(request.feed?.current().stage).toBe("ready");
+        });
+        return true;
+      },
+    );
+    expect(await readFile(join(path, "tracked.txt"), "utf8")).toBe("hidden edit must survive");
+    expect(await readFile(join(path, "screenshot.png"), "utf8")).toBe("untracked evidence");
+    if (phase === "eligibility") expect(prepare).not.toHaveBeenCalled();
+    else expect(prepare).toHaveBeenCalledOnce();
+    expect(await git("branch", "--list", "hidden-edit")).toContain("hidden-edit");
+  } finally {
+    await workspace.dispose();
+  }
+});
+
+it.each(["ignored", "submodule", "private ref", "ignorecase", "rebase"])(
+  "group cleanup accounts for real Git %s state before approval and deletion",
+  async (mode) => {
+    await writeFile(join(repo, "tracked.txt"), "original");
+    await writeFile(join(repo, ".gitignore"), ".env\n");
+    await git("add", ".");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "tracked",
+    );
+    const { path } = await service.createWorktree(repo, "review-state");
+    if (mode === "submodule") {
+      const source = join(temporary, "module");
+      await execute(["clone", repo, source], { cwd: repo });
+      await execute(["-c", "protocol.file.allow=always", "submodule", "add", source, "module"], {
+        cwd: path,
+      });
+      await execute(
+        ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-am", "module"],
+        { cwd: path },
+      );
+      await execute(["config", "diff.ignoreSubmodules", "all"], { cwd: path });
+      await writeFile(join(path, "module", "tracked.txt"), "private module edit");
+      await git("merge", "--ff-only", "review-state");
+    }
+    await git("clone", "--bare", repo, join(temporary, "remote.git"));
+    await git("remote", "add", "origin", join(temporary, "remote.git"));
+    await writeFile(join(path, "screenshot.png"), "untracked evidence");
+    if (mode === "ignored") await writeFile(join(path, ".env"), "secret evidence");
+    if (mode === "private ref") {
+      const saved = (
+        await execute(
+          [
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit-tree",
+            "HEAD^{tree}",
+            "-m",
+            "private work",
+          ],
+          { cwd: path },
+        )
+      ).stdout.trim();
+      await execute(["update-ref", "refs/worktree/saved", saved], { cwd: path });
+    }
+    if (mode === "ignorecase") {
+      await execute(["config", "core.ignorecase", "true"], { cwd: path });
+      await writeFile(join(path, "TRACKED.txt"), "case hidden edit");
+    }
+    if (mode === "rebase") {
+      // A genuine paused interactive rebase, with an otherwise clean worktree.
+      await execute(
+        ["-c", "sequence.editor=true", "rebase", "--interactive", "--exec", "false", "HEAD~1"],
+        { cwd: path },
+      ).catch(() => {});
+    }
+    const workspace = cleanupWorkspace();
+    try {
+      await workspace.sidebarCommand(
+        { kind: "delete-merged-worktrees", repository: repo },
+        async (request) => {
+          if (request.kind !== "merged-worktrees" || !request.feed)
+            throw new Error("Missing cleanup");
+          await vi.waitFor(() => {
+            expect(request.feed?.current().stage).toBe("ready");
+          });
+          const item = request.feed
+            .current()
+            .progress.items.find((item) => item.branch === "review-state");
+          if (mode === "ignored") {
+            expect(item?.changes).toContain("!! .env");
+            return false;
+          }
+          return true;
+        },
+      );
+      expect(await readFile(join(path, "screenshot.png"), "utf8")).toBe("untracked evidence");
+      if (mode === "ignored")
+        expect(await readFile(join(path, ".env"), "utf8")).toBe("secret evidence");
+      if (mode === "submodule")
+        expect(await readFile(join(path, "module", "tracked.txt"), "utf8")).toBe(
+          "private module edit",
+        );
+      if (mode === "private ref")
+        expect(
+          (await execute(["show-ref", "refs/worktree/saved"], { cwd: path })).stdout,
+        ).toContain("refs/worktree/saved");
+      if (mode === "ignorecase")
+        expect(await readFile(join(path, "TRACKED.txt"), "utf8")).toBe("case hidden edit");
+    } finally {
+      await workspace.dispose();
+    }
+  },
+);
+
+it.each(["ignored file", "private ref", ".gitmodules"])(
+  "final cleanup snapshot refuses a new %s after preview shutdown",
+  async (mode) => {
+    await writeFile(join(repo, ".gitignore"), ".env\n");
+    await git("add", ".");
+    await git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "ignore",
+    );
+    const { path } = await service.createWorktree(repo, "late-state");
+    await git("clone", "--bare", repo, join(temporary, "remote.git"));
+    await git("remote", "add", "origin", join(temporary, "remote.git"));
+    await writeFile(join(path, "screenshot.png"), "approved evidence");
+    const prepare = vi.fn(async () => {
+      if (mode === "private ref")
+        await execute(["update-ref", "refs/worktree/saved", "HEAD"], { cwd: path });
+      else
+        await writeFile(
+          join(path, mode === "ignored file" ? ".env" : ".gitmodules"),
+          "new undisclosed data",
+        );
+      return () => {};
+    });
+    const workspace = cleanupWorkspace({ prepareWorktreeRemoval: prepare });
+    try {
+      await workspace.sidebarCommand(
+        { kind: "delete-merged-worktrees", repository: repo },
+        async (request) => {
+          if (request.kind !== "merged-worktrees" || !request.feed)
+            throw new Error("Missing cleanup");
+          await vi.waitFor(() => {
+            expect(request.feed?.current().stage).toBe("ready");
+          });
+          return true;
+        },
+      );
+      expect(prepare).toHaveBeenCalledOnce();
+      expect(await readFile(join(path, "screenshot.png"), "utf8")).toBe("approved evidence");
+    } finally {
+      await workspace.dispose();
+    }
+  },
+);
+
+it("ignored-only leftovers are reviewed and removed without force", async () => {
+  await writeFile(join(repo, ".gitignore"), ".env\ncache/\n");
+  await git("add", ".");
+  await git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "ignore");
+  const { path } = await service.createWorktree(repo, "ignored-only");
+  await git("clone", "--bare", repo, join(temporary, "remote.git"));
+  await git("remote", "add", "origin", join(temporary, "remote.git"));
+  await writeFile(join(path, ".env"), "secret");
+  await mkdir(join(path, "cache"));
+  await writeFile(join(path, "cache", "entry"), "ignored directory");
+  const remove = vi.spyOn(service, "removeWorktree");
+  const workspace = cleanupWorkspace();
+  try {
+    await workspace.sidebarCommand(
+      { kind: "delete-merged-worktrees", repository: repo },
+      async (request) => {
+        if (request.kind !== "merged-worktrees" || !request.feed)
+          throw new Error("Missing cleanup");
+        await vi.waitFor(() => {
+          expect(request.feed?.current().stage).toBe("ready");
+        });
+        expect(
+          request.feed.current().progress.items.find((item) => item.branch === "ignored-only")
+            ?.changes,
+        ).toBe("!! .env\0!! cache/");
+        return true;
+      },
+    );
+    expect(remove).toHaveBeenCalledWith(
+      repo,
+      path,
+      false,
+      expect.any(String),
+      expect.any(Function),
+    );
+    await expect(realpath(path)).rejects.toThrow();
+  } finally {
+    await workspace.dispose();
+  }
+});
+
+it("preserves a tracked save during the final cleanup snapshot identity await", async () => {
+  await writeFile(join(repo, "tracked.txt"), "original");
+  await git("add", ".");
+  await git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "tracked");
+  const { path } = await service.createWorktree(repo, "final-snapshot-race");
+  await git("clone", "--bare", repo, join(temporary, "remote.git"));
+  await git("remote", "add", "origin", join(temporary, "remote.git"));
+  await git("fetch", "origin");
+  await writeFile(join(path, "approved.png"), "approved evidence");
+  const expectedIdentity = await service.removalIdentity(repo, path);
+  const head = (await execute(["rev-parse", "HEAD"], { cwd: path })).stdout.trim();
+  const approved = await service.cleanupChanges(repo, path, expectedIdentity, head);
+  let finalSnapshot = false;
+  let saved = false;
+  const identity = service.removalIdentity.bind(service);
+  vi.spyOn(service, "removalIdentity").mockImplementation(async (...args) => {
+    const result = await identity(...args);
+    if (finalSnapshot && !saved) {
+      saved = true;
+      await writeFile(join(path, "tracked.txt"), "saved during final identity check");
+    }
+    return result;
+  });
+  await expect(
+    service.removeWorktree(repo, path, true, expectedIdentity, async () => {
+      finalSnapshot = true;
+      if ((await service.cleanupChanges(repo, path, expectedIdentity, head)) !== approved)
+        throw new Error("Snapshot changed");
+    }),
+  ).rejects.toThrow();
+  expect(saved).toBe(true);
+  expect(await readFile(join(path, "tracked.txt"), "utf8")).toBe(
+    "saved during final identity check",
+  );
+  expect(await readFile(join(path, "approved.png"), "utf8")).toBe("approved evidence");
+});
+
+it("rechecks the full cleanup policy after the final asynchronous merge proof", async () => {
+  const { path } = await service.createWorktree(repo, "proof-boundary");
+  await git("clone", "--bare", repo, join(temporary, "remote.git"));
+  await git("remote", "add", "origin", join(temporary, "remote.git"));
+  await writeFile(join(path, "approved.png"), "approved evidence");
+  const admin = (await execute(["rev-parse", "--absolute-git-dir"], { cwd: path })).stdout.trim();
+  let afterPreview = false;
+  let changed = false;
+  const merged = service.mergedCommit.bind(service);
+  vi.spyOn(service, "mergedCommit").mockImplementation(async (...args) => {
+    const result = await merged(...args);
+    if (afterPreview && !changed) {
+      expect(result).toBe(true);
+      changed = true;
+      await writeFile(join(admin, "config.worktree"), "");
+    }
+    return result;
+  });
+  const workspace = cleanupWorkspace({
+    prepareWorktreeRemoval: () => {
+      afterPreview = true;
+      return Promise.resolve(() => {});
+    },
+  });
+  try {
+    await workspace.sidebarCommand(
+      { kind: "delete-merged-worktrees", repository: repo },
+      async (request) => {
+        if (request.kind !== "merged-worktrees" || !request.feed)
+          throw new Error("Missing cleanup");
+        await vi.waitFor(() => {
+          expect(request.feed?.current().stage).toBe("ready");
+        });
+        return true;
+      },
+    );
+    expect(changed).toBe(true);
+    expect(await readFile(join(path, "approved.png"), "utf8")).toBe("approved evidence");
+    expect(await realpath(path)).toBe(path);
+  } finally {
+    await workspace.dispose();
+  }
 });

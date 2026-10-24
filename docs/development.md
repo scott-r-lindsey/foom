@@ -43,7 +43,8 @@ Main, host, and preload compile to CommonJS. esbuild bundles the renderer and xt
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm run check` | Formatting, lint, all type checks, unit tests and CI-policy tests; also the pre-commit check |
+| `pnpm run check` | Formatting, documentation integrity, lint, all type checks, unit tests and CI-policy tests; also the pre-commit check |
+| `pnpm run docs:check` | Check tracked Markdown local links/anchors and complete source-to-feature map coverage without network requests |
 | `pnpm run format` | Apply Biome formatting |
 | `pnpm run format:check` | Check formatting without changing files |
 | `pnpm run lint` / `pnpm run lint:fix` | Type-aware ESLint checks / safe autofixes |
@@ -105,7 +106,7 @@ file can be deleted to force a miss. Reference and generated output directories
 are excluded. `pnpm run lint` and `pnpm run lint:fix` remain uncached.
 
 `pnpm run check:local` overlaps that local lint with one sequential lane of format,
-typecheck, unit tests and CI-policy tests. At most two stages run simultaneously;
+documentation integrity, typecheck, unit tests and CI-policy tests. At most two stages run simultaneously;
 unit/native tests never overlap CI-policy tests. Vitest uses at most four workers
 (and fewer on small machines); explicit native-test serialization still wins.
 Every stage finishes and failures are aggregated into a nonzero exit. Use the sequential authoritative gate on
@@ -125,3 +126,46 @@ optional-platform graph from dropping its legacy glob dependency on clean
 Windows installs. Validate dependency loading with a clean Windows-target
 optional-dependency install, plus the native Windows maker and smoke tests.
 Its lifecycle script stays disabled; Forge selects the bundled host 7-Zip files.
+
+## Website product screenshots (#582)
+
+On Linux with `xvfb-run` installed, run:
+
+```sh
+pnpm run start:samples --screenshots
+```
+
+The command builds the explicit sample board, then always creates its own Xvfb
+display, even when launched from a desktop or an existing virtual display. It
+writes six PNGs to ignored `screenshots-582/`: `eclipse-dark-{board,sidebar,needs-you}.png`
+and `eclipse-light-{board,sidebar,needs-you}.png`. Reruns overwrite those six files.
+Do not commit the images; keep the PR draft for human visual approval before
+copying approved images to the website.
+
+The full board has four tiles (Working, Done, Needs you and Failed); the sidebar
+also includes Quiet and shell samples; the extra launchpad group is collapsed so
+every state fits without scrolling. The Needs you crop includes the verdict's
+reason and the synthetic approval prompt. These are the application's sample
+rows and read-only terminal text, never a real agent screen. Separate disposable
+homes, profiles, and three fixture Git repositories are created for each theme
+and removed after the app quits. The existing Electron harness controls the login
+shell and PATH, guards agent/forge CLI probes, audits processes and mutes audio.
+No real agent CLI or user configuration is used. The shared launch guard verifies
+that the display belongs to the capture's Xvfb wrapper and explicitly forces X11,
+even when invoked from a Wayland session.
+
+The capture entry point owns one temporary root containing every home, profile,
+fixture and Xvfb authority directory. SIGINT, SIGTERM and SIGHUP terminate the
+runner and detached app process groups, remove that root, and exit with the
+signal's conventional code (130, 143 or 129). Normal completion removes it too.
+To check existing images without overwriting them, run
+`FOOM_COMPARE_PRODUCT_SHOTS=1 pnpm run start:samples --screenshots`; a changed or
+missing image fails comparison.
+
+Captures use a 1440 × 900 content area at device scale 1 and interface size 100%,
+bundled fonts, a fixed clock, a fixed four-tile layout, reduced motion and a
+settled activity history. Each shot is captured twice and must match byte
+for byte before it is written. For cross-run comparisons use the same Linux,
+Electron and font environment; rasterization may differ across systems. Normal
+`pnpm run start:samples` still opens the interactive development sample board.
+Packaging always rebuilds without samples.

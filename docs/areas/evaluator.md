@@ -32,8 +32,9 @@ revision when evaluation begins, then checks those plus invocation identity and
 closure after asynchronous classification and verdict storage. Replies, output, lifecycle transitions, replacement, removal and
 shutdown therefore reject stale evidence. Resume drains the queue before resetting
 the invocation; a fresh execution machine advances launch identity even when the ID
-is reused. Exit still releases agent/orchestration resources before queued final
-classification and persistence. Child-event publications and unread-child reminder
+is reused. The session lifecycle owner releases config/probe/agent resources and notifies
+orchestration synchronously before queued final classification and persistence;
+see [exit phases](sessions.md#exit-observation-and-release-767). Child-event publications and unread-child reminder
 projection continue through the same orchestration capabilities. After PTYs stop,
 the coordinator closes and aborts launches, drains cleanup, clears execution subscriptions,
 disposes unread reminders/watchers, forgets verdicts, releases agents and closes forge,
@@ -94,7 +95,7 @@ Bundled v2 manifests and the remaining `main/evaluator/agent-rules/*.json` files
 minimum engine version, provenance, ordered priorities, region, matchers, exclusions
 and the source rationale. Herdr-derived rules are a capture-backed subset; the
 Apache-2.0 license and modification notice are included in generated third-party
-notices. The future About screen (#96) can consume that same notice bundle.
+notices, accessible through [About → Third-party notices](../behavior/menus.md#application-menu-and-attention-badge).
 
 The headless host listens to OSC 0/2 titles and parses OSC 9;4 progress without a
 view. It retains only sanitized titles (512 code units, no control/format chars)

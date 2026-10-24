@@ -2,6 +2,7 @@ import { mcpTools } from "../../control/mcp-tools";
 import { PluginSetup } from "../plugin-setup";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
@@ -152,17 +153,6 @@ export function v2Provider(
       }
       return replacement;
     },
-    prepareMcp: () =>
-      Promise.reject(
-        new Error(
-          model.launch.mcp
-            ? "MCP requires launch context"
-            : "Per-launch MCP attachment is unsupported",
-        ),
-      ),
-    arguments: () => {
-      throw new Error("v2 requires launch preparation");
-    },
     async prepareLaunch(
       installation,
       request,
@@ -244,7 +234,13 @@ export function v2Provider(
       let scratch: string | undefined;
       const dispose = () => {
         binding?.dispose();
-        if (scratch) void rm(scratch, { recursive: true, force: true }).catch(() => undefined);
+        if (scratch) {
+          try {
+            rmSync(scratch, { recursive: true, force: true, maxRetries: 3 });
+          } catch (error) {
+            console.warn("Unable to remove agent launch files", error);
+          }
+        }
       };
       try {
         if (mcp) {

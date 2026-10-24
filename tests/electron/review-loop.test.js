@@ -1,3 +1,4 @@
+const { launchTrustedParent } = require("./agent-fixture.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -14,6 +15,7 @@ const {
   launchApp,
   quitAndWait,
   removeAfterApps,
+  createMemoryFixture,
   assertAccessible,
 } = require("./harness.js");
 
@@ -103,10 +105,16 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
     const { existsSync } = require("node:fs");
     const root = await mkdtemp(
       scenario === "concurrent"
-        ? path.resolve("test-results/foom-review-concurrent-")
+        ? path.join(
+            process.env.FOOM_TEST_DISK_ROOT ?? path.resolve("test-results"),
+            "foom-review-concurrent-",
+          )
         : path.join(tmpdir(), "foom-forge-adopt-"),
     );
     removeAfterApps(context, root);
+    // Keep durable review/control writes independent of concurrent build I/O.
+    // The tmpfs profile still exercises real persistence across app restarts.
+    const profile = await createMemoryFixture(context, "foom-review-profile-");
     const bin = path.join(root, "bin");
     const repo = path.join(root, "app");
     const home = path.join(root, "home");
@@ -141,7 +149,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
     const credentials = path.join(root, "credentials.json");
     const options = {
       fixture: "agent",
-      args: [`--user-data-dir=${path.join(root, "user-data")}`],
+      args: [`--user-data-dir=${profile}`],
       env: {
         HOME: home,
         // Git and the fixed POSIX hook adapter require these system tool directories.
@@ -153,24 +161,16 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         TEST_REVIEW_OUTPUT: scenario === "concurrent" ? "1" : "0",
       },
     };
-    const app = await launchApp(context, options);
-    const page = await boardPage(app);
-    await app.evaluate(({ dialog }, directory) => {
-      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
-    }, repo);
-    const repository = await page.evaluate(async () => (await window.desktop.addRepository()).path);
-    await page.evaluate(
-      ({ repository }) =>
-        window.desktop.sidebarCommand({
-          kind: "launch",
-          repository,
-          worktree: repository,
-          run: "claude",
-        }),
-      { repository },
-    );
-    await expect.poll(() => existsSync(`${credentials}.app`)).toBe(true);
-    let parent = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
+    const {
+      app,
+      page,
+      parent: initialParent,
+    } = await launchTrustedParent(context, {
+      repo,
+      credentials,
+      options: options,
+    });
+    let parent = initialParent;
     const call = async (method, params = {}) => {
       const response = await fetch(parent.controlUrl, {
         method: "POST",
@@ -457,14 +457,19 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
     }
     if (scenario === "clean") {
       await expect(page.locator('.session-robot-mark[data-kind="review"]')).toHaveCount(0);
+      // A repeated true setting is a no-op. Disable board observations first so
+      // re-enabling after the fake merge requests a read even when the reviewer's
+      // exit-triggered read already observed OPEN (settled polling takes 2 min).
+      await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: false }));
       await writeFile(
-        forgeState,
+        `${forgeState}.tmp`,
         JSON.stringify({
           pr: { headRefOid: headSha, state: "MERGED" },
           checks: [{ bucket: "pass" }],
         }),
       );
-      // Reuse the existing tracker setting invalidation; no test-only main API.
+      await rename(`${forgeState}.tmp`, forgeState);
+      // Reuse the existing tracker setting transition; no test-only main API.
       await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: true }));
       await expect
         .poll(async () => (await call("session_state", { id: authorId })).pullRequest?.state, {

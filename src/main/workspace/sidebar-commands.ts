@@ -12,7 +12,7 @@ import type {
   ConfigLaunchContext,
   RepositoryOperationsContext,
   SidebarCommandsContext,
-} from "./feature-context";
+} from "./workspace-capabilities";
 import { homeDirectory, homeShellFacts } from "./home-shell";
 
 export async function sidebarInventory(this: SidebarCommandsContext): Promise<SidebarInventory> {
@@ -182,7 +182,7 @@ export async function sidebarCommand(
     return;
   }
   this.known(command.repository);
-  if (command.kind === "prune-worktree") {
+  if (command.kind === "prune-worktree" || command.kind === "cleanup-worktree") {
     await this.withRepository(command.repository, async () => {
       if ([...this.launched.values()].some((entry) => entry.worktree === command.worktree))
         throw new Error("Close this worktree's sessions first");
@@ -193,7 +193,9 @@ export async function sidebarCommand(
       if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
       this.busyWorktrees.add(key);
       try {
-        await this.deps.worktrees.pruneWorktree(command.repository, command.worktree);
+        if (command.kind === "cleanup-worktree")
+          await this.deps.worktrees.cleanupBrokenWorktree(command.repository, command.worktree);
+        else await this.deps.worktrees.pruneWorktree(command.repository, command.worktree);
         this.refresh();
       } finally {
         this.busyWorktrees.delete(key);

@@ -1,3 +1,5 @@
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Terminal } from "@xterm/headless";
 import { expect, test, vi } from "vitest";
@@ -113,6 +115,9 @@ test.skipIf(process.platform === "win32")(
 test.skipIf(process.platform !== "linux")(
   "Bash reports ready, silent commands, and failures without an attached view",
   async () => {
+    const root = await mkdtemp(join(tmpdir(), "foom-shell-lifecycle-"));
+    await writeFile(join(root, ".bash_profile"), "");
+    for (const name of ["TMPDIR", "TMP", "TEMP"]) vi.stubEnv(name, root);
     const states = vi.fn();
     const manager = new TerminalManager(() => {}, { onShellState: states });
     const id = manager.create({
@@ -122,6 +127,7 @@ test.skipIf(process.platform !== "linux")(
       cols: 80,
       rows: 24,
       shellIntegration: true,
+      env: { HOME: root },
     });
     try {
       await vi.waitFor(
@@ -144,8 +150,30 @@ test.skipIf(process.platform !== "linux")(
         expect(states).toHaveBeenLastCalledWith(id, { phase: "prompt", exitCode: 1 });
       });
       expect((await manager.tail(id, 24)).join("\n")).not.toContain("633;");
+      expect((await readdir(root)).filter((name) => name.startsWith("foom-shell-"))).toHaveLength(
+        1,
+      );
+      manager.write(id, "exit\r");
+      await manager.waitForExit();
+      expect((await readdir(root)).filter((name) => name.startsWith("foom-shell-"))).toEqual([]);
+      manager.create({
+        command: "/bin/bash",
+        args: [],
+        cwd: root,
+        cols: 80,
+        rows: 24,
+        shellIntegration: true,
+        env: { HOME: root },
+      });
+      expect((await readdir(root)).filter((name) => name.startsWith("foom-shell-"))).toHaveLength(
+        1,
+      );
+      await manager.shutdown();
+      expect((await readdir(root)).filter((name) => name.startsWith("foom-shell-"))).toEqual([]);
     } finally {
       await manager.shutdown();
+      vi.unstubAllEnvs();
+      await rm(root, { recursive: true, force: true });
     }
   },
 );

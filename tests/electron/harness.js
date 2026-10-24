@@ -16,6 +16,8 @@ const { _electron: electron } = require("@playwright/test");
 const { deadline, expect } = require("./test-policy.js");
 const { auditProcesses } = require("./process-audit.js");
 const { isolatedEnvironment } = require("./agent-isolation.js");
+const { electronLaunch } = require("./display-isolation.js");
+const { createFixtureStorage } = require("./fixture-storage.js");
 
 // Opt-in native-window evidence on the isolated Linux test display (ImageMagick).
 function captureConfirmationDesktop(name) {
@@ -424,6 +426,7 @@ function fixtureCleanup(context) {
       directories: new Set(),
       probeLogs: [],
       launches: new WeakMap(),
+      sessionData: new Map(),
       timing: { start: performance.now(), setup: 0, fixtures: [] },
     };
     fixtureCleanups.set(context, cleanup);
@@ -487,6 +490,12 @@ function fixtureCleanup(context) {
   return cleanup;
 }
 
+async function createMemoryFixture(context, prefix) {
+  const directory = await createFixtureStorage(prefix);
+  removeAfterApps(context, directory);
+  return directory;
+}
+
 function removeAfterApps(context, directory) {
   fixtureCleanup(context).directories.add(directory);
 }
@@ -498,8 +507,8 @@ async function prepareProfile(options) {
   const given = options.args?.find((arg) => arg.startsWith("--user-data-dir="));
   const owned = given ? undefined : await mkdtemp(path.join(tmpdir(), "foom-profile-"));
   const profile = given ? given.slice("--user-data-dir=".length) : owned;
+  await mkdir(profile, { recursive: true });
   if (options.fixture !== "first-run") {
-    await mkdir(profile, { recursive: true });
     await writeFile(
       path.join(profile, "settings.json"),
       JSON.stringify({ version: 1, settings: { setupComplete: true, checkForUpdates: false } }),
@@ -516,6 +525,7 @@ async function prepareProfile(options) {
       "--mute-audio",
     ],
     owned,
+    directory: await realpath(profile),
   };
 }
 
@@ -590,6 +600,10 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
       (options.fixture === "running-shell" && options.shell === "hidden"),
     "Only a running shell can be hidden",
   );
+  const display = electronLaunch({
+    env: { ...process.env, ...options.env },
+    args: options.args ?? [],
+  });
   const setupStart = performance.now();
   const traceStartup =
     firstBoardStartup && process.platform === "linux" && process.env.CI === "true";
@@ -601,8 +615,13 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
   const cleanup = fixtureCleanup(context);
   cleanup.timing.start = Math.min(cleanup.timing.start, setupStart);
   cleanup.audit ??= await auditProcesses(context);
-  const profile = await prepareProfile(options);
+  const profile = await prepareProfile({ ...options, args: display.args });
   if (profile.owned) removeAfterApps(context, profile.owned);
+  let sessionData = cleanup.sessionData.get(profile.directory);
+  if (!sessionData) {
+    sessionData = await createMemoryFixture(context, "foom-chromium-");
+    cleanup.sessionData.set(profile.directory, sessionData);
+  }
   const watchdog = setTimeout(() => {
     console.error("Electron test exceeded its hard deadline; terminating worker");
     // Playwright's exit handler kills the process groups it launched.
@@ -665,20 +684,23 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
               `workspaceModule.Workspace = class extends ProductionWorkspace { constructor(deps) { super({ ...deps, probeWaitingMs: ${JSON.stringify(options.probeWaitingMs)} }); } };`,
             ]),
         `app.setPath("home", ${JSON.stringify(options.home)});`,
+        `app.setPath("sessionData", ${JSON.stringify(sessionData)});`,
         `app.setAppPath(${JSON.stringify(entry)});`,
         `require(${JSON.stringify(path.join(entry, "build/main/main.js"))});`,
       ].join("\n"),
     );
     entry = fixture;
   }
-  const env = {
-    ...process.env,
-    HOME: options.home,
-    USERPROFILE: options.home,
-    ...options.env,
-    ...isolated,
-  };
-  delete env.ELECTRON_RUN_AS_NODE;
+  const { env } = electronLaunch({
+    env: {
+      ...process.env,
+      HOME: options.home,
+      USERPROFILE: options.home,
+      ...options.env,
+      ...isolated,
+    },
+    args: [],
+  });
   const app = await electron
     .launch({
       chromiumSandbox: true,
@@ -993,6 +1015,7 @@ module.exports = {
   launchApp,
   boardPage,
   removeAfterApps,
+  createMemoryFixture,
   fixtureCleanup,
   captureConfirmationDesktop,
   assertConfirmationFocus,

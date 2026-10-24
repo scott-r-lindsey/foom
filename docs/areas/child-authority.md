@@ -4,23 +4,11 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 ## Child Authority
 
-Main owns one control service over the workspace, agent, evaluator and terminal-host
-services. A loopback Streamable HTTP MCP adapter and a versioned HTTP CLI adapter
-call it; neither adapter owns policy. A separate console executable built from
-TypeScript provides `foom`, without enabling Electron's RunAsNode fuse or requiring
-system Node. Per-launch Claude MCP config and Codex `-c` overrides attach the server;
-Antigravity receives CLI guidance and a process-local PATH addition until per-launch
-MCP support is verified. No global agent or repository configuration is written.
-
-A separate 256-bit control token shares the hook launch's lifecycle but never its
-secret or authority. Main stores a digest mapped to role, canonical repository,
-terminal, parent and generation. Caller-supplied roles and MCP session IDs grant
-nothing. Authenticate initialization and every subsequent request, bind protocol
-sessions to grant generations, validate every payload and target at runtime, and recheck
-revocation before effects. Reject browser origins and unexpected Host values; bind
-only `127.0.0.1` on an ephemeral port. Never expose tokens through renderer IPC,
-logs, argv or tool results. Child launches scrub inherited credentials and receive
-fresh read-only tokens. Exit, failed launch and shutdown revoke grants.
+This area owns repository/child authorization and the input, tail and wait
+capabilities. [Control](control.md#control-plane) owns service authentication,
+credentials, transport and durable operation/audit storage. [MCP](mcp.md) and
+[console](console.md) own adapters and launch attachment;
+[orchestration](orchestration.md) owns role transitions and child/review lifecycle.
 
 Ordinary agents can use `sessions`, `session_state` and `whoami` for their
 repository, without terminal contents. Only a main-granted orchestrator principal
@@ -37,16 +25,12 @@ roles and #67 remote access are separate capabilities, not implicit extensions.
 Existing main-owned git validation, argument-array execution, launch/removal locks
 and confirmations are reused. Removal asks the human unless the profile opts this
 repository into the [strict merged-clean policy](../contracts/control-mutations.md#orchestrators-and-children-155);
-no API force flag bypasses identity or dirty-state checks. Mutations use
-idempotency keys and bounded operation records. MCP `operation_status` and CLI
-`foom operation-status` query by operation ID or idempotency key within the same
-actor generation and repository, including when the original response was lost.
-Records distinguish pending confirmation, running, succeeded, failed, declined,
-cancelled and indeterminate outcomes; lookup never replays a mutation. Retain
-records and deduplication mappings for the grant's lifetime, refusing new mutations
-at the storage limit. Parent exit cancels pending actions
-but leaves children visible and running for human control. A replacement parent
-does not inherit them. Metadata-only MCP `wait_for` is bounded to 30 seconds.
+no API force flag bypasses identity or dirty-state checks.
+
+Mutation reservation, actor-scoped idempotency lookup, outcome states and storage
+limits follow [control storage](control.md#control-plane). Parent exit and
+replacement follow the [orchestration lifecycle](orchestration.md#orchestration).
+Metadata-only MCP `wait_for` is bounded to 30 seconds.
 The CLI's `wait-for --until-event` form uses the same ownership checks and waits
 without a transport deadline. It compares an `event` cursor over state, handoff
 and PR/check facts rather than the session revision, which also moves with output.
@@ -88,22 +72,15 @@ even if an ownership record were to name one. Both main and
 the utility host validate IDs and payloads. The host uses its headless xterm's
 bracketed-paste mode to wrap prompt text and appends one submit, or encodes the
 validated keys in order, then uses the existing terminal write path. No renderer
-attachment is required. Persist only hashed input in the orchestration audit;
-never text or keys. Ambiguous delivery is indeterminate, never automatically retried.
+attachment is required. Audit storage follows [control privacy rules](control.md#control-plane).
+Ambiguous delivery is indeterminate, never automatically retried.
 Takeover, revocation and parent exit end access. Agent launch policies and worktree
 removal confirmation are unchanged.
 
-A separate bounded private action log records actor, target, operation and outcome,
-with hashes of child input but no input text, tails, credentials or initial prompts. Persist
-intent before automated mutations; audit failure refuses automation while human
-terminal control remains available. Ship basic action visibility and takeover with
-mutations, then nest children under their orchestrator in the board source and add
-the full log view. Components retain view state only; hidden PTYs keep running.
+Action visibility, takeover and child placement follow
+[orchestration](orchestration.md#orchestration); components retain view state only
+and hidden PTYs keep running.
 
-The optional #690 review loop is main-owned automation for orchestrator-launched
-children only. Authors and reviewers retain ordinary child grants; neither may
-launch or prompt other agents. Reviewers count against the same parent's current
-concurrency limit, including launch reservations, and wait for capacity. Each step
-uses launch/resume arguments after the preceding process exits; the loop has no
-PTY-input capability. Parentless agents gain no handoff or loop authority. Human
-New-worktree launches do not expose this option.
+[Review automation](orchestration.md#optional-child-buildreview-loop-690) uses
+ordinary child grants and the same parent's capacity. It grants neither authors
+nor reviewers authority to launch or prompt other agents.

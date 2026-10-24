@@ -1,6 +1,8 @@
-import type { ReviewSnapshot } from "./review-loops.d";
+import { FinishedChildCloser } from "./finished-child-closer";
+import { ReviewEffects } from "./review-effects";
+import { OrchestrationAutomation } from "./orchestration-automation";
+import type { AuthorizedChild } from "./orchestration-automation.d";
 import { reviewLabel } from "../../shared/review-state";
-import { randomUUID } from "node:crypto";
 import { ReviewLoops } from "./review-loops";
 import type { ReviewOptions } from "../../shared/review";
 import { UnreadChildEvents } from "./unread-child-events";
@@ -17,9 +19,8 @@ import type { Operations } from "./operations";
 import type { Operation, Principal } from "./types";
 import { ControlError } from "../../node-common/control-validation";
 import type { Child, Parent, OrchestrationHost } from "./orchestration.d";
+import { WORKTREE_LIMIT } from "./orchestration-limits";
 
-/** Orchestrator-created worktrees that no child has used yet. */
-export const WORKTREE_LIMIT = 4;
 const HISTORY = 20;
 
 /**
@@ -28,7 +29,8 @@ const HISTORY = 20;
  */
 export class OrchestrationAuthority {
   readonly reviews: ReviewLoops;
-  private readonly reviewRuns = new Map<string, { actor: Principal; operations: Operations }>();
+  private readonly reviewEffects: ReviewEffects;
+  private readonly finishedChildren: FinishedChildCloser;
   readonly handoffs = new Handoffs();
   readonly unreadChildren: UnreadChildEvents;
   readonly childEvents = new ChildEvents();
@@ -36,18 +38,35 @@ export class OrchestrationAuthority {
   private readonly parents = new Map<string, Parent>();
   protected readonly early = new Set<string>();
   protected readonly metadata: SessionMetadata;
-  private readonly offUnread: () => void;
-  private closeFinished = true;
-  private readonly automation = new Map<string, { actor: Principal; operations: Operations }>();
-  private readonly closing = new Set<string>();
-  private readonly exitObservations = new Map<string, number>();
-  private readonly observationWaits = new Set<() => void>();
+  private readonly automation: OrchestrationAutomation;
 
   constructor(
     protected readonly host: OrchestrationHost,
     protected readonly now: () => number = Date.now,
     readonly childLimit: () => number = () => 4,
   ) {
+    this.reviewEffects = new ReviewEffects(
+      {
+        authorize: (actor, id) => this.authorizeChild(actor, id),
+        capacity: (actor) => {
+          const parent = this.parent(actor);
+          return this.running(parent) + parent.starting < this.childLimit();
+        },
+        reserve: (actor, id) => this.reserveReview(actor, id),
+        changed: () => {
+          this.changed();
+        },
+        released: () => {
+          this.childEvents.publish();
+          this.clearEarlyExits();
+        },
+        resumed: (id) => {
+          this.finishedChildren.resumed(id);
+        },
+      },
+      host,
+      () => this.reviews,
+    );
     this.reviews = new ReviewLoops(
       {
         row: (id) => host.terminals().find((row) => row.id === id),
@@ -56,9 +75,9 @@ export class OrchestrationAuthority {
           const row = host.terminals().find((row) => row.id === id);
           return row ? this.pullRequest(row) : undefined;
         },
-        snapshot: (id) => this.reviewSnapshot(id),
-        stop: (id, validate) => this.reviewStop(id, validate),
-        step: (id, reviewer, prompt) => this.reviewStep(id, reviewer, prompt),
+        snapshot: (id) => this.reviewEffects.snapshot(id),
+        stop: (id, validate) => this.reviewEffects.stop(id, validate),
+        step: (id, reviewer, prompt) => this.reviewEffects.step(id, reviewer, prompt),
         changed: () => {
           this.changed();
         },
@@ -71,11 +90,33 @@ export class OrchestrationAuthority {
     this.unreadChildren = new UnreadChildEvents(() => {
       this.changed();
     }, now);
-    this.offUnread = this.childEvents.subscribe(() => {
-      this.syncUnreadChildEvents();
-      this.reviews.sync();
-      this.closeFinishedChildren();
-    });
+    this.finishedChildren = new FinishedChildCloser(
+      {
+        children: () =>
+          [...this.parents.values()].flatMap((parent) =>
+            parent.terminalId === null
+              ? []
+              : [...parent.children.keys()].map((id) => ({ parentId: parent.terminalId, id })),
+          ),
+        authorize: (actor, id) => this.authorizeChild(actor, id),
+      },
+      host,
+      this.reviews,
+      (row) => this.reviewMetadata(row),
+    );
+    this.automation = new OrchestrationAutomation(
+      this.childEvents,
+      () => {
+        this.syncUnreadChildEvents();
+        this.reviews.sync();
+        this.finishedChildren.sync();
+      },
+      () => {
+        this.finishedChildren.dispose();
+        this.reviewEffects.dispose();
+        this.unreadChildren.dispose();
+      },
+    );
     this.metadata = new SessionMetadata(
       () => host.terminals(),
       (row) => this.pullRequest(row),
@@ -85,115 +126,17 @@ export class OrchestrationAuthority {
   }
 
   disposeUnreadChildren(): void {
-    this.offUnread();
-    this.clearObservationWaits();
-    for (const id of this.reviewRuns.keys()) this.reviews.stop(id);
-    this.unreadChildren.dispose();
+    this.automation.dispose();
   }
 
   configureCloseFinished(enabled: boolean): void {
-    this.closeFinished = enabled;
+    this.finishedChildren.configure(enabled);
     this.childEvents.publish();
   }
 
   /** Only the service binds a live, main-granted parent identity (including restore). */
   bindAutomation(actor: Principal, operations: Operations): void {
-    if (actor.role === "orchestrator") this.automation.set(actor.terminalId, { actor, operations });
-  }
-
-  private finishedChild(parent: Parent, id: string): boolean {
-    const child = parent.children.get(id);
-    const row = this.host.terminals().find((entry) => entry.id === id);
-    const review = row && this.reviewMetadata(row);
-    const after = this.exitObservations.get(id);
-    return Boolean(
-      this.closeFinished &&
-        parent.active &&
-        child &&
-        !child.takenOver &&
-        child.exited &&
-        row?.exited === true &&
-        row.kind === "agent" &&
-        !this.host.starting?.(id) &&
-        row.state?.state !== "needs_input" &&
-        row.execution?.phase !== "blocked" &&
-        (!review || this.reviews.keepsStateAfterClose(id, this.closing)) &&
-        (review && review.authorId !== id
-          ? this.reviews.verdictRecorded(id)
-          : (!review || review.phase === "clean" || review.phase === "escalated") &&
-            this.reviews.unread(id) === undefined &&
-            after !== undefined &&
-            ["MERGED", "CLOSED"].includes(this.finishedPullRequest(row, after)?.state ?? "")),
-    );
-  }
-
-  private finishedPullRequest(row: WorkspaceTerminal, after: number) {
-    const pr = this.host.forge?.readSettled?.(row.repository, row.worktree, after);
-    if (!pr) {
-      const cancel = this.host.forge?.waitForRead?.(row.repository, row.worktree, after);
-      if (cancel) this.observationWaits.add(cancel);
-    }
-    return pr;
-  }
-
-  private clearObservationWaits(): void {
-    for (const cancel of this.observationWaits) cancel();
-    this.observationWaits.clear();
-  }
-
-  /** Existing metadata invalidations only; one close attempt per eligible session. */
-  private closeFinishedChildren(): void {
-    // Rebuild interest from live eligibility, retiring revoked/resumed/removed sessions.
-    this.clearObservationWaits();
-    for (const parent of this.parents.values()) {
-      const run = parent.terminalId === null ? undefined : this.automation.get(parent.terminalId);
-      if (!run) continue;
-      for (const id of parent.children.keys()) {
-        if (this.closing.has(id) || !this.finishedChild(parent, id)) continue;
-        this.closing.add(id);
-        void this.closeFinishedChild(parent, id, run.actor, run.operations);
-      }
-    }
-  }
-
-  private async closeFinishedChild(
-    parent: Parent,
-    id: string,
-    actor: Principal,
-    operations: Operations,
-  ): Promise<void> {
-    let operation: Operation | undefined;
-    const label = this.label(id);
-    try {
-      operation = await operations.begin(
-        actor,
-        "close",
-        `finished-${randomUUID()}`,
-        JSON.stringify([id]),
-        id,
-      );
-      operations.lookup(actor, { operationId: operation.operationId });
-      if (this.parent(actor) !== parent || !this.finishedChild(parent, id)) {
-        const record = await operations.finish(
-          actor,
-          operation.operationId,
-          "cancelled",
-          "completed",
-          id,
-        );
-        this.note(parent, this.entry(record, label));
-        this.closing.delete(id);
-        return;
-      }
-      await this.host.close(id);
-      await this.finish(actor, parent, operations, operation, label, "succeeded", id);
-    } catch {
-      if (operation)
-        await this.finish(actor, parent, operations, operation, label, "failed", id).catch(
-          () => undefined,
-        );
-      // Retain the final screen on failure, without a self-sustaining retry loop.
-    }
+    this.finishedChildren.bind(actor, operations);
   }
 
   syncUnreadChildEvents(): void {
@@ -384,7 +327,7 @@ export class OrchestrationAuthority {
       takenOver: false,
       tailAt: 0,
     });
-    if (entry.exited) this.observeExit(entry.id);
+    if (entry.exited) this.finishedChildren.observeExit(entry.id);
     if (entry.review) this.reviews.restore(entry.id, entry.review);
     this.changed();
     return true;
@@ -402,12 +345,6 @@ export class OrchestrationAuthority {
     if (parent) this.retire(parent);
   }
 
-  private observeExit(id: string): void {
-    const revision = this.host.forge?.revision?.();
-    if (revision !== undefined && !this.exitObservations.has(id))
-      this.exitObservations.set(id, revision);
-  }
-
   /** Exit revokes the parent's authority; children keep running under human control. */
   exited(id: string): void {
     this.childEvents.publish();
@@ -418,11 +355,11 @@ export class OrchestrationAuthority {
     }
     const child = this.child(id);
     if (child) {
-      this.observeExit(id);
+      this.finishedChildren.observeExit(id);
       child.exited = true;
       this.changed();
     } else if (this.launching()) {
-      this.observeExit(id);
+      this.finishedChildren.observeExit(id);
       this.early.add(id);
     }
   }
@@ -432,22 +369,20 @@ export class OrchestrationAuthority {
     this.childEvents.publish();
     if (!this.reviews.verdictRecorded(id)) this.reviews.stop(id);
     this.reviews.forget(id);
-    this.closing.delete(id);
-    this.exitObservations.delete(id);
+    this.finishedChildren.removed(id);
     this.handoffs.remove(id);
     const parent = this.parents.get(id);
     if (parent) {
       this.retire(parent);
       this.parents.delete(id);
     }
-    this.reviewRuns.delete(id);
-    this.automation.delete(id);
+    this.reviewEffects.removed(id);
     for (const entry of this.parents.values()) entry.children.delete(id);
   }
 
   /** A human relaunch under the same ID (resume, new conversation) is never the orchestrator's. */
   relaunched(id: string): void {
-    this.exitObservations.delete(id);
+    this.finishedChildren.resumed(id);
     this.reviews.stop(id);
     this.childEvents.publish();
     for (const parent of this.parents.values()) parent.children.delete(id);
@@ -508,7 +443,7 @@ export class OrchestrationAuthority {
     actor: Principal,
     operations: Operations,
   ): void {
-    this.reviewRuns.set(id, { actor, operations });
+    this.reviewEffects.bind(id, actor, operations);
     this.reviews.start(id, options);
   }
 
@@ -545,165 +480,53 @@ export class OrchestrationAuthority {
     return times.length ? Math.min(...times) : undefined;
   }
 
-  private async reviewSnapshot(id: string): Promise<ReviewSnapshot> {
-    const run = this.reviewRuns.get(id);
-    if (!run) throw new ControlError("forbidden");
-    const parent = this.parent(run.actor);
-    const child = this.own(parent, id);
-    const tree = child && parent.worktrees.get(child.worktreeId);
-    if (!tree || !this.host.reviewSnapshot) throw new ControlError("unavailable");
-    return this.host.reviewSnapshot(parent.repository, tree.path, tree.identity);
-  }
-
-  private async reviewStop(
-    id: string,
-    validate: (snapshot: ReviewSnapshot) => boolean,
-  ): Promise<"stopped" | "changed" | "exited"> {
-    const state = this.reviews.view(id);
-    const run = state && this.reviewRuns.get(state.authorId);
-    if (!run) throw new ControlError("forbidden");
-    const { actor, operations } = run;
+  /** Captures exact identities; the closure rechecks them after durable intent. */
+  private authorizeChild(actor: Principal, id: string): AuthorizedChild {
     const parent = this.parent(actor);
     const child = this.own(parent, id);
     if (!child) throw new ControlError("forbidden");
     const label = this.label(id);
-    const operation = await operations.begin(
-      actor,
-      "stop",
-      `review-stop-${randomUUID()}`,
-      JSON.stringify([id]),
-      id,
-    );
-    try {
-      const snapshot = await this.reviewSnapshot(state.authorId);
-      operations.lookup(actor, { operationId: operation.operationId });
-      this.parent(actor);
-      const current = this.reviews.view(id);
-      if (
-        this.own(parent, id) !== child ||
-        current?.phase !== state.phase ||
-        current.round !== state.round
-      )
-        throw new ControlError("conflict");
-      if (!validate(snapshot)) {
-        const record = await operations.finish(
-          actor,
-          operation.operationId,
-          "cancelled",
-          "completed",
-          id,
-        );
+    const valid = () => this.parent(actor) === parent && this.own(parent, id) === child;
+    return {
+      repository: parent.repository,
+      tree: parent.worktrees.get(child.worktreeId),
+      valid,
+      exited: () => child.exited,
+      active: () => parent.active,
+      validate: () => {
+        if (!valid()) throw new ControlError("conflict");
+      },
+      note: (record) => {
         this.note(parent, this.entry(record, label));
-        return "changed";
-      }
-      // Unlike a human/parent stop, this validated completion preserves the loop.
-      const signaled = await this.host.stop(id);
-      await this.finish(actor, parent, operations, operation, label, "succeeded", id);
-      return signaled ? "stopped" : "exited";
-    } catch (error) {
-      await this.finish(actor, parent, operations, operation, label, "indeterminate").catch(
-        () => undefined,
-      );
-      throw error;
-    }
+      },
+    };
   }
 
-  private async reviewStep(
-    authorId: string,
-    reviewer: boolean,
-    prompt: string,
-  ): Promise<string | undefined> {
-    const run = this.reviewRuns.get(authorId);
-    if (!run) throw new ControlError("forbidden");
-    const { actor, operations } = run;
+  /** Authority alone mutates launch reservations and owned-child identities. */
+  private reserveReview(actor: Principal, id: string) {
     const parent = this.parent(actor);
-    const child = this.own(parent, authorId);
-    const tree = child && parent.worktrees.get(child.worktreeId);
-    const state = this.reviews.view(authorId);
-    const author = this.host.terminals().find((row) => row.id === authorId);
-    if (!tree || !author || !state) throw new ControlError("not_found");
+    const child = this.own(parent, id);
+    if (!child) throw new ControlError("forbidden");
     if (this.running(parent) + parent.starting >= this.childLimit()) return undefined;
-    const agent = reviewer ? state.agent : author.agent;
-    let operation: Operation | undefined;
-    const validate = () => {
-      if (operation) operations.lookup(actor, { operationId: operation.operationId });
-      this.parent(actor);
-      if (reviewer && !this.reviews.reviewReady(authorId)) throw new ControlError("conflict");
-      const current = this.reviews.view(authorId);
-      if (
-        this.own(parent, authorId) !== child ||
-        current?.phase !== state.phase ||
-        current.round !== state.round ||
-        this.host.bypassDefaults?.(agent) ||
-        this.host
-          .terminals()
-          .some(
-            (row) =>
-              row.worktree === tree.path &&
-              !row.exited &&
-              !(row.id === authorId && row.dormant && !reviewer),
-          )
-      )
-        throw new ControlError("conflict");
-    };
-    validate();
     parent.starting++;
-    const label = this.label(authorId);
-    try {
-      operation = await operations.begin(
-        actor,
-        "launch",
-        `review-${randomUUID()}`,
-        JSON.stringify([authorId, state.round, reviewer]),
-        authorId,
-      );
-      await this.host.saveHandoffs?.();
-      validate();
-      const resume = reviewer
-        ? undefined
-        : { id: authorId, conversationId: author.conversationId ?? "" };
-      if (!reviewer) {
-        child.exited = false;
-        this.exitObservations.delete(authorId);
-      }
-      const id = await this.host.launch(
-        actor.terminalId,
-        parent.repository,
-        tree.path,
-        tree.identity,
-        agent,
-        prompt,
-        { ...(resume ? { resume } : {}), loop: state, validate },
-      );
-      if (reviewer)
-        parent.children.set(id, {
-          worktreeId: child.worktreeId,
-          exited: this.early.delete(id),
-          takenOver: false,
-          tailAt: 0,
-        });
-      else child.exited ||= this.early.delete(id);
-      this.reviews.attach(id, authorId);
-      const current = this.reviews.view(authorId);
-      const cancelled =
-        !parent.active || current?.phase !== state.phase || current.round !== state.round;
-      if (cancelled) await this.host.stop(id);
-      this.changed();
-      if (reviewer && !cancelled) this.host.place?.(id, actor.terminalId);
-      await this.finish(actor, parent, operations, operation, label, "succeeded", id);
-      return id;
-    } catch (error) {
-      if (!reviewer) child.exited = true;
-      if (operation)
-        await this.finish(actor, parent, operations, operation, label, "indeterminate").catch(
-          () => undefined,
-        );
-      throw error;
-    } finally {
-      parent.starting--;
-      this.childEvents.publish();
-      this.clearEarlyExits();
-    }
+    return {
+      release: () => {
+        parent.starting--;
+      },
+      exited: (exited: boolean) => {
+        child.exited = exited;
+      },
+      attach: (nextId: string, reviewer: boolean) => {
+        if (reviewer)
+          parent.children.set(nextId, {
+            worktreeId: child.worktreeId,
+            exited: this.early.delete(nextId),
+            takenOver: false,
+            tailAt: 0,
+          });
+        else child.exited ||= this.early.delete(nextId);
+      },
+    };
   }
 
   protected parent(actor: Principal): Parent {
@@ -748,14 +571,14 @@ export class OrchestrationAuthority {
 
   protected clearEarlyExits(): void {
     if (this.launching()) return;
-    for (const id of this.early) this.exitObservations.delete(id);
+    for (const id of this.early) this.finishedChildren.resumed(id);
     this.early.clear();
   }
 
   private retire(parent: Parent): void {
     if (!parent.active) return;
     parent.active = false;
-    if (parent.terminalId !== null) this.automation.delete(parent.terminalId);
+    if (parent.terminalId !== null) this.finishedChildren.retire(parent.terminalId);
     for (const id of parent.children.keys()) this.reviews.stop(id);
     if (this.slots.get(parent.repository) === parent) this.slots.delete(parent.repository);
     for (const abort of parent.aborts) abort.abort();

@@ -1,8 +1,9 @@
+const { codexFixture } = require("./agent-fixture.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, readFile, realpath, writeFile } = require("node:fs/promises");
+const { mkdtemp, readFile, realpath, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
 const {
@@ -392,46 +393,15 @@ test("fake Codex receives inline flag only when help advertises it", {
   timeout: deadline(30000),
   skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
 }, async (context) => {
-  const { chmod } = require("node:fs/promises");
-  const root = await mkdtemp(path.join(tmpdir(), "foom-inline-"));
-  removeAfterApps(context, root);
-  const bin = path.join(root, "bin");
-  const repo = path.join(root, "repo");
-  const home = path.join(root, "home");
-  await Promise.all([mkdir(bin), mkdir(repo), mkdir(home)]);
-  const help = path.join(root, "help");
-  const cli = path.join(bin, "codex");
-  await writeFile(
-    cli,
-    `#!/usr/bin/env node
+  const { page, repository, repo, help } = await codexFixture(context, {
+    helpText: "--no-alt-screen",
+    source: ({ help }) => `#!/usr/bin/env node
 const fs = require('node:fs');
 if (process.argv[2] === '--version') console.log('codex-cli 0.159.3');
 else if (process.argv[2] === '--help') console.log(fs.readFileSync(${JSON.stringify(help)}, 'utf8'));
 else console.log('ARGS:' + JSON.stringify(process.argv.slice(2)));
 `,
-  );
-  await chmod(cli, 0o755);
-  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
-  isolatedGit(
-    [
-      "-c",
-      "user.name=Foom",
-      "-c",
-      "user.email=foom@example.com",
-      "commit",
-      "--allow-empty",
-      "-qm",
-      "init",
-    ],
-    { cwd: repo },
-  );
-  await writeFile(help, "--no-alt-screen");
-  const app = await launchApp(context, { fixture: "agent", env: { HOME: home, PATH: bin } });
-  const page = await boardPage(app);
-  await app.evaluate(({ dialog }, repo) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
-  }, repo);
-  const repository = await page.evaluate(() => window.desktop.addRepository());
+  });
   assert.equal(repository.path, await realpath(repo));
   await expect(page.getByRole("treeitem", { name: "repo", exact: true })).toBeVisible();
   for (const supported of [true, false]) {

@@ -16,21 +16,53 @@ test("affected selection unions mapped areas deterministically", () => {
     full: false,
     reason: "All changed paths have explicit mappings",
     suites: [
-      "previews.test.js",
-      "settings.test.js",
+      "preflight.test.js",
+      "previews-agent.test.js",
+      "previews-composition.test.js",
+      "previews-files.test.js",
+      "previews-focus.test.js",
+      "previews-move.test.js",
+      "previews-reload.test.js",
+      "previews-security.test.js",
+      "settings-accessibility.test.js",
+      "settings-agents.test.js",
+      "settings-appearance.test.js",
+      "settings-general.test.js",
+      "settings-sound.test.js",
       "terminal.test.js",
       "webgl.test.js",
-      "workspace.test.js",
+      "workspace-cleanup.test.js",
+      "workspace-commands.test.js",
+      "workspace-repositories.test.js",
+      "workspace-sidebar.test.js",
+      "workspace-tiles.test.js",
+      "workspace-windows.test.js",
     ],
   };
   assert.deepEqual(selectAffected(["src/renderer/preview/markdown.ts"]).suites, [
-    "previews.test.js",
+    "previews-agent.test.js",
+    "previews-composition.test.js",
+    "previews-files.test.js",
+    "previews-focus.test.js",
+    "previews-move.test.js",
+    "previews-reload.test.js",
+    "previews-security.test.js",
   ]);
   assert.deepEqual(selectAffected(["src/renderer/sound/volume-control.tsx"]).suites, [
-    "settings.test.js",
+    "preflight.test.js",
+    "settings-accessibility.test.js",
+    "settings-agents.test.js",
+    "settings-appearance.test.js",
+    "settings-general.test.js",
+    "settings-sound.test.js",
   ]);
   assert.deepEqual(selectAffected(["src/renderer/sound/sound-controls.tsx"]).suites, [
-    "settings.test.js",
+    "preflight.test.js",
+    "settings-accessibility.test.js",
+    "settings-agents.test.js",
+    "settings-appearance.test.js",
+    "settings-general.test.js",
+    "settings-sound.test.js",
   ]);
   assert.deepEqual(selectAffected(paths), expected);
   assert.deepEqual(selectAffected([...paths].reverse().concat(paths)), expected);
@@ -118,13 +150,33 @@ test("affected runner wraps Linux in Xvfb, forwards suites and propagates failur
   assert.equal(runAffected({ ...options, platform: "linux" }), 7);
   assert.deepEqual(calls[0], [
     "xvfb-run",
-    ["-a", process.execPath, "scripts/electron-tests.mjs", "--suite=previews.test.js"],
+    [
+      "-a",
+      process.execPath,
+      "scripts/electron-tests.mjs",
+      "--suite=previews-agent.test.js",
+      "--suite=previews-composition.test.js",
+      "--suite=previews-files.test.js",
+      "--suite=previews-focus.test.js",
+      "--suite=previews-move.test.js",
+      "--suite=previews-reload.test.js",
+      "--suite=previews-security.test.js",
+    ],
     { stdio: "inherit" },
   ]);
   assert.equal(runAffected({ ...options, platform: "win32" }), 7);
   assert.deepEqual(calls[1], [
     process.execPath,
-    ["scripts/electron-tests.mjs", "--suite=previews.test.js"],
+    [
+      "scripts/electron-tests.mjs",
+      "--suite=previews-agent.test.js",
+      "--suite=previews-composition.test.js",
+      "--suite=previews-files.test.js",
+      "--suite=previews-focus.test.js",
+      "--suite=previews-move.test.js",
+      "--suite=previews-reload.test.js",
+      "--suite=previews-security.test.js",
+    ],
     { stdio: "inherit" },
   ]);
 });

@@ -4,6 +4,11 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 ## Orchestration
 
+This area owns feature composition, role transitions, child worktree/launch/close
+lifecycle and review automation. [Control](control.md#control-plane) owns service
+authentication and durable operation/audit storage; [child authority](child-authority.md)
+owns authorization and the input, tail and wait capabilities.
+
 **Orchestrators and children implemented in #155.**
 `main/control/orchestration-authority.ts` owns slots, limits, ownership checks,
 lifecycle and the action history. `orchestration-mutations.ts` implements worktree
@@ -11,13 +16,27 @@ creation/removal and child launch/stop/close; `orchestration.ts` dispatches call
 and implements child input, handoff reads, tails and waits. The classes share
 the authority module through inheritance, keeping all parent/generation and child
 ownership checks in one place. `orchestration.d.ts` holds their host and state
-contracts. `WorkspaceContext` wires main's worktree creation, agent launch,
+contracts. The main-only leaf modules `workspace/worktree-outcome.ts` and
+`control/orchestration-limits.ts` own the shared uncertain-creation error and unused
+worktree bound, so Git helpers and session persistence do not load orchestration
+implementations for these primitives.
+
+`review-effects.ts` owns review snapshot reads and durable stop/launch/resume effects;
+`ReviewLoops` retains phase and evidence ownership. Effects receive captured child
+capabilities that revalidate exact live parent/child identities after durable
+intent and in the host's pre-spawn callback. Authority alone reserves capacity
+and updates child membership/exit state. `finished-child-closer.ts` owns close
+eligibility, settled exit-observation interests and one-shot durable automatic
+closes, using owned-child capabilities and the loop's retention query. It retains
+the last participant and does not retry failed closes. `orchestration-automation.ts`
+only composes the child-event subscription and disposal for unread events, loops
+and the closer; it holds no authority state. `WorkspaceContext` wires main's
+worktree creation, agent launch,
 stop, close, host tail and removal effects. Role changes and child worktree/agent
-launches live in `orchestration-commands.ts`. The service delegates `create_worktree`, `launch`, `stop`, `close`, `remove_worktree`,
-`tail` and `wait_for` to it through an asynchronous `call`. MCP lists these tools
-and `operation_status` to every agent but runs them only for an orchestrator
-principal. `prompt` and `send_keys` (#629) deliver bounded input to owned children
-without per-message human review, replacing the reviewed `reply` flow (#156). See [the implementation record](../contracts/control-mutations.md#orchestrators-and-children-155).
+launches live in `orchestration-commands.ts`. Service calls enter this composition
+through asynchronous `call` dispatch;
+adapter/tool exposure follows [MCP](mcp.md), and capability authorization follows
+[child authority](child-authority.md). See [the mutation contract](../contracts/control-mutations.md#orchestrators-and-children-155).
 
 A running agent session's menu offers **Make orchestrator…**, and **Revoke
 orchestrator** on the active one (#303). There is no orchestrator launch. Main checks

@@ -50,7 +50,7 @@ function Section({
     </div>
   );
 }
-function Changes({ value }: { value: string }) {
+function Changes({ value, omitted = 0 }: { value: string; omitted?: number | undefined }) {
   const records = value.split("\0").filter(Boolean);
   const items = [];
   for (let index = 0; index < records.length; index++) {
@@ -61,21 +61,23 @@ function Changes({ value }: { value: string }) {
     const label =
       status === "??"
         ? "untracked"
-        : status.includes("R")
-          ? "renamed"
-          : status.includes("C")
-            ? "copied"
-            : status.includes("D")
-              ? "deleted"
-              : status.includes("A")
-                ? "added"
-                : status.includes("U")
-                  ? "unmerged"
-                  : "modified";
+        : status === "!!"
+          ? "ignored"
+          : status.includes("R")
+            ? "renamed"
+            : status.includes("C")
+              ? "copied"
+              : status.includes("D")
+                ? "deleted"
+                : status.includes("A")
+                  ? "added"
+                  : status.includes("U")
+                    ? "unmerged"
+                    : "modified";
     items.push({ path: record.slice(3), label, old: renamed ? records[++index] : undefined });
   }
   return (
-    <Section label="Discarded" count={items.length}>
+    <Section label="Discarded" count={items.length + omitted}>
       <ul className="well" aria-label="Uncommitted changes">
         {items.map((item) => (
           <li className="row change" key={item.path}>
@@ -87,6 +89,7 @@ function Changes({ value }: { value: string }) {
           </li>
         ))}
       </ul>
+      {omitted > 0 && <p className="sub">{omitted} more paths</p>}
     </Section>
   );
 }
@@ -95,7 +98,14 @@ function Worktrees({
   running = false,
   label,
 }: {
-  items: readonly { id?: string; branch: string; reason?: string; state?: string }[];
+  items: readonly {
+    id?: string;
+    branch: string;
+    reason?: string;
+    state?: string;
+    changes?: string;
+    omittedChanges?: number;
+  }[];
   running?: boolean;
   label: string;
 }) {
@@ -118,7 +128,10 @@ function Worktrees({
               }
             />
           </span>
-          <span className="name">{item.branch}</span>
+          <div className="name">
+            {item.branch}
+            {item.changes && <Changes value={item.changes} omitted={item.omittedChanges} />}
+          </div>
           <span className="why">
             {item.state === "error"
               ? "removal failed"
@@ -137,11 +150,19 @@ export function ConfirmationPage() {
   const bodyRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const acceptRef = useRef<HTMLButtonElement>(null);
+  const [closeWhenCompleted, setCloseWhenCompleted] = useState(true);
+  const openingIdRef = useRef<string | undefined>(undefined);
+  const closedIdRef = useRef<string | undefined>(undefined);
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [now, setNow] = useState(Date.now);
   useEffect(
     () =>
       window.confirmation.render((value) => {
+        if (openingIdRef.current !== value?.id) {
+          openingIdRef.current = value?.id;
+          closedIdRef.current = undefined;
+          setCloseWhenCompleted(true);
+        }
         setRequest(value);
         setSelected([]);
         setNow(Date.now());
@@ -241,8 +262,28 @@ export function ConfirmationPage() {
       observer.disconnect();
     };
   }, [requestId, wide, bounded]);
+  useEffect(() => {
+    const cleanup = request?.cleanup;
+    if (
+      request &&
+      closeWhenCompleted &&
+      cleanup?.stage === "run" &&
+      cleanup.progress.phase === "finished" &&
+      !cleanup.error &&
+      cleanup.progress.total > 0 &&
+      cleanup.progress.items.filter((item) => item.state === "removed").length ===
+        cleanup.progress.total &&
+      closedIdRef.current !== request.id
+    ) {
+      closedIdRef.current = request.id;
+      window.confirmation.answer(request.id, false);
+    }
+  }, [request, closeWhenCompleted]);
   if (!request) return null;
   const cleanup = request.cleanup;
+  const forceCleanup =
+    cleanup?.stage === "ready" &&
+    cleanup.progress.items.some((item) => item.state === "queued" && item.changes);
   const running = cleanup?.stage === "run";
   const finished = running && cleanup.progress.phase === "finished";
   const disabled =
@@ -553,6 +594,18 @@ export function ConfirmationPage() {
           </div>
         </div>
         <footer>
+          {cleanup && !finished && (
+            <label className="close-when-completed">
+              <input
+                type="checkbox"
+                checked={closeWhenCompleted}
+                onChange={(event) => {
+                  setCloseWhenCompleted(event.target.checked);
+                }}
+              />
+              Close when completed
+            </label>
+          )}
           <button
             type="button"
             ref={cancelRef}
@@ -601,7 +654,7 @@ export function ConfirmationPage() {
                 : cleanup
                   ? cleanup.stage === "checking"
                     ? "Delete"
-                    : `Delete ${String(cleanup.progress.total)}`
+                    : `${forceCleanup ? "Force delete" : "Delete"} ${String(cleanup.progress.total)}`
                   : request.removals?.some((item) => item.changes)
                     ? "Discard changes and remove all"
                     : request.accept}

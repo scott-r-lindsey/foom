@@ -34,7 +34,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `workspace:start` | renderer → main (invoke) | `{ repository, branch, run }` → terminal ID or null on cancellation; the board no longer uses it |
 | `confirmation:scrim` | main → requesting board | boolean visibility only; cosmetic dimming, no dialog content or approval capability |
 | `confirmation:size` | trusted renderer → main | finite positive `{ width, height }` in CSS pixels; exact trusted main frame, URL and pending request required; zoomed and clamped to parent content and display work area |
-| `confirmation:answer` | trusted renderer → main | request ID and boolean; exact trusted window, main frame, URL and pending ID required |
+| `confirmation:answer` | trusted renderer → main | request ID and boolean for ordinary/single-removal and cleanup answers, or a nonempty unique subset of displayed operation IDs for grouped removals; exact trusted window, main frame, URL and pending ID plus reachability checks required; see [confirmation validation](confirmations.md#confirmations) |
 | `workspace:remove` | renderer → main (invoke) | terminal ID → boolean; main owns confirmation and dirty-file inspection |
 | `agents:scan` | renderer → main (invoke) | `refresh` → `{ warning, agents }` (no PATH) |
 | `agents:launch` | renderer → main (invoke) | `{ agent, repository, worktree, cols, rows }` → `{ id, attention }` or null on cancellation |
@@ -49,6 +49,28 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `environment:import` | renderer → main (invoke) | names from the last read → state |
 
 The renderer names repositories and worktrees only by paths main returned, and agents by ID. Main copies the known launch fields, checks the repository is registered and the checkout is authorized for that launch, and resolves the executable itself. A launched terminal belongs to the app; only its view is window-scoped.
+
+## Preload response validation (#780)
+
+The sandboxed bridges receive IPC values as `unknown` and validate required and
+optional nested fields before exposing typed data. This includes workspace and
+sidebar inventories, agent reports, settings/themes, config status, environment
+rows, scans, menus, fonts and sound replies. Numeric fields must be finite;
+counts and revisions must be nonnegative safe integers, and enum values must be
+known. Malformed replies reject; malformed events never reach typed callbacks.
+The existing window/audio read fallbacks remain empty/disabled valid state.
+Invoke replies are recursively rebuilt from validated fields, including nested
+arrays, unions and explicitly declared dictionaries; undeclared object properties
+are not exposed. Byte replies are copied. Void capabilities discard internal
+main-process return values.
+
+`preview:place` validates its UUID request, 128-bit hex preview ID and positive
+safe-integer expiry before buffering or dispatch. Expired requests are discarded;
+human moves retain main's existing maximum-safe-integer expiry. The existing
+256-request queue bound and main-side placement validation remain in force.
+
+Validators stay inline in each preload. No runtime loader dependency or
+main-side sender/payload validation changes.
 
 ## Error codes
 

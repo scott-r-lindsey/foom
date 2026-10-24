@@ -49,6 +49,7 @@ export interface ExecutionOwnerDependencies {
   refresh: () => void;
   recheck: (id: string) => void;
   exited: (id: string) => void;
+  reset: (id: string) => void;
   publishChildEvents: () => void;
   waitingOn: (id: string) => number;
   unreadAt: (id: string) => number | undefined;
@@ -536,7 +537,9 @@ export class ExecutionOwner {
     const current = this.track(id);
     if (current.execution) this.transition(id, "exited", "exit");
     return this.deps.enqueue(id, async () => {
-      const terminal = this.track(id);
+      // A reset/removal can replace this invocation before its queued exit runs.
+      if (this.terminals.get(id) !== current) return;
+      const terminal = current;
       if (terminal.exitCode !== undefined) return;
       terminal.exitCode = code;
       // Exit metadata must be observable even if final evaluation fails.
@@ -552,10 +555,11 @@ export class ExecutionOwner {
   /** Drop the invocation; pending evaluations fail their identity check. */
   reset(id: string): void {
     this.terminals.delete(id);
+    this.deps.reset(id);
   }
 
   removed(id: string): void {
-    this.reset(id);
+    this.terminals.delete(id);
     this.deps.verdicts.forget(id);
   }
 

@@ -125,3 +125,19 @@ test("Stop during fetch starts nothing and branch transaction failure retains re
   await next.run.settled();
   expect(next.run.progress.items.every((item) => item.reason === "branch kept")).toBe(true);
 });
+
+test("bounds the combined untracked and ignored list and reports every omitted path", () => {
+  const { run } = setup();
+  const first = candidates(1)[0];
+  if (!first) throw new Error("Missing fixture");
+  const changes = Array.from(
+    { length: 57 },
+    (_, index) => `${index % 2 ? "!!" : "??"} ${String(index)}-${"x".repeat(600)}`,
+  ).join("\0");
+  run.ready([{ ...first, changes }]);
+  const item = run.current().progress.items[0];
+  expect(item?.omittedChanges).toBe(7);
+  expect(item?.changes?.split("\0")).toHaveLength(50);
+  expect(item?.changes?.split("\0").every((path) => path.length === 500)).toBe(true);
+  expect(item?.changes).toContain("!! ");
+});

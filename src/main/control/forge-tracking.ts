@@ -216,7 +216,11 @@ export class ForgeTracking {
   setEnabled(enabled: boolean): void {
     if (this.enabled === enabled) return;
     this.enabled = enabled;
-    for (const entry of this.entries.values()) entry.due = 0;
+    for (const entry of this.entries.values()) {
+      // An older read must not replace this requested refresh with its next cadence.
+      entry.refresh++;
+      entry.due = 0;
+    }
     this.changed();
     this.schedule();
   }

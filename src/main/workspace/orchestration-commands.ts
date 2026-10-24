@@ -9,8 +9,11 @@ import type { HookSignal } from "../../shared/hooks";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import { AGENTS } from "../agents/agent-list";
 import { conversationId } from "../agents/conversation";
-import { UncertainEffect } from "../control/orchestration-mutations";
-import type { ExecutionEventsContext, OrchestrationCommandsContext } from "./feature-context";
+import { UncertainEffect } from "./worktree-outcome";
+import type {
+  ExecutionEventsContext,
+  OrchestrationCommandsContext,
+} from "./workspace-capabilities";
 
 export async function auditHuman(
   this: OrchestrationCommandsContext,
@@ -303,19 +306,12 @@ export function hook(this: ExecutionEventsContext, signal: HookSignal): Promise<
 }
 
 export function exited(this: ExecutionEventsContext, id: string, code: number): Promise<void> {
-  this.revokeConfig(id);
-  void this.probes?.exited(id).catch(() => undefined);
-  this.agents.release(id);
-  this.orchestration.exited(id);
-  return this.executionOwner.exited(id, code);
+  return this.lifecycle.exited(id, code);
 }
 
 export function removed(this: ExecutionEventsContext, id: string): void {
   this.probeIds.delete(id);
-  this.revokeConfig(id);
-  void this.probes?.exited(id).catch(() => undefined);
-  this.agents.release(id);
-  this.orchestration.exited(id);
+  this.lifecycle.removed(id);
   this.orchestration.removed(id);
   this.launched.delete(id);
   this.persist();

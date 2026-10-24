@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { lstat, opendir, readFile, readdir, realpath, rm, rmdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
+import { readOwnedFile } from "../../node-common/owned-files";
 import { ApplicationError } from "../../shared/application-errors";
 import type { GitPanelFacts } from "../../shared/panel";
 import type {
@@ -11,27 +11,26 @@ import type {
   Repository,
   Worktree,
 } from "../../shared/worktrees";
-import { pullRequest } from "../control/forge";
 import type { ForgeProviderFactory } from "../control/forge.d";
-import { fetchAdvertisedDefault } from "./fetch-default";
 import { inventoryWatchPaths } from "./inventory-watch";
 import {
-  absolutePath,
   adoptWorktree,
   assertInside,
   createWorktree,
   forgeProviderFor,
   git,
   pickRemote,
-  readPanelFacts,
   record,
   refNames,
   validatePath,
   within,
-  worktreeIdentity,
 } from "./worktree-operations";
-
-const commitId = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
+import { WorktreeStore } from "./worktree-store";
+import { checkoutIdentity, worktreeIdentity } from "./worktree-identity";
+import { WorktreeFetchState } from "./worktree-fetch-state";
+import { WorktreePanelFacts } from "./worktree-panel-facts";
+import { WorktreeMergePolicy } from "./worktree-merge-policy";
+import { WorktreeBranchCleanup } from "./worktree-branch-cleanup";
 
 /** Main-process service. Git membership authorizes management; managed records creation history. */
 export class WorktreeService {
@@ -42,8 +41,68 @@ export class WorktreeService {
   >();
   private readonly root: string;
 
-  private stateFile: string | undefined;
-  private pendingSave: Promise<void> = Promise.resolve();
+  private store: WorktreeStore | undefined;
+  private async save(): Promise<void> {
+    await this.store?.save(() => ({
+      version: 1,
+      repositories: [...this.repositories.keys()],
+      managed: [...this.managed].map(([path, ownership]) => ({ path, ...ownership })),
+    }));
+  }
+
+  private readonly panels = new WorktreePanelFacts({
+    launchIdentity: (repository, path) => this.launchIdentity(repository, path),
+    fetchFacts: (repository) => this.fetchState.facts(repository),
+    now: () => Date.now(),
+  });
+  private readonly fetchState = new WorktreeFetchState({
+    repository: (path) => this.repository(path),
+    validateBranch: (repository, branch) => this.validateBranch(repository, branch),
+    invalidatePanels: () => {
+      this.panels.invalidate();
+    },
+    now: () => Date.now(),
+  });
+  private readonly mergePolicy = new WorktreeMergePolicy({
+    checkRemovalIdentity: (repository, path, identity) =>
+      this.checkRemovalIdentity(repository, path, identity),
+    mergedDefault: (repository, refresh) => this.mergedDefault(repository, refresh),
+    validateBranch: (repository, branch) => this.validateBranch(repository, branch),
+    listWorktrees: (repository) => this.listWorktrees(repository),
+    changes: (repository, path, identity) => this.changes(repository, path, identity),
+    forgeRemote: (repository) => this.forgeRemote(repository),
+    forgeProviderFor: (repository, path, remote) => this.forgeProviderFor(repository, path, remote),
+    fetchFacts: (repository) => this.fetchState.facts(repository),
+  });
+  private readonly branchCleanup = new WorktreeBranchCleanup({
+    validateBranch: (repository, branch) => this.validateBranch(repository, branch),
+    listWorktrees: (repository) => this.listWorktrees(repository),
+  });
+
+  async panelFacts(repository: string, worktree: string): Promise<GitPanelFacts> {
+    return this.panels.panelFacts(repository, worktree);
+  }
+  async mergedDefault(repository: string, refresh = false): Promise<string> {
+    return this.fetchState.mergedDefault(repository, refresh);
+  }
+  mergedFetchTime(repository: string): number | undefined {
+    return this.fetchState.mergedFetchTime(repository);
+  }
+  async canAutoRemove(repository: string, path: string, identity: string): Promise<boolean> {
+    return this.mergePolicy.canAutoRemove(repository, path, identity);
+  }
+  async mergedCommit(repository: string, tree: Worktree, base: string): Promise<boolean> {
+    return this.mergePolicy.mergedCommit(repository, tree, base);
+  }
+  async deleteMergedBranch(repository: string, branch: string, head: string): Promise<void> {
+    return this.branchCleanup.deleteMergedBranch(repository, branch, head);
+  }
+  async deleteMergedBranches(
+    repository: string,
+    branches: readonly { branch: string; head: string }[],
+  ): Promise<readonly string[]> {
+    return this.branchCleanup.deleteMergedBranches(repository, branches);
+  }
 
   /** Call after app.whenReady(), passing app.getPath("userData"). */
   /** `protect` applies before saved repositories load, so a conflicting one is dropped. */
@@ -58,27 +117,15 @@ export class WorktreeService {
     for (const path of protect) await service.protect(path);
     const stateFile = join(resolve(userData), "worktrees.json");
     await service.load(stateFile);
-    service.stateFile = stateFile;
+    service.store = new WorktreeStore(stateFile);
     return service;
   }
 
   private async load(stateFile: string): Promise<void> {
-    let state: unknown;
-    try {
-      state = JSON.parse(await readFile(stateFile, "utf8"));
-    } catch {
-      // Missing, unreadable or corrupt state never grants ownership or blocks startup.
-      return;
-    }
-    if (
-      !record(state) ||
-      state["version"] !== 1 ||
-      !Array.isArray(state["repositories"]) ||
-      !Array.isArray(state["managed"])
-    )
-      return;
+    const store = new WorktreeStore(stateFile);
+    const state = await store.read();
+    if (!state) return;
     for (const path of state["repositories"]) {
-      if (!absolutePath(path)) continue;
       try {
         if ((await realpath(path)) !== path) continue;
         await this.addRepository(path);
@@ -87,14 +134,6 @@ export class WorktreeService {
       }
     }
     for (const entry of state["managed"]) {
-      if (
-        !record(entry) ||
-        !absolutePath(entry["path"]) ||
-        !absolutePath(entry["repository"]) ||
-        !absolutePath(entry["root"]) ||
-        typeof entry["identity"] !== "string"
-      )
-        continue;
       const { path, repository, root, identity } = entry;
       if (!this.repositories.has(repository)) continue;
       try {
@@ -112,32 +151,8 @@ export class WorktreeService {
         // A stored record is only a claim: stale or redirected paths lose ownership.
       }
     }
-    this.stateFile = stateFile;
+    this.store = store;
     await this.save();
-  }
-
-  private async save(): Promise<void> {
-    const stateFile = this.stateFile;
-    if (!stateFile) return;
-    const save = this.pendingSave
-      .catch(() => undefined)
-      .then(async () => {
-        const contents = JSON.stringify({
-          version: 1,
-          repositories: [...this.repositories.keys()],
-          managed: [...this.managed].map(([path, ownership]) => ({ path, ...ownership })),
-        });
-        await mkdir(dirname(stateFile), { recursive: true });
-        const temporary = `${stateFile}.${randomUUID()}.tmp`;
-        try {
-          await writeFile(temporary, contents, { flag: "wx", mode: 0o600 });
-          await rename(temporary, stateFile);
-        } finally {
-          await rm(temporary, { force: true });
-        }
-      });
-    this.pendingSave = save;
-    await save;
   }
 
   constructor(
@@ -277,38 +292,22 @@ export class WorktreeService {
 
   /** Main-only snapshot for an explicitly confirmed removal, including external trees. */
   async removalIdentity(repositoryPath: string, path: string): Promise<string> {
-    return this.checkoutIdentity(repositoryPath, path, false);
+    return checkoutIdentity(
+      { listWorktrees: this.listWorktrees.bind(this), git, validatePath, realpath },
+      repositoryPath,
+      path,
+      false,
+    );
   }
 
   /** Validate any selected checkout belonging to an added repository. */
   async launchIdentity(repositoryPath: string, path: string): Promise<string> {
-    return this.checkoutIdentity(repositoryPath, path, true);
-  }
-
-  private async checkoutIdentity(
-    repositoryPath: string,
-    path: string,
-    allowMain: boolean,
-  ): Promise<string> {
-    validatePath(path);
-    const trees = await this.listWorktrees(repositoryPath);
-    const tree = trees.find((item) => item.path === path);
-    if (!allowMain && path === repositoryPath) throw new ApplicationError("worktree-main");
-    if (!tree || tree.bare) throw new ApplicationError("worktree-missing");
-    if (tree.locked) throw new ApplicationError("worktree-locked");
-    if (tree.prunable) throw new ApplicationError("worktree-prunable");
-    if ((await realpath(path)) !== path) throw new Error("Worktree path has been redirected");
-    const commonDirectory = async (cwd: string) =>
-      realpath(
-        (await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).slice(0, -1),
-      );
-    const common = await commonDirectory(repositoryPath);
-    const gitDirectory = await realpath(
-      (await git(path, ["rev-parse", "--absolute-git-dir"])).slice(0, -1),
+    return checkoutIdentity(
+      { listWorktrees: this.listWorktrees.bind(this), git, validatePath, realpath },
+      repositoryPath,
+      path,
+      true,
     );
-    if ((!allowMain && gitDirectory === common) || (await commonDirectory(path)) !== common)
-      throw new Error("Worktree is not a linked checkout of this repository");
-    return worktreeIdentity(path);
   }
 
   /** Prune only Git's recorded checkout; no caller-selected recursive deletion. */
@@ -355,6 +354,59 @@ export class WorktreeService {
     await this.save();
   }
 
+  /** Broken-row cleanup never recursively deletes an uninspectable directory. */
+  async cleanupBrokenWorktree(repository: string, path: string): Promise<void> {
+    this.repository(repository);
+    const trees = await this.listWorktrees(repository);
+    const selected = trees.find((tree) => tree.path === path);
+    if (!selected?.prunable || selected.locked || selected.bare || path === repository)
+      throw new ApplicationError("prune-unsafe");
+    assertInside(await realpath(this.root), resolve(path));
+    // Prune is repository-wide. Prove every prunable admin record safe before
+    // invoking it, including worktrees whose checkout directory is already gone.
+    const common = (
+      await cleanupGit(repository, ["rev-parse", "--path-format=absolute", "--git-common-dir"])
+    ).trimEnd();
+    const validate = async () => {
+      const admins = await readdir(join(common, "worktrees"));
+      let found = false;
+      for (const name of admins) {
+        const admin = join(common, "worktrees", name);
+        const checkout = resolve(
+          dirname((await readFile(join(admin, "gitdir"), "utf8")).trimEnd()),
+        );
+        if (!trees.some((tree) => tree.prunable && tree.path === checkout)) continue;
+        if (checkout === path) found = true;
+        await this.checkCleanupState(repository, admin);
+        await this.checkCleanupEvidence(repository, admin);
+        const read = (args: string[]) => cleanupGit(repository, ["--git-dir", admin, ...args]);
+        const index = await read(["ls-files", "-v", "--stage", "-z"]);
+        // Without a checkout marker there is no trustworthy status snapshot. Keep
+        // any nonempty index, including staged blobs, gitlinks and sparse entries.
+        if (
+          index ||
+          (await read(["rev-list", "--count", "HEAD", "--not", "--remotes"])).trim() !== "0"
+        )
+          throw new ApplicationError("prune-unsafe");
+      }
+      if (!found) throw new ApplicationError("prune-unsafe");
+    };
+    await validate();
+    // rmdir is deliberately nonrecursive: new or undisclosed contents fail closed.
+    // Reuse the canonical/symlink/marker guards of prune without its rm path by
+    // first requiring the directory to be absent. Only an empty directory may go.
+    if (await exists(path)) {
+      if ((await realpath(path)) !== path || !(await lstat(path)).isDirectory())
+        throw new ApplicationError("prune-unsafe");
+      await walkCleanupDirectory(path, true);
+      await rmdir(path);
+    }
+    await validate();
+    await git(repository, ["worktree", "prune"]);
+    this.managed.delete(path);
+    await this.save();
+  }
+
   private async checkRemovalIdentity(
     repositoryPath: string,
     path: string,
@@ -366,16 +418,248 @@ export class WorktreeService {
 
   // Background status reads must not refresh/write the index while removal is
   // deleting per-worktree Git metadata. --no-optional-locks keeps them read-only.
+  // Disable status caches so they cannot hide changes from a removal snapshot.
   async changes(repositoryPath: string, path: string, identity?: string): Promise<string> {
     const expected = identity ?? (await this.removalIdentity(repositoryPath, path));
     await this.checkRemovalIdentity(repositoryPath, path, expected);
     return git(path, [
       "--no-optional-locks",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.untrackedCache=false",
       "status",
       "--porcelain=v1",
       "-z",
       "--untracked-files=all",
     ]);
+  }
+
+  /** A fresh config-neutral status snapshot for group cleanup, never explicit removal. */
+  async cleanupStatus(
+    repository: string,
+    path: string,
+    identity?: string,
+    head?: string | null,
+    inspectReflogs = false,
+  ): Promise<string> {
+    const expected = identity ?? (await this.removalIdentity(repository, path));
+    const read = (args: string[]) => cleanupGit(path, args);
+    const expectedHead = head ?? (await read(["rev-parse", "--verify", "HEAD^{commit}"])).trim();
+    const index = await read(["ls-files", "-v", "--stage", "-z", "--"]);
+    const entries = index.split("\0").filter(Boolean);
+    if (entries.some((entry) => /^[a-zS]/.test(entry)))
+      throw new Error("Index flags can hide tracked changes and prevent cleanup");
+    if (
+      entries.some((entry) => entry.slice(2).startsWith("160000 ")) ||
+      (await exists(join(path, ".gitmodules")))
+    )
+      throw new Error("Submodules prevent cleanup");
+    await this.checkCleanupState(path);
+    await this.checkCleanupEvidence(path, undefined, inspectReflogs);
+    await walkCleanupDirectory(path, true);
+    const paths = entries.map((entry) => entry.slice(entry.indexOf("\t") + 1));
+    if (paths.length) {
+      const attributes = (
+        await cleanupGit(
+          path,
+          ["check-attr", "-z", "--stdin", "ident", "working-tree-encoding"],
+          `${paths.join("\0")}\0`,
+        )
+      ).split("\0");
+      if (attributes.pop() !== "" || attributes.length !== paths.length * 6)
+        throw new Error("Cannot inspect tracked content conversions");
+      for (let position = 0; position < attributes.length; position += 3) {
+        const attribute = attributes[position + 1];
+        const value = attributes[position + 2];
+        if (
+          (attribute !== "ident" && attribute !== "working-tree-encoding") ||
+          (value !== "unspecified" && value !== "unset")
+        )
+          throw new Error("Tracked content conversions prevent cleanup");
+      }
+    }
+    if ((await read(["ls-files", "-v", "--stage", "-z", "--"])) !== index)
+      throw new Error("Index changed during cleanup checks");
+    await this.checkRemovalIdentity(repository, path, expected);
+    if ((await read(["rev-parse", "--verify", "HEAD^{commit}"])).trim() !== expectedHead)
+      throw new Error("HEAD changed during cleanup checks");
+    // Keep status last: a tracked save during any preceding validation await
+    // must be visible to the approved-snapshot comparison next to Git removal.
+    const changes = await read([
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--ignored=matching",
+      "--ignore-submodules=none",
+    ]);
+    const records = changes.split("\0").filter(Boolean);
+    // A case-sensitive read exposes names hidden by core.ignorecase. Refuse
+    // collisions rather than interpreting which spelling represents tracked data.
+    const tracked = new Set(paths.map((path) => path.toLowerCase()));
+    if (
+      records.some(
+        (entry) =>
+          (entry.startsWith("?? ") || entry.startsWith("!! ")) &&
+          tracked.has(entry.slice(3).toLowerCase()),
+      )
+    )
+      throw new Error("Case-colliding paths prevent cleanup");
+    return changes;
+  }
+
+  /** New cleanup reads cannot redirect status; additional candidates must retain private history. */
+  private async checkCleanupEvidence(
+    path: string,
+    gitDirectory?: string,
+    inspectReflogs = true,
+  ): Promise<void> {
+    const read = (args: string[]) =>
+      cleanupGit(path, [...(gitDirectory ? ["--git-dir", gitDirectory] : []), ...args]);
+    const locations = gitDirectory
+      ? [gitDirectory]
+      : (await read(["rev-parse", "--absolute-git-dir", "--show-toplevel"])).trimEnd().split("\n");
+    const admin = locations[0];
+    if (!admin || (!gitDirectory && locations.length !== 2))
+      throw new Error("Cannot inspect cleanup directory");
+    if (await exists(join(admin, "config.worktree")))
+      throw new Error("Worktree configuration prevents cleanup");
+    const config = await read(["config", "--null", "--list"]);
+    const settings = config
+      .split("\0")
+      .filter(Boolean)
+      .map((entry) => {
+        const newline = entry.indexOf("\n");
+        return {
+          key: (newline < 0 ? entry : entry.slice(0, newline)).toLowerCase(),
+          value: newline < 0 ? undefined : entry.slice(newline + 1),
+        };
+      });
+    const disabled = (value: string | undefined) =>
+      value !== undefined && ["", "0", "no", "off", "false"].includes(value.trim().toLowerCase());
+    if (settings.some(({ key, value }) => key === "core.sparsecheckout" && !disabled(value)))
+      throw new Error("Sparse checkouts prevent cleanup");
+    if (
+      settings.some(
+        ({ key, value }) =>
+          key === "core.worktree" ||
+          key.startsWith("filter.") ||
+          (key === "extensions.worktreeconfig" && !disabled(value)) ||
+          (key === "core.bare" && !disabled(value)),
+      )
+    )
+      throw new Error("Repository configuration prevents cleanup");
+    if (!gitDirectory) {
+      const top = locations[1];
+      if (!top || (await realpath(top)) !== path)
+        throw new Error("Cleanup directory is redirected");
+    }
+    // Ordinary clean branch cleanup retains its established merge-evidence policy.
+    // Detached/leftover cleanup and broken-row pruning additionally protect reflogs.
+    if (!inspectReflogs) return;
+    const logs = join(admin, "logs");
+    // A missing HEAD log is not evidence of an empty history (logging can be disabled).
+    const files = await walkCleanupDirectory(logs, false);
+    if (!files.includes(join(logs, "HEAD"))) throw new Error("Missing worktree HEAD reflog");
+    const commits = new Set<string>();
+    let remaining = 4 * 1024 * 1024;
+    for (const file of files) {
+      const contents = await readOwnedFile(file, remaining, async (target) => {
+        const entry = await lstat(target);
+        if (!entry.isFile() || entry.isSymbolicLink()) throw new Error("Unsafe reflog");
+      });
+      remaining -= Buffer.byteLength(contents);
+      if (!contents || !contents.endsWith("\n")) throw new Error("Incomplete worktree reflog");
+      for (const line of contents.trimEnd().split("\n")) {
+        const match = /^([a-f0-9]{40}|[a-f0-9]{64}) ([a-f0-9]{40}|[a-f0-9]{64}) /.exec(line);
+        if (!match || match[1]?.length !== match[2]?.length)
+          throw new Error("Invalid worktree reflog");
+        for (const oid of match.slice(1)) if (!/^0+$/.test(oid)) commits.add(oid);
+      }
+    }
+    // Bound argument size on Windows as well as the filesystem reads above.
+    const revisions = [...commits];
+    for (let start = 0; start < revisions.length; start += 128) {
+      if (
+        (
+          await read([
+            "rev-list",
+            "--count",
+            ...revisions.slice(start, start + 128),
+            "--not",
+            "--remotes",
+            "--",
+          ])
+        ).trim() !== "0"
+      )
+        throw new Error("Unpushed worktree reflog commits prevent cleanup");
+    }
+  }
+
+  private async checkCleanupState(path: string, gitDirectory?: string): Promise<void> {
+    const read = (args: string[]) =>
+      cleanupGit(path, [...(gitDirectory ? ["--git-dir", gitDirectory] : []), ...args]);
+    if (
+      (
+        await read([
+          "for-each-ref",
+          "--format=%(refname)",
+          "refs/worktree/",
+          "refs/bisect/",
+          "refs/rewritten/",
+        ])
+      ).trim()
+    )
+      throw new Error("Worktree-private refs prevent cleanup");
+    const names = [
+      "MERGE_HEAD",
+      "CHERRY_PICK_HEAD",
+      "REVERT_HEAD",
+      "rebase-merge",
+      "rebase-apply",
+      "sequencer",
+      "BISECT_LOG",
+      "BISECT_START",
+    ];
+    const paths = (
+      await read([
+        "rev-parse",
+        "--path-format=absolute",
+        ...names.flatMap((name) => ["--git-path", name]),
+      ])
+    )
+      .trimEnd()
+      .split("\n");
+    if (paths.length !== names.length) throw new Error("Cannot inspect Git operation state");
+    if ((await Promise.all(paths.map(exists))).some(Boolean))
+      throw new Error("An in-progress Git operation prevents cleanup");
+  }
+
+  /** Extra guards for newly eligible detached and leftover-only cleanup. */
+  async cleanupChanges(
+    repository: string,
+    path: string,
+    identity?: string,
+    head?: string | null,
+  ): Promise<string> {
+    const expected = identity ?? (await this.removalIdentity(repository, path));
+    const expectedHead =
+      head ?? (await cleanupGit(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
+    assertInside(await realpath(this.root), await realpath(path));
+    const unpushed = (
+      await cleanupGit(path, ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"])
+    ).trim();
+    if (unpushed !== "0") throw new Error("Unpushed commits prevent cleanup");
+    const changes = await this.cleanupStatus(repository, path, expected, expectedHead, true);
+    // No asynchronous work after cleanupStatus's final status read.
+    if (
+      changes
+        .split("\0")
+        .some((entry) => entry && !entry.startsWith("?? ") && !entry.startsWith("!! "))
+    )
+      throw new Error("Tracked changes prevent cleanup");
+    return changes;
   }
 
   /** Local refs only: the branch field never waits on the network. */
@@ -464,15 +748,6 @@ export class WorktreeService {
     );
   }
 
-  private readonly panelCache = new Map<
-    string,
-    { time: number; identity: string; result: Promise<GitPanelFacts> }
-  >();
-  private readonly fetchFacts = new Map<
-    string,
-    { branch: string | null; time: number; failed: boolean; head: string | null }
-  >();
-
   /** Local remote metadata only; no fetch or credential lookup. */
   async forgeRemote(repository: string): Promise<string | undefined> {
     const remote = pickRemote(await git(repository, ["remote"]));
@@ -480,329 +755,21 @@ export class WorktreeService {
     return (await git(repository, ["config", "--get", `remote.${remote}.url`])).trim();
   }
 
-  /** Authorize even cache hits. Opening a panel never starts or awaits a network fetch. */
-  async panelFacts(repository: string, worktree: string): Promise<GitPanelFacts> {
-    const identity = await this.launchIdentity(repository, worktree);
-    const key = `${repository}\0${worktree}`;
-    const cached = this.panelCache.get(key);
-    if (cached?.identity === identity && Date.now() - cached.time < 3000) return cached.result;
-    const result = readPanelFacts(this.fetchFacts, repository, worktree);
-    this.panelCache.set(key, { identity, time: Date.now(), result });
-    return result;
-  }
-
-  private readonly mergeDefaults = new Map<string, { time: number; result: Promise<string> }>();
-
-  /** Inventory shares a recent fetch; destructive actions always fetch again. */
-  async mergedDefault(repository: string, refresh = false): Promise<string> {
-    this.repository(repository);
-    const cached = this.mergeDefaults.get(repository);
-    if (!refresh && cached && Date.now() - cached.time < 60_000) return cached.result;
-    const result = (cached?.result.catch(() => undefined) ?? Promise.resolve()).then(() =>
-      this.fetchDefault(repository),
-    );
-    this.mergeDefaults.set(repository, { time: Date.now(), result });
-    return result;
-  }
-
-  /** Timestamp of the successful fetch used by merged-worktree checks. */
-  mergedFetchTime(repository: string): number | undefined {
-    const fetch = this.fetchFacts.get(repository);
-    return fetch && !fetch.failed ? fetch.time : undefined;
-  }
-
-  private async fetchDefault(repository: string): Promise<string> {
-    const remote = pickRemote(await git(repository, ["remote"]));
-    if (!remote) throw new Error("No unambiguous repository remote");
-    try {
-      const { branch, commit } = await fetchAdvertisedDefault(
-        remote,
-        (args) => git(repository, args),
-        (branch) => this.validateBranch(repository, branch),
-      );
-      this.fetchFacts.set(repository, {
-        branch,
-        time: Date.now(),
-        failed: false,
-        head: commit,
-      });
-      this.panelCache.clear();
-      return commit;
-    } catch (error) {
-      this.fetchFacts.set(repository, { branch: null, time: Date.now(), failed: true, head: null });
-      this.panelCache.clear();
-      throw new Error(
-        `Cannot check merged worktrees: fetch failed. ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
-      );
-    }
-  }
-
-  /** Ancestry or a PR merge verified against the freshly fetched default. */
-  async canAutoRemove(repository: string, path: string, identity: string): Promise<boolean> {
-    try {
-      await this.checkRemovalIdentity(repository, path, identity);
-      const base = await this.mergedDefault(repository, true);
-      const branch = (await git(path, ["symbolic-ref", "--quiet", "--short", "HEAD"])).trim();
-      await this.validateBranch(repository, branch);
-      const head = (await git(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
-      if (!/^[a-f0-9]{40,64}$/u.test(head) || !/^[a-f0-9]{40,64}$/u.test(base)) return false;
-      if (this.fetchFacts.get(repository)?.branch === branch) return false;
-      const tree = (await this.listWorktrees(repository)).find((item) => item.path === path);
-      if (!tree || tree.head !== head || tree.branch !== branch) return false;
-      if (!(await this.verifiedPrMerge(repository, tree, base))) {
-        // Preserve the no-unpushed-commits guard for the ancestry-only path.
-        const upstream = (
-          await git(path, ["for-each-ref", "--format=%(upstream)", `refs/heads/${branch}`])
-        ).trim();
-        const unpushed = (
-          await git(
-            path,
-            upstream
-              ? ["rev-list", "--count", "HEAD", "--not", upstream, "--"]
-              : ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"],
-          )
-        ).trim();
-        if (unpushed !== "0") return false;
-        if (!(await this.withMergeProof(repository, (run) => this.isAncestor(run, head, base))))
-          return false;
-      }
-      if ((await this.changes(repository, path, identity)) !== "") return false;
-      return (
-        (await git(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim() === head &&
-        (await git(path, ["symbolic-ref", "--quiet", "--short", "HEAD"])).trim() === branch
-      );
-    } catch {
-      // Missing refs, failed fetches, unsupported Git and identity changes never authorize removal.
-      return false;
-    }
-  }
-
-  async mergedCommit(repository: string, tree: Worktree, base: string): Promise<boolean> {
-    const head = tree.head;
-    if (!tree.branch || !head || this.fetchFacts.get(repository)?.branch === tree.branch)
-      return false;
-    await this.validateBranch(repository, tree.branch);
-    if (!commitId.test(base) || !commitId.test(head)) throw new Error("Invalid commit ID");
-    try {
-      if (
-        await this.withMergeProof(repository, (run) => this.mergeMatchesTree(run, base, head, base))
-      )
-        return true;
-    } catch {
-      // A content conflict does not rule out an earlier PR merge.
-    }
-    return this.verifiedPrMerge(repository, tree, base);
-  }
-
-  /** Forge output is only a hint; never pass its unchecked values to Git. */
-  private async verifiedPrMerge(
-    repository: string,
-    tree: Worktree,
-    base: string,
-  ): Promise<boolean> {
-    try {
-      if (!tree.branch || !tree.head || this.fetchFacts.get(repository)?.branch === tree.branch)
-        return false;
-      const remote = await this.forgeRemote(repository);
-      const pr = pullRequest(
-        await (remote === undefined
-          ? undefined
-          : (await this.forgeProviderFor(repository, tree.path, remote))?.lookup(
-              tree.branch,
-              undefined,
-              "all",
-            )),
-      );
-      if (pr?.state !== "MERGED" || pr.headSha !== tree.head) return false;
-      let integrated = false;
-      for (const commit of new Set([pr.mergeCommit, pr.squashCommit])) {
-        if (!commit) continue;
-        if (!commitId.test(commit)) return false;
-        if (await this.hintIntegratesHead(repository, commit, tree.head, base)) {
-          integrated = true;
-          break;
-        }
-      }
-      if (!integrated) return false;
-      return (
-        (await git(tree.path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim() === tree.head &&
-        (await this.changes(repository, tree.path)) === ""
-      );
-    } catch {
-      // Missing objects, malformed/hostile forge hints and unavailable providers fail closed.
-      return false;
-    }
-  }
-
-  /** Reachability from default is necessary, but cannot tie a forge hint to this head. */
-  private async hintIntegratesHead(
-    repository: string,
-    commit: string,
-    head: string,
-    base: string,
-  ): Promise<boolean> {
-    if (![commit, head, base].every((sha) => commitId.test(sha))) return false;
-    return this.withMergeProof(repository, async (run) => {
-      if (!(await this.isAncestor(run, commit, base))) return false;
-      if (await this.isAncestor(run, head, commit)) return true;
-      const parents = (await run(["rev-list", "--parents", "-n", "1", commit])).trim().split(" ");
-      const parent = parents[1];
-      if (parents.length !== 2 || parents[0] !== commit || !parent || !commitId.test(parent))
-        return false;
-      const mergeBase = (await run(["merge-base", "--all", parent, head])).trim();
-      // Multiple merge bases are ambiguous; never pick one using forge claims.
-      if (!commitId.test(mergeBase)) return false;
-      return this.mergeMatchesTree(run, parent, head, commit);
-    });
-  }
-
-  private async isAncestor(
-    run: (args: string[]) => Promise<string>,
-    ancestor: string,
-    descendant: string,
-  ): Promise<boolean> {
-    if (![ancestor, descendant].every((sha) => commitId.test(sha))) return false;
-    try {
-      await run(["merge-base", "--is-ancestor", ancestor, descendant]);
-      return true;
-    } catch (error) {
-      // Only an ordinary non-ancestor result permits another proof or hint.
-      if (!record(error) || error["code"] !== 1) throw error;
-      return false;
-    }
-  }
-
-  /** Never let repository attributes/configuration manufacture a cleanup proof. */
-  private async withMergeProof(
-    repository: string,
-    prove: (run: (args: string[]) => Promise<string>) => Promise<boolean>,
-  ): Promise<boolean> {
-    const objects = await realpath(
-      (
-        await git(repository, ["rev-parse", "--path-format=absolute", "--git-path", "objects"])
-      ).trim(),
-    );
-    if (/[\r\n]/u.test(objects)) return false;
-    const format = (await git(repository, ["rev-parse", "--show-object-format"])).trim();
-    if (format !== "sha1" && format !== "sha256") return false;
-    const proof = await mkdtemp(join(tmpdir(), "foom-merge-proof-"));
-    try {
-      const run = (args: string[]) =>
-        git(proof, ["-c", "core.commitGraph=false", ...args], 30_000, undefined, true);
-      await run(["init", "--bare", "--template=", `--object-format=${format}`]);
-      await Promise.all(
-        ["info", "objects/info"].map((path) => mkdir(join(proof, path), { recursive: true })),
-      );
-      // Git's alternates file accepts C-quoted absolute paths. Objects are read
-      // from the source store; merge output is written only in this disposable repo.
-      await writeFile(join(proof, "objects/info/alternates"), `${JSON.stringify(objects)}\n`, {
-        mode: 0o600,
-      });
-      // info/attributes has higher precedence than every versioned attributes file.
-      await writeFile(
-        join(proof, "info/attributes"),
-        "* merge=text -text -eol -filter -working-tree-encoding\n",
-        { mode: 0o600 },
-      );
-      // Alternates expose objects only, never source refs, grafts or config.
-      // Read raw commits rather than trusting cached graphs in that object store.
-      return await prove(run);
-    } finally {
-      await rm(proof, { recursive: true, force: true });
-    }
-  }
-
-  private async mergeMatchesTree(
-    run: (args: string[]) => Promise<string>,
-    left: string,
-    head: string,
-    expected: string,
-  ): Promise<boolean> {
-    if (![left, head, expected].every((sha) => commitId.test(sha))) return false;
-    const expectedTree = (await run(["rev-parse", "--verify", `${expected}^{tree}`])).trim();
-    if (!commitId.test(expectedTree)) return false;
-    // Config controls also work on Git versions whose merge-tree has no -X.
-    // The isolated repo has no other strategy or merge-driver configuration.
-    const merged = (
-      await run([
-        "-c",
-        "core.attributesFile=",
-        "-c",
-        "core.autocrlf=false",
-        "-c",
-        "merge.renormalize=false",
-        "-c",
-        "merge.renames=false",
-        "-c",
-        "merge.directoryRenames=false",
-        "-c",
-        "diff.algorithm=histogram",
-        "merge-tree",
-        "--write-tree",
-        "--no-messages",
-        left,
-        head,
-      ])
-    ).trim();
-    return commitId.test(merged) && merged === expectedTree;
-  }
-
-  async deleteMergedBranch(repository: string, branch: string, head: string): Promise<void> {
-    await this.validateBranch(repository, branch);
-    if (!/^[a-f0-9]{40,64}$/u.test(head)) throw new Error("Invalid commit ID");
-    if ((await this.listWorktrees(repository)).some((tree) => tree.branch === branch))
-      throw new Error("Branch is checked out; kept its local ref");
-    // Compare-and-delete atomically, unlike branch -D's unconditional ref deletion.
-    // This also removes squash-merged refs without an ancestry-based merged check.
-    await git(repository, ["update-ref", "--no-deref", "-d", `refs/heads/${branch}`, head]);
-  }
-
-  async deleteMergedBranches(
-    repository: string,
-    branches: readonly { branch: string; head: string }[],
-  ): Promise<readonly string[]> {
-    const checkedOut = new Set((await this.listWorktrees(repository)).map((tree) => tree.branch));
-    const kept: string[] = [];
-    const commands: string[] = [];
-    for (const { branch, head } of branches) {
-      await this.validateBranch(repository, branch);
-      if (!/^[a-f0-9]{40,64}$/u.test(head)) throw new Error("Invalid commit ID");
-      const current = await git(repository, [
-        "rev-parse",
-        "--verify",
-        `refs/heads/${branch}`,
-      ]).catch(() => "");
-      if (checkedOut.has(branch) || current.trim() !== head) kept.push(branch);
-      else commands.push(`delete refs/heads/${branch} ${head}`);
-    }
-    if (commands.length) {
-      // One transaction locks refs together. A race aborts it; preserve every ref on failure.
-      try {
-        await git(
-          repository,
-          ["update-ref", "--no-deref", "--stdin"],
-          30_000,
-          ["start", ...commands, "prepare", "commit", ""].join("\n"),
-        );
-      } catch {
-        return branches.map((item) => item.branch);
-      }
-    }
-    return kept;
-  }
-
   async removeWorktree(
     repositoryPath: string,
     path: string,
     force = false,
     identity?: string,
+    beforeRemove?: () => Promise<void>,
   ): Promise<void> {
     const repository = this.repository(repositoryPath);
     validatePath(path);
     const resolved = resolve(path);
     const expected = identity ?? (await this.removalIdentity(repositoryPath, resolved));
     await this.checkRemovalIdentity(repositoryPath, resolved, expected);
+    // Callers with an approved snapshot must validate after the identity await,
+    // immediately before Git. Direct callers keep Git's existing dirty policy.
+    await beforeRemove?.();
     // Git performs its own dirty/locked checks before removing the tree.
     await git(repository.path, [
       "worktree",
@@ -814,4 +781,91 @@ export class WorktreeService {
     this.managed.delete(resolved);
     await this.save();
   }
+}
+
+// Command-scoped overrides: repository configuration cannot suppress evidence.
+const cleanupReadOptions = [
+  "--no-optional-locks",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.untrackedCache=false",
+  "-c",
+  "core.ignorecase=false",
+  "-c",
+  "core.ignoreStat=false",
+  "-c",
+  "core.trustctime=true",
+  "-c",
+  "core.checkStat=default",
+  "-c",
+  "core.fileMode=true",
+  "-c",
+  "core.symlinks=true",
+  "-c",
+  "core.autocrlf=false",
+  "-c",
+  "core.eol=lf",
+  "-c",
+  "core.attributesFile=",
+  "-c",
+  "core.commitGraph=false",
+  "-c",
+  "diff.ignoreSubmodules=none",
+  "-c",
+  "status.showUntrackedFiles=all",
+];
+// Source-local configuration still applies and is audited above; user/system
+// configuration and system attributes cannot change these cleanup-only reads.
+function cleanupGit(path: string, args: string[], input?: string): Promise<string> {
+  return git(path, [...cleanupReadOptions, ...args], 30_000, input, true);
+}
+
+async function exists(path: string): Promise<boolean> {
+  return lstat(path).then(
+    () => true,
+    (error: unknown) => {
+      if (record(error) && error["code"] === "ENOENT") return false;
+      throw error;
+    },
+  );
+}
+
+/** Stream a bounded tree without following symlinks, including ignored directories. */
+async function walkCleanupDirectory(root: string, checkout: boolean): Promise<string[]> {
+  const files: string[] = [];
+  let remaining = 10_000;
+  const walk = async (path: string, depth: number): Promise<void> => {
+    if (depth > 64 || --remaining < 0) throw new Error("Cleanup directory walk exceeded its limit");
+    const before = await lstat(path);
+    if (!before.isDirectory() || before.isSymbolicLink() || (await realpath(path)) !== path)
+      throw new Error("Unsafe cleanup directory");
+    const directory = await opendir(path);
+    for await (const entry of directory) {
+      if (--remaining < 0) throw new Error("Cleanup directory walk exceeded its limit");
+      // Dirent strings replace invalid filename bytes. Never inspect a different
+      // sibling through a lossy name (including a literal replacement character).
+      if (
+        entry.name.includes("\ufffd") ||
+        Buffer.from(entry.name, "utf8").toString("utf8") !== entry.name
+      )
+        throw new Error("Cannot inspect cleanup directory names");
+      if (entry.name.toLowerCase() === ".git") {
+        if (checkout && depth === 0) continue;
+        throw new Error("Nested repositories prevent cleanup");
+      }
+      const child = join(path, entry.name);
+      const info = await lstat(child);
+      if (info.isSymbolicLink()) {
+        if (!checkout) throw new Error("Symlinked reflogs prevent cleanup");
+      } else if (info.isDirectory()) await walk(child, depth + 1);
+      else if (info.isFile()) files.push(child);
+      else throw new Error("Special files prevent cleanup");
+    }
+    const after = await lstat(path);
+    if (before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs)
+      throw new Error("Cleanup directory changed during inspection");
+  };
+  await walk(root, 0);
+  return files;
 }
