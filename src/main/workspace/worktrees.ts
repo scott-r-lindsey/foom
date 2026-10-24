@@ -1,18 +1,5 @@
-import { randomUUID } from "node:crypto";
-import {
-  lstat,
-  mkdir,
-  mkdtemp,
-  opendir,
-  readFile,
-  readdir,
-  realpath,
-  rename,
-  rm,
-  rmdir,
-  writeFile,
-} from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { lstat, opendir, readFile, readdir, realpath, rm, rmdir } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { readOwnedFile } from "../../node-common/owned-files";
 import { ApplicationError } from "../../shared/application-errors";
@@ -24,27 +11,26 @@ import type {
   Repository,
   Worktree,
 } from "../../shared/worktrees";
-import { pullRequest } from "../control/forge";
 import type { ForgeProviderFactory } from "../control/forge.d";
-import { fetchAdvertisedDefault } from "./fetch-default";
 import { inventoryWatchPaths } from "./inventory-watch";
 import {
-  absolutePath,
   adoptWorktree,
   assertInside,
   createWorktree,
   forgeProviderFor,
   git,
   pickRemote,
-  readPanelFacts,
   record,
   refNames,
   validatePath,
   within,
-  worktreeIdentity,
 } from "./worktree-operations";
-
-const commitId = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
+import { WorktreeStore } from "./worktree-store";
+import { checkoutIdentity, worktreeIdentity } from "./worktree-identity";
+import { WorktreeFetchState } from "./worktree-fetch-state";
+import { WorktreePanelFacts } from "./worktree-panel-facts";
+import { WorktreeMergePolicy } from "./worktree-merge-policy";
+import { WorktreeBranchCleanup } from "./worktree-branch-cleanup";
 
 /** Main-process service. Git membership authorizes management; managed records creation history. */
 export class WorktreeService {
@@ -55,8 +41,68 @@ export class WorktreeService {
   >();
   private readonly root: string;
 
-  private stateFile: string | undefined;
-  private pendingSave: Promise<void> = Promise.resolve();
+  private store: WorktreeStore | undefined;
+  private async save(): Promise<void> {
+    await this.store?.save(() => ({
+      version: 1,
+      repositories: [...this.repositories.keys()],
+      managed: [...this.managed].map(([path, ownership]) => ({ path, ...ownership })),
+    }));
+  }
+
+  private readonly panels = new WorktreePanelFacts({
+    launchIdentity: (repository, path) => this.launchIdentity(repository, path),
+    fetchFacts: (repository) => this.fetchState.facts(repository),
+    now: () => Date.now(),
+  });
+  private readonly fetchState = new WorktreeFetchState({
+    repository: (path) => this.repository(path),
+    validateBranch: (repository, branch) => this.validateBranch(repository, branch),
+    invalidatePanels: () => {
+      this.panels.invalidate();
+    },
+    now: () => Date.now(),
+  });
+  private readonly mergePolicy = new WorktreeMergePolicy({
+    checkRemovalIdentity: (repository, path, identity) =>
+      this.checkRemovalIdentity(repository, path, identity),
+    mergedDefault: (repository, refresh) => this.mergedDefault(repository, refresh),
+    validateBranch: (repository, branch) => this.validateBranch(repository, branch),
+    listWorktrees: (repository) => this.listWorktrees(repository),
+    changes: (repository, path, identity) => this.changes(repository, path, identity),
+    forgeRemote: (repository) => this.forgeRemote(repository),
+    forgeProviderFor: (repository, path, remote) => this.forgeProviderFor(repository, path, remote),
+    fetchFacts: (repository) => this.fetchState.facts(repository),
+  });
+  private readonly branchCleanup = new WorktreeBranchCleanup({
+    validateBranch: (repository, branch) => this.validateBranch(repository, branch),
+    listWorktrees: (repository) => this.listWorktrees(repository),
+  });
+
+  async panelFacts(repository: string, worktree: string): Promise<GitPanelFacts> {
+    return this.panels.panelFacts(repository, worktree);
+  }
+  async mergedDefault(repository: string, refresh = false): Promise<string> {
+    return this.fetchState.mergedDefault(repository, refresh);
+  }
+  mergedFetchTime(repository: string): number | undefined {
+    return this.fetchState.mergedFetchTime(repository);
+  }
+  async canAutoRemove(repository: string, path: string, identity: string): Promise<boolean> {
+    return this.mergePolicy.canAutoRemove(repository, path, identity);
+  }
+  async mergedCommit(repository: string, tree: Worktree, base: string): Promise<boolean> {
+    return this.mergePolicy.mergedCommit(repository, tree, base);
+  }
+  async deleteMergedBranch(repository: string, branch: string, head: string): Promise<void> {
+    return this.branchCleanup.deleteMergedBranch(repository, branch, head);
+  }
+  async deleteMergedBranches(
+    repository: string,
+    branches: readonly { branch: string; head: string }[],
+  ): Promise<readonly string[]> {
+    return this.branchCleanup.deleteMergedBranches(repository, branches);
+  }
 
   /** Call after app.whenReady(), passing app.getPath("userData"). */
   /** `protect` applies before saved repositories load, so a conflicting one is dropped. */
@@ -71,27 +117,15 @@ export class WorktreeService {
     for (const path of protect) await service.protect(path);
     const stateFile = join(resolve(userData), "worktrees.json");
     await service.load(stateFile);
-    service.stateFile = stateFile;
+    service.store = new WorktreeStore(stateFile);
     return service;
   }
 
   private async load(stateFile: string): Promise<void> {
-    let state: unknown;
-    try {
-      state = JSON.parse(await readFile(stateFile, "utf8"));
-    } catch {
-      // Missing, unreadable or corrupt state never grants ownership or blocks startup.
-      return;
-    }
-    if (
-      !record(state) ||
-      state["version"] !== 1 ||
-      !Array.isArray(state["repositories"]) ||
-      !Array.isArray(state["managed"])
-    )
-      return;
+    const store = new WorktreeStore(stateFile);
+    const state = await store.read();
+    if (!state) return;
     for (const path of state["repositories"]) {
-      if (!absolutePath(path)) continue;
       try {
         if ((await realpath(path)) !== path) continue;
         await this.addRepository(path);
@@ -100,14 +134,6 @@ export class WorktreeService {
       }
     }
     for (const entry of state["managed"]) {
-      if (
-        !record(entry) ||
-        !absolutePath(entry["path"]) ||
-        !absolutePath(entry["repository"]) ||
-        !absolutePath(entry["root"]) ||
-        typeof entry["identity"] !== "string"
-      )
-        continue;
       const { path, repository, root, identity } = entry;
       if (!this.repositories.has(repository)) continue;
       try {
@@ -125,32 +151,8 @@ export class WorktreeService {
         // A stored record is only a claim: stale or redirected paths lose ownership.
       }
     }
-    this.stateFile = stateFile;
+    this.store = store;
     await this.save();
-  }
-
-  private async save(): Promise<void> {
-    const stateFile = this.stateFile;
-    if (!stateFile) return;
-    const save = this.pendingSave
-      .catch(() => undefined)
-      .then(async () => {
-        const contents = JSON.stringify({
-          version: 1,
-          repositories: [...this.repositories.keys()],
-          managed: [...this.managed].map(([path, ownership]) => ({ path, ...ownership })),
-        });
-        await mkdir(dirname(stateFile), { recursive: true });
-        const temporary = `${stateFile}.${randomUUID()}.tmp`;
-        try {
-          await writeFile(temporary, contents, { flag: "wx", mode: 0o600 });
-          await rename(temporary, stateFile);
-        } finally {
-          await rm(temporary, { force: true });
-        }
-      });
-    this.pendingSave = save;
-    await save;
   }
 
   constructor(
@@ -290,38 +292,22 @@ export class WorktreeService {
 
   /** Main-only snapshot for an explicitly confirmed removal, including external trees. */
   async removalIdentity(repositoryPath: string, path: string): Promise<string> {
-    return this.checkoutIdentity(repositoryPath, path, false);
+    return checkoutIdentity(
+      { listWorktrees: this.listWorktrees.bind(this), git, validatePath, realpath },
+      repositoryPath,
+      path,
+      false,
+    );
   }
 
   /** Validate any selected checkout belonging to an added repository. */
   async launchIdentity(repositoryPath: string, path: string): Promise<string> {
-    return this.checkoutIdentity(repositoryPath, path, true);
-  }
-
-  private async checkoutIdentity(
-    repositoryPath: string,
-    path: string,
-    allowMain: boolean,
-  ): Promise<string> {
-    validatePath(path);
-    const trees = await this.listWorktrees(repositoryPath);
-    const tree = trees.find((item) => item.path === path);
-    if (!allowMain && path === repositoryPath) throw new ApplicationError("worktree-main");
-    if (!tree || tree.bare) throw new ApplicationError("worktree-missing");
-    if (tree.locked) throw new ApplicationError("worktree-locked");
-    if (tree.prunable) throw new ApplicationError("worktree-prunable");
-    if ((await realpath(path)) !== path) throw new Error("Worktree path has been redirected");
-    const commonDirectory = async (cwd: string) =>
-      realpath(
-        (await git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).slice(0, -1),
-      );
-    const common = await commonDirectory(repositoryPath);
-    const gitDirectory = await realpath(
-      (await git(path, ["rev-parse", "--absolute-git-dir"])).slice(0, -1),
+    return checkoutIdentity(
+      { listWorktrees: this.listWorktrees.bind(this), git, validatePath, realpath },
+      repositoryPath,
+      path,
+      true,
     );
-    if ((!allowMain && gitDirectory === common) || (await commonDirectory(path)) !== common)
-      throw new Error("Worktree is not a linked checkout of this repository");
-    return worktreeIdentity(path);
   }
 
   /** Prune only Git's recorded checkout; no caller-selected recursive deletion. */
@@ -762,350 +748,11 @@ export class WorktreeService {
     );
   }
 
-  private readonly panelCache = new Map<
-    string,
-    { time: number; identity: string; result: Promise<GitPanelFacts> }
-  >();
-  private readonly fetchFacts = new Map<
-    string,
-    { branch: string | null; time: number; failed: boolean; head: string | null }
-  >();
-
   /** Local remote metadata only; no fetch or credential lookup. */
   async forgeRemote(repository: string): Promise<string | undefined> {
     const remote = pickRemote(await git(repository, ["remote"]));
     if (!remote) return undefined;
     return (await git(repository, ["config", "--get", `remote.${remote}.url`])).trim();
-  }
-
-  /** Authorize even cache hits. Opening a panel never starts or awaits a network fetch. */
-  async panelFacts(repository: string, worktree: string): Promise<GitPanelFacts> {
-    let identity: string;
-    try {
-      identity = await this.launchIdentity(repository, worktree);
-    } catch (error) {
-      if (!(error instanceof ApplicationError) || error.code !== "worktree-prunable") throw error;
-      // Known inventory state, not a failed panel operation.
-      return {
-        changes: null,
-        upstream: null,
-        commit: null,
-        remote: null,
-        defaultBranch: null,
-        lastFetch: null,
-        fetchFailed: false,
-        merged: null,
-      };
-    }
-    const key = `${repository}\0${worktree}`;
-    const cached = this.panelCache.get(key);
-    if (cached?.identity === identity && Date.now() - cached.time < 3000) return cached.result;
-    const result = readPanelFacts(this.fetchFacts, repository, worktree);
-    this.panelCache.set(key, { identity, time: Date.now(), result });
-    return result;
-  }
-
-  private readonly mergeDefaults = new Map<string, { time: number; result: Promise<string> }>();
-
-  /** Inventory shares a recent fetch; destructive actions always fetch again. */
-  async mergedDefault(repository: string, refresh = false): Promise<string> {
-    this.repository(repository);
-    const cached = this.mergeDefaults.get(repository);
-    if (!refresh && cached && Date.now() - cached.time < 60_000) return cached.result;
-    const result = (cached?.result.catch(() => undefined) ?? Promise.resolve()).then(() =>
-      this.fetchDefault(repository),
-    );
-    this.mergeDefaults.set(repository, { time: Date.now(), result });
-    return result;
-  }
-
-  /** Timestamp of the successful fetch used by merged-worktree checks. */
-  mergedFetchTime(repository: string): number | undefined {
-    const fetch = this.fetchFacts.get(repository);
-    return fetch && !fetch.failed ? fetch.time : undefined;
-  }
-
-  private async fetchDefault(repository: string): Promise<string> {
-    const remote = pickRemote(await git(repository, ["remote"]));
-    if (!remote) throw new Error("No unambiguous repository remote");
-    try {
-      const { branch, commit } = await fetchAdvertisedDefault(
-        remote,
-        (args) => git(repository, args),
-        (branch) => this.validateBranch(repository, branch),
-      );
-      this.fetchFacts.set(repository, {
-        branch,
-        time: Date.now(),
-        failed: false,
-        head: commit,
-      });
-      this.panelCache.clear();
-      return commit;
-    } catch (error) {
-      this.fetchFacts.set(repository, { branch: null, time: Date.now(), failed: true, head: null });
-      this.panelCache.clear();
-      throw new Error(
-        `Cannot check merged worktrees: fetch failed. ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
-      );
-    }
-  }
-
-  /** Ancestry or a PR merge verified against the freshly fetched default. */
-  async canAutoRemove(repository: string, path: string, identity: string): Promise<boolean> {
-    try {
-      await this.checkRemovalIdentity(repository, path, identity);
-      const base = await this.mergedDefault(repository, true);
-      const branch = (await git(path, ["symbolic-ref", "--quiet", "--short", "HEAD"])).trim();
-      await this.validateBranch(repository, branch);
-      const head = (await git(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim();
-      if (!/^[a-f0-9]{40,64}$/u.test(head) || !/^[a-f0-9]{40,64}$/u.test(base)) return false;
-      if (this.fetchFacts.get(repository)?.branch === branch) return false;
-      const tree = (await this.listWorktrees(repository)).find((item) => item.path === path);
-      if (!tree || tree.head !== head || tree.branch !== branch) return false;
-      if (!(await this.verifiedPrMerge(repository, tree, base))) {
-        // Preserve the no-unpushed-commits guard for the ancestry-only path.
-        const upstream = (
-          await git(path, ["for-each-ref", "--format=%(upstream)", `refs/heads/${branch}`])
-        ).trim();
-        const unpushed = (
-          await git(
-            path,
-            upstream
-              ? ["rev-list", "--count", "HEAD", "--not", upstream, "--"]
-              : ["rev-list", "--count", "HEAD", "--not", "--remotes", "--"],
-          )
-        ).trim();
-        if (unpushed !== "0") return false;
-        if (!(await this.withMergeProof(repository, (run) => this.isAncestor(run, head, base))))
-          return false;
-      }
-      if ((await this.changes(repository, path, identity)) !== "") return false;
-      return (
-        (await git(path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim() === head &&
-        (await git(path, ["symbolic-ref", "--quiet", "--short", "HEAD"])).trim() === branch
-      );
-    } catch {
-      // Missing refs, failed fetches, unsupported Git and identity changes never authorize removal.
-      return false;
-    }
-  }
-
-  async mergedCommit(repository: string, tree: Worktree, base: string): Promise<boolean> {
-    const head = tree.head;
-    if (!head || (tree.branch !== null && this.fetchFacts.get(repository)?.branch === tree.branch))
-      return false;
-    if (tree.branch) await this.validateBranch(repository, tree.branch);
-    if (!commitId.test(base) || !commitId.test(head)) throw new Error("Invalid commit ID");
-    try {
-      if (
-        await this.withMergeProof(repository, (run) => this.mergeMatchesTree(run, base, head, base))
-      )
-        return true;
-    } catch {
-      // A content conflict does not rule out an earlier PR merge.
-    }
-    return this.verifiedPrMerge(repository, tree, base);
-  }
-
-  /** Forge output is only a hint; never pass its unchecked values to Git. */
-  private async verifiedPrMerge(
-    repository: string,
-    tree: Worktree,
-    base: string,
-  ): Promise<boolean> {
-    try {
-      if (!tree.branch || !tree.head || this.fetchFacts.get(repository)?.branch === tree.branch)
-        return false;
-      const remote = await this.forgeRemote(repository);
-      const pr = pullRequest(
-        await (remote === undefined
-          ? undefined
-          : (await this.forgeProviderFor(repository, tree.path, remote))?.lookup(
-              tree.branch,
-              undefined,
-              "all",
-            )),
-      );
-      if (pr?.state !== "MERGED" || pr.headSha !== tree.head) return false;
-      let integrated = false;
-      for (const commit of new Set([pr.mergeCommit, pr.squashCommit])) {
-        if (!commit) continue;
-        if (!commitId.test(commit)) return false;
-        if (await this.hintIntegratesHead(repository, commit, tree.head, base)) {
-          integrated = true;
-          break;
-        }
-      }
-      if (!integrated) return false;
-      return (
-        (await git(tree.path, ["rev-parse", "--verify", "HEAD^{commit}"])).trim() === tree.head &&
-        (await this.changes(repository, tree.path)) === ""
-      );
-    } catch {
-      // Missing objects, malformed/hostile forge hints and unavailable providers fail closed.
-      return false;
-    }
-  }
-
-  /** Reachability from default is necessary, but cannot tie a forge hint to this head. */
-  private async hintIntegratesHead(
-    repository: string,
-    commit: string,
-    head: string,
-    base: string,
-  ): Promise<boolean> {
-    if (![commit, head, base].every((sha) => commitId.test(sha))) return false;
-    return this.withMergeProof(repository, async (run) => {
-      if (!(await this.isAncestor(run, commit, base))) return false;
-      if (await this.isAncestor(run, head, commit)) return true;
-      const parents = (await run(["rev-list", "--parents", "-n", "1", commit])).trim().split(" ");
-      const parent = parents[1];
-      if (parents.length !== 2 || parents[0] !== commit || !parent || !commitId.test(parent))
-        return false;
-      const mergeBase = (await run(["merge-base", "--all", parent, head])).trim();
-      // Multiple merge bases are ambiguous; never pick one using forge claims.
-      if (!commitId.test(mergeBase)) return false;
-      return this.mergeMatchesTree(run, parent, head, commit);
-    });
-  }
-
-  private async isAncestor(
-    run: (args: string[]) => Promise<string>,
-    ancestor: string,
-    descendant: string,
-  ): Promise<boolean> {
-    if (![ancestor, descendant].every((sha) => commitId.test(sha))) return false;
-    try {
-      await run(["merge-base", "--is-ancestor", ancestor, descendant]);
-      return true;
-    } catch (error) {
-      // Only an ordinary non-ancestor result permits another proof or hint.
-      if (!record(error) || error["code"] !== 1) throw error;
-      return false;
-    }
-  }
-
-  /** Never let repository attributes/configuration manufacture a cleanup proof. */
-  private async withMergeProof(
-    repository: string,
-    prove: (run: (args: string[]) => Promise<string>) => Promise<boolean>,
-  ): Promise<boolean> {
-    const objects = await realpath(
-      (
-        await git(repository, ["rev-parse", "--path-format=absolute", "--git-path", "objects"])
-      ).trim(),
-    );
-    if (/[\r\n]/u.test(objects)) return false;
-    const format = (await git(repository, ["rev-parse", "--show-object-format"])).trim();
-    if (format !== "sha1" && format !== "sha256") return false;
-    const proof = await mkdtemp(join(tmpdir(), "foom-merge-proof-"));
-    try {
-      const run = (args: string[]) =>
-        git(proof, ["-c", "core.commitGraph=false", ...args], 30_000, undefined, true);
-      await run(["init", "--bare", "--template=", `--object-format=${format}`]);
-      await Promise.all(
-        ["info", "objects/info"].map((path) => mkdir(join(proof, path), { recursive: true })),
-      );
-      // Git's alternates file accepts C-quoted absolute paths. Objects are read
-      // from the source store; merge output is written only in this disposable repo.
-      await writeFile(join(proof, "objects/info/alternates"), `${JSON.stringify(objects)}\n`, {
-        mode: 0o600,
-      });
-      // info/attributes has higher precedence than every versioned attributes file.
-      await writeFile(
-        join(proof, "info/attributes"),
-        "* merge=text -text -eol -filter -working-tree-encoding\n",
-        { mode: 0o600 },
-      );
-      // Alternates expose objects only, never source refs, grafts or config.
-      // Read raw commits rather than trusting cached graphs in that object store.
-      return await prove(run);
-    } finally {
-      await rm(proof, { recursive: true, force: true });
-    }
-  }
-
-  private async mergeMatchesTree(
-    run: (args: string[]) => Promise<string>,
-    left: string,
-    head: string,
-    expected: string,
-  ): Promise<boolean> {
-    if (![left, head, expected].every((sha) => commitId.test(sha))) return false;
-    const expectedTree = (await run(["rev-parse", "--verify", `${expected}^{tree}`])).trim();
-    if (!commitId.test(expectedTree)) return false;
-    // Config controls also work on Git versions whose merge-tree has no -X.
-    // The isolated repo has no other strategy or merge-driver configuration.
-    const merged = (
-      await run([
-        "-c",
-        "core.attributesFile=",
-        "-c",
-        "core.commitGraph=false",
-        "-c",
-        "core.autocrlf=false",
-        "-c",
-        "merge.renormalize=false",
-        "-c",
-        "merge.renames=false",
-        "-c",
-        "merge.directoryRenames=false",
-        "-c",
-        "diff.algorithm=histogram",
-        "merge-tree",
-        "--write-tree",
-        "--no-messages",
-        left,
-        head,
-      ])
-    ).trim();
-    return commitId.test(merged) && merged === expectedTree;
-  }
-
-  async deleteMergedBranch(repository: string, branch: string, head: string): Promise<void> {
-    await this.validateBranch(repository, branch);
-    if (!/^[a-f0-9]{40,64}$/u.test(head)) throw new Error("Invalid commit ID");
-    if ((await this.listWorktrees(repository)).some((tree) => tree.branch === branch))
-      throw new Error("Branch is checked out; kept its local ref");
-    // Compare-and-delete atomically, unlike branch -D's unconditional ref deletion.
-    // This also removes squash-merged refs without an ancestry-based merged check.
-    await git(repository, ["update-ref", "--no-deref", "-d", `refs/heads/${branch}`, head]);
-  }
-
-  async deleteMergedBranches(
-    repository: string,
-    branches: readonly { branch: string; head: string }[],
-  ): Promise<readonly string[]> {
-    const checkedOut = new Set((await this.listWorktrees(repository)).map((tree) => tree.branch));
-    const kept: string[] = [];
-    const commands: string[] = [];
-    for (const { branch, head } of branches) {
-      await this.validateBranch(repository, branch);
-      if (!/^[a-f0-9]{40,64}$/u.test(head)) throw new Error("Invalid commit ID");
-      const current = await git(repository, [
-        "rev-parse",
-        "--verify",
-        `refs/heads/${branch}`,
-      ]).catch(() => "");
-      if (checkedOut.has(branch) || current.trim() !== head) kept.push(branch);
-      else commands.push(`delete refs/heads/${branch} ${head}`);
-    }
-    if (commands.length) {
-      // One transaction locks refs together. A race aborts it; preserve every ref on failure.
-      try {
-        await git(
-          repository,
-          ["update-ref", "--no-deref", "--stdin"],
-          30_000,
-          ["start", ...commands, "prepare", "commit", ""].join("\n"),
-        );
-      } catch {
-        return branches.map((item) => item.branch);
-      }
-    }
-    return kept;
   }
 
   async removeWorktree(
