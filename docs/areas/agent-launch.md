@@ -69,7 +69,7 @@ shells, agents and resumes), `sidebar-commands.ts` (inventory, sidebar commands,
 checkout creation/removal, config sessions and probe credentials), and
 `orchestration-commands.ts` (roles, child launches, terminal events and ordered
 evaluation). Each module has a narrow capability type
-in `feature-context.d.ts`; the coordinator retains shared locks and owner wiring.
+in `workspace-capabilities.d.ts`; the coordinator retains shared locks and owner wiring.
 `workspace-types.d.ts` declares dependencies and feature method signatures.
 The coordinator scans once and reuses the result until a refresh, starts the hook receiver on the first launch that attaches hooks, and closes it after terminals stop on quit. `src/main/agents/providers/hook-launch.ts` writes each launch's adapter script to its own `mkdtemp` directory (mode 0700), registers receiver credentials under a random key, and maps that key to the terminal ID once it exists (`AgentHooks.bind`). Exit, kill, and shutdown release the launch: credentials are revoked, the directory is deleted, and the worktree is free again. Antigravity uses a separately installed opt-in observer plugin; only its Foom launches receive fresh hook credentials. Preflight's settings reach the workspace through `configure`: the hooks setting calls `setHooksEnabled`, and launching an agent that preflight turned off is refused. Launched agents and worktree shells appear immediately in stable repository groups on the board. Board, sidebar config and restored Codex sessions attach the notify fallback without notifier consent. Stored legacy `codexNotifierAcknowledged` values are ignored.
 
@@ -84,3 +84,14 @@ child grants. Main rechecks cancellation and ownership immediately before spawn.
 Main-owned loop presentation metadata is written with each row before its first
 session save, so a crash during launch cannot restore a loop participant as an
 ordinary running session. No global provider config or running-PTY input is used.
+
+## Workspace feature capabilities (#768)
+
+`workspace-capabilities.d.ts` declares independent feature contracts without importing
+the coordinator. `workspace-feature-wiring.ts` builds each feature's dependency
+slice and live views of coordinator-owned state; feature functions bind to these
+capabilities rather than the coordinator. `workspace-orchestration-host.ts` adapts the
+orchestration host, including PR adoption under the shared repository and branch
+reservations. The context still owns those reservations, terminal queues, launch
+cancellation, owner initialization and shutdown order behind the unchanged
+`workspace.ts` facade.

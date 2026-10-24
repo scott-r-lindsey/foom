@@ -12,7 +12,7 @@ import type {
   ConfigLaunchContext,
   RepositoryOperationsContext,
   SidebarCommandsContext,
-} from "./feature-context";
+} from "./workspace-capabilities";
 import { homeDirectory, homeShellFacts } from "./home-shell";
 
 export async function sidebarInventory(this: SidebarCommandsContext): Promise<SidebarInventory> {
