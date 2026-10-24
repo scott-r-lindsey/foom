@@ -30,6 +30,7 @@ Test deadlines and step limits are unchanged.
 | `agents.test.js` | Fixture agents, hooks, conversations, orchestration and plugins |
 | `application.test.js` | Native board startup, fonts/themes and production bundle |
 | `harness.test.js` | Launch environment, quit acknowledgement and cleanup contracts |
+| `session-storage.test.js` | Chromium storage isolation, restore, temporary-directory fallback and cleanup |
 
 `harness.js` owns reusable launch, fixture, cleanup, diagnostics and interaction
 helpers. Feature-specific helpers stay beside their scenarios. It registers no

@@ -15,6 +15,7 @@ const {
   launchApp,
   quitAndWait,
   removeAfterApps,
+  createMemoryFixture,
   assertAccessible,
 } = require("./harness.js");
 
@@ -110,10 +111,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
     removeAfterApps(context, root);
     // Keep durable review/control writes independent of concurrent build I/O.
     // The tmpfs profile still exercises real persistence across app restarts.
-    const profile = await mkdtemp(
-      path.join(process.platform === "linux" ? "/dev/shm" : tmpdir(), "foom-review-profile-"),
-    );
-    removeAfterApps(context, profile);
+    const profile = await createMemoryFixture(context, "foom-review-profile-");
     const bin = path.join(root, "bin");
     const repo = path.join(root, "app");
     const home = path.join(root, "home");
