@@ -36,7 +36,11 @@ function allocate(root, prefix) {
 // contended Linux disk. Every allocation shares the same hard-exit owner.
 async function createFixtureStorage(
   prefix,
-  { platform = process.platform, temporary = tmpdir(), sharedMemory = "/dev/shm" } = {},
+  {
+    platform = process.platform,
+    temporary = tmpdir(),
+    sharedMemory = process.env.FOOM_TEST_SHARED_MEMORY_ROOT ?? "/dev/shm",
+  } = {},
 ) {
   if (platform === "linux") {
     try {

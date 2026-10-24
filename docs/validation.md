@@ -25,9 +25,10 @@ PR checks enforce the contributor changed-line coverage threshold and fail if a 
 ## Temporary-directory ownership (#813)
 
 The unit, watch, coverage, CI-policy, Electron (including affected suites), and
-packaged test commands run through `scripts/test-temp.mjs`. The parent allocates
-one private `foom-tests-*` root, supplies it as `TMPDIR`, `TMP` and `TEMP`, waits
-for the runner, and synchronously removes and checks that root on success,
+packaged/installer test commands run through `scripts/test-temp.mjs`. The parent allocates
+a private `foom-tests-*` root for `TMPDIR`, `TMP` and `TEMP`, a worktree-filesystem
+root for the concurrent-review fixture, and an optional Linux tmpfs root for
+browser storage. It waits for the runner, then synchronously removes and checks all roots on success,
 failure or worker timeout. An inert invalid `.git` file prevents non-repository
 fixtures from discovering an enclosing worktree when `TMPDIR` is inside one. Interrupts forward to the runner's Unix process group
 (or the Windows runner), with a bounded forced termination fallback. Normal
@@ -50,14 +51,20 @@ The reported prefixes have these owners on current main:
 | `foom-verdict-*`, `foom-environment-*` | Unit evaluator/settings fixtures; ordinary afterEach cleanup plus the run root. |
 | `foom-probe-verification-*` | Unit probe fixture; finally cleanup plus the run root. Unix fixtures now link Node instead of copying it (#791). |
 | `foom-entry-*`, `foom-agent-isolation-*` | Electron bootstrap and fixture CLI guard directories; quit-before-removal harness cleanup plus the run root. |
-| `scoped_dir*`, `electron-download-*`, `playwright-artifacts-*` | Chromium, Electron download/extraction and Playwright scratch; inherited run root covers residual files from failures. Chromium shared-memory fixtures additionally retain their identity-checked worker cleanup. |
+| `scoped_dir*`, `electron-download-*`, `playwright-artifacts-*` | Chromium, Electron download/extraction and Playwright scratch; inherited run root covers residual files from failures. Chromium shared-memory fixtures also retain their identity-checked worker cleanup; the parent owns their enclosing tmpfs root. |
 
 To measure a full local unit and Electron run, allocate a dedicated empty directory
 inside ignored `test-results/`, set all three temp variables to its absolute path
 **inside** any external validation wrapper that replaces `TMPDIR`, run `pnpm test`
 and `xvfb-run -a pnpm run test:electron`, then list that dedicated directory.
-It must contain no new `foom-*` entries. Never inspect or remove other runs' files
-in the real temporary directory. Test-run cleanup is a fallback for fixtures;
+It must contain no new `foom-*` entries. Use the canonical measurement path for
+unit tests, whose descriptor-race fixtures compare path spellings. Chromium's Unix socket path limit may
+require a short, uniquely allocated symlink to that directory; create the link
+inside the external wrapper's own temp root, and set the temp variables to the
+link for the Electron command after the wrapper has set its environment. Removing the link must leave the
+measurement target intact. Node's reusable compile cache may remain in the
+measurement directory, outside the test-owned run root. Never inspect or remove
+other runs' files in the real temporary directory. Test-run cleanup is a fallback for fixtures;
 product lifecycle regressions separately assert immediate hook/MCP removal and
 shell removal on native exit and shutdown.
 

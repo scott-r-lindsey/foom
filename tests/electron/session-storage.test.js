@@ -49,7 +49,10 @@ test("Chromium fixture storage survives restore, stays separate from Foom data a
       filesystem?.type === 0x01021994 &&
       filesystem.bavail * filesystem.bsize >= 128 * 1024 * 1024
     )
-      assert.equal(await realpath(path.dirname(paths.session)), await realpath("/dev/shm"));
+      assert.equal(
+        await realpath(path.dirname(paths.session)),
+        await realpath(process.env.FOOM_TEST_SHARED_MEMORY_ROOT ?? "/dev/shm"),
+      );
   }
   const page = await boardPage(app);
   await page.evaluate(() => localStorage.setItem("foom-fixture-storage", "kept"));

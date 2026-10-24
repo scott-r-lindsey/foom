@@ -105,7 +105,10 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
     const { existsSync } = require("node:fs");
     const root = await mkdtemp(
       scenario === "concurrent"
-        ? path.resolve("test-results/foom-review-concurrent-")
+        ? path.join(
+            process.env.FOOM_TEST_DISK_ROOT ?? path.resolve("test-results"),
+            "foom-review-concurrent-",
+          )
         : path.join(tmpdir(), "foom-forge-adopt-"),
     );
     removeAfterApps(context, root);

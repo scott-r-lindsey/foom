@@ -34,7 +34,7 @@
     "check": "pnpm run format:check && pnpm run docs:check && pnpm run lint && pnpm run typecheck && pnpm test && pnpm run test:ci",
     "prepare": "husky",
     "audit": "pnpm audit --audit-level=low",
-    "test:installers": "node scripts/installer-smoke.mjs",
+    "test:installers": "node scripts/test-temp.mjs scripts/installer-smoke.mjs",
     "docs:check": "node scripts/docs-check.mjs"
   },
   "devDependencies": {
