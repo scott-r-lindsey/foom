@@ -376,6 +376,7 @@ button:disabled {
   opacity: 0.45;
   cursor: default;
 }
+input:focus-visible,
 button:focus-visible {
   outline: 2px solid var(--state-focus, var(--highlight));
   outline-offset: 2px;
@@ -518,4 +519,16 @@ li[data-dirty="true"] > .row > .why svg {
 .bounded .confirmation-content > div {
   gap: 12px;
   padding-block: 14px 18px;
+}
+
+.close-when-completed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  color: var(--ink);
+  cursor: pointer;
+}
+.close-when-completed input {
+  accent-color: var(--ink);
 }
