@@ -118,6 +118,8 @@ replace the saved xterm target, including during rapid Settings reopening.
 Trusted scrims, About, legal views, action errors
 and menu dismissal share `board/focus-restore.ts` for detached or unfocusable
 opener fallback. Scrim restoration runs in a layout effect after removing the top-layer popover;
-its native focus cleanup must finish before selecting the fallback. DOM restoration
+its native focus cleanup must finish before selecting the fallback. A check after the first paint
+repairs a later Windows reset only when body still owns focus, preserving
+any new human focus target. DOM restoration
 never requests native app activation. Native
 trusted-window restoration follows the [confirmation rules](confirmations.md#focus-restoration-852).

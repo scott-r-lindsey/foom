@@ -1499,6 +1499,17 @@ async function focusRestoreDialog(app) {
     );
   }, mainModule);
 }
+async function escapeFocusedConfirmation(app) {
+  // CDP keyboard.press sends key-up to its original page even after key-down
+  // dismisses it. Follow native focus, as the terminal typing assertions do.
+  await app.evaluate(({ webContents }) => {
+    const contents = webContents.getFocusedWebContents();
+    if (!contents || contents.getURL() !== "app://confirmation/confirmation.html")
+      throw Error("The trusted confirmation must own native keyboard focus");
+    contents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    contents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+  });
+}
 async function requestFocusRestore(app) {
   await app.evaluate(() => {
     globalThis.focusRestoreAbort = new AbortController();
@@ -1544,7 +1555,7 @@ test("modal dismissal restores the same terminal input for cancel, approve, Esca
     for (const action of ["Cancel", "Approve", "Escape", "abort"]) {
       const dialog = await requestFocusRestore(app);
       if (action === "abort") await app.evaluate(() => globalThis.focusRestoreAbort.abort());
-      else if (action === "Escape") await dialog.keyboard.press("Escape");
+      else if (action === "Escape") await escapeFocusedConfirmation(app);
       else await dialog.getByRole("button", { name: action, exact: true }).click();
       await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
       await expect
@@ -1580,7 +1591,7 @@ test("modal dismissal restores the same terminal input for cancel, approve, Esca
     await expect
       .poll(async () => (await board.evaluate((id) => window.desktop.tail(id, 30), id)).join(""))
       .toContain("settingsrestored");
-    const dialog = await requestFocusRestore(app);
+    await requestFocusRestore(app);
     await board.evaluate((id) => window.desktop.kill(id), id);
     await expect
       .poll(() =>
@@ -1595,7 +1606,7 @@ test("modal dismissal restores the same terminal input for cancel, approve, Esca
     // With no remaining sessions the compact rail has no row or visible wordmark.
     await board.evaluate(() => window.desktop.appMenu.execute("toggle-sidebar"));
     await expect(board.locator(".sidebar-shell")).toHaveAttribute("data-compact", "true");
-    await dialog.keyboard.press("Escape");
+    await escapeFocusedConfirmation(app);
     await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
     try {
       await expect(board.getByRole("navigation", { name: "Terminal sidebar" })).toBeFocused();

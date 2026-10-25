@@ -121,6 +121,12 @@ test("first run still performs setup before opening the board, without a Preflig
 });
 
 test("main's cosmetic scrim follows visibility and unsubscribes when the app unmounts", async () => {
+  let nextFrame: FrameRequestCallback | undefined;
+  const frame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    nextFrame = callback;
+    return 1;
+  });
+  const cancelFrame = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
   const showPopover = vi.fn();
   Object.defineProperty(HTMLElement.prototype, "showPopover", {
     configurable: true,
@@ -158,10 +164,38 @@ test("main's cosmetic scrim follows visibility and unsubscribes when the app unm
   });
   expect(view.container.querySelector(".board-confirmation-scrim")).toBeNull();
   expect(document.activeElement).toBe(input);
+  // A native focus clear during the first paint is repaired afterward.
+  act(() => {
+    nextFrame?.(0);
+  });
+  input.blur();
+  act(() => {
+    nextFrame?.(1);
+  });
+  expect(document.activeElement).toBe(input);
+  act(() => {
+    receive(true);
+  });
+  act(() => {
+    receive(false);
+  });
+  const other = document.createElement("button");
+  view.container.append(other);
+  act(() => {
+    nextFrame?.(2);
+  });
+  other.focus();
+  act(() => {
+    nextFrame?.(3);
+  });
+  expect(document.activeElement).toBe(other);
   expect(showPopover).toHaveBeenCalled();
   view.unmount();
   Reflect.deleteProperty(HTMLElement.prototype, "showPopover");
   expect(off).toHaveBeenCalledOnce();
+  expect(cancelFrame).toHaveBeenCalled();
+  frame.mockRestore();
+  cancelFrame.mockRestore();
 });
 test("live preview arrivals refresh main-owned inventory before asking the board to place", async () => {
   let listener:
