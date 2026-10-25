@@ -148,12 +148,24 @@ test("main's cosmetic scrim follows visibility and unsubscribes when the app unm
   const input = document.createElement("textarea");
   view.container.append(input);
   input.focus();
+  // The board may process preparation and cancellation in one React batch.
+  act(() => {
+    receive(true);
+    receive(false);
+    input.blur();
+  });
+  expect(document.activeElement).toBe(input);
   act(() => {
     receive(false);
     receive(true);
     receive(true);
   });
   input.blur();
+  act(() => {
+    receive(false);
+    receive(true);
+  });
+  expect(showPopover).toHaveBeenCalledOnce();
   expect(
     view.container.querySelector(".board-confirmation-scrim")?.getAttribute("aria-hidden"),
   ).toBe("true");

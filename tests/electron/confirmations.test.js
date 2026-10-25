@@ -1591,6 +1591,29 @@ test("modal dismissal restores the same terminal input for cancel, approve, Esca
     await expect
       .poll(async () => (await board.evaluate((id) => window.desktop.tail(id, 30), id)).join(""))
       .toContain("settingsrestored");
+    await board.evaluate(() => {
+      window.closedFocusTrace = [];
+      const record = (kind, target = document.activeElement) => {
+        window.closedFocusTrace.push({
+          kind,
+          tag: target instanceof Element ? target.tagName : null,
+          className: target instanceof Element ? target.getAttribute("class") : null,
+          active: document.activeElement?.tagName,
+          focused: document.hasFocus(),
+        });
+        if (window.closedFocusTrace.length > 32) window.closedFocusTrace.shift();
+      };
+      const entered = (event) => record("focusin", event.target);
+      const left = (event) => record("focusout", event.target);
+      document.addEventListener("focusin", entered);
+      document.addEventListener("focusout", left);
+      const off = window.desktop.confirmations.onScrim((visible) => record(`scrim:${visible}`));
+      window.stopClosedFocusTrace = () => {
+        off();
+        document.removeEventListener("focusin", entered);
+        document.removeEventListener("focusout", left);
+      };
+    });
     await requestFocusRestore(app);
     await board.evaluate((id) => window.desktop.kill(id), id);
     await expect
@@ -1617,6 +1640,16 @@ test("modal dismissal restores the same terminal input for cancel, approve, Esca
           tag: document.activeElement?.tagName,
           className: document.activeElement?.className,
           role: document.activeElement?.getAttribute("role"),
+          trace: window.closedFocusTrace,
+          sidebar: Array.from(document.querySelectorAll(".board-list"), (element) => ({
+            connected: element.isConnected,
+            inert: Boolean(element.closest("[inert]")),
+            hidden: Boolean(element.closest("[hidden]")),
+            display: getComputedStyle(element).display,
+            visibility: getComputedStyle(element).visibility,
+            width: element.getBoundingClientRect().width,
+            height: element.getBoundingClientRect().height,
+          })),
         })),
         windows: await app.evaluate(({ BrowserWindow }) =>
           BrowserWindow.getAllWindows().map((window) => ({
@@ -1631,12 +1664,14 @@ test("modal dismissal restores the same terminal input for cancel, approve, Esca
       throw error;
     }
   } finally {
+    await board.evaluate(() => window.stopClosedFocusTrace?.());
     await app.evaluate(() => globalThis.focusRestoreDialog.dispose());
   }
 });
 
 test("inactive agent confirmation dismissal preserves the other application's native focus", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
+  const board = await boardPage(app);
   // Start both processes before raising consent: the existing reachability
   // guard must not compete with the second launch's native-readiness gate.
   const other = await launchApp(context, { fixture: "empty-board" });
@@ -1665,6 +1700,10 @@ test("inactive agent confirmation dismissal preserves the other application's na
       .toBe(false);
     await app.evaluate(() => globalThis.focusRestoreAbort.abort());
     await expect.poll(() => app.evaluate(() => globalThis.focusRestoreAnswer)).toBe(false);
+    await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+    await board.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
     assert.equal(
       await app.evaluate(({ BrowserWindow }) =>
         BrowserWindow.getAllWindows().some((window) => window.isFocused()),

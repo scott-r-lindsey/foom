@@ -13,6 +13,10 @@ import { createAppSource } from "./board/live-board-source";
 import { Preflight } from "./preflight/preflight-view";
 import { createSetupSource } from "./preflight/setup-source";
 
+function showConfirmationScrim(element: HTMLDivElement | null): void {
+  element?.showPopover();
+}
+
 /**
  * Preflight runs until setup is complete; later changes live in Settings.
  * Once mounted, the board stays mounted underneath so its shell keeps running.
@@ -51,10 +55,10 @@ function AppContents() {
     const api = window.desktop.previews;
     if (api) return attachPreviewComposition(api);
   }, []);
-  const [scrim, setScrim] = useState(false);
+  const [scrim, setScrim] = useState({ visible: false });
   const scrimOriginRef = useRef<{ target: Element | null } | undefined>(undefined);
   useLayoutEffect(() => {
-    if (scrim) return;
+    if (scrim.visible) return;
     const origin = scrimOriginRef.current;
     scrimOriginRef.current = undefined;
     // Remove the top-layer popover before restoring input: its native focus
@@ -75,8 +79,11 @@ function AppContents() {
   useEffect(() => {
     let showing = false;
     return source.confirmations?.onScrim?.((visible) => {
-      if (visible && !showing) scrimOriginRef.current = { target: document.activeElement };
-      setScrim(visible);
+      if (visible === showing) return;
+      if (visible && scrimOriginRef.current === undefined)
+        scrimOriginRef.current = { target: document.activeElement };
+      // A batched true/false pair must still commit its dismissal effect.
+      setScrim({ visible });
       showing = visible;
     });
   }, [source]);
@@ -177,14 +184,12 @@ function AppContents() {
           }
         />
       )}
-      {scrim && (
+      {scrim.visible && (
         <div
           className="board-confirmation-scrim"
           aria-hidden="true"
           popover="manual"
-          ref={(element) => {
-            element?.showPopover();
-          }}
+          ref={showConfirmationScrim}
         />
       )}
     </>

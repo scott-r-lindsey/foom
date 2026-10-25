@@ -117,7 +117,10 @@ always selecting a sidebar row. Interim tile focus while reattaching does not
 replace the saved xterm target, including during rapid Settings reopening.
 Trusted scrims, About, legal views, action errors
 and menu dismissal share `board/focus-restore.ts` for detached or unfocusable
-opener fallback. Scrim restoration runs in a layout effect after removing the top-layer popover;
+opener fallback. A coalesced prepare/dismiss pair still commits its dismissal effect, even when
+the final visible flag is unchanged. Serial handoffs retain the original focus
+until the scrim is actually removed, with a stable native-popover ref.
+Scrim restoration runs in a layout effect after removing the top-layer popover;
 its native focus cleanup must finish before selecting the fallback. A check after the first paint
 repairs a later Windows reset only when body still owns focus, preserving
 any new human focus target. DOM restoration
