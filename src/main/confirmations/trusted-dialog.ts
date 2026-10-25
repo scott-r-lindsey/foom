@@ -245,6 +245,7 @@ export class TrustedDialog {
       const request: DialogRequest = {
         ...renderContent,
         id,
+        presented: false,
         theme: this.theme(),
         ...(feed ? { cleanup: feed.current() } : {}),
         ...(removalFeed ? removalContent(removalFeed.current()) : {}),
@@ -268,6 +269,7 @@ export class TrustedDialog {
           this.pending.request = {
             ...renderContent,
             id: this.pending.id,
+            presented: this.pending.request.presented,
             theme: this.theme(),
             ...removalContent(removalFeed.current()),
           };
@@ -388,6 +390,10 @@ export class TrustedDialog {
       this.syncBounds();
       window.moveTop();
       this.focusDialog();
+      if (!this.pending.request.presented) {
+        this.pending.request = { ...this.pending.request, presented: true };
+        window.webContents.send("confirmation:render", this.pending.request);
+      }
     } catch {
       this.finish(false);
     } finally {

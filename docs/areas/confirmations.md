@@ -70,6 +70,12 @@ unchanged reports do not restart that interval. The existing one-second guard
 also bounds settling, so missing fonts or continuous layout churn decline rather
 than leave the board blocked. Cancellation clears the settling timer, recovery
 cannot show an unsettled card, and positive answers require completed settling.
+The render payload carries a required, validated `presented` boolean. It starts
+false; confirming buttons (including selected-removal approval) stay disabled
+until main completes show, bounds correction, raising and focus, then publishes
+true through the same render channel. This is UI readiness, never consent: every
+positive answer still passes main's native reachability checks. Cancel remains
+available during preparation. Live updates preserve the presentation flag.
 After settling, main re-establishes the parent link,
 checks native geometry after show and reapplies positioning only when it differs,
 and raises it with `moveTop()` before focusing. Every positioning path reads back

@@ -295,6 +295,7 @@ export function ConfirmationPage() {
   const running = cleanup?.stage === "run";
   const finished = running && cleanup.progress.phase === "finished";
   const disabled =
+    !request.presented ||
     cleanup?.stage === "checking" ||
     (cleanup?.stage === "ready" && cleanup.progress.total === 0) ||
     (running && cleanup.progress.stopped);
@@ -526,6 +527,7 @@ export function ConfirmationPage() {
                         <input
                           type="checkbox"
                           aria-label={item.branch}
+                          disabled={!request.presented}
                           checked={selected.includes(item.id)}
                           onChange={(event) => {
                             setSelected(
@@ -632,7 +634,9 @@ export function ConfirmationPage() {
           {request.removals && (
             <button
               type="button"
-              disabled={!request.removals.some((item) => selected.includes(item.id))}
+              disabled={
+                !request.presented || !request.removals.some((item) => selected.includes(item.id))
+              }
               onClick={() => {
                 window.confirmation.answer(
                   request.id,

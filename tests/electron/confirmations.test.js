@@ -1387,9 +1387,10 @@ test("trusted confirmations keep their first shown bounds while the parent is st
   }, path.resolve("build/main/confirmations/trusted-dialog.js"));
   const traces = [];
   for (const kind of ["quit", "disclosure"]) {
-    await app.evaluate(() => {
-      globalThis.placementTrace.length = 0;
-    });
+    if (kind !== "quit")
+      await app.evaluate(() => {
+        globalThis.placementTrace.length = 0;
+      });
     if (kind === "quit") await app.evaluate(({ app }) => app.quit());
     else
       await app.evaluate(() => {

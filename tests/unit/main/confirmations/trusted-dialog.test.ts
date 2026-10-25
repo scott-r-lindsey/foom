@@ -163,6 +163,7 @@ test("prewarms an isolated sandbox, rejects foreign frames, forged IDs and malfo
   expect(window().webContents.send).toHaveBeenCalledWith("confirmation:render", {
     ...content,
     id,
+    presented: false,
     theme,
   });
   answer(id, true, { sender: {}, senderFrame: window().webContents.mainFrame });
@@ -928,6 +929,10 @@ test("sizes converge in the hidden viewport before presenting, and equal reports
   const pending = dialog.request(content);
   await vi.advanceTimersByTimeAsync(0);
   resize({ width: 548, height: 280 });
+  expect(window().webContents.send).toHaveBeenLastCalledWith(
+    "confirmation:render",
+    expect.objectContaining({ presented: false }),
+  );
   expect(window().getBounds()).toEqual({ x: 136, y: 180, width: 548, height: 280 });
   parent.emit("focus");
   await vi.advanceTimersByTimeAsync(60);
@@ -938,6 +943,10 @@ test("sizes converge in the hidden viewport before presenting, and equal reports
   await vi.advanceTimersByTimeAsync(40);
   expect(window().show).toHaveBeenCalledOnce();
   expect(window().getBounds()).toEqual({ x: 140, y: 200, width: 540, height: 240 });
+  expect(window().webContents.send).toHaveBeenLastCalledWith(
+    "confirmation:render",
+    expect.objectContaining({ presented: true }),
+  );
   resize({ width: 540, height: 240 });
   await vi.advanceTimersByTimeAsync(2000);
   expect(window().show).toHaveBeenCalledOnce();

@@ -19,7 +19,7 @@ test("buffers main's request before React subscribes and exposes only rendering,
   if (!api) throw Error("Missing API");
   expect(Object.keys(api)).toEqual(["render", "size", "answer"]);
   const listener = mock.on.mock.calls[0]?.[1];
-  const request = { id: "one", theme, title: "Confirm", accept: "Continue" };
+  const request = { id: "one", presented: false, theme, title: "Confirm", accept: "Continue" };
   listener?.({}, request);
   const render = vi.fn<(request: DialogRequest | null) => void>();
   const dispose = api.render(render);
@@ -44,6 +44,7 @@ test("rejects malformed structured fields and preserves literal data", async () 
   const render = vi.fn();
   const dispose = api.render(render);
   const valid = {
+    presented: true,
     id: "structured",
     theme,
     title: "Confirm",
@@ -222,7 +223,7 @@ test("requires the complete dialog, including theme, cleanup, reply and session 
     listener({}, bad.value);
     expect(render, bad.path).toHaveBeenLastCalledWith(null);
   }
-  for (const key of ["id", "theme", "title", "accept"]) {
+  for (const key of ["id", "presented", "theme", "title", "accept"]) {
     const missing = Object.fromEntries(Object.entries(dialog).filter(([name]) => name !== key));
     listener({}, missing);
     expect(render).toHaveBeenLastCalledWith(null);
@@ -245,6 +246,7 @@ test("requires the complete dialog, including theme, cleanup, reply and session 
     {},
     {
       id: "minimal",
+      presented: true,
       theme: interfaceThemes["eclipse-light"],
       title: "Confirm",
       accept: "Continue",

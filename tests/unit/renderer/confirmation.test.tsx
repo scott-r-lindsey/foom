@@ -42,6 +42,7 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   const view = render(<ConfirmationPage />);
   expect(view.queryByRole("alertdialog")).toBeNull();
   const request: DialogRequest = {
+    presented: true,
     id: "one",
     title: "Remove <script>branch</script>?",
     worktrees: [{ branch: "merged" }, { branch: "kept", reason: "running" }],
@@ -136,6 +137,7 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   expect(answer).toHaveBeenLastCalledWith("one", true);
   act(() => {
     receive({
+      presented: true,
       id: "two",
       title: "Quit?",
       accept: "Stop all and quit",
@@ -196,6 +198,7 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
   });
   const view = render(<ConfirmationPage />);
   const base: DialogRequest = {
+    presented: true,
     id: "cleanup",
     title: "Delete merged worktrees?",
     accept: "Delete",
@@ -369,6 +372,7 @@ test("structured disclosures, git status words and pairing countdown render safe
   });
   const view = render(<ConfirmationPage />);
   const base: DialogRequest = {
+    presented: true,
     id: "structured",
     title: "Pair?",
     accept: "Grant",
@@ -461,6 +465,7 @@ test("batch review lists trusted snapshots, traps focus through selection and se
   });
   const view = render(<ConfirmationPage />);
   const request: DialogRequest = {
+    presented: true,
     id: "batch",
     title: "Remove worktrees?",
     accept: "Approve all",
@@ -558,6 +563,7 @@ test("starts summaries collapsed, includes only visible disclosure controls in T
   });
   const view = render(<ConfirmationPage />);
   const request: DialogRequest = {
+    presented: true,
     id: "collapsed",
     title: "Install?",
     accept: "Install",
@@ -666,6 +672,7 @@ test("cleanup closes only complete successful runs and resets its choice on ever
   });
   const view = render(<ConfirmationPage />);
   const base: DialogRequest = {
+    presented: true,
     id: "first",
     title: "Delete merged worktrees?",
     accept: "Delete",
@@ -767,6 +774,7 @@ test("waits for fonts before measuring and ignores font completion for a dismiss
   });
   render(<ConfirmationPage />);
   const request = {
+    presented: true,
     id: "fonts",
     title: "Allow?",
     accept: "Allow",
@@ -793,4 +801,56 @@ test("waits for fonts before measuring and ignores font completion for a dismiss
   });
   expect(observe).toHaveBeenCalledTimes(2);
   expect(size).toHaveBeenCalledOnce();
+});
+
+test("confirming controls wait for main's presentation flag, including selected removals", async () => {
+  let receive: (value: DialogRequest | null) => void = () => {};
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
+  const answer = vi.fn();
+  Object.defineProperty(window, "confirmation", {
+    configurable: true,
+    value: {
+      render: (callback: typeof receive) => {
+        receive = callback;
+        return () => {};
+      },
+      size: vi.fn(),
+      answer,
+    },
+  });
+  const view = render(<ConfirmationPage />);
+  const request: DialogRequest = {
+    id: "preparing",
+    presented: false,
+    title: "Remove?",
+    accept: "Approve all",
+    theme: resolveInterfaceTheme("follow", false),
+    removals: [{ id: "one", branch: "one", path: "/one", changes: "" }],
+  };
+  await act(async () => {
+    receive(request);
+    await document.fonts.ready;
+  });
+  const all = view.getByRole("button", { name: "Approve all" });
+  const selected = view.getByRole("button", { name: "Approve selected" });
+  expect(all).toHaveProperty("disabled", true);
+  expect(selected).toHaveProperty("disabled", true);
+  expect(view.getByRole("checkbox")).toHaveProperty("disabled", true);
+  expect(view.getByRole("button", { name: "Decline" })).toHaveProperty("disabled", false);
+  fireEvent.click(all);
+  expect(answer).not.toHaveBeenCalled();
+  act(() => {
+    receive({ ...request, presented: true });
+  });
+  expect(all).toHaveProperty("disabled", false);
+  fireEvent.click(view.getByRole("checkbox"));
+  expect(selected).toHaveProperty("disabled", false);
+  fireEvent.click(selected);
+  expect(answer).toHaveBeenLastCalledWith("preparing", ["one"]);
 });
