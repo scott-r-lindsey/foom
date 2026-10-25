@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ControlError } from "../../node-common/control-validation";
+import { ControlError } from "../../shared/control-validation";
 import type { Operations } from "./operations";
 import type { Operation, Principal } from "./types";
 import type { OrchestrationHost } from "./orchestration.d";

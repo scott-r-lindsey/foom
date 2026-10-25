@@ -3,7 +3,7 @@ import { join, sep } from "node:path";
 import { tmpdir, userInfo } from "node:os";
 import type { AgentManifestV2, ManifestChannel } from "../../../shared/agent-manifest-v2";
 import { observerInvocation, observerVersion } from "./v2-observers";
-import { expandV2 } from "./v2-values";
+import { expandV2 } from "../../../shared/agent-launch-values";
 import { healthStore } from "./v2-health";
 
 /** Build-owned assets live outside ASAR. Config manifests cannot select this root. */

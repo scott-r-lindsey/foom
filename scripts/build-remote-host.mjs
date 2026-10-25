@@ -79,7 +79,7 @@ await writeFile(
     version,
     platform: process.platform,
     arch: process.arch,
-    protocol: 1,
+    protocol: 2,
     size: bytes.length,
     sha256: createHash("sha256").update(bytes).digest("hex"),
   }),

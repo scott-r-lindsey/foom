@@ -1,4 +1,4 @@
-import { mcpTools } from "../../control/mcp-tools";
+import { mcpTools } from "../../../shared/control-tools";
 import { PluginSetup } from "../plugin-setup";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -22,7 +22,7 @@ import {
   expandV2,
   hookCapability,
   selected,
-} from "./v2-values";
+} from "../../../shared/agent-launch-values";
 
 /** Immutable validated manifest data; probes/facts and temporary files never reach board renderers. */
 export function v2Provider(

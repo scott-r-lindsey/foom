@@ -21,7 +21,7 @@ import {
   expandV2,
   matchesArguments,
   selected,
-} from "../../../../src/main/agents/providers/v2-values";
+} from "../../../../src/shared/agent-launch-values";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import {
   parseAgentArguments,

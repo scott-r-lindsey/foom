@@ -31,7 +31,7 @@ export interface WorktreeLaunchContext {
   readonly launched: Map<string, WorkspaceTerminal>;
   readonly location: "root" | "adjacent";
   readonly now: () => number;
-  readonly orchestration: Pick<Orchestration, "relaunched">;
+  readonly orchestration: Pick<Orchestration, "relaunched" | "view" | "exited">;
   readonly persist: () => void;
   readonly queues: Map<string, Promise<void>>;
   readonly refresh: () => void;
@@ -88,7 +88,7 @@ export interface SidebarCommandsContext {
   readonly known: WorkspaceMethods["known"];
   readonly launched: Map<string, WorkspaceTerminal>;
   readonly makeOrchestrator: WorkspaceMethods["makeOrchestrator"];
-  readonly orchestration: Pick<Orchestration, "stopReviews" | "takeOver">;
+  readonly orchestration: Pick<Orchestration, "stopReviews" | "takeOver" | "view">;
   readonly refresh: () => void;
   readonly removeRepository: (
     repository: string,

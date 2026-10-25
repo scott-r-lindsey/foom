@@ -175,7 +175,7 @@
         "observer": {
           "transport": "stdin",
           "placement": "plugin",
-          "version": 3,
+          "version": 4,
           "response": "empty-json-first",
           "delivery": "detached",
           "timeoutMs": 1000,
@@ -498,7 +498,7 @@
               {
                 "field": "version",
                 "op": "lt",
-                "value": 3
+                "value": 4
               }
             ]
           },

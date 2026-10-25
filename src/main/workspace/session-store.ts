@@ -1,5 +1,5 @@
 import { isReviewState } from "../../shared/review-state";
-import { storedHandoffs } from "../../node-common/handoff";
+import { storedHandoffs } from "../../shared/handoff-validation";
 import { builtinAgent, validAgentId } from "../../shared/providers/catalog";
 import { knownAgentId as isAgentId } from "../agents/providers/registry";
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
@@ -39,10 +39,12 @@ export function readSessions(value: unknown): StoredSession[] {
       orchestrator,
       parentId,
       providerOrigin,
+      remote,
       handoffs,
       review,
     } = data;
     if (
+      (remote !== undefined && (remote !== true || agent === "shell" || config || home)) ||
       (providerOrigin !== undefined &&
         (providerOrigin === "bundled"
           ? typeof agent !== "string" || !builtinAgent(agent)
@@ -86,6 +88,7 @@ export function readSessions(value: unknown): StoredSession[] {
         : {}),
       ...(handoffs === undefined ? {} : { handoffs: storedHandoffs(handoffs) }),
       ...(providerOrigin === "config" || providerOrigin === "bundled" ? { providerOrigin } : {}),
+      ...(remote === true ? { remote: true } : {}),
       ...(running === undefined ? {} : { running }),
       ...(role === undefined ? {} : { orchestrator: role }),
       ...(parentId === undefined ? {} : { parentId }),
@@ -129,6 +132,7 @@ export class SessionStore {
           branch,
           conversationId,
           providerOrigin,
+          remote,
           home,
           config,
           handoffs,
@@ -151,6 +155,7 @@ export class SessionStore {
           branch,
           conversationId,
           ...(providerOrigin ? { providerOrigin } : {}),
+          ...(remote ? { remote: true } : {}),
         }),
       ),
     );

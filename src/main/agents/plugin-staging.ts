@@ -13,7 +13,7 @@ import {
 } from "../../node-common/private-files";
 import { observerAssets, observerInvocation, observerVersion } from "./providers/v2-observers";
 import { readOwnedFile } from "./providers/v2-files";
-import { expandV2, selected, type Facts } from "./providers/v2-values";
+import { expandV2, selected, type Facts } from "../../shared/agent-launch-values";
 
 /** Platform-specific definitions. The normalized root keeps definition identity independent of the profile. */
 export function pluginContent(

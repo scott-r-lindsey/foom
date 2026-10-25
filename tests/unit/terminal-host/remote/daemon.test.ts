@@ -1,3 +1,6 @@
+import type { TerminalTelemetry } from "../../../../src/shared/desktop";
+import { endpointRequest } from "../../../../src/terminal-host/remote/agent-endpoint";
+import { record } from "../../../../src/shared/remote-agent-protocol";
 import { createConnection, type Socket } from "node:net";
 import { mkdir, rm, stat, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,6 +15,7 @@ import {
   remoteFrame,
 } from "../../../../src/shared/remote-host-protocol";
 import type { RemoteRequest } from "../../../../src/shared/remote-host";
+let telemetry: TerminalTelemetry = {};
 const mock = vi.hoisted(() => ({
   create: vi.fn(),
   attach: vi.fn(),
@@ -25,6 +29,7 @@ const mock = vi.hoisted(() => ({
   tail: vi.fn(),
   screen: vi.fn(),
   shutdown: vi.fn(),
+  childInput: vi.fn(),
   exited: (_id: string, _code: number) => {},
 }));
 vi.mock("../../../../src/terminal-host/terminal-manager", () => ({
@@ -41,10 +46,25 @@ vi.mock("../../../../src/terminal-host/terminal-manager", () => ({
     tail = mock.tail;
     screen = mock.screen;
     shutdown = mock.shutdown;
-    constructor(exited: typeof mock.exited) {
+    childInput = mock.childInput;
+    constructor(exited: typeof mock.exited, events: TerminalTelemetry = {}) {
       mock.exited = exited;
+      telemetry = events;
     }
   },
+}));
+vi.mock("../../../../src/terminal-host/remote/agent-discovery", () => ({
+  hostEnvironment: () => ({ PATH: "/fixture" }),
+  remoteCheckout: vi.fn(() => Promise.resolve("identity")),
+  hostDiscovery: vi.fn(() =>
+    Promise.resolve({
+      command: "/fixture/claude",
+      env: { PATH: "/fixture" },
+      version: "2.1.296 (Claude Code)",
+      help: "--settings --mcp-config",
+    }),
+  ),
+  hostProbe: vi.fn(() => Promise.resolve("[]")),
 }));
 import { DETACHED_SESSION_GRACE_MS, serveHost } from "../../../../src/terminal-host/remote/daemon";
 let root: string;
@@ -650,7 +670,7 @@ test.skipIf(process.platform === "win32")(
       await c.wait(1);
       const body = Buffer.from(
         JSON.stringify({
-          version: 1,
+          version: 2,
           message: { type: "open", id: "forged", request: 1, cols: 80, rows: 24, reattach },
         }),
       );
@@ -689,5 +709,165 @@ test.skipIf(process.platform === "win32")(
       state: "gone",
     });
     expect(mock.create).toHaveBeenCalledOnce();
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "prepares without spawning, awaits hub authorization, relays private hook/control endpoints and permits validated child input",
+  async () => {
+    await start();
+    const c = await client();
+    const id = "agent-secret-terminal";
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "agent-open",
+      id,
+      request: 1,
+      cols: 80,
+      rows: 24,
+      spec: {
+        agent: "claude",
+        repository: "/remote/repo",
+        worktree: "/remote/tree",
+        defaults: [],
+        hooks: true,
+        prompt: "Task",
+      },
+    });
+    await c.wait(2);
+    expect(c.messages[1]).toEqual({ type: "agent-prepared", id });
+    expect(mock.create).not.toHaveBeenCalled();
+    c.send({ type: "agent-start", id });
+    await c.wait(4);
+    expect(mock.create).toHaveBeenCalledOnce();
+    const created: unknown = mock.create.mock.calls[0]?.[0];
+    if (!record(created) || !record(created["env"]))
+      throw new Error("Missing agent process environment");
+    expect(JSON.stringify(created)).not.toContain(id);
+    const env: NodeJS.ProcessEnv = {};
+    for (const [name, value] of Object.entries(created["env"]))
+      if (typeof value === "string") env[name] = value;
+    const ready = c.messages.find((value) => remoteResponse(value) && value.type === "agent-ready");
+    if (!remoteResponse(ready) || ready.type !== "agent-ready")
+      throw new Error("Missing remote metadata");
+    c.send({ type: "agent-activate", id });
+    const pending = endpointRequest("/call", { method: "whoami", params: {} }, env);
+    await c.wait(5);
+    const call = c.messages[4];
+    if (!remoteResponse(call) || call.type !== "agent-call") throw new Error("Missing relay call");
+    const identity = {
+      type: "identity" as const,
+      alias: "11111111-1111-4111-8111-111111111111",
+      role: "child" as const,
+      capabilities: ["whoami", "manual", "handoff"],
+    };
+    c.send({ type: "agent-reply", id, call: call.call, result: identity });
+    expect(await pending).toEqual(identity);
+    expect(JSON.stringify(await pending)).not.toContain(id);
+    await endpointRequest(
+      "/hook",
+      {
+        channel: "lifecycle",
+        payload: {
+          session_id: "remote-conversation",
+          hook_event_name: "PermissionRequest",
+          transcript_path: "/never/read",
+        },
+      },
+      env,
+    );
+    await c.wait(6);
+    expect(c.messages[5]).toMatchObject({
+      type: "agent-hook",
+      id,
+      signal: { terminalId: id, action: "needs_input" },
+    });
+    expect(JSON.stringify(c.messages)).not.toContain("/never/read");
+    c.send({ type: "child-input", id, request: 2, input: { kind: "prompt", text: "Follow-up" } });
+    await c.wait(7);
+    expect(mock.childInput).toHaveBeenCalledWith(id, { kind: "prompt", text: "Follow-up" });
+    const closed = once(c.socket, "close");
+    c.socket.destroy();
+    await closed;
+    await vi.waitFor(() => {
+      expect(mock.detach).toHaveBeenCalledWith(id);
+    });
+    expect(await endpointRequest("/call", { method: "manual", params: {} }, env)).toEqual({
+      type: "error",
+      error: "unavailable",
+    });
+    await endpointRequest(
+      "/hook",
+      {
+        channel: "lifecycle",
+        payload: { session_id: "remote-conversation", hook_event_name: "Stop" },
+      },
+      env,
+    );
+    const restored = await open(id, true);
+    await restored.wait(4);
+    const resumedHook = restored.messages.find(
+      (value) => remoteResponse(value) && value.type === "agent-hook",
+    );
+    expect(resumedHook).toMatchObject({ type: "agent-hook", signal: { action: "classify" } });
+    expect(mock.create).toHaveBeenCalledOnce();
+    mock.exited(id, 0);
+    await restored.wait(5);
+    await expect(endpointRequest("/call", { method: "whoami", params: {} }, env)).rejects.toThrow();
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a cancelled or timed-out preparation never starts a PTY or leaves a reconnectable agent",
+  async () => {
+    await start();
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "agent-open",
+      id: "cancelled",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      spec: { agent: "claude", repository: "/repo", worktree: "/tree", defaults: [], hooks: true },
+    });
+    await c.wait(2);
+    const closed = once(c.socket, "close");
+    c.socket.destroy();
+    await closed;
+    const next = await open("cancelled", true);
+    expect(next.messages[1]).toMatchObject({ type: "open-result", state: "gone" });
+    expect(mock.create).not.toHaveBeenCalled();
+    next.send({ type: "agent-start", id: "cancelled" });
+    await once(next.socket, "close");
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "remote telemetry reaches the owning hub without a view and ignores foreign activity",
+  async () => {
+    await start();
+    const c = await open("telemetry");
+    telemetry.onOutput?.("telemetry");
+    telemetry.onQuiet?.("telemetry");
+    telemetry.onEvidence?.("telemetry", { title: "Working", progress: null });
+    telemetry.onActivity?.([
+      { id: "telemetry", rate: 1 },
+      { id: "foreign", rate: 2 },
+    ]);
+    await c.wait(6);
+    expect(c.messages).toContainEqual({ type: "output", id: "telemetry" });
+    expect(c.messages).toContainEqual({ type: "quiet", id: "telemetry" });
+    expect(c.messages).toContainEqual({
+      type: "evidence",
+      id: "telemetry",
+      evidence: { title: "Working", progress: null },
+    });
+    expect(c.messages).toContainEqual({
+      type: "activity",
+      entries: [{ id: "telemetry", rate: 1 }],
+    });
   },
 );

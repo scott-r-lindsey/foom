@@ -1,3 +1,4 @@
+import { remotePath } from "../../shared/remote-agent-protocol";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
@@ -43,7 +44,7 @@ export async function hostArtifact(path: string) {
     typeof value.sha256 !== "string" ||
     !/^[a-f0-9]{64}$/u.test(value.sha256) ||
     !("protocol" in value) ||
-    value.protocol !== 1 ||
+    value.protocol !== 2 ||
     !("size" in value) ||
     value.size !== bytes.length ||
     !("platform" in value) ||
@@ -114,6 +115,10 @@ exec "$f" --connect`;
     "-o",
     "ClearAllForwardings=yes",
     "-o",
+    "ForwardAgent=no",
+    "-o",
+    "ForwardX11=no",
+    "-o",
     "ConnectTimeout=10",
     "--",
     host,
@@ -139,4 +144,39 @@ export function remoteSpikeTarget(argv: readonly string[]): RemoteTarget | undef
   )
     throw new Error("Invalid remote shell spike arguments");
   return { host, artifact };
+}
+
+/** Explicit one-checkout developer mapping; no renderer/control host selection. */
+export function remoteAgentTarget(
+  argv: readonly string[],
+  checkout: string,
+): { target: RemoteTarget; repository: string; worktree: string } | undefined {
+  const names = [
+    "--remote-agent-spike=",
+    "--remote-agent-artifact=",
+    "--remote-agent-local-checkout=",
+    "--remote-agent-repository=",
+    "--remote-agent-worktree=",
+  ];
+  const values = names.map((name) => argv.filter((arg) => arg.startsWith(name)));
+  if (values.every((entries) => entries.length === 0)) return undefined;
+  if (values.some((entries) => entries.length !== 1))
+    throw new Error("Invalid remote agent mapping");
+  const [host, artifact, local, repository, worktree] = values.map((entries, index) =>
+    entries[0]?.slice(names[index]?.length),
+  );
+  if (
+    !remoteHost(host) ||
+    !artifact ||
+    !isAbsolute(artifact) ||
+    !local ||
+    !isAbsolute(local) ||
+    !repository ||
+    !remotePath(repository) ||
+    !worktree ||
+    !remotePath(worktree)
+  )
+    throw new Error("Invalid remote agent mapping");
+  if (checkout !== local) return undefined;
+  return { target: { host, artifact }, repository, worktree };
 }

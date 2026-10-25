@@ -1,3 +1,4 @@
+import { remoteAgentTarget } from "../terminals/remote-bootstrap";
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import type { AgentEvidence } from "../../shared/agent-detection";
@@ -61,6 +62,7 @@ export async function makeOrchestrator(
       !entry ||
       entry.agent === "shell" ||
       entry.config ||
+      entry.remote ||
       this.sessions.isRestoring(id) ||
       this.executionOwner.view(id).exitCode !== undefined
     )
@@ -193,6 +195,8 @@ export async function launchChild(
       const replacement = step?.resume;
       if (replacement) {
         const old = this.launched.get(replacement.id);
+        if (old?.remote && !remoteAgentTarget(process.argv, worktree))
+          throw new Error("Remote mapping is required to resume this child");
         if (!old || this.executionOwner.view(old.id).exitCode === undefined)
           throw new Error("Author is still running");
         await this.queues.get(old.id);

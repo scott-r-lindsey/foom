@@ -112,8 +112,48 @@ this limitation is deferred to the host-aware control surface in #756.
 
 Remote hook and control endpoints terminate on private Unix sockets. A local
 stdio MCP adapter talks to the remote endpoint; only bounded, versioned, validated
-messages cross the SSH stream. Main keeps the actual child grant and dispatches
+messages cross the SSH stream. A validated internal MCP handshake notification
+updates the hub connection status without adding a child tool. Main keeps the actual child grant and dispatches
 relayed calls through existing authorization and handoff validation. Remote
 credentials are independent random per-launch capabilities, revoked on failed
 launch, exit, removal and shutdown. Neither those endpoints nor remote processes
 receive the daemon's terminal takeover ID or hub control credentials.
+
+Use all five flags together:
+
+```text
+--remote-agent-spike=SSH_ALIAS
+--remote-agent-artifact=/absolute/path/to/matching/foom-host
+--remote-agent-local-checkout=/absolute/local/authorized/checkout
+--remote-agent-repository=/absolute/remote/clone
+--remote-agent-worktree=/absolute/remote/worktree
+```
+
+The local checkout remains the parent's authorization and forge coordination
+record. The remote clone/worktree must already exist; Foom does not create,
+synchronize or infer it. Only an owned child targeting that local checkout is
+routed remotely. The parent itself and other checkouts stay local. Remote
+processes inherit the host's environment and login PATH; hub Environment settings
+and saved secrets are not copied. Both remote Git membership and local checkout
+identity are revalidated around preparation. The host prepares without spawning,
+then waits for main's final live-ownership/checkout authorization before starting
+the PTY. Cross-host checks are not an atomic filesystem transaction or sandbox.
+
+Resume uses a fresh remote launch and credential, with the captured conversation
+ID. In this restricted phase, human Resume/New conversation for a remote row
+retains its live local parent after rechecking ownership and child capacity;
+local human relaunch behavior is unchanged. Taken-over/orphaned remote rows and
+missing mappings cannot launch parentless or silently fall back to local. Remote
+rows are marked in session storage; cross-hub persistence/reattach remains #757.
+
+Antigravity needs the opt-in observer version 4 on that host for Unix-socket
+hooks. In a remote shell, run the matching cached `foom-host --stage-plugin agy`
+to stage reviewed assets, then explicitly run `agy plugin install PATH` with the
+printed directory. Staging does not install or change global configuration.
+Missing, older or disabled plugins retain screen evaluation. Claude and Codex
+attach their manifest hooks and private stdio MCP config per launch. That config
+forwards only the endpoint socket and control token by environment variable name
+(Codex `env_vars`, Claude `env` references), never credential values in files or
+arguments. Codex keeps
+its notifier fallback; remote health observations are invocation-local and never
+change hub/local CLI hook trust observations.

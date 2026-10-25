@@ -13,7 +13,7 @@ async function installManualAgent(home, bin, configSession = false) {
   await chmod(executable, 0o755);
   const report = path.join(home, "manual-report.json");
   const script = path.join(home, "manual-agent.cjs");
-  const toolsToRefuse = require("../../build/main/control/mcp-tools.js")
+  const toolsToRefuse = require("../../build/shared/control-tools.js")
     .mcpTools(4, ["codex"])
     .map((tool) => tool.name)
     .filter((name) => name !== "manual");

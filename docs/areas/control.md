@@ -95,3 +95,17 @@ The manual listener shares the control endpoint's authority-free transport
 helpers: 8 KiB headers, 32 connections, five-second header/body deadlines checked
 every second, and four outstanding authenticated requests reserved before body
 reads. Excess requests receive 429; close or upload error releases the slot.
+
+## Restricted remote child relay (#755)
+
+The phase-2 remote adapter retains the real launch grant in main and calls the
+existing service with that bound principal. It exposes only `handoff`, `manual`
+and sanitized `whoami`; it never forwards a caller-selected grant, hub URL or
+credential. Identity is a separate random launch alias with child role and the
+three allowed capabilities. Neither terminal nor parent IDs occur in remote
+results. The adapter validates exact finite result shapes and refuses results
+containing either protected hub identity; local identity responses are unchanged.
+Every other method gets the fixed `phase_2_restricted` code and a fixed reason
+naming #756. Revocation is checked before and after asynchronous service work.
+Parent-facing operations continue to use hub terminal IDs. This limitation is
+lifted by the host-aware control work in #756, not by a flag or remote payload.

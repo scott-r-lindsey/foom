@@ -86,7 +86,7 @@ are refused. Linux requires standard coreutils; macOS uses shasum when sha256sum
 is unavailable.
 
 The wire format is a 4-byte unsigned big-endian byte count followed by UTF-8 JSON
-`{version:1,message:...}`. Frames are capped at 8 MiB before allocation; invalid
+`{version:2,message:...}`. Frames are capped at 8 MiB before allocation; invalid
 lengths, UTF-8, JSON, envelope versions, payloads and foreign IDs close the channel.
 Responses above 65,536 UTF-16 units are transmitted as ordered fragments, each
 with terminal ID, offset and total. The client permits one contiguous response
@@ -102,10 +102,10 @@ normal/alternate buffers, cursor and modes, omitting scrollback from that replay
 Blank visible cells retain their background colors in both buffers, including
 trailing blank rows omitted by the pinned serializer. The daemon's retained
 history is not erased and remains available to tail requests.
-Both peers negotiate the SHA-256 build identity before operations. The shell-only
-protocol permits open, attach/replay, input, resize, theme, acknowledgement, screen,
-tail, stop and close; it cannot create arbitrary commands, send hooks/MCP, or shut
-down the daemon. The daemon chooses its own HOME and environment, and starts an
+Both peers negotiate the SHA-256 build identity before operations. Shell sessions
+permit open, attach/replay, input, resize, theme, acknowledgement, screen,
+tail, stop and close; they cannot create arbitrary commands or shut down the
+daemon. Version 2 also supports the separately authorized [phase-2 agent launch](agent-launch.md#remote-agent-phase-2-755): prepare/start/activate, reduced hooks, typed control calls/replies and validated child input for agent sessions only. The daemon chooses its own HOME and environment, and starts an
 interactive login shell (`-i -l`): its own `SHELL` if it is an absolute path to an
 existing executable regular file, otherwise the account shell from
 `os.userInfo().shell` under the same validation, finally `/bin/sh` if neither is
@@ -115,7 +115,8 @@ and rejects a backlog above 256 operations. Only the current connection can oper
 on its selected ID. An `open` with an existing ID transfers the session and
 disconnects its prior connection; its only protection is the 0600 socket plus an
 unguessable terminal ID, so IDs must never be exposed to remote processes through
-environment, arguments or files, and future remote agents (#755) must preserve this.
+environment, arguments or files. Phase-2 agents preserve this with separate
+per-launch hook/control credentials and sanitized child identities.
 
 The detached per-user daemon owns PTYs, headless screens and independent parser
 backpressure. It listens only on a 0600 Unix socket `~/.foom-host/host.sock` under

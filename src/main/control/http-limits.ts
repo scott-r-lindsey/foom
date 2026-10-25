@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { RequestListener } from "node:http";
-import { ControlError } from "../../node-common/control-validation";
+import { ControlError } from "../../shared/control-validation";
 
 /** Transport limits only; sharing these helpers conveys no control authority. */
 export function boundedHttpServer(listener: RequestListener) {

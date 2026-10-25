@@ -121,7 +121,7 @@ prompt validation, MCP arguments and private launch-file cleanup. Prompt constan
 live in `providers/cli-launch.ts`; hook adapters live in
 `providers/{hook-launch,v2-observers}.ts`;
 private-file helpers and control validation live in
-`node-common/{private-files,control-validation}.ts`; browser-safe argument helpers
+`node-common/private-files.ts` and browser-safe `shared/control-validation.ts`; browser-safe argument helpers
 live in `shared/providers/arguments.ts`. Source, tests and mocks use these same
 canonical locations. Main imports Node-only helpers directly from `node-common`,
 without a `main/control` forwarding layer. These locations do not expand process
@@ -140,3 +140,12 @@ the existing terminal client; all renderer capabilities and sender checks stay i
 control grant, hook or MCP endpoint. Native loading is confined to the SEA's
 embedded, hash-verified pinned node-pty prebuild. The remote chooses its own shell
 and environment. See [the spike contract](terminals.md#remote-shell-spike-754).
+
+
+Phase-2 remote agents reuse browser-safe launch values, manifest reducers and tool
+schemas in `shared/agent-launch-values.ts`, `shared/agent-hook-events.ts` and
+`shared/control-tools.ts`. The host owns only remote PTY/discovery/Unix endpoints;
+main owns local checkout authorization, parent/child grants and result projection.
+No main/Electron policy module is imported by the remote host. Remote stdio clients
+receive independent per-launch capabilities, never terminal takeover IDs or hub
+authentication material. See [remote launch](agent-launch.md#remote-agent-phase-2-755).

@@ -138,6 +138,9 @@ export async function sidebarCommand(
           ? { conversationId: entry.conversationId }
           : {}),
       };
+      const remoteRole = entry.remote ? this.orchestration.view(entry.id) : undefined;
+      if (entry.remote && (remoteRole?.role !== "child" || remoteRole.takenOver))
+        throw new Error("Remote phase 2 requires a local-orchestrator-owned child");
       if (entry.config) await this.startConfig(entry.agent, replacement);
       else
         await this.startExisting(
@@ -146,6 +149,7 @@ export async function sidebarCommand(
           entry.agent,
           confirm,
           replacement,
+          remoteRole?.role === "child" ? { parentId: remoteRole.parentId } : undefined,
         );
     } finally {
       this.busySessions.delete(entry.id);

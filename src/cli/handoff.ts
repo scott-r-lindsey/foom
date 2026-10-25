@@ -1,7 +1,7 @@
 import { open } from "node:fs/promises";
 import { constants } from "node:fs";
-import { handoffRequest } from "../node-common/handoff";
-import { ControlError } from "../node-common/control-validation";
+import { handoffRequest } from "../shared/handoff-validation";
+import { ControlError } from "../shared/control-validation";
 import type { Command, ConsoleIo } from "./types";
 
 /** Read only a bounded regular file or stdin. File contents never enter argv or errors. */

@@ -607,6 +607,7 @@ const validReviewState: Validator<ReviewState> = shape({
 } satisfies Contract<ReviewState>);
 
 const validWorkspaceTerminal: Validator<WorkspaceTerminal> = shape({
+  remote: either(absent, literal(true)),
   foregroundProgram: either(absent, text),
   outputRevision: either(absent, count),
   inputRevision: either(absent, count),
@@ -889,6 +890,7 @@ const validBranchInventory: Validator<BranchInventory> = shape({
 } satisfies Contract<BranchInventory>);
 
 const validAgentLaunched: Validator<AgentLaunched> = shape({
+  remote: either(absent, literal(true)),
   conversationId: either(absent, text),
   bypass: either(absent, boolean),
   providerOrigin: either(absent, literal("config", "bundled")),

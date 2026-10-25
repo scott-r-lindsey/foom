@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { canonicalRoot, openInside, type CanonicalRoot } from "../previews/contained-files";
 import type { Principal } from "./types";
-import { ControlError, exact, object } from "../../node-common/control-validation";
+import { ControlError, exact, object } from "../../shared/control-validation";
 
 export const PREVIEW_METHODS = ["open_preview", "list_previews", "close_preview"];
 export const PREVIEW_LIMITS = { perAgent: 4, total: 12, burst: 6, refillMs: 10000 };

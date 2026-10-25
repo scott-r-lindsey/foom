@@ -1,13 +1,9 @@
-import type {
-  ManifestChannel,
-  ManifestCondition,
-  ManifestSelector,
-} from "../../../shared/agent-manifest-v2";
-import type { HookSignal } from "../../../shared/hooks";
-import { conversationId } from "../../../shared/conversation";
+import type { ManifestChannel, ManifestCondition, ManifestSelector } from "./agent-manifest-v2";
+import type { HookSignal } from "./hooks";
+import { conversationId } from "./conversation";
 
-export type { V2HookState } from "../../../shared/v2-hooks";
-import type { V2HookState } from "../../../shared/v2-hooks";
+export type { V2HookState } from "./v2-hooks";
+import type { V2HookState } from "./v2-hooks";
 export function selectValue(
   selector: ManifestSelector,
   sources: Readonly<Record<string, unknown>>,

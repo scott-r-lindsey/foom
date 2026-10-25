@@ -1,3 +1,7 @@
+import { record } from "../../shared/remote-agent-protocol";
+import { prepareRemoteAgent } from "./agent-launch";
+import type { RemoteControlResult } from "../../shared/remote-agent";
+import type { HookSignal } from "../../shared/hooks";
 import { accessSync, chmodSync, constants, statSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { homedir, userInfo } from "node:os";
@@ -46,6 +50,8 @@ type Session = {
   exited?: number;
   expiry?: Expiry;
   removing?: Promise<void>;
+  agent?: Awaited<ReturnType<typeof prepareRemoteAgent>>;
+  hooks?: HookSignal[];
 };
 /** One per-user daemon. Connections have authority over one shell, never hub control. */
 export function serveHost(
@@ -57,6 +63,25 @@ export function serveHost(
   const sessions = new Map<string, Session>();
   const tombstones = new Map<string, Tombstone>();
   let shuttingDown = false;
+  let sequence = 0;
+  const calls = new Map<
+    number,
+    {
+      id: string;
+      socket: Socket;
+      resolve(value: RemoteControlResult): void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+  const revoke = (id: string, session: Session) => {
+    session.agent?.endpoint.dispose();
+    for (const [key, call] of calls)
+      if (call.id === id) {
+        clearTimeout(call.timer);
+        calls.delete(key);
+        call.resolve({ type: "error", error: "unavailable" });
+      }
+  };
   const sockets = new Set<Socket>();
   const outgoing = new WeakMap<Socket, { chain: Promise<void>; queued: number }>();
   const send = (
@@ -121,6 +146,7 @@ export function serveHost(
   };
   const remove = (id: string, session: Session, rememberExit = false): Promise<void> => {
     if (session.removing) return session.removing;
+    revoke(id, session);
     if (!rememberExit) cancelExpiry(session.expiry);
     session.removing = Promise.resolve().then(async () => {
       try {
@@ -155,13 +181,35 @@ export function serveHost(
   const event = (message: HostResponse) => {
     if (message.type === "activity") return;
     const session = sessions.get(message.id);
-    if (message.type === "exit" && session) session.exited = message.code;
+    if (message.type === "exit" && session) {
+      session.exited = message.code;
+      revoke(message.id, session);
+    }
     if (session?.connection) void send(session.connection, message);
     else if (message.type === "exit" && session && !shuttingDown) reap(message.id, session, true);
   };
-  const manager = new TerminalManager((id, code) => {
-    event({ type: "exit", id, code });
-  });
+  const manager = new TerminalManager(
+    (id, code) => {
+      event({ type: "exit", id, code });
+    },
+    {
+      onOutput: (id) => {
+        event({ type: "output", id });
+      },
+      onQuiet: (id) => {
+        event({ type: "quiet", id });
+      },
+      onEvidence: (id, evidence) => {
+        event({ type: "evidence", id, evidence });
+      },
+      onActivity: (entries) => {
+        for (const entry of entries) {
+          const connection = sessions.get(entry.id)?.connection;
+          if (connection) void send(connection, { type: "activity", entries: [entry] });
+        }
+      },
+    },
+  );
   const server = createServer((socket) => {
     if (sockets.size >= 32) {
       socket.destroy();
@@ -171,11 +219,33 @@ export function serveHost(
     const frames = new RemoteFrames();
     let negotiated = false;
     let id: string | undefined;
+    let prepared:
+      | {
+          session: Session;
+          open: Extract<RemoteRequest, { type: "agent-open" }>;
+          timer: ReturnType<typeof setTimeout>;
+        }
+      | undefined;
+    const opened = async (session: Session, id: string, request: number) => {
+      cancelExpiry(session.expiry);
+      delete session.expiry;
+      if (session.connection && session.connection !== socket) {
+        manager.detach(id);
+        session.connection.destroy();
+      }
+      session.connection = socket;
+      if (session.agent)
+        await send(socket, { type: "agent-ready", id, ready: session.agent.ready });
+      await send(socket, { type: "open-result", id, request, state: "live" });
+      for (const signal of session.hooks?.splice(0) ?? [])
+        await send(socket, { type: "agent-hook", id, signal });
+    };
     let queued = 0;
     let chain = Promise.resolve();
     const deadline = setTimeout(() => socket.destroy(), 10000);
+    const disconnected = () => socket.destroyed || shuttingDown;
     const dispatch = async (message: RemoteRequest) => {
-      if (socket.destroyed) return;
+      if (disconnected()) return;
       if (!negotiated) {
         if (message.type !== "hello" || message.build !== build)
           throw new Error("Host version mismatch");
@@ -185,12 +255,37 @@ export function serveHost(
         return;
       }
       if (message.type === "hello") throw new Error("Repeated negotiation");
-      if (message.type === "open") {
+      if (message.type === "agent-start") {
+        const pending = prepared;
+        if (
+          !pending ||
+          !id ||
+          message.id !== id ||
+          sessions.has(id) ||
+          sessions.size >= 32 ||
+          shuttingDown
+        )
+          throw new Error("Invalid agent start");
+        const agent = pending.session.agent;
+        if (!agent) throw new Error("Missing agent preparation");
+        manager.create({ ...agent.spec, cols: pending.open.cols, rows: pending.open.rows }, id);
+        clearTimeout(pending.timer);
+        prepared = undefined;
+        sessions.set(id, pending.session);
+        await opened(pending.session, id, pending.open.request);
+        return;
+      }
+      if (message.type === "open" || message.type === "agent-open") {
         if (id !== undefined) throw new Error("Already open");
         id = message.id;
         let session = sessions.get(id);
         const tombstone = tombstones.get(id);
-        if (session?.removing || (!session && !tombstone && message.reattach)) {
+        if (message.type === "agent-open" && (session || tombstone))
+          throw new Error("Agent launch ID already exists");
+        if (
+          session?.removing ||
+          (!session && !tombstone && message.type === "open" && message.reattach)
+        ) {
           await send(socket, { type: "open-result", id, request: message.request, state: "gone" });
           return;
         }
@@ -206,33 +301,108 @@ export function serveHost(
         }
         if (!session) {
           if (sessions.size >= 32) throw new Error("Host session limit");
-          // The remote chooses its own shell, HOME and environment. No hub
-          // paths, startup files, environment values or credentials are copied.
-          manager.create(
-            {
-              command: remoteShell(),
-              args: ["-i", "-l"],
-              cwd: home,
-              cols: message.cols,
-              rows: message.rows,
-            },
-            id,
-          );
+          const sessionId = id;
           session = {};
-          sessions.set(id, session);
+          const owned = session;
+          if (message.type === "agent-open") {
+            owned.hooks = [];
+            owned.agent = await prepareRemoteAgent(
+              message.spec,
+              remoteShell(),
+              home,
+              (signal) => {
+                const reduced = { ...signal, terminalId: sessionId };
+                if (owned.exited !== undefined || owned.removing) return;
+                if (owned.connection)
+                  void send(owned.connection, {
+                    type: "agent-hook",
+                    id: sessionId,
+                    signal: reduced,
+                  });
+                else {
+                  owned.hooks?.push(reduced);
+                  if ((owned.hooks?.length ?? 0) > 64) owned.hooks?.shift();
+                }
+              },
+              (method, params) =>
+                new Promise<RemoteControlResult>((resolve) => {
+                  const connection = owned.connection;
+                  if (
+                    !connection ||
+                    connection.destroyed ||
+                    !record(params) ||
+                    owned.exited !== undefined ||
+                    owned.removing
+                  ) {
+                    resolve({ type: "error", error: "unavailable" });
+                    return;
+                  }
+                  const call = ++sequence;
+                  const timer = setTimeout(() => {
+                    calls.delete(call);
+                    resolve({ type: "error", error: "unavailable" });
+                  }, 10000);
+                  calls.set(call, { id: sessionId, socket: connection, resolve, timer });
+                  void send(connection, {
+                    type: "agent-call",
+                    id: sessionId,
+                    call,
+                    method,
+                    params,
+                  });
+                }),
+            );
+            if (disconnected()) {
+              revoke(id, owned);
+              return;
+            }
+            prepared = {
+              session: owned,
+              open: message,
+              timer: setTimeout(() => socket.destroy(), 10000),
+            };
+            await send(socket, { type: "agent-prepared", id });
+            return;
+          }
+          try {
+            manager.create(
+              owned.agent
+                ? { ...owned.agent.spec, cols: message.cols, rows: message.rows }
+                : {
+                    command: remoteShell(),
+                    args: ["-i", "-l"],
+                    cwd: home,
+                    cols: message.cols,
+                    rows: message.rows,
+                  },
+              id,
+            );
+          } catch (error) {
+            revoke(id, owned);
+            throw error;
+          }
+          sessions.set(id, owned);
         }
-        cancelExpiry(session.expiry);
-        delete session.expiry;
-        if (session.connection && session.connection !== socket) {
-          manager.detach(id);
-          session.connection.destroy();
-        }
-        session.connection = socket;
-        await send(socket, { type: "open-result", id, request: message.request, state: "live" });
+        await opened(session, id, message.request);
         return;
       }
       if (!id || message.id !== id || sessions.get(id)?.connection !== socket)
         throw new Error("Foreign session");
+      if (message.type === "agent-activate") {
+        const agent = sessions.get(id)?.agent;
+        if (!agent) throw new Error("Not an agent");
+        agent.endpoint.activate();
+        return;
+      }
+      if (message.type === "agent-reply") {
+        const call = calls.get(message.call);
+        if (!call || call.id !== id || call.socket !== socket)
+          throw new Error("Foreign relay response");
+        clearTimeout(call.timer);
+        calls.delete(message.call);
+        call.resolve(message.result);
+        return;
+      }
       let lines: string[] = [];
       let signaled: boolean | undefined;
       let screen: { title: string; cols: number; rows: number } | undefined;
@@ -265,6 +435,10 @@ export function serveHost(
         }
         case "detach":
           manager.detach(id);
+          break;
+        case "child-input":
+          if (!sessions.get(id)?.agent) throw new Error("Not an agent");
+          manager.childInput(id, message.input);
           break;
         case "write":
           manager.write(id, message.data);
@@ -327,12 +501,23 @@ export function serveHost(
     socket.on("error", () => socket.destroy());
     socket.on("close", () => {
       clearTimeout(deadline);
+      if (prepared) {
+        clearTimeout(prepared.timer);
+        revoke(prepared.open.id, prepared.session);
+        prepared = undefined;
+      }
       sockets.delete(socket);
       const sessionId = id;
       if (sessionId && sessions.get(sessionId)?.connection === socket) {
         const session = sessions.get(sessionId);
         if (!session) return;
         delete session.connection;
+        for (const [key, call] of calls)
+          if (call.socket === socket) {
+            clearTimeout(call.timer);
+            calls.delete(key);
+            call.resolve({ type: "error", error: "unavailable" });
+          }
         manager.detach(sessionId);
         session.expiry = scheduleExpiry(sessionId);
         if (session.exited !== undefined) reap(sessionId, session, true);
@@ -357,6 +542,7 @@ export function serveHost(
         // a later socket-close callback must not address a disposed terminal.
         for (const [id, session] of sessions) {
           cancelExpiry(session.expiry);
+          revoke(id, session);
           delete session.connection;
           manager.detach(id);
         }

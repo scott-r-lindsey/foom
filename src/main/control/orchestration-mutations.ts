@@ -1,9 +1,9 @@
-import { reviewOptions } from "../../node-common/review";
+import { reviewOptions } from "../../shared/review-validation";
 import { AUTHOR_REVIEW_BRIEF } from "./review-loops";
 import { agentProvider } from "../agents/providers/registry";
 import { createHash } from "node:crypto";
 import { knownAgentId } from "../agents/providers/registry";
-import { ControlError, exact, identifier } from "../../node-common/control-validation";
+import { ControlError, exact, identifier } from "../../shared/control-validation";
 import { locationId, metadataName } from "./metadata";
 import { OrchestrationAuthority } from "./orchestration-authority";
 import { WORKTREE_LIMIT } from "./orchestration-limits";

@@ -294,6 +294,16 @@ export class WorkspaceContext {
             const approved = await deps.dialog?.(content, this.launchAbort.signal);
             return approved === true && !this.closed;
           },
+          {
+            bind: (key, id, runtime) => {
+              this.hookKeys.set(key, id);
+              this.executionOwner.attachHooks(id, runtime);
+            },
+            signal: (signal) => this.hook(signal),
+            revoke: (key) => {
+              this.hookKeys.delete(key);
+            },
+          },
         );
   }
 

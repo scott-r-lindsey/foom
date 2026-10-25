@@ -5,7 +5,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import type { ProbeRequest } from "../../node-common/agent-probe";
 import { PROBE_KEYS, probeRequest } from "../../node-common/agent-probe";
-import { ControlError } from "../../node-common/control-validation";
+import { ControlError } from "../../shared/control-validation";
 import type { ConfigStatus } from "../../shared/foom-config";
 import type { TerminalSpec } from "../../shared/desktop";
 import type { AgentProvider } from "./providers/provider";

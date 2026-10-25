@@ -1,4 +1,4 @@
-import { CHILD_KEYS } from "../../shared/child-input";
+import { CHILD_KEYS } from "./child-input";
 const tools = [
   {
     name: "manual",

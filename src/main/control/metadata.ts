@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import { prepareTail } from "../evaluator/terminal-tail";
-import { ControlError, exact, identifier } from "../../node-common/control-validation";
+import { ControlError, exact, identifier } from "../../shared/control-validation";
 import type { Principal } from "./types";
 
 export function locationId(path: string): string {

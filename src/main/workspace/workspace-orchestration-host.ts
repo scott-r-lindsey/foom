@@ -1,4 +1,4 @@
-import { ControlError } from "../../node-common/control-validation";
+import { ControlError } from "../../shared/control-validation";
 import { hasBypassArgument } from "../agents/default-arguments";
 import type { OrchestrationHost } from "../control/orchestration.d";
 import type { OrchestrationHostContext } from "./workspace-capabilities";

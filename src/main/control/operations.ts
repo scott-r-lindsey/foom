@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { ControlError, exact, identifier } from "../../node-common/control-validation";
+import { ControlError, exact, identifier } from "../../shared/control-validation";
 import type { Action, Operation, Principal, Reason, Status, StoredOperation } from "./types";
 
 const actions: readonly string[] = [

@@ -17,7 +17,7 @@ import type {
 import { locationId, metadataName, SessionMetadata } from "./metadata";
 import type { Operations } from "./operations";
 import type { Operation, Principal } from "./types";
-import { ControlError } from "../../node-common/control-validation";
+import { ControlError } from "../../shared/control-validation";
 import type { Child, Parent, OrchestrationHost } from "./orchestration.d";
 import { WORKTREE_LIMIT } from "./orchestration-limits";
 
@@ -380,8 +380,25 @@ export class OrchestrationAuthority {
     for (const entry of this.parents.values()) entry.children.delete(id);
   }
 
-  /** A human relaunch under the same ID (resume, new conversation) is never the orchestrator's. */
-  relaunched(id: string): void {
+  /** Local human relaunch drops ownership; phase-2 remote resume retains a main-validated parent. */
+  relaunched(id: string, remoteParentId?: string): void {
+    if (remoteParentId !== undefined) {
+      const parent = this.parents.get(remoteParentId);
+      const child = parent?.children.get(id);
+      if (
+        !parent?.active ||
+        !child ||
+        child.takenOver ||
+        !child.exited ||
+        this.running(parent) >= this.childLimit()
+      )
+        throw new ControlError("forbidden");
+      child.exited = false;
+      this.finishedChildren.resumed(id);
+      this.reviews.stop(id);
+      this.childEvents.publish();
+      return;
+    }
     this.finishedChildren.resumed(id);
     this.reviews.stop(id);
     this.childEvents.publish();

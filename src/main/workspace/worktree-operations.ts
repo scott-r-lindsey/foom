@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdir, realpath, rmdir } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
-import { ControlError } from "../../node-common/control-validation";
+import { ControlError } from "../../shared/control-validation";
 import type { CreatedWorktree, CreateWorktreeOptions } from "../../shared/worktrees";
 import { forgeBranch } from "../control/forge";
 import type { ForgeProviderFactory } from "../control/forge.d";

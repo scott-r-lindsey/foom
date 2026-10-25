@@ -35,6 +35,8 @@ export interface TerminalState {
 export type McpConnection = "connecting" | "connected" | "not-connected";
 
 export interface WorkspaceTerminal {
+  /** Phase-2 remote child; never silently relaunched as a local process. */
+  remote?: true;
   /** Host-observed foreground process name; never persisted. */
   foregroundProgram?: string;
   outputRevision?: number;

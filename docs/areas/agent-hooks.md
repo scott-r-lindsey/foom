@@ -8,7 +8,7 @@ Claude and Codex hooks attach per launch. Antigravity has an explicit opt-in plu
 
 - Claude Code: `claude --settings <inline-json>` with UserPromptSubmit, PreToolUse, Stop, PermissionRequest and Notification hooks; JSON arrives on stdin. Prompt/tool hooks establish Working. Permission notifications may be delayed, and Stop means a response ended, not necessarily task success.
 - Codex: supported 0.161+ releases receive six invocation-only lifecycle definitions (SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse and Stop), with JSON on stdin. The separate `-c notify=[...]` fallback receives its JSON as the final argument and reports turn completion, not approval requests; it replaces the effective notify command for that launch until lifecycle health permits its omission. See [Execution](execution.md#stable-codex-hook-health) for trust, turn and health semantics.
-- Antigravity: agy 1.4.2 reports a JSON array with `plugin list --json`; legacy 1.3.1 fixture objects and `No imported plugins.` remain supported through a failed-command fallback. Observer version 3 invokes absolute paths inside the validated CLI-owned installation, independent of the session cwd. Settings discloses and installs the static Foom observer with `agy plugin install <bundled-directory>`. Remove uses `agy plugin uninstall foom`; enable uses `agy plugin enable foom`. All calls use resolved executables, argument arrays, bounded output and deadlines. No direct global configuration writes occur. Without the plugin, launch uses output evaluation.
+- Antigravity: agy 1.4.2 reports a JSON array with `plugin list --json`; legacy 1.3.1 fixture objects and `No imported plugins.` remain supported through a failed-command fallback. Observer version 4 retains absolute paths inside the validated CLI-owned installation for local launches and supports the credentialed remote helper described below. Version 3 remains locally compatible. Settings discloses and installs the static Foom observer with `agy plugin install <bundled-directory>`. Remove uses `agy plugin uninstall foom`; enable uses `agy plugin enable foom`. All calls use resolved executables, argument arrays, bounded output and deadlines. No direct global configuration writes occur. Without the plugin, launch uses output evaluation.
 
 See [agent research](../agents.md) for versions, payloads, local probes, sources, and remaining verification. Completion events trigger classification; they do not unconditionally set Done. Echo-off alone is not a password signal: all three tested CLIs disabled echo at startup.
 
@@ -52,3 +52,16 @@ for user-installed code extensions. `foom hook EVENT [--channel ID]` is a silent
 bounded stdin client of this same receiver, with no pairing or control authority.
 External attachment creates no observer files or arguments and never edits agent
 configuration. Existing bundled adapters retain their compatibility behavior.
+
+## Remote launch relay (#755)
+
+Remote launches terminate authenticated hooks on a per-launch 0600 Unix socket
+under a private directory; there is no remote TCP listener. The matching host
+helper reads bounded stdin or final-argument JSON, applies the launch-bound
+manifest reducer and conversation pin on the host, and relays only reduced typed
+signals. Main validates the signal against its own loaded manifest, channel,
+case, action and invocation before passing it to the existing execution owner.
+Raw hook payloads, transcript paths and tool input never cross this relay.
+Antigravity's version-4 opt-in observer can delegate to the inherited remote
+helper; it remains inert outside a credentialed Foom launch. See the
+[phase-2 launch restriction](agent-launch.md#remote-agent-phase-2-755).

@@ -1,6 +1,6 @@
 import type { ManifestChannel } from "../../shared/agent-manifest-v2";
 import type { HookSignal } from "../../shared/hooks";
-import { selectValue } from "./providers/v2-events";
+import { selectValue } from "../../shared/agent-hook-events";
 
 /** Only bounded, validated field names and mapping facts survive the request. */
 export function probeHookEvent(

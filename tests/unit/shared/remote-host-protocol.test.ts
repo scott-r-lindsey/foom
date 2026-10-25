@@ -95,7 +95,7 @@ test("frames survive arbitrary fragmentation and coalescing without exceeding th
       reader.end();
     }).toThrow("Truncated");
   }
-  for (const text of ["not json", "null", "{}", '{"version":2,"message":{}}', '{"version":1}']) {
+  for (const text of ["not json", "null", "{}", '{"version":1,"message":{}}', '{"version":1}']) {
     const body = new TextEncoder().encode(text);
     const bytes = new Uint8Array(body.length + 4);
     new DataView(bytes.buffer).setUint32(0, body.length);

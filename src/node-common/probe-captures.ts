@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { link, lstat, readdir, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { ControlError, exact, object } from "./control-validation";
+import { ControlError, exact, object } from "../shared/control-validation";
 import { createPrivateFile, privateDirectory, verifyPrivate } from "./private-files";
 import { validAgentId } from "../shared/providers/catalog";
 import type { CaptureReport, ProbeCapture } from "../shared/probe-capture";

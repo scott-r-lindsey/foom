@@ -5,7 +5,7 @@ import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { locationId } from "../../../../src/main/control/metadata";
 import { UncertainEffect } from "../../../../src/main/workspace/worktree-outcome";
 import type { Operation } from "../../../../src/main/control/types";
-import { ControlError } from "../../../../src/node-common/control-validation";
+import { ControlError } from "../../../../src/shared/control-validation";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import pluginFixture from "../../../fixtures/agent-plugin.json";
 
@@ -158,6 +158,35 @@ describe("worktrees and children", () => {
     expect(h.host.createWorktree).toHaveBeenCalledOnce();
     for (const branch of ["a", "b", "c"]) await h.mutate("create_worktree", { branch });
     await expect(h.mutate("create_worktree", { branch: "d" })).rejects.toThrow("capacity");
+  });
+
+  it("retains only the live owning parent for a main-authorized remote resume and enforces the child budget", async () => {
+    const h = harness();
+    const { id } = await h.child("remote");
+    expect(() => {
+      h.orchestration.relaunched(id, "parent");
+    }).toThrow("forbidden");
+    h.exit(id);
+    expect(() => {
+      h.orchestration.relaunched(id, "other-parent");
+    }).toThrow("forbidden");
+    h.orchestration.relaunched(id, "parent");
+    expect(h.orchestration.view(id)).toMatchObject({
+      role: "child",
+      parentId: "parent",
+      takenOver: false,
+    });
+    h.exit(id);
+    h.orchestration.takeOver(id);
+    expect(() => {
+      h.orchestration.relaunched(id, "parent");
+    }).toThrow("forbidden");
+    const next = await h.child("next");
+    h.exit(next.id);
+    h.exit("parent");
+    expect(() => {
+      h.orchestration.relaunched(next.id, "parent");
+    }).toThrow("forbidden");
   });
 
   it("drops ownership when the human relaunches a child under the same ID", async () => {

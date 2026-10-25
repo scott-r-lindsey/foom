@@ -87,6 +87,7 @@ export interface AgentLaunch {
   readonly environment?: readonly (readonly EnvironmentVariable[])[];
 }
 export interface AgentLaunched {
+  readonly remote?: true;
   readonly conversationId?: string;
   readonly bypass?: boolean;
   readonly providerOrigin?: "config" | "bundled";

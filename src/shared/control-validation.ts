@@ -20,10 +20,12 @@ export class ControlError extends Error {
     super(code);
   }
 }
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 export function object(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    throw new ControlError("invalid_request");
-  return value as Record<string, unknown>;
+  if (!isObject(value)) throw new ControlError("invalid_request");
+  return value;
 }
 export function exact(value: Record<string, unknown>, keys: readonly string[]): void {
   if (Object.keys(value).some((key) => !keys.includes(key)))

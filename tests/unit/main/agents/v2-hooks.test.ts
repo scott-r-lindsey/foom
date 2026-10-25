@@ -16,11 +16,7 @@ import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import { prepareHookLaunch } from "../../../../src/main/agents/providers/hook-launch";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
-import {
-  reduceV2,
-  selectValue,
-  eventCondition,
-} from "../../../../src/main/agents/providers/v2-events";
+import { reduceV2, selectValue, eventCondition } from "../../../../src/shared/agent-hook-events";
 import { V2Health, V2ExecutionHooks } from "../../../../src/main/agents/providers/v2-health";
 import {
   observerAssets,
@@ -652,7 +648,7 @@ it("flushes health after terminal removal and declines completion without a prom
   expect(await readFile(join(root, "fixture-health.json"), "utf8")).toContain('"declined"');
 });
 it("discovers hooks for resume/prompt/control contexts while preserving hard verification gates", async () => {
-  const { hookCapability } = await import("../../../../src/main/agents/providers/v2-values");
+  const { hookCapability } = await import("../../../../src/shared/agent-launch-values");
   const m = model(stdin);
   const c = channel(m);
   c.when = {

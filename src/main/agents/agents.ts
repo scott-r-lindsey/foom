@@ -1,7 +1,9 @@
+import { remoteAgentTarget } from "../terminals/remote-bootstrap";
+import { launchRemoteChild, type RemoteHooks } from "./remote-launch";
 import { agentCapabilities } from "../../shared/agent-capabilities";
 import type { DialogContent } from "../../shared/confirmation";
 import type { PreparedLaunch } from "./providers/provider";
-import { matchesArguments, bypassEnvironment } from "./providers/v2-values";
+import { matchesArguments, bypassEnvironment } from "../../shared/agent-launch-values";
 import {
   agentProvider,
   agentProviders,
@@ -11,7 +13,7 @@ import {
 import { AgyPlugin } from "./agy-plugin";
 import { ManualMcp } from "../control/manual-mcp";
 import type { ControlLaunch } from "../control/types";
-import { parseAgentArguments } from "./default-arguments";
+import { hasBypassArgument, parseAgentArguments } from "./default-arguments";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import { execFile } from "node:child_process";
 import { readLoginShell } from "../login-shell";
@@ -132,6 +134,7 @@ export class AgentService {
     ) => Promise<ControlLaunch>,
     private readonly agyPlugin = new AgyPlugin(),
     private readonly confirmLaunchBypass?: (content: DialogContent) => Promise<boolean>,
+    private readonly remoteHooks?: RemoteHooks,
   ) {}
 
   private ensureOpen(): void {
@@ -226,6 +229,56 @@ export class AgentService {
         ? (request.checkoutIdentity ??
           (await this.worktrees.launchIdentity(request.repository, request.worktree)))
         : undefined;
+    const remote = remoteAgentTarget(process.argv, request.worktree);
+    if (remote) {
+      if (hasBypassArgument(request.agent, defaults))
+        throw new Error("Unattended child bypass is unavailable");
+      if (!request.control || !("parentId" in request.control))
+        throw new Error("Remote phase 2 requires a local-orchestrator-owned child");
+      const control = await this.prepareControl?.(
+        request.repository,
+        request.worktree,
+        undefined,
+        request.control,
+      );
+      if (!control) throw new Error("Remote control is unavailable");
+      let launched: Awaited<ReturnType<typeof launchRemoteChild>> | undefined;
+      try {
+        launched = await launchRemoteChild(
+          request,
+          remote,
+          defaults,
+          this.hooksEnabled && this.agentHooks[request.agent] !== false,
+          this.terminals,
+          control,
+          async () => {
+            this.ensureOpen();
+            await provider.validate?.();
+            if (
+              agentProvider(request.agent) !== provider ||
+              (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
+                checkoutIdentity
+            )
+              throw new Error("Worktree or provider changed");
+          },
+          this.remoteHooks,
+        );
+        if (this.earlyExits.has(launched.result.id)) {
+          launched.dispose();
+          if (![...this.launched.values()].includes(request.worktree))
+            this.occupied.delete(request.worktree);
+        } else {
+          this.ensureOpen();
+          this.launched.set(launched.result.id, request.worktree);
+          this.mcpBindings.set(launched.result.id, launched);
+        }
+        return launched.result;
+      } catch (error) {
+        launched?.dispose();
+        control.dispose();
+        throw error;
+      }
+    }
     const scan =
       this.scannedRevision === providerRevision() && this.scanResult
         ? this.scanResult
@@ -315,7 +368,11 @@ export class AgentService {
               ),
             )
           : environment.env;
-      const environmentMatches = bypassEnvironment(provider.model, finalEnvironment);
+      const environmentMatches = bypassEnvironment(
+        provider.model,
+        finalEnvironment,
+        process.platform === "win32",
+      );
       const argumentMatches = provider.model.bypassArguments
         .filter((matcher) => matchesArguments([matcher], args))
         .map((matcher) => JSON.stringify(matcher));

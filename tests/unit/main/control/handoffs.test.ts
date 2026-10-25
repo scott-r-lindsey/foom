@@ -4,7 +4,7 @@ import {
   handoffRequest,
   readHandoffRequest,
   storedHandoffs,
-} from "../../../../src/node-common/handoff";
+} from "../../../../src/shared/handoff-validation";
 import type { Principal } from "../../../../src/main/control/types";
 
 const actor: Principal = {

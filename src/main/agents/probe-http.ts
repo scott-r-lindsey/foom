@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { ControlError } from "../../node-common/control-validation";
+import { ControlError } from "../../shared/control-validation";
 import type { AgentProbes } from "./probes";
 
 /** Separate loopback-only capability, no discovery file, pairing, MCP or repository API. */

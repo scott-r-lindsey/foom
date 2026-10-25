@@ -1,4 +1,4 @@
-import { ControlError, exact, object } from "./control-validation";
+import { ControlError, exact, object } from "../shared/control-validation";
 import { validAgentId } from "../shared/providers/catalog";
 import type { CaptureState } from "../shared/probe-capture";
 import { conversationId } from "../shared/conversation";

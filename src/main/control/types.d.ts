@@ -1,3 +1,4 @@
+import type { RemoteControlResult } from "../../shared/remote-agent";
 export type Role = "agent" | "orchestrator" | "cli";
 export interface Principal {
   /** ISO timestamp when the current role was granted; refreshed on role changes. */
@@ -18,7 +19,9 @@ export interface McpAttachment {
   dispose(): void;
 }
 export interface ControlLaunch extends McpAttachment {
-  bind(terminalId: string, mcp?: boolean): void;
+  /** Main-only relay, retaining the local grant and never exposing its token. */
+  remoteCall?: (method: string, params: unknown) => Promise<RemoteControlResult>;
+  bind: (terminalId: string, mcp?: boolean) => void;
 }
 export type Action =
   | "create_worktree"

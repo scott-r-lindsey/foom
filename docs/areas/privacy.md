@@ -72,3 +72,11 @@ asset URL query is used only for the asset request. The same Settings switch
 controls macOS metadata, ZIP downloads and GitHub API notices; no other hosts
 are added. Electron receives only private local feed and archive `file:` URLs,
 with remote extra fields discarded, so native work cannot start a network request.
+
+
+Remote phase-2 agent hooks are reduced on the host before SSH relay; raw payloads
+and transcript paths are discarded. Only bounded authorized handoffs, fixed manual
+pages and a sanitized launch alias return through the remote control endpoint.
+Hub Environment settings, stored secrets and control tokens are not sent to hosts.
+The remote account's existing CLI logins stay on that host. See
+[the phase-2 boundary](agent-launch.md#remote-agent-phase-2-755).

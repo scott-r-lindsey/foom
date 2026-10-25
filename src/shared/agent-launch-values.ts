@@ -1,8 +1,8 @@
-import type { AgentManifestV2 } from "../../../shared/agent-manifest-v2";
+import type { AgentManifestV2 } from "./agent-manifest-v2";
 
 export type Facts = Readonly<Record<string, unknown>>;
-export { selected } from "../../../shared/agent-conditions";
-import { selected } from "../../../shared/agent-conditions";
+export { selected } from "./agent-conditions";
+import { selected } from "./agent-conditions";
 
 export function discoveryFacts(
   model: AgentManifestV2,
@@ -78,13 +78,9 @@ export function hookCapability(
   return false;
 }
 
-export { matchesArguments } from "../../../shared/agent-argument-matchers";
+export { matchesArguments } from "./agent-argument-matchers";
 
-export function bypassEnvironment(
-  model: AgentManifestV2,
-  env: Facts,
-  windows = process.platform === "win32",
-): string[] {
+export function bypassEnvironment(model: AgentManifestV2, env: Facts, windows = false): string[] {
   return model.bypassEnvironment
     .filter((rule) =>
       Object.entries(env).some(([name, raw]) => {
@@ -122,8 +118,10 @@ export function expandV2(
 export function boundedArguments(args: string[]): string[] {
   if (
     args.length > 256 ||
-    args.some((arg) => Buffer.byteLength(arg) > 20480 || /[^\P{Cc}\n\t]/u.test(arg)) ||
-    args.reduce((total, arg) => total + Buffer.byteLength(arg), 0) > 65536
+    args.some(
+      (arg) => new TextEncoder().encode(arg).length > 20480 || /[^\P{Cc}\n\t]/u.test(arg),
+    ) ||
+    args.reduce((total, arg) => total + new TextEncoder().encode(arg).length, 0) > 65536
   )
     throw new Error("Expanded launch arguments exceed limits");
   return args;
