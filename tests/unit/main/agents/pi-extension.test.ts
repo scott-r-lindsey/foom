@@ -159,13 +159,17 @@ it("reduces lifecycle callbacks to bounded fields and never returns a permission
       ),
     ).toBeUndefined();
   expect(
-    r.handlers.get("agent_before_settle")?.({ outcome: "completed", entries: ["secret"] }, ctx),
+    await r.handlers.get("agent_before_settle")?.(
+      { outcome: "completed", entries: ["secret"] },
+      ctx,
+    ),
   ).toBeUndefined();
   expect(await r.handlers.get("agent_settled")?.({ aborted: false }, ctx)).toBeUndefined();
   expect(r.bodies.at(-1)).toEqual({ event: "agent_settled", conversationId, outcome: "completed" });
   expect(JSON.stringify(r.bodies)).not.toContain("secret");
   expect(r.bodies.every((body) => JSON.stringify(body).length < 512)).toBe(true);
   expect(r.request.mock.calls[0]?.[1]).toMatchObject({
+    agent: false,
     headers: {
       Authorization: env.FOOM_TOKEN,
       "X-Foom-Session": conversationId,
@@ -174,10 +178,10 @@ it("reduces lifecycle callbacks to bounded fields and never returns a permission
   });
   await r.handlers.get("agent_settled")?.({ aborted: true }, ctx);
   expect(r.bodies.at(-1)?.["outcome"]).toBe("aborted");
-  r.handlers.get("agent_before_settle")?.({ outcome: "error" }, ctx);
+  await r.handlers.get("agent_before_settle")?.({ outcome: "error" }, ctx);
   await r.handlers.get("agent_settled")?.({ aborted: false }, ctx);
   expect(r.bodies.at(-1)?.["outcome"]).toBe("error");
-  r.handlers.get("agent_before_settle")?.({ outcome: "unknown" }, ctx);
+  await r.handlers.get("agent_before_settle")?.({ outcome: "unknown" }, ctx);
   const count = r.bodies.length;
   await r.handlers.get("agent_settled")?.({ aborted: false }, ctx);
   await r.handlers.get("agent_start")?.(
@@ -497,4 +501,32 @@ it("rejects extension placeholders outside their attachment and conditions that 
   const unselected = manifest();
   unselected.launch.extension.when.all.push({ field: "control", op: "eq", value: true });
   expect(() => parseAgentManifest(JSON.stringify(unselected))).toThrow("incompatible-combination");
+});
+
+it("drops malformed idle facts and contains runtime callback failures without decisions or output", async () => {
+  const r = runtime(env, { channel: "lifecycle" });
+  await expect(
+    r.handlers.get("ui_prompt_end")?.(
+      {},
+      {
+        ...ctx,
+        isIdle: () => {
+          throw new Error("private runtime error");
+        },
+      },
+    ),
+  ).resolves.toBeUndefined();
+  const count = r.bodies.length;
+  await r.handlers.get("ui_prompt_end")?.({}, { ...ctx, isIdle: () => false });
+  expect(r.bodies).toHaveLength(count + 1);
+  await r.handlers.get("agent_before_settle")?.(
+    {
+      get outcome() {
+        throw new Error("private event");
+      },
+    },
+    ctx,
+  );
+  await r.handlers.get("agent_settled")?.({ aborted: false }, ctx);
+  expect(r.bodies).toHaveLength(count + 1);
 });

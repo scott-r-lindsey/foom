@@ -50,8 +50,10 @@ Antigravity observers return `{}` before bounded stdin and detached one-second t
 External manifest channels (#635) expose [public protocol 1](../agent-plugins.md#user-authored-extensions-public-hook-protocol-1-635)
 for user-installed code extensions. `foom hook EVENT [--channel ID]` is a silent,
 bounded stdin client of this same receiver, with no pairing or control authority.
-External attachment creates no observer files or arguments and never edits agent
-configuration. Existing bundled adapters retain their compatibility behavior.
+External channels alone create no observer files or arguments and never edit agent
+configuration. The separate fixed extension attachment described below may supply
+application-owned glue for an external channel. Existing command adapters retain
+their compatibility behavior.
 
 ## Per-launch executable extensions (#834)
 

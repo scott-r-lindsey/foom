@@ -13,6 +13,10 @@ export default function (pi) {
     if (source.length > 16384) return;
     const config = JSON.parse(source);
     if (!config || typeof config !== "object" || Array.isArray(config)) return;
+    const observe = (name, handler) => pi.on(name, async (event, ctx) => {
+      try { await handler(event, ctx); }
+      catch { /* Malformed runtime data never escapes into Pi's error output. */ }
+    });
     const endpoint = (value, path) => {
       if (typeof value !== "string") return undefined;
       const url = new URL(value);
@@ -29,7 +33,7 @@ export default function (pi) {
         if (failed) reject(new Error("Foom transport unavailable"));
         else resolve(value);
       };
-      const req = request(url, {method: "POST", headers: {
+      const req = request(url, {method: "POST", agent: false, headers: {
         "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), ...headers,
       }}, (res) => {
         response = res;
@@ -84,8 +88,8 @@ export default function (pi) {
           }
         };
         if (mcp.roleAware === true) {
-          pi.on("session_start", refresh);
-          pi.on("before_agent_start", refresh);
+          observe("session_start", refresh);
+          observe("before_agent_start", refresh);
         } else void refresh();
       }
     }
@@ -105,24 +109,29 @@ export default function (pi) {
       } catch { /* Reports never gate agent execution. */ }
     };
     let outcome;
-    pi.on("session_start", (_event, ctx) => report("session_start", ctx));
-    pi.on("agent_start", (_event, ctx) => { outcome = undefined; return report("agent_start", ctx); });
+    observe("session_start", (_event, ctx) => report("session_start", ctx));
+    observe("agent_start", (_event, ctx) => { outcome = undefined; return report("agent_start", ctx); });
     for (const event of ["turn_start", "turn_end", "tool_execution_start", "ui_prompt_start"])
-      pi.on(event, (_event, ctx) => report(event, ctx));
-    pi.on("ui_prompt_end", (_event, ctx) => report("ui_prompt_end", ctx, {fullyIdle: ctx.isIdle()}));
-    pi.on("agent_before_settle", (event) => {
-      // Only copy the bounded outcome. Return no entries or continuation/approval decision.
-      outcome = ["completed", "aborted", "error"].includes(event.outcome) ? event.outcome : undefined;
+      observe(event, (_event, ctx) => report(event, ctx));
+    observe("ui_prompt_end", (_event, ctx) => {
+      const fullyIdle = ctx.isIdle();
+      if (typeof fullyIdle === "boolean") return report("ui_prompt_end", ctx, {fullyIdle});
     });
-    pi.on("agent_settled", (event, ctx) => {
-      if (typeof event.aborted !== "boolean" || outcome === undefined) return;
+    observe("agent_before_settle", (event) => {
+      // Only copy the bounded outcome. Return no entries or continuation/approval decision.
+      outcome = undefined;
+      const value = event?.outcome;
+      if (["completed", "aborted", "error"].includes(value)) outcome = value;
+    });
+    observe("agent_settled", (event, ctx) => {
+      if (typeof event?.aborted !== "boolean" || outcome === undefined) return;
       return report("agent_settled", ctx, {outcome: event.aborted ? "aborted" : outcome});
     });
   } catch { /* Missing files, unsupported APIs and revoked receivers fail open. */ }
 }
 `;
 
-const PI_V1_SHA256 = "ae9a6e65ea5985aef101d087dd4825b4839236122fce9c3ec204c7af3eb722e0";
+const PI_V1_SHA256 = "f44cb02aed1cd38c2433f788dc6900ecc7f3f439013ca96be8f3908d264523b8";
 
 export function assertExtensionIntegrity(source: string): void {
   if (createHash("sha256").update(source).digest("hex") !== PI_V1_SHA256)
