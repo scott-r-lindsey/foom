@@ -171,14 +171,26 @@ Quality gate's required-job rules, coverage thresholds, permissions and Release
 configuration are unchanged: a failed host build blocks packaging, which remains
 required. Electron shards still start independently after change detection.
 
-Darwin `foom-host` binaries use fixture-tested **ad-hoc signing in every build**,
-including nightlies. This user decision replaces #825's original requirement for
-Developer ID hosts on nightlies. Hosts travel over SSH without download quarantine,
-so Gatekeeper/notarization do not apply to the upload; Apple Silicon's signature
-requirement is met by ad-hoc signing. Bootstrap verifies the manifest SHA-256 after
-upload and when reusing cached bytes. Compressed payloads keep the desktop app's
-later Developer ID signing pass from rewriting the hosts or invalidating their
-manifest hashes. No Release secrets, environments or credential stages change.
+Darwin `foom-host` binaries are ad-hoc signed in native, PR and development
+builds. #844 amends #825's option C decision: Apple inspects inside gzip files,
+so the existing main-only Release signing pass now unpacks both Darwin hosts,
+signs them with Developer ID, hardened runtime, secure timestamp and the dedicated Node
+remote-host entitlements, verifies their signatures, and recompresses them before
+signing the enclosing app. PR CI exercises the same path with an ad-hoc identity
+and no secure timestamp or Release credentials. Fixture Apple tools cover both
+identities and stop the job on signing or verification failure. The host alone
+permits library validation bypass because its SEA extracts an embedded node-pty
+prebuild that is outside the app signing pass; the host verifies the extracted
+asset against its embedded SHA-256 before loading.
+
+Before modification, all catalog entries must match the version and source
+revision sealed inside ASAR and pass both compressed and expanded size/hash
+checks. Signing preserves version, protocol, platform, architecture and source;
+it regenerates both sizes and SHA-256 hashes and verifies the rewritten entries.
+Linux entries and ASAR bytes stay unchanged. Bootstrap verifies both hashes before
+upload and the expanded hash after upload and on cache reuse. No Release secrets,
+environments, workflow permissions or credential stages change. The user verifies
+real notarization after merge with `publish_nightly`.
 
 For local packaging, populate `.cache/remote-hosts/TARGET/` with all four native
 builds from the same revision and version, or set `FOOM_REMOTE_HOST_ARTIFACTS` to

@@ -12,7 +12,7 @@ import {
   digest,
 } from "./remote-host-artifacts.mjs";
 
-test("host signing is always ad-hoc with runtime entitlements and strict verification", () => {
+test("native host build signing is ad-hoc with runtime entitlements and strict verification", () => {
   const calls = [];
   signRemoteHost("/fixture/foom-host", (command, args) => calls.push([command, args]));
   assert.deepEqual(calls, [
