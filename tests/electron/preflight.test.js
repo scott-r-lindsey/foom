@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 
 const { test } = require("./test-shard.js");
@@ -496,7 +497,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   assert.equal(firstRunGeometry.length, 2);
 
   if (process.env.FOOM_MANUAL_SCREENSHOTS === "1" && process.platform === "linux") {
-    await mkdir("screenshots-680", { recursive: true });
+    await mkdir(evidencePath("screenshots-680"), { recursive: true });
     const handle = await app.evaluate(({ BrowserWindow }) => {
       const board = BrowserWindow.getAllWindows().find(
         (window) => window.webContents.getURL() === "app://bundle/index.html",
@@ -522,7 +523,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
       require("node:child_process").execFileSync("import", [
         "-window",
         String(handle),
-        `screenshots-680/first-run-${mode}.png`,
+        evidencePath(`screenshots-680/first-run-${mode}.png`),
       ]);
     }
     await page.evaluate(() => window.desktop.saveSetup({ colorMode: "system" }));

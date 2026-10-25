@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("./test-shard.js");
@@ -84,7 +85,7 @@ async function confirmationDesktop(app, name, footer) {
     footer,
   );
   await writeFile(
-    `test-results/confirmation-stacking-${name}.png`,
+    evidencePath(`confirmation-stacking-${name}.png`),
     Buffer.from(evidence.png, "base64"),
   );
   return { actual: evidence.actual, expected: evidence.expected, windows: evidence.windows };
@@ -762,11 +763,11 @@ test("trusted quit dialog isolates answers, passes axe in every theme and surviv
     assert.equal(await board.evaluate(() => "confirmation" in window), false);
     await mkdir("test-results", { recursive: true });
     await dialog.screenshot({
-      path: `test-results/confirmation-${colorMode}.png`,
+      path: evidencePath(`confirmation-${colorMode}.png`),
       animations: "disabled",
     });
     await board.screenshot({
-      path: `test-results/confirmation-board-${colorMode}.png`,
+      path: evidencePath(`confirmation-board-${colorMode}.png`),
       animations: "disabled",
     });
     captureConfirmationDesktop(`quit-${colorMode}`);

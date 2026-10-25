@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const { deadline, expect } = require("./test-policy.js");
@@ -121,7 +122,7 @@ test("application menu uses the command registry and supports native keyboard ac
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
     await expect(page.locator("html")).toHaveCSS("color-scheme", colorScheme);
     await page.screenshot({
-      path: `test-results/application-menu-${colorScheme}.png`,
+      path: evidencePath(`application-menu-${colorScheme}.png`),
       animations: "disabled",
     });
   }

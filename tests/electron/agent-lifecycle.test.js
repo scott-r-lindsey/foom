@@ -1,7 +1,7 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { codexFixture } = require("./agent-fixture.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
-const path = require("node:path");
 const { realpath } = require("node:fs/promises");
 const { deadline, expect } = require("./test-policy.js");
 const { openSettingsScreen } = require("./harness.js");
@@ -192,5 +192,7 @@ process.stdin.on('data', data => {
     .getByRole("button", { name: "Agents", exact: true })
     .click();
   await expect(page.getByText(/Trusted · observed working/)).toBeVisible();
-  await page.screenshot({ path: path.join(__dirname, "../../test-results/codex-hook-setup.png") });
+  await page.screenshot({
+    path: evidencePath("codex-hook-setup.png"),
+  });
 });

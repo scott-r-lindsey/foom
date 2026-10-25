@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 
 const { test } = require("./test-shard.js");
@@ -416,7 +417,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
       );
       return (await window.webContents.capturePage()).toPNG().toString("base64");
     });
-    await writeFile(`test-results/settings-close-${scale}.png`, Buffer.from(screenshot, "base64"));
+    await writeFile(evidencePath(`settings-close-${scale}.png`), Buffer.from(screenshot, "base64"));
     await close.click();
     await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
     await expect(row).toBeFocused();

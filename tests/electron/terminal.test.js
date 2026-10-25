@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -1111,7 +1112,7 @@ test("Bash command status reaches the sidebar without closing the shell", {
   );
   await page.evaluate(() => window.activityObserver.disconnect());
   if (process.env.FOOM_SCREENSHOTS)
-    await page.screenshot({ path: path.join(tmpdir(), "foom-270-glow.png") });
+    await page.screenshot({ path: evidencePath("foom-270-glow.png") });
   await page.keyboard.press("Control+c");
   await expect(row.locator(".session-program")).toHaveCount(0);
   await page.keyboard.type("false");
@@ -1128,7 +1129,7 @@ test("Bash command status reaches the sidebar without closing the shell", {
   await expect(row.locator(".session-program")).toHaveText("exited");
   await assertAccessible(page);
   if (process.env.FOOM_SCREENSHOTS)
-    await page.screenshot({ path: path.join(tmpdir(), "foom-270-exited.png") });
+    await page.screenshot({ path: evidencePath("foom-270-exited.png") });
 });
 
 test("shell fixture starts through keyboard while startup layout moves", {

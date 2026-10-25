@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 
 const { test } = require("./test-shard.js");
@@ -222,7 +223,7 @@ test("Settings opens on General from the menu, sidebar and keyboard", async (con
   await expect(panel.getByRole("menuitem", { name: "Open folder", exact: true })).toBeVisible();
   if (process.env.FOOM_UI_SCREENSHOTS)
     await page.screenshot({
-      path: path.join(process.env.FOOM_UI_SCREENSHOTS, "sidebar-config-menu.png"),
+      path: evidencePath(path.join(evidencePath("ui_screenshots"), "sidebar-config-menu.png")),
       animations: "disabled",
     });
   await panel.getByRole("menuitem", { name: /^Settings/ }).click();
@@ -269,7 +270,7 @@ test("nested repository names follow the General toggle and retain their identit
   const screenshot = async (name) => {
     if (process.env.FOOM_UI_SCREENSHOTS)
       await page.screenshot({
-        path: path.join(process.env.FOOM_UI_SCREENSHOTS, name + ".png"),
+        path: evidencePath(path.join(evidencePath("ui_screenshots"), name + ".png")),
         animations: "disabled",
       });
   };
@@ -352,8 +353,10 @@ test("General update opt-out persists; update notices and restart counts remain 
           ),
         ).toBeVisible();
       if (process.env.FOOM_UPDATE_SCREENSHOTS === "1") {
-        await mkdir("screenshots-603", { recursive: true });
-        await page.screenshot({ path: `screenshots-603/general-${mode}-${status}.png` });
+        await mkdir(evidencePath("screenshots-603"), { recursive: true });
+        await page.screenshot({
+          path: evidencePath(`screenshots-603/general-${mode}-${status}.png`),
+        });
       }
     }
   }
@@ -390,14 +393,14 @@ test("General close finished agents defaults on and saves immediately", {
     )
     .toBe(true);
   if (process.env.FOOM_CAPTURE_745 === "1") {
-    await mkdir("screenshots-745", { recursive: true });
+    await mkdir(evidencePath("screenshots-745"), { recursive: true });
     for (const mode of ["light", "dark"]) {
       await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
       await expect
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
       await control.scrollIntoViewIfNeeded();
-      await page.screenshot({ path: `screenshots-745/general-${mode}.png` });
+      await page.screenshot({ path: evidencePath(`screenshots-745/general-${mode}.png`) });
     }
   }
   await assertAccessible(page);
