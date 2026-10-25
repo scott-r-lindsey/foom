@@ -327,7 +327,12 @@ export class TrustedDialog {
       Math.min(Math.round(parent.y + (parent.height - height) / 2), bottom - height),
     );
     this.bounds = { x, y, width, height };
-    this.window.setBounds(this.bounds);
+    // Read native bounds, not the last request: a WM may have moved the child.
+    // Conversely, repeating already-correct pre-map coordinates after mapping
+    // can trigger X11 frame/gravity compensation and visibly move the card.
+    const actual = this.window.getBounds();
+    if (actual.x !== x || actual.y !== y || actual.width !== width || actual.height !== height)
+      this.window.setBounds(this.bounds);
   };
   private readonly blockParentInput = (event: Event, input: Input | MouseInputEvent) => {
     event.preventDefault();
@@ -360,7 +365,8 @@ export class TrustedDialog {
       // Only steal activation for a measured request a person started.
       if (this.platform === "darwin" && this.pending.activate) app.focus({ steal: true });
       window.show();
-      // Some window managers place a child when mapping it. Reapply after show.
+      // Some window managers place a child when mapping it. Reapply after show
+      // only if native geometry changed; an already-correct map needs no move.
       this.syncBounds();
       window.moveTop();
       this.focusDialog();

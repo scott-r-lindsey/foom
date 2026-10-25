@@ -64,7 +64,14 @@ while a request is pending. It multiplies by the board zoom, clamps to the paren
 content area less a 24-DIP margin and the display work area, and centers the card on
 the content bounds. The card's content scrolls when constrained. Main shows the
 window only after its first valid measurement, re-establishes the parent link,
-reapplies positioning after show, and raises it with `moveTop()` before focusing.
+checks native geometry after show and reapplies positioning only when it differs,
+and raises it with `moveTop()` before focusing. Every positioning path reads back
+native bounds before writing: repeating already-correct coordinates after mapping
+can trigger X11 frame/gravity compensation and visibly move the card (#827).
+The expected bounds are still recorded even when no native write is needed;
+unchanged renderer measurements and recovery events must not move a correctly
+placed child. A window manager that actually changes placement still receives the
+post-show correction and remains subject to the same reachability checks.
 On macOS, a measured quit confirmation activates the app with
 `app.focus({ steal: true })`, because native window focus alone cannot activate
 Foom when another app is frontmost. Only confirmations a person started may

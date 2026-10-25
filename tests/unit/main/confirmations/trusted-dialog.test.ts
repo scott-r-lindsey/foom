@@ -233,11 +233,12 @@ test("tracks parent bounds and focus only while pending and restores input on ca
   expect(parent.setEnabled).not.toHaveBeenCalled();
   window().setBounds.mockClear();
   window().focus.mockClear();
+  parent.getContentBounds.mockReturnValue({ x: 30, y: 40, width: 800, height: 600 });
   parent.emit("move");
   parent.emit("resize");
   parent.emit("focus");
-  expect(window().setBounds).toHaveBeenCalledTimes(4);
-  expect(window().setBounds).toHaveBeenLastCalledWith({ x: 190, y: 200, width: 440, height: 240 });
+  expect(window().setBounds).toHaveBeenCalledOnce();
+  expect(window().getBounds()).toEqual({ x: 210, y: 220, width: 440, height: 240 });
   expect(window().focus).toHaveBeenCalledOnce();
   window().emit("close", { preventDefault: vi.fn() });
   await expect(pending).resolves.toBe(false);
@@ -246,7 +247,7 @@ test("tracks parent bounds and focus only while pending and restores input on ca
   expect(parent.listenerCount("resize")).toBe(0);
   expect(parent.listenerCount("focus")).toBe(0);
   parent.emit("resize");
-  expect(window().setBounds).toHaveBeenCalledTimes(4);
+  expect(window().setBounds).toHaveBeenCalledOnce();
   dialog.dispose();
 });
 
@@ -261,6 +262,59 @@ test("pairing deadlines dismiss active dialogs and cannot approve queued expired
   expect(await dialog.request(content, controller.signal)).toBe(false);
   dialog.dispose();
 });
+
+test("an X11 frame/gravity adjustment cannot turn an unchanged placement into a visible move", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const dialog = setup();
+  let mapped = false;
+  const child = window();
+  const visibleMoves: (typeof child.bounds)[] = [];
+  child.show.mockImplementation(() => {
+    mapped = true;
+  });
+  child.hide.mockImplementation(() => {
+    mapped = false;
+  });
+  child.setBounds.mockImplementation((bounds) => {
+    // Model a WM interpreting a mapped ConfigureRequest with frame/gravity
+    // compensation. Repeating the pre-map coordinates drops the card 20 DIP.
+    child.bounds = { ...bounds, y: bounds.y + (mapped ? 20 : 0) };
+    if (mapped) visibleMoves.push(child.bounds);
+  });
+  for (let request = 0; request < 2; request++) {
+    const pending = dialog.request(content);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(child.getBounds()).toEqual({ x: 190, y: 200, width: 440, height: 240 });
+    resize({ width: 440, height: 240 });
+    parent.emit("resize");
+    parent.emit("focus");
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(visibleMoves).toEqual([]);
+    const render: unknown = child.webContents.send.mock.calls.at(-1)?.[1];
+    if (!render || typeof render !== "object" || !("id" in render)) throw Error("Missing request");
+    answer(render.id, true);
+    expect(await pending).toBe(true);
+  }
+  dialog.dispose();
+});
+
+test.each(["linux", "darwin", "win32"] as const)(
+  "%s still reapplies bounds when mapping really changes native geometry",
+  async (platform) => {
+    const dialog = setup(platform);
+    const child = window();
+    child.show.mockImplementation(() => {
+      child.bounds = { ...child.bounds, y: child.bounds.y + 20 };
+    });
+    const pending = dialog.request(content);
+    const id = await shown();
+    expect(child.setBounds).toHaveBeenCalledTimes(2);
+    expect(child.getBounds()).toEqual({ x: 190, y: 200, width: 440, height: 240 });
+    answer(id, true);
+    expect(await pending).toBe(true);
+    dialog.dispose();
+  },
+);
 
 function resize(
   value: unknown,
