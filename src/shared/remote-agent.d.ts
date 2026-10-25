@@ -39,6 +39,8 @@ export interface RemoteAgentBinding {
   activate?(): void;
   spec: RemoteAgentSpec;
   authorize(): Promise<void>;
+  /** Recheck captured parent/operation authority synchronously before agent-start. */
+  start(): void;
   call(method: string, params: unknown): Promise<RemoteControlResult>;
   hook(signal: HookSignal): void | Promise<void>;
   ready(value: RemoteAgentReady): void;

@@ -31,7 +31,10 @@ export interface WorktreeLaunchContext {
   readonly launched: Map<string, WorkspaceTerminal>;
   readonly location: "root" | "adjacent";
   readonly now: () => number;
-  readonly orchestration: Pick<Orchestration, "relaunched" | "view" | "exited">;
+  readonly orchestration: Pick<
+    Orchestration,
+    "relaunched" | "view" | "exited" | "remoteParentGuard"
+  >;
   readonly persist: () => void;
   readonly queues: Map<string, Promise<void>>;
   readonly refresh: () => void;

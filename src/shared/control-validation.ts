@@ -15,7 +15,8 @@ export class ControlError extends Error {
       | "default_branch"
       | "invalid_branch"
       | "branch_in_use"
-      | "branch_diverged",
+      | "branch_diverged"
+      | "remote_review_unsupported",
   ) {
     super(code);
   }

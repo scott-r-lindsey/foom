@@ -157,7 +157,14 @@ it("bounds replies, refuses redirects and malformed JSON, and does not print ser
       endpoint: connection.endpoint,
       instanceId: connection.instanceId,
     });
-    for (const error of ["capacity", "not_found", "invalid_request", "forbidden", "SECRET"]) {
+    for (const error of [
+      "capacity",
+      "not_found",
+      "invalid_request",
+      "forbidden",
+      "remote_review_unsupported",
+      "SECRET",
+    ]) {
       data = `${JSON.stringify({ error })}\n`;
       await expect(pair(root, root, () => {})).rejects.toThrow(
         error === "SECRET" ? "unavailable" : error,

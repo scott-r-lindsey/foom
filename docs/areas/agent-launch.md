@@ -109,6 +109,9 @@ Its identity is a fresh opaque per-launch alias, never a hub terminal ID or pare
 ID. Local `whoami` and parent-facing terminal IDs are unchanged. Filesystem preview
 and fleet/repository tools are refused with a fixed phase-2 restriction reason;
 this limitation is deferred to the host-aware control surface in #756.
+Review-enabled remote launches fail with `remote_review_unsupported`; local
+HEAD/dirty snapshots and forge observations cannot attest to the remote checkout.
+Host-aware review snapshots and forge evidence remain future work for #756/#757.
 
 Remote hook and control endpoints terminate on private Unix sockets. A local
 stdio MCP adapter talks to the remote endpoint; only bounded, versioned, validated

@@ -1,4 +1,5 @@
 import * as Fs from "node:fs";
+import { createConnection } from "node:net";
 import { request } from "node:http";
 import { stat, writeFile, rm } from "node:fs/promises";
 import { afterEach, expect, test, vi } from "vitest";
@@ -207,5 +208,41 @@ test.skipIf(process.platform === "win32")(
       endpointRequest("/call", { method: "whoami", params: {} }, f.env),
     ).rejects.toThrow();
     await rm(f.endpoint.directory, { recursive: true, force: true });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "rejects repeated oversized chunked body events once without dispatching or killing the shared endpoint",
+  async () => {
+    const call = vi.fn(() => Promise.resolve(identity));
+    const f = await fixture(call);
+    for (const path of ["/call", "/hook"]) {
+      const token = path === "/hook" ? f.endpoint.hookToken : f.endpoint.token;
+      const response = await new Promise<string>((resolve, reject) => {
+        const socket = createConnection(f.endpoint.socket);
+        let received = "";
+        socket.on("error", reject);
+        socket.on("data", (bytes: Buffer) => {
+          received += bytes.toString();
+        });
+        socket.on("close", () => {
+          resolve(received);
+        });
+        socket.on("connect", () => {
+          // One write forces multiple body data events after the size limit is crossed.
+          const chunk = `10000\r\n${"x".repeat(65536)}\r\n`;
+          socket.write(
+            `POST ${path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nAuthorization: ${token}\r\nTransfer-Encoding: chunked\r\n\r\n${chunk.repeat(3)}0\r\n\r\n`,
+          );
+        });
+      });
+      expect(response).toMatch(/^HTTP\/1\.1 413 /u);
+      expect(response.match(/HTTP\/1\.1/gu)).toHaveLength(1);
+    }
+    expect(call).not.toHaveBeenCalled();
+    expect(f.signal).not.toHaveBeenCalled();
+    expect(await endpointRequest("/call", { method: "whoami", params: {} }, f.env)).toEqual(
+      identity,
+    );
   },
 );

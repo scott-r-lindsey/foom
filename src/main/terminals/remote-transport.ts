@@ -271,8 +271,10 @@ export class RemoteTransport extends EventEmitter {
               void agent
                 .authorize()
                 .then(() => {
-                  if (!connection.dead && !this.closed && this.connection === connection)
+                  if (!connection.dead && !this.closed && this.connection === connection) {
+                    agent.start();
                     this.send({ type: "agent-start", id: value.id });
+                  }
                 })
                 .catch(() => {
                   this.retireConnection(connection, "failure");

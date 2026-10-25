@@ -654,6 +654,7 @@ async function remoteAgent() {
       hooks: true,
     },
     authorize: vi.fn(() => Promise.resolve()),
+    start: vi.fn(),
     ready: vi.fn(),
     hook: vi.fn(() => Promise.resolve()),
     call: vi.fn(() =>
@@ -755,5 +756,18 @@ test("remote relay concurrency is bounded and duplicate pending call IDs close t
   for (let call = 1; call <= 5; call++)
     child.message({ type: "agent-call", id: "one", call, method: "manual", params: {} });
   expect(next.call).toHaveBeenCalledTimes(4);
+  expect(child.kill).toHaveBeenCalled();
+});
+
+test("final synchronous authority check can revoke a prepared launch before agent-start", async () => {
+  const agent = await remoteAgent();
+  agent.start.mockImplementationOnce(() => {
+    throw new Error("parent replaced");
+  });
+  child.message({ type: "agent-prepared", id: "one" });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(agent.authorize).toHaveBeenCalledOnce();
+  expect(agent.start).toHaveBeenCalledOnce();
+  expect(child.messages).not.toContainEqual({ type: "agent-start", id: "one" });
   expect(child.kill).toHaveBeenCalled();
 });

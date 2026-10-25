@@ -84,3 +84,59 @@ test("human remote resume retains only its live owning parent and rechecks owner
     workspace.sidebarCommand({ kind: "resume", id: "remote" }, () => Promise.resolve(true)),
   ).rejects.toThrow("owned child");
 });
+
+test("remote review launch refuses before local reviewer discovery or spawning and leaves ordinary launch available", async () => {
+  const workspace = createWorkspace(deps);
+  await orchestrate(workspace);
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => undefined,
+  );
+  const actor = principal();
+  const tree = object(
+    await workspace.orchestration.call(
+      actor,
+      "create_worktree",
+      {
+        idempotencyKey: "review-tree",
+        branch: "feature",
+      },
+      operations,
+    ),
+  );
+  process.argv.push(
+    "--remote-agent-spike=fixture",
+    "--remote-agent-artifact=/tmp/host",
+    `--remote-agent-local-checkout=${child.path}`,
+    "--remote-agent-repository=/remote/repo",
+    "--remote-agent-worktree=/remote/tree",
+  );
+  const before = launch.mock.calls.length;
+  await expect(
+    workspace.orchestration.call(
+      actor,
+      "launch",
+      {
+        idempotencyKey: "remote-review",
+        worktreeId: tree["resultId"],
+        agent: "claude",
+        review: { rounds: 1, agent: "codex" },
+      },
+      operations,
+    ),
+  ).rejects.toMatchObject({ code: "remote_review_unsupported" });
+  expect(launch.mock.calls).toHaveLength(before);
+  launch.mockResolvedValueOnce({ id: "ordinary", attention: "evaluator" });
+  expect(
+    await workspace.orchestration.call(
+      actor,
+      "launch",
+      {
+        idempotencyKey: "ordinary",
+        worktreeId: tree["resultId"],
+        agent: "claude",
+      },
+      operations,
+    ),
+  ).toMatchObject({ status: "succeeded", resultId: "ordinary" });
+});

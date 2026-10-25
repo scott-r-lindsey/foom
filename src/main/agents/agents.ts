@@ -1,3 +1,4 @@
+import { ControlError } from "../../shared/control-validation";
 import { remoteAgentTarget } from "../terminals/remote-bootstrap";
 import { launchRemoteChild, type RemoteHooks } from "./remote-launch";
 import { agentCapabilities } from "../../shared/agent-capabilities";
@@ -231,10 +232,12 @@ export class AgentService {
         : undefined;
     const remote = remoteAgentTarget(process.argv, request.worktree);
     if (remote) {
+      if (request.loop) throw new ControlError("remote_review_unsupported");
       if (hasBypassArgument(request.agent, defaults))
         throw new Error("Unattended child bypass is unavailable");
       if (!request.control || !("parentId" in request.control))
         throw new Error("Remote phase 2 requires a local-orchestrator-owned child");
+      if (!request.beforeSpawn) throw new Error("Remote parent authority is unavailable");
       const control = await this.prepareControl?.(
         request.repository,
         request.worktree,

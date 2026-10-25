@@ -92,11 +92,12 @@ export class AgentEndpoint {
         const chunks: Buffer[] = [];
         req.on("error", release);
         req.on("data", (chunk: Buffer) => {
+          if (res.writableEnded) return;
           size += chunk.length;
           if (size > 65536) {
             chunks.length = 0;
             end(413);
-          } else if (!res.writableEnded) chunks.push(chunk);
+          } else chunks.push(chunk);
         });
         req.on("end", () => {
           if (res.writableEnded) return;

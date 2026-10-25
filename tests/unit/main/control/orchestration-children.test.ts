@@ -60,6 +60,7 @@ describe("worktrees and children", () => {
       "id-feature",
       "claude",
       undefined,
+      expect.anything(),
     );
     await expect(h.mutate("launch", { worktreeId, agent: "codex" })).rejects.toThrow("conflict");
     await expect(
@@ -78,6 +79,7 @@ describe("worktrees and children", () => {
       "id-prompted",
       "agy",
       "Fix it\nthen test",
+      expect.anything(),
     );
     for (const params of [
       { worktreeId, agent: "bash" },
@@ -319,6 +321,7 @@ it("launches a validated manifest provider through the ordinary child authorizat
       expect.any(String),
       manifest.id,
       undefined,
+      expect.anything(),
     );
     replaceConfigProviders([]);
     await expect(

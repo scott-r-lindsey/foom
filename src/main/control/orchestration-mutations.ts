@@ -125,7 +125,14 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         !agentProvider(agent).model.launch.resume)
     )
       throw new ControlError("invalid_request");
-    if (review && this.host.reviewAvailable && !(await this.host.reviewAvailable(review.agent)))
+    if (
+      review &&
+      this.host.reviewAvailable &&
+      !(await this.host.reviewAvailable(
+        review.agent,
+        this.parent(actor).worktrees.get(worktreeId)?.path,
+      ))
+    )
       throw new ControlError("invalid_request");
     const prompt =
       params["prompt"] === undefined
@@ -156,6 +163,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     parent.starting++;
     this.note(parent, this.entry(operation, label));
     try {
+      const parentCurrent = this.remoteParentGuard(actor.terminalId);
       const id = await this.host.launch(
         actor.terminalId,
         parent.repository,
@@ -163,17 +171,15 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         tree.identity,
         agent,
         review ? `${AUTHOR_REVIEW_BRIEF}\n\n${prompt ?? "Await your assigned task."}` : prompt,
-        ...(review
-          ? [
-              {
-                loop: review,
-                validate: () => {
-                  operations.lookup(actor, { operationId: operation.operationId });
-                  this.parent(actor);
-                },
-              },
-            ]
-          : []),
+        {
+          ...(review ? { loop: review } : {}),
+          validate: () => {
+            parentCurrent();
+            const current = operations.lookup(actor, { operationId: operation.operationId });
+            if (current.status !== "running") throw new ControlError("forbidden");
+            this.parent(actor);
+          },
+        },
       );
       tree.state = "used";
       parent.children.set(id, {
@@ -187,8 +193,8 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       this.host.place?.(id, actor.terminalId);
       return await this.finish(actor, parent, operations, operation, label, "succeeded", id);
     } catch (error) {
-      if (error instanceof ControlError) throw error;
       tree.state = "unused";
+      if (error instanceof ControlError) throw error;
       return await this.finish(actor, parent, operations, operation, label, "failed");
     } finally {
       parent.starting--;

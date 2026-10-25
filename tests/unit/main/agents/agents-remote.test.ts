@@ -3,7 +3,7 @@ import {
   launchIdentity,
   listWorktrees,
   prepare,
-  request,
+  request as localRequest,
   tree,
 } from "./agents-fixture";
 import { execFile } from "node:child_process";
@@ -11,6 +11,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { AgentService } from "../../../../src/main/agents/agents";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 import type { RemoteAgentBinding } from "../../../../src/shared/remote-agent";
+const request = { ...localRequest, beforeSpawn: () => {} };
 const argv = [...process.argv];
 beforeEach(() =>
   process.argv.push(
@@ -38,6 +39,7 @@ function fixture() {
   const create = vi.fn(async (spec: TerminalSpec) => {
     target = spec.remote?.agent;
     await target?.authorize();
+    target?.start();
     target?.ready({ hooks: false, mcp: true, channels: [], conversationId: "conversation" });
     return spec.id ?? "missing";
   });
@@ -97,6 +99,7 @@ test("early exit and preparation failure release remote launch resources and lea
   f.create.mockImplementationOnce(async (spec) => {
     const target = spec.remote?.agent;
     await target?.authorize();
+    target?.start();
     target?.ready({ hooks: false, mcp: false });
     f.service.release(spec.id ?? "early");
     return spec.id ?? "early";
@@ -109,4 +112,28 @@ test("early exit and preparation failure release remote launch resources and lea
   ).rejects.toThrow("failed");
   const next = await f.service.launch({ ...request, control: { parentId: "parent-id" } });
   f.service.release(next.id);
+});
+
+test("remote review loops return a fixed refusal before control, discovery or remote preparation", async () => {
+  const f = fixture();
+  await expect(
+    f.service.launch({
+      ...request,
+      control: { parentId: "parent-id" },
+      loop: { rounds: 1, agent: "codex", postFindings: false },
+    }),
+  ).rejects.toMatchObject({ code: "remote_review_unsupported" });
+  expect(f.control).not.toHaveBeenCalled();
+  expect(f.create).not.toHaveBeenCalled();
+  expect(execFile).not.toHaveBeenCalled();
+  expect(prepare).not.toHaveBeenCalled();
+});
+
+test("remote launches require a captured final authority guard before allocating control credentials", async () => {
+  const f = fixture();
+  await expect(
+    f.service.launch({ ...localRequest, control: { parentId: "parent-id" } }),
+  ).rejects.toThrow("parent authority");
+  expect(f.control).not.toHaveBeenCalled();
+  expect(f.create).not.toHaveBeenCalled();
 });

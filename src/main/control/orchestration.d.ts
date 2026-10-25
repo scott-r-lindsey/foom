@@ -42,7 +42,7 @@ export interface OrchestrationHost {
     },
   ): Promise<string>;
   reviewSnapshot?(repository: string, worktree: string, identity: string): Promise<ReviewSnapshot>;
-  reviewAvailable?(agent: AgentId): Promise<boolean>;
+  reviewAvailable?(agent: AgentId, worktree?: string): Promise<boolean>;
   /** Only an existing Foom-managed linked checkout in this repository is eligible. */
   restoreWorktree(
     repository: string,

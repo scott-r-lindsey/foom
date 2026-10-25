@@ -316,6 +316,10 @@ export async function startExisting(
   authorityIdentity?: string,
   pastedId?: string,
 ): Promise<string | undefined> {
+  const remoteParentGuard =
+    remoteAgentTarget(process.argv, worktree) && control && "parentId" in control
+      ? this.orchestration.remoteParentGuard(control.parentId)
+      : undefined;
   return this.withRepository(repository, async () => {
     const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
     if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
@@ -366,6 +370,7 @@ export async function startExisting(
                 ...(remoteAgentTarget(process.argv, worktree) && control && "parentId" in control
                   ? {
                       beforeSpawn: () => {
+                        remoteParentGuard?.();
                         const parent = this.orchestration.view(control.parentId);
                         const child = replacement
                           ? this.orchestration.view(replacement.id)

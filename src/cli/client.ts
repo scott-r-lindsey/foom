@@ -147,6 +147,7 @@ function serverError(value: unknown): ControlError {
     "unauthorized",
     "forbidden",
     "no_parent",
+    "remote_review_unsupported",
     "not_found",
     "conflict",
     "capacity",

@@ -27,6 +27,8 @@ export async function launchRemoteChild(
 ): Promise<{ result: AgentLaunched; dispose(): void }> {
   if (!request.control || !("parentId" in request.control) || !control.remoteCall)
     throw new Error("Remote phase 2 requires a local-orchestrator-owned child");
+  if (!request.beforeSpawn) throw new Error("Remote parent authority is unavailable");
+  const beforeSpawn = request.beforeSpawn;
   const provider = agentProvider(request.agent);
   if (provider.origin !== "bundled") throw new Error("Remote phase 2 requires a bundled agent");
   const id = request.terminalId ?? randomUUID();
@@ -46,6 +48,7 @@ export async function launchRemoteChild(
   const live = () => active;
   let bound = false;
   let authorized = false;
+  let prepared = false;
   const pending: HookSignal[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
   let conversation = request.conversationId;
@@ -91,10 +94,14 @@ export async function launchRemoteChild(
               : { conversationId: request.conversationId }),
           },
           authorize: async () => {
-            if (!live() || authorized) throw new Error("Remote launch unavailable");
+            if (!live() || prepared || authorized) throw new Error("Remote launch unavailable");
             await validate();
             if (!live()) throw new Error("Remote launch revoked");
-            request.beforeSpawn?.();
+            prepared = true;
+          },
+          start: () => {
+            if (!live() || !prepared || authorized) throw new Error("Remote launch unavailable");
+            beforeSpawn();
             authorized = true;
           },
           call: (method, params) =>

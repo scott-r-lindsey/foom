@@ -339,6 +339,17 @@ export class OrchestrationAuthority {
     return parent?.active && parent.terminalId !== null ? parent.terminalId : undefined;
   }
 
+  /** Human remote resume must retain the exact live parent, never a replacement. */
+  remoteParentGuard(id: string): () => void {
+    const parent = this.parents.get(id);
+    if (!parent?.active) throw new ControlError("forbidden");
+    const generation = parent.generation;
+    return () => {
+      if (this.parents.get(id) !== parent || !parent.active || parent.generation !== generation)
+        throw new ControlError("forbidden");
+    };
+  }
+
   /** The human revoked the role: authority ends as on exit, and the session keeps running. */
   revoke(id: string): void {
     const parent = this.parents.get(id);

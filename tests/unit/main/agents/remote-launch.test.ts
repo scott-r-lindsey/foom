@@ -19,6 +19,7 @@ const mapping = {
 };
 const request = {
   agent: "claude",
+  beforeSpawn: () => {},
   repository: root,
   worktree: join(root, "wt"),
   cols: 80,
@@ -44,6 +45,7 @@ function fixture(hooks = true) {
   const create = vi.fn(async (spec: TerminalSpec) => {
     remote = spec.remote?.agent;
     await remote?.authorize();
+    remote?.start();
     remote?.ready({
       hooks,
       mcp: true,
@@ -216,6 +218,7 @@ test("early hooks are buffered until binding, and delayed delivery is revoked wi
     const binding = spec.remote?.agent;
     if (!binding) throw new Error("No binding");
     await binding.authorize();
+    binding.start();
     binding.ready({ hooks: true, mcp: false, channels: ["lifecycle"] });
     expect(await binding.call("whoami", {})).toEqual({ type: "error", error: "unavailable" });
     await binding.hook({
@@ -283,5 +286,44 @@ test("remote lifecycle health remains invocation-local and cannot update hub/loc
     );
   expect(runtime.health.get()).toBe("trusted");
   await runtime.health.flush();
+  launched.dispose();
+});
+
+test("remote binding cannot start before preparation or without captured parent authority", async () => {
+  const f = fixture(false);
+  const unguarded = {
+    agent: request.agent,
+    repository: request.repository,
+    worktree: request.worktree,
+    cols: 80,
+    rows: 24,
+    control: request.control,
+  };
+  await expect(
+    launchRemoteChild(unguarded, mapping, [], false, { create: f.create }, f.control, f.validate),
+  ).rejects.toThrow("parent authority");
+  f.create.mockImplementationOnce(async (spec) => {
+    const binding = spec.remote?.agent;
+    if (!binding) throw new Error("Missing binding");
+    expect(() => {
+      binding.start();
+    }).toThrow("unavailable");
+    await binding.authorize();
+    binding.start();
+    expect(() => {
+      binding.start();
+    }).toThrow("unavailable");
+    binding.ready({ hooks: false, mcp: false });
+    return spec.id ?? "missing";
+  });
+  const launched = await launchRemoteChild(
+    request,
+    mapping,
+    [],
+    false,
+    { create: f.create },
+    f.control,
+    f.validate,
+  );
   launched.dispose();
 });
