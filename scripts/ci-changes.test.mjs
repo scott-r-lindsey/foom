@@ -250,10 +250,10 @@ sudo() {
   assert.doesNotMatch(failure.stdout, /install -y|sysctl/);
 });
 
-test("Electron shards and once-per-platform checks run independently with diagnostics", async () => {
+test("Electron shards start independently while packaging waits for native hosts", async () => {
   const { readFileSync } = await import("node:fs");
   const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  const desktop = workflow.split("\n  desktop:\n")[1].split("\n  platform:\n")[0];
+  const desktop = workflow.split("\n  desktop:\n")[1].split("\n  remote-host:\n")[0];
   const platform = workflow.split("\n  platform:\n")[1].split("\n  quality:\n")[0];
   const step = (job, name) => job.split(`      - name: ${name}\n`)[1].split("      - name:")[0];
   for (const name of [
@@ -300,7 +300,10 @@ test("Electron shards and once-per-platform checks run independently with diagno
     [desktop, "Upload Electron timing and process diagnostics"],
     [platform, "Upload native and packaged timing and process diagnostics"],
   ]) {
-    assert.match(job, /\n {4}needs: \[changes\]\n/);
+    assert.match(
+      job,
+      job === desktop ? /\n {4}needs: \[changes\]\n/ : /\n {4}needs: \[changes, remote-host\]\n/,
+    );
     assert.match(job, /if: needs\.changes\.outputs\.desktop_required == 'true'/);
     assert.match(job, /fail-fast: false/);
     assert.match(step(job, "Prepare Linux display and sandbox"), /if: runner\.os == 'Linux'/);
@@ -393,7 +396,7 @@ test("dependency jobs enable pinned pnpm before caching and freeze every reposit
   assert.match(manifest.packageManager, /^pnpm@\d+\.\d+\.\d+$/);
   assert.equal(manifest.scripts.audit, "pnpm audit --audit-level=low");
   assert.doesNotMatch(workflow, /\bnpm (?:ci|install|run)|\bnpx\b|cache: npm/);
-  for (const name of ["checks", "unit", "desktop", "platform", "mcp-probe"]) {
+  for (const name of ["checks", "unit", "desktop", "remote-host", "platform", "mcp-probe"]) {
     const job = workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z-]+:\n/)[0];
     const enable = job.indexOf("run: corepack enable");
     const cache = job.indexOf("cache: pnpm");
@@ -407,4 +410,29 @@ test("dependency jobs enable pinned pnpm before caching and freeze every reposit
   assert.match(npmrc, /^node-linker=hoisted$/m);
   assert.match(npmrc, /^package-import-method=hardlink$/m);
   assert.deepEqual(manifest.pnpm.onlyBuiltDependencies, ["electron", "esbuild", "node-pty"]);
+});
+
+test("native host matrix builds four same-run catalog entries without Release credentials", async () => {
+  const { readFileSync } = await import("node:fs");
+  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const hosts = workflow.split("\n  remote-host:\n")[1].split("\n  platform:\n")[0];
+  const platform = workflow.split("\n  platform:\n")[1].split("\n  quality:\n")[0];
+  for (const [os, target] of [
+    ["ubuntu-24.04", "linux-x64"],
+    ["ubuntu-24.04-arm", "linux-arm64"],
+    ["macos-15-intel", "darwin-x64"],
+    ["macos-15", "darwin-arm64"],
+  ])
+    assert.ok(hosts.includes(`{ os: ${os}, target: ${target} }`));
+  assert.doesNotMatch(hosts, /secrets\.|environment:|permissions:|continue-on-error:/);
+  assert.match(hosts, /run: node scripts\/build-remote-host\.mjs/);
+  assert.match(hosts, /node scripts\/nightly\.mjs stamp/);
+  assert.match(hosts, /github\.event_name == 'workflow_dispatch' && inputs\.publish_nightly/);
+  assert.match(hosts, /retention-days: 3/);
+  assert.match(platform, /pattern: remote-host-\*/);
+  assert.match(platform, /needs: \[changes, remote-host\]/);
+  assert.ok(
+    platform.indexOf("Download all four same-commit host builds") <
+      platform.indexOf("run: pnpm run make"),
+  );
 });

@@ -10,7 +10,8 @@ import type { HostRequest } from "../../../../src/shared/terminal-host";
 const mock = vi.hoisted(() => ({ spawn: vi.fn(), artifact: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mock.spawn }));
 vi.mock("../../../../src/main/terminals/remote-bootstrap", () => ({
-  hostArtifact: mock.artifact,
+  selectHostArtifact: mock.artifact,
+  sshEnvironment: () => ({ PATH: "/fixture" }),
   bootstrapArguments: (...args: unknown[]) => args,
 }));
 import { RemoteTransport } from "../../../../src/main/terminals/remote-transport";
@@ -62,6 +63,9 @@ beforeEach(() => {
   mock.spawn.mockReturnValue(child);
   mock.artifact.mockResolvedValue({
     bytes: Buffer.from("artifact"),
+    upload: Buffer.from("artifact"),
+    platform: "linux",
+    arch: "x64",
     version: "0.1.0",
     sha256: "a".repeat(64),
   });

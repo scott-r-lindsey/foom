@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { chmod, copyFile, cp, glob, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkoutRevision } from "./remote-host-artifacts.mjs";
 import { writeIcons } from "./icon/foom-icon.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -22,6 +23,12 @@ await rm(new URL("../build/", import.meta.url), { recursive: true, force: true }
 for (const config of ["tsconfig.main.json", "tsconfig.renderer.json"]) {
   execFileSync(process.execPath, [compiler, "-p", config], { cwd: root, stdio: "inherit" });
 }
+// Trusted app metadata stays inside ASAR, separate from the unpacked host catalog.
+const sourceRevision = checkoutRevision(root);
+await writeFile(
+  join(root, "build/build-metadata.json"),
+  JSON.stringify({ source: sourceRevision }),
+);
 // Inline the pure board registry: the sandbox loader still requires only Electron.
 await build({
   entryPoints: [join(root, "src/preload/preload.ts")],
@@ -224,3 +231,16 @@ for (const provider of bundledProviders) {
 }
 
 await import("./build-cli.mjs");
+
+// CI downloads all four same-run native builds outside build/, which is cleared
+// above. Production packages require the complete catalog; dev builds may omit it.
+if (process.env.FOOM_REQUIRE_REMOTE_HOSTS === "1" || process.env.FOOM_REMOTE_HOST_ARTIFACTS) {
+  const { packageRemoteHosts } = await import("./remote-host-artifacts.mjs");
+  const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  await packageRemoteHosts(
+    process.env.FOOM_REMOTE_HOST_ARTIFACTS ?? join(root, ".cache/remote-hosts"),
+    join(root, "build/remote-hosts"),
+    version,
+    sourceRevision,
+  );
+}

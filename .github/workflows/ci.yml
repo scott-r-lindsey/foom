@@ -235,9 +235,65 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  remote-host:
+    name: Remote host (${{ matrix.target }})
+    needs: [changes]
+    if: needs.changes.outputs.desktop_required == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: linux-x64 }
+          - { os: ubuntu-24.04-arm, target: linux-arm64 }
+          - { os: macos-15-intel, target: darwin-x64 }
+          - { os: macos-15, target: darwin-arm64 }
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Stamp nightly host version identically to the app
+        if: >-
+          github.ref == 'refs/heads/main' &&
+          (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_nightly))
+        run: node scripts/nightly.mjs stamp
+      - name: Build native host, ad-hoc sign Darwin and measure gzip
+        env:
+          FOOM_REMOTE_HOST_OUTPUT: remote-host-artifacts
+        run: node scripts/build-remote-host.mjs
+      - name: Verify native SEA startup without a host or network
+        # Invalid arguments must reach our entry point (exit 2), not Node itself.
+        shell: bash
+        run: |
+          set +e
+          output=$(remote-host-artifacts/${{ matrix.target }}/foom-host --invalid 2>&1)
+          status=$?
+          set -e
+          test "$status" = 2
+          test "$output" = "Usage: foom-host --daemon|--connect"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: remote-host-${{ matrix.target }}
+          path: |
+            remote-host-artifacts/${{ matrix.target }}/foom-host.gz
+            remote-host-artifacts/${{ matrix.target }}/manifest.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
   platform:
     name: Native checks and packaging (${{ matrix.os }})
-    needs: [changes]
+    needs: [changes, remote-host]
     if: needs.changes.outputs.desktop_required == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -305,6 +361,18 @@ jobs:
           github.ref == 'refs/heads/main' &&
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_nightly))
         run: node scripts/nightly.mjs stamp
+      - name: Download all four same-commit host builds
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v4
+        with:
+          pattern: remote-host-*
+          path: .cache/remote-host-download
+      - name: Assemble native host catalog
+        shell: bash
+        run: |
+          mkdir -p .cache/remote-hosts
+          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            mv ".cache/remote-host-download/remote-host-$target" ".cache/remote-hosts/$target"
+          done
       - name: Package desktop application
         run: pnpm run make
       - name: Verify macOS ad-hoc signature after packaging and fuses

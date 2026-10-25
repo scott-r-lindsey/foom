@@ -3,6 +3,9 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { gzip, gunzip } from "node:zlib";
 import { remoteHost } from "../../shared/remote-host-protocol";
 
 async function boundedFile(path: string, limit: number): Promise<Buffer> {
@@ -27,9 +30,13 @@ async function boundedFile(path: string, limit: number): Promise<Buffer> {
     await fd.close();
   }
 }
-export async function hostArtifact(path: string) {
+export async function hostArtifact(path: string, expectedSource?: string) {
   if (!isAbsolute(path)) throw new Error("Host artifact must be absolute");
-  const bytes = await boundedFile(path, 200 * 1024 * 1024);
+  const stored = await boundedFile(path, 200 * 1024 * 1024);
+  const compressed = path.endsWith(".gz");
+  const bytes = compressed
+    ? await promisify(gunzip)(stored, { maxOutputLength: 200 * 1024 * 1024 })
+    : stored;
   const value: unknown = JSON.parse(
     (await boundedFile(join(dirname(path), "manifest.json"), 4096)).toString("utf8"),
   );
@@ -38,7 +45,11 @@ export async function hostArtifact(path: string) {
     value === null ||
     !("version" in value) ||
     typeof value.version !== "string" ||
-    !/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/u.test(value.version) ||
+    !/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?(?:\+[a-zA-Z0-9.-]+)?$/u.test(value.version) ||
+    !("source" in value) ||
+    typeof value.source !== "string" ||
+    !/^[a-f0-9]{40}$/u.test(value.source) ||
+    (expectedSource !== undefined && value.source !== expectedSource) ||
     !("sha256" in value) ||
     typeof value.sha256 !== "string" ||
     !/^[a-f0-9]{64}$/u.test(value.sha256) ||
@@ -46,28 +57,49 @@ export async function hostArtifact(path: string) {
     value.protocol !== 1 ||
     !("size" in value) ||
     value.size !== bytes.length ||
+    bytes.length === 0 ||
     !("platform" in value) ||
-    !["linux", "darwin"].includes(String(value.platform)) ||
+    (value.platform !== "linux" && value.platform !== "darwin") ||
     !("arch" in value) ||
-    !["x64", "arm64"].includes(String(value.arch)) ||
-    createHash("sha256").update(bytes).digest("hex") !== value.sha256
+    (value.arch !== "x64" && value.arch !== "arm64") ||
+    createHash("sha256").update(bytes).digest("hex") !== value.sha256 ||
+    (compressed &&
+      (!("gzipSize" in value) ||
+        value.gzipSize !== stored.length ||
+        !("gzipSha256" in value) ||
+        value.gzipSha256 !== createHash("sha256").update(stored).digest("hex")))
   )
     throw new Error("Host artifact manifest mismatch");
-  return { bytes, version: value.version, sha256: value.sha256 };
+  return {
+    bytes,
+    upload: compressed ? stored : await promisify(gzip)(bytes, { level: 1 }),
+    version: value.version,
+    sha256: value.sha256,
+    platform: value.platform,
+    arch: value.arch,
+  };
 }
 export function bootstrapArguments(
   host: string,
   version: string,
   sha256: string,
   size: number,
+  uploadSize: number,
+  platform: string,
+  arch: string,
 ): string[] {
   if (
     !remoteHost(host) ||
-    !/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/u.test(version) ||
+    !/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?(?:\+[a-zA-Z0-9.-]+)?$/u.test(version) ||
     !/^[a-f0-9]{64}$/u.test(sha256) ||
     !Number.isSafeInteger(size) ||
     size < 1 ||
-    size > 200 * 1024 * 1024
+    size > 200 * 1024 * 1024 ||
+    !Number.isSafeInteger(uploadSize) ||
+    uploadSize < 1 ||
+    uploadSize > 200 * 1024 * 1024 ||
+    !["linux", "darwin"].includes(platform) ||
+    !["x64", "arm64"].includes(arch)
   )
     throw new Error("Invalid SSH bootstrap");
   // OpenSSH joins remote argv with spaces and runs the account's shell. Only
@@ -75,6 +107,9 @@ export function bootstrapArguments(
   // stdin remains the same SSH channel for the artifact and the framed protocol.
   const script = `set -eu
 umask 077
+# Recheck on every connection before touching the cache or accepting an upload.
+test "$(uname -s)" = '${platform === "linux" ? "Linux" : "Darwin"}'
+test "$(uname -m)" = '${arch === "x64" ? "x86_64" : platform === "linux" ? "aarch64" : "arm64"}'
 case "$HOME" in /*) ;; *) exit 1;; esac
 test ! -L "$HOME" && test -d "$HOME" && test -O "$HOME"
 test "$(CDPATH= cd -- "$HOME" && pwd -P)" = "$HOME"
@@ -98,7 +133,12 @@ else
   printf 'FOOM-UPLOAD\\n'
   t=$(mktemp "$d/upload.XXXXXXXX")
   trap 'rm -f "$t"' EXIT HUP INT TERM
-  head -c ${String(size)} > "$t"
+  z=$(mktemp "$d/upload-gzip.XXXXXXXX")
+  trap 'rm -f "$t" "$z"' EXIT HUP INT TERM
+  head -c ${String(uploadSize)} > "$z"
+  test "$(wc -c < "$z" | tr -d ' ')" = '${String(uploadSize)}'
+  gzip -dc "$z" > "$t"
+  rm -f "$z"
   test "$(wc -c < "$t" | tr -d ' ')" = '${String(size)}'
   test "$(hash "$t" | cut -d ' ' -f 1)" = '${sha256}'
   chmod 700 "$t"
@@ -107,20 +147,7 @@ else
   printf 'FOOM-READY\\n'
 fi
 exec "$f" --connect`;
-  return [
-    "-T",
-    "-o",
-    "BatchMode=yes",
-    "-o",
-    "ClearAllForwardings=yes",
-    "-o",
-    "ConnectTimeout=10",
-    "--",
-    host,
-    "sh",
-    "-c",
-    `'${script.replaceAll("'", "'\\''")}'`,
-  ];
+  return [...sshArguments(host), "sh", "-c", `'${script.replaceAll("'", "'\\''")}'`];
 }
 
 /** Explicit main-process argv only; never accepted from IPC or saved settings. */
@@ -132,11 +159,105 @@ export function remoteSpikeTarget(argv: readonly string[]): RemoteTarget | undef
   const artifact = artifacts[0]?.slice("--remote-host-artifact=".length);
   if (
     hosts.length !== 1 ||
-    artifacts.length !== 1 ||
+    artifacts.length > 1 ||
     !remoteHost(host) ||
-    !artifact ||
-    !isAbsolute(artifact)
+    (artifact !== undefined && !isAbsolute(artifact))
   )
     throw new Error("Invalid remote shell spike arguments");
-  return { host, artifact };
+  return { host, ...(artifact ? { artifact } : {}) };
+}
+
+export function sshArguments(host: string): string[] {
+  if (!remoteHost(host)) throw new Error("Invalid SSH host");
+  return [
+    "-T",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ClearAllForwardings=yes",
+    "-o",
+    "ConnectTimeout=10",
+    "--",
+    host,
+  ];
+}
+
+export function sshEnvironment(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of [
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "USERPROFILE",
+    "SystemRoot",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "SSH_AUTH_SOCK",
+  ]) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
+}
+
+/** Strict uname output mapping; remote text is never used as a path or shell code. */
+export function remotePlatform(output: string) {
+  switch (output) {
+    case "Linux\nx86_64\n":
+      return { platform: "linux", arch: "x64" };
+    case "Linux\naarch64\n":
+      return { platform: "linux", arch: "arm64" };
+    case "Darwin\nx86_64\n":
+      return { platform: "darwin", arch: "x64" };
+    case "Darwin\narm64\n":
+      return { platform: "darwin", arch: "arm64" };
+    default:
+      throw new Error("Unsupported remote host platform");
+  }
+}
+
+export async function selectHostArtifact(
+  target: RemoteTarget,
+  expectedVersion: string,
+  catalog = join(
+    __dirname.replace(/app\.asar(?=[/\\])/u, "app.asar.unpacked"),
+    "../../remote-hosts",
+  ),
+  metadata = join(__dirname, "../../build-metadata.json"),
+) {
+  const { stdout } = await promisify(execFile)(
+    "ssh",
+    [...sshArguments(target.host), "uname -s; uname -m"],
+    { env: sshEnvironment(), shell: false, timeout: 10000, maxBuffer: 256, encoding: "utf8" },
+  );
+  const remote = remotePlatform(stdout);
+  let expectedSource: string | undefined;
+  if (!target.artifact) {
+    const value: unknown = JSON.parse((await boundedFile(metadata, 4096)).toString("utf8"));
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      !("source" in value) ||
+      typeof value.source !== "string" ||
+      !/^[a-f0-9]{40}$/u.test(value.source)
+    )
+      throw new Error("Invalid application source revision");
+    expectedSource = value.source;
+  }
+  const artifact = await hostArtifact(
+    target.artifact ?? join(catalog, `${remote.platform}-${remote.arch}`, "foom-host.gz"),
+    expectedSource,
+  );
+  if (
+    artifact.version !== expectedVersion ||
+    artifact.platform !== remote.platform ||
+    artifact.arch !== remote.arch
+  )
+    throw new Error("Host application version or platform mismatch");
+  return artifact;
 }
