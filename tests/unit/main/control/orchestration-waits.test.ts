@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { SessionMetadata } from "../../../../src/main/control/metadata";
 import { harness } from "./orchestration-helpers";
 
 describe("blocking child-event waits", () => {
@@ -175,3 +176,24 @@ describe("blocking child-event waits", () => {
     },
   );
 });
+
+it.each([false, true])(
+  "batches metadata for multi-child waits (untilEvent: %s)",
+  async (untilEvent) => {
+    const h = harness();
+    const ids = [(await h.child("one")).id, (await h.child("two")).id];
+    const states = vi.spyOn(SessionMetadata.prototype, "states");
+    try {
+      const result = await h.call("wait_for", {
+        ids,
+        untilEvent: untilEvent || undefined,
+        timeoutMs: 0,
+      });
+      expect(result).toMatchObject({ sessions: ids.map((id) => ({ id })) });
+      expect(states).toHaveBeenCalled();
+      for (const call of states.mock.calls) expect(call[1]).toEqual(ids);
+    } finally {
+      states.mockRestore();
+    }
+  },
+);

@@ -30,7 +30,8 @@ no API force flag bypasses identity or dirty-state checks.
 Mutation reservation, actor-scoped idempotency lookup, outcome states and storage
 limits follow [control storage](control.md#control-plane). Parent exit and
 replacement follow the [orchestration lifecycle](orchestration.md#orchestration).
-Metadata-only MCP `wait_for` is bounded to 30 seconds.
+Metadata-only MCP `wait_for` is bounded to 30 seconds. Each wait check projects
+all target metadata from one fresh, repository-scoped workspace snapshot.
 The CLI's `wait-for --until-event` form uses the same ownership checks and waits
 without a transport deadline. It compares an `event` cursor over state, handoff
 and PR/check facts rather than the session revision, which also moves with output.

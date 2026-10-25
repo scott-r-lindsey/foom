@@ -622,11 +622,14 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
     sessionData = await createMemoryFixture(context, "foom-chromium-");
     cleanup.sessionData.set(profile.directory, sessionData);
   }
+  // Manual profiling reserves time for the deliberate capture, not slower assertions.
+  const captureMs = options.profileCaptureMs ?? 0;
+  assert.ok([0, 120_000, 180_000].includes(captureMs));
   const watchdog = setTimeout(() => {
     console.error("Electron test exceeded its hard deadline; terminating worker");
     // Playwright's exit handler kills the process groups it launched.
     process.exit(1);
-  }, deadline(90_000));
+  }, deadline(90_000) + captureMs);
   watchdog.unref();
   let entry = path.join(__dirname, "../..");
   // Foom config lives under home and is a git repository Foom commits to. Never let a
