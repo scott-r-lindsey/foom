@@ -332,16 +332,56 @@ test("trusted dialog presentation failure releases the board and allows a new re
       ).webContents.focus = globalThis.realConfirmationContentsFocus;
     });
   }
-  await app.evaluate(({ app }) => app.quit());
-  await expect(dialog.getByRole("alertdialog")).toBeVisible();
-  await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+  // DOM visibility precedes native presentation. Hide at main's explicit
+  // presentation publication, after every native show/raise/focus call.
   await app.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()
-      .find((window) => window.webContents.getURL() === "app://confirmation/confirmation.html")
-      .hide();
+    const dialog = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+    );
+    globalThis.confirmationHideTrace = [];
+    const record = (phase) => {
+      globalThis.confirmationHideTrace.push({
+        phase,
+        visible: dialog.isVisible(),
+        focused: dialog.isFocused(),
+        minimized: dialog.isMinimized(),
+      });
+    };
+    for (const event of ["show", "hide", "focus", "blur", "minimize"])
+      dialog.on(event, () => record(event));
+    const send = dialog.webContents.send.bind(dialog.webContents);
+    dialog.webContents.send = (channel, ...args) => {
+      send(channel, ...args);
+      if (channel === "confirmation:render" && args[0]?.presented === true) {
+        dialog.webContents.send = send;
+        record("presented");
+        // macOS key focus takes precedence over occlusion reporting. Relinquish
+        // it explicitly so this fixture represents an unavailable native child.
+        dialog.blur();
+        record("after-blur");
+        dialog.hide();
+        record("after-hide");
+        setImmediate(() => record("after-native-callback"));
+      }
+    };
   });
-  await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+  await app.evaluate(({ app }) => app.quit());
+  await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+  try {
+    await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+  } catch (error) {
+    console.error(
+      "Native confirmation hide trace:",
+      await app.evaluate(() => globalThis.confirmationHideTrace),
+    );
+    throw error;
+  }
   await expect(dialog.getByRole("alertdialog")).toHaveCount(0);
+  assert.equal(app.process().exitCode, null, "Hiding during presentation must cancel quit");
+  assert.equal(
+    await board.evaluate(async () => (await window.desktop.workspace()).terminals[0].exited),
+    false,
+  );
   await app.evaluate(({ app }) => app.quit());
   await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
