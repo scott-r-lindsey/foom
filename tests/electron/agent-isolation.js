@@ -14,7 +14,10 @@ function inside(directory, file) {
 }
 
 function assertFixtureAgent(file, directories) {
-  if (!/^(claude|codex|agy|copilot|gh|glab)(\.(exe|com|cmd))?$/i.test(path.basename(file))) return;
+  if (
+    !/^(claude|codex|agy|copilot|opencode|pi|gh|glab)(\.(exe|com|cmd))?$/i.test(path.basename(file))
+  )
+    return;
   // Match fs.promises.realpath used by native executable discovery, including
   // Windows 8.3 aliases. Compare canonical spellings on both sides of the guard.
   const resolved = realpathSync.native(file);
@@ -110,8 +113,35 @@ async function isolatedEnvironment(root, extraPath = "") {
       else await writeFile(path.join(bin, executable), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
     }
   }
+  // A system bin directory can contain real agent shims (for example VS Code's
+  // /usr/bin/copilot). Expose only tools required by shell/Git/observer fixtures.
+  const fixturePath = extraPath
+    .split(path.delimiter)
+    .filter((directory) => directory && !system.includes(directory));
+  if (process.platform !== "win32") {
+    for (const tool of [
+      "bash",
+      "sh",
+      "git",
+      "ps",
+      "curl",
+      "head",
+      "cat",
+      "mkdir",
+      "rmdir",
+      "rm",
+      "sleep",
+      "stty",
+    ]) {
+      if (fixturePath.some((directory) => existsSync(path.join(directory, tool)))) continue;
+      const executable = system
+        .map((directory) => path.join(directory, tool))
+        .find((file) => existsSync(file));
+      if (executable) await symlink(executable, path.join(bin, tool));
+    }
+  }
   const controlled = [
-    ...new Set([bin, ...extraPath.split(path.delimiter).filter(Boolean), ...system]),
+    ...new Set([bin, ...fixturePath, ...(process.platform === "win32" ? system : [])]),
   ].join(path.delimiter);
   const shell = path.join(root, "bash");
   if (process.platform !== "win32") {

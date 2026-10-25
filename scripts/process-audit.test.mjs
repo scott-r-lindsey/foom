@@ -182,7 +182,11 @@ test("fixture login shell ignores inherited PATH and never exposes Node's siblin
       (error) => error.status === 1,
     );
   }
-  assert.deepEqual(env.PATH.split(path.delimiter), [path.join(root, "bin"), "/usr/bin", "/bin"]);
+  assert.deepEqual(env.PATH.split(path.delimiter), [path.join(root, "bin")]);
+  const { existsSync } = await import("node:fs");
+  // Even an installed system Copilot/other agent shim is unreachable on this PATH.
+  for (const name of ["claude", "codex", "agy", "copilot", "opencode", "pi"])
+    assert.equal(existsSync(path.join(root, "bin", name)), false);
   assert.equal(
     execFileSync(path.join(root, "bin", "node"), ["--version"])
       .toString()
