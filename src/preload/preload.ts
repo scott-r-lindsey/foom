@@ -400,6 +400,7 @@ const validSettings: Validator<Settings> = shape({
     }),
     dictionary(boolean),
   ),
+  agentBypassIdentities: either(absent, dictionary(text)),
   worktreeLocation: literal("root", "adjacent"),
   panelColor: literal("vivid", "subtle", "plain"),
   colorMode: literal("light", "dark", "system"),

@@ -29,7 +29,8 @@ At most 64 rules, eight strings per matcher and 128 characters per pattern. Rule
 
 ### Active screen sampling (#823)
 
-`attention.sampleWhileActive` is an optional boolean, default false. An agent
+`attention.sampleWhileActive` is an optional boolean; omission disables sampling and
+stays absent in the parsed model, preserving existing provider consent identities. An agent
 whose spinner continuously redraws without changing its title can opt in to local
 screen evaluation during output. Main samples at most once per second per
 invocation, with at most one sample queued or in flight. There is no timer or

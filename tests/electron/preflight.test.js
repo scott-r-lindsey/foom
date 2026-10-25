@@ -4,6 +4,7 @@ const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const { readdirSync } = require("node:fs");
 const { mkdir, mkdtemp, readFile, realpath, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
@@ -239,6 +240,9 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   timeout: deadline(60_000),
   skip: process.platform === "win32" && "The fake agents are POSIX scripts",
 }, async (context) => {
+  const bundledAgentCount = readdirSync(
+    path.join(__dirname, "../../src/shared/bundled-agents"),
+  ).filter((name) => name.endsWith(".json")).length;
   const { chmod, symlink } = require("node:fs/promises");
   const root = await mkdtemp(path.join(tmpdir(), "foom-first-run-"));
   removeAfterApps(context, root);
@@ -406,8 +410,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
 
   await tabTo(page, "Start preflight");
   await page.keyboard.press("Enter");
-  const providerCount = (await page.evaluate(() => window.desktop.scanAgents(false))).agents.length;
-  await expect(page.getByText("Not found")).toHaveCount(providerCount, {
+  await expect(page.getByText("Not found")).toHaveCount(bundledAgentCount, {
     timeout: deadline(20000),
   });
   await assertFooter();
@@ -446,7 +449,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await expect(page.getByRole("button", { name: "Launch" })).toBeDisabled();
   await page.getByRole("button", { name: "Fix" }).click();
 
-  // Install the hook-capable bundled agent fixtures, then scan again.
+  // Install fixture agents, then scan again.
   const script = (body) => `#!/usr/bin/env node\nconst a = process.argv[2];\n${body}\n`;
   const agents = {
     claude: script(
@@ -465,13 +468,18 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     await chmod(path.join(bin, name), 0o755);
   }
   await page.getByRole("button", { name: "Scan again" }).click();
-  await expect(page.locator(".agent-card:not(.missing) .agent-version")).toHaveText([
-    "2.1.300",
-    "0.155.1",
-    "1.2.13",
-    "1.0.103",
-  ]);
-  await expect(page.locator(".agent-card")).toHaveCount(providerCount);
+  for (const [id, version] of Object.entries({
+    claude: "2.1.300",
+    codex: "0.155.1",
+    agy: "1.2.13",
+    copilot: "1.0.103",
+  })) {
+    await expect(page.locator(`#agent-card-${id} .agent-version`)).toHaveText(version);
+  }
+  await expect(page.getByText("Not found")).toHaveCount(
+    bundledAgentCount - Object.keys(agents).length,
+  );
+  await expect(page.locator(".agent-card")).toHaveCount(bundledAgentCount);
   await expect(page.getByText(path.join(bin, "codex"), { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Hooks", exact: true })).toHaveCount(4);
   await expect(page.getByText("Notify + screen rules active", { exact: true })).toBeVisible();

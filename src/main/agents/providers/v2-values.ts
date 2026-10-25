@@ -111,7 +111,7 @@ export function expandV2(
   values: Readonly<Record<string, string | string[] | number>>,
 ): string {
   return template.replace(
-    /\{(prompt|conversationId|newId|mcpName|mcpUrl|tool|hookDir|(?:file|hookFile):[A-Za-z0-9_./-]+|(?:observerCommand|observerArgv|observerVersion):[A-Za-z0-9_.-]+)(:json|:toml)?\}/gu,
+    /\{(prompt|conversationId|newId|mcpName|mcpUrl|toolRules|tool|hookDir|(?:file|fileContent|hookFile):[A-Za-z0-9_./-]+|(?:observerCommand|observerArgv|observerVersion|observerModule):[A-Za-z0-9_.-]+)(:json|:toml)?\}/gu,
     (_whole, key: string, format: string | undefined) => {
       const value = values[key];
       if (value === undefined) throw new Error("Unselected launch substitution");

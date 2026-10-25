@@ -6,6 +6,7 @@ export function restorePlan(entries: readonly StoredSession[], enabled: boolean)
   return enabled
     ? entries.filter(
         (entry) =>
+          !(entry.providerOrigin === "config" && builtinAgent(entry.agent)) &&
           entry.review === undefined &&
           entry.running === true &&
           (entry.agent === "shell" || entry.conversationId !== undefined),
@@ -21,6 +22,7 @@ export function restoreAuthority(
 ): boolean {
   return (
     enabled &&
+    !(entry.providerOrigin === "config" && builtinAgent(entry.agent)) &&
     entry.running === true &&
     entry.orchestrator !== undefined &&
     entry.orchestrator.identity === identity &&

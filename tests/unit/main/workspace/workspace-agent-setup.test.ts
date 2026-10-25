@@ -31,6 +31,14 @@ test("preflight settings control hooks and which agents may launch", async () =>
   const workspace = new Workspace(deps);
   workspace.configure({ hooks: false, agents: { claude: false, codex: true, agy: true } });
   expect(agents.setHooksEnabled).toHaveBeenCalledWith(false);
+  expect(agents.setBypassIdentities).toHaveBeenCalledWith(undefined);
+  const identities = { opencode: "a".repeat(64) };
+  workspace.configure({
+    hooks: false,
+    agents: { claude: false, codex: true, agy: true },
+    agentBypassIdentities: identities,
+  });
+  expect(agents.setBypassIdentities).toHaveBeenLastCalledWith(identities);
   await expect(
     workspace.launch({
       agent: "claude",

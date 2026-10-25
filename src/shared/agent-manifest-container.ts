@@ -63,7 +63,9 @@ export function validateCommandSlots(
   argvs: ReadonlySet<string>,
   path: string,
   slot?: string,
+  generated: ReadonlySet<string> = new Set(),
 ): void {
+  if (typeof value === "string" && generated.has(value)) return;
   if (
     typeof value === "string" &&
     value.includes("FOOM_OBSERVER_") &&
@@ -81,7 +83,8 @@ export function validateCommandSlots(
   )
     fail(path, "executable-template");
   if (Array.isArray(value)) {
-    for (const entry of value) validateCommandSlots(entry, commands, argvs, path);
+    for (const entry of value)
+      validateCommandSlots(entry, commands, argvs, path, undefined, generated);
   } else if (typeof value === "object" && value !== null) {
     for (const [key, entry] of Object.entries(value)) {
       if (
@@ -116,7 +119,7 @@ export function validateCommandSlots(
         fail(path, "environment-reference");
       if (normalized === "bearertokenenvvar" && entry !== "FOOM_CONTROL_TOKEN")
         fail(path, "environment-reference");
-      if (normalized === "type" && entry !== "command" && entry !== "http")
+      if (normalized === "type" && entry !== "command" && entry !== "http" && entry !== "remote")
         fail(path, "executable-template");
       if (
         normalized === "command" ||
@@ -133,7 +136,7 @@ export function validateCommandSlots(
           !argvs.has(entry[0])
         )
           fail(path, "executable-template");
-      } else validateCommandSlots(entry, commands, argvs, path, normalized);
+      } else validateCommandSlots(entry, commands, argvs, path, normalized, generated);
     }
   }
 }

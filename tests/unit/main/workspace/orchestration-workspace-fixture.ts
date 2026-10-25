@@ -82,6 +82,7 @@ beforeEach(() => {
       release: vi.fn(),
       dispose: vi.fn(),
       setHooksEnabled: vi.fn(),
+      setBypassIdentities: vi.fn(),
     }),
     now: () => 1000,
   };

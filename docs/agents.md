@@ -140,6 +140,82 @@ installation wrote the requested file without prompting. No file-permission rule
 is inferred. The working/idle and model-selection rules are captured in the
 bundled manifest tests; no automated test invokes real Pi.
 
+### OpenCode v2.0.32 (#824)
+
+Measured on Linux on 2026-10-24 using the installed CLI's `--version`, root help,
+and `plugin`, `mcp`, `debug` and `serve` help. Version output was exactly
+`opencode v2.0.32`. Four short PTY sessions ran in one disposable OS-temp directory,
+with no bypass flags or global configuration edits. The first two reply-only
+attempts were stopped while working; the subsequent file prompt and final
+reply-only/plugin session completed on the configured local model. No agent config,
+credential or state files were read. The agent's normal session writes were allowed.
+
+The captured, redacted screen fragments at 120 columns by 40 rows were:
+
+```text
+Working (reply-only and file prompt):
+  ⬝⬝⬝⬝■■■■ esc interrupt                 shift+tab agents  ctrl+p commands
+
+Blocked (question tool, before the requested file write):
+  ┃ Questions
+  ┃ [question text omitted]
+  ┃ 1. Yes
+  ┃ 2. No
+  ┃ 3. Type your own answer
+  ┃ ↑↓ select  enter submit  esc dismiss
+
+Idle (after ready, and after the file write):
+  TITLE: OC | [session title omitted]
+  ┃ Build · [model omitted]
+  ╹━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  /tmp/[scratch]                         [usage omitted]  ctrl+p commands
+```
+
+The file prompt asked to create `ready.txt` containing `ready`, and to ask first.
+The model used the question tool; selecting Yes produced the file. This is a
+measured question blocker, not a claim that an edit-permission dialog was observed.
+The bundled rules require the question footer conjunction, prioritize it over
+`esc interrupt`, and treat the idle editor/footer as heuristic readiness/completion
+only. The idle footer rule currently covers the measured Build agent label.
+Other agent labels and permission-screen layouts rely on lifecycle events or
+ordinary output evaluation until captured. The title alone does not identify working.
+
+A Foom-owned per-launch config file loaded a temporary local plugin directory
+through `OPENCODE_CONFIG` under `--standalone`. The module exported an object with
+`id` and `setup(context)` and subscribed through `context.event.subscribe()`;
+no SDK download/import or global plugin installation was needed. The harmless
+reply-only session returned `ready` and emitted `session.execution.started` then
+`session.execution.succeeded`. The explicitly assigned `ses_foom824_measure` was
+accepted; later events carried that ID in `data.sessionID`. The stream envelope
+contains `type` and `data`, not top-level session fields. The shipped adapter
+forwards only declared primitive selector fields, never prompts, reasoning, tool
+arguments, transcripts or model text. Failure/permission/form mappings are based
+on the pinned public schema and fixture tests; they were not separately measured
+with the shipped adapter. Hooks Off attaches no module.
+
+The [v2.0.32 standalone server](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/cli/src/server-process.ts)
+reads `OPENCODE_CONFIG` and `OPENCODE_CONFIG_CONTENT` per process. Foom uses the
+former for generated observer config and the latter for invocation-only MCP JSON.
+`--standalone` keeps both on a private server instead of the shared background
+service. The [config loader](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/core/src/config.ts)
+merges explicit file and inline content without writing either to the global config.
+The [session-ID schema](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/schema/src/session-id.ts)
+requires a `ses` prefix; Foom generates `ses_` plus a UUID, uses `--session` for
+new/resumed launches, and recognizes pasted `opencode --session ID` / `opencode -s ID`.
+
+MCP uses v2's `mcp.servers`, `type: remote`, `oauth: false`, `codemode: false`,
+and `Authorization: Bearer {env:FOOM_CONTROL_TOKEN}`. Foom does not substitute the
+credential into files or argv. Each launch gets a random server name and exact
+`server_tool` action rules for the same classified tool names as Claude, restricted
+by the actual granted role; no other server/tool permission is added. See the
+[v2.0.32 MCP schema](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/schema/src/mcp.ts),
+[tool action construction](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/core/src/tool/mcp.ts),
+and [MCP guide](https://dev.opencode.ai/v2/docs/mcp-servers).
+MCP attachment is source-backed and fixture-tested, not a real orchestration
+measurement. Managed policy can refuse either attachment. `--auto` (including
+its equals form conservatively) uses Foom's existing bypass confirmation; unattended
+children refuse it. Global OpenCode permission settings are not inferred.
+
 ### GitHub Copilot CLI (#410)
 
 Measured by hand on Linux, 2026-10-24, using GitHub Copilot CLI **1.0.103**

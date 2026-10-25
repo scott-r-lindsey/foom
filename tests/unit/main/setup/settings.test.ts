@@ -1,4 +1,5 @@
 import type { ConfigSettings } from "../../../../src/shared/config";
+import { legacyBypassIdentities } from "../../../../src/main/agents/providers/bundled";
 import { interfaceThemes } from "../../../../src/shared/interface-themes";
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -184,13 +185,79 @@ test("stores default argv and per-agent acknowledgement and migrates old profile
   const patch = parseSettingsPatch({
     agentArguments: { claude: ["--model", "a model"], codex: [], agy: [] },
     agentBypassAcknowledged: { claude: true, codex: false, agy: false },
+    agentBypassIdentities: { claude: "a".repeat(64), opencode: "b".repeat(64) },
   });
   await store.update(patch);
   expect((await SettingsStore.open(dir)).get()).toEqual(store.get());
   expect(() => parseSettingsPatch({ agentBypassAcknowledged: { claude: true } })).toThrow();
+  for (const identities of [
+    null,
+    [],
+    { opencode: true },
+    { opencode: "x" },
+    { "bad/id": "a".repeat(64) },
+    Object.fromEntries(
+      Array.from({ length: 101 }, (_, index) => [`a${String(index)}`, "a".repeat(64)]),
+    ),
+  ])
+    expect(() => parseSettingsPatch({ agentBypassIdentities: identities })).toThrow();
   expect(() =>
     parseSettingsPatch({ agentArguments: { claude: ["--settings"], codex: [], agy: [] } }),
   ).toThrow("reserved");
+});
+
+test.each([1, 2])(
+  "legacy profile v%s consent pins only historically reserved build identities",
+  async (version) => {
+    const dir = await directory();
+    await writeFile(
+      path.join(dir, "settings.json"),
+      JSON.stringify({
+        version,
+        settings: {
+          agentBypassAcknowledged: {
+            claude: true,
+            codex: true,
+            agy: true,
+            opencode: true,
+            copilot: true,
+            pi: true,
+          },
+        },
+      }),
+    );
+    const store = await SettingsStore.open(dir);
+    expect(store.get().agentBypassIdentities).toEqual(legacyBypassIdentities);
+    for (const id of ["opencode", "copilot", "pi"])
+      expect(store.get().agentBypassIdentities?.[id]).toBeUndefined();
+    expect((await SettingsStore.open(dir)).get().agentBypassIdentities).toEqual(
+      legacyBypassIdentities,
+    );
+    const stale = "0".repeat(64);
+    await store.update({ agentBypassIdentities: { claude: stale } });
+    expect((await SettingsStore.open(dir)).get().agentBypassIdentities?.["claude"]).toBe(stale);
+  },
+);
+
+test("legacy consent migration preserves the profile identity-map limit", async () => {
+  const dir = await directory();
+  const identities = Object.fromEntries(
+    Array.from({ length: 100 }, (_, index) => [`saved${String(index)}`, "a".repeat(64)]),
+  );
+  await writeFile(
+    path.join(dir, "settings.json"),
+    JSON.stringify({
+      version: 2,
+      settings: {
+        setupComplete: true,
+        agentBypassAcknowledged: { claude: true, codex: true, agy: true },
+        agentBypassIdentities: identities,
+      },
+    }),
+  );
+  const store = await SettingsStore.open(dir);
+  expect(store.get().setupComplete).toBe(true);
+  expect(store.get().agentBypassIdentities).toEqual(identities);
 });
 
 test.each([
@@ -209,7 +276,14 @@ test.each([
     };
     await writeFile(path.join(dir, "settings.json"), JSON.stringify({ version: 1, settings }));
     const store = await SettingsStore.open(dir);
-    expect(store.get()).toEqual({ ...settings, agentArguments: { ...agentArguments, claude: [] } });
+    expect(store.get()).toEqual({
+      ...settings,
+      agentArguments: { ...agentArguments, claude: [] },
+      agentBypassIdentities: {
+        claude: legacyBypassIdentities["claude"],
+        codex: legacyBypassIdentities["codex"],
+      },
+    });
     await store.update({ terminalFontSize: 16 });
     expect((await SettingsStore.open(dir)).get()).toEqual(store.get());
     expect(() => parseSettingsPatch({ agentArguments })).toThrow("reserved");

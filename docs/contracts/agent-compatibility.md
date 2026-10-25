@@ -56,7 +56,15 @@ environment lists and argument-bypass acknowledgements keep the `claude` key.
 Bundled argument bypass retains the existing Settings/config-change acknowledgement
 flow; environment bypass still requires launch confirmation, and unattended child
 bypass always fails. Conversions may reuse an acknowledgement only for an
-identical disclosure/effect. They must explicitly preserve setup consent and health observations; bundled build trust never substitutes for those decisions.
+identical provider/disclosure identity. Main stores a SHA-256 of the provider
+origin and complete parsed manifest in profile-only `agentBypassIdentities` after
+trusted Settings/config argument consent. ID-only acknowledgements for the three
+historically reserved IDs (`claude`, `codex`, `agy`) migrate only to their pinned
+historical build identities; changing the provider does not update that attestation.
+Every other legacy ID-only acknowledgement grants no identity-bound trust.
+A bypass launch without a matching identity requires
+fresh main-owned confirmation, including when any bundled ID supersedes a config
+provider. They must explicitly preserve setup consent and health observations; bundled build trust never substitutes for those decisions.
 
 Claude compatibility details:
 
@@ -128,3 +136,10 @@ Codex compatibility details (#435):
   fixture retains the optional instruction action to exercise that generic surface.
   Reserved-argument errors retain the original agent and argument line with
   engine-owned wording.
+
+OpenCode delivery (#824): the bundled ID supersedes a same-ID config manifest
+without editing it. A build-owned former-config ID list preserves existing config
+conversation rows, but automatic restart and role restore skip those rows until an
+explicit bundled Resume replaces their origin. All ordinary ID-keyed preferences
+retain the existing recovery and bypass-disclosure rules. See
+[provider collision behavior](../areas/providers.md#bundled-opencode-824).

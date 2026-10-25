@@ -45,6 +45,7 @@ export class Workspace {
           Settings,
           | "worktreeLocation"
           | "agentArguments"
+          | "agentBypassIdentities"
           | "agentHooks"
           | "showNewChildren"
           | "closeFinishedAgents"

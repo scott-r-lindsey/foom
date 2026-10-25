@@ -7,7 +7,7 @@ Decided implementation and security rules for this area. Read the [file map](../
 The heading is retained for existing links; config manifests no longer require approval.
 
 `main/agents/providers/provider.d.ts` declares the single `AgentProvider` contract.
-Claude, Codex, Antigravity, GitHub Copilot and Pi register through the build-locked bundled manifest loader. The bundled loader uses the same strict parser and immutable v2 engine as config providers; JSON cannot claim its origin. See [bundled delivery and compatibility](../contracts/agent-compatibility.md#bundled-manifest-delivery-434) for digest/version rules, unchanged settings/consents and observer ABI differences. The shared engine owns discovery gates, launch argv, MCP attachment, observer selection and hook payload reduction. The launch features use capability metadata rather than comparing
+Claude, Codex, Antigravity, GitHub Copilot, OpenCode and Pi register through the build-locked bundled manifest loader. The bundled loader uses the same strict parser and immutable v2 engine as config providers; JSON cannot claim its origin. See [bundled delivery and compatibility](../contracts/agent-compatibility.md#bundled-manifest-delivery-434) for digest/version rules, unchanged settings/consents and observer ABI differences. The shared engine owns discovery gates, launch argv, MCP attachment, observer selection and hook payload reduction. The launch features use capability metadata rather than comparing
 agent IDs. Shared built-in policy metadata is browser-safe. Main emits generic observed-health and notifier-selection facts to the renderer; config manifests cannot grant themselves build provenance. Agent identities can now be strings, but runtime IPC accepts only IDs in
 main's current loaded provider registry. Config providers cannot register a
 built-in ID or duplicate another provider. Built-in orchestration restore checks
@@ -63,7 +63,6 @@ grant no launch authority. Resume still resolves a loaded provider and revalidat
 the checkout. Merged cleanup retains a recorded
 agent conversation even while its provider is unavailable.
 
-
 ### Consolidated agent settings (#409)
 
 Settings → Agents and preflight's Agents step share the provider-driven card view.
@@ -102,7 +101,42 @@ ran without a permission prompt; blocked detection covers the measured model
 selector and OpenAI model-not-found error, not an invented file approval screen. See [measurements](../agents.md#pi-140-measurement-823).
 
 Existing settings keep their original required keys; absent Pi settings use the
-normal enabled/empty-default behavior without rewriting the profile.
+normal enabled/empty-default behavior without rewriting the profile. Pi uses the
+shared provider/disclosure-bound bypass consent: a legacy `pi: true` acknowledgement,
+a custom provider identity, or an identity for an older manifest cannot authorize
+`--approve` or `-a`. Cancelling disclosure saves no new consent; approving a single
+launch does not grant persistent Settings consent.
+
+### Bundled OpenCode (#824)
+
+OpenCode joins the build-locked v2 catalog and provider-driven Settings cards.
+Discovery runs only the fixed help/version probes; the v2.0.32 minimum and
+`--standalone`, `--session`, `--prompt` help tokens gate hooks, MCP and initial
+prompts. Launch always selects a private standalone server on supported versions.
+Hooks use the generated context-event module ABI, not a provider implementation or
+user-supplied script. MCP config and exact tool grants are per launch. See the
+[measurements and limitations](../agents.md#opencode-v2032-824).
+
+The bundled ID `opencode` takes precedence over a former `agents/opencode.json`:
+config status reports a reserved-ID rejection in Settings → Foom config, while
+the bundled Agents card remains available; Foom never rewrites or deletes the file. A full renamed copy can coexist as an
+ordinary config provider. Enablement, defaults and environment remain keyed by
+ID, so existing `opencode` preferences apply to the bundled provider (newly reserved
+defaults are discarded under the normal recovery policy). Bypass consent is bound
+to the provider origin and complete manifest, including executable declarations
+and bypass disclosure policy, in main-owned profile metadata. An old ID-only
+acknowledgement or a config provider's acknowledgement cannot authorize a bundled
+replacement, for any agent ID. Inherited bypass defaults require a trusted launch
+confirmation until reviewed and saved in Settings (or through an approved config
+argument change) for the current provider identity.
+
+The build-owned former-config ID migration retains saved `providerOrigin: config`
+OpenCode rows and their conversation IDs. They remain dormant and are excluded
+from automatic restart and orchestrator-role restoration. An explicit Resume resolves
+the bundled provider, validates the checkout, and creates fresh launch bindings;
+its new session record has bundled origin. This prevents silently replacing a
+previous config provider's executable/behavior or transferring its authority on
+restart. Missing/invalid config copies retain their existing dormant-row rules.
 
 ### GitHub Copilot CLI (#410)
 

@@ -1,3 +1,4 @@
+import { formerConfigAgentIds } from "../agents/providers/bundled";
 import { isReviewState } from "../../shared/review-state";
 import { storedHandoffs } from "../../node-common/handoff";
 import { builtinAgent, validAgentId } from "../../shared/providers/catalog";
@@ -46,7 +47,9 @@ export function readSessions(value: unknown): StoredSession[] {
       (providerOrigin !== undefined &&
         (providerOrigin === "bundled"
           ? typeof agent !== "string" || !builtinAgent(agent)
-          : providerOrigin !== "config" || !validAgentId(agent) || builtinAgent(agent))) ||
+          : providerOrigin !== "config" ||
+            !validAgentId(agent) ||
+            (builtinAgent(agent) && !formerConfigAgentIds.includes(agent)))) ||
       (home !== undefined &&
         (home !== true || agent !== "shell" || repository !== worktree || branch !== null)) ||
       (config !== undefined &&

@@ -551,8 +551,11 @@
           "maxItems": 19,
           "minItems": 0
         },
+        "fileRules": {
+          "const": "action-resource"
+        },
         "format": {
-          "enum": ["mcp-double-underscore", "server-parentheses"]
+          "enum": ["mcp-double-underscore", "server-parentheses", "server-underscore"]
         },
         "arguments": {
           "$ref": "#/$defs/argv"
@@ -639,6 +642,9 @@
         },
         {
           "$ref": "#/$defs/externalObserver"
+        },
+        {
+          "$ref": "#/$defs/moduleObserver"
         }
       ]
     },
@@ -733,6 +739,19 @@
         }
       }
     },
+    "moduleObserver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transport", "version"],
+      "properties": {
+        "transport": {
+          "const": "event-module"
+        },
+        "version": {
+          "const": 1
+        }
+      }
+    },
     "mapping": {
       "type": "object",
       "additionalProperties": false,
@@ -740,6 +759,14 @@
       "properties": {
         "session": {
           "$ref": "#/$defs/selector"
+        },
+        "sessionAliases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/selector"
+          },
+          "maxItems": 8,
+          "minItems": 0
         },
         "event": {
           "$ref": "#/$defs/selector"
@@ -1055,6 +1082,12 @@
       "additionalProperties": false,
       "required": ["format", "arguments"],
       "properties": {
+        "prefix": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        },
         "format": {
           "const": "uuid"
         },

@@ -108,6 +108,14 @@ permission screen was observed. Escape dismissed the picker and Ctrl+D exited.
 No global configuration or credential files were inspected or changed.
 See [measurement details](../../../docs/agents.md#pi-140-measurement-823).
 
+OpenCode v2.0.32 (#824), Linux 2026-10-24: four short PTY sessions in a disposable
+OS-temp directory, parsed with the pinned headless xterm at 120×40. The three
+OpenCode JSON fixtures retain only observed matching viewport fragments from
+working, question and idle screens; the model, session title and scratch path are
+redacted. The file prompt requested `ready.txt` with permission first; the observed
+blocker was the question tool, followed by a successful write. No edit-permission
+screen is claimed. See [measurement details](../../../docs/agents.md#opencode-v2032-824).
+
 ## Copilot 1.0.103 (#410)
 
 Hand measurements on Linux on 2026-10-24 used an OS temporary directory,

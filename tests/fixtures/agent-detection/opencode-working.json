@@ -1,0 +1,17 @@
+{
+  "agent": "opencode",
+  "version": "2.0.32",
+  "state": "working",
+  "platform": "linux",
+  "date": "2026-10-24",
+  "size": {
+    "cols": 120,
+    "rows": 40
+  },
+  "rules": ["working"],
+  "titles": ["OpenCode"],
+  "progress": null,
+  "tail": [
+    "⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt                                                            shift+tab agents  ctrl+p commands"
+  ]
+}

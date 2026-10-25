@@ -17,7 +17,7 @@ security checks beyond JSON Schema. `examples/agent.json` is a generic starter;
 | Primitive | Definition |
 | --- | --- |
 | Manifest | Strict UTF-8 JSON, <=64 KiB original bytes, depth <=24, <=8192 total JSON nodes; no BOM |
-| ID | 1–40 lowercase ASCII letters/digits/hyphens, first letter; filename <id>.json; `shell`, `all`, `constructor`, `prototype` and bundled IDs (`claude`, `codex`, `agy`, `copilot`, `pi`) reserved for config files |
+| ID | 1–40 lowercase ASCII letters/digits/hyphens, first letter; filename <id>.json; `shell`, `all`, `constructor`, `prototype` and bundled IDs (`claude`, `codex`, `agy`, `copilot`, `opencode`, `pi`) reserved for config files |
 | Text | 1–4096 Unicode code units unless narrower below; no Cc/Cf/Co/Cs or U+2028/U+2029; literal rendered text |
 | Multiline template | <=16384 bytes each, LF and tab allowed; other hidden/control characters forbidden; aggregate template bytes <=32768 |
 | Argv | <=64 nonempty Text entries; <=256 expanded entries/65536 bytes per process invocation, each expanded entry <=20480 bytes (prompt may contain LF/tab); no shell evaluation |
@@ -38,7 +38,7 @@ security checks beyond JSON Schema. `examples/agent.json` is a generic starter;
 | files? | <=16 File records |
 | hooks? | `{channels}`; 1–8 Channel records |
 | reservedArguments, bypassArguments, bypassEnvironment | Required matcher arrays (may be empty); environment <=16 records |
-| conversation | Required `{newId?,resumePin,restoreControl}`; newId optional `{format:"uuid",arguments:Argv}`; resumePin first-event or requested-on-paste; restoreControl boolean |
+| conversation | Required `{newId?,resumePin,restoreControl}`; newId optional `{format:"uuid",prefix?:Local fact/case name,arguments:Argv}`; resumePin first-event or requested-on-paste; restoreControl boolean |
 | resumePaste | Required <=8 `{command,selector}` token patterns; command basename <=64, selector literal Text <=40; [paste details](agent-detection.md) |
 | attention | Required `{minimumEngineVersion:1,rules,provenance?,sampleWhileActive?}`; rules <=64; provenance `{source,license,modified}` each Text <=256; inert, never fetched |
 | execution | Required `{completion,completionChannels,providerRules?}`; completion attached or observed; channels <=8 IDs, providerRules <=16 rule IDs |
