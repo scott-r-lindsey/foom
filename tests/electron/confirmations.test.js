@@ -332,20 +332,22 @@ test("trusted dialog presentation failure releases the board and allows a new re
       ).webContents.focus = globalThis.realConfirmationContentsFocus;
     });
   }
-  // DOM visibility in this preloaded child precedes native presentation. Hide
-  // at the end of native focus instead, deterministically inside present().
+  // DOM visibility precedes native presentation. Hide at main's explicit
+  // presentation publication, after every native show/raise/focus call.
   await app.evaluate(({ BrowserWindow }) => {
     const dialog = BrowserWindow.getAllWindows().find(
       (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
     );
-    const focus = dialog.webContents.focus;
-    dialog.webContents.focus = () => {
-      dialog.webContents.focus = focus;
-      focus.call(dialog.webContents);
-      // macOS key focus takes precedence over occlusion reporting. Relinquish
-      // it explicitly so this fixture represents an unavailable native child.
-      dialog.blur();
-      dialog.hide();
+    const send = dialog.webContents.send.bind(dialog.webContents);
+    dialog.webContents.send = (channel, ...args) => {
+      send(channel, ...args);
+      if (channel === "confirmation:render" && args[0]?.presented === true) {
+        dialog.webContents.send = send;
+        // macOS key focus takes precedence over occlusion reporting. Relinquish
+        // it explicitly so this fixture represents an unavailable native child.
+        dialog.blur();
+        dialog.hide();
+      }
     };
   });
   await app.evaluate(({ app }) => app.quit());
