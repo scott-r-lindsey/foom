@@ -16,7 +16,7 @@ exports.readLoginShell = async () => {
   return { stdout: "fixture-value" };
 };
 exports.complete = async () => {
-  const request = { action: "start", agent: "copilot", manifest: "draft.json" };
+  const request = { action: "start", agent: "copilot-fixture", manifest: "draft.json" };
   const provider = await probeProvider(request, root);
   const cwd = await scratchRepository();
   try {

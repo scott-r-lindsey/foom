@@ -1,5 +1,10 @@
 # Agent Verification
 
+Historical v2 design questions from #423. The Copilot rows below describe the
+1.0.95 draft; they are superseded by the [1.0.103 hand measurements](../agents.md#github-copilot-cli-410)
+and [shipped manifest](../../src/shared/bundled-agents/copilot.json) from #410.
+Cross-platform real CLI verification remains outstanding.
+
 ## Open questions and shipping gates
 
 | Question | Evidence / next verification; no implied support |

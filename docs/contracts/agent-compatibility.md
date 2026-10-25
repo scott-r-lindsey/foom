@@ -2,7 +2,7 @@
 
 ## Migration and acceptance for later implementation
 
-The v2 engine is implemented; older agent manifest formats are unsupported. The Copilot shipping gates below remain future work.
+The v2 engine is implemented; older agent manifest formats are unsupported. Copilot’s measured shipping evidence is recorded in [the agent measurements](../agents.md#github-copilot-cli-410).
 
 | Input/state | Required migration |
 | --- | --- |

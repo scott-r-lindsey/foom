@@ -72,3 +72,85 @@ The orchestrator recorded agy 1.4.2 on Linux: `plugin list` prints plain text, w
 Observer version 3 uses absolute paths into the validated CLI-owned installed plugin, rather than relying on an unmeasured hook cwd or an undocumented plugin-root variable. The hook ID remains `foom-observer-v1`; plugin metadata determines the observer ABI. Legacy v1/v2 installations offer Update, and owned installations offer Reinstall and Remove. Status unavailable offers Retry status. See [setup contract](contracts/agent-setup.md) for bounded probes, ownership, confirmation and partial reinstall failure.
 
 The #723 review found that absolute paths into a disposable Foom profile disappear on exit. Hooks now target the canonical CLI-owned installation instead; no documented agy plugin-root variable is assumed. Modern reported install paths require exact native spellings (case variants on Windows/macOS additionally require matching realpath identity); noncanonical or foreign paths are unavailable. Reported paths never select inventory reads or execute commands. Status verifies installed hook/observer bytes and reports missing or changed targets as outdated. Fixture tests delete disposable staging, rescan from another profile, and verify consistent installed status and working hooks. Same-definition Dev/everyday profiles share the installed target without scan-time rewriting or alternating status.
+
+### GitHub Copilot CLI (#410)
+
+Measured by hand on Linux, 2026-10-24, using GitHub Copilot CLI **1.0.103**
+in a disposable OS temporary directory outside every repository. Normal launch
+and `--version` agreed on 1.0.103. `--no-auto-update` selected the installed
+1.0.100 payload instead; that preliminary session was cancelled at folder trust
+and supplies no 1.0.103 evidence. The shipped manifest adds no update flag.
+No bypass arguments or `COPILOT_ALLOW_ALL` were used. Folder trust was accepted
+for the current session only. No user config, credentials or transcripts were
+read or edited; Copilot retained its own ordinary session writes.
+
+`--help` confirmed `--plugin-dir`, `--additional-mcp-config` (inline JSON or
+`@file`), `--session-id`, `--resume`/`-r`, and `--interactive`/`-i`.
+`plugin --help` explicitly lists hooks as a plugin capability. `help permissions`
+documents the exact `server(tool)` allow rule. `help environment` documents
+case-insensitive, whitespace-trimmed `true`, `1`, `yes`, `on`, `y` for
+`COPILOT_ALLOW_ALL`; exact `true` also trusts the working directory. Those values
+and all five broad permission flags trigger Foom’s existing bypass disclosure.
+These were inspected as help text only, never enabled in a measurement.
+
+Observed screens (only the matching portions retained):
+
+```text
+Working, after “Reply with the word ready.”:
+  ● Working esc esc interrupt
+
+Idle, after “ready”:
+  ❯
+  ← open sidebar · Interactive · Manual Approval · / commands · ? help · tab next tab
+
+Blocked, after asking to create ready.txt containing ready:
+  Create file
+  Do you want to create [scratch path]/ready.txt?
+  ❯ 1. Yes
+    2. Yes, and don't ask again for file operations when in this directory
+    3. No, and tell Copilot what to do differently (Esc to stop)
+  ↑/↓ to navigate · enter to select · esc to cancel
+```
+
+The initial Confirm folder trust dialog used the same navigation footer. The
+file permission was cancelled with Escape; no write was approved. The
+[redacted capture fixtures](../tests/fixtures/agent-detection/README.md) retain
+these regions. Working and idle inspect the last nonblank line; blocked scans
+the bottom 12 nonblank lines. Blocked wins over Working. Initial idle is only
+readiness; attached hooks require `agentStop` before completion classification.
+No OSC title or progress rule is claimed. Unknown modes, versions or terminal
+widths may stay neutral; macOS and Windows real CLI behavior is not measured.
+
+A temporary legacy plugin with `plugin.json` (`name`, `version`) and root
+`hooks.json` (`version:1`) attached through `--plugin-dir`. Silent command hooks
+observed `sessionStart`, `userPromptSubmitted`, `preToolUse`, `postToolUse` and
+`agentStop`; every payload included the assigned `sessionId`. `agentStop`
+included `stopReason: end_turn`. Commands selected by event name are fixed
+Foom observers; the event travels through the authenticated fixed event header.
+Only the validated session ID and enumerated event/action survive reduction.
+`permissionRequest` fired even for a pre-approved MCP ping, so it is deliberately
+not mapped to Blocked: the measured visible confirmation form supplies that state.
+No subagent stop event is treated as parent completion.
+
+A disposable loopback HTTP MCP server attached through
+`--additional-mcp-config @file`, with `type:http`, `url` and
+`headers.Authorization: "Bearer ${FOOM_CONTROL_TOKEN}"`. The server observed
+initialize, tools/list and tools/call, and verified environment expansion without
+logging the token. A prompt called its harmless `ping` tool successfully with
+only `--allow-tool foom_measure(ping)`. The same test succeeded without a `tools`
+field. The shipped manifest grants the same named Foom tools as Claude, filtered
+by the requesting role; it never grants a whole server or wildcard. These tests
+used measurement-only credentials and no repository/orchestration authority.
+
+A new session used a supplied UUID; exit displayed that UUID in
+`copilot --resume=…`. A second launch with `--resume UUID`, the isolated plugin
+and isolated MCP resumed the same conversation, fired `sessionStart` with the
+same `sessionId`, called ping and returned idle. Paste recognition uses literal
+three-token `copilot --resume UUID`, `copilot -r UUID` or
+`copilot --session-id UUID`; the existing bounded paste grammar does not accept
+the CLI’s displayed equals form, names or prefixes.
+
+The CLI’s [hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference)
+and [plugin reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference)
+supply documented context; the observations above establish the 1.0.103 Linux
+attachment and payload evidence. Automated tests use synthetic fixtures only.
