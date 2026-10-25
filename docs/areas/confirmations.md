@@ -109,7 +109,11 @@ cleanup actions and removal subsets, must pass the same focus, visibility and
 geometry checks at IPC receipt; recovery itself never grants approval.
 Hiding, minimizing or destroying the child, or hiding/minimizing its board, also
 cancels after checking current native visibility/minimization, so a late Cocoa
-hide notification cannot dismiss a newly visible reused request. Timers and
+hide notification cannot dismiss a newly visible reused request. Native hide/minimize
+events during the reparent/show/focus sequence are rechecked against current child
+and parent state when that sequence finishes, before publishing `presented: true`.
+Transient occlusion may recover within the sequence; a window that remains hidden
+or minimized declines immediately and cannot be re-presented by the guard. Timers and
 listeners are removed on dismissal and disposal.
 These focus checks are a recovery safety net; the Electron regression observes
 composed desktop pixels, since macOS can report native focus through an overlay.

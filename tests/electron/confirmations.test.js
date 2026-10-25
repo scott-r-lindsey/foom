@@ -332,16 +332,28 @@ test("trusted dialog presentation failure releases the board and allows a new re
       ).webContents.focus = globalThis.realConfirmationContentsFocus;
     });
   }
-  await app.evaluate(({ app }) => app.quit());
-  await expect(dialog.getByRole("alertdialog")).toBeVisible();
-  await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
+  // DOM visibility in this preloaded child precedes native presentation. Hide
+  // at the end of native focus instead, deterministically inside present().
   await app.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()
-      .find((window) => window.webContents.getURL() === "app://confirmation/confirmation.html")
-      .hide();
+    const dialog = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+    );
+    const focus = dialog.webContents.focus;
+    dialog.webContents.focus = () => {
+      dialog.webContents.focus = focus;
+      focus.call(dialog.webContents);
+      dialog.hide();
+    };
   });
+  await app.evaluate(({ app }) => app.quit());
+  await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
   await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
   await expect(dialog.getByRole("alertdialog")).toHaveCount(0);
+  assert.equal(app.process().exitCode, null, "Hiding during presentation must cancel quit");
+  assert.equal(
+    await board.evaluate(async () => (await window.desktop.workspace()).terminals[0].exited),
+    false,
+  );
   await app.evaluate(({ app }) => app.quit());
   await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
