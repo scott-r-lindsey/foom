@@ -117,5 +117,7 @@ always selecting a sidebar row. Interim tile focus while reattaching does not
 replace the saved xterm target, including during rapid Settings reopening.
 Trusted scrims, About, legal views, action errors
 and menu dismissal share `board/focus-restore.ts` for detached or unfocusable
-opener fallback. DOM restoration never requests native app activation. Native
+opener fallback. Scrim restoration runs in a layout effect after removing the top-layer popover;
+its native focus cleanup must finish before selecting the fallback. DOM restoration
+never requests native app activation. Native
 trusted-window restoration follows the [confirmation rules](confirmations.md#focus-restoration-852).

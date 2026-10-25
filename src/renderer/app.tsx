@@ -5,7 +5,7 @@ import { AboutDialog } from "./about/about-dialog";
 import { ActionError, ErrorPresentation } from "./board/error-presentation";
 import { attachPreviewComposition } from "./board/preview-composition";
 import { attachInterfaceTheme } from "./ui/interface-theme";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SetupState } from "../shared/setup";
 import { Board } from "./board/board-view";
 import { createSampleSource } from "./board/sample-board-source";
@@ -52,13 +52,20 @@ function AppContents() {
     if (api) return attachPreviewComposition(api);
   }, []);
   const [scrim, setScrim] = useState(false);
+  const scrimOriginRef = useRef<{ target: Element | null } | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (scrim) return;
+    const origin = scrimOriginRef.current;
+    scrimOriginRef.current = undefined;
+    // Remove the top-layer popover before restoring input: its native focus
+    // cleanup can otherwise overwrite the fallback with body on Windows/macOS.
+    if (origin) restoreBoardFocus(origin.target);
+  }, [scrim]);
   useEffect(() => {
-    let previous: Element | null = null;
     let showing = false;
     return source.confirmations?.onScrim?.((visible) => {
-      if (visible && !showing) previous = document.activeElement;
+      if (visible && !showing) scrimOriginRef.current = { target: document.activeElement };
       setScrim(visible);
-      if (!visible && showing) restoreBoardFocus(previous);
       showing = visible;
     });
   }, [source]);

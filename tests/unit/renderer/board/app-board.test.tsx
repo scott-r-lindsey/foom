@@ -153,6 +153,8 @@ test("main's cosmetic scrim follows visibility and unsubscribes when the app unm
   ).toBe("true");
   act(() => {
     receive(false);
+    // Native popover dismissal can clear focus before React commits removal.
+    input.blur();
   });
   expect(view.container.querySelector(".board-confirmation-scrim")).toBeNull();
   expect(document.activeElement).toBe(input);
