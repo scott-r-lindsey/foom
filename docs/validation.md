@@ -113,7 +113,7 @@ Replace the example IDs with recent runs covering every current case on all thre
 platforms. The script rejects failed cases, missing reports and unmeasured current
 cases. It takes each case's maximum duration per platform and includes hash
 assignments for previously unplanned cases in the before projection. Review balance
-and headroom under the unchanged 420s Linux / 600s Windows and macOS step limits.
+and headroom under the 600s step limit on Linux, Windows and macOS.
 Case sums exclude build/runner overhead; compare actual CI step times before
 calling the refresh validated. Regenerate after incorporating new tests from main
 and run full contributor validation. See the [sharding guide](electron-shards.md)
