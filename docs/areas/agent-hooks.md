@@ -52,3 +52,15 @@ for user-installed code extensions. `foom hook EVENT [--channel ID]` is a silent
 bounded stdin client of this same receiver, with no pairing or control authority.
 External attachment creates no observer files or arguments and never edits agent
 configuration. Existing bundled adapters retain their compatibility behavior.
+
+
+OpenCode v2.0.32+ uses invocation-only generated context-event plugins under a
+private standalone server. Execution started/succeeded/failed events establish
+working/completion/failure; permission requests and created forms request attention.
+Permission/form replies restore working while the invocation continues. The single
+channel maps the alternate session-ID paths, rejects conflicting identities and
+serializes event delivery before the shared launch pin. Only
+primitive selector leaves reach the receiver. Hooks Off falls back to measured
+screen rules. No global plugin installation or agent config edits occur. See the
+[adapter ABI](../contracts/agent-launch.md#generated-context-event-modules-824)
+and [measurements](../agents.md#opencode-v2032-824).

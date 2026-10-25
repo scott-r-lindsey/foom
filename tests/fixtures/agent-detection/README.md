@@ -95,3 +95,11 @@ input capability. Old messages scrolled beyond the region and incomplete rate-li
 advice are negative test cases. Claude and Antigravity have no provider fixtures
 or shipped provider rules. Generic hooks and exit codes cannot distinguish these
 conditions, so no speculative mappings are shipped.
+
+OpenCode v2.0.32 (#824), Linux 2026-10-24: four short PTY sessions in a disposable
+OS-temp directory, parsed with the pinned headless xterm at 120×40. The three
+OpenCode JSON fixtures retain only observed matching viewport fragments from
+working, question and idle screens; the model, session title and scratch path are
+redacted. The file prompt requested `ready.txt` with permission first; the observed
+blocker was the question tool, followed by a successful write. No edit-permission
+screen is claimed. See [measurement details](../../../docs/agents.md#opencode-v2032-824).

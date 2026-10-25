@@ -14,7 +14,10 @@ function inside(directory, file) {
 }
 
 function assertFixtureAgent(file, directories) {
-  if (!/^(claude|codex|agy|copilot|gh|glab)(\.(exe|com|cmd))?$/i.test(path.basename(file))) return;
+  if (
+    !/^(claude|codex|agy|copilot|opencode|pi|gh|glab)(\.(exe|com|cmd))?$/i.test(path.basename(file))
+  )
+    return;
   // Match fs.promises.realpath used by native executable discovery, including
   // Windows 8.3 aliases. Compare canonical spellings on both sides of the guard.
   const resolved = realpathSync.native(file);

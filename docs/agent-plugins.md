@@ -38,7 +38,7 @@ See [Bundled manifest delivery (#434)](contracts/agent-compatibility.md#bundled-
 
 ## Complete manifests
 
-The shipped, build-locked JSON is authoritative: [Claude Code](../src/shared/bundled-agents/claude.json), [Codex](../src/shared/bundled-agents/codex.json), [Antigravity](../src/shared/bundled-agents/agy.json). Config copies must change ID and name; see [customization](contracts/agent-trust.md#customizing-a-built-in-agent). The [Copilot draft](research/copilot-manifest.md) is unverified and blocked by [#410](https://github.com/scott-r-lindsey/foom/issues/410); it grants no support.
+The shipped, build-locked JSON is authoritative: [Claude Code](../src/shared/bundled-agents/claude.json), [Codex](../src/shared/bundled-agents/codex.json), [Antigravity](../src/shared/bundled-agents/agy.json), [OpenCode](../src/shared/bundled-agents/opencode.json). Config copies must change ID and name; see [customization](contracts/agent-trust.md#customizing-a-built-in-agent). The [Copilot draft](research/copilot-manifest.md) is unverified and blocked by [#410](https://github.com/scott-r-lindsey/foom/issues/410); it grants no support.
 
 ## Open questions and shipping gates
 

@@ -1,3 +1,4 @@
+import { BUILTIN_AGENTS } from "../../../../src/shared/providers/catalog";
 import type { ReadinessReport } from "../../../../src/shared/readiness";
 import {
   ErrorPresentation,
@@ -300,7 +301,7 @@ test("first run walks every step, saves each choice, and launches", async () => 
   fireEvent.click(button("Start preflight"));
   expect(document.activeElement?.textContent).toBe("Agents");
   await screen.findByText("3 agents ready");
-  expect(document.querySelectorAll(".agent-card")).toHaveLength(3);
+  expect(document.querySelectorAll(".agent-card")).toHaveLength(BUILTIN_AGENTS.length);
   expect(screen.getByText("/bin/claude")).toBeTruthy();
   expect(screen.getByText("2.1.300")).toBeTruthy();
   fireEvent.click(screen.getByRole("switch", { name: "Codex" }));
@@ -365,9 +366,9 @@ test("with no agents installed, go / no-go holds and links back to each fix", as
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   fireEvent.click(button("Start preflight"));
   await screen.findByText("No agents ready yet · needed to launch");
-  expect(screen.getAllByText("Not found")).toHaveLength(3);
-  expect(screen.getAllByRole("switch")).toHaveLength(3);
-  expect(screen.getAllByText("Not found")).toHaveLength(3);
+  expect(screen.getAllByText("Not found")).toHaveLength(BUILTIN_AGENTS.length);
+  expect(screen.getAllByRole("switch")).toHaveLength(BUILTIN_AGENTS.length);
+  expect(screen.getAllByText("Not found")).toHaveLength(BUILTIN_AGENTS.length);
   for (let step = 0; step < 2; step++) fireEvent.click(button("Continue"));
   expect(screen.getByText("Hold. Something needs fixing.")).toBeTruthy();
   expect(button("Launch")).toHaveProperty("disabled", true);

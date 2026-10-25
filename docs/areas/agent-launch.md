@@ -95,3 +95,11 @@ orchestration host, including PR adoption under the shared repository and branch
 reservations. The context still owns those reservations, terminal queues, launch
 cancellation, owner initialization and shutdown order behind the unchanged
 `workspace.ts` facade.
+
+
+OpenCode's bundled manifest (#824) uses `--standalone`, Foom-assigned `ses_` UUIDs,
+and `--session` for resume. `OPENCODE_CONFIG` selects per-launch event observers;
+`OPENCODE_CONFIG_CONTENT` merges per-launch MCP and exact Foom tool grants. Source
+files contain only an environment token reference. All are revoked/removed on
+release. Former same-ID config sessions remain dormant for explicit Resume; see
+[provider compatibility](providers.md#bundled-opencode-824).

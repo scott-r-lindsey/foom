@@ -128,3 +128,11 @@ Codex compatibility details (#435):
   fixture retains the optional instruction action to exercise that generic surface.
   Reserved-argument errors retain the original agent and argument line with
   engine-owned wording.
+
+
+OpenCode delivery (#824): the bundled ID supersedes a same-ID config manifest
+without editing it. A build-owned former-config ID list preserves existing config
+conversation rows, but automatic restart and role restore skip those rows until an
+explicit bundled Resume replaces their origin. All ordinary ID-keyed preferences
+retain the existing recovery and bypass-disclosure rules. See
+[provider collision behavior](../areas/providers.md#bundled-opencode-824).

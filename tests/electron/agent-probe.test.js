@@ -22,7 +22,10 @@ test("config probe CLI drives only scratch fixture screens and the user can inte
   const bin = path.join(root, "bin");
   const home = path.join(root, "home");
   await Promise.all([bin, home].map((directory) => mkdir(directory)));
-  const executable = path.join(bin, process.platform === "win32" ? "opencode.exe" : "opencode");
+  const executable = path.join(
+    bin,
+    process.platform === "win32" ? "fixturecode.exe" : "fixturecode",
+  );
   await copyFile(process.execPath, executable);
   await chmod(executable, 0o755);
   const attachment = path.join(root, "attachment.json");
@@ -65,10 +68,10 @@ process.stdin.resume();
   );
   const manifest = {
     ...v2,
-    id: "opencode",
-    name: "OpenCode",
+    id: "fixturecode",
+    name: "FixtureCode",
     badge: "CP",
-    executables: ["opencode"],
+    executables: ["fixturecode"],
     discovery: { facts: [] },
     launch: {
       order: [
@@ -96,7 +99,7 @@ process.stdin.resume();
   delete manifest.hooks;
   delete manifest.setup;
   delete manifest.health;
-  const draft = path.join(root, "draft", "opencode.json");
+  const draft = path.join(root, "draft", "fixturecode.json");
   await writeFile(
     driver,
     `
@@ -111,14 +114,14 @@ const pluginArguments=blocks.find(block=>Array.isArray(block) && block[0]==='--p
 const files=blocks.find(block=>Array.isArray(block) && block[0]?.scope==='launch');
 if(!pluginArguments || !files || !guide.includes('answer the probe') || !guide.includes('Stop')) throw Error('Guide lacks probe/plugin instructions');
 const target=JSON.parse(fs.readFileSync('examples/agent.json','utf8'));
-Object.assign(target,{id:'opencode',name:'OpenCode',badge:'CP',executables:['opencode'],launch:{order:target.launch.order,arguments:{arguments:[${JSON.stringify(script)}]}},conversation:{resumePin:'requested-on-paste',restoreControl:false},attention:{minimumEngineVersion:1,rules:[]},resumePaste:[]});
+Object.assign(target,{id:'fixturecode',name:'FixtureCode',badge:'CP',executables:['fixturecode'],launch:{order:target.launch.order,arguments:{arguments:[${JSON.stringify(script)}]}},conversation:{resumePin:'requested-on-paste',restoreControl:false},attention:{minimumEngineVersion:1,rules:[]},resumePaste:[]});
 const channel=target.hooks.channels[0]; channel.arguments=pluginArguments; channel.observer.transport='stdin'; channel.when={all:[{field:'hooksEnabled',op:'eq',value:true}]};
 target.files=files.map(file=>({...file,when:channel.when}));
 target.reservedArguments.push({flag:'--plugin-dir',forms:['exact','equals','separate']});
 fs.mkdirSync(require('node:path').dirname(${JSON.stringify(draft)}),{recursive:true});
 fs.writeFileSync(${JSON.stringify(draft)},JSON.stringify(target));
 execFileSync(cli,['config','validate',${JSON.stringify(draft)}],{encoding:'utf8',env:process.env});
-const probe=call('start','opencode','--manifest',${JSON.stringify(draft)}).probe;
+const probe=call('start','fixturecode','--manifest',${JSON.stringify(draft)}).probe;
 writeResult(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1}));
 console.log('DRIVER_READY');
 require('node:readline').createInterface({input:process.stdin}).on('line', line => {
@@ -132,15 +135,15 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       writeResult(${JSON.stringify(result)},JSON.stringify({probe,validationPasses:1,before,state,saved,after:call('screen',probe)}));
       console.log('SCREEN_READY');
     } else if(line==='install') {
-      fs.copyFileSync(${JSON.stringify(draft)},require('node:path').join(process.cwd(),'agents/opencode.json')); console.log('MANIFEST_INSTALLED');
+      fs.copyFileSync(${JSON.stringify(draft)},require('node:path').join(process.cwd(),'agents/fixturecode.json')); console.log('MANIFEST_INSTALLED');
     } else if(line==='rules') {
-      const rules=JSON.parse(execFileSync(cli,['config','test-rules','opencode','--json'],{encoding:'utf8',env:process.env})).result;
+      const rules=JSON.parse(execFileSync(cli,['config','test-rules','fixturecode','--json'],{encoding:'utf8',env:process.env})).result;
       execFileSync(cli,['config','validate','.'],{encoding:'utf8',env:process.env});
       const previous=JSON.parse(fs.readFileSync(${JSON.stringify(result)},'utf8'));
       writeResult(${JSON.stringify(result)},JSON.stringify({...previous,rules}));
     } else if(line==='hold') {
       const settings=JSON.parse(fs.readFileSync('settings.json','utf8'));
-      settings.agentArguments={claude:[],codex:[],agy:[],...settings.agentArguments,opencode:['--fixture']};
+      settings.agentArguments={claude:[],codex:[],agy:[],...settings.agentArguments,fixturecode:['--fixture']};
       fs.writeFileSync('settings.json',JSON.stringify(settings));
       execFileSync(cli,['config','validate','settings.json'],{encoding:'utf8',env:process.env});
       const status=JSON.parse(execFileSync(cli,['config','status','--json'],{encoding:'utf8',env:process.env})).result;
@@ -149,7 +152,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       if(status.pending) console.log('Settings held: '+status.pending.detail+'. Choose Allow / Keep it on in Foom config.');
     } else if(line==='exit') {process.exit(0);
     } else if(line==='restart') {
-      const second=call('start','opencode','--manifest',${JSON.stringify(draft)}).probe;
+      const second=call('start','fixturecode','--manifest',${JSON.stringify(draft)}).probe;
       let screen;
       const deadline=Date.now()+${deadline(5000)};
       do { call('wait',second,'--quiet','0.1'); screen=call('screen',second); } while(!screen.lines.join('\\n').includes('Trust this folder?') && Date.now()<deadline);
@@ -238,7 +241,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
         )?.state?.reason ?? "",
     )
     .not.toBe("Probe waiting");
-  await expect(page.locator(".tile-name").filter({ hasText: "opencode" })).toBeVisible();
+  await expect(page.locator(".tile-name").filter({ hasText: "fixturecode" })).toBeVisible();
   await expect
     .poll(async () =>
       (await page.evaluate((id) => window.desktop.tail(id, 24), configId)).join("\n"),
@@ -261,7 +264,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   const record = JSON.parse(await readFile(result, "utf8"));
   assert.equal(record.validationPasses, 1);
   assert.equal(record.before.title, "Fixture probe title");
-  assert.equal(record.saved.capture, "captures/opencode/other-1.json");
+  assert.equal(record.saved.capture, "captures/fixturecode/other-1.json");
   const savedCapture = JSON.parse(
     await readFile(path.join(home, ".foom/config", record.saved.capture), "utf8"),
   );
@@ -295,11 +298,11 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   assert.ok(path.isAbsolute(launch.args[1]));
   await page
     .getByRole("button", {
-      name: "Actions for opencode · Probe in Foom config",
+      name: "Actions for fixturecode · Probe in Foom config",
       exact: true,
     })
     .click();
-  await page.getByRole("menuitem", { name: "Stop opencode", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Stop fixturecode", exact: true }).click();
   const confirmStop = page.getByRole("menuitem", { name: "Click again to stop", exact: true });
   await expect(confirmStop).toBeVisible();
   // The existing Stop confirmation requires at least 300 ms between clicks.
@@ -338,13 +341,13 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   await page.evaluate((id) => window.desktop.input(id, "install\r"), configId);
   // Sidebar launch surfaces update while Settings stays closed, without a manual scan.
   await page.locator(".config-gear").click();
-  await expect(page.getByRole("menuitem", { name: "Via OpenCode", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Via FixtureCode", exact: true })).toBeVisible();
   assert.ok(
     !JSON.stringify(await page.evaluate(() => window.desktop.appMenu.commands())).includes("via-"),
   );
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
-  await expect(page.getByRole("menuitem", { name: "OpenCode", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "FixtureCode", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await require("node:fs/promises").rm(attachment, { force: true });
   await page.evaluate(async () => {
@@ -353,7 +356,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       kind: "launch",
       repository,
       worktree: repository,
-      run: "opencode",
+      run: "fixturecode",
     });
   });
   await expect
@@ -397,13 +400,13 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   assert.ok(
     listed.result.tools
       .find((tool) => tool.name === "launch")
-      .inputSchema.properties.agent.enum.includes("opencode"),
+      .inputSchema.properties.agent.enum.includes("fixturecode"),
   );
   await page.evaluate((id) => window.desktop.input(id, "rules\r"), configId);
   await expect
     .poll(async () => JSON.parse(await readFile(result, "utf8")).rules ?? null)
     .toMatchObject({
-      agentId: "opencode",
+      agentId: "fixturecode",
       passed: true,
       captures: [{ expected: "other", actual: "other", ruleId: null, passed: true }],
     });
@@ -416,7 +419,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
           "",
       ),
     )
-    .toContain("agentArguments.opencode");
+    .toContain("agentArguments.fixturecode");
   await expect
     .poll(async () =>
       (await page.evaluate((id) => window.desktop.tail(id, 24), configId)).join("\n"),
@@ -434,7 +437,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   await expect(page.locator(".config-dock")).toContainText("Needs you");
   await page.locator(".config-gear").click();
   const decision = page.getByRole("region", { name: "Change waiting for approval" });
-  await expect(decision).toContainText("agentArguments.opencode");
+  await expect(decision).toContainText("agentArguments.fixturecode");
   await page.screenshot({ path: "test-results/config-held-decision.png", animations: "disabled" });
   await decision.getByRole("button", { name: "Allow", exact: true }).click();
   const disclosure = await confirmationPage(app);
@@ -445,13 +448,13 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   await expect(decision).toHaveCount(0);
   await expect(page.locator(".config-dock")).not.toContainText("Needs you");
   assert.deepEqual(
-    (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.opencode,
+    (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.fixturecode,
     ["--fixture"],
   );
   // A second held write is kept from Settings; the dock/panel clears in the same turn.
   const settingsFile = path.join(home, ".foom/config/settings.json");
   const settings = JSON.parse(await readFile(settingsFile, "utf8"));
-  settings.agentArguments.opencode = ["--second-fixture"];
+  settings.agentArguments.fixturecode = ["--second-fixture"];
   await writeFile(settingsFile, JSON.stringify(settings));
   await expect(decision).toBeVisible();
   await page.keyboard.press("Escape");
@@ -466,7 +469,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
     .click();
   await expect(page.locator(".config-dock")).not.toContainText("Needs you");
   assert.deepEqual(
-    (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.opencode,
+    (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.fixturecode,
     ["--fixture"],
   );
   await assertAccessible(page);

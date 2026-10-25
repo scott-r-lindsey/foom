@@ -41,10 +41,16 @@ vi.mock("node:os", async (original) => ({
 }));
 export const root = process.platform === "win32" ? "C:\\agents" : "/agents";
 export const tree = join(root, "worktree");
-export const versions: Record<string, string> & { claude: string; codex: string; agy: string } = {
+export const versions: Record<string, string> & {
+  claude: string;
+  codex: string;
+  agy: string;
+  opencode: string;
+} = {
   claude: "2.1.284 (Claude Code)",
   codex: "codex-cli 0.155.1",
   agy: "agy 1.1.13",
+  opencode: "opencode v2.0.32",
 };
 export const listWorktrees = vi.fn();
 export const launchIdentity = vi.fn(() => Promise.resolve("identity"));

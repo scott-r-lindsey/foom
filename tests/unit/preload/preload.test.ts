@@ -582,7 +582,7 @@ test("preload accepts menu board commands and rejects unknown values", async () 
     "via-claude",
     "via-codex",
     "via-agy",
-    "via-opencode",
+    "via-fixturecode",
     "tidy-tiles",
     "action-log",
   ])
