@@ -51,6 +51,8 @@ export const versions: Record<string, string> & {
   codex: "codex-cli 0.155.1",
   agy: "agy 1.1.13",
   opencode: "opencode v2.0.32",
+
+  copilot: "GitHub Copilot CLI 1.0.103.",
 };
 export const listWorktrees = vi.fn();
 export const launchIdentity = vi.fn(() => Promise.resolve("identity"));

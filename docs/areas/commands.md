@@ -20,8 +20,9 @@ Main owns one `before-input-event` dispatcher, shared by the board and every pre
 display-only (`registerAccelerator: false`). Windows/Linux have no native
 application menu. The existing two-second Ctrl+Shift+Space tile leader resolves
 from the registry; blur, timeout and unmatched input cancel it. Alt alone and F10
-open the wordmark menu. Plain Ctrl letters and numbers reach the terminal; the
-Keyboard shortcuts binding is Ctrl+Shift+/ (Command+/ on macOS).
+open the wordmark menu. Plain Ctrl letters and numbers reach the terminal except
+Ctrl+R on Windows/Linux, reserved for preview reload. The Keyboard shortcuts
+binding is Ctrl+Shift+/ (Command+/ on macOS).
 
 The `app-menu:list`, `app-menu:shortcuts`, `app-menu:execute` and `app-menu:view`
 invoke handlers accept only the owning window's trusted top-level frame. Execute

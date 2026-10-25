@@ -228,6 +228,8 @@ test.each([1, 2])(
     );
     const store = await SettingsStore.open(dir);
     expect(store.get().agentBypassIdentities).toEqual(legacyBypassIdentities);
+    for (const id of ["opencode", "copilot", "pi"])
+      expect(store.get().agentBypassIdentities?.[id]).toBeUndefined();
     expect((await SettingsStore.open(dir)).get().agentBypassIdentities).toEqual(
       legacyBypassIdentities,
     );

@@ -449,7 +449,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await expect(page.getByRole("button", { name: "Launch" })).toBeDisabled();
   await page.getByRole("button", { name: "Fix" }).click();
 
-  // Install the three original fixture agents, then scan again.
+  // Install fixture agents, then scan again.
   const script = (body) => `#!/usr/bin/env node\nconst a = process.argv[2];\n${body}\n`;
   const agents = {
     claude: script(
@@ -459,6 +459,9 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
       'if (a === "--version") console.log("codex-cli 0.155.1"); else console.log("  -c, --config <key=value>");',
     ),
     agy: script('if (a === "--version") console.log("1.2.13");'),
+    copilot: script(
+      'if (a === "--version") console.log("GitHub Copilot CLI 1.0.103."); else console.log("--plugin-dir --additional-mcp-config --allow-tool --interactive --session-id --resume");',
+    ),
   };
   for (const [name, source] of Object.entries(agents)) {
     await writeFile(path.join(bin, name), source);
@@ -469,6 +472,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     claude: "2.1.300",
     codex: "0.155.1",
     agy: "1.2.13",
+    copilot: "1.0.103",
   })) {
     await expect(page.locator(`#agent-card-${id} .agent-version`)).toHaveText(version);
   }
@@ -477,7 +481,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   );
   await expect(page.locator(".agent-card")).toHaveCount(bundledAgentCount);
   await expect(page.getByText(path.join(bin, "codex"), { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Hooks", exact: true })).toHaveCount(3);
+  await expect(page.getByRole("button", { name: "Hooks", exact: true })).toHaveCount(4);
   await expect(page.getByText("Notify + screen rules active", { exact: true })).toBeVisible();
   await assertPreflightFits(page, "Agent cards fit the scaled layout");
   await assertAccessible(page);

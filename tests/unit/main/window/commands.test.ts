@@ -54,7 +54,9 @@ test.each(["linux", "win32", "darwin"])(
     const projection = projectAppMenu(commands, 100);
     expect(structuredClone(projection)).toEqual(projection);
     for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-      expect(shortcuts.handle(key(`Key${letter}`, { control: true }))).toBe(false);
+      expect(shortcuts.handle(key(`Key${letter}`, { control: true }))).toBe(
+        platform !== "darwin" && letter === "R",
+      );
     for (let i = 0; i < 10; i++)
       expect(shortcuts.handle(key(`Digit${String(i)}`, { control: true }))).toBe(false);
   },
@@ -435,5 +437,27 @@ test.each(["darwin", "linux", "win32"])(
         ? ["about", "settings", "hide", "hide-others", "quit"]
         : ["about", "settings", "quit"],
     );
+  },
+);
+
+test.each(["linux", "win32", "darwin"])(
+  "%s reserves plain reload for the preview focus route",
+  (platform) => {
+    const calls = actions();
+    const reload = vi.fn();
+    const shortcuts = createShortcuts(
+      createCommands(platform, true, calls),
+      platform,
+      vi.fn(),
+      Date.now,
+      reload,
+    );
+    const modifiers = platform === "darwin" ? { meta: true } : { control: true };
+    expect(shortcuts.handle(key("KeyR", modifiers))).toBe(true);
+    expect(reload).toHaveBeenCalledOnce();
+    expect(calls.native).not.toHaveBeenCalled();
+    expect(shortcuts.handle(key("KeyR", modifiers, "keyUp"))).toBe(false);
+    expect(shortcuts.handle(key("KeyR"))).toBe(false);
+    expect(reload).toHaveBeenCalledOnce();
   },
 );

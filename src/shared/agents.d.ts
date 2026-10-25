@@ -6,7 +6,7 @@ import type { AgyPluginStatus } from "./agy-plugin";
 export type HookHealthState = "not-reviewed" | "trusted" | "declined" | "outdated";
 /** The original required map keys remain a profile compatibility contract. */
 export type LegacyAgentId = "claude" | "codex" | "agy";
-export type BuiltinAgentId = LegacyAgentId | "opencode";
+export type BuiltinAgentId = LegacyAgentId | "copilot" | "opencode";
 export type AgentId = string;
 export type AgentValues<T> = Readonly<Record<LegacyAgentId, T> & Record<string, T>>;
 export interface AgentInstallation {

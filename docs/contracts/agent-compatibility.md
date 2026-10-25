@@ -2,7 +2,7 @@
 
 ## Migration and acceptance for later implementation
 
-The v2 engine is implemented; older agent manifest formats are unsupported. The Copilot shipping gates below remain future work.
+The v2 engine is implemented; older agent manifest formats are unsupported. Copilot’s measured shipping evidence is recorded in [the agent measurements](../agents.md#github-copilot-cli-410).
 
 | Input/state | Required migration |
 | --- | --- |
@@ -136,7 +136,6 @@ Codex compatibility details (#435):
   fixture retains the optional instruction action to exercise that generic surface.
   Reserved-argument errors retain the original agent and argument line with
   engine-owned wording.
-
 
 OpenCode delivery (#824): the bundled ID supersedes a same-ID config manifest
 without editing it. A build-owned former-config ID list preserves existing config

@@ -6,22 +6,6 @@ export interface HostedPreview {
   view: WebContentsView;
   partition: Session;
   bounds: PreviewBounds;
-  snapshot?: string;
-  snapshotVersion?: number;
-  painted?: boolean;
-  capturePending?: boolean;
-  captureAgain?: boolean;
-  refreshTimer?: ReturnType<typeof setTimeout>;
-  coverTimer?: ReturnType<typeof setTimeout>;
-  coverExpired?: boolean;
   loaded: boolean;
-  navigated: boolean;
-  previouslyLoaded: boolean;
   attached: boolean;
-  clicked: boolean;
-  restoreFocus: boolean;
-  replacementTimer?: ReturnType<typeof setTimeout>;
-  nextReplacementAt: number;
-  scroll: [number, number] | undefined;
-  readingScroll?: boolean;
 }

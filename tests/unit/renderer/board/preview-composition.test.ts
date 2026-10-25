@@ -54,6 +54,7 @@ function fixture(root = true) {
   const painted = vi.fn(async () => {});
   const cover = vi.fn(async (_value: boolean) => {});
   const dispose = attachPreviewComposition({
+    reload: vi.fn(async () => {}),
     popout: vi.fn(),
     pick: vi.fn(),
     network: vi.fn(),

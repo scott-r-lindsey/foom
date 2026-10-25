@@ -79,10 +79,10 @@ test("captures only a strict v2 manifest with matching identity", async () => {
   const path = join(root, "draft.json");
   await writeFile(path, JSON.stringify(fixture));
   const provider = await probeProvider(
-    { action: "start", agent: "copilot", manifest: "draft.json" },
+    { action: "start", agent: "copilot-fixture", manifest: "draft.json" },
     root,
   );
-  expect(provider.id).toBe("copilot");
+  expect(provider.id).toBe("copilot-fixture");
   expect(await probeProvider({ action: "start", agent: "claude" }, root)).toBe(
     agentProvider("claude"),
   );
@@ -91,16 +91,16 @@ test("captures only a strict v2 manifest with matching identity", async () => {
   ).rejects.toThrow("mismatch");
   await writeFile(path, '{"version":1}');
   await expect(
-    probeProvider({ action: "start", agent: "copilot", manifest: path }, root),
+    probeProvider({ action: "start", agent: "copilot-fixture", manifest: path }, root),
   ).rejects.toThrow();
   await expect(
-    probeProvider({ action: "start", agent: "copilot", manifest: root }, root),
+    probeProvider({ action: "start", agent: "copilot-fixture", manifest: root }, root),
   ).rejects.toThrow("Unsafe manifest");
   if (process.platform !== "win32") {
     const link = join(root, "link.json");
     await symlink(path, link);
     await expect(
-      probeProvider({ action: "start", agent: "copilot", manifest: link }, root),
+      probeProvider({ action: "start", agent: "copilot-fixture", manifest: link }, root),
     ).rejects.toThrow("Unsafe manifest");
   }
 });
@@ -116,7 +116,7 @@ test.skipIf(process.platform === "win32")(
     const path = join(root, "draft.json");
     await writeFile(path, JSON.stringify(fixture));
     const provider = await probeProvider(
-      { action: "start", agent: "copilot", manifest: path },
+      { action: "start", agent: "copilot-fixture", manifest: path },
       root,
     );
     const metadataBypass = {
@@ -135,12 +135,19 @@ test.skipIf(process.platform === "win32")(
       },
     };
     await expect(
-      prepareProbe(metadataBypass, { action: "start", agent: "copilot" }, root, { PATH: root }),
+      prepareProbe(metadataBypass, { action: "start", agent: "copilot-fixture" }, root, {
+        PATH: root,
+      }),
     ).rejects.toThrow("bypass environment refused");
 
-    const prepared = await prepareProbe(provider, { action: "start", agent: "copilot" }, root, {
-      PATH: root,
-    });
+    const prepared = await prepareProbe(
+      provider,
+      { action: "start", agent: "copilot-fixture" },
+      root,
+      {
+        PATH: root,
+      },
+    );
     expect(prepared.agentVersion).toBe("0.0.1");
     expect(prepared.events?.()).toEqual({
       hooks: [],
@@ -154,10 +161,12 @@ test.skipIf(process.platform === "win32")(
     });
     await prepared.dispose();
     await expect(
-      prepareProbe(provider, { action: "start", agent: "copilot" }, root, { PATH: "relative" }),
+      prepareProbe(provider, { action: "start", agent: "copilot-fixture" }, root, {
+        PATH: "relative",
+      }),
     ).rejects.toThrow("executable unavailable");
     await expect(
-      prepareProbe(provider, { action: "start", agent: "copilot" }, root, {
+      prepareProbe(provider, { action: "start", agent: "copilot-fixture" }, root, {
         PATH: root,
         ...Object.fromEntries(
           provider.model.bypassEnvironment.map((rule) => [rule.name, rule.values?.[0] ?? "1"]),
@@ -175,7 +184,7 @@ test.skipIf(process.platform === "win32")(
       },
     };
     await expect(
-      prepareProbe(bypass, { action: "start", agent: "copilot" }, root, { PATH: root }),
+      prepareProbe(bypass, { action: "start", agent: "copilot-fixture" }, root, { PATH: root }),
     ).rejects.toThrow("bypass arguments refused");
     const environmentBypass = {
       ...provider,
@@ -197,12 +206,14 @@ test.skipIf(process.platform === "win32")(
       },
     };
     await expect(
-      prepareProbe(environmentBypass, { action: "start", agent: "copilot" }, root, { PATH: root }),
+      prepareProbe(environmentBypass, { action: "start", agent: "copilot-fixture" }, root, {
+        PATH: root,
+      }),
     ).rejects.toThrow("bypass environment refused");
     await writeFile(command, "#!/bin/sh\nexit 1\n", { mode: 0o700 });
     const final = await prepareProbe(
       provider,
-      { action: "start", agent: "copilot", resume: "abc-123" },
+      { action: "start", agent: "copilot-fixture", resume: "abc-123" },
       root,
       { PATH: root },
     );

@@ -22,6 +22,7 @@ export function attachAppMenu(
   scale: () => Promise<number> = () => Promise.resolve(100),
   openManual: () => Promise<void> = () => Promise.resolve(),
   boardReady: () => void = () => undefined,
+  reloadPreview: () => void = () => undefined,
 ) {
   const contents = window.webContents;
   const native = (id: string) => {
@@ -154,9 +155,15 @@ export function attachAppMenu(
     refresh();
     if (state.available) boardReady();
   });
-  const shortcuts = createShortcuts(commands, process.platform, () => {
-    contents.send("app-menu:open");
-  });
+  const shortcuts = createShortcuts(
+    commands,
+    process.platform,
+    () => {
+      contents.send("app-menu:open");
+    },
+    Date.now,
+    reloadPreview,
+  );
   const beforeInput = (event: Electron.Event, input: Electron.Input) => {
     if (event.defaultPrevented) return;
     if (shortcuts.handle(input)) event.preventDefault();

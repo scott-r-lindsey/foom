@@ -257,10 +257,15 @@ test("cannot forge acknowledgement and cancelled disclosure saves nothing", asyn
   expect(settings.hooks).toBe(false);
 });
 
-test.each([false, true])(
-  "config-provider consent never transfers to a bundled replacement (old acknowledgement=%s)",
-  async (acknowledged) => {
-    const bundled = agentProvider("opencode");
+test.each([
+  ["opencode", "--auto", false],
+  ["opencode", "--auto", true],
+  ["copilot", "--yolo", false],
+  ["copilot", "--yolo", true],
+])(
+  "config-provider consent never transfers to a bundled replacement (%s %s, old acknowledgement=%s)",
+  async (id, bypass, acknowledged) => {
+    const bundled = agentProvider(id);
     const historical = v2Provider(
       { ...bundled.model, executables: ["old-custom-agent"], bypassArguments: [] },
       () => Promise.resolve(),
@@ -270,25 +275,23 @@ test.each([false, true])(
     expect(bypassConsentIdentity({ ...bundled, origin: "config" })).not.toBe(
       bypassConsentIdentity(bundled),
     );
-    const agentArguments = { ...DEFAULT_SETTINGS.agentArguments, opencode: ["--auto"] };
+    const agentArguments = { ...DEFAULT_SETTINGS.agentArguments, [id]: [bypass] };
     settings = {
       ...DEFAULT_SETTINGS,
       agentArguments,
       agentBypassAcknowledged: {
         ...DEFAULT_SETTINGS.agentBypassAcknowledged,
-        opencode: acknowledged,
+        [id]: acknowledged,
       },
-      ...(acknowledged ? { agentBypassIdentities: { opencode: priorIdentity } } : {}),
+      ...(acknowledged ? { agentBypassIdentities: { [id]: priorIdentity } } : {}),
     };
     const confirm = vi.fn(() => Promise.resolve(false));
     const setup = new Setup({ ...deps, confirmBypass: confirm });
     await expect(setup.save({ agentArguments })).rejects.toThrow("cancelled");
-    expect(settings.agentBypassIdentities?.["opencode"]).not.toBe(
-      bypassConsentIdentity("opencode"),
-    );
+    expect(settings.agentBypassIdentities?.[id]).not.toBe(bypassConsentIdentity(id));
     confirm.mockResolvedValue(true);
     await setup.save({ agentArguments });
-    expect(settings.agentBypassIdentities?.["opencode"]).toBe(bypassConsentIdentity("opencode"));
+    expect(settings.agentBypassIdentities?.[id]).toBe(bypassConsentIdentity(id));
     await setup.save({ agentArguments });
     expect(confirm).toHaveBeenCalledTimes(2);
     const changedDisclosure = bypassConsentIdentity({
@@ -296,7 +299,7 @@ test.each([false, true])(
       model: { ...bundled.model, bypassArguments: [] },
     });
     if (!changedDisclosure) throw Error("Missing changed identity");
-    settings = { ...settings, agentBypassIdentities: { opencode: changedDisclosure } };
+    settings = { ...settings, agentBypassIdentities: { [id]: changedDisclosure } };
     await setup.save({ agentArguments });
     expect(confirm).toHaveBeenCalledTimes(3);
   },

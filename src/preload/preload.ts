@@ -1170,6 +1170,7 @@ const desktop: DesktopApi = {
     popout: (id) => invokeVoid("preview:popout", id),
     network: (id, enabled) => invokeVoid("preview:network", id, enabled),
     pick: (worktree) => reply("preview:pick", either(nil, text), worktree),
+    reload: (id) => invokeVoid("preview:reload", id),
     close: (id) => invokeVoid("preview:close", id),
     bounds: (id, bounds) => invokeVoid("preview:bounds", id, bounds),
     painted: (id, version) => invokeVoid("preview:painted", id, version),
