@@ -183,6 +183,9 @@ native window and web contents only while the presented child is still reachable
 and the board is visible and not minimized. Availability failures and disposal
 never activate the board. This applies equally to `activate: false` requests:
 dismissal cannot bring Foom forward after the person switches to another app.
+Main releases native input blocking and requests eligible native/web focus before
+sending the scrim-dismiss notification, so DOM restoration cannot race a disabled
+Windows board.
 The existing boolean scrim notification captures and restores the board's DOM
 input target; no terminal payload or new IPC capability is needed. If the target
 closed, the renderer falls back to the focused tile's xterm input, its tile, a

@@ -1075,6 +1075,9 @@ test.each([true, false])(
     const dialog = setup();
     const pending = dialog.request(content);
     const id = await shown();
+    parent.webContents.focus.mockImplementationOnce(() => {
+      expect(parent.webContents.send).not.toHaveBeenCalledWith("confirmation:scrim", false);
+    });
     answer(id, accepted);
     await expect(pending).resolves.toBe(accepted);
     expect(parent.focus).toHaveBeenCalledOnce();
@@ -1113,5 +1116,21 @@ test("availability rejection does not restore even if the child still reports ke
   await expect(pending).resolves.toBe(false);
   expect(parent.focus).not.toHaveBeenCalled();
   expect(parent.webContents.focus).not.toHaveBeenCalled();
+  dialog.dispose();
+});
+
+test("Windows releases native input and focuses web contents before dismissing the scrim", async () => {
+  const dialog = setup("win32");
+  const pending = dialog.request(content);
+  const id = await shown();
+  parent.webContents.send.mockImplementationOnce((channel: unknown, visible: unknown) => {
+    expect(channel).toBe("confirmation:scrim");
+    expect(visible).toBe(false);
+    expect(parent.setEnabled).toHaveBeenLastCalledWith(true);
+    expect(parent.webContents.focus).toHaveBeenCalledOnce();
+  });
+  answer(id, false);
+  await expect(pending).resolves.toBe(false);
+  expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", false);
   dialog.dispose();
 });

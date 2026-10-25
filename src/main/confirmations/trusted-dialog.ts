@@ -521,13 +521,15 @@ export class TrustedDialog {
     screen.removeListener("display-removed", this.restoreDialog);
     this.parent.removeListener("focus", this.restoreDialog);
     if (!this.parent.isDestroyed()) {
-      this.parentContents.send("confirmation:scrim", false);
       if (this.platform === "darwin") this.parent.setFocusable(this.parentFocusable);
       else if (this.platform === "win32") this.parent.setEnabled(this.parentEnabled);
       if (restore) {
         this.parent.focus();
         this.parentContents.focus();
       }
+      // The renderer must not select its input while the Windows board is
+      // still disabled or before native web focus has been requested.
+      this.parentContents.send("confirmation:scrim", false);
     }
     // Leave Electron's native IPC/close callback before resuming shutdown work.
     setImmediate(() => {

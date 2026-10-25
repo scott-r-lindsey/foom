@@ -1547,6 +1547,9 @@ test("modal dismissal restores the same terminal input for cancel, approve, Esca
       else if (action === "Escape") await dialog.keyboard.press("Escape");
       else await dialog.getByRole("button", { name: action, exact: true }).click();
       await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+      await expect
+        .poll(() => app.evaluate(() => globalThis.focusRestoreAnswer))
+        .toBe(action === "Approve");
       await expect(board.locator(".xterm-helper-textarea")).toBeFocused();
       await expect
         .poll(() =>
@@ -1594,7 +1597,28 @@ test("modal dismissal restores the same terminal input for cancel, approve, Esca
     await expect(board.locator(".sidebar-shell")).toHaveAttribute("data-compact", "true");
     await dialog.keyboard.press("Escape");
     await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
-    await expect(board.getByRole("navigation", { name: "Terminal sidebar" })).toBeFocused();
+    try {
+      await expect(board.getByRole("navigation", { name: "Terminal sidebar" })).toBeFocused();
+    } catch (error) {
+      console.error("Closed-terminal focus diagnostics", {
+        document: await board.evaluate(() => ({
+          focused: document.hasFocus(),
+          tag: document.activeElement?.tagName,
+          className: document.activeElement?.className,
+          role: document.activeElement?.getAttribute("role"),
+        })),
+        windows: await app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows().map((window) => ({
+            url: window.webContents.getURL(),
+            focused: window.isFocused(),
+            contentsFocused: window.webContents.isFocused(),
+            enabled: window.isEnabled(),
+            visible: window.isVisible(),
+          })),
+        ),
+      });
+      throw error;
+    }
   } finally {
     await app.evaluate(() => globalThis.focusRestoreDialog.dispose());
   }
