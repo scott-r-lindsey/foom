@@ -132,6 +132,10 @@ async function isolatedEnvironment(root, extraPath = "") {
       "rm",
       "sleep",
       "stty",
+      "env",
+      "groups",
+      "seq",
+      "less",
     ]) {
       if (fixturePath.some((directory) => existsSync(path.join(directory, tool)))) continue;
       const executable = system

@@ -405,7 +405,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
 
   await tabTo(page, "Start preflight");
   await page.keyboard.press("Enter");
-  await expect(page.getByText("Not found")).toHaveCount(3, { timeout: deadline(20000) });
+  await expect(page.getByText("Not found")).toHaveCount(4, { timeout: deadline(20000) });
   await assertFooter();
   await tabTo(page, "Continue");
   await page.keyboard.press("Enter");

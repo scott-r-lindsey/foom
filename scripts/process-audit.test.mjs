@@ -176,6 +176,11 @@ test("fixture login shell ignores inherited PATH and never exposes Node's siblin
     env: { ...process.env, PATH: "/host/agents" },
   }).toString();
   assert.equal(output, `\0FOOM_PATH\0${env.PATH}\0`);
+  const probe = execFileSync(env.SHELL, ["-ilc", "printf '\\000FOOM_PROBE_ENV\\000'; env -0"], {
+    env: { PATH: env.PATH, HOME: root },
+  }).toString();
+  assert.ok(probe.startsWith("\0FOOM_PROBE_ENV\0"));
+  assert.ok(probe.includes(`PATH=${env.PATH}\0`));
   for (const name of ["gh", "glab"]) {
     assert.throws(
       () => execFileSync(path.join(root, "bin", name), ["auth", "status"]),
