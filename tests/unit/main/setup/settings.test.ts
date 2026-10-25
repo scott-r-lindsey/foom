@@ -237,6 +237,27 @@ test.each([1, 2])(
   },
 );
 
+test("legacy consent migration preserves the profile identity-map limit", async () => {
+  const dir = await directory();
+  const identities = Object.fromEntries(
+    Array.from({ length: 100 }, (_, index) => [`saved${String(index)}`, "a".repeat(64)]),
+  );
+  await writeFile(
+    path.join(dir, "settings.json"),
+    JSON.stringify({
+      version: 2,
+      settings: {
+        setupComplete: true,
+        agentBypassAcknowledged: { claude: true, codex: true, agy: true },
+        agentBypassIdentities: identities,
+      },
+    }),
+  );
+  const store = await SettingsStore.open(dir);
+  expect(store.get().setupComplete).toBe(true);
+  expect(store.get().agentBypassIdentities).toEqual(identities);
+});
+
 test.each([
   { claude: ["--bare"], codex: ["--model", "saved model"], agy: ["--mode", "plan"] },
   { claude: ["--settings={}"], codex: ["--model", "saved model"], agy: ["--mode", "plan"] },

@@ -242,7 +242,11 @@ export class SettingsStore {
         // Pin their historical identity, never the current provider's identity.
         const identities = { ...store.settings.agentBypassIdentities };
         for (const [agent, identity] of Object.entries(legacyBypassIdentities)) {
-          if (store.settings.agentBypassAcknowledged[agent] && !Object.hasOwn(identities, agent)) {
+          if (
+            store.settings.agentBypassAcknowledged[agent] &&
+            !Object.hasOwn(identities, agent) &&
+            Object.keys(identities).length < 100
+          ) {
             identities[agent] = identity;
             migrated = true;
           }
