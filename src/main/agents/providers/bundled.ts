@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import opencode from "../../../shared/bundled-agents/opencode.json";
 import agy from "../../../shared/bundled-agents/agy.json";
 import copilot from "../../../shared/bundled-agents/copilot.json";
 import codex from "../../../shared/bundled-agents/codex.json";
@@ -38,4 +39,21 @@ export const bundledProviders: readonly AgentProvider[] = [
     "copilot",
     "d06d9f7f37417e2fb022e15d257aefe5005861b023af420655b6706088c5c088",
   ),
+  bundledProvider(
+    opencode,
+    "opencode",
+    "c732911ab07e95876cf273d9a7cd1aa0a889a8a90c5078fb1884665ee8dc6508",
+  ),
 ];
+
+/** Build-owned migrations: retain old config rows, but require an explicit bundled resume. */
+export const formerConfigAgentIds: readonly string[] = ["opencode"];
+
+/** Historical build identities: these IDs were reserved before config providers existed.
+ * Never extend this attestation to a newly bundled ID or repin it for a changed policy.
+ */
+export const legacyBypassIdentities: Readonly<Record<string, string>> = {
+  claude: "54a71151ba88212c7996eba9db23c45f1e4f76f39fa46021e84c8d59b2224951",
+  codex: "922ba73e610b0e13d165e3302b1b202da3bb06c9a61354c56d1e9d81faa00b4b",
+  agy: "2beab2f2d06ceab9a39cb0fe33726e15928ce610ce56028d93acc1a3ac929c21",
+};

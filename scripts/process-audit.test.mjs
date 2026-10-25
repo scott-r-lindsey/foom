@@ -142,7 +142,7 @@ test("agent guard permits fixtures and rejects outside paths and escaping symlin
   const outside = path.join(root, "fixture-other");
   await mkdir(fixture);
   await mkdir(outside);
-  for (const name of ["claude", "codex.exe", "agy", "copilot", "gh", "glab"]) {
+  for (const name of ["claude", "codex.exe", "agy", "copilot", "opencode", "pi", "gh", "glab"]) {
     await writeFile(path.join(fixture, name), "fixture");
     await writeFile(path.join(outside, name), "outside");
     assertFixtureAgent(path.join(fixture, name), [fixture]);

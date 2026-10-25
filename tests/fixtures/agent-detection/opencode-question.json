@@ -1,0 +1,15 @@
+{
+  "agent": "opencode",
+  "version": "2.0.32",
+  "state": "question",
+  "platform": "linux",
+  "date": "2026-10-24",
+  "size": {
+    "cols": 120,
+    "rows": 40
+  },
+  "rules": ["question"],
+  "titles": ["OC | [session title]"],
+  "progress": null,
+  "tail": ["┃  Questions", "┃  ↑↓ select  enter submit  esc dismiss"]
+}

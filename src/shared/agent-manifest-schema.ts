@@ -182,13 +182,18 @@ export function guidance(v: unknown, p: string) {
   };
 }
 export function tools(v: unknown, p: string) {
-  const d = object(v, p, ["names", "format", "arguments"], ["merge"]);
+  const d = object(v, p, ["names", "format", "arguments"], ["merge", "fileRules"]);
   return {
     names: array(
       enumeration(...Object.keys(CONTROL_TOOL_CLASSES)),
       Object.keys(CONTROL_TOOL_CLASSES).length,
     )(d["names"], `${p}.names`),
-    format: enumeration("mcp-double-underscore", "server-parentheses")(d["format"], `${p}.format`),
+    fileRules: optional(literal("action-resource"))(d["fileRules"], `${p}.fileRules`),
+    format: enumeration(
+      "mcp-double-underscore",
+      "server-parentheses",
+      "server-underscore",
+    )(d["format"], `${p}.format`),
     arguments: argv(d["arguments"], `${p}.arguments`),
     merge: optional(merge)(d["merge"], `${p}.merge`),
   };
@@ -241,7 +246,7 @@ export function launchEnvironment(v: unknown, p: string) {
     fail(`${p}.name`, "reserved-environment");
   const value = text(d["value"], `${p}.value`, 128);
   if (/\$|%|`/u.test(value)) fail(`${p}.value`, "environment-reference");
-  if (/[{}]/u.test(value) && !/^\{file:[^{}]+\}$/u.test(value))
+  if (/[{}]/u.test(value) && !/^\{(?:file|fileContent):[^{}]+\}$/u.test(value))
     fail(`${p}.value`, "invalid-environment-value");
   return {
     name: envName(d["name"], `${p}.name`),
@@ -301,11 +306,34 @@ export function file(v: unknown, p: string) {
     when: optional(condition)(d["when"], `${p}.when`),
   };
 }
+function moduleObserver(v: unknown, p: string) {
+  const d = object(v, p, ["transport", "version"]);
+  return {
+    transport: literal("event-module")(d["transport"], `${p}.transport`),
+    version: literal(1)(d["version"], `${p}.version`),
+  };
+}
 function externalObserver(v: unknown, p: string) {
   const d = object(v, p, ["transport"]);
   return { transport: literal("external")(d["transport"], `${p}.transport`) };
 }
 export function observer(v: unknown, p: string) {
+  if (typeof v === "object" && v !== null && "transport" in v && v.transport === "event-module") {
+    return {
+      ...generatedObserver(
+        {
+          transport: "stdin",
+          placement: "launch",
+          version: 1,
+          response: "silent",
+          delivery: "foreground",
+          timeoutMs: 1000,
+        },
+        p,
+      ),
+      ...moduleObserver(v, p),
+    };
+  }
   if (typeof v === "object" && v !== null && "transport" in v && v.transport === "external") {
     return {
       ...generatedObserver(
@@ -402,9 +430,10 @@ export function eventCase(v: unknown, p: string) {
   };
 }
 export function mapping(v: unknown, p: string) {
-  const d = object(v, p, ["session", "event", "cases"], ["sequence", "dedupe"]);
+  const d = object(v, p, ["session", "event", "cases"], ["sequence", "dedupe", "sessionAliases"]);
   return {
     session: selector(d["session"], `${p}.session`),
+    sessionAliases: optional(array(selector, 8))(d["sessionAliases"], `${p}.sessionAliases`),
     event: selector(d["event"], `${p}.event`),
     sequence: optional(selector)(d["sequence"], `${p}.sequence`),
     dedupe: optional(selector)(d["dedupe"], `${p}.dedupe`),
@@ -447,8 +476,9 @@ export function environment(v: unknown, p: string) {
   };
 }
 export function newId(v: unknown, p: string) {
-  const d = object(v, p, ["format", "arguments"], []);
+  const d = object(v, p, ["format", "arguments"], ["prefix"]);
   return {
+    prefix: optional(localId)(d["prefix"], `${p}.prefix`),
     format: literal("uuid")(d["format"], `${p}.format`),
     arguments: argv(d["arguments"], `${p}.arguments`),
   };

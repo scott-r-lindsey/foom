@@ -1,0 +1,19 @@
+{
+  "agent": "opencode",
+  "version": "2.0.32",
+  "state": "idle",
+  "platform": "linux",
+  "date": "2026-10-24",
+  "size": {
+    "cols": 120,
+    "rows": 40
+  },
+  "rules": ["idle"],
+  "titles": ["OC | [session title]"],
+  "progress": null,
+  "tail": [
+    "Build · qwen3:14b · 1m 14s · 13.7 tok/s",
+    "┃  Build · [model]",
+    "/tmp/[scratch]                                                            7.8K (19%)  ctrl+p commands"
+  ]
+}

@@ -14,9 +14,59 @@ import { AgentService } from "../../../../src/main/agents/agents";
 import { AgyPlugin } from "../../../../src/main/agents/agy-plugin";
 import { bundledProvider } from "../../../../src/main/agents/providers/bundled";
 import type { AgentProvider } from "../../../../src/main/agents/providers/provider";
-import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
+import {
+  agentProvider,
+  replaceConfigProviders,
+} from "../../../../src/main/agents/providers/registry";
+import { bypassConsentIdentity } from "../../../../src/main/agents/default-arguments";
 import codexManifest from "../../../../src/shared/bundled-agents/codex.json";
 import { hostRequest } from "../../../../src/shared/terminal-host-protocol";
+
+it.each([
+  ["opencode", "--auto"],
+  ["copilot", "--yolo"],
+])(
+  "%s bundled launches require current provider consent for inherited config-origin bypass defaults",
+  async (id, bypass) => {
+    const { v2Provider } = await import("../../../../src/main/agents/providers/v2");
+    agentFixture.help += "\n--standalone --session --prompt --auto";
+    const provider = agentProvider(id);
+    const historical = v2Provider(
+      { ...provider.model, executables: ["old-custom-agent"], bypassArguments: [] },
+      () => Promise.resolve(),
+    );
+    const priorIdentity = bypassConsentIdentity(historical);
+    const currentIdentity = bypassConsentIdentity(provider);
+    if (!priorIdentity || !currentIdentity) throw Error("Missing provider identity");
+    const confirm = vi.fn(() => Promise.resolve(false));
+    const service = new AgentService(
+      { listWorktrees, launchIdentity },
+      { create },
+      undefined,
+      undefined,
+      new AgyPlugin(),
+      confirm,
+    );
+    const inherited = { ...request, agent: provider.id, defaultArguments: [bypass] };
+    service.setHooksEnabled(false);
+    service.setBypassIdentities({ [provider.id]: priorIdentity });
+    await expect(service.launch(inherited)).rejects.toThrow("cancelled");
+    expect(create).not.toHaveBeenCalled();
+    expect(confirm).toHaveBeenCalledOnce();
+    confirm.mockResolvedValue(true);
+    expect(await service.launch(inherited)).toMatchObject({ bypass: true });
+    service.release("terminal-id");
+    service.setBypassIdentities({ [provider.id]: currentIdentity });
+    await service.launch(inherited);
+    expect(confirm).toHaveBeenCalledTimes(2);
+    service.release("terminal-id");
+    service.setBypassIdentities();
+    confirm.mockResolvedValue(false);
+    await expect(service.launch(inherited)).rejects.toThrow("cancelled");
+    expect(confirm).toHaveBeenCalledTimes(3);
+    service.dispose();
+  },
+);
 
 it("v2 checks final environment bypass on every launch, redacts values, and rejects unattended bypass", async () => {
   const { parseAgentManifest } = await import("../../../../src/shared/agent-plugin-parser");

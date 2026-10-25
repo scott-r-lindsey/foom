@@ -5,6 +5,7 @@
 | Mapping field | Type / limits |
 | --- | --- |
 | session | Required Selector for validated conversation ID |
+| sessionAliases? | Up to 8 payload Selectors for alternative event shapes. At least one present ID is required; all present IDs must agree before shared pin validation |
 | event | Required Selector for event name string <=64 |
 | sequence? | Selector; required positive integer decimal header 1–2147483647; duplicate/older drop before transition |
 | dedupe? | Selector; identifier 1–200 [A-Za-z0-9_-], cache max 128 FIFO |

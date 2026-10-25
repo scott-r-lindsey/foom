@@ -1,0 +1,389 @@
+{
+  "kind": "agent",
+  "version": 2,
+  "id": "opencode",
+  "name": "OpenCode",
+  "badge": "OC",
+  "executables": ["opencode"],
+  "discovery": {
+    "version": {
+      "prefix": "opencode v",
+      "suffixes": [""],
+      "minimum": [2, 0, 32]
+    },
+    "facts": [
+      {
+        "id": "opencodeV2",
+        "minimum": [2, 0, 32],
+        "helpTokens": ["--standalone", "--session", "--prompt"]
+      }
+    ]
+  },
+  "launch": {
+    "order": [
+      "resume",
+      "defaults",
+      "arguments",
+      "display",
+      "guidance",
+      "mcp",
+      "tools",
+      "hooks",
+      "prompt"
+    ],
+    "arguments": {
+      "arguments": ["--standalone"],
+      "when": {
+        "all": [
+          {
+            "field": "opencodeV2",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    "prompt": {
+      "arguments": ["--prompt", "{prompt}"],
+      "requires": "opencodeV2"
+    },
+    "resume": {
+      "arguments": ["--session", "{conversationId}"],
+      "when": {
+        "all": [
+          {
+            "field": "opencodeV2",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    "mcp": {
+      "arguments": [],
+      "when": {
+        "all": [
+          {
+            "field": "opencodeV2",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    "environment": [
+      {
+        "name": "OPENCODE_CONFIG",
+        "value": "{file:hooks.json}",
+        "when": {
+          "all": [
+            {
+              "field": "opencodeV2",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "hooksEnabled",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        }
+      },
+      {
+        "name": "OPENCODE_CONFIG_CONTENT",
+        "value": "{fileContent:mcp.json}",
+        "when": {
+          "all": [
+            {
+              "field": "opencodeV2",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "control",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        }
+      }
+    ],
+    "toolPermissions": {
+      "names": [
+        "whoami",
+        "sessions",
+        "session_state",
+        "manual",
+        "open_preview",
+        "list_previews",
+        "close_preview",
+        "handoff",
+        "read_handoff",
+        "create_worktree",
+        "launch",
+        "prompt",
+        "send_keys",
+        "stop",
+        "close",
+        "remove_worktree",
+        "tail",
+        "wait_for",
+        "operation_status"
+      ],
+      "format": "server-underscore",
+      "arguments": [],
+      "fileRules": "action-resource"
+    }
+  },
+  "files": [
+    {
+      "name": "hooks.json",
+      "scope": "launch",
+      "format": "json",
+      "content": "{\"plugins\":[{observerModule:lifecycle:json}]}",
+      "when": {
+        "all": [
+          {
+            "field": "opencodeV2",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "hooksEnabled",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "mcp.json",
+      "scope": "launch",
+      "format": "json",
+      "content": "{\"mcp\":{\"servers\":{{mcpName:json}:{\"type\":\"remote\",\"url\":{mcpUrl:json},\"oauth\":false,\"codemode\":false,\"headers\":{\"Authorization\":\"Bearer {env:FOOM_CONTROL_TOKEN}\"}}}},\"permissions\":{toolRules:json}}",
+      "when": {
+        "all": [
+          {
+            "field": "opencodeV2",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    }
+  ],
+  "reservedArguments": [
+    {
+      "flag": "--session",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--continue",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--server",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--standalone",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--prompt",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "prefix": "-s"
+    },
+    {
+      "prefix": "-c"
+    }
+  ],
+  "bypassArguments": [
+    {
+      "flag": "--auto",
+      "forms": ["exact", "equals"]
+    }
+  ],
+  "bypassEnvironment": [],
+  "conversation": {
+    "newId": {
+      "format": "uuid",
+      "prefix": "ses_",
+      "arguments": ["--session", "{newId}"]
+    },
+    "resumePin": "requested-on-paste",
+    "restoreControl": true
+  },
+  "resumePaste": [
+    {
+      "command": "opencode",
+      "selector": "--session"
+    },
+    {
+      "command": "opencode",
+      "selector": "-s"
+    }
+  ],
+  "attention": {
+    "minimumEngineVersion": 1,
+    "rules": [
+      {
+        "id": "question",
+        "state": "blocked",
+        "priority": 1200,
+        "region": "bottom",
+        "lines": 18,
+        "match": {
+          "contains": ["Questions", "\u2191\u2193 select", "enter submit", "esc dismiss"]
+        },
+        "reason": "Question requires an answer",
+        "comment": "Measured Linux OpenCode v2.0.32 question tool, 120x40."
+      },
+      {
+        "id": "working",
+        "state": "working",
+        "priority": 1000,
+        "region": "bottom",
+        "lines": 6,
+        "match": {
+          "contains": ["esc interrupt"]
+        },
+        "reason": "Agent is working",
+        "comment": "Measured Linux OpenCode v2.0.32 reply-only and file-creation prompts."
+      },
+      {
+        "id": "idle",
+        "state": "idle",
+        "priority": 200,
+        "region": "bottom",
+        "lines": 8,
+        "match": {
+          "contains": ["Build \u00b7", "ctrl+p commands"]
+        },
+        "not": [
+          {
+            "contains": ["esc interrupt"]
+          },
+          {
+            "contains": ["enter submit"]
+          },
+          {
+            "contains": ["esc dismiss"]
+          }
+        ],
+        "reason": "Agent turn ended; checking output",
+        "comment": "Measured Linux OpenCode v2.0.32 idle prompt. Lifecycle completion remains authoritative when attached."
+      }
+    ],
+    "provenance": {
+      "source": "Linux OpenCode v2.0.32 manual PTY measurements, 2026-10-24; docs/agents.md",
+      "license": "Foom contributors; original local observations",
+      "modified": "Capture-backed question, working and idle footer rules."
+    }
+  },
+  "execution": {
+    "completion": "attached",
+    "completionChannels": ["lifecycle"]
+  },
+  "hooks": {
+    "channels": [
+      {
+        "id": "lifecycle",
+        "when": {
+          "all": [
+            {
+              "field": "opencodeV2",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "hooksEnabled",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        },
+        "observer": {
+          "transport": "event-module",
+          "version": 1
+        },
+        "arguments": [],
+        "mapping": {
+          "session": {
+            "source": "payload",
+            "path": ["data", "sessionID"]
+          },
+          "event": {
+            "source": "payload",
+            "path": ["type"]
+          },
+          "cases": [
+            {
+              "id": "started",
+              "event": "session.execution.started",
+              "action": "working"
+            },
+            {
+              "id": "completed",
+              "event": "session.execution.succeeded",
+              "action": "classify"
+            },
+            {
+              "id": "failed",
+              "event": "session.execution.failed",
+              "action": "failed"
+            },
+            {
+              "id": "permission",
+              "event": "permission.asked",
+              "action": "needs_input"
+            },
+            {
+              "id": "permission-replied",
+              "event": "permission.replied",
+              "action": "working"
+            },
+            {
+              "id": "form-replied",
+              "event": "form.replied",
+              "action": "working"
+            },
+            {
+              "id": "form-cancelled",
+              "event": "form.cancelled",
+              "action": "working"
+            },
+            {
+              "id": "form-created",
+              "event": "form.created",
+              "action": "needs_input"
+            }
+          ],
+          "sessionAliases": [
+            {
+              "source": "payload",
+              "path": ["data", "form", "sessionID"]
+            }
+          ],
+          "dedupe": {
+            "source": "payload",
+            "path": ["id"]
+          }
+        }
+      }
+    ]
+  }
+}

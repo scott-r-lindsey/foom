@@ -17,7 +17,7 @@ engine after substitution and layering; this parser never expands launch data.
 | Launch block | `{arguments,when?}`; Argv and Condition. arguments/display/resume/mcp use this shape; resume implies validated requested conversationId |
 | prompt | `{arguments,requires?}`; requires fact ID; final task is one argv value. Foom rejects a launch requiring a missing fact |
 | guidance | `{when,merge?}`; inserts fixed CLI_GUIDANCE or CONFIG_PROMPT through the prompt stage; merge `{flags,output,separators}` with <=8 flag names, output flag, separators literal whitespace-comma or whitespace; only merges when selected |
-| toolPermissions | `{names,format,arguments,merge?}`; names subset of the 17 classified Foom server tools in `src/shared/control-tool-classes.ts`, <=17 unique; format mcp-double-underscore or server-parentheses; arguments template expanded once per tool (unless merge combines); merge `{flags,output,separators:"whitespace-comma-parentheses"}` |
+| toolPermissions | `{names,format,arguments,merge?,fileRules?}`; names drawn uniquely from the classified Foom server tools in `src/shared/control-tool-classes.ts`; format mcp-double-underscore, server-parentheses or server-underscore; optional fileRules:"action-resource" emits native JSON action/resource/effect rules rather than argv; arguments template expanded once per tool (unless merge combines); merge `{flags,output,separators:"whitespace-comma-parentheses"}` |
 | File | `{name,scope,format,content,when?}`; scope launch or plugin; format json or toml; content multiline template; must parse after typed expansion |
 | Channel | `{id,when,observer,arguments,mapping,disclosure?}` |
 | observer | `{transport,placement,version,response,delivery,timeoutMs,sequence?,basename?,commandArguments?}`; transport stdin or argv-last; placement launch, stable or plugin; version 1–100000 integer or `{posix,win32}` integers for existing platform ABIs; response silent or empty-json-first; delivery foreground or detached; timeoutMs 1000–3000; sequence boolean default false; basename [A-Za-z][A-Za-z0-9_-]* <=40 default observer; commandArguments <=8 literal event/label tokens [A-Za-z][A-Za-z0-9_-]* <=64, never executable code |
@@ -28,7 +28,7 @@ Allowed placeholders, with no recursion or environment interpolation by Foom:
 | Placeholder | Allowed location and type |
 | --- | --- |
 | {prompt}, {conversationId} | prompt/resume argv respectively; prompt includes main-owned child provenance or config/guidance text, ID validated |
-| {newId} | conversation.newId argv only; generated UUID, new launches only |
+| {newId} | conversation.newId argv only; generated UUID with optional fixed prefix, new launches only |
 | {hookDir}, {hookFile:NAME} | hooks.channels[].arguments only; whole owned launch directory/file path. Nested NAME is allowed; declare scope "launch" files |
 | {pluginDir} | setup action argv only; owned persistent plugin staging directory |
 | {file:NAME} | launch.mcp.arguments or an entire launch.environment[].value; owned launch file. For hooks use {hookFile:NAME} or {hookDir} |
@@ -52,7 +52,7 @@ command suffixes and header event names must match `[A-Za-z][A-Za-z0-9_-]{0,63}`
 `:json` serializes a native value; `:toml` serializes a TOML basic string.
 Literal JSON/TOML braces are not placeholders. Unknown/malformed placeholders,
 references to missing channels/files, unselected launch attachments, secret names or arbitrary environment
-variables fail validation. The exact client-side literal `${FOOM_CONTROL_TOKEN}` is permitted only in the MCP Authorization value; it is not a Foom placeholder, and the client must expand it from environment. Other environment references are forbidden. Paths are never escaped by manifest authors. Prefer
+variables fail validation. The exact client-side literals `${FOOM_CONTROL_TOKEN}` and `{env:FOOM_CONTROL_TOKEN}` are permitted only in the MCP Authorization value; neither is a Foom placeholder, and the client must expand it from environment. Other environment references are forbidden. Paths are never escaped by manifest authors. Prefer
 native JSON values rather than encoding a JSON string inside another JSON string.
 The drafts use :json/:toml only.
 
@@ -62,7 +62,7 @@ reject literal commands, appended shell syntax, executable/plugin module entry
 points, and unknown executable hook types. JSON/TOML containers share a conservative,
 agent-independent data grammar: arbitrary object/array nesting and numeric/boolean
 metadata are permitted; literal string leaves are limited to `name`, `version`,
-`matcher`, `type` (`command` or `http`), `url`, `Authorization`, and
+`matcher`, `type` (`command`, `http` or `remote`), `url`, `Authorization`, and
 `bearer_token_env_var`. Command/cmd/bash/powershell slots require an entire fixed
 observer value; notify/argv slots require the entire generated observer array.
 Validation's `FOOM_OBSERVER_*` and `FOOM_*_SENTINEL` stand-ins cannot be authored
@@ -145,7 +145,7 @@ conservative disclosure, not a claim the CLI enables bypass for every value.
 
 ## Default argument policy
 
-In Settings, each flag and value occupies its own line. All three help outputs advertise `--model`; Claude and Antigravity
+In Settings, each flag and value occupies its own line. The Claude, Codex and Antigravity help outputs advertise `--model`; Claude and Antigravity
 advertise `--effort`, while Codex accepts `-c` followed by
 `model_reasoning_effort="high"`. Values and quotes are passed unchanged as argv,
 not evaluated by a shell. LF and CRLF line endings are accepted; trailing empty
@@ -212,3 +212,47 @@ metadata records names only. Bypass inspection and disclosure use the final
 environment, including manifest entries; unattended children and probes refuse
 matching bypass values. Probe discovery receives no manifest launch environment.
 Validation reports the entry's exact path and reason through `foom config validate`.
+
+
+### Generated context-event modules (#824)
+
+A channel may select `observer:{transport:"event-module",version:1}` with empty
+attachment arguments. This fixed JavaScript plugin ABI exports a default object
+with `id` and `setup(context)` and consumes the async iterable returned by
+`context.event.subscribe({signal})`. Foom generates `index.mjs` in that channel's
+private launch directory. `{observerModule:CHANNEL:json}` is a whole generated
+directory path in launch-scope JSON only; it requires a matching module channel
+and selecting conditions that imply the channel's condition. Arbitrary module
+paths, imports, entrypoints and program source remain forbidden in manifests.
+The event selector must select payload data. There is no shell/interpreter probe
+for modules; the agent's plugin runtime loads the fixed code.
+
+Before reduction, the module validates every present primary/alternate session
+identity as a 1–200 character conversation string and requires them all to agree.
+Malformed or conflicting identities drop the entire event; they are never removed
+to leave an apparently valid alias. Missing primary paths may use valid aliases.
+The module forwards only primitive leaves referenced by the channel's payload
+selectors, bounded to 4096 characters per string and 64 KiB total. It filters
+unknown event names before transport, uses the existing authenticated literal
+loopback receiver with a one-second absolute delivery deadline, and bypasses
+proxy variables through Node's direct HTTP client. It reports no permission
+decision. A failed or revoked receiver is silent; cleanup aborts subscription and
+in-flight requests. Credentials stay environment-only. The main receiver still
+validates mapping conditions and pins conversation identity. ABI behavior changes
+require a version revision; config copies use exactly the same generator.
+
+`launch.environment` also accepts a whole `{fileContent:NAME}` reference to a
+selected, launch-scope JSON/TOML data file. It copies that validated generated
+content literally into the environment, without reading agent state or expanding
+it again. The normal final environment size/value checks apply. File and channel
+conditions are checked as for `{file:NAME}`. MCP files selected through either
+reference must imply the MCP block. This supports clients that merge one explicit
+config file and one inline config variable.
+
+For `toolPermissions.fileRules:"action-resource"`, format must be
+`server-underscore`, arguments must be empty, merge must be absent, and a selected MCP file must contain
+`{toolRules:json}`. The engine substitutes an array of exact
+`{action:"<random-server>_<tool>",resource:"*",effect:"allow"}` records for its
+classified, role-filtered tool list (only ping in isolated probe verification).
+No arbitrary action/resource/effect leaves are allowed in templates. The wildcard
+is only the resource of one exact Foom tool, never a tool/server action wildcard.
