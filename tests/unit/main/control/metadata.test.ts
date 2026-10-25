@@ -1,9 +1,9 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { ControlService } from "../../../../src/main/control/service";
 import { Operations } from "../../../../src/main/control/operations";
-import { metadataName } from "../../../../src/main/control/metadata";
+import { metadataName, SessionMetadata } from "../../../../src/main/control/metadata";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 it("bounds and scopes metadata without leaking reasons, paths, credentials or output", () => {
   const repo = join(tmpdir(), "repo");
@@ -216,4 +216,45 @@ it("reports only fixed provider metadata while the verdict is current", () => {
   expect(call()).toMatchObject({ reason: "quiet_ok", attentionKind: null, verdictId: null });
   row.exited = true;
   expect(call()).toMatchObject({ reason: "exited", attentionKind: null });
+});
+
+it("projects one fresh repository-scoped snapshot for a batch of ten wait targets", () => {
+  const repo = tmpdir();
+  const rows: WorkspaceTerminal[] = Array.from({ length: 10 }, (_, index) => ({
+    id: `child-${String(index)}`,
+    agent: "claude",
+    kind: "agent",
+    repository: repo,
+    worktree: repo,
+    branch: "main",
+    attention: "evaluator",
+    state: null,
+  }));
+  const source = vi.fn(() => rows);
+  const metadata = new SessionMetadata(source);
+  const service = new ControlService(
+    new Operations(
+      () => Promise.resolve(),
+      () => undefined,
+    ),
+    source,
+  );
+  const grant = service.prepare(repo, repo);
+  grant.bind("parent");
+  const actor = service.authenticate(grant.env["FOOM_CONTROL_TOKEN"] ?? "");
+  const ids = rows.map((row) => row.id).reverse();
+  const before = metadata.states(actor, ids);
+  expect(source).toHaveBeenCalledTimes(1);
+  expect(before.map((row) => row.id)).toEqual(ids);
+  source.mockClear();
+  expect(before).toEqual(ids.map((id) => metadata.read(actor, "session_state", { id })));
+  expect(source).toHaveBeenCalledTimes(10);
+  const first = rows[0];
+  if (!first) throw new Error("Missing fixture");
+  first.outputRevision = 1;
+  const after = metadata.states(actor, ids);
+  expect(after.at(-1)?.revision).not.toBe(before.at(-1)?.revision);
+  first.repository = join(repo, "foreign");
+  expect(() => metadata.states(actor, [first.id])).toThrow("not_found");
+  expect(() => metadata.states(actor, ["missing"])).toThrow("not_found");
 });
