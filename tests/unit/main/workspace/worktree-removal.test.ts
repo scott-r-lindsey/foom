@@ -30,6 +30,48 @@ afterEach(async () => {
 });
 
 describe("safe removal", () => {
+  it.each(["local", "remote", "tag", "unreachable"])(
+    "detached reviewer requires a ref (%s)",
+    async (kind) => {
+      const { path } = await service.createWorktree(repo, "review");
+      const identity = await service.launchIdentity(repo, path);
+      await execute(["checkout", "--detach"], { cwd: path });
+      await execute(
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "Review head",
+        ],
+        { cwd: path },
+      );
+      const head = (await execute(["rev-parse", "HEAD"], { cwd: path })).stdout.trim();
+      if (kind !== "unreachable") {
+        const ref =
+          kind === "local"
+            ? "refs/heads/pr"
+            : kind === "remote"
+              ? "refs/remotes/origin/pr"
+              : "refs/tags/pr";
+        await git("update-ref", ref, head);
+      }
+      expect(await service.launchIdentity(repo, path)).toBe(identity);
+      if (kind === "unreachable") {
+        await expect(service.removeWorktree(repo, path, true, identity)).rejects.toMatchObject({
+          reason: "detached_head",
+        });
+        expect(await realpath(path)).toBe(path);
+      } else {
+        await service.removeWorktree(repo, path, false, identity);
+        await expect(realpath(path)).rejects.toThrow();
+      }
+    },
+  );
+
   it.each(["untracked", "tracked", "staged"])("refuses %s changes unless forced", async (kind) => {
     const { path } = await service.createWorktree(repo, "dirty");
     const file = join(path, "file");
@@ -44,7 +86,9 @@ describe("safe removal", () => {
         await writeFile(file, "changed");
       }
     }
-    await expect(service.removeWorktree(repo, path)).rejects.toThrow();
+    await expect(service.removeWorktree(repo, path)).rejects.toMatchObject({
+      reason: kind === "untracked" ? "untracked_files" : "dirty",
+    });
     expect(await realpath(path)).toBe(path);
     await service.removeWorktree(repo, path, true);
     await expect(realpath(path)).rejects.toThrow();

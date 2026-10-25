@@ -234,3 +234,22 @@ These checks repeat after removing an empty folder.
 Sessions must be closed first. The coded-error Prune recovery remains available
 for a checkout that became
 prunable after its row was rendered.
+
+
+## Explicit orchestrator removal diagnostics (#819)
+
+Ownership uses the captured filesystem and Git registration identity, so a child
+checking out a different branch or detaching HEAD does not invalidate ownership.
+Explicit removal refuses a detached HEAD unless `for-each-ref --contains=HEAD`
+finds a ref containing that commit. This uses stored history with replace/graft
+rewrites disabled and commit-graph reads disabled. The check repeats with the
+identity/status revalidation and also applies to forced direct removal; approval
+cannot discard otherwise unreachable detached commits.
+
+Non-ignored untracked paths already participate in ordinary NUL-delimited status
+snapshots and trusted removal confirmation on current main. Approval permits
+Git's force removal of those files; cancellation and changed snapshots retain
+them. Ignored paths keep ordinary Git behavior: deleted without listing.
+
+Removal operation reasons and fixed details are documented in the
+[control identity contract](../contracts/control-identity.md#removal-reason-codes-819).

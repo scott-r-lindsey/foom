@@ -895,6 +895,8 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
           await page.evaluate((repository) => window.desktop.worktrees(repository), repository)
         ).find((worktree) => worktree.branch === "auto-dirty");
         assert.ok(dirtyAutoTree);
+        // Reviewers detach to inspect a PR head; ownership must survive it.
+        git("-C", dirtyAutoTree.path, "checkout", "--detach", "HEAD");
         await writeFile(path.join(dirtyAutoTree.path, "untracked.txt"), "needs review");
         await call(parent.controlToken, "remove_worktree", {
           idempotencyKey: "auto-dirty-remove",
@@ -905,6 +907,9 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         ).toBeVisible();
         await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
           "untracked.txt",
+        );
+        await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
+          "untracked",
         );
         await confirmation
           .getByRole("button", { name: "Discard changes and remove", exact: true })

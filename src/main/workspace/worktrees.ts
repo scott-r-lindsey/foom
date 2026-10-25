@@ -1,3 +1,4 @@
+import { RemovalError } from "./worktree-outcome";
 import { lstat, opendir, readFile, readdir, realpath, rm, rmdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
@@ -413,7 +414,18 @@ export class WorktreeService {
     identity: string,
   ): Promise<void> {
     if ((await this.removalIdentity(repositoryPath, path)) !== identity)
-      throw new Error("Worktree has been replaced. Review it and try again.");
+      throw new RemovalError("identity_changed");
+    const tree = (await this.listWorktrees(repositoryPath)).find((item) => item.path === path);
+    if (tree?.branch === null) {
+      const refs = await git(path, [
+        "-c",
+        "core.commitGraph=false",
+        "for-each-ref",
+        "--contains=HEAD",
+        "--format=%(refname)",
+      ]);
+      if (!refs.trim()) throw new RemovalError("detached_head");
+    }
   }
 
   // Background status reads must not refresh/write the index while removal is
@@ -767,6 +779,10 @@ export class WorktreeService {
     const resolved = resolve(path);
     const expected = identity ?? (await this.removalIdentity(repositoryPath, resolved));
     await this.checkRemovalIdentity(repositoryPath, resolved, expected);
+    if (!force) {
+      const changes = await this.changes(repositoryPath, resolved, expected);
+      if (changes) throw new RemovalError(changes.startsWith("?? ") ? "untracked_files" : "dirty");
+    }
     // Callers with an approved snapshot must validate after the identity await,
     // immediately before Git. Direct callers keep Git's existing dirty policy.
     await beforeRemove?.();
