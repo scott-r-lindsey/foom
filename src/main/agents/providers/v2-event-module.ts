@@ -21,6 +21,7 @@ export function eventModule(channel: ManifestChannel): string {
 const channel = ${JSON.stringify(channel.id)};
 const events = ${JSON.stringify([...new Set(channel.mapping.cases.map((entry) => entry.event))])};
 const eventPath = ${JSON.stringify(channel.mapping.event.path)};
+const identityPaths = ${JSON.stringify([channel.mapping.session, ...(channel.mapping.sessionAliases ?? [])].map((selector) => selector.path))};
 const paths = ${JSON.stringify(paths)};
 function select(value, path) {
   for (const key of path) {
@@ -30,6 +31,16 @@ function select(value, path) {
   return value;
 }
 function reduce(event) {
+  let identity;
+  for (const path of identityPaths) {
+    const parent = select(event, path.slice(0, -1));
+    const key = path.at(-1);
+    if (!parent || typeof parent !== 'object' || !Object.hasOwn(parent, key)) continue;
+    const value = parent[key];
+    if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,199}$/.test(value) || (identity !== undefined && identity !== value)) return;
+    identity = value;
+  }
+  if (identity === undefined) return;
   const result = Object.create(null);
   for (const path of paths) {
     const value = select(event, path);
@@ -63,7 +74,10 @@ export default {
     void (async () => {
       try {
         for await (const event of context.event.subscribe({signal:abort.signal})) {
-          if (events.includes(select(event, eventPath))) await send(reduce(event), abort.signal);
+          if (events.includes(select(event, eventPath))) {
+            const payload = reduce(event);
+            if (payload) await send(payload, abort.signal);
+          }
         }
       } catch {}
     })();

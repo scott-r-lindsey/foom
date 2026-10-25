@@ -4,6 +4,9 @@ import { join } from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 import { Setup } from "../../../../src/main/setup/setup";
+import { bypassConsentIdentity } from "../../../../src/main/agents/default-arguments";
+import { agentProvider } from "../../../../src/main/agents/providers/registry";
+import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import type { SetupDependencies } from "../../../../src/main/setup/setup";
 import type { ScanProgress, Settings, SettingsPatch } from "../../../../src/shared/setup";
 
@@ -239,6 +242,9 @@ test("cannot forge acknowledgement and cancelled disclosure saves nothing", asyn
   await expect(
     setup.save({ agentBypassAcknowledged: { claude: true, codex: true, agy: true } }),
   ).rejects.toThrow("confirmation dialog");
+  await expect(setup.save({ agentBypassIdentities: { opencode: "a".repeat(64) } })).rejects.toThrow(
+    "confirmation dialog",
+  );
   const patch = {
     hooks: false,
     agentArguments: { claude: [], codex: ["--dangerously-bypass-approvals-and-sandbox"], agy: [] },
@@ -248,6 +254,68 @@ test("cannot forge acknowledgement and cancelled disclosure saves nothing", asyn
   await expect(new Setup(deps).save(patch)).rejects.toThrow("cancelled");
   await setup.save({ hooks: false });
   expect(settings.hooks).toBe(false);
+});
+
+test.each([false, true])(
+  "config-provider consent never transfers to a bundled replacement (old acknowledgement=%s)",
+  async (acknowledged) => {
+    const bundled = agentProvider("opencode");
+    const historical = v2Provider(
+      { ...bundled.model, executables: ["old-custom-agent"], bypassArguments: [] },
+      () => Promise.resolve(),
+    );
+    const priorIdentity = bypassConsentIdentity(historical);
+    if (!priorIdentity) throw Error("Missing prior identity");
+    expect(bypassConsentIdentity({ ...bundled, origin: "config" })).not.toBe(
+      bypassConsentIdentity(bundled),
+    );
+    const agentArguments = { ...DEFAULT_SETTINGS.agentArguments, opencode: ["--auto"] };
+    settings = {
+      ...DEFAULT_SETTINGS,
+      agentArguments,
+      agentBypassAcknowledged: {
+        ...DEFAULT_SETTINGS.agentBypassAcknowledged,
+        opencode: acknowledged,
+      },
+      ...(acknowledged ? { agentBypassIdentities: { opencode: priorIdentity } } : {}),
+    };
+    const confirm = vi.fn(() => Promise.resolve(false));
+    const setup = new Setup({ ...deps, confirmBypass: confirm });
+    await expect(setup.save({ agentArguments })).rejects.toThrow("cancelled");
+    expect(settings.agentBypassIdentities?.["opencode"]).not.toBe(
+      bypassConsentIdentity("opencode"),
+    );
+    confirm.mockResolvedValue(true);
+    await setup.save({ agentArguments });
+    expect(settings.agentBypassIdentities?.["opencode"]).toBe(bypassConsentIdentity("opencode"));
+    await setup.save({ agentArguments });
+    expect(confirm).toHaveBeenCalledTimes(2);
+    const changedDisclosure = bypassConsentIdentity({
+      ...bundled,
+      model: { ...bundled.model, bypassArguments: [] },
+    });
+    if (!changedDisclosure) throw Error("Missing changed identity");
+    settings = { ...settings, agentBypassIdentities: { opencode: changedDisclosure } };
+    await setup.save({ agentArguments });
+    expect(confirm).toHaveBeenCalledTimes(3);
+  },
+);
+
+test("legacy ID-only acknowledgements require fresh disclosure and unknown IDs cannot grant consent", async () => {
+  expect(bypassConsentIdentity("missing-provider")).toBeUndefined();
+  settings = {
+    ...DEFAULT_SETTINGS,
+    agentBypassAcknowledged: { claude: true, codex: true, agy: true },
+  };
+  const confirm = vi.fn(() => Promise.resolve(true));
+  const setup = new Setup({ ...deps, confirmBypass: confirm });
+  await setup.save({
+    agentArguments: {
+      ...DEFAULT_SETTINGS.agentArguments,
+      claude: ["--dangerously-skip-permissions"],
+    },
+  });
+  expect(confirm).toHaveBeenCalledExactlyOnceWith("claude", ["--dangerously-skip-permissions"]);
 });
 
 test("failed persistence does not remember bypass acknowledgement", async () => {

@@ -11,7 +11,7 @@ import {
 import { AgyPlugin } from "./agy-plugin";
 import { ManualMcp } from "../control/manual-mcp";
 import type { ControlLaunch } from "../control/types";
-import { parseAgentArguments } from "./default-arguments";
+import { bypassConsentIdentity, parseAgentArguments } from "./default-arguments";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import { execFile } from "node:child_process";
 import { readLoginShell } from "../login-shell";
@@ -110,6 +110,7 @@ export class AgentService {
   private scannedRevision = -1;
   private hooksEnabled = true;
   private agentHooks: Readonly<Record<string, boolean>> = {};
+  private bypassIdentities: Readonly<Record<string, string>> = {};
   private closed = false;
   private readonly occupied = new Set<string>();
   private readonly launched = new Map<string, string>();
@@ -141,6 +142,10 @@ export class AgentService {
   setHooksEnabled(enabled: boolean, preferences: Readonly<Record<string, boolean>> = {}): void {
     this.hooksEnabled = enabled;
     this.agentHooks = preferences;
+  }
+
+  setBypassIdentities(identities: Readonly<Record<string, string>> = {}): void {
+    this.bypassIdentities = { ...identities };
   }
 
   async scan(enabled: Readonly<Record<string, boolean>> = {}): Promise<AgentScan> {
@@ -325,7 +330,9 @@ export class AgentService {
         if (request.control && "parentId" in request.control)
           throw new Error("Unattended child bypass is unavailable");
         if (
-          (provider.origin !== "bundled" || environmentMatches.length > 0) &&
+          (provider.origin !== "bundled" ||
+            environmentMatches.length > 0 ||
+            this.bypassIdentities[agent.id] !== bypassConsentIdentity(agent.id)) &&
           !(await this.confirmLaunchBypass?.({
             title: `Launch ${provider.name} with bypass?`,
             glyph: "shield",

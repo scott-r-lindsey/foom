@@ -56,7 +56,12 @@ environment lists and argument-bypass acknowledgements keep the `claude` key.
 Bundled argument bypass retains the existing Settings/config-change acknowledgement
 flow; environment bypass still requires launch confirmation, and unattended child
 bypass always fails. Conversions may reuse an acknowledgement only for an
-identical disclosure/effect. They must explicitly preserve setup consent and health observations; bundled build trust never substitutes for those decisions.
+identical provider/disclosure identity. Main stores a SHA-256 of the provider
+origin and complete parsed manifest in profile-only `agentBypassIdentities` after
+trusted Settings/config argument consent. Legacy ID-only acknowledgements grant
+no identity-bound trust. A bypass launch without a matching identity requires
+fresh main-owned confirmation, including when any bundled ID supersedes a config
+provider. They must explicitly preserve setup consent and health observations; bundled build trust never substitutes for those decisions.
 
 Claude compatibility details:
 

@@ -86,6 +86,37 @@ process.on('beforeExit',()=>stop());`,
     conversationId: "ses_fixture",
     fullyIdle: false,
   });
+  for (const malformed of [
+    null,
+    { nested: "ses_fixture" },
+    ["ses_fixture"],
+    "s".repeat(201),
+    "s".repeat(4097),
+    "ses_conflicting",
+  ]) {
+    await execute(env, [
+      {
+        id: "evt_malformed",
+        type: "form.created",
+        data: { sessionID: malformed, form: { sessionID: "ses_fixture" } },
+      },
+      {
+        id: "evt_malformed_reverse",
+        type: "form.created",
+        data: { sessionID: "ses_fixture", form: { sessionID: malformed } },
+      },
+    ]);
+  }
+  expect(signals).toHaveLength(1);
+  await execute(env, [
+    {
+      id: "evt_malformed",
+      type: "form.created",
+      data: { sessionID: "ses_fixture", form: { sessionID: "ses_fixture" } },
+    },
+  ]);
+  expect(signals).toHaveLength(2);
+  expect(signals[1]).toMatchObject({ action: "needs_input", conversationId: "ses_fixture" });
   for (const overrides of [
     { FOOM_HOOK_PROTOCOL: "2" },
     { FOOM_TOKEN: "" },
@@ -97,10 +128,10 @@ process.on('beforeExit',()=>stop());`,
     { FOOM_HOOK_URL: "http://127.0.0.1:1234/hooks?token=bad" },
   ])
     await execute({ ...env, ...overrides }, [event]);
-  expect(signals).toHaveLength(1);
+  expect(signals).toHaveLength(2);
   launch.revoke();
   await execute(env, [{ ...event, id: "revoked" }]);
-  expect(signals).toHaveLength(1);
+  expect(signals).toHaveLength(2);
   // A minimal module remains inert without launch credentials, even with no optional selectors.
   channel.mapping.dedupe = undefined;
   channel.mapping.sessionAliases = undefined;
@@ -111,5 +142,5 @@ process.on('beforeExit',()=>stop());`,
   }
   await writeFile(file, eventModule(channel));
   await execute({}, [event]);
-  expect(signals).toHaveLength(1);
+  expect(signals).toHaveLength(2);
 });

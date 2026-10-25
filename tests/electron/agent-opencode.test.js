@@ -23,9 +23,22 @@ test("bundled OpenCode cards launch isolated event modules and resume assigned c
   removeAfterApps(context, root);
   const bin = path.join(root, "bin"),
     home = path.join(root, "home"),
+    profile = path.join(root, "profile"),
     repo = path.join(root, "repo"),
     report = path.join(root, "launch.json");
-  await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
+  await Promise.all([bin, home, repo, profile].map((directory) => mkdir(directory)));
+  await writeFile(
+    path.join(profile, "settings.json"),
+    JSON.stringify({
+      version: 1,
+      settings: {
+        setupComplete: true,
+        checkForUpdates: false,
+        agentArguments: { claude: [], codex: [], agy: [], opencode: ["--auto"] },
+        agentBypassAcknowledged: { claude: false, codex: false, agy: false, opencode: false },
+      },
+    }),
+  );
   gitSync(["init", "-q", "-b", "main", repo]);
   gitSync([
     "-C",
@@ -70,17 +83,58 @@ if(process.argv.includes('--help')){console.log('--standalone --session --prompt
   await mkdir(agents, { recursive: true });
   await writeFile(
     path.join(agents, "opencode.json"),
-    JSON.stringify(require("../../src/shared/bundled-agents/opencode.json")),
+    JSON.stringify({
+      ...require("../../src/shared/bundled-agents/opencode.json"),
+      executables: ["old-custom-opencode"],
+      bypassArguments: [],
+    }),
   );
-  const app = await launchApp(context, { fixture: "agent", home, env: { HOME: home, PATH: bin } });
+  const app = await launchApp(context, {
+    fixture: "agent",
+    home,
+    args: [`--user-data-dir=${profile}`],
+    env: { HOME: home, PATH: bin },
+  });
   const page = await boardPage(app);
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+  }, repo);
+  const repository = await page.evaluate(() => window.desktop.addRepository());
+  const inheritedLaunch = page.evaluate(async (repository) => {
+    try {
+      await window.desktop.sidebarCommand({
+        kind: "launch",
+        repository,
+        worktree: repository,
+        run: "opencode",
+      });
+      return "launched";
+    } catch {
+      return "cancelled";
+    }
+  }, repository.path);
+  const migrationDisclosure = await confirmationPage(app);
+  await expect(migrationDisclosure.getByRole("alertdialog")).toHaveAccessibleName(
+    "Launch OpenCode with bypass?",
+  );
+  await expect(migrationDisclosure.getByRole("alertdialog")).toContainText("--auto");
+  await migrationDisclosure.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(await inheritedLaunch, "cancelled");
+  assert.equal(
+    (await page.evaluate(() => window.desktop.workspace())).terminals.filter(
+      (row) => row.agent === "opencode",
+    ).length,
+    0,
+  );
+  await assert.rejects(readFile(report));
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Agents", exact: true }).click();
   const card = page.locator("#agent-card-opencode");
   await expect(card).toContainText("OpenCode");
   await expect(card).toContainText("2.0.32");
   const defaults = card.getByRole("textbox", { name: "OpenCode default arguments" });
-  await defaults.fill("--auto");
+  await expect(defaults).toHaveValue("--auto");
+  await defaults.fill("--auto\n--model\nreviewed");
   await expect(card.locator(".agent-bypass")).toContainText("Bypass approvals");
   await defaults.blur();
   const disclosure = await confirmationPage(app);
@@ -100,10 +154,6 @@ if(process.argv.includes('--help')){console.log('--standalone --session --prompt
     ),
   );
   await page.keyboard.press("Escape");
-  await app.evaluate(({ dialog }, directory) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
-  }, repo);
-  const repository = await page.evaluate(() => window.desktop.addRepository());
   await page.evaluate(
     (repository) =>
       window.desktop.sidebarCommand({

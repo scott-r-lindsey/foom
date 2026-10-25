@@ -157,7 +157,7 @@ export interface WorkspaceMethods {
 }
 export type Agents = Pick<
   AgentService,
-  "scan" | "launch" | "release" | "dispose" | "setHooksEnabled"
+  "scan" | "launch" | "release" | "dispose" | "setHooksEnabled" | "setBypassIdentities"
 >;
 export interface WorkspaceDependencies {
   /** Main-owned clock budget; tests may inject a shorter probe reminder. */

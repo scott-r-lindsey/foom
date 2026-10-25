@@ -93,6 +93,18 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
         agy: entry["agy"] === true,
       };
     else if (
+      key === "agentBypassIdentities" &&
+      record(entry) &&
+      Object.keys(entry).length <= 100 &&
+      Object.entries(entry).every(
+        ([id, identity]) =>
+          validAgentId(id) && typeof identity === "string" && /^[a-f0-9]{64}$/u.test(identity),
+      )
+    )
+      patch.agentBypassIdentities = Object.fromEntries(
+        Object.entries(entry).map(([id, identity]) => [id, String(identity)]),
+      );
+    else if (
       key === "agentHooks" &&
       record(entry) &&
       Object.keys(entry).length <= 100 &&

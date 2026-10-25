@@ -88,6 +88,21 @@ test("Allow rechecks bytes after the trusted dialog and never acknowledges a rep
   expect(acknowledge).not.toHaveBeenCalled();
 });
 
+test("approved argument changes acknowledge bundled IDs outside the original three agents", async () => {
+  const acknowledge = vi.fn().mockResolvedValue(undefined);
+  const f = await fixture({
+    confirmArguments: () => Promise.resolve(true),
+    acknowledgeBypass: acknowledge,
+  });
+  await f.service.initialize();
+  await f.settings({
+    agentArguments: { ...DEFAULT_SETTINGS.agentArguments, opencode: ["--auto"] },
+  });
+  await f.service.refresh();
+  await f.decide("allow");
+  expect(acknowledge).toHaveBeenCalledExactlyOnceWith(["opencode"]);
+});
+
 test("migration inserts arguments without approving other file edits, preserving a recoverable baseline", async () => {
   const f = await fixture();
   await f.service.initialize();

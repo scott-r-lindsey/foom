@@ -38,6 +38,7 @@ test("settings is an optional allowlisted patch with exactly main's value rules"
 });
 test.each([
   "agentBypassAcknowledged",
+  "agentBypassIdentities",
   "codexNotifierAcknowledged",
   "setupComplete",
   "codeFolder",

@@ -21,6 +21,7 @@ import { builtinAgent } from "../../shared/providers/catalog";
 import type { Settings } from "../../shared/setup";
 import { isUserThemeId } from "../../shared/theme-validation";
 import { loginPath } from "../agents/agents";
+import { bypassConsentIdentity } from "../agents/default-arguments";
 import { providerRevision, replaceConfigProviders } from "../agents/providers/registry";
 import { configPart } from "../config/approval";
 import { ConfigService } from "../config/service";
@@ -610,8 +611,17 @@ async function startApplication(wiring: ApplicationWiring): Promise<void> {
     confirmArguments: (content) => wiring.requestTrusted(content, new AbortController().signal),
     acknowledgeBypass: async (agents) => {
       const acknowledged = { ...wiring.settings.get().agentBypassAcknowledged };
-      for (const agent of agents) acknowledged[agent] = true;
-      await wiring.settings.update({ agentBypassAcknowledged: acknowledged });
+      const identities = { ...wiring.settings.get().agentBypassIdentities };
+      for (const agent of agents) {
+        const identity = bypassConsentIdentity(agent);
+        if (!identity) throw new Error("Agent provider changed. Review the arguments again.");
+        acknowledged[agent] = true;
+        identities[agent] = identity;
+      }
+      await wiring.settings.update({
+        agentBypassAcknowledged: acknowledged,
+        agentBypassIdentities: identities,
+      });
     },
     onStatus: wiring.configStatusChanged,
     onThemeDecision: () => {

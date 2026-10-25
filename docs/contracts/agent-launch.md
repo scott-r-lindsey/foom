@@ -227,6 +227,10 @@ paths, imports, entrypoints and program source remain forbidden in manifests.
 The event selector must select payload data. There is no shell/interpreter probe
 for modules; the agent's plugin runtime loads the fixed code.
 
+Before reduction, the module validates every present primary/alternate session
+identity as a 1–200 character conversation string and requires them all to agree.
+Malformed or conflicting identities drop the entire event; they are never removed
+to leave an apparently valid alias. Missing primary paths may use valid aliases.
 The module forwards only primitive leaves referenced by the channel's payload
 selectors, bounded to 4096 characters per string and 64 KiB total. It filters
 unknown event names before transport, uses the existing authenticated literal

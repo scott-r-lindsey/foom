@@ -100,8 +100,13 @@ config status reports a reserved-ID rejection in Settings → Foom config, while
 the bundled Agents card remains available; Foom never rewrites or deletes the file. A full renamed copy can coexist as an
 ordinary config provider. Enablement, defaults and environment remain keyed by
 ID, so existing `opencode` preferences apply to the bundled provider (newly reserved
-defaults are discarded under the normal recovery policy). Existing bypass consent
-is reused only when its disclosure identity/effect matches.
+defaults are discarded under the normal recovery policy). Bypass consent is bound
+to the provider origin and complete manifest, including executable declarations
+and bypass disclosure policy, in main-owned profile metadata. An old ID-only
+acknowledgement or a config provider's acknowledgement cannot authorize a bundled
+replacement, for any agent ID. Inherited bypass defaults require a trusted launch
+confirmation until reviewed and saved in Settings (or through an approved config
+argument change) for the current provider identity.
 
 The build-owned former-config ID migration retains saved `providerOrigin: config`
 OpenCode rows and their conversation IDs. They remain dormant and are excluded

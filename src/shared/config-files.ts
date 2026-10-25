@@ -23,6 +23,7 @@ export function parseSettingsFile(text: string): ConfigSettings {
   // Known excluded fields receive a stable, useful path, without echoing arbitrary keys.
   for (const key of [
     "agentBypassAcknowledged",
+    "agentBypassIdentities",
     "codexNotifierAcknowledged",
     "setupComplete",
     "codeFolder",

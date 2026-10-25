@@ -184,10 +184,22 @@ test("stores default argv and per-agent acknowledgement and migrates old profile
   const patch = parseSettingsPatch({
     agentArguments: { claude: ["--model", "a model"], codex: [], agy: [] },
     agentBypassAcknowledged: { claude: true, codex: false, agy: false },
+    agentBypassIdentities: { claude: "a".repeat(64), opencode: "b".repeat(64) },
   });
   await store.update(patch);
   expect((await SettingsStore.open(dir)).get()).toEqual(store.get());
   expect(() => parseSettingsPatch({ agentBypassAcknowledged: { claude: true } })).toThrow();
+  for (const identities of [
+    null,
+    [],
+    { opencode: true },
+    { opencode: "x" },
+    { "bad/id": "a".repeat(64) },
+    Object.fromEntries(
+      Array.from({ length: 101 }, (_, index) => [`a${String(index)}`, "a".repeat(64)]),
+    ),
+  ])
+    expect(() => parseSettingsPatch({ agentBypassIdentities: identities })).toThrow();
   expect(() =>
     parseSettingsPatch({ agentArguments: { claude: ["--settings"], codex: [], agy: [] } }),
   ).toThrow("reserved");
