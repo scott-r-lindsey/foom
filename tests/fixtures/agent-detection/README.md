@@ -107,3 +107,15 @@ constant. A second harmless prompt created `ready.txt` without approval; no file
 permission screen was observed. Escape dismissed the picker and Ctrl+D exited.
 No global configuration or credential files were inspected or changed.
 See [measurement details](../../../docs/agents.md#pi-140-measurement-823).
+
+## Copilot 1.0.103 (#410)
+
+Hand measurements on Linux on 2026-10-24 used an OS temporary directory,
+Copilot’s normal 1.0.103 launch, and harmless reply/create-file prompts. The
+100×32 PTY was parsed with the pinned headless xterm. The first reply-only
+measurement also used an 80×24 PTY. Fixtures retain only matching screen regions;
+scratch paths, usage and unrelated history are redacted. No title/progress
+sequence was observed. The permission was cancelled, and session-only folder
+trust was used. No bypass flags or global config edits were used. See
+[the full measurement record](../../../docs/agents.md#github-copilot-cli-410) for
+the isolated plugin, MCP and assigned-ID resume checks and platform limitations.

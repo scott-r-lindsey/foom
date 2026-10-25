@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("./test-shard.js");
@@ -228,7 +229,7 @@ test("sidebar config agent menu launches a new config session in each window", {
   await expect(first.getByRole("menuitem", { name: "Via Codex" })).toHaveCount(0);
   if (process.env.FOOM_UI_SCREENSHOTS)
     await first.screenshot({
-      path: path.join(process.env.FOOM_UI_SCREENSHOTS, "sidebar-config-via-agent.png"),
+      path: evidencePath(path.join(evidencePath("ui_screenshots"), "sidebar-config-via-agent.png")),
       animations: "disabled",
     });
   await first.getByRole("menuitem", { name: "Via Claude Code" }).focus();
@@ -259,7 +260,7 @@ test("sidebar config agent menu launches a new config session in each window", {
   assert.match(greetingTail, /CONFIG_MENU_READY \["Read AGENTS\.md, then greet the user/);
   assert.match(greetingTail, /Ask what they would like to change\."\]/);
   await first.screenshot({
-    path: "test-results/sidebar-config-launched.png",
+    path: evidencePath("sidebar-config-launched.png"),
     animations: "disabled",
   });
   await first.evaluate(() => window.desktop.appMenu.execute("new-window"));

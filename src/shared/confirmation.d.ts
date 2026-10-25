@@ -63,6 +63,8 @@ export interface DialogContent {
 }
 export interface DialogRequest extends Omit<DialogContent, "feed" | "removal" | "removalFeed"> {
   id: string;
+  /** Main has completed the native presentation attempt for this request. */
+  presented: boolean;
   theme: InterfaceTheme;
 }
 export interface ConfirmationWindowApi {

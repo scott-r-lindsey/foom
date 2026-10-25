@@ -1,0 +1,25 @@
+{
+  "agent": "copilot",
+  "version": "1.0.103",
+  "platform": "linux",
+  "date": "2026-10-24",
+  "size": {
+    "cols": 100,
+    "rows": 32
+  },
+  "titles": [],
+  "progress": null,
+  "state": "blocked",
+  "rules": ["confirmation_form"],
+  "tail": [
+    "│ Create file │",
+    "│ ready.txt +2 -0 │",
+    "│ [scratch path redacted] │",
+    "│ Do you want to create [scratch path]/ready.txt? │",
+    "│ ❯ 1. Yes │",
+    "│   2. Yes, and don't ask again for file operations when in this directory │",
+    "│   3. No, and tell Copilot what to do differently (Esc to stop) │",
+    "│ ↑/↓ to navigate · enter to select · esc to cancel │",
+    "╰──────────────────────────────────────────────────────────────────────────────────────────────────╯"
+  ]
+}

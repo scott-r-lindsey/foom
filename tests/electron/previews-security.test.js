@@ -187,9 +187,10 @@ test("preview external links always use trusted review and drop scripted request
       (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
     ).webContents;
     const send = contents.send.bind(contents);
-    globalThis.previewLinkReviews = [];
+    globalThis.previewLinkReviews = new Map();
     contents.send = (channel, ...args) => {
-      if (channel === "confirmation:render" && args[0]) globalThis.previewLinkReviews.push(args[0]);
+      if (channel === "confirmation:render" && args[0])
+        globalThis.previewLinkReviews.set(args[0].id, args[0]);
       send(channel, ...args);
     };
   });
@@ -201,7 +202,7 @@ test("preview external links always use trusted review and drop scripted request
   );
   await expect(dialog.getByRole("heading", { name: "Open this link?" })).toBeVisible();
   await expect(dialog.locator(".facts dd")).toHaveText(url);
-  assert.equal(await app.evaluate(() => globalThis.previewLinkReviews.length), 1);
+  assert.equal(await app.evaluate(() => globalThis.previewLinkReviews.size), 1);
   assert.deepEqual(await app.evaluate(() => globalThis.previewExternalOpened), []);
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(dialog.getByRole("heading", { name: "Open this link?" })).toHaveCount(0);
@@ -211,7 +212,7 @@ test("preview external links always use trusted review and drop scripted request
     id,
     "window.open('file:///tmp/never'); window.open('javascript:alert(1)'); window.open('data:text/plain,never')",
   );
-  assert.equal(await app.evaluate(() => globalThis.previewLinkReviews.length), 1);
+  assert.equal(await app.evaluate(() => globalThis.previewLinkReviews.size), 1);
   await previewContents(app, id, "window.open('mailto:hello@example.com?subject=Preview')");
   await expect(dialog.locator(".facts dd")).toHaveText("mailto:hello@example.com?subject=Preview");
   await dialog.getByRole("button", { name: "Open in browser", exact: true }).click();

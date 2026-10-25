@@ -137,7 +137,7 @@ pnpm run start:samples --screenshots
 
 The command builds the explicit sample board, then always creates its own Xvfb
 display, even when launched from a desktop or an existing virtual display. It
-writes six PNGs to ignored `screenshots-582/`: `eclipse-dark-{board,sidebar,needs-you}.png`
+writes six PNGs to ignored `test-results/screenshots-582/`: `eclipse-dark-{board,sidebar,needs-you}.png`
 and `eclipse-light-{board,sidebar,needs-you}.png`. Reruns overwrite those six files.
 Do not commit the images; keep the PR draft for human visual approval before
 copying approved images to the website.
@@ -169,3 +169,11 @@ for byte before it is written. For cross-run comparisons use the same Linux,
 Electron and font environment; rasterization may differ across systems. Normal
 `pnpm run start:samples` still opens the interactive development sample board.
 Packaging always rebuilds without samples.
+
+## Profiling main-process CPU
+
+The [owned-child CPU recipe](research/main-cpu-789.md) runs ten modest-output
+fixture children and orchestrator polling in a disposable Xvfb application.
+It captures main-process inspector stacks and steady-state process CPU without
+real agent CLIs. Run captures through the shared heavy-command lock when sharing
+a development machine; retain raw evidence only in ignored `test-results/`.

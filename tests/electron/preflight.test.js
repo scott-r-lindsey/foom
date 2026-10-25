@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 
 const { test } = require("./test-shard.js");
@@ -445,7 +446,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await expect(page.getByRole("button", { name: "Launch" })).toBeDisabled();
   await page.getByRole("button", { name: "Fix" }).click();
 
-  // Install all three, then scan again.
+  // Install the hook-capable bundled agent fixtures, then scan again.
   const script = (body) => `#!/usr/bin/env node\nconst a = process.argv[2];\n${body}\n`;
   const agents = {
     claude: script(
@@ -455,6 +456,9 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
       'if (a === "--version") console.log("codex-cli 0.155.1"); else console.log("  -c, --config <key=value>");',
     ),
     agy: script('if (a === "--version") console.log("1.2.13");'),
+    copilot: script(
+      'if (a === "--version") console.log("GitHub Copilot CLI 1.0.103."); else console.log("--plugin-dir --additional-mcp-config --allow-tool --interactive --session-id --resume");',
+    ),
   };
   for (const [name, source] of Object.entries(agents)) {
     await writeFile(path.join(bin, name), source);
@@ -465,10 +469,11 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     "2.1.300",
     "0.155.1",
     "1.2.13",
+    "1.0.103",
   ]);
   await expect(page.locator(".agent-card")).toHaveCount(providerCount);
   await expect(page.getByText(path.join(bin, "codex"), { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Hooks", exact: true })).toHaveCount(3);
+  await expect(page.getByRole("button", { name: "Hooks", exact: true })).toHaveCount(4);
   await expect(page.getByText("Notify + screen rules active", { exact: true })).toBeVisible();
   await assertPreflightFits(page, "Agent cards fit the scaled layout");
   await assertAccessible(page);
@@ -503,7 +508,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   assert.equal(firstRunGeometry.length, 2);
 
   if (process.env.FOOM_MANUAL_SCREENSHOTS === "1" && process.platform === "linux") {
-    await mkdir("screenshots-680", { recursive: true });
+    await mkdir(evidencePath("screenshots-680"), { recursive: true });
     const handle = await app.evaluate(({ BrowserWindow }) => {
       const board = BrowserWindow.getAllWindows().find(
         (window) => window.webContents.getURL() === "app://bundle/index.html",
@@ -529,7 +534,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
       require("node:child_process").execFileSync("import", [
         "-window",
         String(handle),
-        `screenshots-680/first-run-${mode}.png`,
+        evidencePath(`screenshots-680/first-run-${mode}.png`),
       ]);
     }
     await page.evaluate(() => window.desktop.saveSetup({ colorMode: "system" }));

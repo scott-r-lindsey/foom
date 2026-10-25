@@ -40,6 +40,7 @@ test.each(["markdown", "html"] as const)(
     if (!layout) throw new Error("Missing preview");
     saveLayout(localStorage, { ...layout, focused: terminal.focused });
     const close = vi.fn(() => Promise.resolve());
+    const reload = vi.fn(async () => {});
     const network = vi.fn(async () => {});
     let command: ((command: BoardCommand) => void) | undefined;
     const source: BoardSource = {
@@ -50,6 +51,7 @@ test.each(["markdown", "html"] as const)(
         bounds: vi.fn(async () => {}),
         close,
         network,
+        reload,
       },
       subscribeCommands: (listener) => {
         command = listener;
@@ -74,6 +76,16 @@ test.each(["markdown", "html"] as const)(
     await act(async () => {});
     expect(tile.getAttribute("data-focused")).toBe("true");
     expect(document.activeElement).toBe(tile);
+    fireEvent.click(within(tile).getByRole("button", { name: "Reload" }));
+    expect(reload).toHaveBeenCalledExactlyOnceWith("preview");
+    fireEvent.click(within(tile).getByRole("button", { name: "Tile 2 menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reload" }));
+    expect(reload).toHaveBeenCalledTimes(2);
+    reload.mockRejectedValueOnce(new Error("Reload refused"));
+    fireEvent.click(within(tile).getByRole("button", { name: "Reload" }));
+    await act(async () => {});
+    expect(screen.getByRole("alert").textContent).toBe("Reload failed");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     fireEvent.click(within(tile).getByRole("button", { name: "Tile 2 menu" }));
     expect(screen.queryByRole("menuitem", { name: "Hide" })).toBeNull();
     expect(

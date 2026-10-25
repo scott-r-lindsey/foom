@@ -7,7 +7,7 @@ Decided implementation and security rules for this area. Read the [file map](../
 The heading is retained for existing links; config manifests no longer require approval.
 
 `main/agents/providers/provider.d.ts` declares the single `AgentProvider` contract.
-Claude, Codex, Antigravity and Pi register through the build-locked bundled manifest loader. The bundled loader uses the same strict parser and immutable v2 engine as config providers; JSON cannot claim its origin. See [bundled delivery and compatibility](../contracts/agent-compatibility.md#bundled-manifest-delivery-434) for digest/version rules, unchanged settings/consents and observer ABI differences. The shared engine owns discovery gates, launch argv, MCP attachment, observer selection and hook payload reduction. The launch features use capability metadata rather than comparing
+Claude, Codex, Antigravity, GitHub Copilot and Pi register through the build-locked bundled manifest loader. The bundled loader uses the same strict parser and immutable v2 engine as config providers; JSON cannot claim its origin. See [bundled delivery and compatibility](../contracts/agent-compatibility.md#bundled-manifest-delivery-434) for digest/version rules, unchanged settings/consents and observer ABI differences. The shared engine owns discovery gates, launch argv, MCP attachment, observer selection and hook payload reduction. The launch features use capability metadata rather than comparing
 agent IDs. Shared built-in policy metadata is browser-safe. Main emits generic observed-health and notifier-selection facts to the renderer; config manifests cannot grant themselves build provenance. Agent identities can now be strings, but runtime IPC accepts only IDs in
 main's current loaded provider registry. Config providers cannot register a
 built-in ID or duplicate another provider. Built-in orchestration restore checks
@@ -103,3 +103,17 @@ selector and OpenAI model-not-found error, not an invented file approval screen.
 
 Existing settings keep their original required keys; absent Pi settings use the
 normal enabled/empty-default behavior without rewriting the profile.
+
+### GitHub Copilot CLI (#410)
+
+Copilot is a bundled v2 manifest (`copilot.json`), with fixed help/version discovery
+and the same build digest lock as the other bundled agents. Stable 1.0.103+ with
+the advertised flags enables invocation-only `--plugin-dir` lifecycle observers,
+`--additional-mcp-config` loopback HTTP MCP and interactive prompts. New launches
+receive a Foom-assigned UUID through `--session-id`; Resume uses `--resume`.
+Settings/preflight cards come from the provider registry, including Copilot’s
+default arguments, environment, hooks switch and bypass disclosure. Config-file
+bypass acknowledgements use registry IDs rather than a fixed three-agent list,
+so an accepted Copilot argument disclosure persists the same acknowledgement. No global
+Copilot configuration is read or edited by Foom. [Measured evidence](../agents.md#github-copilot-cli-410)
+records the supported screens, hook events and platform limitations.

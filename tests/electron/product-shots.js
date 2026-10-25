@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 // Invoked only by pnpm run start:samples --screenshots, outside feature discovery.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
@@ -8,7 +9,7 @@ const { git } = require("../helpers/git.js");
 const { launchApp, boardPage, removeAfterApps } = require("./harness.js");
 const { expect } = require("./test-policy.js");
 
-const directory = path.resolve("screenshots-582");
+const directory = evidencePath("screenshots-582");
 const instant = new Date("2026-01-01T12:00:00Z");
 const leaf = (session) => ({
   kind: "tile",

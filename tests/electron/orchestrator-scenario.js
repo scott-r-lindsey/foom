@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -297,7 +298,9 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
             (await page.evaluate(() => window.desktop.setupState())).settings.concurrentChildren,
         )
         .toBe(1);
-      await page.screenshot({ path: `test-results/child-limit-${cliOnly ? "agy" : "claude"}.png` });
+      await page.screenshot({
+        path: evidencePath(`child-limit-${cliOnly ? "agy" : "claude"}.png`),
+      });
       await assertAccessible(page);
       await page.keyboard.press("Escape");
     }
@@ -448,7 +451,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       );
       await assertAccessible(page);
       await page.screenshot({
-        path: "test-results/unread-child-attention.png",
+        path: evidencePath("unread-child-attention.png"),
         animations: "disabled",
       });
       await parentBoard.click();
@@ -487,7 +490,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       await expect(parentBoard).toHaveAttribute("data-state", "waiting");
       await assertAccessible(page);
       await page.screenshot({
-        path: "test-results/orchestrator-waiting.png",
+        path: evidencePath("orchestrator-waiting.png"),
         animations: "disabled",
       });
       const stop = await call(parent.controlToken, "stop", {
@@ -579,7 +582,10 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         "https://example.com/pull/514",
       );
       await assertAccessible(page);
-      await page.screenshot({ path: "test-results/child-handoff.png", animations: "disabled" });
+      await page.screenshot({
+        path: evidencePath("child-handoff.png"),
+        animations: "disabled",
+      });
       await page.getByRole("textbox", { name: "Filter repositories and sessions" }).hover();
       await page.keyboard.press("Escape");
       await page.getByRole("button", { name: "Foom menu" }).click();
@@ -789,7 +795,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
               await expect(parentMark).toBeVisible();
               if (process.env.FOOM_SCREENSHOTS)
                 await page.screenshot({
-                  path: `test-results/477-marks-${colorScheme}-${scale}.png`,
+                  path: evidencePath(`477-marks-${colorScheme}-${scale}.png`),
                   animations: "disabled",
                 });
             }
@@ -807,7 +813,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
             );
             if (process.env.FOOM_SCREENSHOTS)
               await page.screenshot({
-                path: `test-results/477-marks-${colorScheme}-compact.png`,
+                path: evidencePath(`477-marks-${colorScheme}-compact.png`),
                 animations: "disabled",
               });
             await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
@@ -895,6 +901,8 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
           await page.evaluate((repository) => window.desktop.worktrees(repository), repository)
         ).find((worktree) => worktree.branch === "auto-dirty");
         assert.ok(dirtyAutoTree);
+        // Reviewers detach to inspect a PR head; ownership must survive it.
+        git("-C", dirtyAutoTree.path, "checkout", "--detach", "HEAD");
         await writeFile(path.join(dirtyAutoTree.path, "untracked.txt"), "needs review");
         await call(parent.controlToken, "remove_worktree", {
           idempotencyKey: "auto-dirty-remove",
@@ -905,6 +913,9 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         ).toBeVisible();
         await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
           "untracked.txt",
+        );
+        await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
+          "untracked",
         );
         await confirmation
           .getByRole("button", { name: "Discard changes and remove", exact: true })
@@ -968,7 +979,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       );
       await assertAccessible(confirmation);
       await confirmation.screenshot({
-        path: `test-results/batch-removal-${cliOnly ? "agy" : "claude"}.png`,
+        path: evidencePath(`batch-removal-${cliOnly ? "agy" : "claude"}.png`),
         animations: "disabled",
       });
       await confirmation.getByRole("checkbox", { name: "child-one", exact: true }).check();
@@ -1074,7 +1085,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
         cliOnly ? 4 : 6,
       );
       await page.screenshot({
-        path: `test-results/action-log-${cliOnly ? "agy" : "claude"}.png`,
+        path: evidencePath(`action-log-${cliOnly ? "agy" : "claude"}.png`),
         animations: "disabled",
       });
       await assertAccessible(page);

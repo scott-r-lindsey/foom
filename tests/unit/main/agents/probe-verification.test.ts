@@ -80,7 +80,7 @@ const fs = require('node:fs');
       const normal = provider.discover("fixture", "", "");
       expect(normal.hooks).toBe(false);
       expect(normal.mcp).toBe(false);
-      prepared = await prepareProbe(provider, { action: "start", agent: "copilot" }, root, {
+      prepared = await prepareProbe(provider, { action: "start", agent: "copilot-fixture" }, root, {
         PATH: root,
       });
       const output = await promisify(execFile)(prepared.spec.command, prepared.spec.args, {

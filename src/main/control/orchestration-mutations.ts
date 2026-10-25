@@ -1,3 +1,6 @@
+import { ApplicationError } from "../../shared/application-errors";
+import { RemovalError } from "../workspace/worktree-outcome";
+import type { RemovalReason } from "../workspace/worktree-outcome";
 import { reviewOptions } from "../../node-common/review";
 import { AUTHOR_REVIEW_BRIEF } from "./review-loops";
 import { agentProvider } from "../agents/providers/registry";
@@ -28,9 +31,19 @@ function text(value: unknown, bytes: number): string {
 }
 
 function publicOperation(operation: Operation): Operation {
-  const { operationId, action, targetId, resultId, status, createdAt, updatedAt, reason } =
+  const { operationId, action, targetId, resultId, status, createdAt, updatedAt, reason, detail } =
     operation;
-  return { operationId, action, targetId, resultId, status, createdAt, updatedAt, reason };
+  return {
+    operationId,
+    action,
+    targetId,
+    resultId,
+    status,
+    createdAt,
+    updatedAt,
+    reason,
+    ...(detail ? { detail } : {}),
+  };
 }
 
 /** Worktree and child mutations, with shared authority and operation history. */
@@ -313,7 +326,12 @@ export class OrchestrationMutations extends OrchestrationAuthority {
             const identity = createHash("sha256")
               .update(JSON.stringify([worktreeId, tree.identity, changes]))
               .digest("hex");
-            const answer = operations.confirmation(actor, operation.operationId, identity);
+            const answer = operations.confirmation(
+              actor,
+              operation.operationId,
+              identity,
+              changes.startsWith("?? ") ? "untracked_files" : changes ? "dirty" : "user_declined",
+            );
             const pr = this.host.forge?.read(parent.repository, tree.path);
             const answered = await this.host.dialog(
               {
@@ -348,14 +366,28 @@ export class OrchestrationMutations extends OrchestrationAuthority {
           await this.finish(actor, parent, operations, operation, label, "succeeded", worktreeId);
         }
       } catch (error) {
-        const record = await this.finish(
-          actor,
-          parent,
-          operations,
-          operation,
-          label,
-          "failed",
-        ).catch(() => undefined);
+        const reason: RemovalReason =
+          error instanceof RemovalError
+            ? error.reason
+            : error instanceof ApplicationError
+              ? (
+                  {
+                    "worktree-locked": "locked",
+                    "worktree-missing": "not_found",
+                    "worktree-main": "main_checkout",
+                    "worktree-prunable": "prunable",
+                    "operation-failed": "git_failed",
+                    "prune-unsafe": "git_failed",
+                  } as const
+                )[error.code]
+              : "git_failed";
+        const record = await operations
+          .finish(actor, operation.operationId, "failed", reason)
+          .then((record) => {
+            this.note(parent, this.entry(record, label));
+            return record;
+          })
+          .catch(() => undefined);
         // Mirror revocation and persistence uncertainty in the visible history.
         if (!record)
           this.note(parent, {

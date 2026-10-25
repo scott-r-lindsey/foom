@@ -26,6 +26,7 @@ export interface PreviewApi {
   pick(worktree: string): Promise<string | null>;
   popout(id: string): Promise<void>;
   network(id: string, enabled: boolean): Promise<void>;
+  reload(id: string): Promise<void>;
   close(id: string): Promise<void>;
   bounds(id: string, bounds: PreviewBounds): Promise<void>;
   painted(id: string, version: number): Promise<void>;

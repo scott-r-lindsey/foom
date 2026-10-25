@@ -1,3 +1,4 @@
+import { RemovalError } from "./worktree-outcome";
 import { basename } from "node:path";
 import { conversationId } from "../agents/conversation";
 import { CleanupRun, KeptWorktree } from "./cleanup-run";
@@ -101,12 +102,13 @@ export class CleanupOwner {
     revalidate: () => void,
   ): Promise<boolean> {
     const tree = (await this.deps.inventory(repository)).find((item) => item.path === worktree);
-    if (!tree || tree.path === repository) throw new Error("Worktree is unavailable");
+    if (!tree) throw new RemovalError("not_found");
+    if (tree.path === repository) throw new RemovalError("main_checkout");
     // removeTree holds the branch lock while it calls this, so no launch can slip in.
     const available = async () => {
       this.requireIdleWorktree(worktree);
       if ((await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity)
-        throw new Error("Worktree has changed");
+        throw new RemovalError("identity_changed", "Worktree has changed");
       revalidate();
     };
     const removed = await this.deps.withWorktreeRemoval(
@@ -157,7 +159,7 @@ export class CleanupOwner {
         .terminals()
         .some((entry) => entry.worktree === worktree && this.deps.running(entry.id))
     )
-      throw new Error("A session is running in this worktree");
+      throw new RemovalError("busy", "A session is running in this worktree");
   }
 
   async removeIdleTree(
@@ -202,8 +204,7 @@ export class CleanupOwner {
       : await confirm(entry.branch ?? entry.worktree, changes);
     if (!accepted) return false;
     await revalidate?.();
-    if (!automatic && (await readChanges()) !== changes)
-      throw new Error("Worktree changes have changed. Review them and try again.");
+    if (!automatic && (await readChanges()) !== changes) throw new RemovalError("changes_changed");
     const entries = this.deps.terminals().filter((item) => item.worktree === entry.worktree);
     for (const item of entries) {
       if (item.dormant) continue;
@@ -211,8 +212,7 @@ export class CleanupOwner {
       await this.deps.exited(item.id, -1);
     }
     await revalidate?.();
-    if (!automatic && (await readChanges()) !== changes)
-      throw new Error("Worktree changes have changed. Review them and try again.");
+    if (!automatic && (await readChanges()) !== changes) throw new RemovalError("changes_changed");
     // Automatic approval awaits another policy check below. Ordinary confirmation
     // has no intervening work before the final revalidation, so do it only once.
     if (automatic) await revalidate?.();
@@ -220,8 +220,7 @@ export class CleanupOwner {
       changes = await readChanges();
       if (!(await confirm(entry.branch ?? entry.worktree, changes))) return false;
       await revalidate?.();
-      if ((await readChanges()) !== changes)
-        throw new Error("Worktree changes have changed. Review them and try again.");
+      if ((await readChanges()) !== changes) throw new RemovalError("changes_changed");
     }
     await revalidate?.();
     const release = await this.deps.prepareWorktreeRemoval?.(entry.worktree);
@@ -237,8 +236,7 @@ export class CleanupOwner {
           // Preview shutdown and the service's identity check both await external
           // work. Validate the approved snapshot after them, next to Git removal.
           await revalidate?.();
-          if ((await readChanges()) !== changes)
-            throw new Error("Worktree changes have changed. Review them and try again.");
+          if ((await readChanges()) !== changes) throw new RemovalError("changes_changed");
         },
       );
     } finally {

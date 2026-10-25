@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -153,7 +154,9 @@ test("recorded sounds refresh and preview user files while shell attention and c
   await expect(page.getByRole("option", { name: "Test bell", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Terminal", exact: true }).click();
   await page.getByRole("button", { name: "Sound", exact: true }).click();
-  await page.screenshot({ path: path.join(__dirname, "../../test-results/sound-settings.png") });
+  await page.screenshot({
+    path: evidencePath("sound-settings.png"),
+  });
   await page.getByLabel("Done sound", { exact: true }).selectOption("user:test-bell.wav");
   await expect
     .poll(() =>
@@ -297,7 +300,7 @@ test("sidebar footer zoom and master volume stay synchronized and presets are ab
       )
       .toBe(colorMode === "dark" ? "#0d0a17" : "#e9e4f5");
     await page.screenshot({
-      path: `test-results/footer-after-${colorMode}-300.png`,
+      path: evidencePath(`footer-after-${colorMode}-300.png`),
       animations: "disabled",
     });
     await page.locator(".sidebar-shell").evaluate((element) => {
@@ -319,7 +322,7 @@ test("sidebar footer zoom and master volume stay synchronized and presets are ab
     });
     assert.equal(bounds, true, "footer controls fit the minimum sidebar width");
     await page.screenshot({
-      path: `test-results/footer-after-${colorMode}-220.png`,
+      path: evidencePath(`footer-after-${colorMode}-220.png`),
       animations: "disabled",
     });
     await page.locator(".sidebar-shell").evaluate((element) => {

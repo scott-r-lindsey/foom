@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -347,9 +348,8 @@ test("neutral identity badges keep labels and geometry across themes and interfa
         .toBe(true);
       if (process.env.FOOM_SCREENSHOTS && [80, 100, 150].includes(interfaceScale))
         await page.screenshot({
-          path: path.join(
-            __dirname,
-            `../../test-results/badges-${colorScheme}-${interfaceScale}.png`,
+          path: evidencePath(
+            path.join(__dirname, `../../test-results/badges-${colorScheme}-${interfaceScale}.png`),
           ),
         });
     }
@@ -444,7 +444,9 @@ test("custom theme files appear live, update selected colors and retain rejected
     "background-color",
     "rgb(16, 16, 16)",
   );
-  await page.screenshot({ path: path.join(__dirname, "../../test-results/custom-theme.png") });
+  await page.screenshot({
+    path: evidencePath("custom-theme.png"),
+  });
 });
 
 test("version 2 themes scope portaled colors, shape and warnings and hold attention edits", {

@@ -38,7 +38,7 @@ See [Bundled manifest delivery (#434)](contracts/agent-compatibility.md#bundled-
 
 ## Complete manifests
 
-The shipped, build-locked JSON is authoritative: [Claude Code](../src/shared/bundled-agents/claude.json), [Codex](../src/shared/bundled-agents/codex.json), [Antigravity](../src/shared/bundled-agents/agy.json), [Pi](../src/shared/bundled-agents/pi.json). Config copies must change ID and name; see [customization](contracts/agent-trust.md#customizing-a-built-in-agent). The [Copilot draft](research/copilot-manifest.md) is unverified and blocked by [#410](https://github.com/scott-r-lindsey/foom/issues/410); it grants no support.
+The shipped, build-locked JSON is authoritative: [Claude Code](../src/shared/bundled-agents/claude.json), [Codex](../src/shared/bundled-agents/codex.json), [Antigravity](../src/shared/bundled-agents/agy.json), [GitHub Copilot](../src/shared/bundled-agents/copilot.json), [Pi](../src/shared/bundled-agents/pi.json). Config copies must change ID and name; see [customization](contracts/agent-trust.md#customizing-a-built-in-agent). Copilot 1.0.103 Linux measurements are recorded in [the agent evidence](agents.md#github-copilot-cli-410); the [older draft](research/copilot-manifest.md) is historical only.
 
 ## Open questions and shipping gates
 
@@ -79,7 +79,7 @@ See [area rules](contracts/agent-report.md#offline-capability-report).
 
 ## Unverified schema fixture
 
-This disabled draft is retained here because `tests/unit/main/config/layout.test.ts` validates it directly. It is not a supported agent or required area reading. [Verification gates](research/agent-verification.md) and [#410](https://github.com/scott-r-lindsey/foom/issues/410) still apply.
+This disabled draft is retained here because `tests/unit/main/config/layout.test.ts` validates it directly. It is historical schema coverage, separate from the [supported bundled Copilot manifest](../src/shared/bundled-agents/copilot.json), and not required area reading. Its renamed ID avoids colliding with the bundled agent.
 
 ### GitHub Copilot CLI 1.0.95
 
@@ -87,7 +87,7 @@ This disabled draft is retained here because `tests/unit/main/config/layout.test
 {
   "kind": "agent",
   "version": 2,
-  "id": "copilot",
+  "id": "copilot-draft",
   "name": "GitHub Copilot",
   "badge": "CP",
   "executables": ["copilot"],

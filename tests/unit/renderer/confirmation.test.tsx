@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { DialogRequest } from "../../../src/shared/confirmation";
 import { resolveInterfaceTheme } from "../../../src/shared/interface-themes";
 import { ConfirmationPage } from "../../../src/renderer/confirmation";
+beforeEach(() => {
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: { ready: Promise.resolve() },
+  });
+});
 afterEach(cleanup);
-test("focuses Cancel for every request, traps Tab, and renders untrusted content as text", () => {
+test("focuses Cancel for every request, traps Tab, and renders untrusted content as text", async () => {
   let receive: (value: DialogRequest | null) => void = () => undefined;
   const off = vi.fn();
   const answer = vi.fn();
@@ -36,6 +42,7 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   const view = render(<ConfirmationPage />);
   expect(view.queryByRole("alertdialog")).toBeNull();
   const request: DialogRequest = {
+    presented: true,
     id: "one",
     title: "Remove <script>branch</script>?",
     worktrees: [{ branch: "merged" }, { branch: "kept", reason: "running" }],
@@ -60,6 +67,9 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   };
   act(() => {
     receive(request);
+  });
+  await act(async () => {
+    await document.fonts.ready;
   });
   expect(document.documentElement.style.getPropertyValue("--ink")).toBe("#010203");
   expect(document.documentElement.style.getPropertyValue("--shape-radius")).toBe("0px");
@@ -127,6 +137,7 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   expect(answer).toHaveBeenLastCalledWith("one", true);
   act(() => {
     receive({
+      presented: true,
       id: "two",
       title: "Quit?",
       accept: "Stop all and quit",
@@ -187,6 +198,7 @@ test("cleanup checking, ready and run controls follow main state; Escape only hi
   });
   const view = render(<ConfirmationPage />);
   const base: DialogRequest = {
+    presented: true,
     id: "cleanup",
     title: "Delete merged worktrees?",
     accept: "Delete",
@@ -360,6 +372,7 @@ test("structured disclosures, git status words and pairing countdown render safe
   });
   const view = render(<ConfirmationPage />);
   const base: DialogRequest = {
+    presented: true,
     id: "structured",
     title: "Pair?",
     accept: "Grant",
@@ -452,6 +465,7 @@ test("batch review lists trusted snapshots, traps focus through selection and se
   });
   const view = render(<ConfirmationPage />);
   const request: DialogRequest = {
+    presented: true,
     id: "batch",
     title: "Remove worktrees?",
     accept: "Approve all",
@@ -549,6 +563,7 @@ test("starts summaries collapsed, includes only visible disclosure controls in T
   });
   const view = render(<ConfirmationPage />);
   const request: DialogRequest = {
+    presented: true,
     id: "collapsed",
     title: "Install?",
     accept: "Install",
@@ -657,6 +672,7 @@ test("cleanup closes only complete successful runs and resets its choice on ever
   });
   const view = render(<ConfirmationPage />);
   const base: DialogRequest = {
+    presented: true,
     id: "first",
     title: "Delete merged worktrees?",
     accept: "Delete",
@@ -727,4 +743,114 @@ test("cleanup closes only complete successful runs and resets its choice on ever
   expect(answer).toHaveBeenCalledTimes(1);
   open({ ...base, id: "second" });
   expect(view.getByRole("checkbox")).toHaveProperty("checked", true);
+});
+
+test("waits for fonts before measuring and ignores font completion for a dismissed request", async () => {
+  let ready = () => {};
+  const fonts = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  Object.defineProperty(document, "fonts", { configurable: true, value: { ready: fonts } });
+  let receive: (value: DialogRequest | null) => void = () => {};
+  const size = vi.fn();
+  const observe = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe = observe;
+      disconnect = vi.fn();
+    },
+  );
+  Object.defineProperty(window, "confirmation", {
+    configurable: true,
+    value: {
+      render: (callback: typeof receive) => {
+        receive = callback;
+        return () => {};
+      },
+      size,
+      answer: vi.fn(),
+    },
+  });
+  render(<ConfirmationPage />);
+  const request = {
+    presented: true,
+    id: "fonts",
+    title: "Allow?",
+    accept: "Allow",
+    theme: resolveInterfaceTheme("follow", false),
+  };
+  act(() => {
+    receive(request);
+  });
+  expect(size).not.toHaveBeenCalled();
+  expect(observe).not.toHaveBeenCalled();
+  act(() => {
+    receive(null);
+  });
+  await act(async () => {
+    ready();
+    await fonts;
+  });
+  expect(size).not.toHaveBeenCalled();
+  act(() => {
+    receive({ ...request, id: "next" });
+  });
+  await act(async () => {
+    await fonts;
+  });
+  expect(observe).toHaveBeenCalledTimes(2);
+  expect(size).toHaveBeenCalledOnce();
+});
+
+test("confirming controls wait for main's presentation flag, including selected removals", async () => {
+  let receive: (value: DialogRequest | null) => void = () => {};
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
+  const answer = vi.fn();
+  Object.defineProperty(window, "confirmation", {
+    configurable: true,
+    value: {
+      render: (callback: typeof receive) => {
+        receive = callback;
+        return () => {};
+      },
+      size: vi.fn(),
+      answer,
+    },
+  });
+  const view = render(<ConfirmationPage />);
+  const request: DialogRequest = {
+    id: "preparing",
+    presented: false,
+    title: "Remove?",
+    accept: "Approve all",
+    theme: resolveInterfaceTheme("follow", false),
+    removals: [{ id: "one", branch: "one", path: "/one", changes: "" }],
+  };
+  await act(async () => {
+    receive(request);
+    await document.fonts.ready;
+  });
+  const all = view.getByRole("button", { name: "Approve all" });
+  const selected = view.getByRole("button", { name: "Approve selected" });
+  expect(all).toHaveProperty("disabled", true);
+  expect(selected).toHaveProperty("disabled", true);
+  expect(view.getByRole("checkbox")).toHaveProperty("disabled", true);
+  expect(view.getByRole("button", { name: "Decline" })).toHaveProperty("disabled", false);
+  fireEvent.click(all);
+  expect(answer).not.toHaveBeenCalled();
+  act(() => {
+    receive({ ...request, presented: true });
+  });
+  expect(all).toHaveProperty("disabled", false);
+  fireEvent.click(view.getByRole("checkbox"));
+  expect(selected).toHaveProperty("disabled", false);
+  fireEvent.click(selected);
+  expect(answer).toHaveBeenLastCalledWith("preparing", ["one"]);
 });
