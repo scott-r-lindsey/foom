@@ -95,3 +95,25 @@ orchestration host, including PR adoption under the shared repository and branch
 reservations. The context still owns those reservations, terminal queues, launch
 cancellation, owner initialization and shutdown order behind the unchanged
 `workspace.ts` facade.
+
+## Remote agent phase 2 (#755)
+
+Phase 2 binds one locally authorized checkout to one pre-existing remote
+repository/worktree using explicit main-only developer flags. The local
+orchestrator owns remote children; the headless remote host owns their PTYs and
+runs discovery against its own CLI installations and login environment. There is
+no remote Foom UI, file synchronization or credential copying.
+
+The remote child grant exposes only `handoff`, `manual` and a sanitized `whoami`.
+Its identity is a fresh opaque per-launch alias, never a hub terminal ID or parent
+ID. Local `whoami` and parent-facing terminal IDs are unchanged. Filesystem preview
+and fleet/repository tools are refused with a fixed phase-2 restriction reason;
+this limitation is deferred to the host-aware control surface in #756.
+
+Remote hook and control endpoints terminate on private Unix sockets. A local
+stdio MCP adapter talks to the remote endpoint; only bounded, versioned, validated
+messages cross the SSH stream. Main keeps the actual child grant and dispatches
+relayed calls through existing authorization and handoff validation. Remote
+credentials are independent random per-launch capabilities, revoked on failed
+launch, exit, removal and shutdown. Neither those endpoints nor remote processes
+receive the daemon's terminal takeover ID or hub control credentials.
