@@ -27,7 +27,11 @@ test("every Forge packaging invocation runs one fresh build without sample argum
     const [executable, args, options] = build.mock.calls[invocation - 1].arguments;
     assert.equal(executable, process.execPath);
     assert.deepEqual(args, [join(root, "scripts/build.mjs")]);
-    assert.deepEqual(options, { cwd: root, stdio: "inherit" });
+    assert.deepEqual(options, {
+      cwd: root,
+      stdio: "inherit",
+      env: { ...process.env, FOOM_REQUIRE_REMOTE_HOSTS: "1" },
+    });
   }
 });
 

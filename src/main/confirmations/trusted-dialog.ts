@@ -40,6 +40,8 @@ export class TrustedDialog {
   private parentFocusable = true;
   private reachability: NodeJS.Timeout | undefined;
   private presenting = false;
+  private settling: NodeJS.Timeout | undefined;
+  private settled = false;
   private bounds: Rectangle | undefined;
   constructor(
     private readonly parent: BrowserWindow,
@@ -119,10 +121,25 @@ export class TrustedDialog {
       value.height <= 0
     )
       return;
-    const first = !this.size;
+    const changed = this.size?.width !== value.width || this.size.height !== value.height;
     this.size = { width: value.width, height: value.height };
-    if (first) this.present();
-    else this.syncBounds();
+    // Apply the viewport while hidden: wrapping/scrollbars can change the next
+    // measurement. Only map after the resulting layout has stopped changing.
+    try {
+      this.syncBounds();
+    } catch {
+      this.finish(false);
+      return;
+    }
+    if (!this.settled && changed) {
+      clearTimeout(this.settling);
+      this.settling = setTimeout(() => {
+        this.settling = undefined;
+        this.settled = true;
+        this.present();
+      }, 100);
+      this.settling.unref();
+    }
   };
   /** Called after the board's scale or resolved theme changes. */
   refresh(): void {
@@ -228,11 +245,13 @@ export class TrustedDialog {
       const request: DialogRequest = {
         ...renderContent,
         id,
+        presented: false,
         theme: this.theme(),
         ...(feed ? { cleanup: feed.current() } : {}),
         ...(removalFeed ? removalContent(removalFeed.current()) : {}),
       };
       this.size = undefined;
+      this.settled = false;
       this.bounds = undefined;
       const answer = new Promise<boolean>((resolve) => {
         this.pending = { id, request, resolve, activate };
@@ -250,6 +269,7 @@ export class TrustedDialog {
           this.pending.request = {
             ...renderContent,
             id: this.pending.id,
+            presented: this.pending.request.presented,
             theme: this.theme(),
             ...removalContent(removalFeed.current()),
           };
@@ -327,14 +347,19 @@ export class TrustedDialog {
       Math.min(Math.round(parent.y + (parent.height - height) / 2), bottom - height),
     );
     this.bounds = { x, y, width, height };
-    this.window.setBounds(this.bounds);
+    // Read native bounds, not the last request: a WM may have moved the child.
+    // Conversely, repeating already-correct pre-map coordinates after mapping
+    // can trigger X11 frame/gravity compensation and visibly move the card.
+    const actual = this.window.getBounds();
+    if (actual.x !== x || actual.y !== y || actual.width !== width || actual.height !== height)
+      this.window.setBounds(this.bounds);
   };
   private readonly blockParentInput = (event: Event, input: Input | MouseInputEvent) => {
     event.preventDefault();
     if (input.type === "mouseDown" || input.type === "keyDown") this.restoreDialog();
   };
   private readonly childUnavailable = () => {
-    if (this.presenting || !this.size) return;
+    if (this.presenting || !this.settled) return;
     const window = this.window;
     // Cocoa can deliver an earlier order-out notification after the next
     // request has shown the same child. Check its current native state (#353).
@@ -351,7 +376,7 @@ export class TrustedDialog {
   };
   private present(): void {
     const window = this.window;
-    if (!window || !this.pending || !this.size || this.presenting) return;
+    if (!window || !this.pending || !this.settled || !this.size || this.presenting) return;
     this.presenting = true;
     try {
       window.setParentWindow(this.parent);
@@ -360,10 +385,15 @@ export class TrustedDialog {
       // Only steal activation for a measured request a person started.
       if (this.platform === "darwin" && this.pending.activate) app.focus({ steal: true });
       window.show();
-      // Some window managers place a child when mapping it. Reapply after show.
+      // Some window managers place a child when mapping it. Reapply after show
+      // only if native geometry changed; an already-correct map needs no move.
       this.syncBounds();
       window.moveTop();
       this.focusDialog();
+      if (!this.pending.request.presented) {
+        this.pending.request = { ...this.pending.request, presented: true };
+        window.webContents.send("confirmation:render", this.pending.request);
+      }
     } catch {
       this.finish(false);
     } finally {
@@ -374,7 +404,7 @@ export class TrustedDialog {
   private isReachable(): boolean {
     const window = this.window;
     const expected = this.bounds;
-    if (!window || !this.size || !expected || this.presenting) return false;
+    if (!window || !this.settled || !this.size || !expected || this.presenting) return false;
     if (
       !window.isFocused() ||
       window.isMinimized() ||
@@ -403,7 +433,7 @@ export class TrustedDialog {
     if (this.reachability || !this.pending) return;
     this.reachability = setTimeout(() => {
       this.reachability = undefined;
-      if (!this.window || !this.size) this.finish(false);
+      if (!this.window || !this.settled) this.finish(false);
       else if (!this.isReachable()) {
         if (reordered) this.finish(false);
         else {
@@ -431,6 +461,9 @@ export class TrustedDialog {
     this.pending = undefined;
     if (!pending) return;
     if (!accepted) this.removalFeed?.select([]);
+    clearTimeout(this.settling);
+    this.settling = undefined;
+    this.settled = false;
     clearTimeout(this.reachability);
     this.reachability = undefined;
     this.unsubscribe?.();

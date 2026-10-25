@@ -1,6 +1,12 @@
+import { removalReasons } from "../workspace/worktree-outcome";
 import { createHash, randomUUID } from "node:crypto";
 import { ControlError, exact, identifier } from "../../node-common/control-validation";
 import type { Action, Operation, Principal, Reason, Status, StoredOperation } from "./types";
+
+function removalDetail(reason: Reason): { detail?: string } {
+  const entry = Object.entries(removalReasons).find(([code]) => code === reason);
+  return entry ? { detail: entry[1] } : {};
+}
 
 const actions: readonly string[] = [
   "create_worktree",
@@ -118,7 +124,15 @@ export class Operations {
       !["running", "succeeded", "failed", "declined", "cancelled", "indeterminate"].includes(
         status,
       ) ||
-      !["intent", "completed", "refused", "revoked", "uncertain", "error"].includes(reason)
+      ![
+        "intent",
+        "completed",
+        "refused",
+        "revoked",
+        "uncertain",
+        "error",
+        ...Object.keys(removalReasons),
+      ].includes(reason)
     )
       throw new ControlError("conflict");
     const record = {
@@ -127,6 +141,7 @@ export class Operations {
         ...prior.operation,
         status,
         reason,
+        ...removalDetail(reason),
         resultId,
         updatedAt: new Date().toISOString(),
       },
@@ -171,6 +186,7 @@ export class Operations {
     actor: Principal,
     operationId: string,
     identity: string,
+    declinedReason: Reason = "refused",
   ): (currentIdentity: string, accepted: boolean) => Promise<Operation> {
     this.check(actor);
     if (this.lookup(actor, { operationId }).status !== "pending_confirmation")
@@ -189,7 +205,7 @@ export class Operations {
         actor,
         operationId,
         accepted ? "running" : "declined",
-        accepted ? "intent" : "refused",
+        accepted ? "intent" : declinedReason,
       );
     };
   }

@@ -33,6 +33,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `workspace:create-worktree` | renderer → main (invoke) | repository path, branch, optional `root` / `adjacent` (default: configured) → worktree plus `outcome`: `new`, `existing`, `origin` or `open`; launches nothing |
 | `workspace:start` | renderer → main (invoke) | `{ repository, branch, run }` → terminal ID or null on cancellation; the board no longer uses it |
 | `confirmation:scrim` | main → requesting board | boolean visibility only; cosmetic dimming, no dialog content or approval capability |
+| `confirmation:render` | main → trusted renderer | validated request ID, content, theme and required boolean `presented`; confirming controls stay disabled until main completes its native presentation attempt; this flag grants no consent |
 | `confirmation:size` | trusted renderer → main | finite positive `{ width, height }` in CSS pixels; exact trusted main frame, URL and pending request required; zoomed and clamped to parent content and display work area |
 | `confirmation:answer` | trusted renderer → main | request ID and boolean for ordinary/single-removal and cleanup answers, or a nonempty unique subset of displayed operation IDs for grouped removals; exact trusted window, main frame, URL and pending ID plus reachability checks required; see [confirmation validation](confirmations.md#confirmations) |
 | `workspace:remove` | renderer → main (invoke) | terminal ID → boolean; main owns confirmation and dirty-file inspection |

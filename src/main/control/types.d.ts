@@ -1,3 +1,4 @@
+import type { RemovalReason } from "../workspace/worktree-outcome";
 export type Role = "agent" | "orchestrator" | "cli";
 export interface Principal {
   /** ISO timestamp when the current role was granted; refreshed on role changes. */
@@ -37,7 +38,14 @@ export type Status =
   | "declined"
   | "cancelled"
   | "indeterminate";
-export type Reason = "intent" | "completed" | "refused" | "revoked" | "uncertain" | "error";
+export type Reason =
+  | "intent"
+  | "completed"
+  | "refused"
+  | "revoked"
+  | "uncertain"
+  | "error"
+  | RemovalReason;
 export interface Operation {
   readonly operationId: string;
   readonly action: Action;
@@ -47,6 +55,7 @@ export interface Operation {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly reason: Reason;
+  readonly detail?: string;
   readonly proposal?: string;
   readonly inputHash?: string;
 }

@@ -1,3 +1,4 @@
+import { removalReasons } from "../workspace/worktree-outcome";
 import { reserveRequest } from "./http-limits";
 import { bundledManual } from "./manual";
 import { PREVIEW_METHODS } from "./previews";
@@ -240,6 +241,7 @@ export class ControlService {
           repository: locationId(actor.repository),
           worktree: locationId(actor.worktree),
           name: metadataName(basename(actor.worktree)),
+          removalReasons,
           capabilities: this.capabilities(actor),
           tools: this.capabilities(actor).map((name) => ({
             name,
