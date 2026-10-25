@@ -90,7 +90,7 @@ export class PreviewViewLifecycle {
     } finally {
       this.state(entry).readingScroll = false;
     }
-    if (this.hosted.get(id) === entry && !contents.isDestroyed()) contents.reload();
+    if (this.current(entry) && !this.closed() && !contents.isDestroyed()) contents.reload();
   }
   create(record: PreviewRecord, root: CanonicalRoot): HostedPreview {
     const origin = `foom-preview://${record.id}`;

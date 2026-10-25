@@ -6,7 +6,7 @@ afterEach(() => vi.useRealTimers());
 
 function owner() {
   const registry = new PreviewRegistry("unused.json");
-  vi.spyOn(registry, "save").mockResolvedValue();
+  const save = vi.spyOn(registry, "save").mockResolvedValue();
   const port = {
     registry,
     disposed: vi.fn(() => false),
@@ -21,7 +21,7 @@ function owner() {
     landing: vi.fn(),
     placeMoved: vi.fn(),
   };
-  return { port, transfer: new PreviewTransfer(port) };
+  return { port, transfer: new PreviewTransfer(port), save };
 }
 
 test("native cleanup retains discovery and callbacks see exactly one owner after transfer", async () => {
@@ -82,5 +82,41 @@ test("closing an unattached destination returns its record and placement to the 
   expect(target.port.registry.records.size).toBe(0);
   expect(source.port.landing).toHaveBeenCalledWith(record.id);
   expect(source.port.placeMoved).toHaveBeenCalledWith(record.id);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test("a failed persistence transaction can still return its incoming record during destination shutdown", async () => {
+  vi.useFakeTimers();
+  const source = owner();
+  const target = owner();
+  const record = source.port.registry.add("checkout", "a.html");
+  source.save.mockRejectedValueOnce(new Error("disk unavailable"));
+  let recovery: Promise<void> | undefined;
+  target.port.changed.mockImplementationOnce(() => {
+    target.port.closed.mockReturnValue(true);
+    recovery = target.transfer.recover();
+  });
+  await expect(source.transfer.moveTo(record.id, target.transfer)).rejects.toThrow(
+    "disk unavailable",
+  );
+  await recovery;
+  expect(source.port.registry.records.has(record.id)).toBe(true);
+  expect(target.port.registry.records.size).toBe(0);
+  expect(source.port.placeMoved).toHaveBeenCalledWith(record.id);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test("a checkout removed before the landing deadline cannot regain a native view", async () => {
+  vi.useFakeTimers();
+  const source = owner();
+  const target = owner();
+  const record = source.port.registry.add("checkout", "a.html");
+  await source.transfer.moveTo(record.id, target.transfer);
+  target.port.validateRecord.mockRejectedValueOnce(new Error("removed checkout"));
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(target.port.validateRecord).toHaveBeenCalledTimes(3);
+  expect(target.port.landing).not.toHaveBeenCalled();
+  expect(target.port.registry.records.has(record.id)).toBe(true);
+  target.transfer.forgetIncoming(record.id);
   expect(vi.getTimerCount()).toBe(0);
 });

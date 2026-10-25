@@ -8,7 +8,7 @@ import { PreviewSnapshots } from "../../../../src/main/previews/preview-snapshot
 import { canonicalRoot } from "../../../../src/main/previews/contained-files";
 
 // Native creation is mocked; the owner is exercised directly without host composition.
-test("late scroll restoration cannot load a released generation and cancellation releases listeners", async () => {
+async function owner() {
   const f = await fixture();
   const entries = new Map<string, HostedPreview>();
   const board = f.window.webContents as unknown as WebContents;
@@ -32,6 +32,11 @@ test("late scroll restoration cannot load a released generation and cancellation
     focus,
     snapshots,
   );
+  return { f, entries, apply, snapshots, focus, lifecycle };
+}
+
+test("late scroll restoration cannot load a released generation and cancellation releases listeners", async () => {
+  const { f, entries, apply, snapshots, focus, lifecycle } = await owner();
   const record = f.registry.add(f.root, "a.html");
   const entry = lifecycle.create(record, canonicalRoot(f.root));
   const contents = entry.view.webContents;
@@ -59,6 +64,32 @@ test("late scroll restoration cannot load a released generation and cancellation
   expect(replacement.view.webContents.listenerCount("did-finish-load")).toBe(0);
   expect(contents.listenerCount("did-start-navigation")).toBe(0);
   expect(lifecycle.watcherCount).toBe(0);
+  focus.dispose();
+  snapshots.dispose();
+  await f.host.dispose(false);
+});
+
+test("cancelling a generation during scroll capture prevents its late native reload", async () => {
+  const { f, lifecycle, focus, snapshots } = await owner();
+  const record = f.registry.add(f.root, "a.html");
+  const entry = lifecycle.create(record, canonicalRoot(f.root));
+  const contents = entry.view.webContents;
+  const nativeReload = vi.spyOn(contents, "reload");
+  let complete = () => {};
+  vi.spyOn(contents, "executeJavaScriptInIsolatedWorld").mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        complete = () => {
+          resolve([0, 40]);
+        };
+      }),
+  );
+  const reload = lifecycle.reload(record.id);
+  lifecycle.cancel(record.id);
+  complete();
+  await reload;
+  expect(nativeReload).not.toHaveBeenCalled();
+  expect(lifecycle.current(entry)).toBe(false);
   focus.dispose();
   snapshots.dispose();
   await f.host.dispose(false);
