@@ -342,6 +342,9 @@ test("trusted dialog presentation failure releases the board and allows a new re
     dialog.webContents.focus = () => {
       dialog.webContents.focus = focus;
       focus.call(dialog.webContents);
+      // macOS key focus takes precedence over occlusion reporting. Relinquish
+      // it explicitly so this fixture represents an unavailable native child.
+      dialog.blur();
       dialog.hide();
     };
   });

@@ -811,38 +811,42 @@ test("native occlusion events during reparent/show do not cancel the request bei
   dialog.dispose();
 });
 
-for (const target of ["child", "parent"] as const) {
-  for (const event of ["hide", "minimize"] as const) {
-    test(`${target} ${event} during presentation declines before enabling consent and permits reuse`, async () => {
-      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-      const dialog = setup();
-      const native = target === "child" ? window() : parent;
-      window().webContents.focus.mockImplementationOnce(() => {
-        if (event === "hide") native.isVisible.mockReturnValue(false);
-        else native.isMinimized.mockReturnValue(true);
-        native.emit(event);
+for (const platform of ["linux", "darwin"] as const) {
+  for (const target of ["child", "parent"] as const) {
+    for (const event of ["hide", "minimize"] as const) {
+      test(`${platform} ${target} ${event} during presentation declines before enabling consent and permits reuse`, async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        const dialog = setup(platform);
+        const native = target === "child" ? window() : parent;
+        window().webContents.focus.mockImplementationOnce(() => {
+          if (event === "hide") native.isVisible.mockReturnValue(false);
+          else native.isMinimized.mockReturnValue(true);
+          window().isFocused.mockReturnValue(false);
+          native.emit(event);
+        });
+        const pending = dialog.request(content);
+        await vi.advanceTimersByTimeAsync(100);
+        expect(await pending).toBe(false);
+        expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", false);
+        expect(parent.webContents.listenerCount("before-input-event")).toBe(0);
+        expect(parent.webContents.listenerCount("before-mouse-event")).toBe(0);
+        expect(window().webContents.send).not.toHaveBeenCalledWith(
+          "confirmation:render",
+          expect.objectContaining({ presented: true }),
+        );
+        await vi.advanceTimersByTimeAsync(6000);
+        expect(window().show).toHaveBeenCalledOnce();
+        window().isFocused.mockReturnValue(true);
+        native.isVisible.mockReturnValue(true);
+        native.isMinimized.mockReturnValue(false);
+        const next = dialog.request(content);
+        await vi.advanceTimersByTimeAsync(100);
+        const id = await shown();
+        answer(id, false);
+        expect(await next).toBe(false);
+        dialog.dispose();
       });
-      const pending = dialog.request(content);
-      await vi.advanceTimersByTimeAsync(100);
-      expect(await pending).toBe(false);
-      expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", false);
-      expect(parent.webContents.listenerCount("before-input-event")).toBe(0);
-      expect(parent.webContents.listenerCount("before-mouse-event")).toBe(0);
-      expect(window().webContents.send).not.toHaveBeenCalledWith(
-        "confirmation:render",
-        expect.objectContaining({ presented: true }),
-      );
-      await vi.advanceTimersByTimeAsync(6000);
-      expect(window().show).toHaveBeenCalledOnce();
-      native.isVisible.mockReturnValue(true);
-      native.isMinimized.mockReturnValue(false);
-      const next = dialog.request(content);
-      await vi.advanceTimersByTimeAsync(100);
-      const id = await shown();
-      answer(id, false);
-      expect(await next).toBe(false);
-      dialog.dispose();
-    });
+    }
   }
 }
 
