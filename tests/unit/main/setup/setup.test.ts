@@ -7,6 +7,7 @@ import { Setup } from "../../../../src/main/setup/setup";
 import { bypassConsentIdentity } from "../../../../src/main/agents/default-arguments";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
+import { legacyBypassIdentities } from "../../../../src/main/agents/providers/bundled";
 import type { SetupDependencies } from "../../../../src/main/setup/setup";
 import type { ScanProgress, Settings, SettingsPatch } from "../../../../src/shared/setup";
 
@@ -316,6 +317,24 @@ test("legacy ID-only acknowledgements require fresh disclosure and unknown IDs c
     },
   });
   expect(confirm).toHaveBeenCalledExactlyOnceWith("claude", ["--dangerously-skip-permissions"]);
+});
+
+test("historical built-in consent remains valid only for its pinned provider identity", async () => {
+  settings = {
+    ...DEFAULT_SETTINGS,
+    agentBypassAcknowledged: { claude: true, codex: true, agy: true },
+    agentBypassIdentities: legacyBypassIdentities,
+  };
+  const confirm = vi.fn(() => Promise.resolve(false));
+  const setup = new Setup({ ...deps, confirmBypass: confirm });
+  await setup.save({
+    agentArguments: {
+      claude: ["--dangerously-skip-permissions"],
+      codex: ["--dangerously-bypass-approvals-and-sandbox"],
+      agy: ["--dangerously-skip-permissions"],
+    },
+  });
+  expect(confirm).not.toHaveBeenCalled();
 });
 
 test("failed persistence does not remember bypass acknowledgement", async () => {

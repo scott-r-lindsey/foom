@@ -95,7 +95,8 @@ also count as bypass, even with approvals enabled. Known bypass detection is a
 fixed table, not an effective-policy audit. On load, an invalid agent's stored
 argument list is dropped without resetting other settings or other agents' lists.
 Consent records bind the provider origin and manifest, including executable and
-bypass policy. Legacy ID-only acknowledgements and acknowledgements for a former
+bypass policy. Historical built-in consent is retained only for its pinned build
+identity. Other legacy ID-only acknowledgements and acknowledgements for a former
 config provider require fresh review. Until the defaults are reviewed and saved
 for the current provider, each bypass launch requires a trusted confirmation;
 unattended child bypass remains unavailable.

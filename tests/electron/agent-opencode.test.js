@@ -1,4 +1,5 @@
 const { test } = require("./test-shard.js");
+const { evidencePath } = require("../helpers/evidence.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { mkdtemp, mkdir, readFile, writeFile, rm } = require("node:fs/promises");
@@ -118,6 +119,7 @@ if(process.argv.includes('--help')){console.log('--standalone --session --prompt
     "Launch OpenCode with bypass?",
   );
   await expect(migrationDisclosure.getByRole("alertdialog")).toContainText("--auto");
+  await migrationDisclosure.screenshot({ path: evidencePath("opencode-migration-bypass.png") });
   await migrationDisclosure.getByRole("button", { name: "Cancel", exact: true }).click();
   assert.equal(await inheritedLaunch, "cancelled");
   assert.equal(
@@ -142,6 +144,7 @@ if(process.argv.includes('--help')){console.log('--standalone --session --prompt
     "Save bypass defaults for OpenCode?",
   );
   await expect(disclosure.getByRole("alertdialog")).toContainText("--auto");
+  await disclosure.screenshot({ path: evidencePath("opencode-review-defaults.png") });
   await disclosure.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(defaults).toBeEnabled();
   await defaults.fill("");

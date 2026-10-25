@@ -1,4 +1,5 @@
 import { parseForgeEnablement, parseForgeHosts } from "./forge-settings";
+import { legacyBypassIdentities } from "../agents/providers/bundled";
 import { DEFAULT_TERMINAL_FONT } from "../../shared/terminal-fonts";
 import {
   EMPTY_AGENT_ARGUMENTS,
@@ -237,6 +238,16 @@ export class SettingsStore {
           sound: sound === undefined || version === 2 ? DEFAULT_SOUND : migrateSoundSettings(sound),
           agentArguments: recovered,
         };
+        // ID-only consent is provable only for historically reserved built-ins.
+        // Pin their historical identity, never the current provider's identity.
+        const identities = { ...store.settings.agentBypassIdentities };
+        for (const [agent, identity] of Object.entries(legacyBypassIdentities)) {
+          if (store.settings.agentBypassAcknowledged[agent] && !Object.hasOwn(identities, agent)) {
+            identities[agent] = identity;
+            migrated = true;
+          }
+        }
+        if (migrated) store.settings = { ...store.settings, agentBypassIdentities: identities };
         if (Object.values(recovered).some((args) => args.length > 0))
           store.argumentsToMove = recovered;
         if (version === 2) {
@@ -268,7 +279,7 @@ export class SettingsStore {
             ).map((key) => [key, store.settings[key]]),
           );
         }
-        migrated = legacy || legacyAutoRemove;
+        migrated ||= legacy || legacyAutoRemove;
       }
     } catch {
       // Defaults.
