@@ -64,7 +64,7 @@ the development app with both `--remote-shell-spike=SSH_ALIAS` and
 route the **home shell** to that host. Worktree/config shells and agents remain
 local. The selected artifact must match the remote OS/architecture; the spike does
 not download or cross-compile binaries. No host, artifact, executable or environment
-selection is added to IPC. Settings, inventory and hub-restart restoration are phase 4.
+selection is added to IPC. Settings and host inventory are phase 4.
 The home row still describes the local home location in this developer-only spike;
 the command in quit confirmation identifies `ssh SSH_ALIAS`. Do not infer remote
 filesystem membership from the local home row.
@@ -158,8 +158,10 @@ uses the same bounded cleanup without reconnecting.
 Input interrupted by disconnect is failed rather than replayed. Slow output above
 1 MiB of queued live updates or socket writes disconnects the view; headless parsing continues.
 Quit/dispose disconnects remote shells; explicit Stop or Close terminates them.
-The phase-1 hub retains IDs only in memory: rediscovery after hub restart is phase 4.
-To bound unreachable shells across hub restarts, a session with no connected owner
+Workspace restore already reuses each saved home-shell terminal ID, so after a hub
+restart a restored remote tile reopens its live daemon session with screen replay
+(verified on a real host). Discovering sessions the hub did not save is phase 4.
+To bound unreachable shells, a session with no connected owner
 is stopped, its PTY disposed and its slot released after a fixed **24-hour**
 grace period (`DETACHED_SESSION_GRACE_MS`). This comfortably exceeds the whole
 reconnect window (five 120-second attempts plus one-second retry delays, under
