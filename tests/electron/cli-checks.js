@@ -44,6 +44,8 @@ async function assertCliPairing(context, executable, profile, repository, confir
   ).toBeVisible();
   await expect(confirmation.locator(".code strong", { hasText: code })).toBeVisible();
   await expect(confirmation.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+  // Packaged CDP can see Cancel focused in a still-hidden native child.
+  await expect.poll(() => confirmation.evaluate(() => document.hasFocus())).toBe(true);
   await confirmation.getByRole("button", { name: "Grant read-only access for 10 minutes" }).click();
   await expect.poll(() => stdout).toContain('"ready":true');
   child.stdin.write('["whoami"]\n["sessions"]\n');

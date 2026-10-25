@@ -381,6 +381,8 @@ for (const loss of ["off-screen", "silent-hide"]) {
         return false;
       })
       .toBe(true);
+    // Counting DOM content does not establish native presentation.
+    await expect(dialog.getByRole("alertdialog")).toBeVisible();
     // Quit belongs to the focused second board, not the first board's preloaded child.
     await expect(board.locator(".board-confirmation-scrim")).toBeVisible();
     await board.evaluate(() => {
@@ -485,8 +487,7 @@ for (const loss of ["off-screen", "silent-hide"]) {
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
     assert.equal(app.process().exitCode, null);
-    // The generic teardown chooses the first preloaded child. Quit explicitly
-    // through this second board's child, after proving cancellation kept it alive.
+    // Quit through this second board's child after proving cancellation kept it alive.
     await app.evaluate(({ app }) => app.quit());
     await expect(dialog.getByRole("button", { name: "Stop all and quit" })).toBeVisible();
     await quitAndWait(app, () => dialog.getByRole("button", { name: "Stop all and quit" }).click());

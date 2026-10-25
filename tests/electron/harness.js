@@ -305,6 +305,40 @@ async function stopSession(page, id) {
   await page.evaluate(() => window.stopConfirmationSubscription());
 }
 
+async function waitForNativeConfirmation(app, page) {
+  const native = await app.browserWindow(page);
+  try {
+    await expect
+      .poll(
+        async () =>
+          (await native.evaluate(
+            (window) => window.isFocused() && (process.platform === "darwin" || window.isVisible()),
+          )) || (await page.getByRole("alertdialog").count()) === 0,
+      )
+      .toBe(true);
+  } finally {
+    await native.dispose();
+  }
+}
+const confirmationHandlers = new WeakMap();
+function prepareConfirmationActions(app, page) {
+  let ready = confirmationHandlers.get(page);
+  if (!ready) {
+    // CDP considers hidden native windows actionable. Wait before each dialog
+    // action/assertion, including reuse, without showing or focusing anything.
+    ready = page.addLocatorHandler(
+      page.getByRole("alertdialog"),
+      async () => {
+        if (page.url() === "app://confirmation/confirmation.html")
+          await waitForNativeConfirmation(app, page);
+      },
+      { noWaitAfter: true },
+    );
+    confirmationHandlers.set(page, ready);
+  }
+  return ready;
+}
+
 async function confirmationPage(app) {
   let page;
   await expect
@@ -313,6 +347,7 @@ async function confirmationPage(app) {
       return Boolean(page);
     })
     .toBe(true);
+  await prepareConfirmationActions(app, page);
   return page;
 }
 
@@ -739,8 +774,12 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
   assert.equal(await app.evaluate(({ app }) => app.commandLine.hasSwitch("mute-audio")), true);
   app.context().setDefaultTimeout(deadline(10_000));
   const staleTerminalErrors = [];
+  const confirmationHandlerErrors = [];
   app.on("window", (page) => {
     page.on("pageerror", (error) => console.error("Renderer error:", error));
+    void prepareConfirmationActions(app, page).catch((error) => {
+      if (!page.isClosed()) confirmationHandlerErrors.push(error);
+    });
   });
   app.on("console", (message) => {
     if (message.text().includes("Unknown or foreign terminal ID"))
@@ -766,42 +805,31 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
             async () => {
               await app.evaluate(({ app }) => app.quit());
               shutdownPhase = "wait for quit dialog or acknowledgement";
+              let quittingDialog;
               await expect
                 .poll(async () => {
                   if (await app.evaluate(() => globalThis.readyToQuit)) return true;
-                  const dialog = app
-                    .windows()
-                    .find((page) => page.url() === "app://confirmation/confirmation.html");
-                  return Boolean(
-                    dialog &&
-                      (await dialog
-                        .getByRole("button", { name: "Stop all and quit" })
-                        .count()
-                        .catch((error) => {
-                          if (dialog.isClosed()) return 0;
-                          throw error;
-                        })),
-                  );
+                  for (const candidate of app.windows()) {
+                    if (candidate.url() !== "app://confirmation/confirmation.html") continue;
+                    const pending = await candidate
+                      .getByRole("button", { name: "Stop all and quit" })
+                      .count()
+                      .catch((error) => {
+                        if (candidate.isClosed()) return 0;
+                        throw error;
+                      });
+                    if (pending) {
+                      quittingDialog = candidate;
+                      return true;
+                    }
+                  }
+                  return false;
                 })
                 .toBe(true);
               if (!(await app.evaluate(() => globalThis.readyToQuit))) {
-                const dialog = await confirmationPage(app);
+                const dialog = quittingDialog ?? (await confirmationPage(app));
                 shutdownPhase = "wait for native quit presentation";
-                // A CDP locator can click a rendered button in a still-hidden
-                // native window. Consent requires settled, visible key focus.
-                await expect
-                  .poll(() =>
-                    app.evaluate(({ BrowserWindow }) => {
-                      const child = BrowserWindow.getAllWindows().find(
-                        (window) =>
-                          window.webContents.getURL() === "app://confirmation/confirmation.html",
-                      );
-                      return Boolean(
-                        child?.isFocused() && (process.platform === "darwin" || child.isVisible()),
-                      );
-                    }),
-                  )
-                  .toBe(true);
+                await waitForNativeConfirmation(app, dialog);
                 shutdownPhase = "accept quit dialog";
                 await dialog.getByRole("button", { name: "Stop all and quit" }).click();
               }
@@ -822,6 +850,11 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
       assert.equal(child.exitCode, 0, "Electron must exit normally");
       console.info("App closed");
       assert.deepEqual(staleTerminalErrors, [], "Normal flows must not use revoked terminal IDs");
+      assert.deepEqual(
+        confirmationHandlerErrors,
+        [],
+        "Native confirmation waits must be installed",
+      );
       clearTimeout(watchdog);
     } catch (error) {
       console.error("Electron shutdown diagnostics:", {
@@ -850,6 +883,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
       clearTimeout(watchdog);
     }
   });
+  await Promise.all(app.windows().map((page) => prepareConfirmationActions(app, page)));
   // The shell markup now arrives with React’s first commit.
   const page = await boardPage(app);
   const ready = () => {
