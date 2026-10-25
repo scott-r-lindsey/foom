@@ -1,3 +1,5 @@
+import { RemoteTransport } from "./remote-transport";
+import type { RemoteTarget } from "../../shared/remote-host";
 import type { ChildInput } from "../../shared/child-input";
 import type { TerminalThemeChoice } from "../../shared/terminal-theme";
 import { parseTerminalThemeChoice, resolveTerminalTheme } from "../../shared/terminal-themes";
@@ -44,7 +46,8 @@ type Session = {
 
 /** Main owns capabilities; the utility process owns PTYs and parses their output. */
 export class TerminalHostClient {
-  private child: UtilityProcess | undefined;
+  private child: UtilityProcess | RemoteTransport | undefined;
+  private readonly remotes = new Map<string, TerminalHostClient>();
   private readonly sessions = new Map<string, Session>();
   private readonly pending = new Map<number, Pending>();
   private sequence = 0;
@@ -60,6 +63,7 @@ export class TerminalHostClient {
   private themeKey = "";
 
   setTheme(choice: TerminalThemeChoice): void {
+    for (const client of this.remotes.values()) client.setTheme(choice);
     this.themeChoice = parseTerminalThemeChoice(choice);
     this.updateTheme();
   }
@@ -76,13 +80,25 @@ export class TerminalHostClient {
   constructor(
     private readonly onExit: (id: string, code: number) => void,
     private readonly events: TerminalTelemetry = {},
+    private readonly remote?: RemoteTarget,
   ) {
     nativeTheme.on("updated", this.updateTheme);
   }
 
-  private start(): UtilityProcess {
+  private start(): UtilityProcess | RemoteTransport {
     if (this.disposed) throw new Error("Terminal host disposed");
     if (this.child) return this.child;
+    if (this.remote) {
+      const child = new RemoteTransport(this.remote, app.getVersion());
+      this.child = child;
+      child.on("message", (message: unknown) => {
+        this.receive(child, message);
+      });
+      child.once("exit", () => {
+        this.fail(child);
+      });
+      return child;
+    }
     this.releaseDiagnostics?.();
     this.failure = undefined;
     this.diagnostics = undefined;
@@ -137,37 +153,7 @@ export class TerminalHostClient {
       app.removeListener("child-process-gone", gone);
     };
     child.on("message", (message: unknown) => {
-      if (this.child !== child || !hostResponse(message)) return;
-      if (message.type === "activity") {
-        const entries = message.entries.filter((entry) => this.sessions.get(entry.id)?.alive);
-        if (entries.length) this.events.onActivity?.(entries);
-        return;
-      }
-      const session = this.sessions.get(message.id);
-      if (message.type === "evidence") {
-        if (session?.alive) this.events.onEvidence?.(message.id, message.evidence);
-      } else if (message.type === "foreground") {
-        if (session?.alive) this.events.onForeground?.(message.id, message.name);
-      } else if (message.type === "shell-state") {
-        if (session?.alive) this.events.onShellState?.(message.id, message.state);
-      } else if (message.type === "output") {
-        if (session?.alive) this.events.onOutput?.(message.id);
-      } else if (message.type === "quiet") {
-        if (session?.alive) this.events.onQuiet?.(message.id);
-      } else if (message.type === "data") {
-        if (session?.view === message.view) session.send?.(message.token, message.data);
-      } else if (message.type === "exit") {
-        if (!session?.alive) return;
-        session.alive = false;
-        this.onExit(message.id, message.code);
-      } else {
-        const pending = this.pending.get(message.request);
-        if (!pending || pending.id !== message.id) return;
-        this.pending.delete(message.request);
-        clearTimeout(pending.timer);
-        if (message.type === "error") pending.reject(new Error("Terminal host operation failed"));
-        else pending.resolve(message);
-      }
+      this.receive(child, message);
     });
     child.once("exit", (code) => {
       diagnostics.exitCode = code;
@@ -179,11 +165,45 @@ export class TerminalHostClient {
     return child;
   }
 
+  private receive(child: UtilityProcess | RemoteTransport, message: unknown): void {
+    if (this.child !== child || !hostResponse(message)) return;
+    if (message.type === "activity") {
+      const entries = message.entries.filter((entry) => this.sessions.get(entry.id)?.alive);
+      if (entries.length) this.events.onActivity?.(entries);
+      return;
+    }
+    const session = this.sessions.get(message.id);
+    if (message.type === "evidence") {
+      if (session?.alive) this.events.onEvidence?.(message.id, message.evidence);
+    } else if (message.type === "foreground") {
+      if (session?.alive) this.events.onForeground?.(message.id, message.name);
+    } else if (message.type === "shell-state") {
+      if (session?.alive) this.events.onShellState?.(message.id, message.state);
+    } else if (message.type === "output") {
+      if (session?.alive) this.events.onOutput?.(message.id);
+    } else if (message.type === "quiet") {
+      if (session?.alive) this.events.onQuiet?.(message.id);
+    } else if (message.type === "data") {
+      if (session?.view === message.view) session.send?.(message.token, message.data);
+    } else if (message.type === "exit") {
+      if (!session?.alive) return;
+      session.alive = false;
+      this.onExit(message.id, message.code);
+    } else {
+      const pending = this.pending.get(message.request);
+      if (!pending || pending.id !== message.id) return;
+      this.pending.delete(message.request);
+      clearTimeout(pending.timer);
+      if (message.type === "error") pending.reject(new Error("Terminal host operation failed"));
+      else pending.resolve(message);
+    }
+  }
+
   private failureMessage(diagnostics: HostDiagnostics): string {
     return `Terminal host stopped: ${JSON.stringify(diagnostics)}`;
   }
 
-  private fail(child: UtilityProcess): void {
+  private fail(child: UtilityProcess | RemoteTransport): void {
     if (this.child !== child) return;
     this.child = undefined;
     child.kill();
@@ -226,7 +246,11 @@ export class TerminalHostClient {
         () => {
           this.fail(child);
         },
-        command.type === "shutdown" ? 15000 : 10000,
+        command.type === "shutdown"
+          ? 15000
+          : this.remote && command.type === "create"
+            ? 125000
+            : 10000,
       );
       this.pending.set(request, { id: command.id, resolve, reject, timer });
       try {
@@ -238,10 +262,27 @@ export class TerminalHostClient {
   }
 
   async create(spec: TerminalSpec): Promise<string> {
+    if (this.disposed) throw new Error("Terminal host disposed");
     if (this.shuttingDown) throw new Error("Terminals are shutting down");
     const id = spec.id ?? randomUUID();
-    if (!/^[a-zA-Z0-9_-]{1,200}$/u.test(id) || this.sessions.has(id))
+    if (!/^[a-zA-Z0-9_-]{1,200}$/u.test(id) || this.sessions.has(id) || this.remotes.has(id))
       throw new Error("Invalid or occupied terminal ID");
+    if (spec.remote) {
+      if (this.remote) throw new Error("Nested remote target");
+      const client = new TerminalHostClient(this.onExit, this.events, spec.remote);
+      client.setTheme(this.themeChoice);
+      this.remotes.set(id, client);
+      const local = { ...spec };
+      delete local.remote;
+      try {
+        await client.create({ ...local, id });
+      } catch (error) {
+        this.remotes.delete(id);
+        await client.dispose();
+        throw error;
+      }
+      return id;
+    }
     this.sessions.set(id, { alive: true, available: true });
     try {
       await this.request({
@@ -259,6 +300,7 @@ export class TerminalHostClient {
   }
 
   async attach(id: string, send: (token: string, data: string) => void): Promise<void> {
+    if (this.remotes.has(id)) return this.remotes.get(id)?.attach(id, send);
     const session = this.sessions.get(id);
     if (!session?.available || !this.child) throw new Error("Terminal host unavailable");
     session.send = send;
@@ -272,21 +314,39 @@ export class TerminalHostClient {
     void this.request(command).catch(() => {});
   }
   write(id: string, data: string): void {
+    if (this.remotes.has(id)) {
+      this.remotes.get(id)?.write(id, data);
+      return;
+    }
     this.notify({ type: "write", id, data });
   }
   async reply(id: string, data: string): Promise<void> {
+    if (this.remotes.has(id)) return this.remotes.get(id)?.reply(id, data);
     await this.request({ type: "write", id, data });
   }
   async childInput(id: string, input: ChildInput): Promise<void> {
+    if (this.remotes.has(id)) return this.remotes.get(id)?.childInput(id, input);
     await this.request({ type: "child-input", id, input });
   }
   resize(id: string, cols: number, rows: number): void {
+    if (this.remotes.has(id)) {
+      this.remotes.get(id)?.resize(id, cols, rows);
+      return;
+    }
     this.notify({ type: "resize", id, cols, rows });
   }
   acknowledge(id: string, token: string, count: number): void {
+    if (this.remotes.has(id)) {
+      this.remotes.get(id)?.acknowledge(id, token, count);
+      return;
+    }
     this.notify({ type: "acknowledge", id, token, count });
   }
   detach(id: string): void {
+    if (this.remotes.has(id)) {
+      this.remotes.get(id)?.detach(id);
+      return;
+    }
     const session = this.sessions.get(id);
     if (session) delete session.send;
     this.notify({ type: "detach", id });
@@ -294,6 +354,8 @@ export class TerminalHostClient {
   async screen(
     id: string,
   ): Promise<{ lines: string[]; title: string; cols: number; rows: number }> {
+    const remote = this.remotes.get(id);
+    if (remote) return remote.screen(id);
     if (!this.sessions.get(id)?.available || !this.child)
       throw new Error("Terminal host unavailable");
     const result = await this.request({ type: "screen", id });
@@ -302,26 +364,42 @@ export class TerminalHostClient {
     return { lines: result.lines, title: result.title, cols: result.cols, rows: result.rows };
   }
   async tail(id: string, lines: number): Promise<string[]> {
+    const remote = this.remotes.get(id);
+    if (remote) return remote.tail(id, lines);
     if (!this.sessions.get(id)?.available || !this.child)
       throw new Error("Terminal host unavailable");
     return (await this.request({ type: "tail", id, lines })).lines;
   }
   async stop(id: string): Promise<boolean> {
+    const remote = this.remotes.get(id);
+    if (remote) return remote.stop(id);
     if (!this.sessions.get(id)?.alive) return false;
     const result = await this.request({ type: "stop", id });
     if (result.signaled === undefined) throw new Error("Missing terminal stop result");
     return result.signaled;
   }
   async kill(id: string): Promise<void> {
+    const remote = this.remotes.get(id);
+    if (remote) {
+      await remote.kill(id);
+      await remote.dispose();
+      this.remotes.delete(id);
+      return;
+    }
     if (!this.sessions.has(id)) return;
     // A failed host has no remaining screen to remove. Allow the renderer to restart.
     if (this.child && this.sessions.get(id)?.available) await this.request({ type: "kill", id });
     this.sessions.delete(id);
   }
   get runningCount(): number {
-    return [...this.sessions.values()].filter((session) => session.alive).length;
+    const remoteCount = [...this.remotes.values()].reduce(
+      (count, client) => count + client.runningCount,
+      0,
+    );
+    return remoteCount + [...this.sessions.values()].filter((session) => session.alive).length;
   }
   get hasPendingExits(): boolean {
+    if ([...this.remotes.values()].some((client) => client.hasPendingExits)) return true;
     return this.child !== undefined;
   }
   waitForExit(): Promise<void> {
@@ -331,6 +409,13 @@ export class TerminalHostClient {
     if (this.stopping) return this.stopping;
     this.shuttingDown = true;
     this.stopping = (async () => {
+      if (this.remotes.size)
+        await Promise.all([...this.remotes.values()].map((client) => client.shutdown()));
+      if (this.remote) {
+        this.sessions.clear();
+        this.child?.kill();
+        return;
+      }
       if (this.child) await this.request({ type: "shutdown", id: "host" });
       this.sessions.clear();
     })().catch((error: unknown) => {
@@ -345,7 +430,8 @@ export class TerminalHostClient {
     this.disposed = true;
     nativeTheme.removeListener("updated", this.updateTheme);
     const child = this.child;
-    this.closing = new Promise((resolve) => {
+    const remoteClosing = Promise.all([...this.remotes.values()].map((client) => client.dispose()));
+    const localClosing = new Promise<void>((resolve) => {
       if (!child) {
         resolve();
         return;
@@ -366,6 +452,7 @@ export class TerminalHostClient {
         resolve();
       }
     });
+    this.closing = Promise.all([remoteClosing, localClosing]).then(() => {});
     void this.closing.then(() => {
       this.releaseDiagnostics?.();
       this.releaseDiagnostics = undefined;

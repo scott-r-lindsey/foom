@@ -267,7 +267,12 @@ export class TerminalManager {
     if (this.nativeAvailable(session)) session.pty.resize(cols, rows);
   }
 
-  async attach(id: string, send: View["send"]): Promise<void> {
+  async attach(
+    id: string,
+    send: View["send"],
+    reset = false,
+    snapshotFits?: (token: string, data: string) => boolean,
+  ): Promise<void> {
     this.detach(id);
     const session = this.get(id);
     const generation = session.generation;
@@ -276,9 +281,16 @@ export class TerminalManager {
       session.screen.write("", () => {
         if (this.sessions.has(id) && generation === session.generation) {
           try {
+            const token = randomUUID();
+            const prefix = (reset ? "\x1bc" : "") + session.colors.snapshot();
             const snapshot =
-              session.colors.snapshot() + terminalSnapshot(session.screen, session.serialize);
-            session.view = { token: randomUUID(), send };
+              prefix +
+              terminalSnapshot(
+                session.screen,
+                session.serialize,
+                snapshotFits ? (data) => snapshotFits(token, prefix + data) : undefined,
+              );
+            session.view = { token, send };
             this.deliver(session, snapshot);
           } catch (error) {
             reject(new Error("Unable to snapshot terminal", { cause: error }));

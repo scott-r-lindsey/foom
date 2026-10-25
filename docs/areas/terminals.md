@@ -4,10 +4,9 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 ## Terminals
 
-**Proposed, not decided:** [Remote machines over SSH (#518)](../research/remote-machines.md)
-compares a herdr adapter with a persistent Foom host. It proposes a Foom-owned
-host, with main retaining authorization; no remote runtime or setting ships yet.
-This is separate from #67's remote mirrored UI.
+[Remote hosts #753](https://github.com/scott-r-lindsey/foom/issues/753) decides
+SSH-only transport and persistent remote PTYs. The older [#518 research](../research/remote-machines.md)
+is historical; the opt-in phase-1 spike is described below. There is no Hosts setting yet.
 
 **Today:** `src/terminal-host/terminal-host.ts` runs `TerminalManager` in an Electron utility process, owning independent PTYs and headless screens by ID. `src/main/terminals/terminal-host-client.ts` brokers asynchronous operations in main over the parent port; it never imports node-pty or headless xterm. `src/main/terminals/terminal-ipc.ts` grants registered app windows access to app-owned terminals and enforces exclusive attachments. The first board opens the bundled manual after setup, with no PTY until a launch is requested. Selecting a row places its session in an available tile or focuses its existing tile; Esc remains terminal input. Hiding a tile or entering Settings detaches the stream without stopping the shell. Placing another terminal in an empty tile or returning from Settings drains pending renderer writes, resets the display, fits the visible grid, and restores a fresh host snapshot before continuing the live stream. Input and resize events are suppressed while hidden or changing attachment. The manager and ID-scoped bridge support multiple concurrent sessions; the board consumes live worktree and verdict data. Closing a window detaches its views; the last window requests quit on Windows/Linux and keeps the app alive on macOS. Running terminals require confirmation; cancellation preserves the window and sessions. Confirmed quit stops each PTY and waits for its exit before disposing sessions and closing the window. On Unix, a PTY that ignores graceful termination receives a force-kill after one second. Windows uses ConPTY termination without Unix signals; once a termination request succeeds, shutdown and retries only drain its native exit callback, because closing a ConPTY handle twice can crash the host. A throwing termination request remains retryable. Failure to exit within five seconds leaves the app open with an error so quitting can be retried. Detached sessions continue running; navigation or a renderer crash automatically detaches views. PTY termination requests retain their process handles and exit subscriptions even after a terminal is removed from the board. Confirmed quit applies the same graceful termination and force-kill deadlines to these removed processes and waits for their pending native exits before closing the window; the `will-quit` barrier remains a final safeguard against native callbacks racing Node teardown on Windows.
 
@@ -54,3 +53,131 @@ unfocused dimming were rejected because they did not provide a reliable combined
 CPU/latency benefit. The visible write path, token-scoped parse acknowledgements
 and backpressure remain unchanged. Prototype tests cover byte-identical mixed-
 chunk normal/alternate buffers, delayed ACKs, watermarks and ordered resize stages.
+
+
+## Remote shell spike (#754)
+
+Build `node scripts/build-remote-host.mjs` on Linux/macOS with Node 24, then build
+Foom. The build produces `build/remote-host/foom-host` and `manifest.json`. Launch
+the development app with both `--remote-shell-spike=SSH_ALIAS` and
+`--remote-host-artifact=/absolute/path/to/foom-host`; these main-only argv options
+route the **home shell** to that host. Worktree/config shells and agents remain
+local. The selected artifact must match the remote OS/architecture; the spike does
+not download or cross-compile binaries. No host, artifact, executable or environment
+selection is added to IPC. Settings and host inventory are phase 4.
+The home row still describes the local home location in this developer-only spike;
+the command in quit confirmation identifies `ssh SSH_ALIAS`. Do not infer remote
+filesystem membership from the local home row.
+
+System SSH is spawned with an executable plus argument array (`shell: false`),
+the streaming equivalent of execFile; unlike execFile it retains no lifetime output
+buffer. Host aliases/user@host accept only a narrow ASCII grammar, cannot start
+with `-`, and are bounded. SSH uses BatchMode and clears configured forwarding;
+the user's own SSH config, keys and agent handle trust. CI and all development
+verification use fixture SSH, a controlled PATH and temporary HOME; they never use
+real SSH material or hosts. Nothing edits SSH configuration or installs software
+system-wide. A fixed, quoted POSIX bootstrap uses head, SHA-256, and atomic rename
+to upload the exact artifact through that same stdio connection, into private
+`~/.foom-host/<version>/<sha256>/foom-host`. Cached bytes are hash-checked too.
+First-time upload/negotiation has a 120-second transport deadline and a 125-second
+create deadline; normal terminal requests retain their 10-second deadline.
+No remote text is interpolated into commands. Existing symlinks/unsafe directories
+are refused. Linux requires standard coreutils; macOS uses shasum when sha256sum
+is unavailable.
+
+The wire format is a 4-byte unsigned big-endian byte count followed by UTF-8 JSON
+`{version:1,message:...}`. Frames are capped at 8 MiB before allocation; invalid
+lengths, UTF-8, JSON, envelope versions, payloads and foreign IDs close the channel.
+Responses above 65,536 UTF-16 units are transmitted as ordered fragments, each
+with terminal ID, offset and total. The client permits one contiguous response
+at a time, requires fixed-size chunks except the final chunk, bounds the total
+to 32 Mi UTF-16 units (64 MiB of string storage), and validates the reassembled
+response before publishing it. Malformed, interleaved or excessive responses
+close the channel. The 8 MiB per-frame cap remains unchanged. The daemon writes
+one frame at a time, queues live output behind replay, and finishes replay before
+acknowledging attach or processing another attachment.
+Replay budgets include the complete JSON-encoded response, reset and color state.
+If retained history exceeds the message cap, replay falls back to the visible
+normal/alternate buffers, cursor and modes, omitting scrollback from that replay.
+Blank visible cells retain their background colors in both buffers, including
+trailing blank rows omitted by the pinned serializer. The daemon's retained
+history is not erased and remains available to tail requests.
+Both peers negotiate the SHA-256 build identity before operations. The shell-only
+protocol permits open, attach/replay, input, resize, theme, acknowledgement, screen,
+tail, stop and close; it cannot create arbitrary commands, send hooks/MCP, or shut
+down the daemon. The daemon chooses its own HOME and environment, and starts an
+interactive login shell (`-i -l`): its own `SHELL` if it is an absolute path to an
+existing executable regular file, otherwise the account shell from
+`os.userInfo().shell` under the same validation, finally `/bin/sh` if neither is
+valid (including unavailable account lookup). Neither hub nor protocol selects it.
+It supports at most 32 full sessions and connections, serializes operations per connection,
+and rejects a backlog above 256 operations. Only the current connection can operate
+on its selected ID. An `open` with an existing ID transfers the session and
+disconnects its prior connection; its only protection is the 0600 socket plus an
+unguessable terminal ID, so IDs must never be exposed to remote processes through
+environment, arguments or files, and future remote agents (#755) must preserve this.
+
+The detached per-user daemon owns PTYs, headless screens and independent parser
+backpressure. It listens only on a 0600 Unix socket `~/.foom-host/host.sock` under
+a 0700 owner-checked directory. HOME must be canonical, owned, nonlinked and not
+group/world writable. Socket paths above 100 bytes are refused. No TCP listener
+exists. A pre-existing socket is never unlinked during startup; an incompatible
+build is refused, including with live sessions. A stale socket after SIGKILL needs
+manual removal after confirming the daemon is gone. A new build never kills or
+replaces a daemon. SIGTERM/SIGINT stop its PTYs and remove the socket.
+
+Disconnect detaches only the view, so hidden/disconnected shells keep consuming
+output. After an established SSH stream drops, the hub makes up to five reconnect
+attempts, opening the same terminal ID and replaying a fresh screen with reset,
+then live output. Every `open` requires a runtime-validated boolean `reattach`:
+first creation sends false, restoration sends true. Its typed `open-result`
+reports `live`, `exited` (with the real exit code), or `gone`. A reattach never
+creates a shell: a missing or currently removing ID returns `gone`. The hub ends
+the tile through its normal terminal-exit path (fixed code -1 for `gone`), without
+replaying/resetting its last displayed screen, counting a transport failure or
+retrying. An exited tombstone supplies its real exit code instead. No fresh shell
+can silently replace a disconnected tile. The PTY owner includes the reset in its counted snapshot, so
+renderer acknowledgments account for exactly the bytes it delivered, including
+large replay above the view high-water mark. It restores dimensions/theme and
+gives the view a fresh token. Only successful completion of all restoration
+operations, including the attach result after the complete replay, resets the
+retry allowance. An open acknowledgement followed by a replay disconnect still
+consumes an attempt; five such attempts terminate the transport and fail the tile.
+The 120-second connection deadline remains active throughout reconnect negotiation,
+open, state restoration and replay, and is cleared only after all restoration
+acknowledgements arrive. An unanswered internal request kills that SSH stream and
+consumes an attempt; partial progress does not extend the deadline. All connection
+retirement (deadline, protocol/stream/process errors, exit/close and disposal)
+invalidates the connection before signalling SSH. Buffered responses cannot finish
+restoration or renew the retry allowance. Retirement consumes an attempt once and
+schedules retry or terminal failure without waiting for process close. A retired
+SSH process receives SIGTERM, then SIGKILL after a one-second grace if it has not
+exited; its remaining stdio is released after that grace. Late process events
+cannot consume another attempt or affect the replacement connection. Disposal
+uses the same bounded cleanup without reconnecting.
+Input interrupted by disconnect is failed rather than replayed. Slow output above
+1 MiB of queued live updates or socket writes disconnects the view; headless parsing continues.
+Quit/dispose disconnects remote shells; explicit Stop or Close terminates them.
+Workspace restore already reuses each saved home-shell terminal ID, so after a hub
+restart a restored remote tile reopens its live daemon session with screen replay
+(verified on a real host). Discovering sessions the hub did not save is phase 4.
+To bound unreachable shells, a session with no connected owner
+is stopped, its PTY disposed and its slot released after a fixed **24-hour**
+grace period (`DETACHED_SESSION_GRACE_MS`). This comfortably exceeds the whole
+reconnect window (five 120-second attempts plus one-second retry delays, under
+11 minutes) and preserves shells across overnight disconnections. This is a
+phase-1 bound only: phase 4 (#757) replaces timeout reaping with hub-driven
+reconciliation of known IDs. Reattaching a live session within the grace period
+cancels reaping; a later disconnect starts a fresh grace period. Hiding a view alone does
+not start the timer while its connection remains. Exited sessions retain their
+screen while connected. Once disconnected, their PTY/headless screen is disposed
+and only a small exit-code tombstone plus expiry timer is retained. Tombstones do
+not consume the 32 full-session slots; at most 64 are kept, with the oldest exit
+record dropped first. Their expiry remains the original 24-hour detach deadline,
+including when the shell exits later during that period; querying a tombstone
+does not renew it. Once dropped or expired, reattach returns `gone`. Output that
+was never delivered before a disconnected exit cannot be recovered from an
+exit-code-only tombstone; the hub retains its last received display.
+Expiry follows explicit kill's stop/disposal path, including forced cleanup if
+graceful stop fails; shutdown cancels pending reap timers.
+See [measurements and fixture verification](../../spikes/remote-host/phase-1.md).

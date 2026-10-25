@@ -1,3 +1,4 @@
+import { remoteSpikeTarget } from "../terminals/remote-bootstrap";
 import { ControlError } from "../../node-common/control-validation";
 import type { AgentId, AgentLaunch } from "../../shared/agents";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
@@ -208,11 +209,13 @@ export async function startShell(
   pathFirst?: string,
   configEnvironment?: Readonly<Record<string, string>>,
 ): Promise<string> {
-  const environment = await this.shellEnvironment(pathFirst);
+  const remote = location.home ? remoteSpikeTarget(process.argv) : undefined;
+  const environment = remote ? { env: {}, names: [] } : await this.shellEnvironment(pathFirst);
   if (restoreId !== undefined) this.executionOwner.reset(restoreId);
   const id = await this.deps.terminals.create({
     ...(restoreId === undefined ? {} : { id: restoreId }),
-    command: shellPath(),
+    ...(remote ? { remote } : {}),
+    command: remote ? `ssh ${remote.host}` : shellPath(),
     args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
     shellIntegration: true,
     env: { ...environment.env, ...configEnvironment },
