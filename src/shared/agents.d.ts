@@ -4,9 +4,11 @@ import type { AgentSetupStatus } from "./agent-setup";
 import type { EnvironmentVariable } from "./environment";
 import type { AgyPluginStatus } from "./agy-plugin";
 export type HookHealthState = "not-reviewed" | "trusted" | "declined" | "outdated";
-export type BuiltinAgentId = "claude" | "codex" | "agy";
+export type BuiltinAgentId = "claude" | "codex" | "agy" | "pi";
 export type AgentId = string;
-export type AgentValues<T> = Readonly<Record<BuiltinAgentId, T> & Record<string, T>>;
+// Only the original three keys are required in persisted settings; later bundled agents
+// use the same absent-means-default policy as config agents for profile compatibility.
+export type AgentValues<T> = Readonly<Record<"claude" | "codex" | "agy", T> & Record<string, T>>;
 export interface AgentInstallation {
   readonly id: AgentId;
   readonly name?: string;

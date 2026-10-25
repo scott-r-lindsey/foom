@@ -28,6 +28,7 @@ describe("detection", () => {
       ["claude", versions.claude, true],
       ["codex", versions.codex, true],
       ["agy", versions.agy, false],
+      ["pi", versions["pi"], false],
     ]);
     expect(Object.isFrozen(scan.agents[0])).toBe(true);
     expect(execFile).toHaveBeenCalledWith(
@@ -212,11 +213,17 @@ it("v2 preserves successful discovery data when only the independent version pro
 });
 
 it("disabled agents retain card identity but run no discovery or setup probes, and enabling probes again", async () => {
-  const scan = await agentFixture.service.scan({ claude: false, codex: false, agy: false });
+  const scan = await agentFixture.service.scan({
+    claude: false,
+    codex: false,
+    agy: false,
+    pi: false,
+  });
   expect(scan.agents.map((agent) => [agent.id, agent.path, agent.reason])).toEqual([
     ["claude", join(root, process.platform === "win32" ? "claude.exe" : "claude"), "Turned off"],
     ["codex", join(root, process.platform === "win32" ? "codex.exe" : "codex"), "Turned off"],
     ["agy", join(root, process.platform === "win32" ? "agy.exe" : "agy"), "Turned off"],
+    ["pi", join(root, process.platform === "win32" ? "pi.exe" : "pi"), "Turned off"],
   ]);
   expect(scan.agents[0]?.name).toBe("Claude Code");
   expect(execFile).not.toHaveBeenCalledWith(

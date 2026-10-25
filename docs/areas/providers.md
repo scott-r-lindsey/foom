@@ -7,7 +7,7 @@ Decided implementation and security rules for this area. Read the [file map](../
 The heading is retained for existing links; config manifests no longer require approval.
 
 `main/agents/providers/provider.d.ts` declares the single `AgentProvider` contract.
-Claude, Codex and Antigravity register through the build-locked bundled manifest loader. The bundled loader uses the same strict parser and immutable v2 engine as config providers; JSON cannot claim its origin. See [bundled delivery and compatibility](../contracts/agent-compatibility.md#bundled-manifest-delivery-434) for digest/version rules, unchanged settings/consents and observer ABI differences. The shared engine owns discovery gates, launch argv, MCP attachment, observer selection and hook payload reduction. The launch features use capability metadata rather than comparing
+Claude, Codex, Antigravity and Pi register through the build-locked bundled manifest loader. The bundled loader uses the same strict parser and immutable v2 engine as config providers; JSON cannot claim its origin. See [bundled delivery and compatibility](../contracts/agent-compatibility.md#bundled-manifest-delivery-434) for digest/version rules, unchanged settings/consents and observer ABI differences. The shared engine owns discovery gates, launch argv, MCP attachment, observer selection and hook payload reduction. The launch features use capability metadata rather than comparing
 agent IDs. Shared built-in policy metadata is browser-safe. Main emits generic observed-health and notifier-selection facts to the renderer; config manifests cannot grant themselves build provenance. Agent identities can now be strings, but runtime IPC accepts only IDs in
 main's current loaded provider registry. Config providers cannot register a
 built-in ID or duplicate another provider. Built-in orchestration restore checks
@@ -84,3 +84,22 @@ Disabled agents remain configurable: discovery resolves their executable on PATH
 without running CLI discovery or setup probes. Agents cards refresh discovery on
 entry and config changes, keeping missing switches Off without saving a preference.
 Enablement changes invalidate workspace discovery caches.
+
+### Pi (#823)
+
+Pi ships as a locked v2 manifest and appears in the shared Settings → Agents
+catalog. Pi opts in to bounded active screen sampling so its continuously redrawing
+spinner can establish Working. Pi 1.4.0 uses screen rules only: its CLI exposes code extensions, not
+per-launch command hooks. Foom does not install extension glue. New conversations
+receive a Foom-generated UUID through `--session-id`; Resume uses `--session`,
+and pasted `pi --session <UUID>` commands are recognized. `--approve` and `-a`
+trust project-local files and require the normal bypass disclosure.
+
+Pi has no advertised per-launch MCP configuration interface. Its MCP commands
+write global or project `.pi/mcp.json` files, which Foom never writes. Pi cannot
+receive orchestration MCP roles or restore those roles. The measured file write
+ran without a permission prompt; blocked detection covers the measured model
+selector and OpenAI model-not-found error, not an invented file approval screen. See [measurements](../agents.md#pi-140-measurement-823).
+
+Existing settings keep their original required keys; absent Pi settings use the
+normal enabled/empty-default behavior without rewriting the profile.

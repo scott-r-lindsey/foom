@@ -72,3 +72,70 @@ The orchestrator recorded agy 1.4.2 on Linux: `plugin list` prints plain text, w
 Observer version 3 uses absolute paths into the validated CLI-owned installed plugin, rather than relying on an unmeasured hook cwd or an undocumented plugin-root variable. The hook ID remains `foom-observer-v1`; plugin metadata determines the observer ABI. Legacy v1/v2 installations offer Update, and owned installations offer Reinstall and Remove. Status unavailable offers Retry status. See [setup contract](contracts/agent-setup.md) for bounded probes, ownership, confirmation and partial reinstall failure.
 
 The #723 review found that absolute paths into a disposable Foom profile disappear on exit. Hooks now target the canonical CLI-owned installation instead; no documented agy plugin-root variable is assumed. Modern reported install paths require exact native spellings (case variants on Windows/macOS additionally require matching realpath identity); noncanonical or foreign paths are unavailable. Reported paths never select inventory reads or execute commands. Status verifies installed hook/observer bytes and reports missing or changed targets as outdated. Fixture tests delete disposable staging, rescan from another profile, and verify consistent installed status and working hooks. Same-definition Dev/everyday profiles share the installed target without scan-time rewriting or alternating status.
+
+### Pi 1.4.0 measurement (#823)
+
+Measured manually on Linux on 2026-10-25, using `/home/slindsey/.local/bin/pi`
+in a disposable OS temporary directory, outside the repository. No bypass flags
+were used and no Pi configuration or credential files were inspected or edited.
+`pi --version` returned `1.4.0`.
+
+`pi --help` advertises positional interactive messages, `--session-id <id>`
+(exact project session ID, creating it if missing), and `--session <path|id>`
+(session file or partial UUID). On exit, the observed resume instruction was
+`To resume this session: pi --session <UUID>`.
+
+The help exposes `--extension, -e <path>` for extension code, but no per-launch
+command-hook attachment. `pi mcp --help` says it reads `~/.pi/agent/mcp.json`
+and trusted projects' `.pi/mcp.json`; its add/remove commands persist settings.
+Neither help output advertises a per-launch MCP configuration file or inline
+override. These measurements do not establish a supported declarative hook or
+per-launch MCP attachment; no extension or MCP configuration was installed.
+`--approve, -a` is documented as trusting project-local files for one run.
+
+Three short PTY sessions attempted a reply-only prompt with the configured
+`gpt-5.5`, the same prompt with `--model gpt-5.3-codex`, and a request to create
+`ready.txt` containing `ready` with `--model gpt-5.4`. Each returned an OpenAI
+400 `model_not_found` error saying that model was not supported with a ChatGPT
+account. The redacted screen fragments were:
+
+```text
+Working: ── ⠋ Working ─────────────────────────────────
+Error:   Error: OpenAI API error (400):
+         {"type":"invalid_request_error","code":"model_not_found", ...}
+Footer:  ─────────────────────────────────────────────
+         <temporary directory>
+         $0.000 (sub) 0.5%/272k (auto)     <model> • medium
+Title:   π - <temporary directory basename>
+```
+
+The title stayed unchanged while working and after the error. The editor has a
+plain divider even while working, so a divider alone is not evidence of idle.
+With the user-specified `--model gpt-6.1-sol`, the reply-only prompt returned
+`ready` and the file prompt created `ready.txt` containing `ready`, without any
+permission prompt or bypass flag. Both turns showed the Working divider and then
+returned to plain editor dividers. The usage footer contained `(auto)` and the
+selected model. The shipped idle rule requires that footer and excludes Working;
+the higher-priority Working rule wins while its divider remains visible. These
+are screen heuristics, not proof of success. Startup and error-returned editors
+also have idle editor dividers. The measured OpenAI `model_not_found` error
+has a higher-priority blocked rule so it cannot be mistaken for a completed turn.
+Other unmeasured error variants remain a limitation.
+
+The same session's `/model` picker supplied a measured blocked screen:
+
+```text
+Only showing models from configured providers. Use /login to add providers.
+> <search field>
+→ ✓ <selected model> [<provider>]
+  Model Name: <selected model name>
+  Model catalogs refreshed.
+<temporary directory>
+```
+
+Escape dismissed the picker without selecting or persisting a different model.
+The blocked rule requires both the configured-provider notice and `Model Name:`
+in the bounded bottom region. File approval remains unobserved because this
+installation wrote the requested file without prompting. No file-permission rule
+is inferred. The working/idle and model-selection rules are captured in the
+bundled manifest tests; no automated test invokes real Pi.

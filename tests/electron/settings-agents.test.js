@@ -345,3 +345,59 @@ test("footer config gear opens Settings and launches two independent docked Shel
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   await assertAccessible(page);
 });
+
+test("Pi Settings card discloses project trust bypass and keeps MCP roles unavailable", async (context) => {
+  const { copyFile, chmod } = require("node:fs/promises");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-pi-settings-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  await Promise.all([bin, home].map((directory) => mkdir(directory)));
+  const executable = path.join(bin, process.platform === "win32" ? "pi.exe" : "pi");
+  await copyFile(process.execPath, executable);
+  await chmod(executable, 0o755);
+  const app = await launchApp(context, { fixture: "agent", home, env: { HOME: home, PATH: bin } });
+  const page = await boardPage(app);
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  const input = page.getByLabel("Pi default arguments");
+  await expect(input).toBeVisible();
+  const scan = await page.evaluate(() => window.desktop.scanAgents(true));
+  const pi = scan.agents.find((agent) => agent.id === "pi");
+  assert.equal(pi.name, "Pi");
+  assert.equal(pi.resume, true);
+  assert.equal(pi.hooks, false);
+  assert.equal(pi.mcp, false);
+  assert.equal(pi.restoreControl, false);
+  await input.fill("--approve");
+  await input.blur();
+  const disclosure = await confirmationPage(app);
+  await expect(disclosure.getByRole("alertdialog")).toHaveAccessibleName(
+    "Save bypass defaults for Pi?",
+  );
+  await disclosure.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.deepEqual(
+    (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.pi ?? [],
+    [],
+  );
+  await input.fill("-a");
+  await input.blur();
+  await expect(disclosure.getByRole("alertdialog")).toHaveAccessibleName(
+    "Save bypass defaults for Pi?",
+  );
+  await disclosure.getByRole("button", { name: "Save bypass defaults", exact: true }).click();
+  await expect(input).toBeEnabled();
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.setupState())).settings.agentBypassAcknowledged
+          .pi,
+    )
+    .toBe(true);
+  assert.deepEqual(
+    (await page.evaluate(() => window.desktop.setupState())).settings.agentArguments.pi,
+    ["-a"],
+  );
+  await expect(page.getByRole("button", { name: "Scan again", exact: true })).toBeEnabled();
+  await page.screenshot({ path: "test-results/pi-agent-settings.png", animations: "disabled" });
+});

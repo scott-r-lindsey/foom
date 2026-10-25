@@ -405,7 +405,10 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
 
   await tabTo(page, "Start preflight");
   await page.keyboard.press("Enter");
-  await expect(page.getByText("Not found")).toHaveCount(3, { timeout: deadline(20000) });
+  const providerCount = (await page.evaluate(() => window.desktop.scanAgents(false))).agents.length;
+  await expect(page.getByText("Not found")).toHaveCount(providerCount, {
+    timeout: deadline(20000),
+  });
   await assertFooter();
   await tabTo(page, "Continue");
   await page.keyboard.press("Enter");
@@ -458,8 +461,12 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     await chmod(path.join(bin, name), 0o755);
   }
   await page.getByRole("button", { name: "Scan again" }).click();
-  await expect(page.locator(".agent-version")).toHaveText(["2.1.300", "0.155.1", "1.2.13"]);
-  await expect(page.locator(".agent-card")).toHaveCount(3);
+  await expect(page.locator(".agent-card:not(.missing) .agent-version")).toHaveText([
+    "2.1.300",
+    "0.155.1",
+    "1.2.13",
+  ]);
+  await expect(page.locator(".agent-card")).toHaveCount(providerCount);
   await expect(page.getByText(path.join(bin, "codex"), { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Hooks", exact: true })).toHaveCount(3);
   await expect(page.getByText("Notify + screen rules active", { exact: true })).toBeVisible();

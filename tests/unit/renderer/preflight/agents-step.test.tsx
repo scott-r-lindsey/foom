@@ -1,3 +1,4 @@
+import { BUILTIN_AGENTS } from "../../../../src/shared/providers/catalog";
 import { renderWithErrors as render } from "../../../fixtures/render-with-errors";
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -219,7 +220,7 @@ test("registry-only agent cards save literal defaults and hook choices, with fac
   const missing = screen.getByRole("region", { name: "missing" });
   expect(missing.querySelectorAll(".agent-setting")).toHaveLength(0);
   view.rerender(<AgentsStep {...f.props} report={undefined} source={undefined} scanning />);
-  expect(screen.getAllByText("Looking…")).toHaveLength(3);
+  expect(screen.getAllByText("Looking…")).toHaveLength(BUILTIN_AGENTS.length);
   expect(screen.getByRole("button", { name: "Scanning…" })).toHaveProperty("disabled", true);
 });
 

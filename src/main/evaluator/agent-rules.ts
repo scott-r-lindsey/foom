@@ -4,8 +4,6 @@ export { ruleRegion } from "../../shared/providers/screen-rules";
 export { boundedRegex } from "../../shared/providers/detection";
 import { isAgentId } from "../../shared/providers/catalog";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
-import type codex from "./agent-rules/codex.json";
-import type agy from "./agent-rules/agy.json";
 import type { AgentManifest, AgentRule } from "./agent-rule-types";
 import type { AgentEvidence } from "../../shared/agent-detection";
 import type { AgentId } from "../../shared/agents";
@@ -13,7 +11,11 @@ import type { AgentId } from "../../shared/agents";
 /** Deliberately small regex language: no repetition, groups, alternation or backreferences.
  * Every accepted pattern has bounded, linear work even on adversarial screen text. */
 
-export function parseManifest(data: typeof codex | typeof agy): AgentManifest {
+export function parseManifest(
+  data: Omit<AgentManifest, "rules"> & {
+    rules: readonly (Omit<AgentRule, "state" | "region"> & { state: string; region: string })[];
+  },
+): AgentManifest {
   // JSON imports are compiled and shipped, never loaded from agent output or a URL.
   if (data.minimumEngineVersion !== 1) throw new Error("Unsupported detection engine");
   const id = data.id;

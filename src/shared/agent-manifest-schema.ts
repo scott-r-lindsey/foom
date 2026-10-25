@@ -503,11 +503,12 @@ export function provenance(v: unknown, p: string) {
   };
 }
 export function attention(v: unknown, p: string) {
-  const d = object(v, p, ["minimumEngineVersion", "rules"], ["provenance"]);
+  const d = object(v, p, ["minimumEngineVersion", "rules"], ["provenance", "sampleWhileActive"]);
   return {
     minimumEngineVersion: literal(1)(d["minimumEngineVersion"], `${p}.minimumEngineVersion`),
     rules: array(rule, 64)(d["rules"], `${p}.rules`),
     provenance: optional(provenance)(d["provenance"], `${p}.provenance`),
+    sampleWhileActive: defaulted(boolean, false)(d["sampleWhileActive"], `${p}.sampleWhileActive`),
   };
 }
 export function execution(v: unknown, p: string) {

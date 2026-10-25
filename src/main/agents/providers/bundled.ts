@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import pi from "../../../shared/bundled-agents/pi.json";
 import agy from "../../../shared/bundled-agents/agy.json";
 import codex from "../../../shared/bundled-agents/codex.json";
 import claude from "../../../shared/bundled-agents/claude.json";
@@ -32,4 +33,5 @@ export const bundledProviders: readonly AgentProvider[] = [
     "e5afbef90ce00779271cbebb22f0571f76446d16ef355674d7ebd8e9a3061c9d",
   ),
   bundledProvider(agy, "agy", "db7f8b59d03461d2d7e7d1d1af8f54419ba76e9f625b3b083e5b83c15d8fb668"),
+  bundledProvider(pi, "pi", "c991bbc7073a9bd168dc7321a64850e12660f739932caa57ff516653acbc13f6"),
 ];

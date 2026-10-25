@@ -1106,6 +1106,9 @@
         },
         "provenance": {
           "$ref": "#/$defs/provenance"
+        },
+        "sampleWhileActive": {
+          "type": "boolean"
         }
       }
     },
@@ -1375,11 +1378,11 @@
         "format": {
           "const": "json"
         },
-        "empty": {
-          "$ref": "#/$defs/emptyProbe"
-        },
         "fallbackArguments": {
           "$ref": "#/$defs/argv"
+        },
+        "empty": {
+          "$ref": "#/$defs/emptyProbe"
         }
       }
     },

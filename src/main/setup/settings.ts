@@ -354,7 +354,7 @@ export class SettingsStore {
     await this.write(() => {
       this.settings = { ...this.settings, ...profile };
       if (profile.agentArguments)
-        this.argumentsToMove = AGENTS.some((agent) => profile.agentArguments?.[agent].length)
+        this.argumentsToMove = Object.values(profile.agentArguments).some((args) => args.length)
           ? profile.agentArguments
           : undefined;
     });
