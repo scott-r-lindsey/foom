@@ -247,6 +247,10 @@ export async function selectHostArtifact(
       !/^[a-f0-9]{40}$/u.test(value.source)
     )
       throw new Error("Invalid application source revision");
+    if ("remoteHostsAvailable" in value && value.remoteHostsAvailable === false)
+      throw new Error(
+        "Remote host artifact unavailable in this local build; provide an explicit host artifact",
+      );
     expectedSource = value.source;
   }
   const artifact = await hostArtifact(

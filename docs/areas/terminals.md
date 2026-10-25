@@ -57,12 +57,16 @@ chunk normal/alternate buffers, delayed ACKs, watermarks and ordered resize stag
 
 ## Remote shell spike (#754)
 
-Every package carries a same-commit catalog for `linux-x64`, `linux-arm64`,
+Every CI/release package carries a same-commit catalog for `linux-x64`, `linux-arm64`,
 `darwin-x64` and `darwin-arm64` (#825). Each target has `foom-host.gz` and a
 manifest containing app version, protocol, source revision, expanded size/SHA-256
 and gzip size/SHA-256. Packaging refuses a partial, mixed-revision, incompatible
 or corrupt catalog. Both builders derive the full checkout commit with Git;
-packaging requires every source to equal the app checkout, even outside CI.
+packaging requires every included source to equal the app checkout, even outside CI.
+Local packages may warn and omit the entire catalog when any entry fails validation
+(#848); sealed metadata marks the omission and remote shells refuse with
+"Remote host artifact unavailable" unless a verified explicit artifact is supplied.
+See [local and strict packaging](../validation.md#bundled-remote-host-artifacts-825).
 `development` is never a packaged source revision. There are no runtime artifact downloads.
 
 Launch with `--remote-shell-spike=SSH_ALIAS` to route the **home shell** to that

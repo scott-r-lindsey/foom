@@ -14,7 +14,11 @@ The package manager is pinned in `package.json`. `.npmrc` keeps a hoisted layout
 
 Electron runs JavaScript compiled from your TypeScript. `pnpm start`, `pnpm run test:electron`, `pnpm run package`, and `pnpm run make` compile automatically. Edit files in `src/`; `build/` is generated and ignored by Git.
 
-Packaging commands delegate to Forge, whose mandatory `prePackage` hook performs one fresh production build. Direct `pnpm exec electron-forge package` and `pnpm exec electron-forge make` use the same hook. A previous `pnpm run start:samples` build is replaced before packaging, so its development sample data cannot ship.
+Packaging commands delegate to Forge, whose mandatory `prePackage` hook performs one fresh production build. Direct `pnpm exec electron-forge package` and `pnpm exec electron-forge make` use the same hook. Local packages can omit unavailable remote hosts with a warning; CI and explicit
+`FOOM_REQUIRE_REMOTE_HOSTS=1` builds require the complete verified catalog (see
+[validation](validation.md#bundled-remote-host-artifacts-825)).
+
+A previous `pnpm run start:samples` build is replaced before packaging, so its development sample data cannot ship.
 
 The build also writes the app icon set to `build/icons/` from the generator in
 `scripts/icon/` (see [brand: mark](brand.md#mark)). The first build for a given

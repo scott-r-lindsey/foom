@@ -165,7 +165,7 @@ builds; neither trusts `GITHUB_SHA` or a catalog entry as the checkout identity.
 Every entry must match the app checkout's full commit, never `development`.
 The app build embeds that commit in `build/build-metadata.json` inside ASAR;
 runtime catalog selection requires the manifest source to match before upload,
-so an older same-version gzip/manifest pair is rejected. Packaged
+so an older same-version gzip/manifest pair is rejected. CI packaged
 and extracted-installer smoke tests decompress and hash all four entries. The
 Quality gate's required-job rules, coverage thresholds, permissions and Release
 configuration are unchanged: a failed host build blocks packaging, which remains
@@ -192,12 +192,24 @@ upload and the expanded hash after upload and on cache reuse. No Release secrets
 environments, workflow permissions or credential stages change. The user verifies
 real notarization after merge with `publish_nightly`.
 
-For local packaging, populate `.cache/remote-hosts/TARGET/` with all four native
-builds from the same revision and version, or set `FOOM_REMOTE_HOST_ARTIFACTS` to
-that catalog's absolute path. Each native builder accepts `FOOM_REMOTE_HOST_OUTPUT`
-as a catalog root and places its entry under `PLATFORM-ARCH/`. Development builds
-may omit the catalog and use the explicit native artifact override; `package` and
-`make` require all four entries. CI's download/assembly steps show the layout.
+Local `package` and `make` try `.cache/remote-hosts/TARGET/`, or the catalog root
+specified by `FOOM_REMOTE_HOST_ARTIFACTS`. No CI download or detached checkout is
+needed. If any entry is missing, stale or invalid, the build warns and omits the
+**entire** catalog, removes any partially copied entries, and records
+`remoteHostsAvailable: false` inside ASAR. Remote shells then refuse with
+"Remote host artifact unavailable"; an explicit native artifact override still
+undergoes runtime platform, version and byte verification. A complete supplied
+catalog must pass the same checks as CI. Local packaged smoke verifies the sealed
+omission and absence of unpacked hosts, or validates all four entries when present.
+
+`CI` or `GITHUB_ACTIONS` being nonempty always requires all four exact-revision
+artifacts; `FOOM_REQUIRE_REMOTE_HOSTS=0` cannot weaken this. Local release/packaging
+jobs must set `FOOM_REQUIRE_REMOTE_HOSTS=1` to select that same strict path.
+Missing entries, wrong revision/version/protocol, sizes or hashes stop packaging.
+Fixture tests exercise missing, stale and corrupt entries through both modes.
+Developer ID signing also refuses a sealed omission; only local ad-hoc signing
+accepts it. Each native builder accepts `FOOM_REMOTE_HOST_OUTPUT` as a catalog
+root and places its entry under `PLATFORM-ARCH/`.
 The builder prints expanded/gzip byte counts, SHA-256 values, gzip elapsed time
 and saved percentage for compression measurement without a remote host.
 

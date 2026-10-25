@@ -93,6 +93,11 @@ pnpm run clean
 git diff --check
 ```
 
+Local `package`/`make` may warn and omit an incomplete or invalid remote-host
+catalog; packaged smoke checks that sealed omission. CI always requires all four
+verified same-revision hosts, and local release/packaging jobs must set
+`FOOM_REQUIRE_REMOTE_HOSTS=1`. See [remote-host validation](docs/validation.md#bundled-remote-host-artifacts-825).
+
 Run `pnpm run clean` only after `pnpm run make` and `pnpm run test:packaged` pass. It removes local `out/` packaging output so development worktrees do not retain it. On Linux, wrap both Electron test commands in `xvfb-run -a`. Keep CI packaging output until its artifact uploads finish; do not add this cleanup to CI.
 
 Open a **draft** pull request after the first coherent commit and push at each working step. CI runs on drafts, so Windows and macOS failures surface while the work is in progress; a newer push cancels the branch's previous run. Watch results with `gh pr checks --watch` and mark the PR ready for review only when it is green. Pass local `pnpm run check` before each push, reproduce Linux failures locally, and don't push only to re-run CI.

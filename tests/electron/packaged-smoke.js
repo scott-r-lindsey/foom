@@ -72,7 +72,17 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   assert.equal(metadata.source, gitSync(["rev-parse", "HEAD"]).toString().trim());
   const { gunzipSync } = require("node:zlib");
   const { createHash } = require("node:crypto");
-  for (const target of ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"]) {
+  const strictHosts = Boolean(
+    process.env.CI || process.env.GITHUB_ACTIONS || process.env.FOOM_REQUIRE_REMOTE_HOSTS === "1",
+  );
+  if (strictHosts)
+    assert.notEqual(metadata.remoteHostsAvailable, false, "CI packages require remote hosts");
+  if (metadata.remoteHostsAvailable === false) {
+    assert.equal(existsSync(path.join(resources, "app.asar.unpacked/build/remote-hosts")), false);
+  }
+  for (const target of metadata.remoteHostsAvailable === false
+    ? []
+    : ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"]) {
     const directory = path.join(resources, "app.asar.unpacked/build/remote-hosts", target);
     const manifest = JSON.parse(readFileSync(path.join(directory, "manifest.json"), "utf8"));
     const compressed = readFileSync(path.join(directory, "foom-host.gz"));

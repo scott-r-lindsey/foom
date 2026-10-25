@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { gzip, gunzip } from "node:zlib";
@@ -61,6 +61,33 @@ export async function writeHostManifest(output, { version, platform, arch, sourc
     }),
   );
   return manifest;
+}
+
+/** CI cannot opt out; local release rehearsals can explicitly opt in. */
+export function requireRemoteHosts(env = process.env) {
+  return Boolean(env.CI || env.GITHUB_ACTIONS || env.FOOM_REQUIRE_REMOTE_HOSTS === "1");
+}
+
+/** Local packages omit the entire catalog if any entry fails strict validation. */
+export async function prepareRemoteHosts(
+  source,
+  output,
+  version,
+  revision,
+  env = process.env,
+  warn = console.warn,
+) {
+  try {
+    await packageRemoteHosts(source, output, version, revision);
+    return true;
+  } catch (error) {
+    await rm(output, { recursive: true, force: true });
+    if (requireRemoteHosts(env)) throw error;
+    warn(
+      `Remote host artifact unavailable: omitting local catalog (${error.message}). Remote shells require a valid artifact override. Set FOOM_REQUIRE_REMOTE_HOSTS=1 for strict packaging.`,
+    );
+    return false;
+  }
 }
 
 /** Fail packaging rather than silently ship a partial, stale or corrupt catalog. */

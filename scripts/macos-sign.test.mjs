@@ -55,7 +55,7 @@ test("keychain search-list parsing preserves paths, spaces, order and escaped qu
     assert.throws(() => parseKeychains(output));
 });
 
-async function fixture(t) {
+async function fixture(t, metadata = {}) {
   const root = mkdtempSync(join(tmpdir(), "foom-sign-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const app = join(root, "Foom.app");
@@ -76,7 +76,7 @@ async function fixture(t) {
   mkdirSync(join(content, "build"), { recursive: true });
   writeFileSync(
     join(content, "build/build-metadata.json"),
-    JSON.stringify({ source: "a".repeat(40) }),
+    JSON.stringify({ source: "a".repeat(40), ...metadata }),
   );
   writeFileSync(join(content, "package.json"), JSON.stringify({ version: "0.1.0" }));
   await createPackage(content, join(app, "Contents/Resources/app.asar"));
@@ -1138,4 +1138,25 @@ require('node:module').syncBuiltinESMExports();
       /revision mismatch/,
     );
   }
+});
+
+test("only local ad-hoc signing permits a sealed catalog omission", async (t) => {
+  const { app } = await fixture(t, { remoteHostsAvailable: false });
+  const { signBundledRemoteHosts } = await import("./macos-sign.mjs");
+  for (const key of ["CI", "GITHUB_ACTIONS", "FOOM_REQUIRE_REMOTE_HOSTS"]) {
+    const original = process.env[key];
+    t.after(() => {
+      if (original === undefined) delete process.env[key];
+      else process.env[key] = original;
+    });
+    delete process.env[key];
+  }
+  const execute = () => assert.fail("omitted catalog must not invoke codesign");
+  await signBundledRemoteHosts(app, { identity: "-" }, execute);
+  await assert.rejects(
+    signBundledRemoteHosts(app, { identity: "Developer ID Application: Fixture" }, execute),
+    /required/,
+  );
+  process.env.CI = "true";
+  await assert.rejects(signBundledRemoteHosts(app, { identity: "-" }, execute), /required/);
 });
