@@ -65,16 +65,6 @@ function AppContents() {
     // cleanup can otherwise overwrite the fallback with body on Windows/macOS.
     if (!origin) return;
     restoreBoardFocus(origin.target);
-    // Windows can finish native focus cleanup after the commit. Repair only
-    // an empty focus target after the first paint; retain a person's new selection.
-    let frame = window.requestAnimationFrame(() => {
-      frame = window.requestAnimationFrame(() => {
-        if (document.activeElement === document.body) restoreBoardFocus(origin.target);
-      });
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
   }, [scrim]);
   useEffect(() => {
     let showing = false;

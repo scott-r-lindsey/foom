@@ -121,8 +121,9 @@ opener fallback. A coalesced prepare/dismiss pair still commits its dismissal ef
 the final visible flag is unchanged. Serial handoffs retain the original focus
 until the scrim is actually removed, with a stable native-popover ref.
 Scrim restoration runs in a layout effect after removing the top-layer popover;
-its native focus cleanup must finish before selecting the fallback. A check after the first paint
-repairs a later Windows reset only when body still owns focus, preserving
-any new human focus target. DOM restoration
+its native focus cleanup must finish before selecting the fallback. A closed
+terminal falls back to the stable sidebar navigation root ahead of session rows,
+which can disappear when a later workspace snapshot reaches the renderer.
+Restoration requires no delayed focus retry. DOM restoration
 never requests native app activation. Native
 trusted-window restoration follows the [confirmation rules](confirmations.md#focus-restoration-852).

@@ -17,9 +17,11 @@ export function restoreBoardFocus(previous: Element | null): void {
   for (const selector of [
     '.terminal-tile[data-focused="true"] .xterm-helper-textarea',
     '.terminal-tile[data-focused="true"]',
+    // Terminal teardown and sidebar snapshots can commit separately. The
+    // navigation root survives a session row that has yet to disappear.
+    ".board-list",
     ".sidebar-shell [data-nav]",
     ".wordmark-menu",
-    ".board-list",
   ]) {
     for (const target of document.querySelectorAll(selector)) if (focus(target)) return;
   }

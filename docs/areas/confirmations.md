@@ -188,5 +188,7 @@ sending the scrim-dismiss notification, so DOM restoration cannot race a disable
 Windows board.
 The existing boolean scrim notification captures and restores the board's DOM
 input target; no terminal payload or new IPC capability is needed. If the target
-closed, the renderer falls back to the focused tile's xterm input, its tile, a
-sidebar navigation control, the application menu, then the sidebar itself.
+closed, the renderer falls back to the focused tile's xterm input, its tile, then
+the sidebar navigation root. That root survives sidebar snapshots which may
+remove a stale session row after terminal teardown. If the root is absent, a
+sidebar navigation control or the application menu can receive focus.
