@@ -1,5 +1,5 @@
 import type { HostRequest, HostResponse } from "./terminal-host";
-export type RemoteTarget = { host: string; artifact: string };
+export type RemoteTarget = { host: string; artifact?: string };
 export type RemoteRequest =
   | { type: "hello"; build: string }
   | { type: "open"; request: number; id: string; cols: number; rows: number; reattach: boolean }

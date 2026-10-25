@@ -48,6 +48,8 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   // agent CLI, network, system install, or user shell startup files.
   for (const tool of [
     "sh",
+    "uname",
+    "gzip",
     "head",
     "mkdir",
     "chmod",
@@ -95,6 +97,7 @@ const { appendFileSync } = require('node:fs');
 const args = process.argv.slice(2);
 const split = args.indexOf('--');
 if (split < 0 || args[split + 1] !== 'fixture-cloud') process.exit(2);
+if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(require('node:os').type() + '\\n' + (process.arch === 'x64' ? 'x86_64' : process.platform === 'darwin' ? 'arm64' : 'aarch64') + '\\n'); process.exit(0); }
 appendFileSync(${JSON.stringify(pidFile)}, process.pid + '\\n');
 appendFileSync(${JSON.stringify(sshLog)}, 'fixture ssh started\\n');
 const child = spawn('/bin/sh', ['-c', 'exec ' + args.slice(split + 2).join(' ')], { env: { HOME: ${JSON.stringify(remoteHome)}, PATH: ${JSON.stringify(bin)}, SHELL: ${JSON.stringify(shell)}, LANG: 'C' }, stdio: ['pipe', 'pipe', 'pipe'] });

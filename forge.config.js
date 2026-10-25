@@ -22,7 +22,11 @@ module.exports = {
       require("node:child_process").execFileSync(
         process.execPath,
         [require("node:path").join(__dirname, "scripts/build.mjs")],
-        { cwd: __dirname, stdio: "inherit" },
+        {
+          cwd: __dirname,
+          stdio: "inherit",
+          env: { ...process.env, FOOM_REQUIRE_REMOTE_HOSTS: "1" },
+        },
       );
     },
     // Seal the finished bundle after fuses, ASAR creation and helper copying.
@@ -50,7 +54,7 @@ module.exports = {
   },
   packagerConfig: {
     asar: {
-      unpack: "**/build/{observers/**/*,console/**/*,manual/!(sections.json)}",
+      unpack: "**/build/{observers/**/*,console/**/*,remote-hosts/**/*,manual/!(sections.json)}",
       unpackDir: "**/node_modules/node-pty/**",
     },
     executableName: "Foom",

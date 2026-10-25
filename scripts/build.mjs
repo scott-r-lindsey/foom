@@ -224,3 +224,16 @@ for (const provider of bundledProviders) {
 }
 
 await import("./build-cli.mjs");
+
+// CI downloads all four same-run native builds outside build/, which is cleared
+// above. Production packages require the complete catalog; dev builds may omit it.
+if (process.env.FOOM_REQUIRE_REMOTE_HOSTS === "1" || process.env.FOOM_REMOTE_HOST_ARTIFACTS) {
+  const { packageRemoteHosts } = await import("./remote-host-artifacts.mjs");
+  const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  await packageRemoteHosts(
+    process.env.FOOM_REMOTE_HOST_ARTIFACTS ?? join(root, ".cache/remote-hosts"),
+    join(root, "build/remote-hosts"),
+    version,
+    process.env.GITHUB_SHA,
+  );
+}

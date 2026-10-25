@@ -146,6 +146,49 @@ except credential-only checks, including nights without changes to main. It is e
 nightly publication dependencies; its isolated real-CLI policy is documented in
 [AGENTS.md](../AGENTS.md#validation-and-delivery).
 
+## Bundled remote host artifacts (#825)
+
+The `Remote host` matrix builds native Node 24 SEAs on `ubuntu-24.04` (linux-x64),
+`ubuntu-24.04-arm` (linux-arm64), `macos-15-intel` (darwin-x64) and `macos-15`
+(darwin-arm64), from the same checkout as the desktop app. No cross-build is used.
+Each job writes a version/protocol/source-revision/size/SHA-256 manifest and gzip
+metadata, verifies native SEA startup with invalid arguments (no daemon or
+network), and uploads its catalog entry with three-day retention. Nightly version
+stamping uses the same condition and deterministic stamp as desktop packaging.
+
+The three existing native-check/packaging jobs wait for the complete host matrix,
+download only their own run's four artifacts into `.cache/remote-hosts`, and
+package all four compressed hosts outside ASAR. Packaging verifies every target,
+revision, version, protocol, size and hash and refuses missing entries. Packaged
+and extracted-installer smoke tests decompress and hash all four entries. The
+Quality gate's required-job rules, coverage thresholds, permissions and Release
+configuration are unchanged: a failed host build blocks packaging, which remains
+required. Electron shards still start independently after change detection.
+
+Darwin `foom-host` binaries use fixture-tested **ad-hoc signing in every build**,
+including nightlies. This user decision replaces #825's original requirement for
+Developer ID hosts on nightlies. Hosts travel over SSH without download quarantine,
+so Gatekeeper/notarization do not apply to the upload; Apple Silicon's signature
+requirement is met by ad-hoc signing. Bootstrap verifies the manifest SHA-256 after
+upload and when reusing cached bytes. Compressed payloads keep the desktop app's
+later Developer ID signing pass from rewriting the hosts or invalidating their
+manifest hashes. No Release secrets, environments or credential stages change.
+
+For local packaging, populate `.cache/remote-hosts/TARGET/` with all four native
+builds from the same revision and version, or set `FOOM_REMOTE_HOST_ARTIFACTS` to
+that catalog's absolute path. Each native builder accepts `FOOM_REMOTE_HOST_OUTPUT`
+as a catalog root and places its entry under `PLATFORM-ARCH/`. Development builds
+may omit the catalog and use the explicit native artifact override; `package` and
+`make` require all four entries. CI's download/assembly steps show the layout.
+The builder prints expanded/gzip byte counts, SHA-256 values, gzip elapsed time
+and saved percentage for compression measurement without a remote host.
+
+Local Linux x64 measurement with Node 24.17.0: 123,997,376 bytes (118.25 MiB)
+expanded, 44,040,707 bytes (42.00 MiB) with default gzip, saving 64.48% of upload
+bytes at about 2.02 seconds compression time. Gzip is adopted for both packages
+and bootstrap upload. Each native CI job prints its own measurements; these are
+byte/CPU observations, not a network throughput benchmark.
+
 ## Installers and versioned drafts (#602)
 
 `pnpm run make` builds the native platform formats alongside the development ZIP:
