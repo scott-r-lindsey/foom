@@ -35,7 +35,7 @@ test("checks pinned artifact bytes, bounded metadata and supported target", asyn
   const f = await fixture();
   expect(await hostArtifact(f.path)).toEqual({
     bytes: f.bytes,
-    upload: gzipSync(f.bytes),
+    upload: gzipSync(f.bytes, { level: 1 }),
     platform: "linux",
     arch: "x64",
     version: "0.1.0",

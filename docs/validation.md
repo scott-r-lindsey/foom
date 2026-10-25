@@ -185,9 +185,13 @@ and saved percentage for compression measurement without a remote host.
 
 Local Linux x64 measurement with Node 24.17.0: 123,997,376 bytes (118.25 MiB)
 expanded, 44,040,707 bytes (42.00 MiB) with default gzip, saving 64.48% of upload
-bytes at about 2.02 seconds compression time. Gzip is adopted for both packages
-and bootstrap upload. Each native CI job prints its own measurements; these are
-byte/CPU observations, not a network throughput benchmark.
+bytes at about 2.02 seconds compression time. Level 1 produced 47,824,219 bytes
+(45.61 MiB), saving 61.43%, in about 1.16 seconds. Adopt level 1 for package and
+bootstrap payloads: it preserves most byte savings with less compression delay.
+The remote Electron fixture uses the generated gzip catalog directly, avoiding a
+second compression of the raw developer override while exercising production
+selection. Each native CI job prints its own measurements; these are single
+byte/CPU observations on shared hardware, not a network throughput benchmark.
 
 ## Installers and versioned drafts (#602)
 

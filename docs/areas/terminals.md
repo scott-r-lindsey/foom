@@ -100,7 +100,7 @@ the user's own SSH config, keys and agent handle trust. CI and all development
 verification use fixture SSH, a controlled PATH and temporary HOME; they never use
 real SSH material or hosts. Nothing edits SSH configuration or installs software
 system-wide. A fixed, quoted POSIX bootstrap uses head, gzip, SHA-256, and atomic rename
-to upload the compressed artifact through that same stdio connection, into private
+to upload the gzip level-1 artifact through that same stdio connection, into private
 `~/.foom-host/<version>/<sha256>/foom-host`. The exact gzip byte count is read before protocol traffic, decompressed into a
 private temporary file, checked against the expanded size and SHA-256, then
 atomically installed. Failed/truncated uploads are removed. Cached bytes are

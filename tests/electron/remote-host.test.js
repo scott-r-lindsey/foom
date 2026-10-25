@@ -7,6 +7,7 @@ const { createConnection } = require("node:net");
 const { createHash } = require("node:crypto");
 const {
   chmod,
+  copyFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -81,6 +82,12 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   });
   const artifact = path.resolve("build/remote-host/foom-host");
   const manifest = JSON.parse(await readFile("build/remote-host/manifest.json", "utf8"));
+  // Exercise the production catalog resolver and upload its precompressed bytes.
+  // Recompressing the raw developer override would duplicate the native build's work.
+  const catalog = path.resolve("build/remote-hosts", `${process.platform}-${process.arch}`);
+  await mkdir(catalog, { recursive: true });
+  for (const name of ["foom-host.gz", "manifest.json"])
+    await copyFile(path.resolve("build/remote-host", name), path.join(catalog, name));
   const pidFile = path.join(root, "ssh-pids");
   const sshLog = path.resolve("test-results/remote-ssh-fixture.log");
   await writeFile(sshLog, "");
@@ -145,7 +152,7 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   const app = await launchApp(context, {
     fixture: "empty-board",
     env: { PATH: bin, SSH_AUTH_SOCK: "" },
-    args: ["--remote-shell-spike=fixture-cloud", `--remote-host-artifact=${artifact}`],
+    args: ["--remote-shell-spike=fixture-cloud"],
   });
   // Teardown always closes the hub before the explicitly owned fixture daemon.
   cleanup.apps.push(cleanup.apps.shift());

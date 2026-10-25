@@ -26,7 +26,7 @@ export async function writeHostManifest(output, { version, platform, arch, sourc
   assert.ok(hostPlatforms.includes(`${platform}-${arch}`), "Unsupported host build platform");
   const bytes = await readFile(join(output, "foom-host"));
   const started = performance.now();
-  const compressed = await promisify(gzip)(bytes);
+  const compressed = await promisify(gzip)(bytes, { level: 1 });
   const gzipMs = performance.now() - started;
   const manifest = {
     version,
@@ -45,6 +45,7 @@ export async function writeHostManifest(output, { version, platform, arch, sourc
     JSON.stringify({
       ...manifest,
       gzipMs,
+      gzipLevel: 1,
       savedPercent: 100 * (1 - compressed.length / bytes.length),
     }),
   );

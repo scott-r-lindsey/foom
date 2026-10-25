@@ -68,7 +68,7 @@ export async function hostArtifact(path: string) {
     throw new Error("Host artifact manifest mismatch");
   return {
     bytes,
-    upload: compressed ? stored : await promisify(gzip)(bytes),
+    upload: compressed ? stored : await promisify(gzip)(bytes, { level: 1 }),
     version: value.version,
     sha256: value.sha256,
     platform: value.platform,
