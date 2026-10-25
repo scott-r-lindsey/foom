@@ -1596,10 +1596,12 @@ test("modal dismissal restores the same terminal input for cancel, approve, Esca
       const record = (kind, target = document.activeElement) => {
         window.closedFocusTrace.push({
           kind,
+          time: performance.now(),
           tag: target instanceof Element ? target.tagName : null,
           className: target instanceof Element ? target.getAttribute("class") : null,
           active: document.activeElement?.tagName,
           focused: document.hasFocus(),
+          scrim: Boolean(document.querySelector(".board-confirmation-scrim")),
         });
         if (window.closedFocusTrace.length > 32) window.closedFocusTrace.shift();
       };
@@ -1607,11 +1609,17 @@ test("modal dismissal restores the same terminal input for cancel, approve, Esca
       const left = (event) => record("focusout", event.target);
       document.addEventListener("focusin", entered);
       document.addEventListener("focusout", left);
+      const focus = HTMLElement.prototype.focus;
+      HTMLElement.prototype.focus = function (...args) {
+        record("focus-attempt", this);
+        return focus.apply(this, args);
+      };
       const off = window.desktop.confirmations.onScrim((visible) => record(`scrim:${visible}`));
       window.stopClosedFocusTrace = () => {
         off();
         document.removeEventListener("focusin", entered);
         document.removeEventListener("focusout", left);
+        HTMLElement.prototype.focus = focus;
       };
     });
     await requestFocusRestore(app);
@@ -1634,33 +1642,36 @@ test("modal dismissal restores the same terminal input for cancel, approve, Esca
     try {
       await expect(board.getByRole("navigation", { name: "Terminal sidebar" })).toBeFocused();
     } catch (error) {
-      console.error("Closed-terminal focus diagnostics", {
-        document: await board.evaluate(() => ({
-          focused: document.hasFocus(),
-          tag: document.activeElement?.tagName,
-          className: document.activeElement?.className,
-          role: document.activeElement?.getAttribute("role"),
-          trace: window.closedFocusTrace,
-          sidebar: Array.from(document.querySelectorAll(".board-list"), (element) => ({
-            connected: element.isConnected,
-            inert: Boolean(element.closest("[inert]")),
-            hidden: Boolean(element.closest("[hidden]")),
-            display: getComputedStyle(element).display,
-            visibility: getComputedStyle(element).visibility,
-            width: element.getBoundingClientRect().width,
-            height: element.getBoundingClientRect().height,
+      console.error(
+        "Closed-terminal focus diagnostics",
+        JSON.stringify({
+          document: await board.evaluate(() => ({
+            focused: document.hasFocus(),
+            tag: document.activeElement?.tagName,
+            className: document.activeElement?.className,
+            role: document.activeElement?.getAttribute("role"),
+            trace: window.closedFocusTrace,
+            sidebar: Array.from(document.querySelectorAll(".board-list"), (element) => ({
+              connected: element.isConnected,
+              inert: Boolean(element.closest("[inert]")),
+              hidden: Boolean(element.closest("[hidden]")),
+              display: getComputedStyle(element).display,
+              visibility: getComputedStyle(element).visibility,
+              width: element.getBoundingClientRect().width,
+              height: element.getBoundingClientRect().height,
+            })),
           })),
-        })),
-        windows: await app.evaluate(({ BrowserWindow }) =>
-          BrowserWindow.getAllWindows().map((window) => ({
-            url: window.webContents.getURL(),
-            focused: window.isFocused(),
-            contentsFocused: window.webContents.isFocused(),
-            enabled: window.isEnabled(),
-            visible: window.isVisible(),
-          })),
-        ),
-      });
+          windows: await app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows().map((window) => ({
+              url: window.webContents.getURL(),
+              focused: window.isFocused(),
+              contentsFocused: window.webContents.isFocused(),
+              enabled: window.isEnabled(),
+              visible: window.isVisible(),
+            })),
+          ),
+        }),
+      );
       throw error;
     }
   } finally {
