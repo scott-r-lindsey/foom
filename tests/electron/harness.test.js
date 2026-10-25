@@ -120,7 +120,7 @@ test("agent discovery uses the fixture login shell and controlled PATH", async (
   const directories = environment.path.split(path.delimiter);
   assert.ok(directories[0].includes("foom-agent-isolation-"));
   if (process.platform !== "win32") {
-    assert.deepEqual(directories.slice(1), ["/usr/bin", "/bin"]);
+    assert.deepEqual(directories.slice(1), []);
     assert.ok(environment.shell.includes("foom-agent-isolation-"));
   }
 });

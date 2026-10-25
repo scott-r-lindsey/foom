@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -170,11 +171,11 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
       .toBe(colorMode);
     await mkdir("test-results", { recursive: true });
     await confirmation.screenshot({
-      path: `test-results/confirmation-dirty-${colorMode}.png`,
+      path: evidencePath(`confirmation-dirty-${colorMode}.png`),
       animations: "disabled",
     });
     await page.screenshot({
-      path: `test-results/confirmation-dirty-board-${colorMode}.png`,
+      path: evidencePath(`confirmation-dirty-board-${colorMode}.png`),
       animations: "disabled",
     });
     captureConfirmationDesktop(`dirty-${colorMode}`);
@@ -305,7 +306,7 @@ test("sidebar refuses deletion of a running shell and enables it after exit, pre
   if (process.env.FOOM_SCREENSHOTS) {
     for (const colorScheme of ["light", "dark"]) {
       await page.emulateMedia({ colorScheme });
-      await page.screenshot({ path: path.join(tmpdir(), `foom-main-checkout-${colorScheme}.png`) });
+      await page.screenshot({ path: evidencePath(`foom-main-checkout-${colorScheme}.png`) });
     }
   }
 });
@@ -758,7 +759,7 @@ test("prunable removal offers a coded modal; Enter is inert, Escape restores foc
   await expect(modal).toBeVisible();
   await expect(modal.getByRole("button", { name: "Prune" })).not.toBeFocused();
   await assertAccessible(page);
-  await page.screenshot({ path: path.join("test-results", "error-modal.png") });
+  await page.screenshot({ path: evidencePath("error-modal.png") });
   await page.keyboard.press("Escape");
   await expect(modal).toHaveCount(0);
   await expect(page.getByRole("button", { name: "error-prune-test", exact: true })).toBeFocused();
@@ -826,14 +827,14 @@ test("broken checkout shows Clean up directly and refuses uninspectable leftover
     );
     assert.equal(facts.changes, null);
   }
-  await mkdir("screenshots-729", { recursive: true });
+  await mkdir(evidencePath("screenshots-729"), { recursive: true });
   for (const colorMode of ["light", "dark"]) {
     await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), colorMode);
     await expect
       .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
       .toBe(colorMode);
     await page.screenshot({
-      path: `screenshots-729/broken-${colorMode}.png`,
+      path: evidencePath(`screenshots-729/broken-${colorMode}.png`),
       animations: "disabled",
     });
   }

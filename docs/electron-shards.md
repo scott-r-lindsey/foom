@@ -8,7 +8,7 @@ companion job per platform, alongside the four Electron shards and static checks
 The Quality gate requires all twelve Electron jobs and all three companion jobs.
 Failed, cancelled or skipped required jobs fail the gate; documentation-only runs
 permit skipping both desktop matrices together. Native hook probes stay serial.
-Test deadlines and step limits are unchanged.
+Electron steps have a ten-minute budget on every platform. Test deadlines are unchanged.
 
 ## Feature suites and local runs
 
@@ -358,3 +358,30 @@ Values are conservative case sums in seconds, excluding build/runner overhead.
 The largest sums leave 67.3s Linux, 34.2s Windows and 128.4s macOS step headroom.
 Four shards, test deadlines, coverage thresholds and workflow budgets retain
 main's values. Actual CI step outcomes remain the validation evidence.
+
+## Linux step headroom and current measurements (#839)
+
+Keep four shards per platform and raise only the Linux Electron step budget from
+420s to 600s, matching Windows and macOS. The previous budget left too little
+room for build/runner overhead and variation as new cases accumulated.
+
+Refresh all 195 current named cases from all twelve Electron JUnit reports in each
+green PR run: [40172284285](https://github.com/scott-r-lindsey/foom/actions/runs/40172284285),
+[40172098574](https://github.com/scott-r-lindsey/foom/actions/runs/40172098574), and
+[40167686820](https://github.com/scott-r-lindsey/foom/actions/runs/40167686820).
+The existing generator takes per-case maxima on each platform and places previously
+hash-assigned cases using those measurements.
+
+| Platform | Before: shards 1 / 2 / 3 / 4 | After: shards 1 / 2 / 3 / 4 |
+| --- | --- | --- |
+| Linux | 409.4 / 394.8 / 370.6 / 400.1 | 396.4 / 390.6 / 397.3 / 390.5 |
+| Windows | 483.6 / 494.5 / 491.2 / 491.2 | 483.5 / 491.7 / 493.0 / 492.3 |
+| macOS | 440.7 / 527.2 / 407.8 / 428.4 | 453.1 / 452.2 / 443.5 / 455.4 |
+
+These conservative case sums are seconds, combining maxima from different runs
+and excluding build/runner overhead. The largest Linux projection leaves 202.7s
+(33.8%) under the new budget, versus 10.6s under the former budget before the
+refresh. Actual PR step wall times must leave at least 60s; record those separately
+in the PR body. Earlier budget statements and measurements above are historical.
+Per-test deadlines, worker watchdog, shard count, coverage and Quality gate
+requirements remain unchanged.

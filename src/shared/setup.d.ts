@@ -38,6 +38,8 @@ export interface Settings {
   agentArguments: AgentValues<readonly string[]>;
   /** Main-owned acknowledgement; renderer save requests may not set this. */
   agentBypassAcknowledged: AgentValues<boolean>;
+  /** Profile-only main-owned provider/disclosure identities; old ID-only consent grants no trust. */
+  agentBypassIdentities?: Readonly<Record<string, string>>;
   /** Default for new worktrees: Foom's folder, or next to the repository. */
   worktreeLocation: "root" | "adjacent";
   /** Eclipse variant when interfaceTheme is Follow; fixed themes supply their own base. */

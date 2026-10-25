@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -192,7 +193,9 @@ process.stdin.resume();`,
   await expect(card.getByLabel("New Fixture agent variable name")).toBeVisible();
   await expect(card.getByText("Hooks", { exact: true })).toBeVisible();
   await assertAccessible(page);
-  await page.screenshot({ path: path.join(__dirname, "../../test-results/agents-settings.png") });
+  await page.screenshot({
+    path: evidencePath("agents-settings.png"),
+  });
   {
     await page.evaluate((repository) => {
       window.v2Launch = window.desktop.sidebarCommand({

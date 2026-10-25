@@ -1,3 +1,4 @@
+import { RemovalError } from "./worktree-outcome";
 import { workspaceFeatureWiring } from "./workspace-feature-wiring";
 import { workspaceOrchestrationHost } from "./workspace-orchestration-host";
 import * as orchestrationCommands from "./orchestration-commands";
@@ -305,6 +306,7 @@ export class WorkspaceContext {
           Settings,
           | "worktreeLocation"
           | "agentArguments"
+          | "agentBypassIdentities"
           | "agentHooks"
           | "showNewChildren"
           | "closeFinishedAgents"
@@ -326,6 +328,7 @@ export class WorkspaceContext {
       settings.unreadChildMinutes ?? 5,
     );
     this.cleanup.configure(settings.autoRemoveMergedWorktrees ?? false);
+    this.agents.setBypassIdentities(settings.agentBypassIdentities);
     if (settings.agentHooks) this.agents.setHooksEnabled(settings.hooks, settings.agentHooks);
     else this.agents.setHooksEnabled(settings.hooks);
     this.agentHooks = settings.agentHooks ?? {};
@@ -522,7 +525,7 @@ export class WorkspaceContext {
     readSnapshot?: () => Promise<string>,
   ): Promise<boolean> {
     const key = `${repository}\0${branch ?? ""}`;
-    if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
+    if (this.busyWorktrees.has(key)) throw new RemovalError("busy", "This worktree is busy");
     this.busyWorktrees.add(key);
     // This capability belongs to this acquisition, not to whichever operation
     // happens to own the same branch key when a delayed release runs.

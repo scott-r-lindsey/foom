@@ -1,3 +1,4 @@
+import { removalReasons } from "../../../../src/main/workspace/worktree-outcome";
 import { locationId, metadataName } from "../../../../src/main/control/metadata";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -41,6 +42,7 @@ describe("control identity and capability checks", () => {
       repository: locationId(actor.repository),
       worktree: locationId(actor.worktree),
       name: metadataName(basename(actor.worktree)),
+      removalReasons,
       tools: [
         { name: "whoami", cli: "foom whoami" },
         { name: "sessions", cli: "foom sessions" },

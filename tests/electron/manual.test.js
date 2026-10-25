@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const { mkdir, readFile, writeFile } = require("node:fs/promises");
@@ -34,7 +35,7 @@ test("blank-window manual and terminals share the leftmost column geometry", asy
   await expect(page.locator('.terminal-tile[data-kind="shell"]')).toBeVisible();
   assert.deepEqual(await geometry(), manualGeometry);
   if (process.env.FOOM_PLACEMENT_SCREENSHOTS === "1" && process.platform === "linux") {
-    await mkdir("screenshots-746", { recursive: true });
+    await mkdir(evidencePath("screenshots-746"), { recursive: true });
     const handle = await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()
         .find((window) => window.webContents.getURL() === "app://bundle/index.html")
@@ -73,7 +74,7 @@ test("blank-window manual and terminals share the leftmost column geometry", asy
       execFileSync("import", [
         "-window",
         String(handle),
-        `screenshots-746/manual-terminal-${mode}.png`,
+        evidencePath(`screenshots-746/manual-terminal-${mode}.png`),
       ]);
     }
   }
@@ -174,7 +175,7 @@ test("Help Manual opens a contained offline guide and focuses the existing tile"
     await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
     await expect.poll(async () => (await facts())?.dark).toBe(mode === "dark");
     if (process.env.FOOM_MANUAL_SCREENSHOTS === "1" && process.platform === "linux") {
-      await mkdir("screenshots-680", { recursive: true });
+      await mkdir(evidencePath("screenshots-680"), { recursive: true });
       const handle = await app.evaluate(({ BrowserWindow }) => {
         const board = BrowserWindow.getAllWindows().find(
           (window) => window.webContents.getURL() === "app://bundle/index.html",
@@ -192,9 +193,17 @@ test("Help Manual opens a contained offline guide and focuses the existing tile"
       await page.evaluate(
         () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
       );
-      execFileSync("import", ["-window", String(handle), `screenshots-680/manual-${mode}.png`]);
+      execFileSync("import", [
+        "-window",
+        String(handle),
+        evidencePath(`screenshots-680/manual-${mode}.png`),
+      ]);
       await openMenu();
-      execFileSync("import", ["-window", String(handle), `screenshots-680/menu-${mode}.png`]);
+      execFileSync("import", [
+        "-window",
+        String(handle),
+        evidencePath(`screenshots-680/menu-${mode}.png`),
+      ]);
       await page.keyboard.press("Escape");
       await page.keyboard.press("Escape");
     }
@@ -308,7 +317,7 @@ test("bundled manual search supports keyboard navigation and section jumps", asy
   await run("document.querySelectorAll('[role=option]')[1].click()");
   await expect.poll(() => run("document.activeElement.id")).toBe("repositories");
   if (process.env.FOOM_MANUAL_SCREENSHOTS === "1") {
-    await mkdir("screenshots-681", { recursive: true });
+    await mkdir(evidencePath("screenshots-681"), { recursive: true });
     await key("/");
     await type("worktree");
     for (const mode of ["light", "dark"]) {
@@ -323,7 +332,7 @@ test("bundled manual search supports keyboard navigation and section jumps", asy
         return (await contents.capturePage()).toDataURL();
       });
       await writeFile(
-        `screenshots-681/manual-search-${mode}.png`,
+        evidencePath(`screenshots-681/manual-search-${mode}.png`),
         Buffer.from(png.split(",")[1], "base64"),
       );
     }

@@ -352,3 +352,24 @@
 .tile-restoring-lines span:nth-child(3) {
   width: 45%;
 }
+
+/* Reload remains discoverable at rest. */
+.tile-title:has(.preview-reload) .tile-controls {
+  opacity: 1;
+}
+.tile-controls .preview-reload {
+  opacity: 0.4;
+  display: grid;
+  place-items: center;
+}
+.tile-title:hover .preview-reload,
+.tile-controls .preview-reload:focus-visible {
+  opacity: 1;
+}
+.tile-controls .preview-reload:active {
+  background: color-mix(in srgb, var(--highlight) 20%, var(--surface));
+}
+.tile-controls .preview-reload:focus-visible {
+  outline: 2px solid var(--highlight);
+  outline-offset: -2px;
+}

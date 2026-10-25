@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { launchTrustedParent } = require("./agent-fixture.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -329,7 +330,9 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         context.signal,
       );
     const shot = async (name) => {
-      await page.screenshot({ path: `test-results/review-loop-${scenario}-${name}.png` });
+      await page.screenshot({
+        path: evidencePath(`review-loop-${scenario}-${name}.png`),
+      });
     };
     await expect(row.locator('[data-review-phase="building"]')).toHaveText("Building");
     await shot("building");
@@ -411,11 +414,11 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
             )
             .toBe(fill);
           await reviewer.screenshot({
-            path: `test-results/reviewer-mark-${colorScheme}-sidebar.png`,
+            path: evidencePath(`reviewer-mark-${colorScheme}-sidebar.png`),
           });
-          await tile
-            .locator(".tile-title")
-            .screenshot({ path: `test-results/reviewer-mark-${colorScheme}-tile.png` });
+          await tile.locator(".tile-title").screenshot({
+            path: evidencePath(`reviewer-mark-${colorScheme}-tile.png`),
+          });
         }
         await page.emulateMedia({ colorScheme: null, reducedMotion: null });
       }

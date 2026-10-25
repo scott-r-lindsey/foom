@@ -142,7 +142,7 @@ test("agent guard permits fixtures and rejects outside paths and escaping symlin
   const outside = path.join(root, "fixture-other");
   await mkdir(fixture);
   await mkdir(outside);
-  for (const name of ["claude", "codex.exe", "agy", "copilot", "pi", "gh", "glab"]) {
+  for (const name of ["claude", "codex.exe", "agy", "copilot", "opencode", "pi", "gh", "glab"]) {
     await writeFile(path.join(fixture, name), "fixture");
     await writeFile(path.join(outside, name), "outside");
     assertFixtureAgent(path.join(fixture, name), [fixture]);
@@ -176,13 +176,22 @@ test("fixture login shell ignores inherited PATH and never exposes Node's siblin
     env: { ...process.env, PATH: "/host/agents" },
   }).toString();
   assert.equal(output, `\0FOOM_PATH\0${env.PATH}\0`);
+  const probe = execFileSync(env.SHELL, ["-ilc", "printf '\\000FOOM_PROBE_ENV\\000'; env -0"], {
+    env: { PATH: env.PATH, HOME: root },
+  }).toString();
+  assert.ok(probe.startsWith("\0FOOM_PROBE_ENV\0"));
+  assert.ok(probe.includes(`PATH=${env.PATH}\0`));
   for (const name of ["gh", "glab"]) {
     assert.throws(
       () => execFileSync(path.join(root, "bin", name), ["auth", "status"]),
       (error) => error.status === 1,
     );
   }
-  assert.deepEqual(env.PATH.split(path.delimiter), [path.join(root, "bin"), "/usr/bin", "/bin"]);
+  assert.deepEqual(env.PATH.split(path.delimiter), [path.join(root, "bin")]);
+  const { existsSync } = await import("node:fs");
+  // Even an installed system Copilot/other agent shim is unreachable on this PATH.
+  for (const name of ["claude", "codex", "agy", "copilot", "opencode", "pi"])
+    assert.equal(existsSync(path.join(root, "bin", name)), false);
   assert.equal(
     execFileSync(path.join(root, "bin", "node"), ["--version"])
       .toString()

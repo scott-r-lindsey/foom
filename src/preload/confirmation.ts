@@ -225,6 +225,7 @@ const validDialogSummaryLine: Validator<DialogSummaryLine> = shape({
 
 const validDialogRequest: Validator<DialogRequest> = shape({
   id: nonempty,
+  presented: boolean,
   theme: validInterfaceTheme,
   reply: either(
     absent,

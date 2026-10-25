@@ -188,14 +188,14 @@ it("gates prompts on complete help tokens and passes initial text as one literal
   ).rejects.toThrow("cannot take an initial prompt");
 });
 
-it("validates the generic active-screen sampling opt-in and defaults older manifests to false", () => {
+it("validates active-screen sampling without changing older manifest identities", () => {
   expect(provider.model.attention.sampleWhileActive).toBe(true);
   const { sampleWhileActive: enabled, ...attention } = data.attention;
   expect(enabled).toBe(true);
   expect(
     parseAgentManifest(JSON.stringify({ ...data, id: "pi-copy", attention })).model.attention
       .sampleWhileActive,
-  ).toBe(false);
+  ).toBeUndefined();
   expect(() =>
     parseAgentManifest(
       JSON.stringify({

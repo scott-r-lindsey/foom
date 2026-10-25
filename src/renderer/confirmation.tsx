@@ -255,10 +255,18 @@ export function ConfirmationPage() {
       });
     };
     const observer = new ResizeObserver(measure);
-    observer.observe(card);
-    observer.observe(body);
-    measure();
+    let cancelled = false;
+    // A font swap changes wrapping and height even if the viewport is unchanged.
+    // Force layout to start the bundled font loads before awaiting the font set.
+    card.getBoundingClientRect();
+    void document.fonts.ready.then(() => {
+      if (cancelled) return;
+      observer.observe(card);
+      observer.observe(body);
+      measure();
+    });
     return () => {
+      cancelled = true;
       observer.disconnect();
     };
   }, [requestId, wide, bounded]);
@@ -287,6 +295,7 @@ export function ConfirmationPage() {
   const running = cleanup?.stage === "run";
   const finished = running && cleanup.progress.phase === "finished";
   const disabled =
+    !request.presented ||
     cleanup?.stage === "checking" ||
     (cleanup?.stage === "ready" && cleanup.progress.total === 0) ||
     (running && cleanup.progress.stopped);
@@ -518,6 +527,7 @@ export function ConfirmationPage() {
                         <input
                           type="checkbox"
                           aria-label={item.branch}
+                          disabled={!request.presented}
                           checked={selected.includes(item.id)}
                           onChange={(event) => {
                             setSelected(
@@ -624,7 +634,9 @@ export function ConfirmationPage() {
           {request.removals && (
             <button
               type="button"
-              disabled={!request.removals.some((item) => selected.includes(item.id))}
+              disabled={
+                !request.presented || !request.removals.some((item) => selected.includes(item.id))
+              }
               onClick={() => {
                 window.confirmation.answer(
                   request.id,

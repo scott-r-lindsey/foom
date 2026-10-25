@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 // After a build: xvfb-run -a node --require ./tests/helpers/setup.js --test tests/electron/preview-composition-measurement.js
 // Optional FOOM_PREVIEW_PROFILE_BUNDLE compares another renderer bundle in the same fixture.
 // FOOM_PREVIEW_PROFILE_WITH_PREVIEW=1 adds a static native preview and its cached canvas.
@@ -113,10 +114,7 @@ test("measure streaming fixture terminal composition", {
     ...delta,
   };
   console.log("PREVIEW_COMPOSITION_PROFILE", JSON.stringify(report));
-  await writeFile(
-    process.env.FOOM_PREVIEW_PROFILE_REPORT || "/tmp/619-renderer-profile.json",
-    JSON.stringify(report, null, 2),
-  );
+  await writeFile(evidencePath("619-renderer-profile.json"), JSON.stringify(report, null, 2));
   for (const { id } of sessions)
     await expect
       .poll(() => page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join(""), id))

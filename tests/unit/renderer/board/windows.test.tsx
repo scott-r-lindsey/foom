@@ -339,7 +339,7 @@ test("launch menus follow catalog publications and discard stale loads", async (
   const view = render(<Board source={source} />);
   await act(async () => {});
   fireEvent.click(view.container.querySelector(".config-gear") ?? document.body);
-  expect(view.queryByRole("menuitem", { name: /^Via OpenCode$/ })).toBeNull();
+  expect(view.queryByRole("menuitem", { name: /^Via FixtureCode$/ })).toBeNull();
   let old: ((value: LaunchOptions) => void) | undefined;
   load.mockImplementationOnce(
     () =>
@@ -352,9 +352,9 @@ test("launch menus follow catalog publications and discard stale loads", async (
     ...base,
     agents: [
       {
-        id: "opencode",
-        name: "OpenCode",
-        path: "/fixture/opencode",
+        id: "fixturecode",
+        name: "FixtureCode",
+        path: "/fixture/fixturecode",
         version: "1",
         hooks: false,
         reason: "",
@@ -365,12 +365,12 @@ test("launch menus follow catalog publications and discard stale loads", async (
     changed?.();
     await Promise.resolve();
   });
-  expect(view.getByRole("menuitem", { name: /^Via OpenCode$/ })).toBeTruthy();
+  expect(view.getByRole("menuitem", { name: /^Via FixtureCode$/ })).toBeTruthy();
   await act(async () => {
     old?.({ ...base, agents: [] });
     await Promise.resolve();
   });
-  expect(view.getByRole("menuitem", { name: /^Via OpenCode$/ })).toBeTruthy();
+  expect(view.getByRole("menuitem", { name: /^Via FixtureCode$/ })).toBeTruthy();
   view.unmount();
   expect(off).toHaveBeenCalledOnce();
 });

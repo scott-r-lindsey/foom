@@ -57,14 +57,45 @@ chunk normal/alternate buffers, delayed ACKs, watermarks and ordered resize stag
 
 ## Remote shell spike (#754)
 
-Build `node scripts/build-remote-host.mjs` on Linux/macOS with Node 24, then build
-Foom. The build produces `build/remote-host/foom-host` and `manifest.json`. Launch
-the development app with both `--remote-shell-spike=SSH_ALIAS` and
-`--remote-host-artifact=/absolute/path/to/foom-host`; these main-only argv options
-route the **home shell** to that host. Worktree/config shells and agents remain
-local. The selected artifact must match the remote OS/architecture; the spike does
-not download or cross-compile binaries. No host, artifact, executable or environment
-selection is added to IPC. Settings and host inventory are phase 4.
+Every package carries a same-commit catalog for `linux-x64`, `linux-arm64`,
+`darwin-x64` and `darwin-arm64` (#825). Each target has `foom-host.gz` and a
+manifest containing app version, protocol, source revision, expanded size/SHA-256
+and gzip size/SHA-256. Packaging refuses a partial, mixed-revision, incompatible
+or corrupt catalog. Both builders derive the full checkout commit with Git;
+packaging requires every source to equal the app checkout, even outside CI.
+`development` is never a packaged source revision. There are no runtime artifact downloads.
+
+Launch with `--remote-shell-spike=SSH_ALIAS` to route the **home shell** to that
+host. A bounded SSH `uname -s; uname -m` probe accepts only Linux/x86_64,
+Linux/aarch64, Darwin/x86_64 and Darwin/arm64. Only those fixed mappings select
+catalog paths. The selected manifest must match the app source revision, version, protocol and
+remote platform. The expected revision comes from trusted `build/build-metadata.json`
+inside ASAR, independently of the unpacked catalog; missing or malformed revisions
+are refused. Both compressed and expanded hashes and sizes are checked before
+upload. Missing or mismatched artifacts fail closed. Bootstrap rechecks uname on
+every connection, including reconnects, before touching the cache or uploading.
+
+For native development, `node scripts/build-remote-host.mjs` with Node 24 on
+Linux/macOS produces `build/remote-host/foom-host`, `foom-host.gz` and
+`manifest.json`. The optional main-only `--remote-host-artifact=/absolute/path/to/foom-host`
+override still requires a valid full source commit and checks version, protocol,
+hash and remote platform, but explicitly permits a different commit from the app. Build the app
+before building this developer artifact because app builds clear `build/`.
+Worktree/config shells and agents remain local. No host, artifact, executable or
+environment selection is added to IPC. Settings and host inventory are phase 4.
+
+Darwin hosts use ad-hoc signatures in native, PR and development builds.
+#844 amends #825's option C decision because Apple inspects compressed hosts
+inside the notarized desktop app. The existing main-only Release signing pass
+unpacks and Developer ID signs both Darwin hosts with hardened runtime, secure
+timestamps and the dedicated Node remote-host entitlements before sealing the app. It regenerates
+and verifies compressed and expanded sizes/hashes, preserving version, protocol
+and the source revision pinned inside ASAR. PR CI exercises this pass ad-hoc;
+fixture Apple tools test both identities without credentials. No Release
+configuration changes. SSH uploads have no download quarantine; bootstrap integrity
+still comes from the manifest hashes, including expanded SHA-256 after upload
+and on cache reuse. See [signing validation](../validation.md#bundled-remote-host-artifacts-825).
+
 The home row still describes the local home location in this developer-only spike;
 the command in quit confirmation identifies `ssh SSH_ALIAS`. Do not infer remote
 filesystem membership from the local home row.
@@ -76,13 +107,16 @@ with `-`, and are bounded. SSH uses BatchMode and clears configured forwarding;
 the user's own SSH config, keys and agent handle trust. CI and all development
 verification use fixture SSH, a controlled PATH and temporary HOME; they never use
 real SSH material or hosts. Nothing edits SSH configuration or installs software
-system-wide. A fixed, quoted POSIX bootstrap uses head, SHA-256, and atomic rename
-to upload the exact artifact through that same stdio connection, into private
-`~/.foom-host/<version>/<sha256>/foom-host`. Cached bytes are hash-checked too.
+system-wide. A fixed, quoted POSIX bootstrap uses head, gzip, SHA-256, and atomic rename
+to upload the gzip level-1 artifact through that same stdio connection, into private
+`~/.foom-host/<version>/<sha256>/foom-host`. The exact gzip byte count is read before protocol traffic, decompressed into a
+private temporary file, checked against the expanded size and SHA-256, then
+atomically installed. Failed/truncated uploads are removed. Cached bytes are
+hash-checked too.
 First-time upload/negotiation has a 120-second transport deadline and a 125-second
 create deadline; normal terminal requests retain their 10-second deadline.
 No remote text is interpolated into commands. Existing symlinks/unsafe directories
-are refused. Linux requires standard coreutils; macOS uses shasum when sha256sum
+are refused. Linux requires gzip and standard coreutils; macOS uses shasum when sha256sum
 is unavailable.
 
 The wire format is a 4-byte unsigned big-endian byte count followed by UTF-8 JSON

@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -140,7 +141,10 @@ process.stdin.on("data", (key) => {
   await expect(page.locator(".rail-needs")).toContainText("need you");
   await expect(gear).toHaveAttribute("aria-label", /needs you.*rejected/);
   await expect(page.locator(".board-list .board-row").filter({ hasText: "CC" })).toBeVisible();
-  await page.screenshot({ path: "test-results/config-footer-compact.png", animations: "disabled" });
+  await page.screenshot({
+    path: evidencePath("config-footer-compact.png"),
+    animations: "disabled",
+  });
   await app.evaluate(({ BrowserWindow }, size) => {
     BrowserWindow.getAllWindows()
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")

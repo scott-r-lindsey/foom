@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const { expect } = require("./test-policy.js");
@@ -28,7 +29,7 @@ test("preview composition keeps tile and row panels visible and usable above cap
   await expect(page.locator(".preview-snapshot")).toHaveCSS("left", `${bounds.x}px`);
   await expect(page.locator(".preview-snapshot")).toHaveCSS("width", `${bounds.width}px`);
   await page.screenshot({
-    path: "test-results/preview-overlays-panel.png",
+    path: evidencePath("preview-overlays-panel.png"),
     animations: "disabled",
   });
   await page.getByRole("menuitem", { name: "Split down" }).click();
@@ -51,7 +52,7 @@ test("preview composition puts the trusted confirmation scrim above previews and
   await expect.poll(async () => (await previewViewState(app, id)).visible).toBe(false);
   await expectPreviewSnapshot(page, id);
   await page.screenshot({
-    path: "test-results/preview-overlays-scrim.png",
+    path: evidencePath("preview-overlays-scrim.png"),
     animations: "disabled",
   });
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -79,7 +80,10 @@ test("preview composition keeps maximize and restore live and excludes preview h
   await expect(page.locator(".tile-drop-preview")).toBeVisible();
   await expectPreviewSnapshot(page, id);
   assert.equal((await previewViewState(app, id)).visible, false);
-  await page.screenshot({ path: "test-results/preview-overlays-drag.png", animations: "disabled" });
+  await page.screenshot({
+    path: evidencePath("preview-overlays-drag.png"),
+    animations: "disabled",
+  });
   assert.equal(await previewContents(app, id, "window.pointerCount"), 0);
   await page.mouse.up();
   await expect(page.locator(".tile-drop-preview")).toHaveCount(0);

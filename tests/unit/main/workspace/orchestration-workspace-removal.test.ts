@@ -346,7 +346,15 @@ it.each(["dirty", "identity", "failure", "actor"])(
       });
       expect(
         pending.map((item) => operations.lookup(actor, { operationId: item.operationId }).reason),
-      ).toEqual(["completed", "error", "completed"]);
+      ).toEqual([
+        "completed",
+        mode === "failure"
+          ? "git_failed"
+          : mode === "identity"
+            ? "identity_changed"
+            : "changes_changed",
+        "completed",
+      ]);
       expect(vi.mocked(deps.worktrees.removeWorktree).mock.calls.map((call) => call[1])).toEqual(
         mode === "failure" ? paths : [paths[0], paths[2]],
       );
@@ -495,5 +503,56 @@ it.each(["revoke-review", "review-write-failed"])(
     expect(operations.lookup(actor, { idempotencyKey: "remove" }).status).toBe(status);
     expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
     if (mode === "review-write-failed") expect(deps.dialog).not.toHaveBeenCalled();
+  },
+);
+
+it.each([false, true])(
+  "reviews untracked-only detached evidence (approved: %s)",
+  async (approved) => {
+    const workspace = createWorkspace(deps);
+    await orchestrate(workspace);
+    const operations = new Operations(
+      () => Promise.resolve(),
+      () => undefined,
+    );
+    const actor = principal();
+    const tree = (await workspace.orchestration.call(
+      actor,
+      "create_worktree",
+      { idempotencyKey: "evidence", branch: "review" },
+      operations,
+    )) as Operation;
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([main, { ...child, branch: null }]);
+    vi.mocked(deps.worktrees.changes).mockResolvedValue("?? screenshots/review.png\0");
+    deps.dialog = vi.fn(() => Promise.resolve(approved));
+    await workspace.orchestration.call(
+      actor,
+      "remove_worktree",
+      { idempotencyKey: "remove-evidence", worktreeId: tree.resultId },
+      operations,
+    );
+    await vi.waitFor(() => {
+      expect(operations.lookup(actor, { idempotencyKey: "remove-evidence" })).toMatchObject({
+        status: approved ? "succeeded" : "declined",
+        reason: approved ? "completed" : "untracked_files",
+      });
+    });
+    expect(deps.dialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        removal: expect.objectContaining({
+          item: expect.objectContaining({ changes: "?? screenshots/review.png\0" }) as unknown,
+        }) as unknown,
+      }),
+      expect.any(AbortSignal),
+    );
+    if (approved)
+      expect(deps.worktrees.removeWorktree).toHaveBeenCalledWith(
+        repo.path,
+        child.path,
+        true,
+        "identity",
+        expect.any(Function),
+      );
+    else expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
   },
 );

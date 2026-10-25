@@ -329,7 +329,7 @@ test("config status is refreshed only for a live config credential and never gra
       id: "digest",
       file: "settings.json",
       action: "change arguments",
-      detail: "agentArguments.opencode",
+      detail: "agentArguments.fixturecode",
     },
     rejected: [],
   };

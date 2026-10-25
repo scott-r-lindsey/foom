@@ -88,12 +88,18 @@ Main validates at most 64 arguments per agent, each 1–4096 characters with no 
 characters. Foom reserves Claude `--settings`, `--safe-mode` and `--bare`,
 `--no-alt-screen`, Codex `-c`/`--config` overrides of `notify` or `hooks`, and the `--` terminator so
 these defaults cannot displace its attention flags. Saving a known bypass argument
-requires a main-owned trusted dialog once per agent, with Cancel focused by default: a worktree is not a sandbox, and
+requires a main-owned trusted dialog once per provider/disclosure identity, with Cancel focused by default: a worktree is not a sandbox, and
 the agent can act as the user anywhere on the machine. Cancelling leaves settings
 unchanged. Codex `danger-full-access` sandbox flags and `sandbox_mode` overrides
 also count as bypass, even with approvals enabled. Known bypass detection is a
 fixed table, not an effective-policy audit. On load, an invalid agent's stored
 argument list is dropped without resetting other settings or other agents' lists.
+Consent records bind the provider origin and manifest, including executable and
+bypass policy. Historical built-in consent is retained only for its pinned build
+identity. Other legacy ID-only acknowledgements and acknowledgements for a former
+config provider require fresh review. Until the defaults are reviewed and saved
+for the current provider, each bypass launch requires a trusted confirmation;
+unattended child bypass remains unavailable.
 
 Conversation selectors are reserved for Foom's session actions: Claude resume,
 continue, session-ID and fork-session flags; Codex `resume`/`fork` commands and

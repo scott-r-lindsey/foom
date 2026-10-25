@@ -582,7 +582,7 @@ test("preload accepts menu board commands and rejects unknown values", async () 
     "via-claude",
     "via-codex",
     "via-agy",
-    "via-opencode",
+    "via-fixturecode",
     "tidy-tiles",
     "action-log",
   ])
@@ -779,10 +779,12 @@ test("preview picker sends only the inventory worktree ID; bounds and close send
   await api.previews?.pick("/checkout");
   const bounds = { x: 1, y: 2, width: 300, height: 200, visible: true };
   await api.previews?.bounds("preview", bounds);
+  await api.previews?.reload("preview");
   await api.previews?.close("preview");
   expect(mock.invoke.mock.calls).toEqual([
     ["preview:pick", "/checkout"],
     ["preview:bounds", "preview", bounds],
+    ["preview:reload", "preview"],
     ["preview:close", "preview"],
   ]);
   expect(api.previews).not.toHaveProperty("open");

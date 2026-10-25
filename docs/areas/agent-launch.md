@@ -8,7 +8,7 @@ The [agent plugin format v2](../agent-plugins.md) parser (#430) supports offline
 validation. #431 adds the generic launch
 engine for v2 config plugins: fixed discovery, conditional ordered argv,
 private MCP data files, prompts and preview grants, argument and environment
-bypass, resume and attention rules. Hooks/health and setup are implemented by #432/#433. Claude (#434), Codex (#435) and Antigravity (#436) use the same v2 engine through bundled build-locked manifests.
+bypass, resume and attention rules. Hooks/health and setup are implemented by #432/#433. Claude (#434), Codex (#435), Antigravity (#436) and Copilot (#410) use the same v2 engine through bundled build-locked manifests.
 
 **Today:** `src/main/agents/agents.ts` provides a main-only `AgentService`, following the worktree service's integration boundary. `scan()` resolves PATH with the account's login shell (`-ilc`, a fixed printf program with NUL delimiters), then probes each resolved executable with bounded `--version` and `--help` calls. It retains full version strings. Shell failures report a warning and use inherited PATH; Windows uses inherited PATH and native executables. Relative and empty PATH components are ignored. Windows batch/PowerShell wrappers are not executed through a command shell; installations exposing only those wrappers currently need a native executable on PATH.
 
@@ -95,6 +95,14 @@ orchestration host, including PR adoption under the shared repository and branch
 reservations. The context still owns those reservations, terminal queues, launch
 cancellation, owner initialization and shutdown order behind the unchanged
 `workspace.ts` facade.
+
+
+OpenCode's bundled manifest (#824) uses `--standalone`, Foom-assigned `ses_` UUIDs,
+and `--session` for resume. `OPENCODE_CONFIG` selects per-launch event observers;
+`OPENCODE_CONFIG_CONTENT` merges per-launch MCP and exact Foom tool grants. Source
+files contain only an environment token reference. All are revoked/removed on
+release. Former same-ID config sessions remain dormant for explicit Resume; see
+[provider compatibility](providers.md#bundled-opencode-824).
 
 ### Fixed per-launch extension attachment (#834)
 

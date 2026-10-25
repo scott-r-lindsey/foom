@@ -21,6 +21,7 @@ export function TileMenu({
   view,
   popout,
   network,
+  reload,
   close,
   action,
 }: {
@@ -34,6 +35,7 @@ export function TileMenu({
   view: TerminalViewSource | undefined;
   popout: boolean;
   network?: (() => void) | undefined;
+  reload?: (() => void) | undefined;
   close: () => void;
   action: (action: TileAction) => void;
 }) {
@@ -70,6 +72,17 @@ export function TileMenu({
           hint: navigator.platform.includes("Mac") ? "⇧⌘↵" : "Ctrl+Shift+Enter",
         },
         ...(popout && (row || preview) ? [item("popout", "Move to new window")] : []),
+        ...(preview && reload
+          ? [
+              {
+                label: "Reload",
+                run: () => {
+                  close();
+                  reload();
+                },
+              },
+            ]
+          : []),
         ...(preview && network
           ? [
               null,

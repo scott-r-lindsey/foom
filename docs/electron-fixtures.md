@@ -135,3 +135,10 @@ compatibility. Conflicting Ozone arguments are removed. See
 [Electron's breaking changes](https://www.electronjs.org/docs/latest/breaking-changes)
 for the removal of the environment hint. A real Electron harness test supplies
 fake Wayland settings and checks the effective main-process switch and environment.
+
+On POSIX, fixture PATH includes only fixture directories and links to the named
+system tools needed for shell, Git and observer tests. It never exposes entire
+`/usr/bin` or `/bin` directories: those can contain real agent shims, including
+VS Code’s Copilot shim. Fixture-provided tools take precedence. The exec/spawn
+guard and descendant process audit remain enabled; packaged smoke uses the same
+controlled PATH.

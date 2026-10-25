@@ -63,8 +63,28 @@ finite positive sizes from the trusted main frame at the exact confirmation URL,
 while a request is pending. It multiplies by the board zoom, clamps to the parent's
 content area less a 24-DIP margin and the display work area, and centers the card on
 the content bounds. The card's content scrolls when constrained. Main shows the
-window only after its first valid measurement, re-establishes the parent link,
-reapplies positioning after show, and raises it with `moveTop()` before focusing.
+window only after bundled fonts are ready and its measurements have stopped
+changing for 100 ms. Each measurement first resizes the hidden viewport so text
+wrapping and scrollbar layout converge at the actual clamped width before mapping;
+unchanged reports do not restart that interval. The existing one-second guard
+also bounds settling, so missing fonts or continuous layout churn decline rather
+than leave the board blocked. Cancellation clears the settling timer, recovery
+cannot show an unsettled card, and positive answers require completed settling.
+The render payload carries a required, validated `presented` boolean. It starts
+false; confirming buttons (including selected-removal approval) stay disabled
+until main completes show, bounds correction, raising and focus, then publishes
+true through the same render channel. This is UI readiness, never consent: every
+positive answer still passes main's native reachability checks. Cancel remains
+available during preparation. Live updates preserve the presentation flag.
+After settling, main re-establishes the parent link,
+checks native geometry after show and reapplies positioning only when it differs,
+and raises it with `moveTop()` before focusing. Every positioning path reads back
+native bounds before writing: repeating already-correct coordinates after mapping
+can trigger X11 frame/gravity compensation and visibly move the card (#827).
+The expected bounds are still recorded even when no native write is needed;
+unchanged renderer measurements and recovery events must not move a correctly
+placed child. A window manager that actually changes placement still receives the
+post-show correction and remains subject to the same reachability checks.
 On macOS, a measured quit confirmation activates the app with
 `app.focus({ steal: true })`, because native window focus alone cannot activate
 Foom when another app is frontmost. Only confirmations a person started may
@@ -72,7 +92,7 @@ activate. Agent, CLI pairing, preview and workspace requests never bring Foom in
 front of another app; when Foom is inactive they cancel as before. Activation
 grants no approval; a child that still cannot acquire focus follows the same
 cancellation checks.
-A main-owned one-second guard cancels if the page never measures. A shown child
+A main-owned one-second guard cancels if the page never settles. A shown child
 that cannot acquire native key focus gets one reorder attempt and a second
 one-second check; failure cancels without approving, clears the scrim and releases
 board input. Windows/Linux also require native visibility. On macOS, current key
@@ -89,7 +109,15 @@ cleanup actions and removal subsets, must pass the same focus, visibility and
 geometry checks at IPC receipt; recovery itself never grants approval.
 Hiding, minimizing or destroying the child, or hiding/minimizing its board, also
 cancels after checking current native visibility/minimization, so a late Cocoa
-hide notification cannot dismiss a newly visible reused request. Timers and
+hide notification cannot dismiss a newly visible reused request. On macOS, child
+blur also rechecks current availability: Cocoa can notify hide before relinquishing key
+focus, and that later key loss must decline a still-hidden child before recovery
+can map it again. A visible child losing focus still uses the bounded reachability
+guard. Native hide/minimize
+events during the reparent/show/focus sequence are rechecked against current child
+and parent state when that sequence finishes, before publishing `presented: true`.
+Transient occlusion may recover within the sequence; a window that remains hidden
+or minimized declines immediately and cannot be re-presented by the guard. Timers and
 listeners are removed on dismissal and disposal.
 These focus checks are a recovery safety net; the Electron regression observes
 composed desktop pixels, since macOS can report native focus through an overlay.

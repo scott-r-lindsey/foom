@@ -157,15 +157,22 @@ export function validateV2(manifest: AgentManifestV2): void {
     const path = `$.hooks.channels[${String(index)}]`;
     const owner = `channel:${channel.id}`;
     condition(channel.when, `${path}.when`, owner, available, ["facts"], earlier);
-    if (channel.observer.transport === "external" && channel.arguments.length !== 0)
+    if (
+      ["external", "event-module"].includes(channel.observer.transport) &&
+      channel.arguments.length !== 0
+    )
       fail(path, "incompatible-combination");
     const mapping = channel.mapping;
+    if (channel.observer.transport === "event-module" && mapping.event.source !== "payload")
+      fail(path, "incompatible-combination");
     if (
       mapping.event.source === "header" &&
       mapping.cases.some((entry) => !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/u.test(entry.event))
     )
       fail(path, "incompatible-combination");
     selector(mapping.session, `${path}.mapping.session`, ["payload"]);
+    for (const alias of mapping.sessionAliases ?? [])
+      selector(alias, `${path}.mapping.sessionAliases`, ["payload"]);
     selector(mapping.event, `${path}.mapping.event`, ["payload", "header"]);
     if (mapping.event.source === "header" && mapping.event.path[0] !== "X-Foom-Event")
       fail(path, "incompatible-selector");

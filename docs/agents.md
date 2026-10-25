@@ -196,3 +196,161 @@ completed a ping through a synthetic local `whoami` capability response and HTTP
 MCP server. The receiver observed session/agent/turn/tool events and final
 `agent_settled` with `outcome: completed`; no prompt, tool arguments or results
 appeared in those lifecycle payloads. All probe credentials were disposable.
+
+### OpenCode v2.0.32 (#824)
+
+Measured on Linux on 2026-10-24 using the installed CLI's `--version`, root help,
+and `plugin`, `mcp`, `debug` and `serve` help. Version output was exactly
+`opencode v2.0.32`. Four short PTY sessions ran in one disposable OS-temp directory,
+with no bypass flags or global configuration edits. The first two reply-only
+attempts were stopped while working; the subsequent file prompt and final
+reply-only/plugin session completed on the configured local model. No agent config,
+credential or state files were read. The agent's normal session writes were allowed.
+
+The captured, redacted screen fragments at 120 columns by 40 rows were:
+
+```text
+Working (reply-only and file prompt):
+  ⬝⬝⬝⬝■■■■ esc interrupt                 shift+tab agents  ctrl+p commands
+
+Blocked (question tool, before the requested file write):
+  ┃ Questions
+  ┃ [question text omitted]
+  ┃ 1. Yes
+  ┃ 2. No
+  ┃ 3. Type your own answer
+  ┃ ↑↓ select  enter submit  esc dismiss
+
+Idle (after ready, and after the file write):
+  TITLE: OC | [session title omitted]
+  ┃ Build · [model omitted]
+  ╹━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  /tmp/[scratch]                         [usage omitted]  ctrl+p commands
+```
+
+The file prompt asked to create `ready.txt` containing `ready`, and to ask first.
+The model used the question tool; selecting Yes produced the file. This is a
+measured question blocker, not a claim that an edit-permission dialog was observed.
+The bundled rules require the question footer conjunction, prioritize it over
+`esc interrupt`, and treat the idle editor/footer as heuristic readiness/completion
+only. The idle footer rule currently covers the measured Build agent label.
+Other agent labels and permission-screen layouts rely on lifecycle events or
+ordinary output evaluation until captured. The title alone does not identify working.
+
+A Foom-owned per-launch config file loaded a temporary local plugin directory
+through `OPENCODE_CONFIG` under `--standalone`. The module exported an object with
+`id` and `setup(context)` and subscribed through `context.event.subscribe()`;
+no SDK download/import or global plugin installation was needed. The harmless
+reply-only session returned `ready` and emitted `session.execution.started` then
+`session.execution.succeeded`. The explicitly assigned `ses_foom824_measure` was
+accepted; later events carried that ID in `data.sessionID`. The stream envelope
+contains `type` and `data`, not top-level session fields. The shipped adapter
+forwards only declared primitive selector fields, never prompts, reasoning, tool
+arguments, transcripts or model text. Failure/permission/form mappings are based
+on the pinned public schema and fixture tests; they were not separately measured
+with the shipped adapter. Hooks Off attaches no module.
+
+The [v2.0.32 standalone server](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/cli/src/server-process.ts)
+reads `OPENCODE_CONFIG` and `OPENCODE_CONFIG_CONTENT` per process. Foom uses the
+former for generated observer config and the latter for invocation-only MCP JSON.
+`--standalone` keeps both on a private server instead of the shared background
+service. The [config loader](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/core/src/config.ts)
+merges explicit file and inline content without writing either to the global config.
+The [session-ID schema](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/schema/src/session-id.ts)
+requires a `ses` prefix; Foom generates `ses_` plus a UUID, uses `--session` for
+new/resumed launches, and recognizes pasted `opencode --session ID` / `opencode -s ID`.
+
+MCP uses v2's `mcp.servers`, `type: remote`, `oauth: false`, `codemode: false`,
+and `Authorization: Bearer {env:FOOM_CONTROL_TOKEN}`. Foom does not substitute the
+credential into files or argv. Each launch gets a random server name and exact
+`server_tool` action rules for the same classified tool names as Claude, restricted
+by the actual granted role; no other server/tool permission is added. See the
+[v2.0.32 MCP schema](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/schema/src/mcp.ts),
+[tool action construction](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/core/src/tool/mcp.ts),
+and [MCP guide](https://dev.opencode.ai/v2/docs/mcp-servers).
+MCP attachment is source-backed and fixture-tested, not a real orchestration
+measurement. Managed policy can refuse either attachment. `--auto` (including
+its equals form conservatively) uses Foom's existing bypass confirmation; unattended
+children refuse it. Global OpenCode permission settings are not inferred.
+
+### GitHub Copilot CLI (#410)
+
+Measured by hand on Linux, 2026-10-24, using GitHub Copilot CLI **1.0.103**
+in a disposable OS temporary directory outside every repository. Normal launch
+and `--version` agreed on 1.0.103. `--no-auto-update` selected the installed
+1.0.100 payload instead; that preliminary session was cancelled at folder trust
+and supplies no 1.0.103 evidence. The shipped manifest adds no update flag.
+No bypass arguments or `COPILOT_ALLOW_ALL` were used. Folder trust was accepted
+for the current session only. No user config, credentials or transcripts were
+read or edited; Copilot retained its own ordinary session writes.
+
+`--help` confirmed `--plugin-dir`, `--additional-mcp-config` (inline JSON or
+`@file`), `--session-id`, `--resume`/`-r`, and `--interactive`/`-i`.
+`plugin --help` explicitly lists hooks as a plugin capability. `help permissions`
+documents the exact `server(tool)` allow rule. `help environment` documents
+case-insensitive, whitespace-trimmed `true`, `1`, `yes`, `on`, `y` for
+`COPILOT_ALLOW_ALL`; exact `true` also trusts the working directory. Those values
+and all five broad permission flags trigger Foom’s existing bypass disclosure.
+These were inspected as help text only, never enabled in a measurement.
+
+Observed screens (only the matching portions retained):
+
+```text
+Working, after “Reply with the word ready.”:
+  ● Working esc esc interrupt
+
+Idle, after “ready”:
+  ❯
+  ← open sidebar · Interactive · Manual Approval · / commands · ? help · tab next tab
+
+Blocked, after asking to create ready.txt containing ready:
+  Create file
+  Do you want to create [scratch path]/ready.txt?
+  ❯ 1. Yes
+    2. Yes, and don't ask again for file operations when in this directory
+    3. No, and tell Copilot what to do differently (Esc to stop)
+  ↑/↓ to navigate · enter to select · esc to cancel
+```
+
+The initial Confirm folder trust dialog used the same navigation footer. The
+file permission was cancelled with Escape; no write was approved. The
+[redacted capture fixtures](../tests/fixtures/agent-detection/README.md) retain
+these regions. Working and idle inspect the last nonblank line; blocked scans
+the bottom 12 nonblank lines. Blocked wins over Working. Initial idle is only
+readiness; attached hooks require `agentStop` before completion classification.
+No OSC title or progress rule is claimed. Unknown modes, versions or terminal
+widths may stay neutral; macOS and Windows real CLI behavior is not measured.
+
+A temporary legacy plugin with `plugin.json` (`name`, `version`) and root
+`hooks.json` (`version:1`) attached through `--plugin-dir`. Silent command hooks
+observed `sessionStart`, `userPromptSubmitted`, `preToolUse`, `postToolUse` and
+`agentStop`; every payload included the assigned `sessionId`. `agentStop`
+included `stopReason: end_turn`. Commands selected by event name are fixed
+Foom observers; the event travels through the authenticated fixed event header.
+Only the validated session ID and enumerated event/action survive reduction.
+`permissionRequest` fired even for a pre-approved MCP ping, so it is deliberately
+not mapped to Blocked: the measured visible confirmation form supplies that state.
+No subagent stop event is treated as parent completion.
+
+A disposable loopback HTTP MCP server attached through
+`--additional-mcp-config @file`, with `type:http`, `url` and
+`headers.Authorization: "Bearer ${FOOM_CONTROL_TOKEN}"`. The server observed
+initialize, tools/list and tools/call, and verified environment expansion without
+logging the token. A prompt called its harmless `ping` tool successfully with
+only `--allow-tool foom_measure(ping)`. The same test succeeded without a `tools`
+field. The shipped manifest grants the same named Foom tools as Claude, filtered
+by the requesting role; it never grants a whole server or wildcard. These tests
+used measurement-only credentials and no repository/orchestration authority.
+
+A new session used a supplied UUID; exit displayed that UUID in
+`copilot --resume=…`. A second launch with `--resume UUID`, the isolated plugin
+and isolated MCP resumed the same conversation, fired `sessionStart` with the
+same `sessionId`, called ping and returned idle. Paste recognition uses literal
+three-token `copilot --resume UUID`, `copilot -r UUID` or
+`copilot --session-id UUID`; the existing bounded paste grammar does not accept
+the CLI’s displayed equals form, names or prefixes.
+
+The CLI’s [hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference)
+and [plugin reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference)
+supply documented context; the observations above establish the 1.0.103 Linux
+attachment and payload evidence. Automated tests use synthetic fixtures only.

@@ -299,6 +299,7 @@ export const command = {
   badge: "C",
 };
 export const dialog: DialogRequest = {
+  presented: true,
   id: "one",
   theme,
   title: "Confirm",

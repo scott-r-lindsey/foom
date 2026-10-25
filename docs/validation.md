@@ -22,6 +22,21 @@ files no test imports; only declarations are excluded. Thresholds are defined in
 
 PR checks enforce the contributor changed-line coverage threshold and fail if a changed application file is missing from LCOV. The scripts under `scripts/` adapt the reporting tools from the Crab Attack II reference, with stricter enforcement and regression tests.
 
+## Test evidence and worktree cleanliness (#822)
+
+Electron and packaged tests write evidence images through
+`tests/helpers/evidence.js` under the ignored `test-results/` tree. This includes
+native desktop captures, optional review screenshots and manual measurement
+captures. Optional `FOOM_*_SCREENSHOTS` switches enable captures in fixed
+subdirectories of `test-results/`; their values no longer select an external path.
+Fixture images used as test input remain in their disposable fixture directories.
+
+The Electron wrapper snapshots untracked files before running and checks again
+after teardown, including failed runs and packaged smoke. New untracked files
+outside `test-results/` or the OS temporary directory fail the command. Existing
+untracked developer files are preserved and do not fail validation. Ignored build
+and dependency output is excluded by Git's ignore rules.
+
 ## Temporary-directory ownership (#813)
 
 The unit, watch, coverage, CI-policy, Electron (including affected suites), and
@@ -98,7 +113,7 @@ Replace the example IDs with recent runs covering every current case on all thre
 platforms. The script rejects failed cases, missing reports and unmeasured current
 cases. It takes each case's maximum duration per platform and includes hash
 assignments for previously unplanned cases in the before projection. Review balance
-and headroom under the unchanged 420s Linux / 600s Windows and macOS step limits.
+and headroom under the 600s step limit on Linux, Windows and macOS.
 Case sums exclude build/runner overhead; compare actual CI step times before
 calling the refresh validated. Regenerate after incorporating new tests from main
 and run full contributor validation. See the [sharding guide](electron-shards.md)
@@ -130,6 +145,71 @@ The independent Real CLI MCP probe runs on every scheduled and manual dispatch
 except credential-only checks, including nights without changes to main. It is excluded from the Quality gate and
 nightly publication dependencies; its isolated real-CLI policy is documented in
 [AGENTS.md](../AGENTS.md#validation-and-delivery).
+
+## Bundled remote host artifacts (#825)
+
+The `Remote host` matrix builds native Node 24 SEAs on `ubuntu-24.04` (linux-x64),
+`ubuntu-24.04-arm` (linux-arm64), `macos-15-intel` (darwin-x64) and `macos-15`
+(darwin-arm64), from the same checkout as the desktop app. No cross-build is used.
+Each job writes a version/protocol/source-revision/size/SHA-256 manifest and gzip
+metadata, verifies native SEA startup with invalid arguments (no daemon or
+network), and uploads its catalog entry with three-day retention. Nightly version
+stamping uses the same condition and deterministic stamp as desktop packaging.
+
+The three existing native-check/packaging jobs wait for the complete host matrix,
+download only their own run's four artifacts into `.cache/remote-hosts`, and
+package all four compressed hosts outside ASAR. Packaging verifies every target,
+revision, version, protocol, size and hash and refuses missing entries. Both host
+and app builders use `git rev-parse HEAD` with argument arrays, including local
+builds; neither trusts `GITHUB_SHA` or a catalog entry as the checkout identity.
+Every entry must match the app checkout's full commit, never `development`.
+The app build embeds that commit in `build/build-metadata.json` inside ASAR;
+runtime catalog selection requires the manifest source to match before upload,
+so an older same-version gzip/manifest pair is rejected. Packaged
+and extracted-installer smoke tests decompress and hash all four entries. The
+Quality gate's required-job rules, coverage thresholds, permissions and Release
+configuration are unchanged: a failed host build blocks packaging, which remains
+required. Electron shards still start independently after change detection.
+
+Darwin `foom-host` binaries are ad-hoc signed in native, PR and development
+builds. #844 amends #825's option C decision: Apple inspects inside gzip files,
+so the existing main-only Release signing pass now unpacks both Darwin hosts,
+signs them with Developer ID, hardened runtime, secure timestamp and the dedicated Node
+remote-host entitlements, verifies their signatures, and recompresses them before
+signing the enclosing app. PR CI exercises the same path with an ad-hoc identity
+and no secure timestamp or Release credentials. Fixture Apple tools cover both
+identities and stop the job on signing or verification failure. The host alone
+permits library validation bypass because its SEA extracts an embedded node-pty
+prebuild that is outside the app signing pass; the host verifies the extracted
+asset against its embedded SHA-256 before loading.
+
+Before modification, all catalog entries must match the version and source
+revision sealed inside ASAR and pass both compressed and expanded size/hash
+checks. Signing preserves version, protocol, platform, architecture and source;
+it regenerates both sizes and SHA-256 hashes and verifies the rewritten entries.
+Linux entries and ASAR bytes stay unchanged. Bootstrap verifies both hashes before
+upload and the expanded hash after upload and on cache reuse. No Release secrets,
+environments, workflow permissions or credential stages change. The user verifies
+real notarization after merge with `publish_nightly`.
+
+For local packaging, populate `.cache/remote-hosts/TARGET/` with all four native
+builds from the same revision and version, or set `FOOM_REMOTE_HOST_ARTIFACTS` to
+that catalog's absolute path. Each native builder accepts `FOOM_REMOTE_HOST_OUTPUT`
+as a catalog root and places its entry under `PLATFORM-ARCH/`. Development builds
+may omit the catalog and use the explicit native artifact override; `package` and
+`make` require all four entries. CI's download/assembly steps show the layout.
+The builder prints expanded/gzip byte counts, SHA-256 values, gzip elapsed time
+and saved percentage for compression measurement without a remote host.
+
+Local Linux x64 measurement with Node 24.17.0: 123,997,376 bytes (118.25 MiB)
+expanded, 44,040,707 bytes (42.00 MiB) with default gzip, saving 64.48% of upload
+bytes at about 2.02 seconds compression time. Level 1 produced 47,824,219 bytes
+(45.61 MiB), saving 61.43%, in about 1.16 seconds. Adopt level 1 for package and
+bootstrap payloads: it preserves most byte savings with less compression delay.
+The remote Electron fixture uses the generated gzip catalog directly, avoiding a
+second compression of the raw developer override while exercising production
+selection. Each native CI job prints its own measurements; these are single
+byte/CPU observations on shared hardware, not a network throughput benchmark.
 
 ## Installers and versioned drafts (#602)
 

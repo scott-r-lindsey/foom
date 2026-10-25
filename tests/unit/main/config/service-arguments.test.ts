@@ -88,6 +88,21 @@ test("Allow rechecks bytes after the trusted dialog and never acknowledges a rep
   expect(acknowledge).not.toHaveBeenCalled();
 });
 
+test("approved argument changes acknowledge bundled IDs outside the original three agents", async () => {
+  const acknowledge = vi.fn().mockResolvedValue(undefined);
+  const f = await fixture({
+    confirmArguments: () => Promise.resolve(true),
+    acknowledgeBypass: acknowledge,
+  });
+  await f.service.initialize();
+  await f.settings({
+    agentArguments: { ...DEFAULT_SETTINGS.agentArguments, opencode: ["--auto"] },
+  });
+  await f.service.refresh();
+  await f.decide("allow");
+  expect(acknowledge).toHaveBeenCalledExactlyOnceWith(["opencode"]);
+});
+
 test("migration inserts arguments without approving other file edits, preserving a recoverable baseline", async () => {
   const f = await fixture();
   await f.service.initialize();
@@ -191,4 +206,23 @@ test("a new file migrates profile arguments as its own approved write", async ()
   expect(await f.service.initialize({ agentArguments })).toEqual({ agentArguments });
   expect(f.service.status().pending).toBeNull();
   expect(f.baseline()).toBe(digest(await f.read("settings.json")));
+});
+
+test("Allow acknowledges Copilot bypass once through the provider registry", async () => {
+  const confirm = vi.fn().mockResolvedValue(true);
+  const acknowledge = vi.fn().mockResolvedValue(undefined);
+  const f = await fixture({ confirmArguments: confirm, acknowledgeBypass: acknowledge });
+  await f.service.initialize();
+  const args = { claude: [], codex: [], agy: [], copilot: ["--allow-all"] };
+  await f.settings({ agentArguments: args });
+  expect((await f.service.refresh()).pending?.detail).toBe("agentArguments.copilot");
+  await f.decide("allow");
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(JSON.stringify(confirm.mock.calls[0]?.[0])).toContain("--allow-all");
+  expect(acknowledge).toHaveBeenCalledExactlyOnceWith(["copilot"]);
+  expect(f.applied.at(-1)?.agentArguments).toEqual(args);
+  await f.settings({ agentArguments: args, terminalFontSize: 16 });
+  await f.service.refresh();
+  expect(f.service.status().pending).toBeNull();
+  expect(acknowledge).toHaveBeenCalledOnce();
 });

@@ -1,8 +1,10 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const { readdirSync } = require("node:fs");
 const { mkdir, mkdtemp, readFile, realpath, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
@@ -238,6 +240,9 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   timeout: deadline(60_000),
   skip: process.platform === "win32" && "The fake agents are POSIX scripts",
 }, async (context) => {
+  const bundledAgentCount = readdirSync(
+    path.join(__dirname, "../../src/shared/bundled-agents"),
+  ).filter((name) => name.endsWith(".json")).length;
   const { chmod, symlink } = require("node:fs/promises");
   const root = await mkdtemp(path.join(tmpdir(), "foom-first-run-"));
   removeAfterApps(context, root);
@@ -405,8 +410,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
 
   await tabTo(page, "Start preflight");
   await page.keyboard.press("Enter");
-  const providerCount = (await page.evaluate(() => window.desktop.scanAgents(false))).agents.length;
-  await expect(page.getByText("Not found")).toHaveCount(providerCount, {
+  await expect(page.getByText("Not found")).toHaveCount(bundledAgentCount, {
     timeout: deadline(20000),
   });
   await assertFooter();
@@ -445,7 +449,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   await expect(page.getByRole("button", { name: "Launch" })).toBeDisabled();
   await page.getByRole("button", { name: "Fix" }).click();
 
-  // Install all three, then scan again.
+  // Install fixture agents, then scan again.
   const script = (body) => `#!/usr/bin/env node\nconst a = process.argv[2];\n${body}\n`;
   const agents = {
     claude: script(
@@ -455,20 +459,29 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
       'if (a === "--version") console.log("codex-cli 0.155.1"); else console.log("  -c, --config <key=value>");',
     ),
     agy: script('if (a === "--version") console.log("1.2.13");'),
+    copilot: script(
+      'if (a === "--version") console.log("GitHub Copilot CLI 1.0.103."); else console.log("--plugin-dir --additional-mcp-config --allow-tool --interactive --session-id --resume");',
+    ),
   };
   for (const [name, source] of Object.entries(agents)) {
     await writeFile(path.join(bin, name), source);
     await chmod(path.join(bin, name), 0o755);
   }
   await page.getByRole("button", { name: "Scan again" }).click();
-  await expect(page.locator(".agent-card:not(.missing) .agent-version")).toHaveText([
-    "2.1.300",
-    "0.155.1",
-    "1.2.13",
-  ]);
-  await expect(page.locator(".agent-card")).toHaveCount(providerCount);
+  for (const [id, version] of Object.entries({
+    claude: "2.1.300",
+    codex: "0.155.1",
+    agy: "1.2.13",
+    copilot: "1.0.103",
+  })) {
+    await expect(page.locator(`#agent-card-${id} .agent-version`)).toHaveText(version);
+  }
+  await expect(page.getByText("Not found")).toHaveCount(
+    bundledAgentCount - Object.keys(agents).length,
+  );
+  await expect(page.locator(".agent-card")).toHaveCount(bundledAgentCount);
   await expect(page.getByText(path.join(bin, "codex"), { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Hooks", exact: true })).toHaveCount(3);
+  await expect(page.getByRole("button", { name: "Hooks", exact: true })).toHaveCount(4);
   await expect(page.getByText("Notify + screen rules active", { exact: true })).toBeVisible();
   await assertPreflightFits(page, "Agent cards fit the scaled layout");
   await assertAccessible(page);
@@ -503,7 +516,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
   assert.equal(firstRunGeometry.length, 2);
 
   if (process.env.FOOM_MANUAL_SCREENSHOTS === "1" && process.platform === "linux") {
-    await mkdir("screenshots-680", { recursive: true });
+    await mkdir(evidencePath("screenshots-680"), { recursive: true });
     const handle = await app.evaluate(({ BrowserWindow }) => {
       const board = BrowserWindow.getAllWindows().find(
         (window) => window.webContents.getURL() === "app://bundle/index.html",
@@ -529,7 +542,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
       require("node:child_process").execFileSync("import", [
         "-window",
         String(handle),
-        `screenshots-680/first-run-${mode}.png`,
+        evidencePath(`screenshots-680/first-run-${mode}.png`),
       ]);
     }
     await page.evaluate(() => window.desktop.saveSetup({ colorMode: "system" }));

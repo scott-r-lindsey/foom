@@ -7,6 +7,7 @@ import {
   newWindow,
 } from "./main-fixture";
 import { DEFAULT_SETTINGS } from "../../../src/main/setup/settings";
+import { bypassConsentIdentity } from "../../../src/main/agents/default-arguments";
 import pluginFixture from "../../fixtures/agent-plugin.json";
 import { parseAgentManifest } from "../../../src/shared/agent-plugin-parser";
 import { v2Provider } from "../../../src/main/agents/providers/v2";
@@ -218,7 +219,12 @@ test("config Allow uses the trusted dialog and persists bypass consent without c
   await deps.acknowledgeBypass(["codex", "claude"]);
   expect(mock.settingsStore.update).toHaveBeenLastCalledWith({
     agentBypassAcknowledged: { claude: true, codex: true, agy: true },
+    agentBypassIdentities: {
+      codex: bypassConsentIdentity("codex"),
+      claude: bypassConsentIdentity("claude"),
+    },
   });
+  await expect(deps.acknowledgeBypass(["unknown-provider"])).rejects.toThrow("provider changed");
 });
 
 test("config plugins refresh changed registries and report discovery failure", async () => {

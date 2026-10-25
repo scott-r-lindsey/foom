@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+import opencode from "../../../shared/bundled-agents/opencode.json";
 import pi from "../../../shared/bundled-agents/pi.json";
 import agy from "../../../shared/bundled-agents/agy.json";
+import copilot from "../../../shared/bundled-agents/copilot.json";
 import codex from "../../../shared/bundled-agents/codex.json";
 import claude from "../../../shared/bundled-agents/claude.json";
 import { parseAgentManifest } from "../../../shared/agent-plugin-parser";
@@ -33,5 +35,27 @@ export const bundledProviders: readonly AgentProvider[] = [
     "e5afbef90ce00779271cbebb22f0571f76446d16ef355674d7ebd8e9a3061c9d",
   ),
   bundledProvider(agy, "agy", "db7f8b59d03461d2d7e7d1d1af8f54419ba76e9f625b3b083e5b83c15d8fb668"),
+  bundledProvider(
+    copilot,
+    "copilot",
+    "d06d9f7f37417e2fb022e15d257aefe5005861b023af420655b6706088c5c088",
+  ),
+  bundledProvider(
+    opencode,
+    "opencode",
+    "c732911ab07e95876cf273d9a7cd1aa0a889a8a90c5078fb1884665ee8dc6508",
+  ),
   bundledProvider(pi, "pi", "90635a5852f67e6598408521b25c53852cbd19507fed0de08e55882df101acb0"),
 ];
+
+/** Build-owned migrations: retain old config rows, but require an explicit bundled resume. */
+export const formerConfigAgentIds: readonly string[] = ["opencode"];
+
+/** Historical build identities: these IDs were reserved before config providers existed.
+ * Never extend this attestation to a newly bundled ID or repin it for a changed policy.
+ */
+export const legacyBypassIdentities: Readonly<Record<string, string>> = {
+  claude: "54a71151ba88212c7996eba9db23c45f1e4f76f39fa46021e84c8d59b2224951",
+  codex: "922ba73e610b0e13d165e3302b1b202da3bb06c9a61354c56d1e9d81faa00b4b",
+  agy: "2beab2f2d06ceab9a39cb0fe33726e15928ce610ce56028d93acc1a3ac929c21",
+};

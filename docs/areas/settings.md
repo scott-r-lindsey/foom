@@ -36,7 +36,7 @@ Theme IDs are checked syntactically, without opening any other file or profile.
 
 | Excluded key | Reason |
 | --- | --- |
-| `agentBypassAcknowledged` | Records human consent to bypass mode |
+| `agentBypassAcknowledged`, `agentBypassIdentities` | Records main-owned human consent and its provider/disclosure identity |
 | `setupComplete` | Records human setup progress |
 | `codeFolder`, `worktreeLocation` | Select filesystem paths or placement |
 | `environment` | Variables reach every agent launch, like `agentArguments`, and may hold secrets; set only through Settings (#215) |

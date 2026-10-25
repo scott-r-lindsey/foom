@@ -1,0 +1,394 @@
+{
+  "kind": "agent",
+  "version": 2,
+  "id": "copilot",
+  "name": "GitHub Copilot",
+  "badge": "CP",
+  "executables": ["copilot"],
+  "discovery": {
+    "version": {
+      "prefix": "GitHub Copilot CLI ",
+      "suffixes": [".", ".\nRun 'copilot update' to check for updates."]
+    },
+    "facts": [
+      {
+        "id": "hookSupport",
+        "minimum": [1, 0, 103],
+        "helpTokens": ["--plugin-dir"]
+      },
+      {
+        "id": "mcpSupport",
+        "minimum": [1, 0, 103],
+        "helpTokens": ["--additional-mcp-config", "--allow-tool"]
+      },
+      {
+        "id": "promptSupport",
+        "minimum": [1, 0, 103],
+        "helpTokens": ["--interactive"]
+      },
+      {
+        "id": "resumeSupport",
+        "minimum": [1, 0, 103],
+        "helpTokens": ["--resume", "--session-id"]
+      }
+    ]
+  },
+  "launch": {
+    "order": [
+      "resume",
+      "defaults",
+      "arguments",
+      "display",
+      "guidance",
+      "mcp",
+      "tools",
+      "hooks",
+      "prompt"
+    ],
+    "prompt": {
+      "arguments": ["--interactive", "{prompt}"],
+      "requires": "promptSupport"
+    },
+    "resume": {
+      "arguments": ["--resume", "{conversationId}"],
+      "when": {
+        "all": [
+          {
+            "field": "resumeSupport",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    "mcp": {
+      "arguments": ["--additional-mcp-config", "@{file:mcp.json}"],
+      "when": {
+        "all": [
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "mcpSupport",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    "toolPermissions": {
+      "names": [
+        "whoami",
+        "sessions",
+        "session_state",
+        "manual",
+        "open_preview",
+        "list_previews",
+        "close_preview",
+        "handoff",
+        "read_handoff",
+        "create_worktree",
+        "launch",
+        "prompt",
+        "send_keys",
+        "stop",
+        "close",
+        "remove_worktree",
+        "tail",
+        "wait_for",
+        "operation_status"
+      ],
+      "format": "server-parentheses",
+      "arguments": ["--allow-tool", "{tool}"],
+      "merge": {
+        "flags": ["--allow-tool"],
+        "output": "--allow-tool",
+        "separators": "whitespace-comma-parentheses"
+      }
+    }
+  },
+  "files": [
+    {
+      "name": "plugin.json",
+      "scope": "launch",
+      "format": "json",
+      "content": "{\"name\":\"foom-observer\",\"version\":\"1.0.0\"}",
+      "when": {
+        "all": [
+          {
+            "field": "hooksEnabled",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "hookSupport",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "hooks.json",
+      "scope": "launch",
+      "format": "json",
+      "content": "{\"version\":1,\"hooks\":{\"sessionStart\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.sessionStart:json},\"timeoutSec\":3}],\"userPromptSubmitted\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.userPromptSubmitted:json},\"timeoutSec\":3}],\"preToolUse\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.preToolUse:json},\"timeoutSec\":3}],\"postToolUse\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.postToolUse:json},\"timeoutSec\":3}],\"agentStop\":[{\"type\":\"command\",\"command\":{observerCommand:lifecycle.agentStop:json},\"timeoutSec\":3}]}}",
+      "when": {
+        "all": [
+          {
+            "field": "hooksEnabled",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "hookSupport",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "mcp.json",
+      "scope": "launch",
+      "format": "json",
+      "content": "{\"mcpServers\":{{mcpName:json}:{\"type\":\"http\",\"url\":{mcpUrl:json},\"headers\":{\"Authorization\":\"Bearer ${FOOM_CONTROL_TOKEN}\"}}}}",
+      "when": {
+        "all": [
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "mcpSupport",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    }
+  ],
+  "reservedArguments": [
+    {
+      "flag": "--plugin-dir",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--session-id",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--resume",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--continue",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--connect",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--prompt",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--interactive",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--acp",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--host-environment",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "prefix": "-r"
+    },
+    {
+      "prefix": "-p"
+    },
+    {
+      "prefix": "-i"
+    },
+    {
+      "prefix": "-C"
+    }
+  ],
+  "bypassArguments": [
+    {
+      "flag": "--yolo",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--allow-all",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--allow-all-tools",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--allow-all-paths",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--allow-all-urls",
+      "forms": ["exact", "equals"]
+    }
+  ],
+  "bypassEnvironment": [
+    {
+      "name": "COPILOT_ALLOW_ALL",
+      "match": "values",
+      "values": ["true", "1", "yes", "on", "y"],
+      "caseInsensitive": true,
+      "trim": true
+    }
+  ],
+  "conversation": {
+    "newId": {
+      "format": "uuid",
+      "arguments": ["--session-id", "{newId}"]
+    },
+    "resumePin": "requested-on-paste",
+    "restoreControl": true
+  },
+  "resumePaste": [
+    {
+      "command": "copilot",
+      "selector": "--resume"
+    },
+    {
+      "command": "copilot",
+      "selector": "-r"
+    },
+    {
+      "command": "copilot",
+      "selector": "--session-id"
+    }
+  ],
+  "attention": {
+    "minimumEngineVersion": 1,
+    "rules": [
+      {
+        "id": "confirmation_form",
+        "state": "blocked",
+        "priority": 1200,
+        "region": "bottom",
+        "lines": 12,
+        "match": {
+          "contains": ["↑/↓ to navigate · enter to select · esc to cancel"]
+        },
+        "reason": "Confirmation requested",
+        "comment": "Copilot 1.0.103 folder trust and create-file dialogs measured on Linux."
+      },
+      {
+        "id": "working_footer",
+        "state": "working",
+        "priority": 1100,
+        "region": "bottom",
+        "lines": 1,
+        "match": {
+          "contains": ["Working", "esc esc"]
+        },
+        "reason": "Agent is working",
+        "comment": "Measured interactive generation footer; bottom line avoids matching prompt history."
+      },
+      {
+        "id": "idle_footer",
+        "state": "idle",
+        "priority": 250,
+        "region": "bottom",
+        "lines": 1,
+        "match": {
+          "contains": ["Interactive · Manual Approval", "/ commands"]
+        },
+        "reason": "Agent turn ended; checking output",
+        "comment": "Measured normal manual-approval footer. Initial idle is readiness, never completion."
+      }
+    ],
+    "provenance": {
+      "source": "https://github.com/scott-r-lindsey/foom/issues/410",
+      "license": "Apache-2.0; Foom contributors",
+      "modified": "Original capture-backed rules measured with Copilot 1.0.103 on Linux."
+    }
+  },
+  "execution": {
+    "completion": "attached",
+    "completionChannels": ["lifecycle"]
+  },
+  "hooks": {
+    "channels": [
+      {
+        "id": "lifecycle",
+        "when": {
+          "all": [
+            {
+              "field": "hooksEnabled",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "hookSupport",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        },
+        "observer": {
+          "transport": "stdin",
+          "placement": "launch",
+          "version": 1,
+          "response": "silent",
+          "delivery": "foreground",
+          "timeoutMs": 3000
+        },
+        "arguments": ["--plugin-dir", "{hookDir}"],
+        "mapping": {
+          "session": {
+            "source": "payload",
+            "path": ["sessionId"]
+          },
+          "event": {
+            "source": "header",
+            "path": ["X-Foom-Event"]
+          },
+          "cases": [
+            {
+              "id": "sessionStart",
+              "event": "sessionStart",
+              "action": "ready"
+            },
+            {
+              "id": "userPromptSubmitted",
+              "event": "userPromptSubmitted",
+              "action": "working"
+            },
+            {
+              "id": "preToolUse",
+              "event": "preToolUse",
+              "action": "working"
+            },
+            {
+              "id": "postToolUse",
+              "event": "postToolUse",
+              "action": "working"
+            },
+            {
+              "id": "agentStop",
+              "event": "agentStop",
+              "action": "classify"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

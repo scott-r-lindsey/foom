@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { codexFixture } = require("./agent-fixture.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
@@ -299,7 +300,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
 
   if (process.env.FOOM_UI_SCREENSHOTS)
     await page.screenshot({
-      path: path.join(process.env.FOOM_UI_SCREENSHOTS, "dismiss-attention.png"),
+      path: evidencePath(path.join(evidencePath("ui_screenshots"), "dismiss-attention.png")),
       animations: "disabled",
     });
   // Dismissal clears attention but does not establish resumed execution.

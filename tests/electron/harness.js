@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { AxeBuilder } = require("@axe-core/playwright");
 const assert = require("node:assert/strict");
@@ -25,7 +26,7 @@ function captureConfirmationDesktop(name) {
     require("node:child_process").execFileSync("import", [
       "-window",
       "root",
-      `test-results/confirmation-${name}-desktop.png`,
+      evidencePath(`confirmation-${name}-desktop.png`),
     ]);
   }
 }
@@ -72,7 +73,7 @@ async function writeBoardStartupDiagnostics(app, diagnostics) {
   });
   await mkdir("test-results", { recursive: true });
   await writeFile(
-    `test-results/board-startup-${app.process().pid}.json`,
+    evidencePath(`board-startup-${app.process().pid}.json`),
     JSON.stringify(diagnostics, null, 2),
   );
   console.error("Board startup diagnostics:", JSON.stringify(diagnostics));
@@ -92,7 +93,7 @@ async function flushBoardStartupTrace(app) {
       state.tracing = false;
       await contentTracing.stopRecording(file);
     },
-    path.resolve(`test-results/board-startup-${app.process().pid}-trace.json`),
+    evidencePath(`board-startup-${app.process().pid}-trace.json`),
   );
 }
 
@@ -305,6 +306,40 @@ async function stopSession(page, id) {
   await page.evaluate(() => window.stopConfirmationSubscription());
 }
 
+async function waitForNativeConfirmation(app, page) {
+  const native = await app.browserWindow(page);
+  try {
+    await expect
+      .poll(
+        async () =>
+          (await native.evaluate(
+            (window) => window.isFocused() && (process.platform === "darwin" || window.isVisible()),
+          )) || (await page.getByRole("alertdialog").count()) === 0,
+      )
+      .toBe(true);
+  } finally {
+    await native.dispose();
+  }
+}
+const confirmationHandlers = new WeakMap();
+function prepareConfirmationActions(app, page) {
+  let ready = confirmationHandlers.get(page);
+  if (!ready) {
+    // CDP considers hidden native windows actionable. Wait before each dialog
+    // action/assertion, including reuse, without showing or focusing anything.
+    ready = page.addLocatorHandler(
+      page.getByRole("alertdialog"),
+      async () => {
+        if (page.url() === "app://confirmation/confirmation.html")
+          await waitForNativeConfirmation(app, page);
+      },
+      { noWaitAfter: true },
+    );
+    confirmationHandlers.set(page, ready);
+  }
+  return ready;
+}
+
 async function confirmationPage(app) {
   let page;
   await expect
@@ -313,6 +348,7 @@ async function confirmationPage(app) {
       return Boolean(page);
     })
     .toBe(true);
+  await prepareConfirmationActions(app, page);
   return page;
 }
 
@@ -480,7 +516,7 @@ function fixtureCleanup(context) {
         context.diagnostic?.(`Fixture timing: ${JSON.stringify(timing)}`);
         await mkdir("test-results", { recursive: true });
         await appendFile(
-          `test-results/fixture-timings-${process.pid}.jsonl`,
+          evidencePath(`fixture-timings-${process.pid}.jsonl`),
           `${JSON.stringify(timing)}\n`,
         );
       }
@@ -622,11 +658,14 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
     sessionData = await createMemoryFixture(context, "foom-chromium-");
     cleanup.sessionData.set(profile.directory, sessionData);
   }
+  // Manual profiling reserves time for the deliberate capture, not slower assertions.
+  const captureMs = options.profileCaptureMs ?? 0;
+  assert.ok([0, 120_000, 180_000].includes(captureMs));
   const watchdog = setTimeout(() => {
     console.error("Electron test exceeded its hard deadline; terminating worker");
     // Playwright's exit handler kills the process groups it launched.
     process.exit(1);
-  }, deadline(90_000));
+  }, deadline(90_000) + captureMs);
   watchdog.unref();
   let entry = path.join(__dirname, "../..");
   // Foom config lives under home and is a git repository Foom commits to. Never let a
@@ -722,7 +761,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
         ...(traceStartup
           ? [
               "--enable-logging=file",
-              `--log-file=${path.resolve(`test-results/board-startup-${process.pid}-chromium.log`)}`,
+              `--log-file=${evidencePath(`board-startup-${process.pid}-chromium.log`)}`,
             ]
           : []),
       ],
@@ -739,8 +778,12 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
   assert.equal(await app.evaluate(({ app }) => app.commandLine.hasSwitch("mute-audio")), true);
   app.context().setDefaultTimeout(deadline(10_000));
   const staleTerminalErrors = [];
+  const confirmationHandlerErrors = [];
   app.on("window", (page) => {
     page.on("pageerror", (error) => console.error("Renderer error:", error));
+    void prepareConfirmationActions(app, page).catch((error) => {
+      if (!page.isClosed()) confirmationHandlerErrors.push(error);
+    });
   });
   app.on("console", (message) => {
     if (message.text().includes("Unknown or foreign terminal ID"))
@@ -766,26 +809,31 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
             async () => {
               await app.evaluate(({ app }) => app.quit());
               shutdownPhase = "wait for quit dialog or acknowledgement";
+              let quittingDialog;
               await expect
                 .poll(async () => {
                   if (await app.evaluate(() => globalThis.readyToQuit)) return true;
-                  const dialog = app
-                    .windows()
-                    .find((page) => page.url() === "app://confirmation/confirmation.html");
-                  return Boolean(
-                    dialog &&
-                      (await dialog
-                        .getByRole("button", { name: "Stop all and quit" })
-                        .count()
-                        .catch((error) => {
-                          if (dialog.isClosed()) return 0;
-                          throw error;
-                        })),
-                  );
+                  for (const candidate of app.windows()) {
+                    if (candidate.url() !== "app://confirmation/confirmation.html") continue;
+                    const pending = await candidate
+                      .getByRole("button", { name: "Stop all and quit" })
+                      .count()
+                      .catch((error) => {
+                        if (candidate.isClosed()) return 0;
+                        throw error;
+                      });
+                    if (pending) {
+                      quittingDialog = candidate;
+                      return true;
+                    }
+                  }
+                  return false;
                 })
                 .toBe(true);
               if (!(await app.evaluate(() => globalThis.readyToQuit))) {
-                const dialog = await confirmationPage(app);
+                const dialog = quittingDialog ?? (await confirmationPage(app));
+                shutdownPhase = "wait for native quit presentation";
+                await waitForNativeConfirmation(app, dialog);
                 shutdownPhase = "accept quit dialog";
                 await dialog.getByRole("button", { name: "Stop all and quit" }).click();
               }
@@ -806,6 +854,11 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
       assert.equal(child.exitCode, 0, "Electron must exit normally");
       console.info("App closed");
       assert.deepEqual(staleTerminalErrors, [], "Normal flows must not use revoked terminal IDs");
+      assert.deepEqual(
+        confirmationHandlerErrors,
+        [],
+        "Native confirmation waits must be installed",
+      );
       clearTimeout(watchdog);
     } catch (error) {
       console.error("Electron shutdown diagnostics:", {
@@ -834,6 +887,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
       clearTimeout(watchdog);
     }
   });
+  await Promise.all(app.windows().map((page) => prepareConfirmationActions(app, page)));
   // The shell markup now arrives with React’s first commit.
   const page = await boardPage(app);
   const ready = () => {
