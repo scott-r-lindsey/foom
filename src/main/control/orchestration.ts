@@ -275,10 +275,7 @@ export class Orchestration extends OrchestrationMutations {
     for (;;) {
       const parent = this.parent(actor);
       if (targets.some((id) => !this.own(parent, id))) throw new ControlError("not_found");
-      const sessions = targets.map(
-        (id) =>
-          this.metadata.read(actor, "session_state", { id }) as { id: string; revision: string },
-      );
+      const sessions = this.metadata.states(actor, targets);
       const changed = sessions.filter((row) => after[row.id] !== row.revision).map((row) => row.id);
       const remaining = deadline - this.now();
       if (changed.length > 0 || remaining <= 0) {
@@ -313,12 +310,10 @@ export class Orchestration extends OrchestrationMutations {
       active();
       const parent = this.parent(actor);
       if (targets.some((id) => !this.own(parent, id))) throw new ControlError("not_found");
-      return targets.map((id) => {
-        const row = this.metadata.read(actor, "session_state", { id }) as SessionEventFacts & {
-          revision: string;
-        };
-        return { ...row, event: eventCursor(row) };
-      });
+      return this.metadata.states(actor, targets).map((row) => ({
+        ...row,
+        event: eventCursor(row),
+      }));
     };
     const initial = read();
     for (const id of targets) this.childRead(actor, id);

@@ -13,7 +13,7 @@ const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
   for (const fn of cleanup.splice(0).reverse()) await fn();
 });
-it("generated event modules authenticate only loopback, reduce fields and stop on cleanup", async () => {
+it("generated event modules bypass proxies, authenticate only loopback, reduce fields and stop on cleanup", async () => {
   const channel = structuredClone(agentProvider("opencode").model.hooks?.channels[0]);
   if (!channel) throw Error("Missing channel");
   channel.mapping.dedupe = { source: "payload", path: ["id"] };
@@ -63,7 +63,7 @@ process.on('beforeExit',()=>stop());`,
   );
   const execute = async (env: Record<string, string>, events: unknown[]) =>
     promisify(execFile)(process.execPath, [driver, JSON.stringify(env), JSON.stringify(events)], {
-      env: {},
+      env: { HTTP_PROXY: "http://127.0.0.1:9", NODE_USE_ENV_PROXY: "1", NO_PROXY: "" },
       timeout: 5000,
     });
   const event = {

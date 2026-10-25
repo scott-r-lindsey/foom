@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -155,7 +156,7 @@ test("empty sidebar and terminal pane stay accessible at both widths", async (co
     await assertAccessible(page);
     if (width < 720) await page.keyboard.press("Escape");
   }
-  await page.screenshot({ path: path.join(tmpdir(), "foom-132-empty-sidebar.png") });
+  await page.screenshot({ path: evidencePath("foom-132-empty-sidebar.png") });
 });
 
 test("sidebar menus escape the scroll area, stay in the window and launch from a worktree", {
@@ -237,7 +238,7 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
       .poll(() => launchItem.evaluate((element) => getComputedStyle(element, "::before").transform))
       .toBe("matrix(1, 0, 0, 1, 0, 0)");
     if (process.env.FOOM_SCREENSHOTS)
-      await page.screenshot({ path: path.join(tmpdir(), `foom-sidebar-${colorScheme}.png`) });
+      await page.screenshot({ path: evidencePath(`foom-sidebar-${colorScheme}.png`) });
   }
   await assertAccessible(page);
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "no-preference" });
@@ -335,7 +336,7 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
     await expect(launchedRow.locator(".board-reason")).toHaveCount(0);
     if (process.env.FOOM_SCREENSHOTS)
       await page.screenshot({
-        path: path.join(tmpdir(), `foom-review-session-${colorScheme}.png`),
+        path: evidencePath(`foom-review-session-${colorScheme}.png`),
       });
   }
 
@@ -381,7 +382,7 @@ test("sidebar menus escape the scroll area, stay in the window and launch from a
     "compact action clears the light and its attention halo",
   );
   if (process.env.FOOM_SCREENSHOTS)
-    await page.screenshot({ path: path.join(tmpdir(), "foom-review-compact.png") });
+    await page.screenshot({ path: evidencePath("foom-review-compact.png") });
   await page.keyboard.press("Enter");
   await expect(page.getByRole("menuitem", { name: "Stop shell" })).toBeFocused();
   await page.keyboard.press("Escape");
@@ -559,7 +560,10 @@ test("sidebar collapses at any width, refits once and opens a narrow overlay wit
   await expect(input).toBeFocused();
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
   await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeFocused();
-  await page.screenshot({ path: "test-results/sidebar-collapsed.png", animations: "disabled" });
+  await page.screenshot({
+    path: evidencePath("sidebar-collapsed.png"),
+    animations: "disabled",
+  });
   await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeFocused();
   await page.waitForFunction(
@@ -589,7 +593,10 @@ test("sidebar collapses at any width, refits once and opens a narrow overlay wit
   await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
   await expect(page.getByRole("button", { name: "Close sidebar", exact: true })).toBeVisible();
   assert.deepEqual(await page.locator(".board-terminal").boundingBox(), bounds);
-  await page.screenshot({ path: "test-results/sidebar-overlay.png", animations: "disabled" });
+  await page.screenshot({
+    path: evidencePath("sidebar-overlay.png"),
+    animations: "disabled",
+  });
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Open sidebar", exact: true })).toBeVisible();
   assert.deepEqual(await page.locator(".board-terminal").boundingBox(), bounds);
@@ -675,7 +682,10 @@ test("sidebar border resizes live, persists per window and refits the terminal o
       return JSON.parse(localStorage.getItem(key)).sidebarWidth;
     });
   await expect.poll(savedWidth).toBe(250);
-  await page.screenshot({ path: "test-results/sidebar-resized.png", animations: "disabled" });
+  await page.screenshot({
+    path: evidencePath("sidebar-resized.png"),
+    animations: "disabled",
+  });
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
   await expect(handle).toHaveCount(0);
   await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();

@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 // Manual isolated measurement, following idle-measurement.js (#697):
 // pnpm run build && MEASURE_LABEL=after xvfb-run -a node --test tests/electron/flight-measurement.js
 // No real agents or user profiles. Reports/traces/screenshots stay untracked.
@@ -7,7 +8,7 @@ const path = require("node:path");
 const { cpus, release } = require("node:os");
 const { launchApp, boardPage } = require("./harness.js");
 const { expect } = require("./test-policy.js");
-const directory = path.resolve("screenshots-725");
+const directory = evidencePath("screenshots-725");
 mkdirSync(directory, { recursive: true });
 const reports = path.resolve("test-results/flight-725");
 mkdirSync(reports, { recursive: true });
@@ -87,7 +88,7 @@ test("isolated flight CPU and trace measurement", async (t) => {
     };
     writeFileSync(path.join(reports, `${label}-${phase}.json`), JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report));
-    await page.screenshot({ path: path.join(directory, `${label}-${phase}.png`) });
+    await page.screenshot({ path: evidencePath(path.join(directory, `${label}-${phase}.png`)) });
   };
   await page.evaluate(() => window.desktop.appMenu.execute("about"));
   await expect(page.getByRole("dialog", { name: "About Foom", exact: true })).toBeVisible();

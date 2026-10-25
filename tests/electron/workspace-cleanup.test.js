@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { AxeBuilder } = require("@axe-core/playwright");
 const { test } = require("./test-shard.js");
@@ -70,7 +71,7 @@ test("merged cleanup deletes external worktrees and branches while preserving a 
     "dirtyuncommitted changes",
   );
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
-  await confirmation.screenshot({ path: path.join(tmpdir(), "foom-122-confirmation.png") });
+  await confirmation.screenshot({ path: evidencePath("foom-122-confirmation.png") });
   const results = await new AxeBuilder({ page: confirmation }).setLegacyMode().analyze();
   assert.deepEqual(
     results.violations.filter((v) => ["serious", "critical"].includes(v.impact)),
@@ -384,14 +385,14 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
     "Detached at",
   );
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
-  await mkdir("screenshots-729", { recursive: true });
+  await mkdir(evidencePath("screenshots-729"), { recursive: true });
   for (const colorMode of ["light", "dark"]) {
     await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), colorMode);
     await expect
       .poll(() => confirmation.evaluate(() => document.documentElement.style.colorScheme))
       .toBe(colorMode);
     await confirmation.screenshot({
-      path: `screenshots-729/force-${colorMode}.png`,
+      path: evidencePath(`screenshots-729/force-${colorMode}.png`),
       animations: "disabled",
     });
   }

@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
@@ -231,7 +232,10 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
       ?.state?.state,
     "needs_input",
   );
-  await page.screenshot({ path: "test-results/config-probe.png", animations: "disabled" });
+  await page.screenshot({
+    path: evidencePath("config-probe.png"),
+    animations: "disabled",
+  });
   await page.evaluate((id) => window.desktop.input(id, "enter\r"), configId);
   await expect
     .poll(
@@ -438,7 +442,10 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   await page.locator(".config-gear").click();
   const decision = page.getByRole("region", { name: "Change waiting for approval" });
   await expect(decision).toContainText("agentArguments.fixturecode");
-  await page.screenshot({ path: "test-results/config-held-decision.png", animations: "disabled" });
+  await page.screenshot({
+    path: evidencePath("config-held-decision.png"),
+    animations: "disabled",
+  });
   await decision.getByRole("button", { name: "Allow", exact: true }).click();
   const disclosure = await confirmationPage(app);
   await expect(disclosure.getByRole("alertdialog")).toHaveAccessibleName(

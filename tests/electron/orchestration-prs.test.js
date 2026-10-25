@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { launchTrustedParent } = require("./agent-fixture.js");
 const { FAKE_GLAB, recordedGitlab } = require("../helpers/glab-cli.js");
 const { FAKE_GH } = require("../helpers/forge-cli.js");
@@ -424,7 +425,7 @@ test("board pull requests show running failed and passed checks through fixture 
   await expect(page.getByText("Required checks", { exact: true })).toBeVisible();
   await expect(page.getByText("success", { exact: true })).toBeVisible();
   if (process.env.FOOM_FORGE_SCREENSHOTS) {
-    const directory = path.resolve(process.env.FOOM_FORGE_SCREENSHOTS);
+    const directory = evidencePath("forge_screenshots");
     await mkdir(directory, { recursive: true });
     for (const variant of ["light", "dark"]) {
       await page.evaluate(
@@ -432,7 +433,7 @@ test("board pull requests show running failed and passed checks through fixture 
         variant,
       );
       await expect(page.locator("html")).toHaveCSS("color-scheme", variant);
-      await page.screenshot({ path: path.join(directory, `${variant}.png`) });
+      await page.screenshot({ path: evidencePath(path.join(directory, `${variant}.png`)) });
     }
   }
   await assertAccessible(page);
@@ -523,7 +524,7 @@ test("board merge requests show pipeline marks and failure notifications through
   await expect(page.getByText("Head pipeline", { exact: true })).toBeVisible();
   await expect(page.getByText("success", { exact: true })).toBeVisible();
   if (process.env.FOOM_FORGE_SCREENSHOTS) {
-    const directory = path.resolve(process.env.FOOM_FORGE_SCREENSHOTS);
+    const directory = evidencePath("forge_screenshots");
     await mkdir(directory, { recursive: true });
     for (const variant of ["light", "dark"]) {
       await page.evaluate(
@@ -537,7 +538,7 @@ test("board merge requests show pipeline marks and failure notifications through
         );
       });
       await expect(page.locator(".sidebar-panel")).toHaveCSS("opacity", "1");
-      await page.screenshot({ path: path.join(directory, `gitlab-${variant}.png`) });
+      await page.screenshot({ path: evidencePath(path.join(directory, `gitlab-${variant}.png`)) });
     }
   }
   await assertAccessible(page);
