@@ -59,6 +59,8 @@ test("a local orchestrator launches and resumes a remote child with private hook
   await symlink(process.execPath, path.join(bin, "node"));
   for (const tool of [
     "sh",
+    "gzip",
+    "uname",
     "head",
     "mkdir",
     "chmod",
@@ -151,6 +153,7 @@ process.stdin.on('data', (bytes) => {
 const {spawn} = require('node:child_process');
 const {appendFileSync} = require('node:fs');
 const args = process.argv.slice(2); const split = args.indexOf('--');
+if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(require('node:os').type() + '\\n' + (process.arch === 'x64' ? 'x86_64' : process.platform === 'darwin' ? 'arm64' : 'aarch64') + '\\n'); process.exit(0); }
 if (args[split+1] !== 'fixture-agents') process.exit(2);
 appendFileSync(${JSON.stringify(pids)}, process.pid + '\\n');
 const child = spawn('/bin/sh',['-c','exec '+args.slice(split+2).join(' ')],{env:{HOME:${JSON.stringify(remoteHome)},PATH:${JSON.stringify(remoteBin)},SHELL:${JSON.stringify(shell)},LANG:'C'},stdio:['pipe','pipe','pipe']});

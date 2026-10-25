@@ -195,7 +195,7 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "remove_worktree",
       description:
-        "Remove a worktree you created. Returns an operation; poll operation_status. Human review is required unless Settings → General enables Auto-remove merged worktrees for removing idle, clean worktrees fully merged into the fetched default branch. The branch is kept.",
+        "Remove a worktree you created. Returns an operation; poll operation_status. Human review is required unless Settings → General enables Auto-remove merged worktrees for removing idle, clean worktrees fully merged into the fetched default branch. The branch is kept. Detached HEAD must be reachable from a local branch, remote-tracking ref or tag; worktree-private refs do not qualify. Untracked files are listed for confirmation; ignored files retain ordinary Git deletion behavior. Fixed failure/decline reasons and details are listed by whoami.removalReasons.",
       properties: { idempotencyKey: key, worktreeId: id },
       required: ["idempotencyKey", "worktreeId"],
       readOnly: false,

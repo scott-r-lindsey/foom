@@ -263,7 +263,7 @@ export function createCommands(
   add("licenses", "Third-party licenses", "Help");
   add("github", "Foom on GitHub", "Help");
   if (development) {
-    add("reload", "Reload", "Developer", [chord("KeyR")]);
+    add("reload", "Reload", "Developer", mac ? [] : [chord("KeyR")]);
     add(
       "force-reload",
       "Force Reload",
@@ -410,6 +410,7 @@ export function createShortcuts(
   platform: string,
   open: () => void,
   now = Date.now,
+  reloadPreview: () => void = () => {},
 ) {
   let expires = 0;
   let altAlone = false;
@@ -435,6 +436,17 @@ export function createShortcuts(
         }
       }
       if (input.type !== "keyDown") return false;
+      // Reserve reload for the focused preview, even with a terminal focused.
+      if (
+        matches(input, {
+          code: "KeyR",
+          ...(platform === "darwin" ? { meta: true } : { control: true }),
+        })
+      ) {
+        expires = 0;
+        reloadPreview();
+        return true;
+      }
       if (platform !== "darwin" && matches(input, LEADER)) {
         expires = now() + 2000;
         return true;

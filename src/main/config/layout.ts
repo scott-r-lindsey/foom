@@ -274,7 +274,7 @@ valid changes live. It is plain files: Foom keeps no history of it.
   \`colorMode\`, \`panelColor\`, \`interfaceTheme\`, \`terminalTheme\`, \`interfaceScale\`,
   \`terminalFontSize\`, \`terminalFont\` (a family name, default Hack Nerd Font Mono), \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\`, \`restoreSessions\`, \`showNewChildren\` (boolean, default true; new children appear on the board), \`closeFinishedAgents\` (boolean, default true; close finished children) and \`concurrentChildren\` (integer 1–16, default 4), and \`recentRepositoryDays\` (integer 1–365, default 30). Any other key rejects the file.
   Consent records, paths and secrets are not configurable here.
-  \`agentArguments\` requires the three bundled agents and accepts plugin IDs: \`{ "claude": [], "codex": [], "agy": [] }\`.
+  \`agentArguments\` requires the three legacy profile keys and accepts other provider IDs: \`{ "claude": [], "codex": [], "agy": [] }\`.
   Each list is literal argv, one string per argument, with no shell parsing.
   Every change to these lists waits for the user's Allow, including removal or harmless flags.
   Default launch arguments affect new, resumed and restored sessions; running sessions keep theirs.
@@ -503,6 +503,7 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  * is unedited and is replaced on upgrade; anything else belongs to the user.
  */
 const GUIDE_HISTORY = [
+  "6797d94d8c809145e4acc62f584e64c5a21af3db0cfd98fd451d45ab1f89c58c",
   "cea4ad5f9d38f5b2850be969118d7d68299d737217312ed2a6d1ccd8bf04935e",
   "3556a1106ac9fe85e2ae85fe60846e344bae0d605c51ee409532ee19a0b25ba1",
   "35a362caf6cfdec503b113efd0b66a6b89be3dc835b597e39f1fb8679b20875f",

@@ -255,3 +255,47 @@ test("bundled manual has a fixed isolated root, is reusable and never persists o
   const plain = await fixture();
   expect(() => plain.host.openManual()).toThrow("Manual unavailable");
 });
+
+test("manual reload validates ownership, preserves network and only routes focused native previews", async () => {
+  const f = await fixture(() => Promise.resolve(true));
+  const { id, view } = await f.open();
+  const wc = view.webContents;
+  expect(() => f.host.reload("b".repeat(32))).toThrow("Unknown preview ID");
+  f.host.bounds(id, { x: 0, y: 0, width: 300, height: 200, visible: true });
+  wc.emit("did-finish-load");
+  f.window.isFocused.mockReturnValue(true);
+  f.host.reloadFocused();
+  expect(wc.reload).not.toHaveBeenCalled();
+  await f.host.reload(id);
+  expect(wc.reload).toHaveBeenCalledOnce();
+  const replacement = fake.views.at(-1);
+  if (!replacement) throw new Error("Missing replacement");
+  const next = replacement.webContents;
+  next.emit("did-finish-load");
+  expect(next.focus).not.toHaveBeenCalled();
+  await f.host.network(id, true);
+  await vi.waitFor(() => {
+    expect(fake.views.at(-1)).not.toBe(replacement);
+  });
+  const focused = fake.views.at(-1);
+  if (!focused) throw new Error("Missing network replacement");
+  focused.webContents.emit("did-finish-load");
+  focused.webContents.emit(
+    "before-mouse-event",
+    { preventDefault: vi.fn() },
+    { type: "mouseDown" },
+  );
+  focused.webContents.isFocused.mockReturnValue(true);
+  f.window.isFocused.mockReturnValue(false);
+  f.host.reloadFocused();
+  expect(focused.webContents.reload).not.toHaveBeenCalled();
+  f.window.isFocused.mockReturnValue(true);
+  f.host.reloadFocused();
+  await vi.waitFor(() => {
+    expect(focused.webContents.reload).toHaveBeenCalledOnce();
+  });
+  expect(f.registry.records.get(id)?.network).toBe(true);
+  await f.host.dispose(true);
+  expect(() => f.host.reload(id)).toThrow("Unknown preview ID");
+  f.host.reloadFocused();
+});

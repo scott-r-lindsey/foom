@@ -150,6 +150,37 @@ test.skipIf(process.platform === "win32")(
   },
 );
 test.skipIf(process.platform === "win32")(
+  "remote Copilot stages its invocation plugin and restricted stdio MCP after host discovery",
+  async () => {
+    vi.mocked(hostDiscovery).mockResolvedValueOnce({
+      command: "/fixture/copilot",
+      env: { PATH: "/fixture" },
+      version: "GitHub Copilot CLI 1.0.103.",
+      help: "--plugin-dir --additional-mcp-config --allow-tool --interactive --session-id --resume",
+    });
+    const prepared = await prepareRemoteAgent(
+      { ...spec, agent: "copilot" },
+      "/fixture/shell",
+      home,
+      () => {},
+      call,
+    );
+    endpoints.push(prepared.endpoint);
+    expect(prepared.ready).toMatchObject({ hooks: true, mcp: true, channels: ["lifecycle"] });
+    expect(prepared.spec.command).toBe("/fixture/copilot");
+    expect(prepared.spec.args).toContain("--plugin-dir");
+    expect(prepared.spec.args).toContain("--session-id");
+    const hooks = await readFile(join(prepared.endpoint.directory, "hooks.json"), "utf8");
+    expect(hooks).toContain("--observe");
+    expect(hooks).toContain("preToolUse");
+    const mcp = await readFile(join(prepared.endpoint.directory, "mcp.json"), "utf8");
+    expect(mcp).toContain("--mcp");
+    expect(mcp).not.toContain("FOOM_CONTROL_TOKEN");
+    expect(mcp).not.toContain(prepared.endpoint.token);
+    expect(mcp).not.toContain(prepared.endpoint.hookToken);
+  },
+);
+test.skipIf(process.platform === "win32")(
   "unverified discovery and disabled hooks retain output evaluation; failures remove private endpoints",
   async () => {
     vi.mocked(hostDiscovery).mockResolvedValueOnce({

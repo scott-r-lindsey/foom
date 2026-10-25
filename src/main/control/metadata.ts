@@ -60,6 +60,20 @@ export class SessionMetadata {
     };
   }
 
+  /** One current workspace projection per wait check, independent of target count. */
+  states(actor: Principal, ids: readonly string[]) {
+    const rows = new Map(
+      this.source()
+        .filter((row) => row.repository === actor.repository)
+        .map((row) => [row.id, row]),
+    );
+    return ids.map((id) => {
+      const row = rows.get(id);
+      if (!row) throw new ControlError("not_found");
+      return this.row(row);
+    });
+  }
+
   private row(row: WorkspaceTerminal) {
     const handoff = this.handoff(row);
     const review = this.review(row);

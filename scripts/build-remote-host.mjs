@@ -1,14 +1,16 @@
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { checkoutRevision, signRemoteHost, writeHostManifest } from "./remote-host-artifacts.mjs";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 if (process.versions.node.split(".")[0] !== "24" || !["linux", "darwin"].includes(process.platform))
   throw new Error("Build foom-host on Linux or macOS with Node 24");
-const output = join(root, "build/remote-host");
+const output = process.env.FOOM_REMOTE_HOST_OUTPUT
+  ? join(process.env.FOOM_REMOTE_HOST_OUTPUT, `${process.platform}-${process.arch}`)
+  : join(root, "build/remote-host");
 const temporary = join(root, "build/remote-sea");
 await mkdir(output, { recursive: true, mode: 0o700 });
 await mkdir(temporary, { recursive: true });
@@ -70,17 +72,11 @@ execFileSync(
   ],
   { stdio: "inherit" },
 );
-if (process.platform === "darwin") execFileSync("codesign", ["--sign", "-", executable]);
-const bytes = await readFile(executable);
+if (process.platform === "darwin") signRemoteHost(executable);
 const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-await writeFile(
-  join(output, "manifest.json"),
-  JSON.stringify({
-    version,
-    platform: process.platform,
-    arch: process.arch,
-    protocol: 2,
-    size: bytes.length,
-    sha256: createHash("sha256").update(bytes).digest("hex"),
-  }),
-);
+await writeHostManifest(output, {
+  version,
+  platform: process.platform,
+  arch: process.arch,
+  source: checkoutRevision(root),
+});

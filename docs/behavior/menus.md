@@ -63,13 +63,16 @@ Help (Keyboard Shortcuts, licenses and GitHub), and Developer (Action Log, plus
 Reload, Force Reload and Toggle Developer Tools in development builds). New Window uses Command+N on macOS
 and Ctrl+Shift+O on Windows/Linux.
 
-Foom commands use Command on macOS or Ctrl+Shift on Windows/Linux; plain Ctrl
-letters remain terminal input. Settings is Command+, or Ctrl+Shift+,; Quit is
-Command+Q or Ctrl+Shift+Q; New Worktree is Command+T or Ctrl+Shift+T. Alt+F4 and
-Command+W use the existing quit confirmation. Interface actual size uses
-Command+0 or Ctrl+Shift+0. Edit roles retain native macOS text-field behavior.
-Reload, Force Reload and Toggle Developer Tools exist only in development builds.
-Packaged windows disable DevTools and provide no reload/developer commands or shortcuts.
+Foom commands use Command on macOS or Ctrl+Shift on Windows/Linux; plain Ctrl letters
+remain terminal input, except Ctrl+R on Windows/Linux, which is reserved for preview reload. Settings is
+Command+, or Ctrl+Shift+,; Quit is Command+Q or Ctrl+Shift+Q; New Worktree is Command+T
+or Ctrl+Shift+T. Alt+F4 and Command+W use the existing quit confirmation. Interface
+actual size uses Command+0 or Ctrl+Shift+0. Edit roles retain native macOS text-field
+behavior. Reload, Force Reload and Toggle Developer Tools exist only in development
+builds. Packaged windows disable DevTools and provide no window reload/developer
+commands or shortcuts. Preview tiles offer Reload in their header and tile menu in every
+build. Command+R / Ctrl+R reloads only the preview with keyboard focus; it does nothing
+with a terminal focused and never reloads the Foom window.
 
 The app icon counts only sessions that **need you**, including hidden sessions,
 and clears at zero. macOS uses the Dock badge; Windows uses a taskbar overlay

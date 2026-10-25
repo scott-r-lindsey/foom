@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { assertBundledTerminalFonts } = require("./font-checks.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -364,12 +365,15 @@ test("About rocket replays launch by mouse and keyboard without changing setup",
           animation.pause();
           animation.currentTime = currentTime;
         }, time);
-        await page.screenshot({ path: `test-results/replay-686/iris-${label}.png` });
+        await page.screenshot({ path: evidencePath(`replay-686/iris-${label}.png`) });
       }
       await page.clock.runFor(4500);
       await expect(about).not.toBeVisible();
       await expect(launch).toHaveAttribute("data-phase", "liftoff");
-      await page.screenshot({ path: "test-results/replay-686/launch.png", animations: "disabled" });
+      await page.screenshot({
+        path: evidencePath("replay-686/launch.png"),
+        animations: "disabled",
+      });
       await page.clock.runFor(9400);
       await expect(launch).toHaveAttribute("data-fading", "true");
       await page.clock.runFor(200);

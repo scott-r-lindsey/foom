@@ -1,3 +1,4 @@
+import { RemovalError } from "./worktree-outcome";
 import { constants } from "node:fs";
 import { lstat, open, realpath, stat as fileStat } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -62,7 +63,7 @@ export async function checkoutIdentity(
   if (tree.locked) throw new ApplicationError("worktree-locked");
   if (tree.prunable) throw new ApplicationError("worktree-prunable");
   if ((await dependencies.realpath(path)) !== path)
-    throw new Error("Worktree path has been redirected");
+    throw new RemovalError("identity_changed", "Worktree path has been redirected");
   const commonDirectory = async (cwd: string) =>
     dependencies.realpath(
       (
@@ -74,6 +75,9 @@ export async function checkoutIdentity(
     (await dependencies.git(path, ["rev-parse", "--absolute-git-dir"])).slice(0, -1),
   );
   if ((!allowMain && gitDirectory === common) || (await commonDirectory(path)) !== common)
-    throw new Error("Worktree is not a linked checkout of this repository");
+    throw new RemovalError(
+      "identity_changed",
+      "Worktree is not a linked checkout of this repository",
+    );
   return worktreeIdentity(path);
 }

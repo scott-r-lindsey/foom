@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync } = require("../helpers/git.js");
 // Manual: xvfb-run -a node tests/electron/tiles-measurement.js (after pnpm run make).
 // Six real tiles, two bounded output floods, DOM renderer, packaged sandbox intact.
@@ -167,7 +168,7 @@ async function measure() {
       path.join(tmpdir(), "foom-132-measurement.json"),
       JSON.stringify(report, null, 2),
     );
-    await page.screenshot({ path: path.join(tmpdir(), "foom-132-six-tiles.png") });
+    await page.screenshot({ path: evidencePath("foom-132-six-tiles.png") });
     for (const session of sessions)
       await page.evaluate((id) => window.desktop.input(id, "exit\r"), session.id);
     await expect

@@ -6,7 +6,7 @@ import type {
 } from "./remote-agent";
 import type { HookSignal } from "./hooks";
 import type { HostRequest, HostResponse } from "./terminal-host";
-export type RemoteTarget = { host: string; artifact: string; agent?: RemoteAgentBinding };
+export type RemoteTarget = { host: string; artifact?: string; agent?: RemoteAgentBinding };
 export type RemoteRequest =
   | { type: "hello"; build: string }
   | { type: "open"; request: number; id: string; cols: number; rows: number; reattach: boolean }

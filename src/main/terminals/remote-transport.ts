@@ -12,7 +12,7 @@ import {
   remoteResponse,
   REMOTE_GONE_EXIT_CODE,
 } from "../../shared/remote-host-protocol";
-import { bootstrapArguments, hostArtifact } from "./remote-bootstrap";
+import { bootstrapArguments, selectHostArtifact, sshEnvironment } from "./remote-bootstrap";
 
 type Connection = {
   child: ChildProcess;
@@ -26,7 +26,7 @@ type Connection = {
 /** Utility-client-shaped adapter. It never exposes SSH/daemon text as diagnostics. */
 export class RemoteTransport extends EventEmitter {
   private connection: Connection | undefined;
-  private artifact: Awaited<ReturnType<typeof hostArtifact>> | undefined;
+  private artifact: Awaited<ReturnType<typeof selectHostArtifact>> | undefined;
   private closed = false;
   private ready = false;
   private opened = false;
@@ -53,7 +53,7 @@ export class RemoteTransport extends EventEmitter {
           throw new Error("Remote launch unavailable");
         this.send({ type: "agent-activate", id: this.session.id });
       };
-    void hostArtifact(target.artifact)
+    void selectHostArtifact(target, expectedVersion)
       .then((artifact) => {
         if (this.closed) return;
         if (artifact.version !== expectedVersion)
@@ -148,25 +148,7 @@ export class RemoteTransport extends EventEmitter {
     const artifact = this.artifact;
     if (!artifact || this.closed) return;
     // No shell option, no SSH agent/key copying, no inherited Foom/control env.
-    const env: NodeJS.ProcessEnv = {};
-    for (const key of [
-      "PATH",
-      "HOME",
-      "USER",
-      "LOGNAME",
-      "LANG",
-      "LC_ALL",
-      "LC_CTYPE",
-      "USERPROFILE",
-      "SystemRoot",
-      "WINDIR",
-      "TEMP",
-      "TMP",
-      "SSH_AUTH_SOCK",
-    ]) {
-      const value = process.env[key];
-      if (value !== undefined) env[key] = value;
-    }
+    const env = sshEnvironment();
     const child = spawn(
       "ssh",
       bootstrapArguments(
@@ -174,6 +156,9 @@ export class RemoteTransport extends EventEmitter {
         artifact.version,
         artifact.sha256,
         artifact.bytes.length,
+        artifact.upload.length,
+        artifact.platform,
+        artifact.arch,
       ),
       { env, shell: false, stdio: ["pipe", "pipe", "pipe"] },
     );
@@ -214,7 +199,7 @@ export class RemoteTransport extends EventEmitter {
             header = header.subarray(end + 1);
             if (line === "FOOM-UPLOAD" && !uploading) {
               uploading = true;
-              child.stdin.write(artifact.bytes);
+              child.stdin.write(artifact.upload);
               continue;
             }
             if (line !== "FOOM-READY") throw new Error("Invalid bootstrap");

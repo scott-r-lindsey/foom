@@ -1,7 +1,7 @@
 {
   "kind": "agent",
   "version": 2,
-  "id": "copilot",
+  "id": "copilot-fixture",
   "name": "GitHub Copilot",
   "badge": "CP",
   "executables": ["copilot"],

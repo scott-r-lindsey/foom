@@ -2,6 +2,8 @@ import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { buildFingerprint, fingerprint } from "./validation-fingerprint.mjs";
 import { suiteFiles } from "../tests/electron/test-suites.js";
+import { guardWorktreeWrites } from "../tests/helpers/worktree-writes.js";
+const checkWorktreeWrites = guardWorktreeWrites();
 const args = process.argv.slice(2);
 const packaged = args.includes("--packaged");
 const reuse = args.includes("--reuse-build");
@@ -94,8 +96,14 @@ writeFileSync(
   JSON.stringify(outcome, null, 2),
 );
 console.info("Electron test runner outcome:", outcome);
+try {
+  checkWorktreeWrites();
+} catch (error) {
+  console.error(error);
+  process.exitCode = 1;
+}
 if (result.error) throw result.error;
-process.exitCode = result.status ?? 1;
+process.exitCode ||= result.status ?? 1;
 
 if (result.status === 0 && (forwarded.length > 0 || selectedSuites.length > 0)) {
   const counts = JSON.parse(readFileSync(summaryPath, "utf8"));

@@ -163,6 +163,7 @@ test("prewarms an isolated sandbox, rejects foreign frames, forged IDs and malfo
   expect(window().webContents.send).toHaveBeenCalledWith("confirmation:render", {
     ...content,
     id,
+    presented: false,
     theme,
   });
   answer(id, true, { sender: {}, senderFrame: window().webContents.mainFrame });
@@ -233,11 +234,12 @@ test("tracks parent bounds and focus only while pending and restores input on ca
   expect(parent.setEnabled).not.toHaveBeenCalled();
   window().setBounds.mockClear();
   window().focus.mockClear();
+  parent.getContentBounds.mockReturnValue({ x: 30, y: 40, width: 800, height: 600 });
   parent.emit("move");
   parent.emit("resize");
   parent.emit("focus");
-  expect(window().setBounds).toHaveBeenCalledTimes(4);
-  expect(window().setBounds).toHaveBeenLastCalledWith({ x: 190, y: 200, width: 440, height: 240 });
+  expect(window().setBounds).toHaveBeenCalledOnce();
+  expect(window().getBounds()).toEqual({ x: 210, y: 220, width: 440, height: 240 });
   expect(window().focus).toHaveBeenCalledOnce();
   window().emit("close", { preventDefault: vi.fn() });
   await expect(pending).resolves.toBe(false);
@@ -246,7 +248,7 @@ test("tracks parent bounds and focus only while pending and restores input on ca
   expect(parent.listenerCount("resize")).toBe(0);
   expect(parent.listenerCount("focus")).toBe(0);
   parent.emit("resize");
-  expect(window().setBounds).toHaveBeenCalledTimes(4);
+  expect(window().setBounds).toHaveBeenCalledOnce();
   dialog.dispose();
 });
 
@@ -261,6 +263,59 @@ test("pairing deadlines dismiss active dialogs and cannot approve queued expired
   expect(await dialog.request(content, controller.signal)).toBe(false);
   dialog.dispose();
 });
+
+test("an X11 frame/gravity adjustment cannot turn an unchanged placement into a visible move", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const dialog = setup();
+  let mapped = false;
+  const child = window();
+  const visibleMoves: (typeof child.bounds)[] = [];
+  child.show.mockImplementation(() => {
+    mapped = true;
+  });
+  child.hide.mockImplementation(() => {
+    mapped = false;
+  });
+  child.setBounds.mockImplementation((bounds) => {
+    // Model a WM interpreting a mapped ConfigureRequest with frame/gravity
+    // compensation. Repeating the pre-map coordinates drops the card 20 DIP.
+    child.bounds = { ...bounds, y: bounds.y + (mapped ? 20 : 0) };
+    if (mapped) visibleMoves.push(child.bounds);
+  });
+  for (let request = 0; request < 2; request++) {
+    const pending = dialog.request(content);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(child.getBounds()).toEqual({ x: 190, y: 200, width: 440, height: 240 });
+    resize({ width: 440, height: 240 });
+    parent.emit("resize");
+    parent.emit("focus");
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(visibleMoves).toEqual([]);
+    const render: unknown = child.webContents.send.mock.calls.at(-1)?.[1];
+    if (!render || typeof render !== "object" || !("id" in render)) throw Error("Missing request");
+    answer(render.id, true);
+    expect(await pending).toBe(true);
+  }
+  dialog.dispose();
+});
+
+test.each(["linux", "darwin", "win32"] as const)(
+  "%s still reapplies bounds when mapping really changes native geometry",
+  async (platform) => {
+    const dialog = setup(platform);
+    const child = window();
+    child.show.mockImplementation(() => {
+      child.bounds = { ...child.bounds, y: child.bounds.y + 20 };
+    });
+    const pending = dialog.request(content);
+    const id = await shown();
+    expect(child.setBounds).toHaveBeenCalledTimes(2);
+    expect(child.getBounds()).toEqual({ x: 190, y: 200, width: 440, height: 240 });
+    answer(id, true);
+    expect(await pending).toBe(true);
+    dialog.dispose();
+  },
+);
 
 function resize(
   value: unknown,
@@ -306,6 +361,7 @@ test("size requires a pending trusted main frame and finite positive dimensions 
   expect(window().show).not.toHaveBeenCalled();
   expect(window().setBounds).not.toHaveBeenCalled();
   resize(valid);
+  await shown();
   expect(window().show).toHaveBeenCalledOnce();
   expect(window().webContents.focus).toHaveBeenCalledOnce();
   expect(window().setBounds).toHaveBeenLastCalledWith({ x: 190, y: 200, width: 440, height: 240 });
@@ -666,6 +722,7 @@ test.each([true, false])(
     await vi.advanceTimersByTimeAsync(0);
     expect(mock.activate).not.toHaveBeenCalled();
     resize({ width: 440, height: 240 });
+    await vi.advanceTimersByTimeAsync(100);
     expect(mock.activate).toHaveBeenCalledWith({ steal: true });
     expect(window().isFocused()).toBe(activates);
     await vi.advanceTimersByTimeAsync(2000);
@@ -862,5 +919,81 @@ test("native presentation exceptions decline and release every input guard", asy
   expect(await dialog.request(content)).toBe(false);
   expect(parent.webContents.listenerCount("before-input-event")).toBe(0);
   expect(mock.power?.listenerCount("resume")).toBe(0);
+  dialog.dispose();
+});
+
+test("sizes converge in the hidden viewport before presenting, and equal reports do not delay show", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  mock.autoSize = false;
+  const dialog = setup();
+  const pending = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(0);
+  resize({ width: 548, height: 280 });
+  expect(window().webContents.send).toHaveBeenLastCalledWith(
+    "confirmation:render",
+    expect.objectContaining({ presented: false }),
+  );
+  expect(window().getBounds()).toEqual({ x: 136, y: 180, width: 548, height: 280 });
+  parent.emit("focus");
+  await vi.advanceTimersByTimeAsync(60);
+  resize({ width: 540, height: 240 });
+  await vi.advanceTimersByTimeAsync(60);
+  expect(window().show).not.toHaveBeenCalled();
+  resize({ width: 540, height: 240 });
+  await vi.advanceTimersByTimeAsync(40);
+  expect(window().show).toHaveBeenCalledOnce();
+  expect(window().getBounds()).toEqual({ x: 140, y: 200, width: 540, height: 240 });
+  expect(window().webContents.send).toHaveBeenLastCalledWith(
+    "confirmation:render",
+    expect.objectContaining({ presented: true }),
+  );
+  resize({ width: 540, height: 240 });
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(window().show).toHaveBeenCalledOnce();
+  dialog.dispose();
+  expect(await pending).toBe(false);
+});
+
+test("cancellation clears a pending presentation and a native sizing error fails closed", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const dialog = setup();
+  const controller = new AbortController();
+  const pending = dialog.request(content, controller.signal);
+  await vi.advanceTimersByTimeAsync(0);
+  controller.abort();
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(window().show).not.toHaveBeenCalled();
+  expect(await pending).toBe(false);
+  window().setBounds.mockImplementation(() => {
+    throw Error("native failure");
+  });
+  const next = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(0);
+  resize({ width: 500, height: 300 });
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(await next).toBe(false);
+  dialog.dispose();
+});
+
+test("unsettled consent is declined and layout churn cannot extend the one-second deadline", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  mock.autoSize = false;
+  const dialog = setup();
+  const early = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(0);
+  resize({ width: 540, height: 280 });
+  const request: unknown = window().webContents.send.mock.calls.at(-1)?.[1];
+  if (!request || typeof request !== "object" || !("id" in request)) throw Error("Missing request");
+  answer(request.id, true);
+  expect(await early).toBe(false);
+  const pending = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(0);
+  for (let index = 0; index < 11; index++) {
+    resize({ width: 540, height: 280 + index });
+    await vi.advanceTimersByTimeAsync(90);
+  }
+  await vi.advanceTimersByTimeAsync(100);
+  expect(await pending).toBe(false);
+  expect(window().show).not.toHaveBeenCalled();
   dialog.dispose();
 });

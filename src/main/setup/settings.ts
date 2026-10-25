@@ -19,7 +19,7 @@ import { validAgentId } from "../../shared/providers/catalog";
 import type { BuiltinAgentId } from "../../shared/agents";
 import type { Settings, SettingsPatch } from "../../shared/setup";
 
-const AGENTS: readonly BuiltinAgentId[] = ["claude", "codex", "agy"];
+const AGENTS = ["claude", "codex", "agy"] as const satisfies readonly BuiltinAgentId[];
 /** Twice the theme folder limit, so renames settle before old entries are removed. */
 const MAX_THEME_DIGESTS = 100;
 

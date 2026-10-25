@@ -177,6 +177,9 @@ export async function buildWindow(
         console.warn("Unable to open manual");
       });
     },
+    () => {
+      wiring.previewHosts.get(window.id)?.reloadFocused();
+    },
   );
   wiring.newWindowCommand = appMenu.newWindow;
   await initializeWorkspace(wiring, window);

@@ -13,9 +13,12 @@ test("source connects independently of views, reconciles events, preserves order
     "Preview host unavailable",
   );
   await expect(source.previews?.popout?.("unknown")).rejects.toThrow("Preview host unavailable");
+  await expect(source.previews?.reload?.("unknown")).rejects.toThrow("Preview host unavailable");
   const popout = vi.fn(() => Promise.resolve());
+  const reload = vi.fn(() => Promise.resolve());
   const network = vi.fn(() => Promise.resolve());
   window.desktop.previews = {
+    reload,
     network,
     popout,
     pick: vi.fn(),
@@ -25,6 +28,8 @@ test("source connects independently of views, reconciles events, preserves order
     cover: vi.fn(),
     onSnapshots: vi.fn(),
   };
+  await source.previews?.reload?.("id");
+  expect(reload).toHaveBeenCalledWith("id");
   await source.previews?.network?.("id", true);
   expect(network).toHaveBeenCalledWith("id", true);
   await source.previews?.popout?.("id");

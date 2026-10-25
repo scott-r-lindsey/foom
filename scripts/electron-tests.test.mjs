@@ -1,3 +1,5 @@
+import { gitSync } from "../tests/helpers/git.js";
+import { evidencePath } from "../tests/helpers/evidence.js";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -23,6 +25,10 @@ function fixture(context) {
   for (const name of ["package.json", "pnpm-lock.yaml", ".npmrc", "tests/helpers/setup.js"]) {
     writeFileSync(join(root, name), name === "package.json" ? "{}" : "");
   }
+  for (const name of ["git.js", "worktree-writes.js"]) {
+    cpSync(new URL(`../tests/helpers/${name}`, import.meta.url), join(root, "tests/helpers", name));
+  }
+  writeFileSync(join(root, ".gitignore"), "build/\ntest-results/\nnode_modules/\n");
   writeFileSync(join(root, "src/input.ts"), "original");
   writeFileSync(join(root, "node_modules/types.d.ts"), "original declaration");
   writeFileSync(
@@ -42,6 +48,8 @@ function fixture(context) {
   for (const name of ["one.test.js", "packaged-smoke.js"]) {
     writeFileSync(join(root, "tests/electron", name), suite);
   }
+  gitSync(["init", "--quiet"], { cwd: root });
+  gitSync(["add", "."], { cwd: root });
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
   delete env.FOOM_ELECTRON_SHARD;
@@ -156,4 +164,75 @@ test("suite selection validates inventory, executes only selected files and reje
   const failed = run(["--suite=two.test.js"]);
   assert.notEqual(failed.status, 0);
   assert.match(failed.output, /UNSELECTED_FILE/);
+});
+
+test("evidence helper creates nested destinations and rejects escaping paths", () => {
+  const target = evidencePath("evidence-helper/nested/capture.png");
+  assert.ok(target.endsWith(join("test-results", "evidence-helper", "nested", "capture.png")));
+  writeFileSync(target, "fixture evidence");
+  assert.equal(evidencePath(target), target);
+  assert.equal(evidencePath("test-results/evidence-helper/nested/capture.png"), target);
+  assert.throws(() => evidencePath("../escaped.png"), /must stay under/);
+  assert.throws(() => evidencePath(join(tmpdir(), "escaped.png")), /must stay under/);
+  rmSync(join(target, "../.."), { recursive: true, force: true });
+});
+
+for (const packaged of [false, true]) {
+  for (const fails of [false, true]) {
+    test(`worktree guard rejects leaked files after ${packaged ? "packaged" : "Electron"} ${fails ? "failure" : "success"}`, (t) => {
+      const { root, run } = fixture(t);
+      writeFileSync(join(root, "existing developer file.txt"), "keep me");
+      const suite = packaged ? "packaged-smoke.js" : "one.test.js";
+      writeFileSync(
+        join(root, "tests/electron", suite),
+        `
+        const { test } = require('node:test');
+        test('writes evidence', () => {
+          require('node:fs').writeFileSync('leaked screenshot.png', 'evidence');
+          ${fails ? "throw Error('fixture failure');" : ""}
+        });
+      `,
+      );
+      const result = run(packaged ? ["--packaged"] : []);
+      assert.equal(result.status, 1, result.output);
+      assert.match(result.output, /Tests created untracked files outside/);
+      assert.match(result.output, /leaked screenshot.png/);
+      assert.doesNotMatch(result.output, /existing developer file.txt/);
+      assert.equal(readFileSync(join(root, "existing developer file.txt"), "utf8"), "keep me");
+    });
+  }
+}
+
+test("worktree guard permits test-results and pre-existing untracked files", (t) => {
+  const { root, run } = fixture(t);
+  writeFileSync(join(root, "existing screenshot.png"), "keep me");
+  writeFileSync(
+    join(root, "tests/electron/one.test.js"),
+    `
+    const { test } = require('node:test');
+    test('writes allowed evidence', () => {
+      require('node:fs').mkdirSync('test-results/nested', { recursive: true });
+      require('node:fs').writeFileSync('test-results/nested/capture.png', 'evidence');
+    });
+  `,
+  );
+  const result = run([]);
+  assert.equal(result.status, 0, result.output);
+});
+
+test("worktree guard permits a temporary directory inside the checkout", (t) => {
+  const { root, run } = fixture(t);
+  const temporary = join(root, "temporary");
+  mkdirSync(temporary);
+  writeFileSync(
+    join(root, "tests/electron/one.test.js"),
+    `
+    const { test } = require('node:test');
+    test('writes temporary evidence', () => {
+      require('node:fs').writeFileSync(require('node:path').join(require('node:os').tmpdir(), 'capture.png'), 'evidence');
+    });
+  `,
+  );
+  const result = run([], { TMPDIR: temporary, TMP: temporary, TEMP: temporary });
+  assert.equal(result.status, 0, result.output);
 });

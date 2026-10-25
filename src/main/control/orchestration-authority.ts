@@ -665,7 +665,13 @@ export class OrchestrationAuthority {
     label: string,
     code: ControlError["code"],
   ): Promise<never> {
-    const record = await operations.finish(actor, operation.operationId, "failed", "refused");
+    const reason =
+      operation.action === "remove_worktree"
+        ? code === "not_found"
+          ? "not_owned"
+          : "busy"
+        : "refused";
+    const record = await operations.finish(actor, operation.operationId, "failed", reason);
     this.note(parent, this.entry(record, label));
     throw new ControlError(code);
   }

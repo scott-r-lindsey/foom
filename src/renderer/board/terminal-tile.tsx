@@ -223,6 +223,14 @@ export function Tile({
     clear,
     report,
   ]);
+  const canReload = Boolean(preview && typeof source.previews?.reload === "function");
+  const reload = () => {
+    if (!preview) return;
+    errorOriginRef.current = captureErrorFocus();
+    void source.previews?.reload?.(preview.id).catch((error: unknown) => {
+      setError(errorMessage(error, "Reload failed"));
+    });
+  };
   const lastFocusRef = useRef(0);
   useEffect(() => {
     if (focusRequest === lastFocusRef.current) return;
@@ -377,6 +385,20 @@ export function Tile({
             >
               □
             </button>
+            {canReload && (
+              <button type="button" className="preview-reload" aria-label="Reload" onClick={reload}>
+                <svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14">
+                  <path
+                    d="M12.5 5.5A5 5 0 1 0 13 9 M12.5 2v3.5H9"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            )}
             <button
               type="button"
               aria-label={preview || row?.exited ? "Close" : "Hide"}
@@ -397,6 +419,7 @@ export function Tile({
           layout={{ ...layout, focused: tile.id }}
           row={row}
           preview={preview}
+          reload={canReload ? reload : undefined}
           name={name}
           number={number}
           view={view}

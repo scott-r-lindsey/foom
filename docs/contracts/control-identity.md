@@ -203,3 +203,31 @@ can briefly report unknown attention until reclassified. Silence is never eviden
 of a provider stall. Recorded evidence provenance and the distinction between the
 reported capacity line and upstream render snapshots are in
 [`tests/fixtures/agent-detection/README.md`](../../tests/fixtures/agent-detection/README.md).
+
+
+### Removal reason codes (#819)
+
+`whoami.removalReasons` lists fixed removal reason codes and their short product
+details. `operation_status` and duplicate mutation responses include `reason`
+and `detail` for failed/declined removals. No Git stderr or exception text is
+returned. Codes are `not_found`, `not_owned`, `locked`, `prunable`, `main_checkout`,
+`identity_changed`, `detached_head`, `dirty`, `untracked_files`, `changes_changed`,
+`busy`, `user_declined`, and `git_failed`.
+
+`not_owned` covers unknown/foreign operation targets; `not_found` means an owned
+checkout is no longer registered. `busy` covers running sessions and reservations.
+`identity_changed` covers replaced or redirected filesystem/Git metadata.
+`detached_head` means HEAD is not reachable from a local branch (`refs/heads/`),
+remote-tracking ref (`refs/remotes/`) or tag (`refs/tags/`); confirmation and force
+cannot override it. Only those explicitly allowlisted shared namespaces qualify.
+Worktree-private `refs/worktree/`, `refs/bisect/` and `refs/rewritten/` are deleted
+with the target checkout and never authorize removal; other namespaces also do
+not qualify. Detached reviewer checkouts with HEAD reachable from an allowed ref
+use the same confirmation policy and retain their original branch. `dirty` and
+`untracked_files` identify changes not approved for deletion; non-ignored untracked
+paths are shown in the trusted dialog. `changes_changed` invalidates an approved
+snapshot. `user_declined` covers a declined or unavailable clean confirmation.
+Locks, main checkouts and prunable entries remain refused. `git_failed` is the
+fixed fallback when Git or another removal step cannot complete. Revocation and
+persistence uncertainty retain `revoked`/`uncertain` and cancelled/indeterminate
+semantics. Ignored files retain ordinary Git deletion behavior and are not listed.

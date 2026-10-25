@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import agy from "../../../shared/bundled-agents/agy.json";
+import copilot from "../../../shared/bundled-agents/copilot.json";
 import codex from "../../../shared/bundled-agents/codex.json";
 import claude from "../../../shared/bundled-agents/claude.json";
 import { parseAgentManifest } from "../../../shared/agent-plugin-parser";
@@ -32,4 +33,9 @@ export const bundledProviders: readonly AgentProvider[] = [
     "e5afbef90ce00779271cbebb22f0571f76446d16ef355674d7ebd8e9a3061c9d",
   ),
   bundledProvider(agy, "agy", "6e1b349b76c9f5963749e3681589eb5fa42e2822302381a2b685cf5e9260e678"),
+  bundledProvider(
+    copilot,
+    "copilot",
+    "d06d9f7f37417e2fb022e15d257aefe5005861b023af420655b6706088c5c088",
+  ),
 ];
