@@ -186,4 +186,4 @@ dismissal cannot bring Foom forward after the person switches to another app.
 The existing boolean scrim notification captures and restores the board's DOM
 input target; no terminal payload or new IPC capability is needed. If the target
 closed, the renderer falls back to the focused tile's xterm input, its tile, a
-sidebar row, then the application menu.
+sidebar navigation control, the application menu, then the sidebar itself.

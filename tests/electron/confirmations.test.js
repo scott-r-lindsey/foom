@@ -1589,14 +1589,12 @@ test("modal dismissal restores the same terminal input for cancel, approve, Esca
       )
       .toBe(false);
     await expect(board.locator(".xterm-helper-textarea")).toBeHidden();
+    // With no remaining sessions the compact rail has no row or visible wordmark.
+    await board.evaluate(() => window.desktop.appMenu.execute("toggle-sidebar"));
+    await expect(board.locator(".sidebar-shell")).toHaveAttribute("data-compact", "true");
     await dialog.keyboard.press("Escape");
     await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
-    assert.equal(
-      await board.evaluate(
-        () => document.activeElement !== document.body && document.activeElement !== null,
-      ),
-      true,
-    );
+    await expect(board.getByRole("navigation", { name: "Terminal sidebar" })).toBeFocused();
   } finally {
     await app.evaluate(() => globalThis.focusRestoreDialog.dispose());
   }

@@ -17,9 +17,10 @@ export function restoreBoardFocus(previous: Element | null): void {
   for (const selector of [
     '.terminal-tile[data-focused="true"] .xterm-helper-textarea',
     '.terminal-tile[data-focused="true"]',
-    '.sidebar-shell [role="treeitem"]',
+    ".sidebar-shell [data-nav]",
     ".wordmark-menu",
+    ".board-list",
   ]) {
-    if (focus(document.querySelector(selector))) return;
+    for (const target of document.querySelectorAll(selector)) if (focus(target)) return;
   }
 }

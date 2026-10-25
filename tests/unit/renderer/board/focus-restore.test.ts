@@ -8,7 +8,7 @@ afterEach(() => {
 
 test("restores the exact input and falls back when it was closed or cannot take focus", () => {
   document.body.innerHTML =
-    '<input id="origin"><section class="terminal-tile" data-focused="true" tabindex="0"><textarea class="xterm-helper-textarea"></textarea></section><aside class="sidebar-shell"><button role="treeitem">Session</button><button class="wordmark-menu">Foom</button></aside>';
+    '<input id="origin"><section class="terminal-tile" data-focused="true" tabindex="0"><textarea class="xterm-helper-textarea"></textarea></section><aside class="sidebar-shell"><button role="treeitem" data-nav>Session</button><button class="wordmark-menu">Foom</button></aside>';
   const previous = document.querySelector("input");
   restoreBoardFocus(previous);
   expect(document.activeElement).toBe(previous);
@@ -31,4 +31,10 @@ test("restores the exact input and falls back when it was closed or cannot take 
   const unfocusable = document.createElement("div");
   document.body.append(unfocusable);
   restoreBoardFocus(unfocusable);
+  const sidebar = document.createElement("nav");
+  sidebar.className = "board-list";
+  sidebar.tabIndex = -1;
+  document.body.append(sidebar);
+  restoreBoardFocus(null);
+  expect(document.activeElement).toBe(sidebar);
 });
