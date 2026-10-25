@@ -66,6 +66,10 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
       ? path.join(root, "Foom.app", "Contents", "Resources")
       : path.join(root, "resources");
   const archive = path.join(resources, "app.asar");
+  const metadataPath = "build/build-metadata.json";
+  assert.equal(statFile(archive, metadataPath).unpacked, undefined);
+  const metadata = JSON.parse(extractFile(archive, metadataPath).toString("utf8"));
+  assert.equal(metadata.source, gitSync(["rev-parse", "HEAD"]).toString().trim());
   const { gunzipSync } = require("node:zlib");
   const { createHash } = require("node:crypto");
   for (const target of ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"]) {
@@ -75,6 +79,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     assert.equal(manifest.version, require("../../package.json").version);
     assert.equal(`${manifest.platform}-${manifest.arch}`, target);
     assert.equal(manifest.protocol, 1);
+    assert.equal(manifest.source, metadata.source);
     assert.equal(compressed.length, manifest.gzipSize);
     assert.equal(createHash("sha256").update(compressed).digest("hex"), manifest.gzipSha256);
     const bytes = gunzipSync(compressed, { maxOutputLength: manifest.size });

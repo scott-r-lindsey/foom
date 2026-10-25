@@ -21,6 +21,7 @@ async function fixture() {
   const bytes = Buffer.from("fake executable");
   const manifest = {
     version: "0.1.0",
+    source: "a".repeat(40),
     platform: "linux",
     arch: "x64",
     protocol: 1,
@@ -44,6 +45,10 @@ test("checks pinned artifact bytes, bounded metadata and supported target", asyn
   await expect(hostArtifact("relative")).rejects.toThrow("absolute");
   for (const patch of [
     { version: "../bad" },
+    { source: undefined },
+    { source: 1 },
+    { source: "development" },
+    { source: "bad" },
     { sha256: "a".repeat(64) },
     { size: 0 },
     { platform: "win32" },
@@ -179,7 +184,8 @@ test("compressed catalogs validate both compressed and expanded bytes", async ()
   };
   await writeFile(path, upload);
   await writeFile(join(f.root, "manifest.json"), JSON.stringify(manifest));
-  const artifact = await hostArtifact(path);
+  const artifact = await hostArtifact(path, f.manifest.source);
+  await expect(hostArtifact(path, "b".repeat(40))).rejects.toThrow("mismatch");
   expect(gunzipSync(artifact.upload)).toEqual(f.bytes);
   for (const patch of [
     { gzipSize: undefined },

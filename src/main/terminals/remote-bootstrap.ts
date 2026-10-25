@@ -30,7 +30,7 @@ async function boundedFile(path: string, limit: number): Promise<Buffer> {
     await fd.close();
   }
 }
-export async function hostArtifact(path: string) {
+export async function hostArtifact(path: string, expectedSource?: string) {
   if (!isAbsolute(path)) throw new Error("Host artifact must be absolute");
   const stored = await boundedFile(path, 200 * 1024 * 1024);
   const compressed = path.endsWith(".gz");
@@ -46,6 +46,10 @@ export async function hostArtifact(path: string) {
     !("version" in value) ||
     typeof value.version !== "string" ||
     !/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?(?:\+[a-zA-Z0-9.-]+)?$/u.test(value.version) ||
+    !("source" in value) ||
+    typeof value.source !== "string" ||
+    !/^[a-f0-9]{40}$/u.test(value.source) ||
+    (expectedSource !== undefined && value.source !== expectedSource) ||
     !("sha256" in value) ||
     typeof value.sha256 !== "string" ||
     !/^[a-f0-9]{64}$/u.test(value.sha256) ||
@@ -224,6 +228,7 @@ export async function selectHostArtifact(
     __dirname.replace(/app\.asar(?=[/\\])/u, "app.asar.unpacked"),
     "../../remote-hosts",
   ),
+  metadata = join(__dirname, "../../build-metadata.json"),
 ) {
   const { stdout } = await promisify(execFile)(
     "ssh",
@@ -231,8 +236,22 @@ export async function selectHostArtifact(
     { env: sshEnvironment(), shell: false, timeout: 10000, maxBuffer: 256, encoding: "utf8" },
   );
   const remote = remotePlatform(stdout);
+  let expectedSource: string | undefined;
+  if (!target.artifact) {
+    const value: unknown = JSON.parse((await boundedFile(metadata, 4096)).toString("utf8"));
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      !("source" in value) ||
+      typeof value.source !== "string" ||
+      !/^[a-f0-9]{40}$/u.test(value.source)
+    )
+      throw new Error("Invalid application source revision");
+    expectedSource = value.source;
+  }
   const artifact = await hostArtifact(
     target.artifact ?? join(catalog, `${remote.platform}-${remote.arch}`, "foom-host.gz"),
+    expectedSource,
   );
   if (
     artifact.version !== expectedVersion ||

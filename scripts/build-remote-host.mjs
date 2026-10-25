@@ -2,7 +2,7 @@ import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { signRemoteHost, writeHostManifest } from "./remote-host-artifacts.mjs";
+import { checkoutRevision, signRemoteHost, writeHostManifest } from "./remote-host-artifacts.mjs";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -78,5 +78,5 @@ await writeHostManifest(output, {
   version,
   platform: process.platform,
   arch: process.arch,
-  source: process.env.GITHUB_SHA ?? "development",
+  source: checkoutRevision(root),
 });

@@ -61,20 +61,25 @@ Every package carries a same-commit catalog for `linux-x64`, `linux-arm64`,
 `darwin-x64` and `darwin-arm64` (#825). Each target has `foom-host.gz` and a
 manifest containing app version, protocol, source revision, expanded size/SHA-256
 and gzip size/SHA-256. Packaging refuses a partial, mixed-revision, incompatible
-or corrupt catalog. There are no runtime artifact downloads.
+or corrupt catalog. Both builders derive the full checkout commit with Git;
+packaging requires every source to equal the app checkout, even outside CI.
+`development` is never a packaged source revision. There are no runtime artifact downloads.
 
 Launch with `--remote-shell-spike=SSH_ALIAS` to route the **home shell** to that
 host. A bounded SSH `uname -s; uname -m` probe accepts only Linux/x86_64,
 Linux/aarch64, Darwin/x86_64 and Darwin/arm64. Only those fixed mappings select
-catalog paths. The selected manifest must match the app version, protocol and
-remote platform; both compressed and expanded hashes and sizes are checked before
+catalog paths. The selected manifest must match the app source revision, version, protocol and
+remote platform. The expected revision comes from trusted `build/build-metadata.json`
+inside ASAR, independently of the unpacked catalog; missing or malformed revisions
+are refused. Both compressed and expanded hashes and sizes are checked before
 upload. Missing or mismatched artifacts fail closed. Bootstrap rechecks uname on
 every connection, including reconnects, before touching the cache or uploading.
 
 For native development, `node scripts/build-remote-host.mjs` with Node 24 on
 Linux/macOS produces `build/remote-host/foom-host`, `foom-host.gz` and
 `manifest.json`. The optional main-only `--remote-host-artifact=/absolute/path/to/foom-host`
-override still checks version, protocol, hash and remote platform. Build the app
+override still requires a valid full source commit and checks version, protocol,
+hash and remote platform, but explicitly permits a different commit from the app. Build the app
 before building this developer artifact because app builds clear `build/`.
 Worktree/config shells and agents remain local. No host, artifact, executable or
 environment selection is added to IPC. Settings and host inventory are phase 4.

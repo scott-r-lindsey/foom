@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import {
+  checkoutRevision,
   hostPlatforms,
   packageRemoteHosts,
   signRemoteHost,
@@ -68,6 +69,8 @@ test("catalog packaging validates all native manifests and both hashes before sh
     { protocol: 2 },
     { source: "b".repeat(40) },
     { source: "invalid" },
+    { source: "development" },
+    { source: undefined },
     { size: 0 },
     { gzipSize: 1 },
     { gzipSha256: "b".repeat(64) },
@@ -80,9 +83,33 @@ test("catalog packaging validates all native manifests and both hashes before sh
   }
   await writeFile(path, JSON.stringify(original));
   await assert.rejects(packageRemoteHosts(source, output, "0.2.0", revision), /version/);
-  await packageRemoteHosts(source, output, "0.1.0");
+  await assert.rejects(packageRemoteHosts(source, output, "0.1.0"), /expected source/);
+  // Every entry agrees, but the entire catalog is stale at the same app version.
+  await assert.rejects(
+    packageRemoteHosts(source, output, "0.1.0", "b".repeat(40)),
+    /revision mismatch/,
+  );
+  // A later entry from another checkout cannot hide behind the first entry.
+  const later = join(source, "darwin-arm64", "manifest.json");
+  const laterManifest = JSON.parse(await readFile(later));
+  await writeFile(later, JSON.stringify({ ...laterManifest, source: "b".repeat(40) }));
+  await assert.rejects(packageRemoteHosts(source, output, "0.1.0", revision), /revision mismatch/);
+  await writeFile(later, JSON.stringify(laterManifest));
   await writeFile(join(source, "linux-x64", "foom-host.gz"), "corrupted");
   await assert.rejects(packageRemoteHosts(source, output, "0.1.0", revision));
   await rm(join(source, "darwin-arm64"), { recursive: true });
   await assert.rejects(packageRemoteHosts(source, output, "0.1.0", revision));
+});
+
+test("checkout identity uses git argv and rejects non-revisions", () => {
+  assert.equal(
+    checkoutRevision("/fixture", (command, args, options) => {
+      assert.equal(command, "git");
+      assert.deepEqual(args, ["rev-parse", "HEAD"]);
+      assert.deepEqual(options, { cwd: "/fixture", encoding: "utf8" });
+      return "a".repeat(40) + "\n";
+    }),
+    "a".repeat(40),
+  );
+  assert.throws(() => checkoutRevision("/fixture", () => "development"), /source revision/);
 });

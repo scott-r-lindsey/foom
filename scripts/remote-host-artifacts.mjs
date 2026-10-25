@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -8,6 +9,16 @@ import { run, signingArgs } from "./macos-sign.mjs";
 
 export const hostPlatforms = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"];
 export const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+/** Read the checkout, never a caller-supplied CI revision or a catalog entry. */
+export function checkoutRevision(root, execute = execFileSync) {
+  const revision = execute("git", ["rev-parse", "HEAD"], {
+    cwd: root,
+    encoding: "utf8",
+  }).trim();
+  assert.match(revision, /^[a-f0-9]{40}$/, "Invalid checkout source revision");
+  return revision;
+}
 
 // Always ad-hoc, including nightlies. SSH upload has no quarantine. Keep compressed
 // payloads in packages so the enclosing app's Developer ID pass cannot re-sign them.
@@ -54,7 +65,7 @@ export async function writeHostManifest(output, { version, platform, arch, sourc
 
 /** Fail packaging rather than silently ship a partial, stale or corrupt catalog. */
 export async function packageRemoteHosts(source, output, version, revision) {
-  let sourceRevision;
+  assert.match(revision ?? "", /^[a-f0-9]{40}$/, "Invalid expected source revision");
   for (const target of hostPlatforms) {
     const directory = join(source, target);
     const manifest = JSON.parse(await readFile(join(directory, "manifest.json"), "utf8"));
@@ -63,11 +74,10 @@ export async function packageRemoteHosts(source, output, version, revision) {
     assert.equal(manifest.version, version, "Host version mismatch");
     assert.equal(manifest.protocol, 1, "Host protocol mismatch");
     assert.ok(
-      typeof manifest.source === "string" && /^(?:[a-f0-9]{40}|development)$/.test(manifest.source),
+      typeof manifest.source === "string" && /^[a-f0-9]{40}$/.test(manifest.source),
       "Invalid host source revision",
     );
-    sourceRevision ??= revision ?? manifest.source;
-    assert.equal(manifest.source, sourceRevision, "Host source revision mismatch");
+    assert.equal(manifest.source, revision, "Host source revision mismatch");
     for (const key of ["size", "gzipSize"])
       assert.ok(
         Number.isSafeInteger(manifest[key]) &&

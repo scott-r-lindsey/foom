@@ -159,7 +159,13 @@ stamping uses the same condition and deterministic stamp as desktop packaging.
 The three existing native-check/packaging jobs wait for the complete host matrix,
 download only their own run's four artifacts into `.cache/remote-hosts`, and
 package all four compressed hosts outside ASAR. Packaging verifies every target,
-revision, version, protocol, size and hash and refuses missing entries. Packaged
+revision, version, protocol, size and hash and refuses missing entries. Both host
+and app builders use `git rev-parse HEAD` with argument arrays, including local
+builds; neither trusts `GITHUB_SHA` or a catalog entry as the checkout identity.
+Every entry must match the app checkout's full commit, never `development`.
+The app build embeds that commit in `build/build-metadata.json` inside ASAR;
+runtime catalog selection requires the manifest source to match before upload,
+so an older same-version gzip/manifest pair is rejected. Packaged
 and extracted-installer smoke tests decompress and hash all four entries. The
 Quality gate's required-job rules, coverage thresholds, permissions and Release
 configuration are unchanged: a failed host build blocks packaging, which remains

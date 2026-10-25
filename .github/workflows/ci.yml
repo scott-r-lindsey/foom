@@ -278,6 +278,7 @@ jobs:
           set +e
           output=$(remote-host-artifacts/${{ matrix.target }}/foom-host --invalid 2>&1)
           status=$?
+          set -e
           test "$status" = 2
           test "$output" = "Usage: foom-host --daemon|--connect"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
