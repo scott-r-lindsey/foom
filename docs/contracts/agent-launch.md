@@ -145,7 +145,7 @@ conservative disclosure, not a claim the CLI enables bypass for every value.
 
 ## Default argument policy
 
-In Settings, each flag and value occupies its own line. All three help outputs advertise `--model`; Claude and Antigravity
+In Settings, each flag and value occupies its own line. The Claude, Codex and Antigravity help outputs advertise `--model`; Claude and Antigravity
 advertise `--effort`, while Codex accepts `-c` followed by
 `model_reasoning_effort="high"`. Values and quotes are passed unchanged as argv,
 not evaluated by a shell. LF and CRLF line endings are accepted; trailing empty

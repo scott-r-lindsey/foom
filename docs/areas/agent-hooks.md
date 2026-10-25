@@ -4,13 +4,13 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 ## Agent signals
 
-Claude and Codex hooks attach per launch. Antigravity has an explicit opt-in plugin exception:
+Claude, Codex and OpenCode hooks attach per launch. Antigravity has an explicit opt-in plugin exception:
 
 - Claude Code: `claude --settings <inline-json>` with UserPromptSubmit, PreToolUse, Stop, PermissionRequest and Notification hooks; JSON arrives on stdin. Prompt/tool hooks establish Working. Permission notifications may be delayed, and Stop means a response ended, not necessarily task success.
 - Codex: supported 0.161+ releases receive six invocation-only lifecycle definitions (SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse and Stop), with JSON on stdin. The separate `-c notify=[...]` fallback receives its JSON as the final argument and reports turn completion, not approval requests; it replaces the effective notify command for that launch until lifecycle health permits its omission. See [Execution](execution.md#stable-codex-hook-health) for trust, turn and health semantics.
 - Antigravity: agy 1.4.2 reports a JSON array with `plugin list --json`; legacy 1.3.1 fixture objects and `No imported plugins.` remain supported through a failed-command fallback. Observer version 3 invokes absolute paths inside the validated CLI-owned installation, independent of the session cwd. Settings discloses and installs the static Foom observer with `agy plugin install <bundled-directory>`. Remove uses `agy plugin uninstall foom`; enable uses `agy plugin enable foom`. All calls use resolved executables, argument arrays, bounded output and deadlines. No direct global configuration writes occur. Without the plugin, launch uses output evaluation.
 
-See [agent research](../agents.md) for versions, payloads, local probes, sources, and remaining verification. Completion events trigger classification; they do not unconditionally set Done. Echo-off alone is not a password signal: all three tested CLIs disabled echo at startup.
+See [agent research](../agents.md) for versions, payloads, local probes, sources, and remaining verification. Completion events trigger classification; they do not unconditionally set Done. Echo-off alone is not a password signal: Claude, Codex and Antigravity disabled echo at startup in their recorded probes.
 
 **Today:** `src/main/agents/hook-receiver.ts` provides an independently usable main-process service. `HookReceiver.listen(onSignal)` binds only `127.0.0.1` on an OS-assigned port. `register(terminalId, agent)` returns fresh `FOOM_SESSION`, `FOOM_TOKEN`, and `FOOM_HOOK_URL` environment additions and an idempotent `revoke()` capability. The launcher must revoke on launch failure, terminal exit, or removal; application shutdown must call `close()`. The workspace maps receiver keys back to terminal IDs before signals reach the evaluator. The app doesn't start a listener until a launch needs one.
 
