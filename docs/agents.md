@@ -139,3 +139,40 @@ in the bounded bottom region. File approval remains unobserved because this
 installation wrote the requested file without prompting. No file-permission rule
 is inferred. The working/idle and model-selection rules are captured in the
 bundled manifest tests; no automated test invokes real Pi.
+
+### Pi 1.4.0 extension spike (#834)
+
+Measured manually on Linux on 2026-10-25 in a disposable temporary directory,
+with `--model gpt-6.1-sol`, harmless reply/ping prompts, no bypass flags, and
+`--no-session`. No Pi configuration or credential files were inspected or edited.
+The installed package is `@earendil-works/pi-coding-agent`; its
+`docs/extensions.md`, `docs/mcp.md`, exported `dist/core/extensions/types.d.ts`,
+and `pi --help` provided the API evidence.
+
+Extensions are TypeScript or JavaScript modules loaded by `--extension` / `-e`.
+Pi loads TypeScript through jiti in its own process, with the same OS permissions
+as Pi, including potential access to files, credentials and session history.
+A default factory receives `ExtensionAPI`. This is executable code, so a manifest
+must never supply its source or nominate an arbitrary module for Foom to write.
+
+The reply-only session observed `session_start`, `agent_start`, `turn_start`,
+`turn_end`, `agent_end`, then `agent_settled`. The custom-tool session observed two
+model turns before settlement, and a stable `ctx.sessionManager.getSessionId()`
+within each session. `agent_end` is not final idle: retries, recovery, compaction
+or queued work can follow it. `agent_settled` is the documented notification after
+automatic processing stops, with an `aborted` boolean; it does not prove success.
+No dedicated permission-request event is declared. `ui_prompt_start` and
+`ui_prompt_end` observe blocking extension UI (select/confirm/input/editor/custom),
+which may include a permission extension's question but are not universal approval
+signals. An observer must never implement a permission gate or return decisions.
+
+`registerTool` successfully exposed a harmless custom ping tool to the model.
+`registerMcpServer(name, config)` registers a session-only streamable HTTP server,
+including headers and tool exposure, without writing `mcp.json`. Its tools retain
+Pi's normal validation and permission pipeline. A manual local HTTP probe observed initialization, tools/list and one authenticated
+tools/call, returning `pong` through Pi's registered MCP tool.
+Registered servers require Pi's
+built-in MCP connector (or a compatible replacement); `--no-extensions` disables
+that connector unless `--extension builtin:mcp` explicitly restores it. These API
+findings support a private per-launch Foom extension for lifecycle observation and
+role-filtered MCP, with server-side Foom authorization remaining authoritative.
