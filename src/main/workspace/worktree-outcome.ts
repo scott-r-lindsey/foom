@@ -9,7 +9,7 @@ export const removalReasons = {
   prunable: "The worktree needs pruning.",
   main_checkout: "The main checkout cannot be removed.",
   identity_changed: "Worktree has been replaced or redirected. Review it and try again.",
-  detached_head: "Detached HEAD has commits reachable from no ref.",
+  detached_head: "Detached HEAD is not reachable from a local branch, remote-tracking ref or tag.",
   dirty: "Tracked changes were not approved for deletion.",
   untracked_files: "Untracked files were not approved for deletion.",
   changes_changed: "Worktree changes have changed. Review them and try again.",

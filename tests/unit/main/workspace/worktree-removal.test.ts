@@ -72,6 +72,49 @@ describe("safe removal", () => {
     },
   );
 
+  it.each(
+    [
+      "refs/worktree/saved",
+      "refs/bisect/saved",
+      "refs/rewritten/saved",
+      "refs/notes/saved",
+    ].flatMap((ref) => [false, true].map((force) => ({ ref, force }))),
+  )("refuses detached commits saved only in $ref (force: $force)", async ({ ref, force }) => {
+    const { path } = await service.createWorktree(repo, "private-review");
+    const identity = await service.launchIdentity(repo, path);
+    await execute(["checkout", "--detach"], { cwd: path });
+    await execute(
+      [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "Private review head",
+      ],
+      { cwd: path },
+    );
+    const head = (await execute(["rev-parse", "HEAD"], { cwd: path })).stdout.trim();
+    await execute(["update-ref", ref, head], { cwd: path });
+    // The unrestricted query would authorize deletion from this ref alone.
+    expect(
+      (
+        await execute(["for-each-ref", "--contains=HEAD", "--format=%(refname)"], { cwd: path })
+      ).stdout.trim(),
+    ).toBe(ref);
+    await writeFile(join(path, "evidence.txt"), "retain this evidence");
+    await expect(service.changes(repo, path, identity)).rejects.toMatchObject({
+      reason: "detached_head",
+    });
+    await expect(service.removeWorktree(repo, path, force, identity)).rejects.toMatchObject({
+      reason: "detached_head",
+    });
+    expect(await readFile(join(path, "evidence.txt"), "utf8")).toBe("retain this evidence");
+    expect((await execute(["rev-parse", "--verify", ref], { cwd: path })).stdout.trim()).toBe(head);
+  });
+
   it.each(["untracked", "tracked", "staged"])("refuses %s changes unless forced", async (kind) => {
     const { path } = await service.createWorktree(repo, "dirty");
     const file = join(path, "file");

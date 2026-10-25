@@ -204,9 +204,13 @@ returned. Codes are `not_found`, `not_owned`, `locked`, `prunable`, `main_checko
 `not_owned` covers unknown/foreign operation targets; `not_found` means an owned
 checkout is no longer registered. `busy` covers running sessions and reservations.
 `identity_changed` covers replaced or redirected filesystem/Git metadata.
-`detached_head` means HEAD contains commits reachable from no ref; confirmation
-cannot override it. Detached reviewer checkouts with ref-reachable HEAD use the
-same confirmation policy and retain their original branch. `dirty` and
+`detached_head` means HEAD is not reachable from a local branch (`refs/heads/`),
+remote-tracking ref (`refs/remotes/`) or tag (`refs/tags/`); confirmation and force
+cannot override it. Only those explicitly allowlisted shared namespaces qualify.
+Worktree-private `refs/worktree/`, `refs/bisect/` and `refs/rewritten/` are deleted
+with the target checkout and never authorize removal; other namespaces also do
+not qualify. Detached reviewer checkouts with HEAD reachable from an allowed ref
+use the same confirmation policy and retain their original branch. `dirty` and
 `untracked_files` identify changes not approved for deletion; non-ignored untracked
 paths are shown in the trusted dialog. `changes_changed` invalidates an approved
 snapshot. `user_declined` covers a declined or unavailable clean confirmation.

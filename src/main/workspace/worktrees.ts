@@ -423,6 +423,12 @@ export class WorktreeService {
         "for-each-ref",
         "--contains=HEAD",
         "--format=%(refname)",
+        "--",
+        // Worktree-private refs disappear with the checkout. Require an
+        // allowlisted shared namespace that survives removal.
+        "refs/heads/",
+        "refs/remotes/",
+        "refs/tags/",
       ]);
       if (!refs.trim()) throw new RemovalError("detached_head");
     }

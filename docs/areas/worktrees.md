@@ -241,10 +241,13 @@ prunable after its row was rendered.
 Ownership uses the captured filesystem and Git registration identity, so a child
 checking out a different branch or detaching HEAD does not invalidate ownership.
 Explicit removal refuses a detached HEAD unless `for-each-ref --contains=HEAD`
-finds a ref containing that commit. This uses stored history with replace/graft
-rewrites disabled and commit-graph reads disabled. The check repeats with the
-identity/status revalidation and also applies to forced direct removal; approval
-cannot discard otherwise unreachable detached commits.
+finds that commit in an explicitly allowlisted shared namespace: `refs/heads/`,
+`refs/remotes/` or `refs/tags/`. Worktree-private `refs/worktree/`, `refs/bisect/`
+and `refs/rewritten/` disappear with the target checkout and never authorize its
+removal. Other namespaces are also excluded. This uses stored history with
+replace/graft rewrites disabled and commit-graph reads disabled. The check repeats
+with identity/status revalidation and also applies to forced direct removal;
+approval cannot discard commits absent from the allowlisted namespaces.
 
 Non-ignored untracked paths already participate in ordinary NUL-delimited status
 snapshots and trusted removal confirmation on current main. Approval permits
