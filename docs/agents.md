@@ -176,3 +176,23 @@ built-in MCP connector (or a compatible replacement); `--no-extensions` disables
 that connector unless `--extension builtin:mcp` explicitly restores it. These API
 findings support a private per-launch Foom extension for lifecycle observation and
 role-filtered MCP, with server-side Foom authorization remaining authoritative.
+
+The shipped adapter selects the fixed `pi-v1` ABI through the shared v2 engine.
+It emits only bounded event/session/outcome/idle facts. Current-role MCP exposure
+comes from the authenticated `whoami` capability list before new work, narrowed to
+classified Foom names; lookup failure withdraws the registration. It registers the per-launch
+MCP server through Pi's normal client. Hook-only and MCP-only launches are supported;
+files and credentials share ordinary launch cleanup. The before-settlement outcome
+is observed without returning entries or continuation decisions. Error and aborted
+settlements are failure evidence; completed settlement requests local classification.
+Permission detection remains limited to blocking extension UI and measured screens.
+Windows/macOS delivery is covered by fixture tests; these manual API sessions were
+Linux-only. The built-in MCP connector must remain enabled; Foom does not override
+user extension policy or edit Pi configuration to enforce it.
+
+A final disposable session loaded the exact integrity-locked `pi-v1.mjs` bytes
+with the built-in MCP connector explicitly enabled for the isolated probe. It
+completed a ping through a synthetic local `whoami` capability response and HTTP
+MCP server. The receiver observed session/agent/turn/tool events and final
+`agent_settled` with `outcome: completed`; no prompt, tool arguments or results
+appeared in those lifecycle payloads. All probe credentials were disposable.

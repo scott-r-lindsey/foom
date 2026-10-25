@@ -1,7 +1,7 @@
 import type { AgentManifestV2, ManifestCondition, ManifestSelector } from "./agent-manifest-v2";
 import { boundedRegex } from "./providers/detection";
 import { fail, unique } from "./agent-manifest-values";
-import { validateTemplates } from "./agent-manifest-templates";
+import { implies, validateTemplates } from "./agent-manifest-templates";
 
 const ENGINE = [
   "hooksEnabled",
@@ -313,6 +313,18 @@ export function validateV2(manifest: AgentManifestV2): void {
   }
   for (const stage of ["arguments", "display", "resume", "mcp"] as const)
     condition(manifest.launch[stage]?.when, `$.launch.${stage}.when`, "launch", available);
+  const extension = manifest.launch.extension;
+  if (extension) {
+    condition(extension.when, "$.launch.extension.when", "launch", available);
+    const channel = channels.find((entry) => entry.id === extension.channel);
+    if (
+      !channel ||
+      channel.observer.transport !== "external" ||
+      !implies(channel.when, extension.when) ||
+      (manifest.launch.mcp && !implies(manifest.launch.mcp.when, extension.when))
+    )
+      fail("$.launch.extension", "incompatible-combination");
+  }
   const environmentNames = new Set<string>();
   for (const [index, entry] of (manifest.launch.environment ?? []).entries()) {
     const path = `$.launch.environment[${String(index)}]`;

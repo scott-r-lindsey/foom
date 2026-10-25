@@ -34,7 +34,7 @@ security checks beyond JSON Schema. `examples/agent.json` is a generic starter;
 | kind, version | Required literals agent, 2 |
 | id, name, badge, executables | Required ID, Text <=40, [A-Z0-9]{1,4}, 1–8 basenames <=64 [A-Za-z0-9][A-Za-z0-9_.-]* excluding .cmd/.bat/.ps1 |
 | discovery | Required `{version?,facts}`; version `{prefix,suffixes,minimum?}`; prefix/suffixes Text or empty, <=4 suffixes, minimum three safe nonnegative integers; facts <=16 `{id,enabled?,minimum?,helpTokens?,when?}`; enabled boolean defaults true, false is a hard verification gate |
-| launch | Required `{order,arguments?,display?,resume?,prompt?,guidance?,mcp?,toolPermissions?,environment?}` |
+| launch | Required `{order,arguments?,display?,resume?,prompt?,guidance?,mcp?,toolPermissions?,environment?,extension?}` |
 | files? | <=16 File records |
 | hooks? | `{channels}`; 1–8 Channel records |
 | reservedArguments, bypassArguments, bypassEnvironment | Required matcher arrays (may be empty); environment <=16 records |
@@ -58,3 +58,8 @@ health only. Each declaration without a minimum does not require a parsed versio
 
 `launch.environment` accepts up to eight `{name,value,when?}` entries; see the
 [per-launch environment bounds and security rules](agent-launch.md#per-launch-manifest-environment-636).
+
+`launch.extension` has the closed shape `{api:"pi-v1",channel,arguments,when}`.
+See [fixed extension attachment](agent-launch.md#fixed-extension-attachment-834)
+for channel/condition constraints and the whole-path `{extensionFile}` substitution.
+It can select only application-owned executable bytes; `files` remains data-only.

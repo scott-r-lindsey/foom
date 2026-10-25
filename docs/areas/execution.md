@@ -19,6 +19,7 @@ is reused. Revoked hook capabilities cannot address that invocation.
 | --- | --- | --- | --- |
 | Claude | Per-launch UserPromptSubmit/PreToolUse observer hooks; half-circle title | PermissionRequest hook; live screen forms | Stop hook; star title |
 | Codex | Trusted per-launch UserPromptSubmit/PreToolUse/PostToolUse hooks; braille spinner title | PermissionRequest hook; Action Required title | Stop hook; fallback turn-complete notify; plain title |
+| Pi | Per-launch agent/turn/tool events | Blocking extension UI notifications and screen rules | Final agent_settled, with errors/aborts recorded as failure evidence |
 | Antigravity | Opt-in PreInvocation/PostToolUse observers | Screen rules | Fully idle Stop; error/step-limit Stop is failure |
 
 Evidence precedence is: process exit; lifecycle hooks (including Codex); active permission hooks; agent-specific

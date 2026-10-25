@@ -95,3 +95,15 @@ orchestration host, including PR adoption under the shared repository and branch
 reservations. The context still owns those reservations, terminal queues, launch
 cancellation, owner initialization and shutdown order behind the unchanged
 `workspace.ts` facade.
+
+### Fixed per-launch extension attachment (#834)
+
+The v2 engine may select `launch.extension` when a measured API is available and
+its hook channel or MCP is attached. It writes only the selected application-owned
+versioned module and nonsecret launch data in the private launch root, passing
+`{extensionFile}` as a whole argv value at the MCP stage. The same file handles
+hooks and tools without duplicate loading. Hook-only, MCP-only and combined
+launches share cleanup and independent credentials; disabling hooks does not
+remove authorized MCP. No extension file is written when neither is selected.
+The existing private-file checks, revocation and disposal own these files too.
+See [extension schema](../contracts/agent-launch.md#fixed-extension-attachment-834).

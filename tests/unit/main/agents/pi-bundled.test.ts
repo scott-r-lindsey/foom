@@ -19,14 +19,14 @@ const request = { agent: "pi", repository: "/repo", worktree: "/repo", cols: 80,
 const id = "12345678-1234-4567-8910-123456789abc";
 const installation = () => provider.discover("/fixture/pi", "1.4.0", "--session --session-id");
 
-it("registers locked Pi data and Settings metadata without hooks or MCP roles", () => {
+it("registers locked Pi data and Settings metadata and falls back when extension loading is unavailable", () => {
   expect(provider.origin).toBe("bundled");
   expect(builtinAgent("pi")).toMatchObject({
     name: "Pi",
     mark: "PI",
     command: "pi",
     resume: ["--session"],
-    restoreControl: false,
+    restoreControl: true,
   });
   expect(installation()).toMatchObject({
     version: "1.4.0",
@@ -34,8 +34,7 @@ it("registers locked Pi data and Settings metadata without hooks or MCP roles", 
     mcp: false,
     restoreControl: false,
   });
-  expect(provider.model.hooks).toBeUndefined();
-  expect(provider.model.launch.mcp).toBeUndefined();
+  expect(provider.model.launch.extension?.api).toBe("pi-v1");
   expect(() => parseAgentManifest(JSON.stringify(data))).toThrow("reserved-id");
   expect(() => {
     replaceConfigProviders([provider]);
@@ -129,6 +128,11 @@ it.each([
   "--print",
   "-p",
   "--mode=rpc",
+  "--extension",
+  "--extension=/tmp/evil",
+  "-e/tmp/evil",
+  "--no-extensions",
+  "--no-mcp",
 ])("reserves conversation and noninteractive selectors %s", (flag) => {
   expect(() => parseAgentArguments("pi", [flag])).toThrow("reserved");
 });

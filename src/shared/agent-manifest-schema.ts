@@ -249,6 +249,16 @@ export function launchEnvironment(v: unknown, p: string) {
     when: optional(condition)(d["when"], `${p}.when`),
   };
 }
+/** Selects only application-owned executable bytes; manifests cannot supply code or paths. */
+export function extension(v: unknown, p: string) {
+  const d = object(v, p, ["api", "channel", "arguments", "when"]);
+  return {
+    api: literal("pi-v1")(d["api"], `${p}.api`),
+    channel: id(d["channel"], `${p}.channel`),
+    arguments: argv(d["arguments"], `${p}.arguments`),
+    when: condition(d["when"], `${p}.when`),
+  };
+}
 export function launch(v: unknown, p: string) {
   const d = object(
     v,
@@ -263,6 +273,7 @@ export function launch(v: unknown, p: string) {
       "mcp",
       "toolPermissions",
       "environment",
+      "extension",
     ],
   );
   return {
@@ -287,6 +298,7 @@ export function launch(v: unknown, p: string) {
     prompt: optional(prompt)(d["prompt"], `${p}.prompt`),
     guidance: optional(guidance)(d["guidance"], `${p}.guidance`),
     mcp: optional(block)(d["mcp"], `${p}.mcp`),
+    extension: optional(extension)(d["extension"], `${p}.extension`),
     environment: optional(array(launchEnvironment, 8))(d["environment"], `${p}.environment`),
     toolPermissions: optional(tools)(d["toolPermissions"], `${p}.toolPermissions`),
   };

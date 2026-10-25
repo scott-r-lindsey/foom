@@ -38,6 +38,7 @@ Test deadlines and step limits are unchanged.
 | `settings-sound.test.js` | Dragged volume, recordings and synchronized footer volume/zoom |
 | `settings-agents.test.js` | Environment, agent defaults, config menus and independent config shells |
 | `settings-general.test.js` | Legacy migration, forge hosts, navigation, repository names, updates and close-finished preference |
+| `pi-extension.test.js` | Fixed Pi per-launch extension, lifecycle, current-role MCP exposure and private-file cleanup |
 | `agents.test.js` | Fixture agents, hooks, conversations, orchestration and plugins |
 | `application.test.js` | Native board startup, fonts/themes and production bundle |
 | `harness.test.js` | Launch environment, quit acknowledgement and cleanup contracts |
