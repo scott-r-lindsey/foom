@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -280,9 +281,9 @@ req.end(JSON.stringify(payload));
             .poll(() => ownerPage.evaluate(() => document.documentElement.style.colorScheme))
             .toBe(theme === "eclipse-light" ? "light" : "dark");
           if (process.env.FOOM_RESTORE_SCREENSHOTS) {
-            await mkdir(process.env.FOOM_RESTORE_SCREENSHOTS, { recursive: true });
+            await mkdir(evidencePath("restore_screenshots"), { recursive: true });
             await ownerPage.screenshot({
-              path: path.join(process.env.FOOM_RESTORE_SCREENSHOTS, `${theme}.png`),
+              path: evidencePath(path.join(evidencePath("restore_screenshots"), `${theme}.png`)),
             });
           }
         }

@@ -137,7 +137,7 @@ pnpm run start:samples --screenshots
 
 The command builds the explicit sample board, then always creates its own Xvfb
 display, even when launched from a desktop or an existing virtual display. It
-writes six PNGs to ignored `screenshots-582/`: `eclipse-dark-{board,sidebar,needs-you}.png`
+writes six PNGs to ignored `test-results/screenshots-582/`: `eclipse-dark-{board,sidebar,needs-you}.png`
 and `eclipse-light-{board,sidebar,needs-you}.png`. Reruns overwrite those six files.
 Do not commit the images; keep the PR draft for human visual approval before
 copying approved images to the website.

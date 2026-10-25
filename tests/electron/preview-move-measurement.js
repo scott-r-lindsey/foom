@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 // After pnpm run build:
 // xvfb-run -a node --require ./tests/helpers/setup.js --test --test-reporter=junit tests/electron/preview-move-measurement.js
 // Optional FOOM_PREVIEW_MOVE_IDENTITY_MODULE selects a separately compiled base
@@ -30,7 +31,7 @@ for (const scenario of [
     const report = (text) => {
       context.diagnostic(text);
       if (process.env.FOOM_PREVIEW_MOVE_REPORT)
-        appendFileSync(process.env.FOOM_PREVIEW_MOVE_REPORT, `${text}\n`);
+        appendFileSync(evidencePath("preview-move-report.log"), `${text}\n`);
     };
     let app;
     context.after(async () => {
@@ -74,7 +75,13 @@ process.stdin.on("data", () => process.exit(0));
     if (realistic) await writeFile(path.join(bin, "gh"), FAKE_GH, { mode: 0o755 });
     app = await launchApp(context, {
       fixture: "repository",
-      env: { PATH: bin, TEST_FORGE_STATE: forgeState },
+      env: {
+        PATH: bin,
+        TEST_FORGE_STATE: forgeState,
+        ...(process.env.FOOM_PREVIEW_MOVE_REPORT
+          ? { FOOM_PREVIEW_MOVE_REPORT: evidencePath("preview-move-report.log") }
+          : {}),
+      },
     });
     await app.context().addInitScript(() => {
       const events = (window.moveRendererMeasurement = []);

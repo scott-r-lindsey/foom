@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -137,7 +138,7 @@ test("agent previews split a blank window into terminal-width columns", {
   if (process.env.FOOM_PLACEMENT_SCREENSHOTS === "1" && process.platform === "linux") {
     await page.locator('.board-row[data-kind="shell"]').click();
     await expect(page.locator('.terminal-tile[data-kind="shell"]')).toBeVisible();
-    await mkdir("screenshots-746", { recursive: true });
+    await mkdir(evidencePath("screenshots-746"), { recursive: true });
     const handle = await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()
         .find((window) => window.webContents.getURL() === "app://bundle/index.html")
@@ -170,7 +171,7 @@ test("agent previews split a blank window into terminal-width columns", {
       require("node:child_process").execFileSync("import", [
         "-window",
         String(handle),
-        `screenshots-746/agent-preview-terminal-${mode}.png`,
+        evidencePath(`screenshots-746/agent-preview-terminal-${mode}.png`),
       ]);
     }
     await page.evaluate(() => window.desktop.saveSetup({ colorMode: "system" }));
@@ -281,7 +282,7 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
     .locator('.board-row[data-kind="agent"] .board-light')
     .boundingBox();
   assert.ok(glyphBounds && openerBounds && glyphBounds.x >= openerBounds.x + 16);
-  await page.screenshot({ path: "test-results/preview-attribution.png" });
+  await page.screenshot({ path: evidencePath("preview-attribution.png") });
   assert.ok(
     await notesRow.evaluate(
       (row) => row.parentElement.querySelector('.board-row[data-kind="agent"]') !== null,

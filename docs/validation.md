@@ -22,6 +22,21 @@ files no test imports; only declarations are excluded. Thresholds are defined in
 
 PR checks enforce the contributor changed-line coverage threshold and fail if a changed application file is missing from LCOV. The scripts under `scripts/` adapt the reporting tools from the Crab Attack II reference, with stricter enforcement and regression tests.
 
+## Test evidence and worktree cleanliness (#822)
+
+Electron and packaged tests write evidence images through
+`tests/helpers/evidence.js` under the ignored `test-results/` tree. This includes
+native desktop captures, optional review screenshots and manual measurement
+captures. Optional `FOOM_*_SCREENSHOTS` switches enable captures in fixed
+subdirectories of `test-results/`; their values no longer select an external path.
+Fixture images used as test input remain in their disposable fixture directories.
+
+The Electron wrapper snapshots untracked files before running and checks again
+after teardown, including failed runs and packaged smoke. New untracked files
+outside `test-results/` or the OS temporary directory fail the command. Existing
+untracked developer files are preserved and do not fail validation. Ignored build
+and dependency output is excluded by Git's ignore rules.
+
 ## Temporary-directory ownership (#813)
 
 The unit, watch, coverage, CI-policy, Electron (including affected suites), and

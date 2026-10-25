@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const path = require("node:path");
@@ -140,7 +141,7 @@ async function checkCollapsedDisclosure(board, dialog, operation, captureScreens
     if (index < 3) await dialog.keyboard.press("Tab");
   }
   if (captureScreenshots && process.env.FOOM_AGY_SCREENSHOTS) {
-    await mkdir(process.env.FOOM_AGY_SCREENSHOTS, { recursive: true });
+    await mkdir(evidencePath("agy_screenshots"), { recursive: true });
     for (const mode of ["light", "dark"]) {
       await board.evaluate(
         (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
@@ -161,16 +162,20 @@ async function checkCollapsedDisclosure(board, dialog, operation, captureScreens
         });
         await visibleFooter();
         await dialog.screenshot({
-          path: path.join(
-            process.env.FOOM_AGY_SCREENSHOTS,
-            `${operation}-${mode}-${state}-overview.png`,
+          path: evidencePath(
+            path.join(
+              evidencePath("agy_screenshots"),
+              `${operation}-${mode}-${state}-overview.png`,
+            ),
           ),
         });
         if (state === "expanded")
           await details.last().locator("code").first().scrollIntoViewIfNeeded();
         else await details.locator("summary").last().scrollIntoViewIfNeeded();
         await dialog.screenshot({
-          path: path.join(process.env.FOOM_AGY_SCREENSHOTS, `${operation}-${mode}-${state}.png`),
+          path: evidencePath(
+            path.join(evidencePath("agy_screenshots"), `${operation}-${mode}-${state}.png`),
+          ),
         });
         if (state === "expanded") {
           for (const summary of await summaries.all()) await summary.click();
@@ -185,12 +190,14 @@ async function checkCollapsedDisclosure(board, dialog, operation, captureScreens
         node.scrollTop = 0;
       });
       await dialog.screenshot({
-        path: path.join(process.env.FOOM_AGY_SCREENSHOTS, "install-dark-collapsed-overview.png"),
+        path: evidencePath(
+          path.join(evidencePath("agy_screenshots"), "install-dark-collapsed-overview.png"),
+        ),
       });
       require("node:child_process").execFileSync("import", [
         "-window",
         "root",
-        path.join(process.env.FOOM_AGY_SCREENSHOTS, "install-1920x1080-accept-visible.png"),
+        path.join(evidencePath("agy_screenshots"), "install-1920x1080-accept-visible.png"),
       ]);
     }
   }
@@ -322,9 +329,9 @@ process.stdin.on('data', (data) => {
     if (!firstRun) {
       const capture = async (name, target = page) => {
         if (!process.env.FOOM_AGY_SCREENSHOTS) return;
-        await mkdir(process.env.FOOM_AGY_SCREENSHOTS, { recursive: true });
+        await mkdir(evidencePath("agy_screenshots"), { recursive: true });
         await target.screenshot({
-          path: path.join(process.env.FOOM_AGY_SCREENSHOTS, `${name}.png`),
+          path: evidencePath(path.join(evidencePath("agy_screenshots"), `${name}.png`)),
         });
       };
       await expect(

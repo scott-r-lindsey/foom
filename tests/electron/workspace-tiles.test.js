@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
@@ -149,7 +150,7 @@ test("tiles build irregular layouts, preserve views and replace explicitly for a
   await assertAccessible(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(tiles.first()).toHaveCSS("transition-duration", "0s");
-  await page.screenshot({ path: path.join(tmpdir(), "foom-132-tiles.png") });
+  await page.screenshot({ path: evidencePath("foom-132-tiles.png") });
   await page.getByRole("button", { name: "Hide", exact: true }).first().click();
   assert.equal(
     (await page.evaluate(() => window.desktop.workspace())).terminals.filter((t) => !t.exited)
@@ -226,7 +227,7 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
   const menu = page.getByRole("dialog", { name: "Tile 1 menu", exact: true });
   await expect(menu).toContainText(/\d+ × \d+/);
   await assertAccessible(page);
-  await page.screenshot({ path: path.join(tmpdir(), "foom-220-tile-panel.png") });
+  await page.screenshot({ path: evidencePath("foom-220-tile-panel.png") });
   await menu.press("Escape");
   await page.evaluate(() => window.desktop.appMenu.execute("split-right"));
   for (const colorScheme of ["light", "dark"]) {
@@ -235,7 +236,7 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
     await expect(empty.locator(".tile-title")).toHaveCount(0);
     await assertAccessible(page);
   }
-  await page.screenshot({ path: path.join(tmpdir(), "foom-tile-bug-fixes.png") });
+  await page.screenshot({ path: evidencePath("foom-tile-bug-fixes.png") });
   await page.evaluate((id) => window.desktop.input(id, "exit\r"), created.id);
   // Exit reaches the renderer before main finishes its queued exit bookkeeping.
   // Close is a main-owned command, so wait for its authoritative session state.
@@ -318,7 +319,7 @@ test("tile terminal viewport has no native overflow bars", async (context) => {
     // terminal theme, while xterm's current viewport still owns scrollback.
     await expect(page.locator(".xterm-scrollable-element").first()).toBeVisible();
   }
-  await page.screenshot({ path: path.join(tmpdir(), "foom-132-bars-fixed.png") });
+  await page.screenshot({ path: evidencePath("foom-132-bars-fixed.png") });
 });
 
 test("tile drag drops replace, split every edge, swap and move without reattachment; keyboard swaps and Escape", {
@@ -370,7 +371,7 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
     const theme = await page
       .locator("html")
       .evaluate((element) => getComputedStyle(element).colorScheme);
-    await page.screenshot({ path: path.join(tmpdir(), `foom-133-preview-${theme}.png`) });
+    await page.screenshot({ path: evidencePath(`foom-133-preview-${theme}.png`) });
     await expect(page.locator('.tile-area > [role="status"]')).toContainText("Escape cancels");
     if (cancel) await page.keyboard.press("Escape");
     await page.mouse.up();
@@ -531,7 +532,7 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
     await page.evaluate(() => window.dragXterms.every((node) => node.isConnected)),
     true,
   );
-  await page.screenshot({ path: path.join(tmpdir(), "foom-133-tiles.png") });
+  await page.screenshot({ path: evidencePath("foom-133-tiles.png") });
 });
 
 test("wide blank tiles start as columns, full boards grow right, and hide refills without moving siblings", async (context) => {
@@ -600,7 +601,7 @@ test("wide blank tiles start as columns, full boards grow right, and hide refill
   await page.locator(".board-row").last().click();
   await expect(tiles).toHaveCount(4);
   assert.deepEqual(await geometry(), after);
-  await page.screenshot({ path: path.join(tmpdir(), "foom-264-tiles.png") });
+  await page.screenshot({ path: evidencePath("foom-264-tiles.png") });
 });
 
 test("gutter double-click evens three columns and Tidy tiles removes holes through the menu", async (context) => {
@@ -673,7 +674,7 @@ test("gutter double-click evens three columns and Tidy tiles removes holes throu
     "data-tile",
     focused,
   );
-  await page.screenshot({ path: path.join(tmpdir(), "foom-265-tidy-tiles.png") });
+  await page.screenshot({ path: evidencePath("foom-265-tidy-tiles.png") });
   // The same action travels through each platform's real keyboard dispatcher.
   await page.getByRole("separator", { name: "Resize tiles" }).press("Home");
   await page.locator('.terminal-tile[data-focused="true"] .xterm-helper-textarea').focus();
@@ -825,7 +826,7 @@ test("tile layouts restore v1 terminal content and v2 mixed content after invent
     );
     await assertAccessible(page);
     await page.screenshot({
-      path: `test-results/preview-tiles-${theme}-${scale}.png`,
+      path: evidencePath(`preview-tiles-${theme}-${scale}.png`),
       animations: "disabled",
     });
   }

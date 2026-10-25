@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const { spawn, execFileSync } = require("node:child_process");
@@ -230,7 +231,7 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
       2,
     ),
   );
-  await page.screenshot({ path: "test-results/remote-host.png" });
+  await page.screenshot({ path: evidencePath("remote-host.png") });
   await quitAndWait(app, async () => {
     await app.evaluate(({ app }) => app.quit());
     await (await confirmationPage(app)).getByRole("button", { name: "Stop all and quit" }).click();

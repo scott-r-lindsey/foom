@@ -1,3 +1,4 @@
+const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { AxeBuilder } = require("@axe-core/playwright");
 const assert = require("node:assert/strict");
@@ -25,7 +26,7 @@ function captureConfirmationDesktop(name) {
     require("node:child_process").execFileSync("import", [
       "-window",
       "root",
-      `test-results/confirmation-${name}-desktop.png`,
+      evidencePath(`confirmation-${name}-desktop.png`),
     ]);
   }
 }
@@ -72,7 +73,7 @@ async function writeBoardStartupDiagnostics(app, diagnostics) {
   });
   await mkdir("test-results", { recursive: true });
   await writeFile(
-    `test-results/board-startup-${app.process().pid}.json`,
+    evidencePath(`board-startup-${app.process().pid}.json`),
     JSON.stringify(diagnostics, null, 2),
   );
   console.error("Board startup diagnostics:", JSON.stringify(diagnostics));
@@ -92,7 +93,7 @@ async function flushBoardStartupTrace(app) {
       state.tracing = false;
       await contentTracing.stopRecording(file);
     },
-    path.resolve(`test-results/board-startup-${app.process().pid}-trace.json`),
+    evidencePath(`board-startup-${app.process().pid}-trace.json`),
   );
 }
 
@@ -480,7 +481,7 @@ function fixtureCleanup(context) {
         context.diagnostic?.(`Fixture timing: ${JSON.stringify(timing)}`);
         await mkdir("test-results", { recursive: true });
         await appendFile(
-          `test-results/fixture-timings-${process.pid}.jsonl`,
+          evidencePath(`fixture-timings-${process.pid}.jsonl`),
           `${JSON.stringify(timing)}\n`,
         );
       }
@@ -722,7 +723,7 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
         ...(traceStartup
           ? [
               "--enable-logging=file",
-              `--log-file=${path.resolve(`test-results/board-startup-${process.pid}-chromium.log`)}`,
+              `--log-file=${evidencePath(`board-startup-${process.pid}-chromium.log`)}`,
             ]
           : []),
       ],
