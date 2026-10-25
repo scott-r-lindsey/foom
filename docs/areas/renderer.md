@@ -113,7 +113,9 @@ and traces go to ignored `test-results/flight-725/`; screenshots go to untracked
 
 Settings and Action Log retain the last focused board element while covered.
 Closing them restores that element, including an xterm textarea, rather than
-always selecting a sidebar row. Trusted scrims, About, legal views, action errors
+always selecting a sidebar row. Interim tile focus while reattaching does not
+replace the saved xterm target, including during rapid Settings reopening.
+Trusted scrims, About, legal views, action errors
 and menu dismissal share `board/focus-restore.ts` for detached or unfocusable
 opener fallback. DOM restoration never requests native app activation. Native
 trusted-window restoration follows the [confirmation rules](confirmations.md#focus-restoration-852).

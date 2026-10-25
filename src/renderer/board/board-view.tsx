@@ -241,8 +241,12 @@ function BoardContents({
       if (
         previous?.matches(".xterm-helper-textarea") &&
         previous.closest('.terminal-tile[data-empty="false"]')
-      )
+      ) {
+        // The interim tile fallback must not replace the original xterm if
+        // Settings reopens before queued attachment/focus has completed.
+        boardFocusRef.current = previous;
         setFocusRequest((value) => value + 1);
+      }
     }
     wasInactiveRef.current = paneInactive;
   }, [paneInactive, selected, setFocusRequest]);

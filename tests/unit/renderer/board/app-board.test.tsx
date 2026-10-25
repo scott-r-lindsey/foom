@@ -314,8 +314,16 @@ test("Settings queues terminal input focus after reattaching its original xterm"
   });
   act(() => mock.command?.("settings"));
   await settle();
+  input.hidden = true;
   mock.focus.mockClear();
   fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "Escape" });
   await settle();
   expect(mock.focus).toHaveBeenCalledOnce();
+  // Reopen while the asynchronous view would still be hidden, then finish it.
+  act(() => mock.command?.("settings"));
+  await settle();
+  input.hidden = false;
+  fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "Escape" });
+  await settle();
+  expect(document.activeElement).toBe(input);
 });

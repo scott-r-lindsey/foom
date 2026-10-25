@@ -1602,12 +1602,23 @@ test("modal dismissal restores the same terminal input for cancel, approve, Esca
 
 test("inactive agent confirmation dismissal preserves the other application's native focus", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
+  // Start both processes before raising consent: the existing reachability
+  // guard must not compete with the second launch's native-readiness gate.
+  const other = await launchApp(context, { fixture: "empty-board" });
+  await app.evaluate(({ app, BrowserWindow }) => {
+    if (process.platform === "darwin") app.focus({ steal: true });
+    const board = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    board.focus();
+    board.webContents.focus();
+  });
   await focusRestoreDialog(app);
   try {
     await requestFocusRestore(app);
     // Another isolated application process is the native first responder.
-    const other = await launchApp(context, { fixture: "empty-board" });
-    await other.evaluate(({ BrowserWindow }) => {
+    await other.evaluate(({ app, BrowserWindow }) => {
+      if (process.platform === "darwin") app.focus({ steal: true });
       const board = BrowserWindow.getAllWindows().find(
         (window) => window.webContents.getURL() === "app://bundle/index.html",
       );

@@ -253,7 +253,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await boardCommand(app, "B");
   await expect(row).toBeFocused();
   await page.keyboard.press("Enter");
-  await page.locator(".xterm-helper-textarea").waitFor();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await shortcut();
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
@@ -420,11 +420,11 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     await writeFile(evidencePath(`settings-close-${scale}.png`), Buffer.from(screenshot, "base64"));
     await close.click();
     await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
-    await expect(row).toBeFocused();
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await shortcut();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
-    await expect(row).toBeFocused();
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   }
   assert.deepEqual(
     await app.evaluate(({ BrowserWindow }) =>
