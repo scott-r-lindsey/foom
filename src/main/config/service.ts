@@ -42,7 +42,7 @@ export interface ConfigServiceDependencies {
   /** Catalog only: loading grants no enablement, executable or host authority. */
   applyForges?(plugins: readonly LoadedForgeManifest[]): void;
   confirmArguments?(content: DialogContent): Promise<boolean>;
-  acknowledgeBypass?(agents: readonly ("claude" | "codex" | "agy")[]): Promise<void>;
+  acknowledgeBypass?(agents: readonly string[]): Promise<void>;
   onStatus?(status: ConfigStatus): void;
   onThemeDecision?(): void;
   watch?: (directory: string, listener: (file: string | null) => void) => { close(): void };
@@ -641,12 +641,13 @@ export class ConfigService {
             await this.scan();
             throw new Error("The file changed. Review the new change.");
           }
-          const bypass = (["claude", "codex", "agy"] as const).filter(
-            (agent) =>
-              JSON.stringify(before.agentArguments[agent]) !==
-                JSON.stringify(after.agentArguments[agent]) &&
-              hasBypassArgument(agent, after.agentArguments[agent]),
-          );
+          const bypass = Object.entries(after.agentArguments)
+            .filter(
+              ([agent, args]) =>
+                JSON.stringify(before.agentArguments[agent] ?? []) !== JSON.stringify(args) &&
+                hasBypassArgument(agent, args),
+            )
+            .map(([agent]) => agent);
           if (bypass.length) await this.deps.acknowledgeBypass?.(bypass);
         }
         await this.applyValues(pending.text, pending.values);

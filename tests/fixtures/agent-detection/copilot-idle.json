@@ -1,0 +1,22 @@
+{
+  "agent": "copilot",
+  "version": "1.0.103",
+  "platform": "linux",
+  "date": "2026-10-24",
+  "size": {
+    "cols": 100,
+    "rows": 32
+  },
+  "titles": [],
+  "progress": null,
+  "state": "idle",
+  "rules": ["idle_footer"],
+  "tail": [
+    "● ready",
+    "[scratch path and usage redacted]",
+    "────────────────────────────────────────────────────────────────────────────────────────────────────",
+    "❯",
+    "────────────────────────────────────────────────────────────────────────────────────────────────────",
+    "← open sidebar · Interactive · Manual Approval · / commands · ? help · tab next tab  GPT-5.6 Terra"
+  ]
+}
