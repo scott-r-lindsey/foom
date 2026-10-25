@@ -791,6 +791,34 @@ test("macOS hiding a child that lost key focus cancels and restores native board
   dialog.dispose();
 });
 
+test("macOS hide followed by native key loss cancels before recovery can show the child again", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const dialog = setup("darwin");
+  const pending = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(100);
+  window().isVisible.mockReturnValue(false);
+  window().emit("hide");
+  expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", true);
+  // Cocoa may report key focus until the subsequent native blur notification.
+  window().isFocused.mockReturnValue(false);
+  window().emit("blur");
+  expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", false);
+  expect(await pending).toBe(false);
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(window().show).toHaveBeenCalledOnce();
+  window().isVisible.mockReturnValue(true);
+  window().isFocused.mockReturnValue(true);
+  const next = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(100);
+  const id = await shown();
+  window().isFocused.mockReturnValue(false);
+  window().emit("blur");
+  expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", true);
+  answer(id, false);
+  expect(await next).toBe(false);
+  dialog.dispose();
+});
+
 test("native occlusion events during reparent/show do not cancel the request being presented", async () => {
   const dialog = setup();
   window().show.mockImplementation(() => {
