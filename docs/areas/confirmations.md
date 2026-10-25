@@ -109,8 +109,8 @@ cleanup actions and removal subsets, must pass the same focus, visibility and
 geometry checks at IPC receipt; recovery itself never grants approval.
 Hiding, minimizing or destroying the child, or hiding/minimizing its board, also
 cancels after checking current native visibility/minimization, so a late Cocoa
-hide notification cannot dismiss a newly visible reused request. Child blur also
-rechecks current availability: Cocoa can notify hide before relinquishing key
+hide notification cannot dismiss a newly visible reused request. On macOS, child
+blur also rechecks current availability: Cocoa can notify hide before relinquishing key
 focus, and that later key loss must decline a still-hidden child before recovery
 can map it again. A visible child losing focus still uses the bounded reachability
 guard. Native hide/minimize

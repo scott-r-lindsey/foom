@@ -197,7 +197,7 @@ export class TrustedDialog {
     window.on("minimize", this.childUnavailable);
     // Cocoa can deliver hide before key focus is relinquished. Recheck on blur
     // so ignoring occlusion of a still-key child cannot lose a real hide.
-    window.on("blur", this.childUnavailable);
+    if (this.platform === "darwin") window.on("blur", this.childUnavailable);
     window.on("closed", () => {
       if (this.window !== window) return;
       this.window = undefined;
