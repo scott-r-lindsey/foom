@@ -84,7 +84,11 @@ const parent = Object.assign(new EventEmitter(), {
   isVisible: vi.fn(() => true),
   isMinimized: vi.fn(() => false),
   setFocusable: vi.fn(),
-  webContents: Object.assign(new EventEmitter(), { send: vi.fn(), getZoomFactor: vi.fn(() => 1) }),
+  webContents: Object.assign(new EventEmitter(), {
+    send: vi.fn(),
+    focus: vi.fn(),
+    getZoomFactor: vi.fn(() => 1),
+  }),
   getContentBounds: vi.fn(() => ({ x: 10, y: 20, width: 800, height: 600 })),
   isDestroyed: vi.fn(() => false),
   focus: vi.fn(),
@@ -1062,5 +1066,52 @@ test("unsettled consent is declined and layout churn cannot extend the one-secon
   await vi.advanceTimersByTimeAsync(100);
   expect(await pending).toBe(false);
   expect(window().show).not.toHaveBeenCalled();
+  dialog.dispose();
+});
+
+test.each([true, false])(
+  "deliberate dismissal restores native and web input focus (answer %s)",
+  async (accepted) => {
+    const dialog = setup();
+    const pending = dialog.request(content);
+    const id = await shown();
+    answer(id, accepted);
+    await expect(pending).resolves.toBe(accepted);
+    expect(parent.focus).toHaveBeenCalledOnce();
+    expect(parent.webContents.focus).toHaveBeenCalledOnce();
+    dialog.dispose();
+  },
+);
+
+test.each(["abort", "answer", "unavailable", "dispose"])(
+  "%s after focus moves elsewhere never activates the board",
+  async (reason) => {
+    const dialog = setup();
+    const controller = new AbortController();
+    const pending = dialog.request(content, controller.signal);
+    const id = await shown();
+    window().isFocused.mockReturnValue(false);
+    if (reason === "abort") controller.abort();
+    else if (reason === "answer") answer(id, false);
+    else if (reason === "unavailable") {
+      window().isVisible.mockReturnValue(false);
+      window().emit("hide");
+    } else dialog.dispose();
+    await expect(pending).resolves.toBe(false);
+    expect(parent.focus).not.toHaveBeenCalled();
+    expect(parent.webContents.focus).not.toHaveBeenCalled();
+    dialog.dispose();
+  },
+);
+
+test("availability rejection does not restore even if the child still reports key focus", async () => {
+  const dialog = setup();
+  const pending = dialog.request(content);
+  await shown();
+  parent.isMinimized.mockReturnValue(true);
+  parent.emit("minimize");
+  await expect(pending).resolves.toBe(false);
+  expect(parent.focus).not.toHaveBeenCalled();
+  expect(parent.webContents.focus).not.toHaveBeenCalled();
   dialog.dispose();
 });

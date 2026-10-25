@@ -1,3 +1,4 @@
+import { restoreBoardFocus } from "./board/focus-restore";
 import { LegalDialog } from "./about/legal-dialog";
 import type { LegalDocument } from "../shared/app-menu";
 import { AboutDialog } from "./about/about-dialog";
@@ -51,7 +52,16 @@ function AppContents() {
     if (api) return attachPreviewComposition(api);
   }, []);
   const [scrim, setScrim] = useState(false);
-  useEffect(() => source.confirmations?.onScrim?.(setScrim), [source]);
+  useEffect(() => {
+    let previous: Element | null = null;
+    let showing = false;
+    return source.confirmations?.onScrim?.((visible) => {
+      if (visible && !showing) previous = document.activeElement;
+      setScrim(visible);
+      if (!visible && showing) restoreBoardFocus(previous);
+      showing = visible;
+    });
+  }, [source]);
   const [setup] = useState(createSetupSource);
   useEffect(() => attachInterfaceTheme(setup), [setup]);
   const [state, setState] = useState<SetupState>();

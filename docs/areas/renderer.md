@@ -108,3 +108,12 @@ motion. Linux explicitly uses SwiftShader software WebGL, so GPU-process CPU
 is software-rendering work, not a hardware GPU-utilization measurement. Reports
 and traces go to ignored `test-results/flight-725/`; screenshots go to untracked
 `screenshots-725/`. No real agent CLI or everyday profile is used.
+
+## Modal focus restoration (#852)
+
+Settings and Action Log retain the last focused board element while covered.
+Closing them restores that element, including an xterm textarea, rather than
+always selecting a sidebar row. Trusted scrims, About, legal views, action errors
+and menu dismissal share `board/focus-restore.ts` for detached or unfocusable
+opener fallback. DOM restoration never requests native app activation. Native
+trusted-window restoration follows the [confirmation rules](confirmations.md#focus-restoration-852).

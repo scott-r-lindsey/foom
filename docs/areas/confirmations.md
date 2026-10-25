@@ -175,3 +175,15 @@ Quit inventories live terminals in main, including shells outside the workspace
 snapshot; it does not query the board. Renderer loss immediately releases a pending terminal view flush; a crashed board
 is not asked to flush again until it loads. The existing deadline still allows
 shutdown when a live board is unresponsive.
+
+### Focus restoration (#852)
+
+Deliberate answers, Escape/native close and abort dismissal restore the board's
+native window and web contents only while the presented child is still reachable
+and the board is visible and not minimized. Availability failures and disposal
+never activate the board. This applies equally to `activate: false` requests:
+dismissal cannot bring Foom forward after the person switches to another app.
+The existing boolean scrim notification captures and restores the board's DOM
+input target; no terminal payload or new IPC capability is needed. If the target
+closed, the renderer falls back to the focused tile's xterm input, its tile, a
+sidebar row, then the application menu.

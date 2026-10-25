@@ -334,7 +334,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     .toBe(15);
   await page.keyboard.press("Escape");
 
-  await expect(row).toBeFocused();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await expect(page.locator(".xterm-rows")).toHaveCSS("font-size", "15px");
   await shortcut();
   await section("Appearance");
@@ -348,7 +348,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await expect(page.getByRole("radio", { name: "Light", exact: true })).toBeChecked();
   await expect(page.getByRole("status").filter({ hasText: "120%" })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(row).toBeFocused();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   // The close control stays at the top right in both layouts and scales with zoom.
   for (const scale of [100, 150, 300]) {
     await page.evaluate((interfaceScale) => window.desktop.saveSetup({ interfaceScale }), scale);
