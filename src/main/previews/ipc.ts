@@ -50,6 +50,12 @@ export function attachPreviews(
       throw new Error("Invalid preview request");
     return pick(worktree);
   });
+  ipc.handle("preview:reload", (_event, ...args) => {
+    const [id] = args;
+    if (args.length !== 1 || !previewId(id)) throw new Error("Invalid preview ID");
+    if (!host.registry.records.has(id)) throw new Error("Unknown preview ID");
+    return host.reload(id);
+  });
   ipc.handle("preview:close", (_event, ...args) => {
     const [id] = args;
     if (args.length !== 1 || !previewId(id)) throw new Error("Invalid preview ID");
@@ -100,6 +106,7 @@ export function attachPreviews(
       "preview:pick",
       "preview:popout",
       "preview:close",
+      "preview:reload",
       "preview:bounds",
       "preview:cover",
       "preview:painted",

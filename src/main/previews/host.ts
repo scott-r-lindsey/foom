@@ -304,6 +304,20 @@ export class PreviewHost {
       await shell.openExternal(url).catch(() => {});
     }
   }
+  reload(id: string): Promise<void> {
+    if (this.closed() || !this.registry.records.has(id)) throw new Error("Unknown preview ID");
+    return this.lifecycle.reload(id);
+  }
+  reloadFocused(): void {
+    if (this.closed() || this.snapshots.covered || !this.window.isFocused()) return;
+    const entry = [...this.hosted.values()].find(
+      (entry) =>
+        entry.attached &&
+        this.focus.owns(entry.view.webContents) &&
+        entry.view.webContents.isFocused(),
+    );
+    if (entry) void this.reload(entry.id);
+  }
   async network(id: string, enabled: boolean): Promise<void> {
     const record = this.registry.records.get(id);
     if (!record || this.closed()) throw new Error("Unknown preview ID");

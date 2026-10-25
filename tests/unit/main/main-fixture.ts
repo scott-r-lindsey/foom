@@ -124,6 +124,7 @@ vi.mock("../../../src/main/previews/host", () => ({
       return id;
     });
     focusManual = vi.fn();
+    reloadFocused = vi.fn();
     moveTo = vi.fn((_id: string, _target: unknown) => Promise.resolve());
     close = vi.fn(() => Promise.resolve());
     visible = vi.fn(() => false);

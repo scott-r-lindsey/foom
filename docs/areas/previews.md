@@ -208,6 +208,14 @@ an isolated world and restores it after `did-finish-load`, before attachment.
 Missing files show "File not found. Waiting for it to appear." and recover on
 recreation. Closing or disposing the host cancels timers and closes watchers.
 
+Manual reload uses validated, window-owned `preview:reload` with exactly one preview ID.
+The header Reload button and tile-menu Reload command run the same lifecycle reload as
+file changes: preserve scroll when possible, retain network permission and record
+watcher subscriptions from new requests. Reload never grants focus. Command+R / Ctrl+R
+is consumed in main on every board and forwarded preview; only the attached preview with
+human-granted native keyboard focus reloads. With a terminal focused it does nothing and
+sends no PTY input; it never reloads the board window.
+
 Every uncovered preview forwards native `before-input-event` to its owning board's
 shortcut dispatcher and input guards, without moving focus. Geometry changes
 (maximize, restore, hide and gutter resizing) do not cover previews: the live view

@@ -40,6 +40,7 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
       ]),
     },
     open: vi.fn(() => Promise.resolve("a".repeat(32))),
+    reload: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
     bounds: vi.fn(),
     painted: vi.fn(),
@@ -58,6 +59,9 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
   expect(() => invoke("popout", id)).toThrow("in progress");
   await moving;
   expect(popout).toHaveBeenCalledWith(id);
+  await invoke("reload", id);
+  expect(host.reload).toHaveBeenCalledWith(id);
+  expect(() => invoke("reload", "b".repeat(32))).toThrow("Unknown preview ID");
   await invoke("close", id);
   invoke("bounds", id, bounds);
   await invoke("network", id, true);
@@ -74,7 +78,7 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
   for (const args of [[], [1], [""], ["\0"], ["a".repeat(4097)], ["/repo", "a.html"]])
     expect(() => invoke("pick", ...args)).toThrow();
   for (const args of [[], [null], ["wrong"], [id, "extra"]])
-    for (const name of ["close", "popout"]) expect(() => invoke(name, ...args)).toThrow();
+    for (const name of ["close", "popout", "reload"]) expect(() => invoke(name, ...args)).toThrow();
   for (const args of [[], ["wrong", bounds], [id, bounds, "extra"], [id, {}]])
     expect(() => invoke("bounds", ...args)).toThrow();
   invoke("painted", id, 1);
