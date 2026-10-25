@@ -1,3 +1,5 @@
+import { RemovalError, removalReasons } from "../../../../src/main/workspace/worktree-outcome";
+import { ApplicationError } from "../../../../src/shared/application-errors";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { locationId } from "../../../../src/main/control/metadata";
@@ -72,7 +74,7 @@ describe("worktree removal", () => {
     await vi.waitFor(async () => {
       expect(await h.call("operation_status", { idempotencyKey: "r" })).toMatchObject({
         status: "declined",
-        reason: "refused",
+        reason: "dirty",
       });
     });
     expect(h.host.dialog.mock.calls[0]?.[0]).toMatchObject({
@@ -127,8 +129,10 @@ describe("worktree removal", () => {
     await expect(h.mutate("remove_worktree", { worktreeId: locationId(repo) })).rejects.toThrow(
       "not_found",
     );
+    expect(h.persist.mock.calls.at(-1)?.[0].operation.reason).toBe("not_owned");
     const { worktreeId } = await h.child("busy");
     await expect(h.mutate("remove_worktree", { worktreeId })).rejects.toThrow("conflict");
+    expect(h.persist.mock.calls.at(-1)?.[0].operation.reason).toBe("busy");
     expect(h.host.dialog).toHaveBeenCalledTimes(1);
   });
 
@@ -145,6 +149,41 @@ describe("worktree removal", () => {
     await vi.waitFor(() => {
       const entries = history(h.orchestration.view("parent"));
       expect(entries.at(-1)?.status).toBe("indeterminate");
+    });
+  });
+});
+
+it.each([
+  [new RemovalError("detached_head"), "detached_head"],
+  [new RemovalError("identity_changed"), "identity_changed"],
+  [new ApplicationError("worktree-locked"), "locked"],
+  [new ApplicationError("worktree-missing"), "not_found"],
+  [new Error("secret git stderr"), "git_failed"],
+] as const)("returns fixed removal diagnostics (%s)", async (error, reason) => {
+  const h = harness();
+  const tree = await h.mutate("create_worktree", { branch: "reason" });
+  h.host.remove.mockRejectedValueOnce(error);
+  await h.call("remove_worktree", { idempotencyKey: "remove", worktreeId: tree.resultId });
+  await vi.waitFor(async () => {
+    const result = await h.call("operation_status", { idempotencyKey: "remove" });
+    expect(result).toMatchObject({ status: "failed", reason, detail: removalReasons[reason] });
+    expect(JSON.stringify(result)).not.toContain("secret git stderr");
+    expect(
+      await h.call("remove_worktree", { idempotencyKey: "remove", worktreeId: tree.resultId }),
+    ).toEqual(result);
+  });
+});
+
+it("records a specific reason when a clean confirmation is declined", async () => {
+  const h = harness();
+  const tree = await h.mutate("create_worktree", { branch: "clean-decline" });
+  h.host.dialog.mockResolvedValueOnce(false);
+  await h.call("remove_worktree", { idempotencyKey: "clean-decline", worktreeId: tree.resultId });
+  await vi.waitFor(async () => {
+    expect(await h.call("operation_status", { idempotencyKey: "clean-decline" })).toMatchObject({
+      status: "declined",
+      reason: "user_declined",
+      detail: removalReasons.user_declined,
     });
   });
 });
