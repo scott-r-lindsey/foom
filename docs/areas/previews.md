@@ -4,7 +4,17 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 ## Previews
 
-`previews/host.ts` owns view lifetime, focus handoff, bounds, snapshots and transfers. `previews/partition.ts` creates the isolated session and view, serves preview responses and checks request/navigation policy; `previews/hosted-preview.d.ts` declares the per-view state.
+`previews/host.ts` composes each window's registry, bounds and public capabilities.
+`preview-focus.ts` owns native click grants and versioned keyboard handoff;
+`preview-snapshots.ts` owns generation-scoped captures, paint versions and cover deadlines.
+`preview-view-lifecycle.ts` creates detached native generations, replaces them on
+navigation, restores scroll and releases watchers/listeners. `preview-transfer.ts`
+owns two-host transactions and incoming recovery through explicit host callbacks;
+registry ownership switches synchronously after native cleanup and validation.
+`previews/partition.ts` creates the isolated session and view, serves preview responses
+and checks request/navigation policy; `previews/hosted-preview.d.ts` declares native
+lifecycle and geometry facts only. Focus and snapshot owners keep their mutable
+state separately, keyed by the exact native generation.
 
 Main owns a `PreviewHost` per board window and registers the standard, secure
 `foom-preview` scheme before readiness. Each view has an in-memory `preview-<id>`
@@ -173,7 +183,7 @@ acquire native focus. Cancellation first blurs an active terminal in the trusted
 board DOM; main keeps blocking keys until that operation completes. The board's
 shortcuts and keyboard navigation then work, while ordinary typing cannot reach a
 PTY until the user selects a target. A late load cannot restore cancelled focus.
-These listeners and the deadline belong to the host and are disposed with it.
+These listeners and the deadline belong to the focus owner and are disposed with the host.
 Recreation is bounded to once per 250 ms per preview; the old contents closes immediately
 and only one replacement can be pending. Closing cancels pending recreation.
 A previously clicked native contents can reacquire keyboard focus during reload on
