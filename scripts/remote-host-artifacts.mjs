@@ -20,8 +20,8 @@ export function checkoutRevision(root, execute = execFileSync) {
   return revision;
 }
 
-// Always ad-hoc, including nightlies. SSH upload has no quarantine. Keep compressed
-// payloads in packages so the enclosing app's Developer ID pass cannot re-sign them.
+// Native builds are ad-hoc. The main-only Release pass re-signs bundled Darwin
+// payloads with Developer ID before sealing the app (#844).
 export function signRemoteHost(executable, execute = run) {
   execute(
     "codesign",
@@ -65,35 +65,41 @@ export async function writeHostManifest(output, { version, platform, arch, sourc
 
 /** Fail packaging rather than silently ship a partial, stale or corrupt catalog. */
 export async function packageRemoteHosts(source, output, version, revision) {
-  assert.match(revision ?? "", /^[a-f0-9]{40}$/, "Invalid expected source revision");
   for (const target of hostPlatforms) {
     const directory = join(source, target);
-    const manifest = JSON.parse(await readFile(join(directory, "manifest.json"), "utf8"));
-    assert.ok(manifest && typeof manifest === "object", "Invalid host manifest");
-    assert.equal(`${manifest.platform}-${manifest.arch}`, target, "Host target mismatch");
-    assert.equal(manifest.version, version, "Host version mismatch");
-    assert.equal(manifest.protocol, 1, "Host protocol mismatch");
-    assert.ok(
-      typeof manifest.source === "string" && /^[a-f0-9]{40}$/.test(manifest.source),
-      "Invalid host source revision",
-    );
-    assert.equal(manifest.source, revision, "Host source revision mismatch");
-    for (const key of ["size", "gzipSize"])
-      assert.ok(
-        Number.isSafeInteger(manifest[key]) &&
-          manifest[key] > 0 &&
-          manifest[key] <= 200 * 1024 * 1024,
-        "Invalid host size",
-      );
-    const compressed = await readFile(join(directory, "foom-host.gz"));
-    assert.equal(compressed.length, manifest.gzipSize, "Host gzip size mismatch");
-    assert.equal(digest(compressed), manifest.gzipSha256, "Host gzip hash mismatch");
-    const bytes = await promisify(gunzip)(compressed, { maxOutputLength: manifest.size });
-    assert.equal(bytes.length, manifest.size, "Host size mismatch");
-    assert.equal(digest(bytes), manifest.sha256, "Host hash mismatch");
+    await verifyHostArtifact(directory, target, version, revision);
     const destination = join(output, target);
     await mkdir(destination, { recursive: true });
     for (const name of ["manifest.json", "foom-host.gz"])
       await cp(join(directory, name), join(destination, name));
   }
+}
+
+/** Shared pre/post-signing verification of the complete bootstrap byte contract. */
+export async function verifyHostArtifact(directory, target, version, revision) {
+  assert.match(revision ?? "", /^[a-f0-9]{40}$/, "Invalid expected source revision");
+  const manifest = JSON.parse(await readFile(join(directory, "manifest.json"), "utf8"));
+  assert.ok(manifest && typeof manifest === "object", "Invalid host manifest");
+  assert.equal(`${manifest.platform}-${manifest.arch}`, target, "Host target mismatch");
+  assert.equal(manifest.version, version, "Host version mismatch");
+  assert.equal(manifest.protocol, 1, "Host protocol mismatch");
+  assert.ok(
+    typeof manifest.source === "string" && /^[a-f0-9]{40}$/.test(manifest.source),
+    "Invalid host source revision",
+  );
+  assert.equal(manifest.source, revision, "Host source revision mismatch");
+  for (const key of ["size", "gzipSize"])
+    assert.ok(
+      Number.isSafeInteger(manifest[key]) &&
+        manifest[key] > 0 &&
+        manifest[key] <= 200 * 1024 * 1024,
+      "Invalid host size",
+    );
+  const compressed = await readFile(join(directory, "foom-host.gz"));
+  assert.equal(compressed.length, manifest.gzipSize, "Host gzip size mismatch");
+  assert.equal(digest(compressed), manifest.gzipSha256, "Host gzip hash mismatch");
+  const bytes = await promisify(gunzip)(compressed, { maxOutputLength: manifest.size });
+  assert.equal(bytes.length, manifest.size, "Host size mismatch");
+  assert.equal(digest(bytes), manifest.sha256, "Host hash mismatch");
+  return { manifest, bytes };
 }

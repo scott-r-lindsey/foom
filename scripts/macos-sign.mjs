@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, open, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, open, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
+import { extractFile } from "@electron/asar";
+import { hostPlatforms, verifyHostArtifact, writeHostManifest } from "./remote-host-artifacts.mjs";
 import { FuseState, FuseV1Options, getCurrentFuseWire, pathToFuseFile } from "@electron/fuses";
 
 // Only Release credentials are secrets; workflow paths and unrelated environment
@@ -229,8 +231,46 @@ async function integrity(app, execute) {
   return { fuses, embedded, digests, archive };
 }
 
+// Gzip payloads are invisible to Mach-O discovery, but Apple inspects their
+// contents. Complete this pass and refresh unpacked metadata before app sealing.
+export async function signBundledRemoteHosts(app, options, execute = run) {
+  const archive = join(app, "Contents/Resources/app.asar");
+  const { source } = JSON.parse(extractFile(archive, "build/build-metadata.json").toString());
+  const { version } = JSON.parse(extractFile(archive, "package.json").toString());
+  const catalog = join(app, "Contents/Resources/app.asar.unpacked/build/remote-hosts");
+  // Validate all inputs against the sealed app revision before modifying any.
+  for (const target of hostPlatforms)
+    await verifyHostArtifact(join(catalog, target), target, version, source);
+  const temporary = await mkdtemp(join(tmpdir(), "foom-host-sign-"));
+  try {
+    for (const target of hostPlatforms.filter((target) => target.startsWith("darwin-"))) {
+      const directory = join(catalog, target);
+      const { manifest, bytes } = await verifyHostArtifact(directory, target, version, source);
+      const executable = join(temporary, "foom-host");
+      await writeFile(executable, bytes);
+      await chmod(executable, 0o700);
+      execute(
+        "codesign",
+        signingArgs(executable, {
+          ...options,
+          entitlements: resolve("scripts/entitlements-remote-host.plist"),
+        }),
+      );
+      execute("codesign", ["--verify", "--strict", executable]);
+      // Write into private scratch first; never leave an expanded host in the app.
+      await writeHostManifest(temporary, manifest);
+      for (const name of ["foom-host.gz", "manifest.json"])
+        await writeFile(join(directory, name), await readFile(join(temporary, name)));
+      await verifyHostArtifact(directory, target, version, source);
+    }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
 export async function signApp(app, options, execute = run, snapshot = integrity) {
   const before = await snapshot(app, execute);
+  await signBundledRemoteHosts(app, options, execute);
   for (const target of await signingOrder(app)) {
     execute(
       "codesign",
