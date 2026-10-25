@@ -136,7 +136,10 @@ process.stdin.on('data', (bytes) => {
     save(${JSON.stringify(mcpRecord)}, { status:result.status, output:result.stdout });
   }
   if (key.includes('2')) { hook('PermissionRequest'); process.stdout.write('Continue? (y/n)\\r\\n'); }
-  if (key.includes('3')) hook('PreToolUse');
+  if (key.includes('3')) {
+    process.stdout.write('\\x1b[2J\\x1b[HREMOTE_WORKING\\r\\n');
+    hook('PreToolUse');
+  }
 });
 `,
     { mode: 0o700 },
@@ -302,6 +305,11 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
   );
   assert.equal((await call("read_handoff", { id })).summary, "Remote fixture complete");
   await settle("send_keys", { id, keys: ["3"], idempotencyKey: "remote-working" });
+  // The fixture has answered its permission prompt; do not race a working hook
+  // against a still-visible screen blocker.
+  await expect
+    .poll(async () => (await page.evaluate((id) => window.desktop.tail(id, 40), id)).join("\n"))
+    .toContain("REMOTE_WORKING");
   await expect.poll(async () => (await row())?.execution?.phase).toBe("working");
   const firstSsh = Number((await readFile(pids, "utf8")).trim().split("\n")[0]);
   process.kill(firstSsh, "SIGTERM");
@@ -316,7 +324,7 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
         }
       }, id),
     )
-    .toContain("REMOTE_AGENT_READY");
+    .toContain("REMOTE_WORKING");
   await expect.poll(async () => (await row())?.exited).not.toBe(true);
   assert.equal(JSON.parse(await readFile(record, "utf8")).pid, first.pid);
   await settle("stop", { id, idempotencyKey: "remote-stop" });
