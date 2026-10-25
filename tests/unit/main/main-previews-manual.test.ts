@@ -1,4 +1,5 @@
 import { previewMock, mock, start, invokeWindow, newWindow } from "./main-fixture";
+import type { ShortcutInput } from "./main-fixture";
 import { DEFAULT_SETTINGS } from "../../../src/main/setup/settings";
 
 import { expect, test, vi } from "vitest";
@@ -372,3 +373,49 @@ test("windowless Manual opens a board with the fixed preview instead of a native
     expect(focus).toHaveBeenCalledWith("f".repeat(32));
   });
 });
+
+test.each(["linux", "win32", "darwin"] as const)(
+  "%s reload shortcut targets only its owning board preview host",
+  async (platform) => {
+    vi.spyOn(process, "platform", "get").mockReturnValue(platform);
+    await start();
+    const { previewHosts } = await import("../../../src/main/wiring/application");
+    const firstWindow = mock.instances[0];
+    if (!firstWindow) throw new Error("Missing first board");
+    const firstHost = previewHosts.get(firstWindow.id);
+    if (!firstHost) throw new Error("Missing first preview host");
+    const firstReload = vi.spyOn(firstHost, "reloadFocused");
+    const firstInput = mock.windowEvents.get("before-input-event");
+    await newWindow();
+    const secondWindow = mock.instances[1];
+    if (!secondWindow) throw new Error("Missing second board");
+    await vi.waitFor(() => {
+      expect(previewHosts.has(secondWindow.id)).toBe(true);
+    });
+    const secondHost = previewHosts.get(secondWindow.id);
+    if (!secondHost) throw new Error("Missing second preview host");
+    const secondReload = vi.spyOn(secondHost, "reloadFocused");
+    const input: ShortcutInput = {
+      type: "keyDown",
+      key: "r",
+      code: "KeyR",
+      control: platform !== "darwin",
+      meta: platform === "darwin",
+      alt: false,
+      shift: false,
+    };
+    const event = { preventDefault: vi.fn() };
+    firstInput?.(event, input);
+    expect(firstReload).toHaveBeenCalledOnce();
+    expect(secondReload).not.toHaveBeenCalled();
+    mock.windowEvents.get("before-input-event")?.(event, input);
+    expect(secondReload).toHaveBeenCalledOnce();
+    expect(firstReload).toHaveBeenCalledOnce();
+    expect(event.preventDefault).toHaveBeenCalledTimes(2);
+    // A shortcut arriving after host teardown remains consumed without a target.
+    previewHosts.delete(firstWindow.id);
+    firstInput?.(event, input);
+    expect(firstReload).toHaveBeenCalledOnce();
+    expect(event.preventDefault).toHaveBeenCalledTimes(3);
+  },
+);

@@ -214,6 +214,7 @@ test("the application owns and disposes preview composition independently of til
   const cover = vi.fn(() => Promise.resolve());
   const onSnapshots = vi.fn(() => off);
   window.desktop.previews = {
+    reload: vi.fn(async () => {}),
     popout: vi.fn(),
     pick: vi.fn(),
     network: vi.fn(),
