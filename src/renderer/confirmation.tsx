@@ -255,10 +255,18 @@ export function ConfirmationPage() {
       });
     };
     const observer = new ResizeObserver(measure);
-    observer.observe(card);
-    observer.observe(body);
-    measure();
+    let cancelled = false;
+    // A font swap changes wrapping and height even if the viewport is unchanged.
+    // Force layout to start the bundled font loads before awaiting the font set.
+    card.getBoundingClientRect();
+    void document.fonts.ready.then(() => {
+      if (cancelled) return;
+      observer.observe(card);
+      observer.observe(body);
+      measure();
+    });
     return () => {
+      cancelled = true;
       observer.disconnect();
     };
   }, [requestId, wide, bounded]);

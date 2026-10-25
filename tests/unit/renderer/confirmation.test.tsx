@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { DialogRequest } from "../../../src/shared/confirmation";
 import { resolveInterfaceTheme } from "../../../src/shared/interface-themes";
 import { ConfirmationPage } from "../../../src/renderer/confirmation";
+beforeEach(() => {
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: { ready: Promise.resolve() },
+  });
+});
 afterEach(cleanup);
-test("focuses Cancel for every request, traps Tab, and renders untrusted content as text", () => {
+test("focuses Cancel for every request, traps Tab, and renders untrusted content as text", async () => {
   let receive: (value: DialogRequest | null) => void = () => undefined;
   const off = vi.fn();
   const answer = vi.fn();
@@ -60,6 +66,9 @@ test("focuses Cancel for every request, traps Tab, and renders untrusted content
   };
   act(() => {
     receive(request);
+  });
+  await act(async () => {
+    await document.fonts.ready;
   });
   expect(document.documentElement.style.getPropertyValue("--ink")).toBe("#010203");
   expect(document.documentElement.style.getPropertyValue("--shape-radius")).toBe("0px");
@@ -727,4 +736,61 @@ test("cleanup closes only complete successful runs and resets its choice on ever
   expect(answer).toHaveBeenCalledTimes(1);
   open({ ...base, id: "second" });
   expect(view.getByRole("checkbox")).toHaveProperty("checked", true);
+});
+
+test("waits for fonts before measuring and ignores font completion for a dismissed request", async () => {
+  let ready = () => {};
+  const fonts = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
+  Object.defineProperty(document, "fonts", { configurable: true, value: { ready: fonts } });
+  let receive: (value: DialogRequest | null) => void = () => {};
+  const size = vi.fn();
+  const observe = vi.fn();
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe = observe;
+      disconnect = vi.fn();
+    },
+  );
+  Object.defineProperty(window, "confirmation", {
+    configurable: true,
+    value: {
+      render: (callback: typeof receive) => {
+        receive = callback;
+        return () => {};
+      },
+      size,
+      answer: vi.fn(),
+    },
+  });
+  render(<ConfirmationPage />);
+  const request = {
+    id: "fonts",
+    title: "Allow?",
+    accept: "Allow",
+    theme: resolveInterfaceTheme("follow", false),
+  };
+  act(() => {
+    receive(request);
+  });
+  expect(size).not.toHaveBeenCalled();
+  expect(observe).not.toHaveBeenCalled();
+  act(() => {
+    receive(null);
+  });
+  await act(async () => {
+    ready();
+    await fonts;
+  });
+  expect(size).not.toHaveBeenCalled();
+  act(() => {
+    receive({ ...request, id: "next" });
+  });
+  await act(async () => {
+    await fonts;
+  });
+  expect(observe).toHaveBeenCalledTimes(2);
+  expect(size).toHaveBeenCalledOnce();
 });

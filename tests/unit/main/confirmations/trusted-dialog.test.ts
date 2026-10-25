@@ -360,6 +360,7 @@ test("size requires a pending trusted main frame and finite positive dimensions 
   expect(window().show).not.toHaveBeenCalled();
   expect(window().setBounds).not.toHaveBeenCalled();
   resize(valid);
+  await shown();
   expect(window().show).toHaveBeenCalledOnce();
   expect(window().webContents.focus).toHaveBeenCalledOnce();
   expect(window().setBounds).toHaveBeenLastCalledWith({ x: 190, y: 200, width: 440, height: 240 });
@@ -720,6 +721,7 @@ test.each([true, false])(
     await vi.advanceTimersByTimeAsync(0);
     expect(mock.activate).not.toHaveBeenCalled();
     resize({ width: 440, height: 240 });
+    await vi.advanceTimersByTimeAsync(100);
     expect(mock.activate).toHaveBeenCalledWith({ steal: true });
     expect(window().isFocused()).toBe(activates);
     await vi.advanceTimersByTimeAsync(2000);
@@ -916,5 +918,73 @@ test("native presentation exceptions decline and release every input guard", asy
   expect(await dialog.request(content)).toBe(false);
   expect(parent.webContents.listenerCount("before-input-event")).toBe(0);
   expect(mock.power?.listenerCount("resume")).toBe(0);
+  dialog.dispose();
+});
+
+test("sizes converge in the hidden viewport before presenting, and equal reports do not delay show", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  mock.autoSize = false;
+  const dialog = setup();
+  const pending = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(0);
+  resize({ width: 548, height: 280 });
+  expect(window().getBounds()).toEqual({ x: 136, y: 180, width: 548, height: 280 });
+  parent.emit("focus");
+  await vi.advanceTimersByTimeAsync(60);
+  resize({ width: 540, height: 240 });
+  await vi.advanceTimersByTimeAsync(60);
+  expect(window().show).not.toHaveBeenCalled();
+  resize({ width: 540, height: 240 });
+  await vi.advanceTimersByTimeAsync(40);
+  expect(window().show).toHaveBeenCalledOnce();
+  expect(window().getBounds()).toEqual({ x: 140, y: 200, width: 540, height: 240 });
+  resize({ width: 540, height: 240 });
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(window().show).toHaveBeenCalledOnce();
+  dialog.dispose();
+  expect(await pending).toBe(false);
+});
+
+test("cancellation clears a pending presentation and a native sizing error fails closed", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  const dialog = setup();
+  const controller = new AbortController();
+  const pending = dialog.request(content, controller.signal);
+  await vi.advanceTimersByTimeAsync(0);
+  controller.abort();
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(window().show).not.toHaveBeenCalled();
+  expect(await pending).toBe(false);
+  window().setBounds.mockImplementation(() => {
+    throw Error("native failure");
+  });
+  const next = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(0);
+  resize({ width: 500, height: 300 });
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(await next).toBe(false);
+  dialog.dispose();
+});
+
+test("unsettled consent is declined and layout churn cannot extend the one-second deadline", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  mock.autoSize = false;
+  const dialog = setup();
+  const early = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(0);
+  resize({ width: 540, height: 280 });
+  const request: unknown = window().webContents.send.mock.calls.at(-1)?.[1];
+  if (!request || typeof request !== "object" || !("id" in request)) throw Error("Missing request");
+  answer(request.id, true);
+  expect(await early).toBe(false);
+  const pending = dialog.request(content);
+  await vi.advanceTimersByTimeAsync(0);
+  for (let index = 0; index < 11; index++) {
+    resize({ width: 540, height: 280 + index });
+    await vi.advanceTimersByTimeAsync(90);
+  }
+  await vi.advanceTimersByTimeAsync(100);
+  expect(await pending).toBe(false);
+  expect(window().show).not.toHaveBeenCalled();
   dialog.dispose();
 });

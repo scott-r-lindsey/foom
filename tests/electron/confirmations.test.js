@@ -1344,3 +1344,96 @@ test("config file agent arguments require trusted Allow before a fake Codex laun
   for (const name of [".claude", ".codex", ".gemini"])
     assert.ok(!(await readdir(home)).includes(name));
 });
+
+test("trusted confirmations keep their first shown bounds while the parent is static", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  await boardPage(app);
+  await app.evaluate(({ BrowserWindow, ipcMain }, mainModule) => {
+    const load = process.getBuiltinModule("node:module").createRequire(mainModule);
+    const { TrustedDialog } = load(mainModule);
+    const request = TrustedDialog.prototype.request;
+    TrustedDialog.prototype.request = function (...args) {
+      globalThis.placementDialog = this;
+      return request.apply(this, args);
+    };
+    globalThis.placementTrace = [];
+    const child = BrowserWindow.getAllWindows().find(
+      (w) => w.webContents.getURL() === "app://confirmation/confirmation.html",
+    );
+    const parent = child.getParentWindow();
+    const record = (kind, size) =>
+      globalThis.placementTrace.push({
+        kind,
+        size,
+        time: Date.now(),
+        bounds: child.getBounds(),
+        parent: parent.getContentBounds(),
+        visible: child.isVisible(),
+      });
+    globalThis.recordPlacement = record;
+    record("initial");
+    ipcMain.prependListener("confirmation:size", (event, size) => {
+      if (event.sender === child.webContents) record("size", size);
+    });
+    const setBounds = child.setBounds.bind(child);
+    child.setBounds = (...args) => {
+      setBounds(...args);
+      record("setBounds");
+    };
+    for (const event of ["show", "resize", "move", "focus"]) child.on(event, () => record(event));
+  }, path.resolve("build/main/confirmations/trusted-dialog.js"));
+  const traces = [];
+  for (const kind of ["quit", "disclosure"]) {
+    await app.evaluate(() => {
+      globalThis.placementTrace.length = 0;
+    });
+    if (kind === "quit") await app.evaluate(({ app }) => app.quit());
+    else
+      await app.evaluate(() => {
+        void globalThis.placementDialog.request({
+          title: "Allow access?",
+          accept: "Allow",
+          glyph: "shield",
+          detail:
+            "Review this permission disclosure before allowing access to the selected repository. ".repeat(
+              4,
+            ),
+        });
+      });
+    const dialog = await confirmationPage(app);
+    await expect(dialog.getByRole("alertdialog")).toBeVisible();
+    await expect
+      .poll(() =>
+        app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()
+            .find(
+              (window) => window.webContents.getURL() === "app://confirmation/confirmation.html",
+            )
+            .isVisible(),
+        ),
+      )
+      .toBe(true);
+    // Elapsed time is the behavior under test: include the one-second recovery check.
+    await new Promise((resolve) => setTimeout(resolve, 2100));
+    traces.push({
+      kind,
+      events: await app.evaluate(() => {
+        globalThis.recordPlacement("after-recovery");
+        return globalThis.placementTrace;
+      }),
+    });
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+  }
+  await mkdir("test-results", { recursive: true });
+  await writeFile("test-results/confirmation-placement.json", JSON.stringify(traces, null, 2));
+  for (const { events } of traces) {
+    const first = events.findIndex((event) => event.kind === "show");
+    assert.ok(first >= 0, "Must observe first native show");
+    for (const event of events.slice(first)) {
+      assert.deepEqual(event.parent, events[first].parent, "Parent must remain static");
+      assert.deepEqual(event.bounds, events[first].bounds);
+    }
+  }
+});

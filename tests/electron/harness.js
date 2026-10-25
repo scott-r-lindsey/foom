@@ -786,6 +786,22 @@ async function launchApp(context, options = { fixture: "running-shell" }) {
                 .toBe(true);
               if (!(await app.evaluate(() => globalThis.readyToQuit))) {
                 const dialog = await confirmationPage(app);
+                shutdownPhase = "wait for native quit presentation";
+                // A CDP locator can click a rendered button in a still-hidden
+                // native window. Consent requires settled, visible key focus.
+                await expect
+                  .poll(() =>
+                    app.evaluate(({ BrowserWindow }) => {
+                      const child = BrowserWindow.getAllWindows().find(
+                        (window) =>
+                          window.webContents.getURL() === "app://confirmation/confirmation.html",
+                      );
+                      return Boolean(
+                        child?.isFocused() && (process.platform === "darwin" || child.isVisible()),
+                      );
+                    }),
+                  )
+                  .toBe(true);
                 shutdownPhase = "accept quit dialog";
                 await dialog.getByRole("button", { name: "Stop all and quit" }).click();
               }
