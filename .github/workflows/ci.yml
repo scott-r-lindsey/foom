@@ -267,6 +267,9 @@ jobs:
           github.ref == 'refs/heads/main' &&
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_nightly))
         run: node scripts/nightly.mjs stamp
+      - name: Spike signed embedded native assets without Release credentials
+        if: runner.os == 'macOS'
+        run: node scripts/spike-remote-host-signing.mjs
       - name: Build native host, ad-hoc sign Darwin and measure gzip
         env:
           FOOM_REMOTE_HOST_OUTPUT: remote-host-artifacts
