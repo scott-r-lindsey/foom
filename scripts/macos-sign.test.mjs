@@ -1063,6 +1063,52 @@ if (args.at(-1).endsWith('/foom-host')) {
       }
       assert.equal(existsSync(join(directory, "foom-host")), false);
     }
+    if (identity === "-") {
+      // Exercise the actual top-level-await entrypoint: a dynamic import back
+      // through this module can deadlock even though API-only tests pass.
+      const framework = join(
+        app,
+        "Contents/Frameworks/Electron Framework.framework/Electron Framework",
+      );
+      writeFileSync(
+        framework,
+        Buffer.concat([
+          Buffer.from("cffaedfe", "hex"),
+          Buffer.from("dL7pKGdnNz796PbbjQWNKmHXBZaB9tsX"),
+          Buffer.from([1, 6, 48, 49, 48, 48, 49, 49]),
+          Buffer.from("AGbevlPCksUGKNL8TSn7wGmJEuJsXb2A"),
+          Buffer.from([1, 1, ...Array(32).fill(42)]),
+        ]),
+      );
+      const plistTool = join(bin, "PlistBuddy");
+      writeFileSync(
+        plistTool,
+        `#!${process.execPath}\nconsole.log('algorithm = SHA256; hash = fixture');\n`,
+      );
+      chmodSync(plistTool, 0o755);
+      const preload = join(root, "fixture-apple.cjs");
+      // Redirect the absolute Apple-tool path; all other tools resolve only
+      // inside the fixture PATH, never to real Apple services or agent CLIs.
+      writeFileSync(
+        preload,
+        `const cp=require('node:child_process');
+const spawn=cp.spawnSync;
+cp.spawnSync=(command,args,options)=>spawn(command==='/usr/libexec/PlistBuddy'?${JSON.stringify(plistTool)}:command,args,options);
+require('node:module').syncBuiltinESMExports();
+`,
+      );
+      const cli = spawnSync(
+        process.execPath,
+        ["--require", preload, resolve("scripts/macos-sign.mjs"), "adhoc", app],
+        {
+          env: { PATH: bin },
+          encoding: "utf8",
+          timeout: 10000,
+        },
+      );
+      assert.equal(cli.status, 0, cli.stderr);
+      assert.equal(cli.error, undefined);
+    }
     for (const failure of ["sign", "verify"]) {
       writeFileSync(log, "");
       await assert.rejects(

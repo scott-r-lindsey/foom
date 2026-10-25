@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { extractFile } from "@electron/asar";
+import { hostPlatforms, verifyHostArtifact, writeHostManifest } from "./remote-host-artifacts.mjs";
 import { FuseState, FuseV1Options, getCurrentFuseWire, pathToFuseFile } from "@electron/fuses";
 
 // Only Release credentials are secrets; workflow paths and unrelated environment
@@ -233,9 +234,6 @@ async function integrity(app, execute) {
 // Gzip payloads are invisible to Mach-O discovery, but Apple inspects their
 // contents. Complete this pass and refresh unpacked metadata before app sealing.
 export async function signBundledRemoteHosts(app, options, execute = run) {
-  const { hostPlatforms, verifyHostArtifact, writeHostManifest } = await import(
-    "./remote-host-artifacts.mjs"
-  );
   const archive = join(app, "Contents/Resources/app.asar");
   const { source } = JSON.parse(extractFile(archive, "build/build-metadata.json").toString());
   const { version } = JSON.parse(extractFile(archive, "package.json").toString());
