@@ -40,6 +40,7 @@ export class TrustedDialog {
   private parentFocusable = true;
   private reachability: NodeJS.Timeout | undefined;
   private presenting = false;
+  private unavailableDuringPresentation = false;
   private settling: NodeJS.Timeout | undefined;
   private settled = false;
   private bounds: Rectangle | undefined;
@@ -194,6 +195,9 @@ export class TrustedDialog {
     });
     window.on("hide", this.childUnavailable);
     window.on("minimize", this.childUnavailable);
+    // Cocoa can deliver hide before key focus is relinquished. Recheck on blur
+    // so ignoring occlusion of a still-key child cannot lose a real hide.
+    if (this.platform === "darwin") window.on("blur", this.childUnavailable);
     window.on("closed", () => {
       if (this.window !== window) return;
       this.window = undefined;
@@ -359,7 +363,11 @@ export class TrustedDialog {
     if (input.type === "mouseDown" || input.type === "keyDown") this.restoreDialog();
   };
   private readonly childUnavailable = () => {
-    if (this.presenting || !this.settled) return;
+    if (this.presenting) {
+      this.unavailableDuringPresentation = true;
+      return;
+    }
+    if (!this.settled) return;
     const window = this.window;
     // Cocoa can deliver an earlier order-out notification after the next
     // request has shown the same child. Check its current native state (#353).
@@ -371,12 +379,16 @@ export class TrustedDialog {
       this.finish(false);
   };
   private readonly parentUnavailable = () => {
-    if (this.presenting) return;
+    if (this.presenting) {
+      this.unavailableDuringPresentation = true;
+      return;
+    }
     if (!this.parent.isVisible() || this.parent.isMinimized()) this.finish(false);
   };
   private present(): void {
     const window = this.window;
     if (!window || !this.pending || !this.settled || !this.size || this.presenting) return;
+    this.unavailableDuringPresentation = false;
     this.presenting = true;
     try {
       window.setParentWindow(this.parent);
@@ -390,14 +402,25 @@ export class TrustedDialog {
       this.syncBounds();
       window.moveTop();
       this.focusDialog();
-      if (!this.pending.request.presented) {
-        this.pending.request = { ...this.pending.request, presented: true };
-        window.webContents.send("confirmation:render", this.pending.request);
-      }
+      this.presenting = false;
+      this.finishPresentation(window);
     } catch {
       this.finish(false);
     } finally {
       this.presenting = false;
+    }
+  }
+  private finishPresentation(window: BrowserWindow): void {
+    // Native hide/minimize events during show/reparent/focus are suppressed to
+    // tolerate transient occlusion. Recheck after the native sequence so a real
+    // loss is not discarded or later undone by reachability recovery.
+    if (this.unavailableDuringPresentation) {
+      this.childUnavailable();
+      this.parentUnavailable();
+    }
+    if (this.pending && !this.pending.request.presented) {
+      this.pending.request = { ...this.pending.request, presented: true };
+      window.webContents.send("confirmation:render", this.pending.request);
     }
   }
   /** Native visibility/focus can both be true for an off-screen mapped child. */
