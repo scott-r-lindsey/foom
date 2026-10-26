@@ -33,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   showNewChildren: true,
   closeFinishedAgents: true,
   showNestedRepositoryNames: false,
+  middleClickPaste: false,
   concurrentChildren: 4,
   recentRepositoryDays: 30,
   unreadChildMinutes: 5,
@@ -72,7 +73,8 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
         key === "agyPluginOfferAnswered" ||
         key === "autoRemoveMergedWorktrees" ||
         key === "showPullRequests" ||
-        key === "showNestedRepositoryNames") &&
+        key === "showNestedRepositoryNames" ||
+        key === "middleClickPaste") &&
       typeof entry === "boolean"
     )
       patch[key] = entry;

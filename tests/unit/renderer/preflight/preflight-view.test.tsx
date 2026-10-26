@@ -1222,3 +1222,26 @@ test("an explicit update restart failure uses a fixed action error", async () =>
   expect(await screen.findByText("Could not restart Foom.")).toBeTruthy();
   expect(screen.queryByText("remote secret")).toBeNull();
 });
+
+test.each(["MacIntel", "Linux x86_64", "Win32"])(
+  "middle-click preference is macOS only: %s",
+  async (platform) => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+    const initial = setupState();
+    const source = fake(initial);
+    render(<Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />);
+    expect(screen.queryByRole("checkbox", { name: "Middle-click pastes selection" })).toBeNull();
+    fireEvent.click(button("Terminal"));
+    const toggle = screen.queryByRole("checkbox", { name: "Middle-click pastes selection" });
+    if (platform === "MacIntel") {
+      expect(toggle).toHaveProperty("checked", false);
+      if (!toggle) throw new Error("Missing checkbox");
+      fireEvent.click(toggle);
+      await waitFor(() => {
+        expect(source.save).toHaveBeenCalledWith({ middleClickPaste: true });
+      });
+      expect(toggle).toHaveProperty("checked", true);
+    } else expect(toggle).toBeNull();
+    vi.restoreAllMocks();
+  },
+);

@@ -9,6 +9,13 @@ validated by Foom. You can edit them yourself or launch an agent from the sideba
 Foom config entry. Invalid files are rejected and the last good version stays.
 
 Settings opens on **General** unless an entry point targets a specific section.
+On macOS, Terminal offers **Middle-click pastes selection**, off by default. It
+pastes the last nonempty terminal selection from the same board window. Mouse
+reporting keeps middle clicks unless Shift is held. Turning it off clears the
+private in-memory selection buffer; closing or reloading the window also clears
+it. Other apps, previews and dialogs are excluded. Linux keeps native primary
+selection behavior and has no checkbox; Windows has no checkbox.
+
 General offers **Show repository paths relative to code folder**, off by default.
 When on, sidebar repositories beneath the chosen code folder show relative paths
 (such as `work/foom`); repositories outside it keep their names.

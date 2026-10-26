@@ -3,6 +3,7 @@ const { appendFileSync } = require("node:fs");
 const marker = process.argv[2];
 process.stdin.setRawMode(true);
 process.stdin.resume();
+if (process.argv[3] === "bracketed") process.stdout.write("\x1b[?2004h");
 process.stdout.write("\x1b[?1049h\x1b[2J\x1b[HINPUT_READY\r\nPassword:");
 process.stdin.on("data", (data) => {
   appendFileSync(marker, data.toString("hex") + "\n");

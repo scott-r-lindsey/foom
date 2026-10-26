@@ -881,3 +881,15 @@ test("close finished agents defaults on and round-trips a boolean", async () => 
   store.setConfig({});
   expect(store.get().closeFinishedAgents).toBe(true);
 });
+
+test("middle-click paste default off, validate booleans and persist in the profile", async () => {
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  expect(store.get().middleClickPaste).toBe(false);
+  for (const value of [null, "true", 1, {}])
+    expect(() => parseSettingsPatch({ middleClickPaste: value })).toThrow("Invalid settings");
+  await store.update(parseSettingsPatch({ middleClickPaste: true }));
+  expect((await SettingsStore.open(dir)).get().middleClickPaste).toBe(true);
+  await store.update(parseSettingsPatch({ middleClickPaste: false }));
+  expect((await SettingsStore.open(dir)).get().middleClickPaste).toBe(false);
+});

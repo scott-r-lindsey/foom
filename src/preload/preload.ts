@@ -374,6 +374,7 @@ const validSettings: Validator<Settings> = shape({
   autoRemoveMergedWorktrees: boolean,
   showPullRequests: either(absent, boolean),
   showNestedRepositoryNames: boolean,
+  middleClickPaste: boolean,
   forges: dictionary(boolean),
   forgeHosts: dictionary(text),
   agents: both(

@@ -235,3 +235,23 @@ exit-code-only tombstone; the hub retains its last received display.
 Expiry follows explicit kill's stop/disposal path, including forced cleanup if
 graceful stop fails; shutdown cancels pending reap timers.
 See [measurements and fixture verification](../../spikes/remote-host/phase-1.md).
+
+
+## Middle-click selection paste (#856)
+
+Linux retains native primary-selection paste. Mouse-reporting applications own
+middle clicks; Shift forces paste. macOS optionally emulates this through xterm's
+`paste` path (including bracketed paste and newline normalization), enabled
+by the profile-only `middleClickPaste` boolean, off by default. Settings → Terminal
+shows its single checkbox on macOS. Windows has no
+emulation or checkbox.
+
+Each board renderer keeps its own last nonempty terminal selection, shared by
+that window's terminals only. Selections over 65,536 UTF-16 code units are rejected
+whole, preserving the previous buffer. Deselection, hiding a terminal and closing
+its tile do not erase it. Disabling the option clears it; window close or reload
+also drops it. Re-enabling starts empty. Preview/dialog and other-app selections
+never enter this buffer. The buffer stays in renderer memory and is never copied to the clipboard or
+disk, or synchronized across windows. Pasting sends ordinary terminal input
+through the existing terminal-ID-scoped bridge. Paste is accepted only by a live,
+visible, attached terminal that is ready for input.
