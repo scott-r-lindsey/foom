@@ -65,6 +65,15 @@ or corrupt catalog. Both builders derive the full checkout commit with Git;
 packaging requires every source to equal the app checkout, even outside CI.
 `development` is never a packaged source revision. There are no runtime artifact downloads.
 
+Darwin catalog signing assembles the SEA from verified same-run build inputs
+(#851). The node-pty addon and spawn helper are signed before embedding, with the
+same identity as the host. Developer ID hosts grant only allow-jit and enforce
+library validation; only ad-hoc signatures retain the exception. Extraction keeps
+its owner/mode/hash checks. The check and path-based load are still separate
+filesystem operations: Developer ID library validation rejects unsigned/other-team
+substitutions, while Linux/ad-hoc builds retain that same-UID race. See
+[artifact and validation details](../validation.md#bundled-remote-host-artifacts-825).
+
 Launch with `--remote-shell-spike=SSH_ALIAS` to route the **home shell** to that
 host. A bounded SSH `uname -s; uname -m` probe accepts only Linux/x86_64,
 Linux/aarch64, Darwin/x86_64 and Darwin/arm64. Only those fixed mappings select
@@ -84,14 +93,17 @@ before building this developer artifact because app builds clear `build/`.
 Worktree/config shells and agents remain local. No host, artifact, executable or
 environment selection is added to IPC. Settings and host inventory are phase 4.
 
-Darwin hosts are **always ad-hoc signed**, including nightlies. This is the user's
-#825 decision, replacing the issue's original Developer ID acceptance wording.
-The host is uploaded over SSH, not obtained as a quarantined download, so
-Gatekeeper/notarization do not apply to that upload. Apple Silicon requires a
-valid signature, which ad-hoc signing supplies. Integrity comes from the manifest
-SHA-256 verified after upload and on cache reuse. Neither Release credentials nor
-a new signing stage is used. Compressed package payloads preserve these signatures
-through the desktop app's separate Developer ID signing pass.
+Darwin hosts use ad-hoc signatures in native, PR and development builds.
+#844 amends #825's option C decision because Apple inspects compressed hosts
+inside the notarized desktop app. The existing main-only Release signing pass
+unpacks and Developer ID signs both Darwin hosts with hardened runtime, secure
+timestamps and the dedicated Node remote-host entitlements before sealing the app. It regenerates
+and verifies compressed and expanded sizes/hashes, preserving version, protocol
+and the source revision pinned inside ASAR. PR CI exercises this pass ad-hoc;
+fixture Apple tools test both identities without credentials. No Release
+configuration changes. SSH uploads have no download quarantine; bootstrap integrity
+still comes from the manifest hashes, including expanded SHA-256 after upload
+and on cache reuse. See [signing validation](../validation.md#bundled-remote-host-artifacts-825).
 
 The home row still describes the local home location in this developer-only spike;
 the command in quit confirmation identifies `ssh SSH_ALIAS`. Do not infer remote

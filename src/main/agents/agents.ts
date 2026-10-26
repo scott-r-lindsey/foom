@@ -1,6 +1,7 @@
 import { ControlError } from "../../shared/control-validation";
 import { remoteAgentTarget } from "../terminals/remote-bootstrap";
 import { launchRemoteChild, type RemoteHooks } from "./remote-launch";
+import { selectedArguments } from "../../node-common/launch-selection";
 import { agentCapabilities } from "../../shared/agent-capabilities";
 import type { DialogContent } from "../../shared/confirmation";
 import type { PreparedLaunch } from "./providers/provider";
@@ -15,8 +16,10 @@ import { AgyPlugin } from "./agy-plugin";
 import { ManualMcp } from "../control/manual-mcp";
 import type { ControlLaunch } from "../control/types";
 import { hasBypassArgument, parseAgentArguments } from "./default-arguments";
+import { bypassConsentIdentity } from "./default-arguments";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readLoginShell } from "../login-shell";
 import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
@@ -113,6 +116,7 @@ export class AgentService {
   private scannedRevision = -1;
   private hooksEnabled = true;
   private agentHooks: Readonly<Record<string, boolean>> = {};
+  private bypassIdentities: Readonly<Record<string, string>> = {};
   private closed = false;
   private readonly occupied = new Set<string>();
   private readonly launched = new Map<string, string>();
@@ -145,6 +149,10 @@ export class AgentService {
   setHooksEnabled(enabled: boolean, preferences: Readonly<Record<string, boolean>> = {}): void {
     this.hooksEnabled = enabled;
     this.agentHooks = preferences;
+  }
+
+  setBypassIdentities(identities: Readonly<Record<string, string>> = {}): void {
+    this.bypassIdentities = { ...identities };
   }
 
   async scan(enabled: Readonly<Record<string, boolean>> = {}): Promise<AgentScan> {
@@ -213,7 +221,11 @@ export class AgentService {
   private async start(request: AgentLaunch): Promise<AgentLaunched> {
     const provider = agentProvider(request.agent);
     await provider.validate?.();
-    const defaults = parseAgentArguments(request.agent, request.defaultArguments ?? []);
+    const defaults = selectedArguments(
+      provider.model,
+      parseAgentArguments(request.agent, request.defaultArguments ?? []),
+      request.selection,
+    );
     if (request.conversationId !== undefined) provider.resume(request.conversationId);
     const config = request.configCli;
     if (config === undefined) {
@@ -233,6 +245,8 @@ export class AgentService {
     const remote = remoteAgentTarget(process.argv, request.worktree);
     if (remote) {
       if (request.loop) throw new ControlError("remote_review_unsupported");
+      if (provider.model.launch.extension || provider.id === "opencode")
+        throw new Error("remote_agent_unsupported");
       if (hasBypassArgument(request.agent, defaults))
         throw new Error("Unattended child bypass is unavailable");
       if (!request.control || !("parentId" in request.control))
@@ -308,6 +322,7 @@ export class AgentService {
       : undefined;
     let control: ControlLaunch | undefined;
     let manual: ManualMcp | undefined;
+    let manualEnvironment: Readonly<Record<string, string>> = {};
     let prepared: PreparedLaunch | undefined;
     try {
       // Config sessions get no repository-scoped control grant.
@@ -320,7 +335,16 @@ export class AgentService {
               request.control,
             )
           : undefined;
-      if (config !== undefined && agent.mcp) manual = await ManualMcp.listen();
+      if (config !== undefined && agent.mcp) {
+        manual = await ManualMcp.listen();
+        // Stdio plugin launchers need an identity and the packaged CLI, but this
+        // credential still reaches only the dedicated manual endpoint.
+        manualEnvironment = {
+          ...manual.env,
+          FOOM_SESSION: randomUUID(),
+          FOOM_CLI_DIRECTORY: config,
+        };
+      }
       this.ensureOpen();
       if (
         config === undefined &&
@@ -358,7 +382,12 @@ export class AgentService {
         base: baseEnvironment,
         path: scan.path,
         pathFirst: config ?? control?.env["FOOM_CLI_DIRECTORY"],
-        foom: { ...control?.env, ...manual?.env, ...binding?.env, ...request.configEnvironment },
+        foom: {
+          ...control?.env,
+          ...manualEnvironment,
+          ...binding?.env,
+          ...request.configEnvironment,
+        },
       });
       const finalEnvironment = { ...baseEnvironment, ...environment.env };
       // The host inherits OS names such as ProgramFiles(x86) itself. IPC accepts
@@ -385,7 +414,9 @@ export class AgentService {
         if (request.control && "parentId" in request.control)
           throw new Error("Unattended child bypass is unavailable");
         if (
-          (provider.origin !== "bundled" || environmentMatches.length > 0) &&
+          (provider.origin !== "bundled" ||
+            environmentMatches.length > 0 ||
+            this.bypassIdentities[agent.id] !== bypassConsentIdentity(agent.id)) &&
           !(await this.confirmLaunchBypass?.({
             title: `Launch ${provider.name} with bypass?`,
             glyph: "shield",
@@ -439,6 +470,7 @@ export class AgentService {
         return {
           id,
           ...(provider.origin ? { providerOrigin: provider.origin } : {}),
+          ...(request.selection ? { launchFlags: defaults } : {}),
           attention: binding ? "hooks" : "evaluator",
           ...(prepared.conversationId ? { conversationId: prepared.conversationId } : {}),
           bypass,
@@ -459,6 +491,7 @@ export class AgentService {
       return {
         id,
         ...(provider.origin ? { providerOrigin: provider.origin } : {}),
+        ...(request.selection ? { launchFlags: defaults } : {}),
         attention: binding ? "hooks" : "evaluator",
         ...(prepared.conversationId ? { conversationId: prepared.conversationId } : {}),
         bypass,

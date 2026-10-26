@@ -80,3 +80,15 @@ pages and a sanitized launch alias return through the remote control endpoint.
 Hub Environment settings, stored secrets and control tokens are not sent to hosts.
 The remote account's existing CLI logins stay on that host. See
 [the phase-2 boundary](agent-launch.md#remote-agent-phase-2-755).
+## Opt-in Antigravity plugin MCP (#855)
+
+Installing or updating the disclosed Foom lifecycle plugin also installs one
+stdio MCP launcher. Only Foom launches receive its environment credentials;
+ordinary agy invocations exit without contacting Foom. Plugin files store no tokens.
+The launcher executes the bundled `foom mcp` bridge, which forwards authenticated
+requests only to that launch's loopback server. Main retains role, child-ownership,
+output-privacy and revocation checks; MCP adds no authority to prompt text.
+Explicitly scoped child tails/reports can enter the requesting agent's model
+context under the [existing disclosure](../contracts/control-privacy.md#output-privacy-and-visibility).
+No global MCP config or credentials are written. Existing installations offer an
+explicit Update, with the MCP server included in the trusted disclosure.

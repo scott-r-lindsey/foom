@@ -182,13 +182,18 @@ export function guidance(v: unknown, p: string) {
   };
 }
 export function tools(v: unknown, p: string) {
-  const d = object(v, p, ["names", "format", "arguments"], ["merge"]);
+  const d = object(v, p, ["names", "format", "arguments"], ["merge", "fileRules"]);
   return {
     names: array(
       enumeration(...Object.keys(CONTROL_TOOL_CLASSES)),
       Object.keys(CONTROL_TOOL_CLASSES).length,
     )(d["names"], `${p}.names`),
-    format: enumeration("mcp-double-underscore", "server-parentheses")(d["format"], `${p}.format`),
+    fileRules: optional(literal("action-resource"))(d["fileRules"], `${p}.fileRules`),
+    format: enumeration(
+      "mcp-double-underscore",
+      "server-parentheses",
+      "server-underscore",
+    )(d["format"], `${p}.format`),
     arguments: argv(d["arguments"], `${p}.arguments`),
     merge: optional(merge)(d["merge"], `${p}.merge`),
   };
@@ -241,7 +246,7 @@ export function launchEnvironment(v: unknown, p: string) {
     fail(`${p}.name`, "reserved-environment");
   const value = text(d["value"], `${p}.value`, 128);
   if (/\$|%|`/u.test(value)) fail(`${p}.value`, "environment-reference");
-  if (/[{}]/u.test(value) && !/^\{file:[^{}]+\}$/u.test(value))
+  if (/[{}]/u.test(value) && !/^\{(?:file|fileContent):[^{}]+\}$/u.test(value))
     fail(`${p}.value`, "invalid-environment-value");
   return {
     name: envName(d["name"], `${p}.name`),
@@ -249,6 +254,35 @@ export function launchEnvironment(v: unknown, p: string) {
     when: optional(condition)(d["when"], `${p}.when`),
   };
 }
+/** Selects only application-owned executable bytes; manifests cannot supply code or paths. */
+export function extension(v: unknown, p: string) {
+  const d = object(v, p, ["api", "channel", "arguments", "when"]);
+  return {
+    api: literal("pi-v1")(d["api"], `${p}.api`),
+    channel: id(d["channel"], `${p}.channel`),
+    arguments: argv(d["arguments"], `${p}.arguments`),
+    when: condition(d["when"], `${p}.when`),
+  };
+}
+
+/** Narrow two-argument selections; callers never supply flags or config keys. */
+export function launchSelection(v: unknown, p: string) {
+  const d = object(v, p, ["flags", "arguments"], ["values"]);
+  const flags = array(flag, 8, 1)(d["flags"], `${p}.flags`);
+  const arguments_ = array(text, 2, 2)(d["arguments"], `${p}.arguments`);
+  if (
+    !flags.includes(arguments_[0] ?? "") ||
+    !/^(?:\{value\}|[A-Za-z_][A-Za-z0-9_.]*="\{value\}")$/u.test(arguments_[1] ?? "")
+  )
+    fail(p, "invalid-selection-template");
+  return {
+    flags: array(flag, 8, 1)(d["flags"], `${p}.flags`),
+    arguments: array(text, 2, 2)(d["arguments"], `${p}.arguments`),
+    values: optional(array(selectionToken, 32, 1))(d["values"], `${p}.values`),
+  };
+}
+const selectionToken = (v: unknown, p: string) =>
+  pattern(v, p, /^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$/u, 64);
 export function launch(v: unknown, p: string) {
   const d = object(
     v,
@@ -263,9 +297,19 @@ export function launch(v: unknown, p: string) {
       "mcp",
       "toolPermissions",
       "environment",
+      "extension",
+
+      "model",
+      "effort",
+      "valueFlags",
     ],
   );
+  if (d["effort"] !== undefined && launchSelection(d["effort"], `${p}.effort`).values === undefined)
+    fail(`${p}.effort.values`);
   return {
+    valueFlags: optional(array(flag, 64))(d["valueFlags"], `${p}.valueFlags`),
+    model: optional(launchSelection)(d["model"], `${p}.model`),
+    effort: optional(launchSelection)(d["effort"], `${p}.effort`),
     order: array(
       enumeration(
         "resume",
@@ -287,6 +331,7 @@ export function launch(v: unknown, p: string) {
     prompt: optional(prompt)(d["prompt"], `${p}.prompt`),
     guidance: optional(guidance)(d["guidance"], `${p}.guidance`),
     mcp: optional(block)(d["mcp"], `${p}.mcp`),
+    extension: optional(extension)(d["extension"], `${p}.extension`),
     environment: optional(array(launchEnvironment, 8))(d["environment"], `${p}.environment`),
     toolPermissions: optional(tools)(d["toolPermissions"], `${p}.toolPermissions`),
   };
@@ -301,11 +346,34 @@ export function file(v: unknown, p: string) {
     when: optional(condition)(d["when"], `${p}.when`),
   };
 }
+function moduleObserver(v: unknown, p: string) {
+  const d = object(v, p, ["transport", "version"]);
+  return {
+    transport: literal("event-module")(d["transport"], `${p}.transport`),
+    version: literal(1)(d["version"], `${p}.version`),
+  };
+}
 function externalObserver(v: unknown, p: string) {
   const d = object(v, p, ["transport"]);
   return { transport: literal("external")(d["transport"], `${p}.transport`) };
 }
 export function observer(v: unknown, p: string) {
+  if (typeof v === "object" && v !== null && "transport" in v && v.transport === "event-module") {
+    return {
+      ...generatedObserver(
+        {
+          transport: "stdin",
+          placement: "launch",
+          version: 1,
+          response: "silent",
+          delivery: "foreground",
+          timeoutMs: 1000,
+        },
+        p,
+      ),
+      ...moduleObserver(v, p),
+    };
+  }
   if (typeof v === "object" && v !== null && "transport" in v && v.transport === "external") {
     return {
       ...generatedObserver(
@@ -402,9 +470,10 @@ export function eventCase(v: unknown, p: string) {
   };
 }
 export function mapping(v: unknown, p: string) {
-  const d = object(v, p, ["session", "event", "cases"], ["sequence", "dedupe"]);
+  const d = object(v, p, ["session", "event", "cases"], ["sequence", "dedupe", "sessionAliases"]);
   return {
     session: selector(d["session"], `${p}.session`),
+    sessionAliases: optional(array(selector, 8))(d["sessionAliases"], `${p}.sessionAliases`),
     event: selector(d["event"], `${p}.event`),
     sequence: optional(selector)(d["sequence"], `${p}.sequence`),
     dedupe: optional(selector)(d["dedupe"], `${p}.dedupe`),
@@ -447,8 +516,9 @@ export function environment(v: unknown, p: string) {
   };
 }
 export function newId(v: unknown, p: string) {
-  const d = object(v, p, ["format", "arguments"], []);
+  const d = object(v, p, ["format", "arguments"], ["prefix"]);
   return {
+    prefix: optional(localId)(d["prefix"], `${p}.prefix`),
     format: literal("uuid")(d["format"], `${p}.format`),
     arguments: argv(d["arguments"], `${p}.arguments`),
   };
@@ -503,11 +573,13 @@ export function provenance(v: unknown, p: string) {
   };
 }
 export function attention(v: unknown, p: string) {
-  const d = object(v, p, ["minimumEngineVersion", "rules"], ["provenance"]);
+  const d = object(v, p, ["minimumEngineVersion", "rules"], ["provenance", "sampleWhileActive"]);
   return {
     minimumEngineVersion: literal(1)(d["minimumEngineVersion"], `${p}.minimumEngineVersion`),
     rules: array(rule, 64)(d["rules"], `${p}.rules`),
     provenance: optional(provenance)(d["provenance"], `${p}.provenance`),
+    // Omission stays absent so unrelated providers retain their parsed-model consent identity.
+    sampleWhileActive: optional(boolean)(d["sampleWhileActive"], `${p}.sampleWhileActive`),
   };
 }
 export function execution(v: unknown, p: string) {

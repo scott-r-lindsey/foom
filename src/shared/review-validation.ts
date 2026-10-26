@@ -1,10 +1,10 @@
 import type { ReviewOptions, ReviewVerdict } from "./review";
 import { validAgentId } from "./providers/catalog";
-import { ControlError, exact, object } from "./control-validation";
+import { ControlError, exact, object, selectionInput } from "./control-validation";
 
 export function reviewOptions(value: unknown): ReviewOptions {
   const data = object(value);
-  exact(data, ["rounds", "agent", "postFindings", "parentWaitMinutes"]);
+  exact(data, ["rounds", "agent", "postFindings", "parentWaitMinutes", "model", "effort"]);
   const rounds = data["rounds"] === undefined ? 3 : data["rounds"];
   const agent = data["agent"] === undefined ? "claude" : data["agent"];
   const postFindings = data["postFindings"] === undefined ? false : data["postFindings"];
@@ -23,6 +23,7 @@ export function reviewOptions(value: unknown): ReviewOptions {
   )
     throw new ControlError("invalid_request");
   return {
+    ...selectionInput(data),
     rounds,
     agent,
     postFindings,

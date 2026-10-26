@@ -38,7 +38,7 @@ See [Bundled manifest delivery (#434)](contracts/agent-compatibility.md#bundled-
 
 ## Complete manifests
 
-The shipped, build-locked JSON is authoritative: [Claude Code](../src/shared/bundled-agents/claude.json), [Codex](../src/shared/bundled-agents/codex.json), [Antigravity](../src/shared/bundled-agents/agy.json), [GitHub Copilot](../src/shared/bundled-agents/copilot.json). Config copies must change ID and name; see [customization](contracts/agent-trust.md#customizing-a-built-in-agent). Copilot 1.0.103 Linux measurements are recorded in [the agent evidence](agents.md#github-copilot-cli-410); the [older draft](research/copilot-manifest.md) is historical only.
+The shipped, build-locked JSON is authoritative: [Claude Code](../src/shared/bundled-agents/claude.json), [Codex](../src/shared/bundled-agents/codex.json), [Antigravity](../src/shared/bundled-agents/agy.json), [GitHub Copilot](../src/shared/bundled-agents/copilot.json), [OpenCode](../src/shared/bundled-agents/opencode.json), [Pi](../src/shared/bundled-agents/pi.json). Config copies must change ID and name; see [customization](contracts/agent-trust.md#customizing-a-built-in-agent). Copilot 1.0.103 Linux measurements are recorded in [the agent evidence](agents.md#github-copilot-cli-410); the [older draft](research/copilot-manifest.md) is historical only.
 
 ## Open questions and shipping gates
 
@@ -373,10 +373,12 @@ See [saved screen-rule regressions](contracts/agent-report.md#saved-screen-rule-
 For an agent whose extension API runs code, use `"observer":{"transport":"external"}`
 and `"arguments":[]` on a channel. Its `when`, payload mapping, requirements,
 dedupe, attention and conversation tracking work exactly as for other channels.
-External channels create no observer files, counters or launch arguments. Observer
-placeholders cannot reference them. Foom ships no agent-specific extension glue
-for this transport. The user installs their own extension through their agent's
-extension mechanism; neither Foom nor the config agent edits global agent config.
+External channels alone create no observer files, counters or launch arguments.
+Observer placeholders cannot reference them. A separately selected
+[fixed per-launch extension](contracts/agent-launch.md#fixed-extension-attachment-834)
+can provide application-owned glue, as bundled Pi does. Otherwise the user installs
+their own extension through their agent's extension mechanism. Neither path edits
+global agent configuration.
 
 The launch environment is the credential contract:
 
@@ -428,6 +430,18 @@ foreign and mixed launch credentials fail authentication. Payload text grants no
 capability and is discarded; never log, save or copy credentials into a manifest,
 agent configuration, extension source or conversation transcript. Same-user code
 inheriting the launch environment is within that launch's trust boundary.
+
+## Antigravity opt-in plugin MCP (#855)
+
+The bundled Antigravity ordered observer ABI version 4 stages lifecycle scripts
+plus `mcp_config.json`, `mcp.sh` and `mcp.ps1`. Its definition fingerprint and
+installed-byte checks cover all these assets. The server uses the launching
+session's environment only; plugin files contain no credential values. Settings
+keeps the existing explicit installation/enable/removal confirmations and fixed
+CLI argument arrays. Current intact enabled installations on agy 1.4.2+ provide
+MCP without extra launch arguments. Older, disabled, absent or damaged plugins
+retain CLI prompt guidance and offer the existing reviewed update flow.
+See [attachment and evidence](contracts/mcp-attachment.md#antigravity).
 
 ## Per-launch environment (#636)
 

@@ -400,6 +400,7 @@ const validSettings: Validator<Settings> = shape({
     }),
     dictionary(boolean),
   ),
+  agentBypassIdentities: either(absent, dictionary(text)),
   worktreeLocation: literal("root", "adjacent"),
   panelColor: literal("vivid", "subtle", "plain"),
   colorMode: literal("light", "dark", "system"),
@@ -594,7 +595,14 @@ const validReviewReason: Validator<ReviewReason> = literal(
   "restored",
 );
 
+const validSelectionToken: Validator<string> = (value): value is string =>
+  typeof value === "string" &&
+  value.trim() === value &&
+  /^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$/u.test(value);
+
 const validReviewState: Validator<ReviewState> = shape({
+  model: either(absent, validSelectionToken),
+  effort: either(absent, validSelectionToken),
   authorId: text,
   round: count,
   phase: literal("clean", "building", "reviewing", "fixing", "waiting-on-parent", "escalated"),
@@ -635,6 +643,13 @@ const validWorkspaceTerminal: Validator<WorkspaceTerminal> = shape({
   probeNote: either(absent, boolean),
   startedAt: either(absent, finite),
   exitCode: either(absent, finite),
+  selection: either(
+    absent,
+    shape({
+      model: either(absent, validSelectionToken),
+      effort: either(absent, validSelectionToken),
+    }),
+  ),
   launchFlags: either(absent, array(text)),
   environment: either(absent, array(text)),
   orchestration: either(absent, validOrchestrationView),
@@ -891,6 +906,7 @@ const validBranchInventory: Validator<BranchInventory> = shape({
 
 const validAgentLaunched: Validator<AgentLaunched> = shape({
   remote: either(absent, literal(true)),
+  launchFlags: either(absent, array(text)),
   conversationId: either(absent, text),
   bypass: either(absent, boolean),
   providerOrigin: either(absent, literal("config", "bundled")),

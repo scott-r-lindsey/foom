@@ -113,7 +113,7 @@ Replace the example IDs with recent runs covering every current case on all thre
 platforms. The script rejects failed cases, missing reports and unmeasured current
 cases. It takes each case's maximum duration per platform and includes hash
 assignments for previously unplanned cases in the before projection. Review balance
-and headroom under the 600s step limit on Linux, Windows and macOS.
+and headroom under the 600s Linux / 840s Windows and macOS step limits.
 Case sums exclude build/runner overhead; compare actual CI step times before
 calling the refresh validated. Regenerate after incorporating new tests from main
 and run full contributor validation. See the [sharding guide](electron-shards.md)
@@ -171,18 +171,59 @@ Quality gate's required-job rules, coverage thresholds, permissions and Release
 configuration are unchanged: a failed host build blocks packaging, which remains
 required. Electron shards still start independently after change detection.
 
-Darwin `foom-host` binaries use fixture-tested **ad-hoc signing in every build**,
-including nightlies. This user decision replaces #825's original requirement for
-Developer ID hosts on nightlies. Hosts travel over SSH without download quarantine,
-so Gatekeeper/notarization do not apply to the upload; Apple Silicon's signature
-requirement is met by ad-hoc signing. Bootstrap verifies the manifest SHA-256 after
-upload and when reusing cached bytes. Compressed payloads keep the desktop app's
-later Developer ID signing pass from rewriting the hosts or invalidating their
-manifest hashes. No Release secrets, environments or credential stages change.
+Darwin native jobs also upload credential-free SEA inputs (#851): the bundled
+JavaScript, target Node executable, node-pty addon and spawn helper, plus a
+format/version/protocol/source-revision manifest with each file's size and SHA-256.
+The Node patch is pinned in `.nvmrc`: the blob generator must exactly match the
+input executable's version. Finished ad-hoc catalog entries remain available to
+Linux/Windows packaging; the separate inputs are downloaded only by macOS
+packaging and the main-only signer, from the same workflow run. Inputs never ship
+inside the application or its installers. Missing, stale, corrupt or incompatible
+inputs stop signing before modifying the catalog.
+
+#851 amends #844's re-sign-only path: the signer verifies these inputs against
+the version and source revision sealed in ASAR, signs copies of `pty.node` and
+`spawn-helper` first, generates a fresh SEA blob from the signed bytes, injects it
+into the target Node binary with postject, and signs the resulting host. Snapshots
+and V8 code cache are disabled, so one macOS signing runner can assemble both
+Darwin architectures without executing the other architecture's Node binary.
+No app rebuild or ASAR rewrite occurs. Developer ID signatures use hardened
+runtime, secure timestamps and allow-jit only; the signer reads back the host
+entitlements and requires both native assets and host to have the same Team ID.
+Only ad-hoc host signatures use the library-validation exception.
+
+PR CI exercises that same assembly path with the ad-hoc identity on both native
+Darwin architectures, including a fixture PTY and verification of the extracted
+native signatures. The downloaded tested-ZIP round trip also rebuilds both hosts
+from this run's verified inputs. Fixture Apple tools cover both signing identities,
+failures and mismatched Team IDs without credentials. Ad-hoc loading behavior is
+not evidence of Developer ID library enforcement; the initial spike's runners
+accepted an ad-hoc addon even without the exception. See the
+[spike evidence](../spikes/remote-host-signing/README.md).
+
+Runtime extraction retains its private-directory, descriptor and SHA-256 checks.
+The filesystem verify-then-reopen race remains on Linux/ad-hoc builds; Developer
+ID library validation rejects substituted unsigned/other-team native code at load.
+Signing does not make those filesystem operations atomic or distinguish other
+code signed by the same team. Real Developer ID loading, unsigned-swap rejection
+and notarization are human post-merge checks via `publish_nightly`.
+
+Before modification, all catalog entries must match the version and source
+revision sealed inside ASAR and pass both compressed and expanded size/hash
+checks. Signing preserves version, protocol, platform, architecture and source;
+it regenerates both sizes and SHA-256 hashes and verifies the rewritten entries.
+Linux entries and ASAR bytes stay unchanged. Bootstrap verifies both hashes before
+upload and the expanded hash after upload and on cache reuse. No Release secrets,
+environments, workflow permissions or credential stages change. The user verifies
+real notarization after merge with `publish_nightly`.
 
 For local packaging, populate `.cache/remote-hosts/TARGET/` with all four native
 builds from the same revision and version, or set `FOOM_REMOTE_HOST_ARTIFACTS` to
-that catalog's absolute path. Each native builder accepts `FOOM_REMOTE_HOST_OUTPUT`
+that catalog's absolute path. On macOS, also populate `.cache/remote-host-inputs/TARGET/` from the same run's
+`host-inputs-darwin-*` artifacts, or set `FOOM_REMOTE_HOST_INPUTS` to that input
+catalog root. Native Darwin builds write inputs under `build/remote-host-inputs/`
+by default; `FOOM_REMOTE_HOST_INPUTS_OUTPUT` selects another input catalog root.
+Each native builder accepts `FOOM_REMOTE_HOST_OUTPUT`
 as a catalog root and places its entry under `PLATFORM-ARCH/`. Development builds
 may omit the catalog and use the explicit native artifact override; `package` and
 `make` require all four entries. CI's download/assembly steps show the layout.

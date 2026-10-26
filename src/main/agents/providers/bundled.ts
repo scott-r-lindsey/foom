@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import opencode from "../../../shared/bundled-agents/opencode.json";
+import pi from "../../../shared/bundled-agents/pi.json";
 import agy from "../../../shared/bundled-agents/agy.json";
 import copilot from "../../../shared/bundled-agents/copilot.json";
 import codex from "../../../shared/bundled-agents/codex.json";
@@ -25,17 +27,35 @@ export const bundledProviders: readonly AgentProvider[] = [
   bundledProvider(
     claude,
     "claude",
-    "68bcf38cd5432680ce3d293b6a453129aa8b59dafd98127b5d51e0a085973dd5",
+    "7741c7d4fc2ba9197ae2cdf9c3f0c6e6bd2fc5332bd94d8939d9b9c639bc6d03",
   ),
   bundledProvider(
     codex,
     "codex",
-    "e5afbef90ce00779271cbebb22f0571f76446d16ef355674d7ebd8e9a3061c9d",
+    "76f9ed4ee169e3aae2c7ec7956f4a24dce3baae34089a0f7a279560ab213348e",
   ),
-  bundledProvider(agy, "agy", "6e1b349b76c9f5963749e3681589eb5fa42e2822302381a2b685cf5e9260e678"),
+  bundledProvider(agy, "agy", "d61afcb2294573d0890391678f5c8f0ec9f601c1b6981085dd4c7964e18c0d16"),
   bundledProvider(
     copilot,
     "copilot",
-    "d06d9f7f37417e2fb022e15d257aefe5005861b023af420655b6706088c5c088",
+    "488e9800fe5cee3327a44f5095aa492f33ec4d6ff0ea1de4257e8cf73f087a5d",
   ),
+  bundledProvider(
+    opencode,
+    "opencode",
+    "050f6a0f72b29e98b7c6e11941812eeb90cd4b8c2a39113654d84336c318a943",
+  ),
+  bundledProvider(pi, "pi", "3360c8d7d855fe8d67d7550820e7b673febf17fc33647e84a3b98185afa822be"),
 ];
+
+/** Build-owned migrations: retain old config rows, but require an explicit bundled resume. */
+export const formerConfigAgentIds: readonly string[] = ["opencode", "pi"];
+
+/** Historical build identities: these IDs were reserved before config providers existed.
+ * Never extend this attestation to a newly bundled ID or repin it for a changed policy.
+ */
+export const legacyBypassIdentities: Readonly<Record<string, string>> = {
+  claude: "54a71151ba88212c7996eba9db23c45f1e4f76f39fa46021e84c8d59b2224951",
+  codex: "922ba73e610b0e13d165e3302b1b202da3bb06c9a61354c56d1e9d81faa00b4b",
+  agy: "2beab2f2d06ceab9a39cb0fe33726e15928ce610ce56028d93acc1a3ac929c21",
+};

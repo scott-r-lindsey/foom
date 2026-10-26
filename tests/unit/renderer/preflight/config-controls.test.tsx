@@ -134,7 +134,7 @@ test("the shared decision keeps errors actionable and blocks concurrent clicks",
     id: "digest",
     file: "settings.json",
     action: "change arguments",
-    detail: "agentArguments.opencode",
+    detail: "agentArguments.fixturecode",
   };
   let reject: ((reason: unknown) => void) | undefined;
   const decide = vi.fn(

@@ -1,7 +1,7 @@
 import type { AgentManifestV2, ManifestCondition, ManifestSelector } from "./agent-manifest-v2";
 import { boundedRegex } from "./providers/detection";
 import { fail, unique } from "./agent-manifest-values";
-import { validateTemplates } from "./agent-manifest-templates";
+import { implies, validateTemplates } from "./agent-manifest-templates";
 
 const ENGINE = [
   "hooksEnabled",
@@ -142,6 +142,7 @@ export function validateV2(manifest: AgentManifestV2): void {
   unique(channels, "$.hooks.channels", (channel) => channel.id);
   unique(manifest.files, "$.files", (file) => file.name);
   unique(manifest.launch.order, "$.launch.order");
+  unique(manifest.launch.valueFlags ?? [], "$.launch.valueFlags");
   unique(manifest.attention.rules, "$.attention.rules", (rule) => rule.id);
   unique(metadata, "$.setup.status.metadata", (entry) => entry.id);
   unique(manifest.resumePaste, "$.resumePaste", (entry) => `${entry.command} ${entry.selector}`);
@@ -157,15 +158,22 @@ export function validateV2(manifest: AgentManifestV2): void {
     const path = `$.hooks.channels[${String(index)}]`;
     const owner = `channel:${channel.id}`;
     condition(channel.when, `${path}.when`, owner, available, ["facts"], earlier);
-    if (channel.observer.transport === "external" && channel.arguments.length !== 0)
+    if (
+      ["external", "event-module"].includes(channel.observer.transport) &&
+      channel.arguments.length !== 0
+    )
       fail(path, "incompatible-combination");
     const mapping = channel.mapping;
+    if (channel.observer.transport === "event-module" && mapping.event.source !== "payload")
+      fail(path, "incompatible-combination");
     if (
       mapping.event.source === "header" &&
       mapping.cases.some((entry) => !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/u.test(entry.event))
     )
       fail(path, "incompatible-combination");
     selector(mapping.session, `${path}.mapping.session`, ["payload"]);
+    for (const alias of mapping.sessionAliases ?? [])
+      selector(alias, `${path}.mapping.sessionAliases`, ["payload"]);
     selector(mapping.event, `${path}.mapping.event`, ["payload", "header"]);
     if (mapping.event.source === "header" && mapping.event.path[0] !== "X-Foom-Event")
       fail(path, "incompatible-selector");
@@ -315,6 +323,18 @@ export function validateV2(manifest: AgentManifestV2): void {
   }
   for (const stage of ["arguments", "display", "resume", "mcp"] as const)
     condition(manifest.launch[stage]?.when, `$.launch.${stage}.when`, "launch", available);
+  const extension = manifest.launch.extension;
+  if (extension) {
+    condition(extension.when, "$.launch.extension.when", "launch", available);
+    const channel = channels.find((entry) => entry.id === extension.channel);
+    if (
+      !channel ||
+      channel.observer.transport !== "external" ||
+      !implies(channel.when, extension.when) ||
+      (manifest.launch.mcp && !implies(manifest.launch.mcp.when, extension.when))
+    )
+      fail("$.launch.extension", "incompatible-combination");
+  }
   const environmentNames = new Set<string>();
   for (const [index, entry] of (manifest.launch.environment ?? []).entries()) {
     const path = `$.launch.environment[${String(index)}]`;

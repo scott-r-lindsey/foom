@@ -88,6 +88,8 @@ export async function prepareRemoteAgent(
     .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
     .find((model) => model.id === request.agent);
   if (!model) throw new Error("Remote bundled agent is unavailable");
+  if (model.launch.extension || model.id === "opencode")
+    throw new Error("remote_agent_unsupported");
   const identity = await remoteCheckout(request.repository, request.worktree, hostEnvironment());
   const found = await hostDiscovery(model, shell, home);
   if (bypassEnvironment(model, found.env, false).length)
@@ -132,6 +134,8 @@ export async function prepareRemoteAgent(
         setupState,
       }),
     };
+    // The installed plugin bridge targets local loopback HTTP, not the private remote socket.
+    facts["pluginMcp"] = false;
     const conversation =
       request.conversationId ?? (model.conversation.newId ? randomUUID() : undefined);
     const mcp = Boolean(model.launch.mcp && selected(model.launch.mcp.when, facts));

@@ -67,7 +67,11 @@ describe("close finished agents", () => {
         state,
       });
       await h.sync();
-      expect(h.host.close).toHaveBeenCalledExactlyOnceWith(id);
+      expect(h.host.close).toHaveBeenCalledExactlyOnceWith(
+        id,
+        expect.any(Function),
+        expect.any(AbortSignal),
+      );
       await h.sync();
       expect(h.host.close).toHaveBeenCalledTimes(1);
     },
@@ -146,7 +150,11 @@ describe("close finished agents", () => {
     expect(h.host.close).not.toHaveBeenCalled();
     h.orchestration.configureCloseFinished(true);
     await h.sync();
-    expect(h.host.close).toHaveBeenCalledExactlyOnceWith(id);
+    expect(h.host.close).toHaveBeenCalledExactlyOnceWith(
+      id,
+      expect.any(Function),
+      expect.any(AbortSignal),
+    );
     for (let i = 0; i < 10; i++) await h.sync();
     expect(h.host.close).toHaveBeenCalledTimes(1);
   });
@@ -204,11 +212,15 @@ describe("close finished agents", () => {
       h.host.close.mockImplementation((id) => {
         h.rows.delete(id);
         h.orchestration.removed(id);
-        return Promise.resolve();
+        return Promise.resolve(true);
       });
       h.exit("child-2");
       await h.sync();
-      expect(h.host.close).toHaveBeenCalledExactlyOnceWith("child-2");
+      expect(h.host.close).toHaveBeenCalledExactlyOnceWith(
+        "child-2",
+        expect.any(Function),
+        expect.any(AbortSignal),
+      );
       expect(h.orchestration.reviews.view(author)?.phase).toBe(
         verdict === "clean" ? "clean" : "fixing",
       );
@@ -261,12 +273,16 @@ describe("close finished agents", () => {
     h.host.close.mockImplementation((id) => {
       h.rows.delete(id);
       h.orchestration.removed(id);
-      return Promise.resolve();
+      return Promise.resolve(true);
     });
     h.report("child-2", { verdict: "clean" });
     h.exit("child-2");
     await h.sync();
-    expect(h.host.close).toHaveBeenCalledExactlyOnceWith("child-2");
+    expect(h.host.close).toHaveBeenCalledExactlyOnceWith(
+      "child-2",
+      expect.any(Function),
+      expect.any(AbortSignal),
+    );
     expect(h.orchestration.reviewUnreadAt("parent")).toBeDefined();
     h.host.forge.read.mockReturnValue({
       number: 7,
@@ -275,7 +291,11 @@ describe("close finished agents", () => {
       state: "MERGED",
     });
     await h.sync();
-    expect(h.host.close).not.toHaveBeenCalledWith(author);
+    expect(h.host.close).not.toHaveBeenCalledWith(
+      author,
+      expect.any(Function),
+      expect.any(AbortSignal),
+    );
     expect(h.orchestration.reviewUnreadAt("parent")).toBeDefined();
     expect(h.orchestration.reviews.view(author)?.phase).toBe("clean");
     h.orchestration.readReviews("parent");
@@ -302,7 +322,7 @@ describe("close finished agents", () => {
     h.host.close.mockImplementation((id) => {
       h.rows.delete(id);
       h.orchestration.removed(id);
-      return Promise.resolve();
+      return Promise.resolve(true);
     });
     h.report(reviewer.id, { verdict: "clean" });
     h.exit(reviewer.id);
@@ -318,7 +338,11 @@ describe("close finished agents", () => {
     expect(h.orchestration.reviewUnreadAt("parent")).toBeDefined();
     h.orchestration.readReviews("parent");
     await h.sync();
-    expect(h.host.close).toHaveBeenCalledExactlyOnceWith(author);
+    expect(h.host.close).toHaveBeenCalledExactlyOnceWith(
+      author,
+      expect.any(Function),
+      expect.any(AbortSignal),
+    );
     reviewer.state = null;
     await h.sync();
     expect(h.host.close).toHaveBeenCalledTimes(1);
@@ -347,6 +371,7 @@ describe("close finished agents", () => {
       await gate;
       h.rows.delete(id);
       h.orchestration.removed(id);
+      return true;
     });
     h.orchestration.configureCloseFinished(true);
     await h.sync();
@@ -458,7 +483,11 @@ describe("close finished agents", () => {
         await tracker.poll();
         // No unrelated child-event publication may be needed to discover this read.
         await settled();
-        expect(h.host.close).toHaveBeenCalledExactlyOnceWith(id);
+        expect(h.host.close).toHaveBeenCalledExactlyOnceWith(
+          id,
+          expect.any(Function),
+          expect.any(AbortSignal),
+        );
         expect(changed).toHaveBeenCalledTimes(1);
         now += 600000;
         await tracker.poll();
@@ -530,7 +559,11 @@ describe("close finished agents", () => {
       tracker.recheck(row.worktree);
       await tracker.poll();
       await h.sync();
-      expect(h.host.close).toHaveBeenCalledExactlyOnceWith(id);
+      expect(h.host.close).toHaveBeenCalledExactlyOnceWith(
+        id,
+        expect.any(Function),
+        expect.any(AbortSignal),
+      );
     } finally {
       release?.(closed);
       await tracker.close();
@@ -545,7 +578,7 @@ describe("close finished agents", () => {
     h.host.close.mockImplementation((id) => {
       h.rows.delete(id);
       h.orchestration.removed(id);
-      return Promise.resolve();
+      return Promise.resolve(true);
     });
     h.report("child-2", { verdict: "clean" });
     h.exit("child-2");

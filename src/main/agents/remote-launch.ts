@@ -170,6 +170,7 @@ export async function launchRemoteChild(
       result: {
         id,
         remote: true,
+        ...(request.selection ? { launchFlags: [...defaults] } : {}),
         providerOrigin: "bundled",
         attention: ready.hooks ? "hooks" : "evaluator",
         ...(conversation ? { conversationId: conversation } : {}),

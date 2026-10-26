@@ -200,3 +200,21 @@ describe("isolated review effects", () => {
     await expect(stopped.effects.stop("author", () => true)).rejects.toThrow("stop");
   });
 });
+
+it("keeps reviewer selections separate from the author's resumed selection", async () => {
+  const h = fixture();
+  h.row.selection = { model: "author-model", effort: "high" };
+  h.state.model = "review-model";
+  h.state.effort = "low";
+  await h.effects.step("author", true, "review");
+  expect(h.host.launch.mock.calls.at(-1)?.[6]?.selection).toEqual({
+    model: "review-model",
+    effort: "low",
+  });
+  h.state.phase = "fixing";
+  await h.effects.step("author", false, "fix");
+  expect(h.host.launch.mock.calls.at(-1)?.[6]?.selection).toEqual({
+    model: "author-model",
+    effort: "high",
+  });
+});

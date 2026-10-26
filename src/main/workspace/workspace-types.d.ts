@@ -60,7 +60,13 @@ export interface WorkspaceMethods {
     replacement?: { id: string; conversationId?: string },
     extra?: Pick<
       AgentLaunch,
-      "control" | "prompt" | "conversationId" | "pinConversation" | "beforeSpawn" | "loop"
+      | "control"
+      | "prompt"
+      | "conversationId"
+      | "pinConversation"
+      | "beforeSpawn"
+      | "loop"
+      | "selection"
     >,
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }>;
   startWorktree(request: StartWorktreeRequest, confirm?: ConfirmWorkspace): Promise<string | null>;
@@ -98,6 +104,8 @@ export interface WorkspaceMethods {
   sidebarCommand(
     command: Exclude<SidebarCommand, { kind: "open-handoff-link" }>,
     confirm: ConfirmWorkspace,
+    validateClose?: () => void,
+    closeSignal?: AbortSignal,
   ): Promise<void>;
   auditHuman(
     action: string,
@@ -121,6 +129,7 @@ export interface WorkspaceMethods {
     agent: AgentId,
     prompt: string | undefined,
     step?: {
+      selection?: AgentLaunch["selection"];
       resume?: { id: string; conversationId: string };
       loop?: AgentLaunch["loop"];
       validate(): void;
@@ -157,7 +166,7 @@ export interface WorkspaceMethods {
 }
 export type Agents = Pick<
   AgentService,
-  "scan" | "launch" | "release" | "dispose" | "setHooksEnabled"
+  "scan" | "launch" | "release" | "dispose" | "setHooksEnabled" | "setBypassIdentities"
 >;
 export interface WorkspaceDependencies {
   /** Main-owned clock budget; tests may inject a shorter probe reminder. */
@@ -186,6 +195,9 @@ export interface WorkspaceDependencies {
     | "mergedCommit"
     | "deleteMergedBranch"
     | "deleteMergedBranches"
+    | "reviewBranch"
+    | "reviewIdentity"
+    | "canAutoRemoveReview"
     | "canAutoRemove"
     | "panelFacts"
   >;
@@ -202,7 +214,12 @@ export interface WorkspaceDependencies {
     classify(input: EvaluationInput): Promise<VerdictRecord>;
     commit(record: VerdictRecord): Promise<void>;
     forget(terminalId: string): void;
-    recordAction(terminalId: string, verdictId: string, action: VerdictAction): Promise<void>;
+    recordAction(
+      terminalId: string,
+      verdictId: string,
+      action: VerdictAction,
+      onlyIfPending?: boolean,
+    ): Promise<void>;
   };
   /** Started on the first agent launch, independently of hook support. */
   control?: () => Promise<

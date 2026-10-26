@@ -316,6 +316,7 @@ export class WorkspaceContext {
           Settings,
           | "worktreeLocation"
           | "agentArguments"
+          | "agentBypassIdentities"
           | "agentHooks"
           | "showNewChildren"
           | "closeFinishedAgents"
@@ -337,6 +338,7 @@ export class WorkspaceContext {
       settings.unreadChildMinutes ?? 5,
     );
     this.cleanup.configure(settings.autoRemoveMergedWorktrees ?? false);
+    this.agents.setBypassIdentities(settings.agentBypassIdentities);
     if (settings.agentHooks) this.agents.setHooksEnabled(settings.hooks, settings.agentHooks);
     else this.agents.setHooksEnabled(settings.hooks);
     this.agentHooks = settings.agentHooks ?? {};

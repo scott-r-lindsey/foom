@@ -15,9 +15,10 @@ engine after substitution and layering; this parser never expands launch data.
 | --- | --- |
 | launch.order | Required permutation of resume, defaults, arguments, display, guidance, mcp, hooks, tools, prompt; all once. Defaults engine-controlled; hooks follow channel array order |
 | Launch block | `{arguments,when?}`; Argv and Condition. arguments/display/resume/mcp use this shape; resume implies validated requested conversationId |
+| extension | `{api:"pi-v1",channel,arguments,when}`; fixed application-owned ABI, existing external channel ID, Argv and Condition; no source/path/hash fields |
 | prompt | `{arguments,requires?}`; requires fact ID; final task is one argv value. Foom rejects a launch requiring a missing fact |
 | guidance | `{when,merge?}`; inserts fixed CLI_GUIDANCE or CONFIG_PROMPT through the prompt stage; merge `{flags,output,separators}` with <=8 flag names, output flag, separators literal whitespace-comma or whitespace; only merges when selected |
-| toolPermissions | `{names,format,arguments,merge?}`; names subset of the 17 classified Foom server tools in `src/shared/control-tool-classes.ts`, <=17 unique; format mcp-double-underscore or server-parentheses; arguments template expanded once per tool (unless merge combines); merge `{flags,output,separators:"whitespace-comma-parentheses"}` |
+| toolPermissions | `{names,format,arguments,merge?,fileRules?}`; names drawn uniquely from the classified Foom server tools in `src/shared/control-tool-classes.ts`; format mcp-double-underscore, server-parentheses or server-underscore; optional fileRules:"action-resource" emits native JSON action/resource/effect rules rather than argv; arguments template expanded once per tool (unless merge combines); merge `{flags,output,separators:"whitespace-comma-parentheses"}` |
 | File | `{name,scope,format,content,when?}`; scope launch or plugin; format json or toml; content multiline template; must parse after typed expansion |
 | Channel | `{id,when,observer,arguments,mapping,disclosure?}` |
 | observer | `{transport,placement,version,response,delivery,timeoutMs,sequence?,basename?,commandArguments?}`; transport stdin or argv-last; placement launch, stable or plugin; version 1–100000 integer or `{posix,win32}` integers for existing platform ABIs; response silent or empty-json-first; delivery foreground or detached; timeoutMs 1000–3000; sequence boolean default false; basename [A-Za-z][A-Za-z0-9_-]* <=40 default observer; commandArguments <=8 literal event/label tokens [A-Za-z][A-Za-z0-9_-]* <=64, never executable code |
@@ -28,7 +29,8 @@ Allowed placeholders, with no recursion or environment interpolation by Foom:
 | Placeholder | Allowed location and type |
 | --- | --- |
 | {prompt}, {conversationId} | prompt/resume argv respectively; prompt includes main-owned child provenance or config/guidance text, ID validated |
-| {newId} | conversation.newId argv only; generated UUID, new launches only |
+| {extensionFile} | launch.extension.arguments only; exactly one whole generated versioned module path, no prefix/suffix or path arithmetic |
+| {newId} | conversation.newId argv only; generated UUID with optional fixed prefix, new launches only |
 | {hookDir}, {hookFile:NAME} | hooks.channels[].arguments only; whole owned launch directory/file path. Nested NAME is allowed; declare scope "launch" files |
 | {pluginDir} | setup action argv only; owned persistent plugin staging directory |
 | {file:NAME} | launch.mcp.arguments or an entire launch.environment[].value; owned launch file. For hooks use {hookFile:NAME} or {hookDir} |
@@ -52,7 +54,7 @@ command suffixes and header event names must match `[A-Za-z][A-Za-z0-9_-]{0,63}`
 `:json` serializes a native value; `:toml` serializes a TOML basic string.
 Literal JSON/TOML braces are not placeholders. Unknown/malformed placeholders,
 references to missing channels/files, unselected launch attachments, secret names or arbitrary environment
-variables fail validation. The exact client-side literal `${FOOM_CONTROL_TOKEN}` is permitted only in the MCP Authorization value; it is not a Foom placeholder, and the client must expand it from environment. Other environment references are forbidden. Paths are never escaped by manifest authors. Prefer
+variables fail validation. The exact client-side literals `${FOOM_CONTROL_TOKEN}` and `{env:FOOM_CONTROL_TOKEN}` are permitted only in the MCP Authorization value; neither is a Foom placeholder, and the client must expand it from environment. Other environment references are forbidden. Paths are never escaped by manifest authors. Prefer
 native JSON values rather than encoding a JSON string inside another JSON string.
 The drafts use :json/:toml only.
 
@@ -62,7 +64,7 @@ reject literal commands, appended shell syntax, executable/plugin module entry
 points, and unknown executable hook types. JSON/TOML containers share a conservative,
 agent-independent data grammar: arbitrary object/array nesting and numeric/boolean
 metadata are permitted; literal string leaves are limited to `name`, `version`,
-`matcher`, `type` (`command` or `http`), `url`, `Authorization`, and
+`matcher`, `type` (`command`, `http` or `remote`), `url`, `Authorization`, and
 `bearer_token_env_var`. Command/cmd/bash/powershell slots require an entire fixed
 observer value; notify/argv slots require the entire generated observer array.
 Validation's `FOOM_OBSERVER_*` and `FOOM_*_SENTINEL` stand-ins cannot be authored
@@ -110,7 +112,7 @@ remain a single value. Greeting and CLI guidance are the exact Foom-owned consta
 in `providers/cli-launch.ts`, not editable manifest prose. Config resume adds no
 greeting; no repository control grant is created. Guidance merges user prompt
 aliases/equals forms in order, then appends Foom text with two newlines. Guidance treats each user argv value as literal prompt text, preserving internal whitespace and punctuation; its separators describe the variadic option surface, not words to split inside a prompt. When guidance merge is selected, its canonical `output` flag replaces the prompt argv layout and carries the composed text as one value. Otherwise `prompt.arguments` supplies that layout. The guidance stage collects prompt text and the prompt stage emits it exactly once; no duplicate interactive prompt flags. Config greeting is omitted when the required prompt fact is false, matching agy today; an explicit child task fails instead. Children
-use no user default arguments; reject manifest-selected argument/environment bypass
+use the user's Settings default arguments (#535); reject manifest-selected argument/environment bypass
 rather than granting unattended bypass. Human role promotion and service tool
 permissions never come from manifest text. Availability is not authorization.
 
@@ -145,7 +147,7 @@ conservative disclosure, not a claim the CLI enables bypass for every value.
 
 ## Default argument policy
 
-In Settings, each flag and value occupies its own line. All three help outputs advertise `--model`; Claude and Antigravity
+In Settings, each flag and value occupies its own line. The Claude, Codex and Antigravity help outputs advertise `--model`; Claude and Antigravity
 advertise `--effort`, while Codex accepts `-c` followed by
 `model_reasoning_effort="high"`. Values and quotes are passed unchanged as argv,
 not evaluated by a shell. LF and CRLF line endings are accepted; trailing empty
@@ -212,3 +214,101 @@ metadata records names only. Bypass inspection and disclosure use the final
 environment, including manifest entries; unattended children and probes refuse
 matching bypass values. Probe discovery receives no manifest launch environment.
 Validation reports the entry's exact path and reason through `foom config validate`.
+
+### Fixed extension attachment (#834)
+
+`launch.extension` selects fixed executable bytes distributed with the application;
+this is separate from data-only `files`. The first API is `pi-v1`. Its channel must
+exist and use `observer.transport:external`; channel and MCP conditions must imply
+the extension condition. Arguments must include exactly one whole `{extensionFile}`
+value, which is forbidden in all other template locations. Unknown APIs, source,
+module, path or digest fields are rejected. Custom copies may select the same fixed
+ABI, with the same credential and manual-only config-session limits.
+
+Main writes the fixed integrity-checked module and a generated nonsecret JSON
+attachment record into a private launch directory. The extension argv appears at
+the MCP stage, once, for hooks and/or tools; a tool-only launch works with hooks
+disabled. It uses only launch-environment tokens. Runtime adapters remain reviewed
+Foom code, never user-authored manifest content. Observer API changes require a
+new versioned filename and code-owned integrity lock. This adds no global install,
+configuration mutation, permission bypass, or executable template surface.
+
+
+### Generated context-event modules (#824)
+
+A channel may select `observer:{transport:"event-module",version:1}` with empty
+attachment arguments. This fixed JavaScript plugin ABI exports a default object
+with `id` and `setup(context)` and consumes the async iterable returned by
+`context.event.subscribe({signal})`. Foom generates `index.mjs` in that channel's
+private launch directory. `{observerModule:CHANNEL:json}` is a whole generated
+directory path in launch-scope JSON only; it requires a matching module channel
+and selecting conditions that imply the channel's condition. Arbitrary module
+paths, imports, entrypoints and program source remain forbidden in manifests.
+The event selector must select payload data. There is no shell/interpreter probe
+for modules; the agent's plugin runtime loads the fixed code.
+
+Before reduction, the module validates every present primary/alternate session
+identity as a 1–200 character conversation string and requires them all to agree.
+Malformed or conflicting identities drop the entire event; they are never removed
+to leave an apparently valid alias. Missing primary paths may use valid aliases.
+The module forwards only primitive leaves referenced by the channel's payload
+selectors, bounded to 4096 characters per string and 64 KiB total. It filters
+unknown event names before transport, uses the existing authenticated literal
+loopback receiver with a one-second absolute delivery deadline, and bypasses
+proxy variables through Node's direct HTTP client. It reports no permission
+decision. A failed or revoked receiver is silent; cleanup aborts subscription and
+in-flight requests. Credentials stay environment-only. The main receiver still
+validates mapping conditions and pins conversation identity. ABI behavior changes
+require a version revision; config copies use exactly the same generator.
+
+`launch.environment` also accepts a whole `{fileContent:NAME}` reference to a
+selected, launch-scope JSON/TOML data file. It copies that validated generated
+content literally into the environment, without reading agent state or expanding
+it again. The normal final environment size/value checks apply. File and channel
+conditions are checked as for `{file:NAME}`. MCP files selected through either
+reference must imply the MCP block. This supports clients that merge one explicit
+config file and one inline config variable.
+
+For `toolPermissions.fileRules:"action-resource"`, format must be
+`server-underscore`, arguments must be empty, merge must be absent, and a selected MCP file must contain
+`{toolRules:json}`. The engine substitutes an array of exact
+`{action:"<random-server>_<tool>",resource:"*",effect:"allow"}` records for its
+classified, role-filtered tool list (only ping in isolated probe verification).
+No arbitrary action/resource/effect leaves are allowed in templates. The wildcard
+is only the resource of one exact Foom tool, never a tool/server action wildcard.
+
+## Child model and effort (#853)
+
+`launch.model?` and `launch.effort?` in a v2 manifest each declare
+`{flags, arguments, values?}`. `flags` has 1–8 option names using the existing flag
+syntax. `arguments` has exactly two entries: the first is one declared flag;
+the second is exactly `{value}` or a literal dotted config key followed by
+`="{value}"` (for example `model_reasoning_effort="{value}"`). Config keys match
+`[A-Za-z_][A-Za-z0-9_.]*`. No other substitutions or arguments are accepted.
+`values` is an optional list of 1–32 bounded selection tokens; effort requires it.
+A model list constrains requests to those exact values. Missing declarations refuse
+that field with `unsupported`. These templates are separate from general launch
+substitutions and can never be supplied by MCP or CLI callers.
+
+Bundled Claude and Antigravity use `--model` and `--effort`; Codex uses `--model`
+(alias `-m`) and `-c model_reasoning_effort="{value}"` (alias `--config`). Copilot
+uses `--model`; OpenCode uses `--model` (alias `-m`); Pi uses `--model`.
+Copilot, OpenCode and Pi do not declare effort.
+Claude/Antigravity effort values are `low`, `medium`, `high`, `max`; Codex declares
+`none`, `minimal`, `low`, `medium`, `high`, `xhigh`. The CLI still owns which
+model/effort combinations it accepts.
+
+Per-launch values replace every matching default flag, then append one canonical
+template expansion in the defaults stage. Config matching normalizes key whitespace
+and a surrounding quote pair and requires the exact key, including its full path.
+`launch.valueFlags?` declares up to 64 unique option names using the existing flag
+syntax. Each takes exactly one following literal argv value, even when that value
+looks like another option. Manifest authors must declare such options to preserve
+their ownership during selector replacement; do not list boolean or variadic
+options. Model/effort selector flags are automatically single-value options.
+Replacement scans defaults once, preserving owned values byte-for-byte instead of
+interpreting them as selectors. Bundled Claude declares its system-prompt and
+system-prompt-file options, including append variants. Other config keys, bypass
+flags and all other defaults remain unchanged. Literal values are never reparsed
+as argv or evaluated by a shell. The existing default
+argument reservations and final bypass checks remain authoritative.

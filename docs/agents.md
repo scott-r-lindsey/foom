@@ -73,6 +73,246 @@ Observer version 3 uses absolute paths into the validated CLI-owned installed pl
 
 The #723 review found that absolute paths into a disposable Foom profile disappear on exit. Hooks now target the canonical CLI-owned installation instead; no documented agy plugin-root variable is assumed. Modern reported install paths require exact native spellings (case variants on Windows/macOS additionally require matching realpath identity); noncanonical or foreign paths are unavailable. Reported paths never select inventory reads or execute commands. Status verifies installed hook/observer bytes and reports missing or changed targets as outdated. Fixture tests delete disposable staging, rescan from another profile, and verify consistent installed status and working hooks. Same-definition Dev/everyday profiles share the installed target without scan-time rewriting or alternating status.
 
+### Antigravity plugin MCP (agy 1.4.2, #855)
+
+Measured on Linux on 2026-10-25. Read-only discovery used `agy --version`,
+`agy --help`, and `agy plugin --help` in a disposable HOME with a minimal
+explicit environment. Version output was `1.4.2`. Root help has no per-invocation
+plugin/config directory flag. HOME controls `.gemini/config` and
+`.gemini/antigravity-cli`; a `strace -f -e trace=file,connect` audit confirmed
+config/state accesses under the disposable root. XDG config/data/state/cache,
+`GEMINI_CLI_HOME`, `GEMINI_CONFIG_DIR`, `AGY_CONFIG_HOME`, and `AGY_CONFIG_DIR`
+were also redirected there; their individual support was not established.
+No real user configuration or credentials were copied, read or linked. The CLI
+completed the harmless print prompt without requesting login; no login was attempted.
+
+A legacy plugin uses root `plugin.json` (`name`, `version`) and
+`mcp_config.json` with `mcpServers`, a named server object, `command`, and `args`.
+`agy plugin validate <fixture> --json` reported one MCP server and no findings;
+`agy plugin install <fixture>` reported one processed MCP server. In contrast,
+inline `plugin.json.mcpServers` is ignored, `.mcp.json` is never loaded, and
+`mcp.json` requires the separate Agent Plugins schema. These were all disposable
+fixtures, without lifecycle hooks or Foom credentials.
+
+`agy --print "Reply with OK only." --print-timeout 10s` spawned the declared
+Python fixture server. Its only behavior was to log argv and the **names**, never
+values, of inherited `FOOM_*` variables, then exit. The log showed the declared
+script argv and `FOOM_CONTROL_URL`, `FOOM_CONTROL_TOKEN`, `FOOM_SESSION`.
+Values were synthetic and pointed at an unused loopback port. No bypass flags
+were used. This proves process environment inheritance, not real Foom tool
+execution, approval behavior, or Windows/macOS compatibility; fixture integration
+tests cover the bridge and main-owned role checks.
+
+The CLI also spawned its automatic `--bg-updater`, which accessed the executable
+installation directory outside the temporary HOME (including update-test files
+and cleanup of updater artifacts). HOME isolation does **not** isolate that
+updater. No update command was requested. No further real-agent probes were run.
+All probe process groups were terminated and disposable directories deleted.
+Subcommand `--help` is not consistently read-only in 1.4.2: install interprets it
+as a target, enable as a name, and uninstall reports removing that name. These
+calls were confined to the deleted temporary HOME; use `agy plugin --help` for
+command discovery.
+
+### Pi 1.4.0 measurement (#823)
+
+Measured manually on Linux on 2026-10-25, using `/home/slindsey/.local/bin/pi`
+in a disposable OS temporary directory, outside the repository. No bypass flags
+were used and no Pi configuration or credential files were inspected or edited.
+`pi --version` returned `1.4.0`.
+
+`pi --help` advertises positional interactive messages, `--session-id <id>`
+(exact project session ID, creating it if missing), and `--session <path|id>`
+(session file or partial UUID). On exit, the observed resume instruction was
+`To resume this session: pi --session <UUID>`.
+
+The help exposes `--extension, -e <path>` for extension code, but no per-launch
+command-hook attachment. `pi mcp --help` says it reads `~/.pi/agent/mcp.json`
+and trusted projects' `.pi/mcp.json`; its add/remove commands persist settings.
+Neither help output advertises a per-launch MCP configuration file or inline
+override. These measurements do not establish a supported declarative hook or
+per-launch MCP attachment; no extension or MCP configuration was installed.
+`--approve, -a` is documented as trusting project-local files for one run.
+
+Three short PTY sessions attempted a reply-only prompt with the configured
+`gpt-5.5`, the same prompt with `--model gpt-5.3-codex`, and a request to create
+`ready.txt` containing `ready` with `--model gpt-5.4`. Each returned an OpenAI
+400 `model_not_found` error saying that model was not supported with a ChatGPT
+account. The redacted screen fragments were:
+
+```text
+Working: ── ⠋ Working ─────────────────────────────────
+Error:   Error: OpenAI API error (400):
+         {"type":"invalid_request_error","code":"model_not_found", ...}
+Footer:  ─────────────────────────────────────────────
+         <temporary directory>
+         $0.000 (sub) 0.5%/272k (auto)     <model> • medium
+Title:   π - <temporary directory basename>
+```
+
+The title stayed unchanged while working and after the error. The editor has a
+plain divider even while working, so a divider alone is not evidence of idle.
+With the user-specified `--model gpt-6.1-sol`, the reply-only prompt returned
+`ready` and the file prompt created `ready.txt` containing `ready`, without any
+permission prompt or bypass flag. Both turns showed the Working divider and then
+returned to plain editor dividers. The usage footer contained `(auto)` and the
+selected model. The shipped idle rule requires that footer and excludes Working;
+the higher-priority Working rule wins while its divider remains visible. These
+are screen heuristics, not proof of success. Startup and error-returned editors
+also have idle editor dividers. The measured OpenAI `model_not_found` error
+has a higher-priority blocked rule so it cannot be mistaken for a completed turn.
+Other unmeasured error variants remain a limitation.
+
+The same session's `/model` picker supplied a measured blocked screen:
+
+```text
+Only showing models from configured providers. Use /login to add providers.
+> <search field>
+→ ✓ <selected model> [<provider>]
+  Model Name: <selected model name>
+  Model catalogs refreshed.
+<temporary directory>
+```
+
+Escape dismissed the picker without selecting or persisting a different model.
+The blocked rule requires both the configured-provider notice and `Model Name:`
+in the bounded bottom region. File approval remains unobserved because this
+installation wrote the requested file without prompting. No file-permission rule
+is inferred. The working/idle and model-selection rules are captured in the
+bundled manifest tests; no automated test invokes real Pi.
+
+### Pi 1.4.0 extension spike (#834)
+
+Measured manually on Linux on 2026-10-25 in a disposable temporary directory,
+with `--model gpt-6.1-sol`, harmless reply/ping prompts, no bypass flags, and
+`--no-session`. No Pi configuration or credential files were inspected or edited.
+The installed package is `@earendil-works/pi-coding-agent`; its
+`docs/extensions.md`, `docs/mcp.md`, exported `dist/core/extensions/types.d.ts`,
+and `pi --help` provided the API evidence.
+
+Extensions are TypeScript or JavaScript modules loaded by `--extension` / `-e`.
+Pi loads TypeScript through jiti in its own process, with the same OS permissions
+as Pi, including potential access to files, credentials and session history.
+A default factory receives `ExtensionAPI`. This is executable code, so a manifest
+must never supply its source or nominate an arbitrary module for Foom to write.
+
+The reply-only session observed `session_start`, `agent_start`, `turn_start`,
+`turn_end`, `agent_end`, then `agent_settled`. The custom-tool session observed two
+model turns before settlement, and a stable `ctx.sessionManager.getSessionId()`
+within each session. `agent_end` is not final idle: retries, recovery, compaction
+or queued work can follow it. `agent_settled` is the documented notification after
+automatic processing stops, with an `aborted` boolean; it does not prove success.
+No dedicated permission-request event is declared. `ui_prompt_start` and
+`ui_prompt_end` observe blocking extension UI (select/confirm/input/editor/custom),
+which may include a permission extension's question but are not universal approval
+signals. An observer must never implement a permission gate or return decisions.
+
+`registerTool` successfully exposed a harmless custom ping tool to the model.
+`registerMcpServer(name, config)` registers a session-only streamable HTTP server,
+including headers and tool exposure, without writing `mcp.json`. Its tools retain
+Pi's normal validation and permission pipeline. A manual local HTTP probe observed initialization, tools/list and one authenticated
+tools/call, returning `pong` through Pi's registered MCP tool.
+Registered servers require Pi's
+built-in MCP connector (or a compatible replacement); `--no-extensions` disables
+that connector unless `--extension builtin:mcp` explicitly restores it. These API
+findings support a private per-launch Foom extension for lifecycle observation and
+role-filtered MCP, with server-side Foom authorization remaining authoritative.
+
+The shipped adapter selects the fixed `pi-v1` ABI through the shared v2 engine.
+It emits only bounded event/session/outcome/idle facts. Current-role MCP exposure
+comes from the authenticated `whoami` capability list before new work, narrowed to
+classified Foom names; lookup failure withdraws the registration. It registers the per-launch
+MCP server through Pi's normal client. Hook-only and MCP-only launches are supported;
+files and credentials share ordinary launch cleanup. The before-settlement outcome
+is observed without returning entries or continuation decisions. Error and aborted
+settlements are failure evidence; completed settlement requests local classification.
+Permission detection remains limited to blocking extension UI and measured screens.
+Windows/macOS delivery is covered by fixture tests; these manual API sessions were
+Linux-only. The built-in MCP connector must remain enabled; Foom does not override
+user extension policy or edit Pi configuration to enforce it.
+
+A final disposable session loaded the exact integrity-locked `pi-v1.mjs` bytes
+with the built-in MCP connector explicitly enabled for the isolated probe. It
+completed a ping through a synthetic local `whoami` capability response and HTTP
+MCP server. The receiver observed session/agent/turn/tool events and final
+`agent_settled` with `outcome: completed`; no prompt, tool arguments or results
+appeared in those lifecycle payloads. All probe credentials were disposable.
+
+### OpenCode v2.0.32 (#824)
+
+Measured on Linux on 2026-10-24 using the installed CLI's `--version`, root help,
+and `plugin`, `mcp`, `debug` and `serve` help. Version output was exactly
+`opencode v2.0.32`. Four short PTY sessions ran in one disposable OS-temp directory,
+with no bypass flags or global configuration edits. The first two reply-only
+attempts were stopped while working; the subsequent file prompt and final
+reply-only/plugin session completed on the configured local model. No agent config,
+credential or state files were read. The agent's normal session writes were allowed.
+
+The captured, redacted screen fragments at 120 columns by 40 rows were:
+
+```text
+Working (reply-only and file prompt):
+  ⬝⬝⬝⬝■■■■ esc interrupt                 shift+tab agents  ctrl+p commands
+
+Blocked (question tool, before the requested file write):
+  ┃ Questions
+  ┃ [question text omitted]
+  ┃ 1. Yes
+  ┃ 2. No
+  ┃ 3. Type your own answer
+  ┃ ↑↓ select  enter submit  esc dismiss
+
+Idle (after ready, and after the file write):
+  TITLE: OC | [session title omitted]
+  ┃ Build · [model omitted]
+  ╹━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  /tmp/[scratch]                         [usage omitted]  ctrl+p commands
+```
+
+The file prompt asked to create `ready.txt` containing `ready`, and to ask first.
+The model used the question tool; selecting Yes produced the file. This is a
+measured question blocker, not a claim that an edit-permission dialog was observed.
+The bundled rules require the question footer conjunction, prioritize it over
+`esc interrupt`, and treat the idle editor/footer as heuristic readiness/completion
+only. The idle footer rule currently covers the measured Build agent label.
+Other agent labels and permission-screen layouts rely on lifecycle events or
+ordinary output evaluation until captured. The title alone does not identify working.
+
+A Foom-owned per-launch config file loaded a temporary local plugin directory
+through `OPENCODE_CONFIG` under `--standalone`. The module exported an object with
+`id` and `setup(context)` and subscribed through `context.event.subscribe()`;
+no SDK download/import or global plugin installation was needed. The harmless
+reply-only session returned `ready` and emitted `session.execution.started` then
+`session.execution.succeeded`. The explicitly assigned `ses_foom824_measure` was
+accepted; later events carried that ID in `data.sessionID`. The stream envelope
+contains `type` and `data`, not top-level session fields. The shipped adapter
+forwards only declared primitive selector fields, never prompts, reasoning, tool
+arguments, transcripts or model text. Failure/permission/form mappings are based
+on the pinned public schema and fixture tests; they were not separately measured
+with the shipped adapter. Hooks Off attaches no module.
+
+The [v2.0.32 standalone server](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/cli/src/server-process.ts)
+reads `OPENCODE_CONFIG` and `OPENCODE_CONFIG_CONTENT` per process. Foom uses the
+former for generated observer config and the latter for invocation-only MCP JSON.
+`--standalone` keeps both on a private server instead of the shared background
+service. The [config loader](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/core/src/config.ts)
+merges explicit file and inline content without writing either to the global config.
+The [session-ID schema](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/schema/src/session-id.ts)
+requires a `ses` prefix; Foom generates `ses_` plus a UUID, uses `--session` for
+new/resumed launches, and recognizes pasted `opencode --session ID` / `opencode -s ID`.
+
+MCP uses v2's `mcp.servers`, `type: remote`, `oauth: false`, `codemode: false`,
+and `Authorization: Bearer {env:FOOM_CONTROL_TOKEN}`. Foom does not substitute the
+credential into files or argv. Each launch gets a random server name and exact
+`server_tool` action rules for the same classified tool names as Claude, restricted
+by the actual granted role; no other server/tool permission is added. See the
+[v2.0.32 MCP schema](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/schema/src/mcp.ts),
+[tool action construction](https://github.com/anomalyco/opencode/blob/v2.0.32/packages/core/src/tool/mcp.ts),
+and [MCP guide](https://dev.opencode.ai/v2/docs/mcp-servers).
+MCP attachment is source-backed and fixture-tested, not a real orchestration
+measurement. Managed policy can refuse either attachment. `--auto` (including
+its equals form conservatively) uses Foom's existing bypass confirmation; unattended
+children refuse it. Global OpenCode permission settings are not inferred.
+
 ### GitHub Copilot CLI (#410)
 
 Measured by hand on Linux, 2026-10-24, using GitHub Copilot CLI **1.0.103**

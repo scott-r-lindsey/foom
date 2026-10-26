@@ -4,7 +4,8 @@
 
 **Launch.** Only the human elevates a running agent through its session menu; see [elevation](control-elevation.md#elevation-303). Every agent, including children, gets the console directory on its
 process-local PATH, and the CLI works when MCP attachment is unavailable or denied
-by client policy. Antigravity uses only the CLI, without any MCP configuration.
+by client policy. Antigravity's current opt-in Foom plugin supplies MCP using
+only inherited launch credentials; other installations retain the CLI fallback.
 
 **Tools.** Every mutation takes an `idempotencyKey` (`[a-zA-Z0-9_-]{1,200}`) and
 returns the operation record. Limits and foreign targets are recorded as
@@ -13,8 +14,8 @@ retry with the same key returns that record.
 
 | Tool | Parameters | Result |
 |---|---|---|
-| `create_worktree` | Exactly one of `branch` or `pullRequest` | New local branch, or continue an open same-repository PR; `resultId` is the opaque worktree ID |
-| `launch` | `worktreeId`, `agent` (`claude`, `codex`, `agy`), optional `prompt` ≤16 KiB (including the fixed author brief when `review` is enabled) and `review` | `resultId` is the child session ID |
+| `create_worktree` | Exactly one of `branch` or `pullRequest`; optional `review` boolean with `pullRequest` | New local branch, or continue an open same-repository PR; `resultId` is the opaque worktree ID |
+| `launch` | `worktreeId`, `agent` (a loaded provider ID), optional `model`, `effort`, `prompt` ≤16 KiB (including the fixed author brief when `review` is enabled) and `review` | `resultId` is the child session ID |
 | `prompt` | `id`, `text` ≤16 KiB | Text plus submit, honoring bracketed paste, without review |
 | `send_keys` | `id`, `keys` (1–64) | Validated logical keys, without review |
 | `stop` | `id` | Existing graceful stop; an already exited child succeeds; a stop error is `indeterminate` |
@@ -26,13 +27,14 @@ retry with the same key returns that record.
 
 Initial launch prompts and branch names reject control characters other than newline and tab,
 Unicode format characters, and a leading `-`, so they cannot become options.
-Children receive the user's Settings default arguments for their agent exactly as
-written (for example a model choice), never share a checkout, and get a read-only
+Children receive the user's Settings default arguments for their agent, with only
+explicit model/effort selections replacing the corresponding declared selectors, never share a checkout, and get a read-only
 grant naming their parent. If those defaults bypass permissions, `launch` is refused
 with `forbidden` before spawning and the worktree stays unused. The prompt follows a fixed line naming the orchestrator
 as its author, so the argv entry can never equal a subcommand such as `logout`.
 Claude Code and Codex take it as the final positional argument; Antigravity composes
-it with the CLI guidance through `--prompt-interactive` and refuses a prompt on
+it through `--prompt-interactive`, adding CLI guidance only without the current
+MCP plugin, and refuses a prompt on
 releases without that option.
 
 **Limits.** The configured number of children that have not confirmed exit, including starting ones and
@@ -49,7 +51,21 @@ single oversized line keeps its end on a UTF-8 boundary). The HTTP adapter exten
 the socket deadline to 65 seconds after a request body arrives, allowing the CLI's
 60-second mutation deadline and bounded `wait_for` calls.
 
-**Removal.** Settings → General offers one **Auto-remove merged worktrees** checkbox
+**Removal.** Review checkouts have one narrowly scoped exception (#843). Closing
+a reviewer can remove its checkout without confirmation, regardless of the
+**Auto-remove merged worktrees** setting or whether the PR is still open, only
+when Foom created it for review, its identity still validates, it remains detached
+at the exact fetched and recorded PR head, it has no tracked or untracked changes
+and no local refs or commits beyond that head, and no other session or operation
+is using it. Main checks local refs against the creation baseline and inspects
+worktree reflogs, including commits later reset away. Ignored content and unavailable
+evidence also refuse automatic deletion. The closing exited session is released
+by the removal sequence. The proof is repeated under the removal lock and next to
+Git deletion; failure falls back to trusted confirmation. Existing identity,
+membership, active-session and operation guards still apply after approval.
+Ordinary worktrees keep the policy below.
+
+Settings → General offers one **Auto-remove merged worktrees** checkbox
 for all repositories, off by default, stored in the profile rather than agent-editable
 config. Saved per-repository lists migrate to on when non-empty and off when empty;
 new settings accept only a boolean. With it on, an orchestrator can remove only its own created worktree without
@@ -102,3 +118,36 @@ initial launch. The loop's internal review/resume steps reuse that checkout with
 ordinary owned-child grants and the existing per-parent capacity reservations.
 No child receives launch/prompt authority and parentless agents cannot opt in.
 See [the loop rules](../areas/orchestration.md#optional-child-buildreview-loop-690).
+
+### Detached PR review worktrees (#843)
+
+`create_worktree({pullRequest: N, review: true, idempotencyKey})` creates a
+separate checkout detached at the fetched PR head without a local branch, even
+when the author has that branch checked out elsewhere. `review` is an optional
+boolean valid only with `pullRequest`; false preserves ordinary PR adoption.
+The open, same-repository, non-default-branch validation and unused-worktree budget
+remain unchanged. The console form is
+`foom create-worktree --pull-request N --review --idempotency-key KEY`.
+The reviewer reports findings by default; this is read-only intent rather than
+filesystem enforcement. Deliberate edits and pushes remain possible.
+
+### Per-child selections (#853)
+
+MCP `launch` accepts `model?: string`, `effort?: string` and
+`review: {rounds?, agent?, model?, effort?, postFindings?, parentWaitMinutes?}`.
+Both selections are validated before launch reservation. Tokens match
+`^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$`; absent manifest support returns
+`unsupported`, malformed tokens or values outside a declared enum return
+`invalid_request`. Effort requires a manifest enum. Model uses the manifest's list
+when present, otherwise any well-formed token. Unknown fields, including free-form
+`args`, remain refused. Omission preserves Settings defaults.
+
+The reviewer selection applies only to reviewers. Fix steps retain the initial
+author selection. Session metadata (`sessions`, `session_state`, including wait
+results) carries `selection: {model?, effort?}` for the requested options, also
+persisted with the session. It does not assert what model the CLI actually used.
+The parent's handoff read remains paired with session metadata; children cannot
+replace this main-owned record through handoff text.
+
+See [manifest expansion and replacement](agent-launch.md#child-model-and-effort-853)
+and [CLI flags](console.md).

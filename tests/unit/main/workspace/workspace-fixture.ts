@@ -54,6 +54,9 @@ export let agents: {
   release: ReturnType<typeof vi.fn<(id: string) => void>>;
   dispose: ReturnType<typeof vi.fn<() => void>>;
   setHooksEnabled: ReturnType<typeof vi.fn<(enabled: boolean) => void>>;
+  setBypassIdentities: ReturnType<
+    typeof vi.fn<(identities?: Readonly<Record<string, string>>) => void>
+  >;
 };
 
 export let deps: WorkspaceDependencies;
@@ -117,6 +120,7 @@ beforeEach(async () => {
     release: vi.fn<(id: string) => void>(),
     dispose: vi.fn<() => void>(),
     setHooksEnabled: vi.fn<(enabled: boolean) => void>(),
+    setBypassIdentities: vi.fn(),
   };
   deps = {
     agentPluginDirectory: await mkdtemp(join(tmpdir(), "foom-health-")),

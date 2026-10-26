@@ -4,14 +4,14 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 ## Agent signals
 
-Claude, Codex and Copilot hooks attach per launch. Antigravity has an explicit opt-in plugin exception:
+Claude, Codex, Copilot and OpenCode hooks attach per launch. Antigravity has an explicit opt-in plugin exception:
 
 - Claude Code: `claude --settings <inline-json>` with UserPromptSubmit, PreToolUse, Stop, PermissionRequest and Notification hooks; JSON arrives on stdin. Prompt/tool hooks establish Working. Permission notifications may be delayed, and Stop means a response ended, not necessarily task success.
 - Codex: supported 0.161+ releases receive six invocation-only lifecycle definitions (SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse and Stop), with JSON on stdin. The separate `-c notify=[...]` fallback receives its JSON as the final argument and reports turn completion, not approval requests; it replaces the effective notify command for that launch until lifecycle health permits its omission. See [Execution](execution.md#stable-codex-hook-health) for trust, turn and health semantics.
 - GitHub Copilot: measured 1.0.103+ loads a private plugin through `--plugin-dir`. Session start, prompt, pre/post-tool and agent-stop events arrive on stdin with `sessionId`; fixed observer event arguments select the mapping. Visible confirmation forms establish Blocked because `permissionRequest` also fires for already allowed tools. No installed plugin or global config change is required.
-- Antigravity: agy 1.4.2 reports a JSON array with `plugin list --json`; legacy 1.3.1 fixture objects and `No imported plugins.` remain supported through a failed-command fallback. Observer version 4 retains absolute paths inside the validated CLI-owned installation for local launches and supports the credentialed remote helper described below. Version 3 remains locally compatible. Settings discloses and installs the static Foom observer with `agy plugin install <bundled-directory>`. Remove uses `agy plugin uninstall foom`; enable uses `agy plugin enable foom`. All calls use resolved executables, argument arrays, bounded output and deadlines. No direct global configuration writes occur. Without the plugin, launch uses output evaluation.
+- Antigravity: agy 1.4.2 reports a JSON array with `plugin list --json`; legacy 1.3.1 fixture objects and `No imported plugins.` remain supported through a failed-command fallback. Observer version 4 includes an environment-only MCP launcher and invokes absolute paths inside the validated CLI-owned installation, independent of the session cwd. Settings discloses and installs the static Foom observer with `agy plugin install <bundled-directory>`. Remove uses `agy plugin uninstall foom`; enable uses `agy plugin enable foom`. All calls use resolved executables, argument arrays, bounded output and deadlines. No direct global configuration writes occur. Without the plugin, launch uses output evaluation. Version 3 remains locally compatible; remote version-4 hooks use the credentialed helper described below.
 
-See [agent research](../agents.md) for versions, payloads, local probes, sources, and remaining verification. Completion events trigger classification; they do not unconditionally set Done. Echo-off alone is not a password signal: all three tested CLIs disabled echo at startup.
+See [agent research](../agents.md) for versions, payloads, local probes, sources, and remaining verification. Completion events trigger classification; they do not unconditionally set Done. Echo-off alone is not a password signal: Claude, Codex and Antigravity disabled echo at startup in their recorded probes.
 
 **Today:** `src/main/agents/hook-receiver.ts` provides an independently usable main-process service. `HookReceiver.listen(onSignal)` binds only `127.0.0.1` on an OS-assigned port. `register(terminalId, agent)` returns fresh `FOOM_SESSION`, `FOOM_TOKEN`, and `FOOM_HOOK_URL` environment additions and an idempotent `revoke()` capability. The launcher must revoke on launch failure, terminal exit, or removal; application shutdown must call `close()`. The workspace maps receiver keys back to terminal IDs before signals reach the evaluator. The app doesn't start a listener until a launch needs one.
 
@@ -51,8 +51,11 @@ Antigravity observers return `{}` before bounded stdin and detached one-second t
 External manifest channels (#635) expose [public protocol 1](../agent-plugins.md#user-authored-extensions-public-hook-protocol-1-635)
 for user-installed code extensions. `foom hook EVENT [--channel ID]` is a silent,
 bounded stdin client of this same receiver, with no pairing or control authority.
-External attachment creates no observer files or arguments and never edits agent
-configuration. Existing bundled adapters retain their compatibility behavior.
+
+External channels alone create no observer files or arguments and never edit agent
+configuration. The separate fixed extension attachment described below may supply
+application-owned glue for an external channel. Existing command adapters retain
+their compatibility behavior.
 
 ## Remote launch relay (#755)
 
@@ -66,3 +69,52 @@ Raw hook payloads, transcript paths and tool input never cross this relay.
 Antigravity's version-4 opt-in observer can delegate to the inherited remote
 helper; it remains inert outside a credentialed Foom launch. See the
 [phase-2 launch restriction](agent-launch.md#remote-agent-phase-2-755).
+## Per-launch executable extensions (#834)
+
+`launch.extension` selects an application-owned, integrity-locked ABI and its
+attachment argv. The first ABI, `pi-v1`, is fixed JavaScript loaded by Pi through
+`--extension`; the shared manifest engine writes `extension/pi-v1.mjs` and
+nonsecret `extension/launch.json` beneath the existing private launch root.
+Files use 0600 and directories 0700 (current-user DACLs on Windows). The extension
+is removed on exit, failed preparation/spawn, kill and shutdown, after credential
+revocation. Missing launch credentials make it inert before reading attachment
+data. Its versioned name and code-owned SHA-256 lock change with reviewed bytes.
+Config manifests cannot provide executable bytes or nominate a file to load.
+
+The Pi adapter uses the existing external hook channel and authenticated receiver.
+Session start is readiness; agent/turn/tool starts and turn end mean Working.
+Turn end is not completion. Blocking extension UI start means Needs input, with
+no title/text forwarded; UI end observes `ctx.isIdle()` and reports progress or
+requests classification without ending the turn. An idle UI close clears its
+permission blocker and resumes the existing turn, or returns to idle if no turn
+is open; later quiet evaluations cannot retain the closed prompt. Pi has no universal permission
+notification. Foom neither registers a permission gate nor changes decisions.
+`agent_before_settle` only copies the enumerated outcome, returning no entries or
+continuation; final `agent_settled` classifies completed runs and reports error or
+aborted runs as failure evidence. `agent_end` cannot declare idle. Classification
+still decides attention and success locally; settlement never directly means Done.
+
+Only constant event names, a bounded conversation ID, boolean idle and an enumerated
+outcome are sent. Prompts, tools, messages, UI titles, paths and results are omitted.
+The receiver validates these fields, pins the launch conversation and discards the
+raw payload through the same reducer as other agents. Node's explicit loopback HTTP
+transport uses no proxy, emits no output, and has a one-second absolute deadline;
+receiver loss never gates permissions or agent work. MCP exposure refreshes at session start and before new work from the existing
+authenticated `whoami` capability list, bounded to 64 KiB and one second. Lookup
+failure withdraws the registration; role revocation also takes effect immediately
+at the server for in-flight calls. Config/manual and isolated probe attachments
+use their fixed minimal tool sets without control-plane discovery. MCP registers through Pi's
+normal client with the independent control credential, without writing Pi config.
+
+## OpenCode context events (#824)
+
+OpenCode v2.0.32+ uses invocation-only generated context-event plugins under a
+private standalone server. Execution started/succeeded/failed events establish
+working/completion/failure; permission requests and created forms request attention.
+Permission/form replies restore working while the invocation continues. The single
+channel maps the alternate session-ID paths, rejects conflicting identities and
+serializes event delivery before the shared launch pin. Only
+primitive selector leaves reach the receiver. Hooks Off falls back to measured
+screen rules. No global plugin installation or agent config edits occur. See the
+[adapter ABI](../contracts/agent-launch.md#generated-context-event-modules-824)
+and [measurements](../agents.md#opencode-v2032-824).

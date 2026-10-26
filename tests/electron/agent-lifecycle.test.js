@@ -2,7 +2,7 @@ const { evidencePath } = require("../helpers/evidence.js");
 const { codexFixture } = require("./agent-fixture.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
-const { realpath } = require("node:fs/promises");
+const { readFile, realpath } = require("node:fs/promises");
 const { deadline, expect } = require("./test-policy.js");
 const { openSettingsScreen } = require("./harness.js");
 
@@ -196,3 +196,92 @@ process.stdin.on('data', data => {
     path: evidencePath("codex-hook-setup.png"),
   });
 });
+
+for (const reply of ["typing", "focusing click"]) {
+  test(`Dismiss clears agent attention after ${reply} consumed its feedback`, {
+    timeout: deadline(30000),
+    skip: process.platform === "win32" && "The fake CLI is a POSIX executable",
+  }, async (context) => {
+    const { app, page, repository, help } = await codexFixture(context, {
+      source: ({ help }) => `#!/usr/bin/env node
+const fs = require('node:fs');
+if (process.argv[2] === '--version') { console.log('codex-cli 0.159.3'); process.exit(0); }
+if (process.argv[2] === '--help') { console.log('-c, --config <value>'); process.exit(0); }
+process.stdin.setRawMode(true);
+process.stdin.resume();
+process.stdout.write('Ready\\r\\n');
+process.stdin.on('data', data => {
+  if (data.toString() === 'm') process.stdout.write('\\x1b]2;Action Required | codex\\x07\\x1b[?1000h\\x1b[?1006hApproval requested\\r\\n');
+  fs.appendFileSync(${JSON.stringify(`${help}.input`)}, data.toString('hex') + '\\n');
+});
+`,
+    });
+    const id = await page.evaluate(async (repository) => {
+      await window.desktop.scanAgents(true);
+      return (
+        await window.desktop.launchAgent({
+          agent: "codex",
+          repository,
+          worktree: repository,
+          cols: 80,
+          rows: 24,
+        })
+      ).id;
+    }, repository.path);
+    const row = page.locator('.board-row[data-kind="agent"]');
+    await row.press("Enter");
+    await expect(page.locator(".xterm-rows")).toContainText("Ready");
+    // Enable SGR reporting on the attached view, before raising attention. This
+    // setup input cannot consume the needs-input verdict used by the regression.
+    await page.evaluate((id) => window.desktop.input(id, "m"), id);
+    await expect(row).toHaveAttribute("data-state", "needs_input");
+    await expect(page.locator(".xterm-rows")).toContainText("Approval requested");
+    const dismiss = page.getByRole("button", {
+      name: "Dismiss incorrect attention flag",
+      exact: true,
+    });
+    await expect(dismiss).toBeVisible();
+    const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+    const logPath = require("node:path").join(profile, "verdicts.jsonl");
+    const current = () =>
+      page.evaluate(
+        async (id) =>
+          (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id).state,
+        id,
+      );
+    // Execution can raise the amber presentation before verdict storage and
+    // publication finish. Reply/Dismiss must target the committed verdict.
+    await expect
+      .poll(current)
+      .toMatchObject({ state: "needs_input", verdictId: expect.any(String) });
+    const verdictId = (await current()).verdictId;
+    assert.ok(verdictId);
+    if (reply === "typing") {
+      await page.keyboard.type("z");
+      await expect.poll(() => readFile(`${help}.input`, "utf8").catch(() => "")).toContain("7a");
+    } else {
+      await dismiss.focus();
+      await page.locator(".tile-terminal .xterm-screen").click({ position: { x: 20, y: 20 } });
+      await expect
+        .poll(() => readFile(`${help}.input`, "utf8").catch(() => ""))
+        .toMatch(/1b5b3c303b[0-9a-f]+4d/);
+    }
+    const actions = async () =>
+      (await readFile(logPath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line))
+        .filter((entry) => entry.type === "action" && entry.verdictId === verdictId);
+    await expect.poll(actions).toEqual([expect.objectContaining({ action: "replied" })]);
+    await expect(row).toHaveAttribute("data-state", "needs_input");
+    assert.equal((await current()).verdictId, verdictId);
+    await dismiss.click();
+    await expect(row).toHaveAttribute("data-state", "quiet_ok");
+    assert.equal((await current()).signal, "user:dismissed");
+    assert.equal((await current()).execution.phase, "blocked");
+    await expect(
+      page.getByText("Unable to record feedback. Try again.", { exact: true }),
+    ).toHaveCount(0);
+    assert.equal((await actions()).length, 1);
+  });
+}

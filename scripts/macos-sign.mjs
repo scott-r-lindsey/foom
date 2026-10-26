@@ -6,6 +6,9 @@ import { basename, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
+import { extractFile } from "@electron/asar";
+import { assembleDarwinHost, verifyDarwinInputs } from "./remote-host-darwin.mjs";
+import { hostPlatforms, verifyHostArtifact, writeHostManifest } from "./remote-host-artifacts.mjs";
 import { FuseState, FuseV1Options, getCurrentFuseWire, pathToFuseFile } from "@electron/fuses";
 
 // Only Release credentials are secrets; workflow paths and unrelated environment
@@ -229,8 +232,50 @@ async function integrity(app, execute) {
   return { fuses, embedded, digests, archive };
 }
 
+// Gzip payloads are invisible to Mach-O discovery, but Apple inspects their
+// contents. Complete this pass and refresh unpacked metadata before app sealing.
+export async function signBundledRemoteHosts(app, options, execute = run) {
+  const archive = join(app, "Contents/Resources/app.asar");
+  const { source } = JSON.parse(extractFile(archive, "build/build-metadata.json").toString());
+  const { version } = JSON.parse(extractFile(archive, "package.json").toString());
+  const catalog = join(app, "Contents/Resources/app.asar.unpacked/build/remote-hosts");
+  // Validate all inputs against the sealed app revision before modifying any.
+  for (const target of hostPlatforms)
+    await verifyHostArtifact(join(catalog, target), target, version, source);
+  const inputs =
+    options.remoteHostInputs ??
+    process.env.FOOM_REMOTE_HOST_INPUTS ??
+    resolve(".cache/remote-host-inputs");
+  for (const target of hostPlatforms.filter((target) => target.startsWith("darwin-")))
+    await verifyDarwinInputs(join(inputs, target), target, version, source);
+  const temporary = await mkdtemp(join(tmpdir(), "foom-host-sign-"));
+  try {
+    for (const target of hostPlatforms.filter((target) => target.startsWith("darwin-"))) {
+      const directory = join(catalog, target);
+      const { manifest } = await verifyHostArtifact(directory, target, version, source);
+      await assembleDarwinHost(
+        join(inputs, target),
+        temporary,
+        target,
+        version,
+        source,
+        options,
+        execute,
+      );
+      // Write into private scratch first; never leave an expanded host in the app.
+      await writeHostManifest(temporary, manifest);
+      for (const name of ["foom-host.gz", "manifest.json"])
+        await writeFile(join(directory, name), await readFile(join(temporary, name)));
+      await verifyHostArtifact(directory, target, version, source);
+    }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+}
+
 export async function signApp(app, options, execute = run, snapshot = integrity) {
   const before = await snapshot(app, execute);
+  await signBundledRemoteHosts(app, options, execute);
   for (const target of await signingOrder(app)) {
     execute(
       "codesign",

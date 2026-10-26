@@ -83,7 +83,10 @@ export interface SidebarCommandsContext {
   readonly auditHuman: WorkspaceMethods["auditHuman"];
   readonly busySessions: Set<string>;
   readonly busyWorktrees: Set<string>;
-  readonly cleanup: Pick<CleanupOwner, "deleteMerged" | "inventory" | "removeIdleTree">;
+  readonly cleanup: Pick<
+    CleanupOwner,
+    "deleteMerged" | "inventory" | "removeIdleTree" | "removeOwnedTree"
+  >;
   readonly closed: boolean;
   readonly control: Promise<Partial<Pick<ControlRuntime, "takeOver">>> | undefined;
   readonly executionOwner: Pick<ExecutionOwner, "view">;
@@ -109,7 +112,11 @@ export interface SidebarCommandsContext {
   readonly deps: {
     readonly worktrees: Pick<
       WorkspaceDependencies["worktrees"],
-      "cleanupBrokenWorktree" | "launchIdentity" | "listRepositories" | "pruneWorktree"
+      | "cleanupBrokenWorktree"
+      | "launchIdentity"
+      | "listRepositories"
+      | "pruneWorktree"
+      | "reviewIdentity"
     >;
     readonly forge:
       | Pick<
@@ -118,6 +125,7 @@ export interface SidebarCommandsContext {
         >
       | undefined;
     readonly config: Pick<NonNullable<WorkspaceDependencies["config"]>, "root"> | undefined;
+    readonly dialog: WorkspaceDependencies["dialog"];
     readonly copyText: WorkspaceDependencies["copyText"];
     readonly openExternal: WorkspaceDependencies["openExternal"];
     readonly terminals: Pick<WorkspaceDependencies["terminals"], "kill" | "stop">;
@@ -262,7 +270,7 @@ export interface OrchestrationHostContext {
     readonly forge: OrchestrationHost["forge"];
     readonly worktrees: Pick<
       WorkspaceDependencies["worktrees"],
-      "adoptWorktree" | "listWorktrees" | "launchIdentity"
+      "adoptWorktree" | "listWorktrees" | "launchIdentity" | "reviewBranch"
     >;
     readonly terminals: Pick<WorkspaceDependencies["terminals"], "stop" | "tail"> & {
       readonly childInput: WorkspaceDependencies["terminals"]["childInput"];

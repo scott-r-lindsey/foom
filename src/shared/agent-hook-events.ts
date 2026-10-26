@@ -70,7 +70,11 @@ export function reduceV2(
 ): HookSignal | undefined {
   const sources = { payload, header: { "X-Foom-Event": event, "X-Foom-Sequence": sequenceHeader } };
   const mapping = channel.mapping;
-  const id = selectValue(mapping.session, sources);
+  const identities = [mapping.session, ...(mapping.sessionAliases ?? [])]
+    .map((selector) => selectValue(selector, sources))
+    .filter((value) => value !== undefined);
+  const id = identities[0];
+  if (identities.some((value) => value !== id)) throw new Error("Conflicting conversation aliases");
   if (!conversationId(id) || (state.conversation !== undefined && state.conversation !== id))
     throw new Error("Invalid conversation");
   const name = selectValue(mapping.event, sources);

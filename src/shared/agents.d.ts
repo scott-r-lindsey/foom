@@ -4,10 +4,11 @@ import type { AgentSetupStatus } from "./agent-setup";
 import type { EnvironmentVariable } from "./environment";
 import type { AgyPluginStatus } from "./agy-plugin";
 export type HookHealthState = "not-reviewed" | "trusted" | "declined" | "outdated";
-export type BuiltinAgentId = "claude" | "codex" | "agy" | "copilot";
+/** The original required map keys remain a profile compatibility contract. */
+export type LegacyAgentId = "claude" | "codex" | "agy";
+export type BuiltinAgentId = LegacyAgentId | "copilot" | "opencode" | "pi";
 export type AgentId = string;
-/** Legacy required profile keys stay compatible; later providers use optional persisted entries. */
-export type AgentValues<T> = Readonly<Record<"claude" | "codex" | "agy", T> & Record<string, T>>;
+export type AgentValues<T> = Readonly<Record<LegacyAgentId, T> & Record<string, T>>;
 export interface AgentInstallation {
   readonly id: AgentId;
   readonly name?: string;
@@ -49,7 +50,13 @@ export interface AgentHooks {
   bind?(terminalId: string): void;
   dispose(): void;
 }
+export interface LaunchSelection {
+  model?: string;
+  effort?: string;
+}
+
 export interface AgentLaunch {
+  readonly selection?: LaunchSelection;
   /** Main-only automation authority recheck immediately before the PTY spawn. */
   readonly beforeSpawn?: () => void;
   /** Main-only metadata written before the first session save, never process authority. */
@@ -89,6 +96,8 @@ export interface AgentLaunch {
 }
 export interface AgentLaunched {
   readonly remote?: true;
+  /** Effective default arguments when a child supplied a selection. */
+  readonly launchFlags?: readonly string[];
   readonly conversationId?: string;
   readonly bypass?: boolean;
   readonly providerOrigin?: "config" | "bundled";

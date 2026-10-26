@@ -48,13 +48,17 @@ describe("close exited children", () => {
     h.host.close.mockImplementation((target) => {
       h.rows.delete(target);
       h.orchestration.removed(target);
-      return Promise.resolve();
+      return Promise.resolve(true);
     });
     const params = { id, idempotencyKey: "close-once" };
     const first = await h.call("close", params);
     expect(first).toMatchObject({ action: "close", status: "succeeded", resultId: id });
     expect(await h.call("close", params)).toEqual(first);
-    expect(h.host.close).toHaveBeenCalledExactlyOnceWith(id);
+    expect(h.host.close).toHaveBeenCalledExactlyOnceWith(
+      id,
+      expect.any(Function),
+      expect.any(AbortSignal),
+    );
     expect(h.orchestration.ownedWorktrees("parent")).toHaveLength(1);
     expect(h.host.remove).not.toHaveBeenCalled();
     expect(history(h.orchestration.view("parent")).at(-1)?.action).toBe("close");

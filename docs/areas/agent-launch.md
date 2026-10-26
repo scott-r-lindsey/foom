@@ -96,6 +96,60 @@ reservations. The context still owns those reservations, terminal queues, launch
 cancellation, owner initialization and shutdown order behind the unchanged
 `workspace.ts` facade.
 
+OpenCode's bundled manifest (#824) uses `--standalone`, Foom-assigned `ses_` UUIDs,
+and `--session` for resume. `OPENCODE_CONFIG` selects per-launch event observers;
+`OPENCODE_CONFIG_CONTENT` merges per-launch MCP and exact Foom tool grants. Source
+files contain only an environment token reference. All are revoked/removed on
+release. Former same-ID config sessions remain dormant for explicit Resume; see
+[provider compatibility](providers.md#bundled-opencode-824).
+
+### Fixed per-launch extension attachment (#834)
+
+The v2 engine may select `launch.extension` when a measured API is available and
+its hook channel or MCP is attached. It writes only the selected application-owned
+versioned module and nonsecret launch data in the private launch root, passing
+`{extensionFile}` as a whole argv value at the MCP stage. The same file handles
+hooks and tools without duplicate loading. Hook-only, MCP-only and combined
+launches share cleanup and independent credentials; disabling hooks does not
+remove authorized MCP. No extension file is written when neither is selected.
+The existing private-file checks, revocation and disposal own these files too.
+See [extension schema](../contracts/agent-launch.md#fixed-extension-attachment-834).
+
+## Per-child model and effort (#853)
+
+Orchestrator `launch` accepts optional `model` and `effort`; `review.model` and
+`review.effort` select the sequential reviewers independently. Omission retains
+Settings → Agents defaults (#535). Author fixes reuse the author's requested
+selection. These fields never accept extra arguments or config expressions.
+
+Main validates both author and reviewer selections before reserving a launch or
+spawning discovery/agent processes. Values are 1–64 ASCII characters matching
+`^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$`: no leading hyphen, whitespace or equals.
+The loaded manifest must declare the corresponding selection template, otherwise
+`unsupported`; a value outside its declared list returns `invalid_request`.
+Effort always has a fixed manifest enum. Model values may be constrained by a
+manifest list; otherwise any well-formed token is accepted. There is no additional
+Settings model allowlist.
+
+The main-only argument builder replaces all matching default selectors by the
+manifest's flags (separate, equals and attached one-letter short forms). Config
+selectors replace only the exact declared key, preserving other `-c` values.
+Manifest `launch.valueFlags` declares other single-value options; selector flags
+also own their following value. The replacement scan preserves those values even
+when they look like selectors (for example a Claude system prompt containing only
+`--model=opus`). Other defaults retain their order and bytes; Settings is never
+rewritten.
+Existing bypass-default refusal remains, and bypass inspection still checks the
+final expanded argv and environment before spawning. Requests cannot supply flags,
+templates or arbitrary extra argv. The provider may still reject a model/effort
+combination it does not support.
+
+Session metadata exposes `selection: {model?, effort?}` and persists it as the
+requested values, not proof of the provider's actual model. `session_state` and
+`sessions` let the parent verify the request alongside handoffs. Reviewer state
+retains its own requested options; restored review participants remain dormant.
+See the [manifest selection contract](../contracts/agent-launch.md#child-model-and-effort-853).
+
 ## Remote agent phase 2 (#755)
 
 Phase 2 binds one locally authorized checkout to one pre-existing remote
@@ -160,3 +214,11 @@ forwards only the endpoint socket and control token by environment variable name
 arguments. Codex keeps
 its notifier fallback; remote health observations are invocation-local and never
 change hub/local CLI hook trust observations.
+
+Remote model/effort selections use the same validated manifest argument replacement
+before relay; effective launch flags and requested selections remain in local session
+metadata. Pi extension and OpenCode context-event launches fail closed with
+`remote_agent_unsupported` until their attachments support the private remote
+transport. Remote Antigravity keeps Unix-socket hooks and CLI handoffs; its local
+loopback MCP bridge stays inactive, with prompt guidance retained. No hub endpoint,
+credential or identity is supplied to activate it.

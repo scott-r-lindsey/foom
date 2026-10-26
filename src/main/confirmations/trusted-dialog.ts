@@ -40,6 +40,7 @@ export class TrustedDialog {
   private parentFocusable = true;
   private reachability: NodeJS.Timeout | undefined;
   private presenting = false;
+  private unavailableDuringPresentation = false;
   private settling: NodeJS.Timeout | undefined;
   private settled = false;
   private bounds: Rectangle | undefined;
@@ -72,7 +73,7 @@ export class TrustedDialog {
     }
     if (this.removalFeed) {
       if (accepted === false) {
-        this.finish(false);
+        this.finish(false, true);
         return;
       }
       const ids = new Set(this.pending.request.removals?.map((item) => item.id));
@@ -80,7 +81,7 @@ export class TrustedDialog {
         const item = this.removalFeed.current()[0];
         if (accepted !== true || !item) return;
         this.removalFeed.select([item.id]);
-        this.finish(true);
+        this.finish(true, true);
         return;
       }
       if (
@@ -91,7 +92,7 @@ export class TrustedDialog {
       )
         return;
       this.removalFeed.select(accepted);
-      this.finish(true);
+      this.finish(true, true);
       return;
     }
     if (typeof accepted !== "boolean") return;
@@ -99,7 +100,7 @@ export class TrustedDialog {
       this.feed.act();
       return;
     }
-    this.finish(accepted);
+    this.finish(accepted, true);
   };
   private readonly resize = (event: IpcMainEvent, value: unknown) => {
     const contents = this.window?.webContents;
@@ -194,6 +195,9 @@ export class TrustedDialog {
     });
     window.on("hide", this.childUnavailable);
     window.on("minimize", this.childUnavailable);
+    // Cocoa can deliver hide before key focus is relinquished. Recheck on blur
+    // so ignoring occlusion of a still-key child cannot lose a real hide.
+    if (this.platform === "darwin") window.on("blur", this.childUnavailable);
     window.on("closed", () => {
       if (this.window !== window) return;
       this.window = undefined;
@@ -201,7 +205,7 @@ export class TrustedDialog {
     });
     window.on("close", (event) => {
       event.preventDefault();
-      this.finish(false);
+      this.finish(false, true);
     });
     window.webContents.on("render-process-gone", () => {
       this.finish(false);
@@ -276,7 +280,7 @@ export class TrustedDialog {
           this.refresh();
         });
       const cancel = () => {
-        if (this.pending && this.removalFeed === removalFeed) this.finish(false);
+        if (this.pending && this.removalFeed === removalFeed) this.finish(false, true);
       };
       signal?.addEventListener("abort", cancel, { once: true });
       this.parentEnabled = this.parent.isEnabled();
@@ -359,7 +363,11 @@ export class TrustedDialog {
     if (input.type === "mouseDown" || input.type === "keyDown") this.restoreDialog();
   };
   private readonly childUnavailable = () => {
-    if (this.presenting || !this.settled) return;
+    if (this.presenting) {
+      this.unavailableDuringPresentation = true;
+      return;
+    }
+    if (!this.settled) return;
     const window = this.window;
     // Cocoa can deliver an earlier order-out notification after the next
     // request has shown the same child. Check its current native state (#353).
@@ -371,12 +379,16 @@ export class TrustedDialog {
       this.finish(false);
   };
   private readonly parentUnavailable = () => {
-    if (this.presenting) return;
+    if (this.presenting) {
+      this.unavailableDuringPresentation = true;
+      return;
+    }
     if (!this.parent.isVisible() || this.parent.isMinimized()) this.finish(false);
   };
   private present(): void {
     const window = this.window;
     if (!window || !this.pending || !this.settled || !this.size || this.presenting) return;
+    this.unavailableDuringPresentation = false;
     this.presenting = true;
     try {
       window.setParentWindow(this.parent);
@@ -390,14 +402,25 @@ export class TrustedDialog {
       this.syncBounds();
       window.moveTop();
       this.focusDialog();
-      if (!this.pending.request.presented) {
-        this.pending.request = { ...this.pending.request, presented: true };
-        window.webContents.send("confirmation:render", this.pending.request);
-      }
+      this.presenting = false;
+      this.finishPresentation(window);
     } catch {
       this.finish(false);
     } finally {
       this.presenting = false;
+    }
+  }
+  private finishPresentation(window: BrowserWindow): void {
+    // Native hide/minimize events during show/reparent/focus are suppressed to
+    // tolerate transient occlusion. Recheck after the native sequence so a real
+    // loss is not discarded or later undone by reachability recovery.
+    if (this.unavailableDuringPresentation) {
+      this.childUnavailable();
+      this.parentUnavailable();
+    }
+    if (this.pending && !this.pending.request.presented) {
+      this.pending.request = { ...this.pending.request, presented: true };
+      window.webContents.send("confirmation:render", this.pending.request);
     }
   }
   /** Native visibility/focus can both be true for an off-screen mapped child. */
@@ -456,10 +479,20 @@ export class TrustedDialog {
     this.present();
     this.watchReachability();
   };
-  private finish(accepted: boolean): void {
+  private finish(accepted: boolean, restoreFocus = false): void {
     const pending = this.pending;
-    this.pending = undefined;
     if (!pending) return;
+    // Decide before hide() relinquishes native focus. Availability failures must
+    // never activate the board, nor may an abort after the person switches apps.
+    const restore =
+      restoreFocus &&
+      !this.disposed &&
+      !this.parent.isDestroyed() &&
+      this.parent.isVisible() &&
+      !this.parent.isMinimized() &&
+      pending.request.presented &&
+      this.isReachable();
+    this.pending = undefined;
     if (!accepted) this.removalFeed?.select([]);
     clearTimeout(this.settling);
     this.settling = undefined;
@@ -488,10 +521,15 @@ export class TrustedDialog {
     screen.removeListener("display-removed", this.restoreDialog);
     this.parent.removeListener("focus", this.restoreDialog);
     if (!this.parent.isDestroyed()) {
-      this.parentContents.send("confirmation:scrim", false);
       if (this.platform === "darwin") this.parent.setFocusable(this.parentFocusable);
       else if (this.platform === "win32") this.parent.setEnabled(this.parentEnabled);
-      this.parent.focus();
+      if (restore) {
+        this.parent.focus();
+        this.parentContents.focus();
+      }
+      // The renderer must not select its input while the Windows board is
+      // still disabled or before native web focus has been requested.
+      this.parentContents.send("confirmation:scrim", false);
     }
     // Leave Electron's native IPC/close callback before resuming shutdown work.
     setImmediate(() => {

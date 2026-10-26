@@ -5,6 +5,7 @@ export interface AuthorizedChild {
   repository: string;
   tree: { path: string; identity: string } | undefined;
   valid(): boolean;
+  closeScope(): { signal: AbortSignal; release(): void };
   exited(): boolean;
   active(): boolean;
   validate(): void;

@@ -1,3 +1,4 @@
+import type { OrchestrationHost } from "../../../../src/main/control/orchestration.d";
 import { describe, expect, it, vi } from "vitest";
 import { FinishedChildCloser } from "../../../../src/main/control/finished-child-closer";
 import type { PullRequest } from "../../../../src/main/control/forge.d";
@@ -8,7 +9,7 @@ function fixture() {
   const cancel = vi.fn();
   const host = {
     terminals: () => [h.row],
-    close: vi.fn(async () => {}),
+    close: vi.fn<OrchestrationHost["close"]>(() => Promise.resolve(true)),
     forge: {
       track: vi.fn(),
       read: vi.fn(),
@@ -52,7 +53,7 @@ describe("isolated finished-child closer", () => {
         action: "close",
         status: "running",
       });
-      return Promise.resolve();
+      return Promise.resolve(true);
     });
     await h.sync();
     await h.sync();
@@ -121,3 +122,29 @@ describe("isolated finished-child closer", () => {
     },
   );
 });
+
+it.each(["live", "ownership", "ineligible", "declined"])(
+  "automatic close revalidates before its effect: %s",
+  async (mode) => {
+    const h = fixture();
+    const removed = vi.fn();
+    h.host.close.mockImplementation((_id, validate, signal) => {
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(validate).toBeTypeOf("function");
+      if (mode === "ownership") h.owned.valid.mockReturnValue(false);
+      if (mode === "ineligible") h.row.exited = false;
+      validate?.();
+      if (mode !== "declined") removed();
+      return Promise.resolve(mode !== "declined");
+    });
+    await h.sync();
+    await h.sync();
+    expect(h.host.close).toHaveBeenCalledOnce();
+    expect(h.owned.note).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: mode === "live" ? "succeeded" : mode === "declined" ? "declined" : "failed",
+      }),
+    );
+    expect(removed).toHaveBeenCalledTimes(mode === "live" ? 1 : 0);
+  },
+);

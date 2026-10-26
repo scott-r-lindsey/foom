@@ -641,13 +641,12 @@ export class ConfigService {
             await this.scan();
             throw new Error("The file changed. Review the new change.");
           }
-          const bypass = Object.entries(after.agentArguments)
-            .filter(
-              ([agent, args]) =>
-                JSON.stringify(before.agentArguments[agent] ?? []) !== JSON.stringify(args) &&
-                hasBypassArgument(agent, args),
-            )
-            .map(([agent]) => agent);
+          const bypass = Object.keys(after.agentArguments).filter(
+            (agent) =>
+              JSON.stringify(before.agentArguments[agent]) !==
+                JSON.stringify(after.agentArguments[agent]) &&
+              hasBypassArgument(agent, after.agentArguments[agent] ?? []),
+          );
           if (bypass.length) await this.deps.acknowledgeBypass?.(bypass);
         }
         await this.applyValues(pending.text, pending.values);

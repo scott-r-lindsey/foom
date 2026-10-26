@@ -461,8 +461,8 @@ test("the config panel offers the held digest's existing Allow/Keep decision", a
   const pending = {
     id: "held-digest",
     file: "settings.json",
-    action: "change OpenCode launch arguments",
-    detail: "agentArguments.opencode",
+    action: "change FixtureCode launch arguments",
+    detail: "agentArguments.fixturecode",
   };
   const status = { folder: "/config", available: true, pending, rejected: [] };
   const decide = vi.fn(() => Promise.resolve({ ...status, pending: null }));

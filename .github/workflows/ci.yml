@@ -223,7 +223,7 @@ jobs:
         if: runner.os == 'Linux'
         run: xvfb-run -a pnpm run test:electron
       - name: Test Electron on macOS and Windows
-        timeout-minutes: 10
+        timeout-minutes: 14
         if: runner.os != 'Linux'
         run: pnpm run test:electron
       - name: Upload Electron timing and process diagnostics
@@ -267,9 +267,13 @@ jobs:
           github.ref == 'refs/heads/main' &&
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_nightly))
         run: node scripts/nightly.mjs stamp
+      - name: Spike signed embedded native assets without Release credentials
+        if: runner.os == 'macOS'
+        run: node scripts/spike-remote-host-signing.mjs
       - name: Build native host, ad-hoc sign Darwin and measure gzip
         env:
           FOOM_REMOTE_HOST_OUTPUT: remote-host-artifacts
+          FOOM_REMOTE_HOST_INPUTS_OUTPUT: remote-host-inputs
         run: node scripts/build-remote-host.mjs
       - name: Verify native SEA startup without a host or network
         # Invalid arguments must reach our entry point (exit 2), not Node itself.
@@ -288,6 +292,15 @@ jobs:
             remote-host-artifacts/${{ matrix.target }}/foom-host.gz
             remote-host-artifacts/${{ matrix.target }}/manifest.json
           compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload credential-free Darwin SEA inputs
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: host-inputs-${{ matrix.target }}
+          path: remote-host-inputs/
           if-no-files-found: error
           retention-days: 3
 
@@ -329,7 +342,7 @@ jobs:
       - name: Test hooks and control storage with native OS tools
         # Cold PowerShell probes compete for startup when these files run together.
         # Exercise native transport once per platform, with one OS probe at a time.
-        run: pnpm test --reporter=default --reporter=junit --outputFile.junit=test-results/hooks.xml --no-file-parallelism tests/unit/main/login-shell.test.ts tests/unit/main/agents/hook-receiver.test.ts tests/unit/main/agents/hook-adapters.test.ts tests/unit/main/agents/agy-observer.test.ts tests/unit/main/agents/hook-launch.test.ts tests/unit/main/agents/codex-hooks.test.ts tests/unit/main/agents/v2-native.test.ts tests/unit/main/control/private-native.test.ts tests/unit/main/update-package.test.ts
+        run: pnpm test --reporter=default --reporter=junit --outputFile.junit=test-results/hooks.xml --no-file-parallelism tests/unit/main/login-shell.test.ts tests/unit/main/agents/hook-receiver.test.ts tests/unit/main/agents/hook-adapters.test.ts tests/unit/main/agents/agy-observer.test.ts tests/unit/main/agents/agy-mcp.test.ts tests/unit/main/agents/hook-launch.test.ts tests/unit/main/agents/codex-hooks.test.ts tests/unit/main/agents/v2-native.test.ts tests/unit/main/control/private-native.test.ts tests/unit/main/update-package.test.ts
       - name: Test Antigravity observer alone
         run: pnpm test tests/unit/main/agents/agy-observer.test.ts --reporter=default --reporter=junit --outputFile.junit=test-results/agy-observer.xml
       - name: Test Git inventory paths on native filesystem
@@ -373,6 +386,13 @@ jobs:
           for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
             mv ".cache/remote-host-download/remote-host-$target" ".cache/remote-hosts/$target"
           done
+      - name: Download this run's Darwin SEA inputs
+        if: runner.os == 'macOS'
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v4
+        with:
+          pattern: host-inputs-darwin-*
+          path: .cache/remote-host-inputs
+          merge-multiple: true
       - name: Package desktop application
         run: pnpm run make
       - name: Verify macOS ad-hoc signature after packaging and fuses
@@ -535,6 +555,12 @@ jobs:
         with:
           name: Foom-macos-15
           path: tested-macos
+      - name: Download this run's Darwin SEA inputs
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v4
+        with:
+          pattern: host-inputs-darwin-*
+          path: .cache/remote-host-inputs
+          merge-multiple: true
       - name: Import Release credentials
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
@@ -544,7 +570,7 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: node scripts/macos-credentials.mjs setup
-      - name: Sign, notarize, staple and verify the tested ZIP without rebuilding
+      - name: Sign, notarize, staple and verify the tested ZIP without rebuilding the app
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}

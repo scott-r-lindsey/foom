@@ -40,7 +40,7 @@ beforeEach(async () => {
     },
     restoreWorktree: () => Promise.resolve(undefined),
     stop: () => Promise.resolve(true),
-    close: () => Promise.resolve(),
+    close: () => Promise.resolve(true),
     reply: vi.fn(() => Promise.resolve()),
     tail: () => Promise.resolve(["ok"]),
     remove: () => Promise.resolve(false),

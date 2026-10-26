@@ -1,7 +1,7 @@
 import type { UpdateState } from "../../shared/updates";
 import type { ReadinessReport } from "../../shared/readiness";
 import type { ThemeCatalog } from "../../shared/theme-file";
-import { hasBypassArgument } from "../agents/default-arguments";
+import { bypassConsentIdentity, hasBypassArgument } from "../agents/default-arguments";
 import type { AgentId } from "../../shared/agents";
 import { isRecent, scanCodeFolder, suggestCodeFolders } from "./code-scan";
 import { parseSettingsPatch } from "./settings";
@@ -78,7 +78,7 @@ export class Setup {
 
   async save(value: unknown): Promise<SetupState> {
     const patch = parseSettingsPatch(value);
-    if (patch.agentBypassAcknowledged !== undefined)
+    if (patch.agentBypassAcknowledged !== undefined || patch.agentBypassIdentities !== undefined)
       throw new Error("Bypass acknowledgement belongs to Foom's confirmation dialog.");
     const saving = this.saving.catch(() => undefined).then(() => this.savePatch(patch));
     this.saving = saving;
@@ -107,14 +107,18 @@ export class Setup {
     }
     if (patch.agentArguments) {
       const acknowledged = { ...before.agentBypassAcknowledged };
+      const identities = { ...before.agentBypassIdentities };
       for (const [agent, args] of Object.entries(patch.agentArguments)) {
-        if (hasBypassArgument(agent, args) && !acknowledged[agent]) {
+        const identity = bypassConsentIdentity(agent);
+        if (identity && hasBypassArgument(agent, args) && identities[agent] !== identity) {
           if (!(await this.deps.confirmBypass?.(agent, args)))
             throw new Error("Default arguments were not saved. Bypass disclosure was cancelled.");
           acknowledged[agent] = true;
+          identities[agent] = identity;
         }
       }
       patch.agentBypassAcknowledged = acknowledged;
+      patch.agentBypassIdentities = identities;
     }
     const settings = await this.deps.store.update(patch);
     this.deps.apply(settings);

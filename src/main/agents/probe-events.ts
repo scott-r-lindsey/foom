@@ -29,11 +29,19 @@ export function probeHookEvent(
   visit(payload, "", 0);
   return {
     channel: channel.id,
-    event: typeof name === "string" && /^[A-Za-z][A-Za-z0-9_-]{0,63}$/u.test(name) ? name : null,
+    event: typeof name === "string" && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/u.test(name) ? name : null,
     caseId: signal?.caseId ?? null,
     paths,
     sessionMatchesNewId:
-      expected !== undefined && selectValue(channel.mapping.session, sources) === expected,
+      expected !== undefined &&
+      [channel.mapping.session, ...(channel.mapping.sessionAliases ?? [])].some(
+        (selector) => selectValue(selector, sources) === expected,
+      ) &&
+      [channel.mapping.session, ...(channel.mapping.sessionAliases ?? [])].every(
+        (selector) =>
+          selectValue(selector, sources) === undefined ||
+          selectValue(selector, sources) === expected,
+      ),
   };
 }
 export type ProbeHookEvent = ReturnType<typeof probeHookEvent>;

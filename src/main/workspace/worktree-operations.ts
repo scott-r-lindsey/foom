@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdir, realpath, rmdir } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -137,6 +138,7 @@ export async function adoptWorktree(
   unused: readonly { path: string; identity: string }[],
   revalidate: (path?: string, branch?: string) => void,
   location: "root" | "adjacent" = "root",
+  review = false,
 ): Promise<{ path: string; branch: string; identity: string }> {
   const remote = await git(repositoryPath, ["config", "--get", "remote.origin.url"]).catch(
     () => undefined,
@@ -167,6 +169,43 @@ export async function adoptWorktree(
   const defaultBranch = /^ref: refs\/heads\/([^\n\t]+)\tHEAD$/mu.exec(advertised)?.[1];
   if (!defaultBranch) throw new ControlError("forge_unavailable");
   if (branch === defaultBranch) throw new ControlError("default_branch");
+  if (review) {
+    revalidate(undefined);
+    // A private fetch ref avoids FETCH_HEAD races with inventory/background fetches.
+    const ref = `refs/foom-review-fetch/${randomUUID()}`;
+    let attemptedCreation = false;
+    try {
+      await git(repositoryPath, [
+        "fetch",
+        "--no-tags",
+        "--no-write-fetch-head",
+        "--",
+        "origin",
+        `+refs/heads/${branch}:${ref}`,
+        `+refs/heads/${branch}:refs/remotes/origin/${branch}`,
+      ]);
+      const head = (await git(repositoryPath, ["rev-parse", "--verify", `${ref}^{commit}`])).trim();
+      if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(head)) throw new Error("Invalid PR head");
+      revalidate(undefined);
+      try {
+        attemptedCreation = true;
+        const { path } = await service.createWorktree(
+          repositoryPath,
+          `review-${String(number)}-${randomUUID()}`,
+          { location, detachedHead: head, reviewBranch: branch },
+        );
+        return { path, branch, identity: await service.launchIdentity(repositoryPath, path) };
+      } catch {
+        // Creation/persistence may have succeeded before a later validation failed.
+        throw new UncertainEffect();
+      }
+    } finally {
+      await git(repositoryPath, ["update-ref", "-d", ref]).catch((error: unknown) => {
+        if (attemptedCreation) throw new UncertainEffect();
+        throw error;
+      });
+    }
+  }
   const checkedOut = (await service.listWorktrees(repositoryPath)).filter(
     (tree) => tree.branch === branch,
   );
@@ -335,11 +374,18 @@ export async function createWorktree(
   const checkedOut = (await context.listWorktrees(repository.path)).find(
     (tree) => tree.branch === branch,
   );
-  if (checkedOut) {
+  if (checkedOut && options.detachedHead === undefined) {
     if (options.trackOrigin) throw new ControlError("branch_in_use");
     if (options.newBranch) throw new Error("Branch already exists");
     return { path: checkedOut.path, outcome: "open" };
   }
+  if (
+    options.detachedHead !== undefined &&
+    (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(options.detachedHead) ||
+      options.newBranch ||
+      options.trackOrigin)
+  )
+    throw new Error("Invalid detached creation");
   const location = options.location ?? "root";
   const configuredRoot = location === "adjacent" ? dirname(repository.path) : context.root;
   await mkdir(configuredRoot, { recursive: true });
@@ -375,12 +421,25 @@ export async function createWorktree(
   try {
     // The full remote ref avoids ambiguity with a local branch named like `origin/x`.
     await git(repository.path, [
+      ...(options.detachedHead ? ["-c", "core.logAllRefUpdates=true"] : []),
       "worktree",
       "add",
-      ...(exists ? [] : onRemote ? ["--track", "-b", branch] : ["-b", branch]),
+      ...(options.detachedHead
+        ? ["--detach"]
+        : exists
+          ? []
+          : onRemote
+            ? ["--track", "-b", branch]
+            : ["-b", branch]),
       "--",
       path,
-      ...(exists ? [branch] : onRemote ? [tracked] : []),
+      ...(options.detachedHead
+        ? [options.detachedHead]
+        : exists
+          ? [branch]
+          : onRemote
+            ? [tracked]
+            : []),
     ]);
   } catch (error) {
     // Only remove the empty directory we reserved; never recursively delete on failure.

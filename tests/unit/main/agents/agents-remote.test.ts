@@ -137,3 +137,40 @@ test("remote launches require a captured final authority guard before allocating
   expect(f.control).not.toHaveBeenCalled();
   expect(f.create).not.toHaveBeenCalled();
 });
+
+test("remote selections replace manifest defaults and retain effective local launch metadata", async () => {
+  const f = fixture();
+  const defaults = ["--model", "old", "--system-prompt", "--model=literal", "--effort", "low"];
+  const launched = await f.service.launch({
+    ...request,
+    control: { parentId: "parent-id" },
+    selection: { model: "opus", effort: "high" },
+    defaultArguments: defaults,
+  });
+  const selected = ["--system-prompt", "--model=literal", "--model", "opus", "--effort", "high"];
+  expect(f.create.mock.calls[0]?.[0].remote?.agent?.spec.defaults).toEqual(selected);
+  expect(launched.launchFlags).toEqual(selected);
+  expect(defaults).toEqual([
+    "--model",
+    "old",
+    "--system-prompt",
+    "--model=literal",
+    "--effort",
+    "low",
+  ]);
+  expect(execFile).not.toHaveBeenCalled();
+  f.service.release(launched.id);
+});
+
+test.each(["pi", "opencode"])(
+  "remote %s attachments refuse before allocating credentials or discovery",
+  async (agent) => {
+    const f = fixture();
+    await expect(
+      f.service.launch({ ...request, agent, control: { parentId: "parent-id" } }),
+    ).rejects.toThrow("remote_agent_unsupported");
+    expect(f.control).not.toHaveBeenCalled();
+    expect(f.create).not.toHaveBeenCalled();
+    expect(execFile).not.toHaveBeenCalled();
+  },
+);

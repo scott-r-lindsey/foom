@@ -1,3 +1,4 @@
+import { selectionInput } from "../node-common/launch-selection";
 import { reviewOptions } from "../shared/review-validation";
 import { isChildInput } from "../shared/child-input";
 import { readHandoffRequest } from "../shared/handoff-validation";
@@ -101,6 +102,12 @@ function orchestration(name: string | undefined, words: string[]): Command {
     words.splice(words.indexOf("--until-event"), 1);
     params["untilEvent"] = true;
   }
+  if (name === "create-worktree" && words.includes("--review")) {
+    if (words.filter((word) => word === "--review").length !== 1)
+      throw new ControlError("invalid_request");
+    words.splice(words.indexOf("--review"), 1);
+    params["review"] = true;
+  }
   const flags = new Map<string, string>();
   for (let i = 0; i < words.length; i += 2) {
     const flag = words[i];
@@ -133,6 +140,7 @@ function orchestration(name: string | undefined, words: string[]): Command {
         params["pullRequest"] = integer(number, Number.MAX_SAFE_INTEGER, 1);
         break;
       }
+      if (params["review"] !== undefined) throw new ControlError("invalid_request");
       const branch = text(positional[0], 200);
       if (/\s/u.test(branch)) throw new ControlError("invalid_request");
       params["branch"] = branch;
@@ -143,11 +151,18 @@ function orchestration(name: string | undefined, words: string[]): Command {
       const agent = take("--agent");
       if (!validAgentId(agent)) throw new ControlError("invalid_request");
       params["agent"] = agent;
+      const model = take("--model");
+      const effort = take("--effort");
+      Object.assign(params, selectionInput({ model, effort }));
+      const reviewModel = take("--review-model");
+      const reviewEffort = take("--review-effort");
       const rounds = take("--review-rounds");
       const reviewer = take("--review-agent");
       const post = take("--review-post-findings");
       const parentWait = take("--review-parent-wait-minutes");
       if (
+        reviewModel !== undefined ||
+        reviewEffort !== undefined ||
         rounds !== undefined ||
         reviewer !== undefined ||
         post !== undefined ||
@@ -156,6 +171,8 @@ function orchestration(name: string | undefined, words: string[]): Command {
         if (post !== undefined && post !== "true" && post !== "false")
           throw new ControlError("invalid_request");
         params["review"] = reviewOptions({
+          ...(reviewModel === undefined ? {} : { model: reviewModel }),
+          ...(reviewEffort === undefined ? {} : { effort: reviewEffort }),
           ...(rounds === undefined ? {} : { rounds: integer(rounds, 5, 1) }),
           ...(reviewer === undefined ? {} : { agent: reviewer }),
           ...(post === undefined ? {} : { postFindings: post === "true" }),

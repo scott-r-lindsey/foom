@@ -1,3 +1,4 @@
+import { eventModule } from "./v2-event-module";
 import { observerHealth, installedObserverPath } from "./installed-observers";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -58,6 +59,12 @@ export async function prepareV2Hooks(
 
         env[`FOOM_CHANNEL_${channel.id.replaceAll("-", "_")}`] = channel.id;
         if (options.transport === "external") continue;
+        if (options.transport === "event-module") {
+          const root = await privateDirectory(directory, channel.id);
+          await writeOwnedFile(join(root, "index.mjs"), eventModule(channel));
+          v2.values[`observerModule:${channel.id}`] = root;
+          continue;
+        }
         if (options.sequence) {
           const order = join(directory, `${channel.id}.order`);
           await writeOwnedFile(order, "0");

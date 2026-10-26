@@ -109,7 +109,15 @@ cleanup actions and removal subsets, must pass the same focus, visibility and
 geometry checks at IPC receipt; recovery itself never grants approval.
 Hiding, minimizing or destroying the child, or hiding/minimizing its board, also
 cancels after checking current native visibility/minimization, so a late Cocoa
-hide notification cannot dismiss a newly visible reused request. Timers and
+hide notification cannot dismiss a newly visible reused request. On macOS, child
+blur also rechecks current availability: Cocoa can notify hide before relinquishing key
+focus, and that later key loss must decline a still-hidden child before recovery
+can map it again. A visible child losing focus still uses the bounded reachability
+guard. Native hide/minimize
+events during the reparent/show/focus sequence are rechecked against current child
+and parent state when that sequence finishes, before publishing `presented: true`.
+Transient occlusion may recover within the sequence; a window that remains hidden
+or minimized declines immediately and cannot be re-presented by the guard. Timers and
 listeners are removed on dismissal and disposal.
 These focus checks are a recovery safety net; the Electron regression observes
 composed desktop pixels, since macOS can report native focus through an overlay.
@@ -167,3 +175,20 @@ Quit inventories live terminals in main, including shells outside the workspace
 snapshot; it does not query the board. Renderer loss immediately releases a pending terminal view flush; a crashed board
 is not asked to flush again until it loads. The existing deadline still allows
 shutdown when a live board is unresponsive.
+
+### Focus restoration (#852)
+
+Deliberate answers, Escape/native close and abort dismissal restore the board's
+native window and web contents only while the presented child is still reachable
+and the board is visible and not minimized. Availability failures and disposal
+never activate the board. This applies equally to `activate: false` requests:
+dismissal cannot bring Foom forward after the person switches to another app.
+Main releases native input blocking and requests eligible native/web focus before
+sending the scrim-dismiss notification, so DOM restoration cannot race a disabled
+Windows board.
+The existing boolean scrim notification captures and restores the board's DOM
+input target; no terminal payload or new IPC capability is needed. If the target
+closed, the renderer falls back to the focused tile's xterm input, its tile, then
+the sidebar navigation root. That root survives sidebar snapshots which may
+remove a stale session row after terminal teardown. If the root is absent, a
+sidebar navigation control or the application menu can receive focus.

@@ -85,7 +85,7 @@ export function harness(overrides: Pick<OrchestrationHost, "reviewSnapshot"> = {
       }),
     ),
     stop: vi.fn((_id: string) => Promise.resolve(true)),
-    close: vi.fn((_id: string) => Promise.resolve()),
+    close: vi.fn((_id: string) => Promise.resolve(true)),
     place: vi.fn(),
     reply: vi.fn((_id: string, _input: ChildInput) => Promise.resolve()),
     tail: vi.fn((_id: string, _lines: number) => Promise.resolve(["ready"])),

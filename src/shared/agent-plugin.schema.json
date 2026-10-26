@@ -364,6 +364,23 @@
       "additionalProperties": false,
       "required": ["order"],
       "properties": {
+        "valueFlags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^--?[A-Za-z][A-Za-z0-9-]*$"
+          },
+          "maxItems": 64,
+          "minItems": 0
+        },
+        "model": {
+          "$ref": "#/$defs/launchSelection"
+        },
+        "effort": {
+          "$ref": "#/$defs/launchSelection"
+        },
         "order": {
           "type": "array",
           "items": {
@@ -400,6 +417,9 @@
         "mcp": {
           "$ref": "#/$defs/block"
         },
+        "extension": {
+          "$ref": "#/$defs/extension"
+        },
         "environment": {
           "type": "array",
           "items": {
@@ -412,6 +432,49 @@
           "$ref": "#/$defs/tools"
         }
       }
+    },
+    "launchSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flags", "arguments"],
+      "properties": {
+        "flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^--?[A-Za-z][A-Za-z0-9-]*$"
+          },
+          "maxItems": 8,
+          "minItems": 1
+        },
+        "arguments": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+          },
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/selectionToken"
+          },
+          "maxItems": 32,
+          "minItems": 1
+        }
+      }
+    },
+    "selectionToken": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$"
     },
     "block": {
       "type": "object",
@@ -493,6 +556,28 @@
         }
       }
     },
+    "extension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api", "channel", "arguments", "when"],
+      "properties": {
+        "api": {
+          "const": "pi-v1"
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "arguments": {
+          "$ref": "#/$defs/argv"
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
+        }
+      }
+    },
     "launchEnvironment": {
       "type": "object",
       "additionalProperties": false,
@@ -551,8 +636,11 @@
           "maxItems": 19,
           "minItems": 0
         },
+        "fileRules": {
+          "const": "action-resource"
+        },
         "format": {
-          "enum": ["mcp-double-underscore", "server-parentheses"]
+          "enum": ["mcp-double-underscore", "server-parentheses", "server-underscore"]
         },
         "arguments": {
           "$ref": "#/$defs/argv"
@@ -639,6 +727,9 @@
         },
         {
           "$ref": "#/$defs/externalObserver"
+        },
+        {
+          "$ref": "#/$defs/moduleObserver"
         }
       ]
     },
@@ -733,6 +824,19 @@
         }
       }
     },
+    "moduleObserver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transport", "version"],
+      "properties": {
+        "transport": {
+          "const": "event-module"
+        },
+        "version": {
+          "const": 1
+        }
+      }
+    },
     "mapping": {
       "type": "object",
       "additionalProperties": false,
@@ -740,6 +844,14 @@
       "properties": {
         "session": {
           "$ref": "#/$defs/selector"
+        },
+        "sessionAliases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/selector"
+          },
+          "maxItems": 8,
+          "minItems": 0
         },
         "event": {
           "$ref": "#/$defs/selector"
@@ -1055,6 +1167,12 @@
       "additionalProperties": false,
       "required": ["format", "arguments"],
       "properties": {
+        "prefix": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+        },
         "format": {
           "const": "uuid"
         },
@@ -1106,6 +1224,9 @@
         },
         "provenance": {
           "$ref": "#/$defs/provenance"
+        },
+        "sampleWhileActive": {
+          "type": "boolean"
         }
       }
     },
@@ -1375,11 +1496,11 @@
         "format": {
           "const": "json"
         },
-        "empty": {
-          "$ref": "#/$defs/emptyProbe"
-        },
         "fallbackArguments": {
           "$ref": "#/$defs/argv"
+        },
+        "empty": {
+          "$ref": "#/$defs/emptyProbe"
         }
       }
     },

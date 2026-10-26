@@ -1,4 +1,5 @@
 import { parseForgeEnablement, parseForgeHosts } from "./forge-settings";
+import { legacyBypassIdentities } from "../agents/providers/bundled";
 import { DEFAULT_TERMINAL_FONT } from "../../shared/terminal-fonts";
 import {
   EMPTY_AGENT_ARGUMENTS,
@@ -16,10 +17,10 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { validAgentId } from "../../shared/providers/catalog";
-import type { BuiltinAgentId } from "../../shared/agents";
+import type { LegacyAgentId } from "../../shared/agents";
 import type { Settings, SettingsPatch } from "../../shared/setup";
 
-const AGENTS = ["claude", "codex", "agy"] as const satisfies readonly BuiltinAgentId[];
+const AGENTS: readonly LegacyAgentId[] = ["claude", "codex", "agy"];
 /** Twice the theme folder limit, so renames settle before old entries are removed. */
 const MAX_THEME_DIGESTS = 100;
 
@@ -92,6 +93,18 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
         codex: entry["codex"] === true,
         agy: entry["agy"] === true,
       };
+    else if (
+      key === "agentBypassIdentities" &&
+      record(entry) &&
+      Object.keys(entry).length <= 100 &&
+      Object.entries(entry).every(
+        ([id, identity]) =>
+          validAgentId(id) && typeof identity === "string" && /^[a-f0-9]{64}$/u.test(identity),
+      )
+    )
+      patch.agentBypassIdentities = Object.fromEntries(
+        Object.entries(entry).map(([id, identity]) => [id, String(identity)]),
+      );
     else if (
       key === "agentHooks" &&
       record(entry) &&
@@ -225,6 +238,20 @@ export class SettingsStore {
           sound: sound === undefined || version === 2 ? DEFAULT_SOUND : migrateSoundSettings(sound),
           agentArguments: recovered,
         };
+        // ID-only consent is provable only for historically reserved built-ins.
+        // Pin their historical identity, never the current provider's identity.
+        const identities = { ...store.settings.agentBypassIdentities };
+        for (const [agent, identity] of Object.entries(legacyBypassIdentities)) {
+          if (
+            store.settings.agentBypassAcknowledged[agent] &&
+            !Object.hasOwn(identities, agent) &&
+            Object.keys(identities).length < 100
+          ) {
+            identities[agent] = identity;
+            migrated = true;
+          }
+        }
+        if (migrated) store.settings = { ...store.settings, agentBypassIdentities: identities };
         if (Object.values(recovered).some((args) => args.length > 0))
           store.argumentsToMove = recovered;
         if (version === 2) {
@@ -256,7 +283,7 @@ export class SettingsStore {
             ).map((key) => [key, store.settings[key]]),
           );
         }
-        migrated = legacy || legacyAutoRemove;
+        migrated ||= legacy || legacyAutoRemove;
       }
     } catch {
       // Defaults.
@@ -354,7 +381,7 @@ export class SettingsStore {
     await this.write(() => {
       this.settings = { ...this.settings, ...profile };
       if (profile.agentArguments)
-        this.argumentsToMove = AGENTS.some((agent) => profile.agentArguments?.[agent].length)
+        this.argumentsToMove = Object.values(profile.agentArguments).some((args) => args.length)
           ? profile.agentArguments
           : undefined;
     });

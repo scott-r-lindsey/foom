@@ -595,7 +595,8 @@ it("preserves native observer bytes while anchoring hook commands on both platfo
           foomStagingFingerprint: staged.fingerprint,
         });
       } else if (name === "hooks.json") expect(files[name]).not.toContain("./observer.");
-      else if (windows || name === "observer.sh") expect(files[name]).toBe(content);
+      else if (name !== "mcp_config.json" && (windows || name === "observer.sh"))
+        expect(files[name]).toBe(content);
     }
   }
 });

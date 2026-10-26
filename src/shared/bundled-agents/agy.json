@@ -26,6 +26,19 @@
             }
           ]
         }
+      },
+      {
+        "id": "pluginMcp",
+        "minimum": [1, 4, 2],
+        "when": {
+          "all": [
+            {
+              "field": "setupState",
+              "op": "eq",
+              "value": "installed"
+            }
+          ]
+        }
       }
     ]
   },
@@ -58,6 +71,11 @@
             "field": "guidance",
             "op": "eq",
             "value": true
+          },
+          {
+            "field": "pluginMcp",
+            "op": "eq",
+            "value": false
           }
         ],
         "any": [
@@ -78,6 +96,32 @@
         "output": "--prompt-interactive",
         "separators": "whitespace"
       }
+    },
+    "mcp": {
+      "arguments": [],
+      "when": {
+        "all": [
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "pluginMcp",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    "model": {
+      "flags": ["--model"],
+      "arguments": ["--model", "{value}"]
+    },
+    "effort": {
+      "flags": ["--effort"],
+      "arguments": ["--effort", "{value}"],
+      "values": ["low", "medium", "high", "max"]
     }
   },
   "files": [
@@ -421,7 +465,7 @@
           "source": "metadata",
           "path": ["manifest", "foomObserverVersion"]
         },
-        "currentVersion": 3,
+        "currentVersion": 4,
         "disabledField": {
           "source": "metadata",
           "path": ["manifest", "disabled"]
@@ -534,7 +578,7 @@
             }
           ]
         },
-        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; observes only Foom launches, approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
+        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; provides lifecycle observers and the Foom MCP server only in Foom launches using environment-only credentials and main-assigned roles; approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
         "statusProbe": ["plugin", "list", "--json"]
       },
       {
@@ -551,7 +595,7 @@
             }
           ]
         },
-        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; observes only Foom launches, approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
+        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; provides lifecycle observers and the Foom MCP server only in Foom launches using environment-only credentials and main-assigned roles; approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
         "statusProbe": ["plugin", "list", "--json"]
       },
       {
@@ -568,7 +612,7 @@
             }
           ]
         },
-        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; observes only Foom launches, approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
+        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; provides lifecycle observers and the Foom MCP server only in Foom launches using environment-only credentials and main-assigned roles; approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
         "statusProbe": ["plugin", "list", "--json"]
       },
       {
@@ -585,7 +629,7 @@
             }
           ]
         },
-        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; observes only Foom launches, approves no tools, stores no credentials. Remove with agy plugin uninstall foom. Reinstall first uninstalls the owned plugin, then installs the reviewed staged files. If installation fails, the plugin remains removed; scan again and Install.",
+        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; provides lifecycle observers and the Foom MCP server only in Foom launches using environment-only credentials and main-assigned roles; approves no tools, stores no credentials. Remove with agy plugin uninstall foom. Reinstall first uninstalls the owned plugin, then installs the reviewed staged files. If installation fails, the plugin remains removed; scan again and Install.",
         "statusProbe": ["plugin", "list", "--json"]
       },
       {
@@ -602,7 +646,7 @@
             }
           ]
         },
-        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; observes only Foom launches, approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
+        "disclosure": "CLI-owned opt-in Foom lifecycle plugin at ~/.gemini/config/plugins/foom; provides lifecycle observers and the Foom MCP server only in Foom launches using environment-only credentials and main-assigned roles; approves no tools, stores no credentials. Remove with agy plugin uninstall foom.",
         "statusProbe": ["plugin", "list", "--json"]
       }
     ],

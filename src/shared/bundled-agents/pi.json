@@ -1,0 +1,457 @@
+{
+  "kind": "agent",
+  "version": 2,
+  "id": "pi",
+  "name": "Pi",
+  "badge": "PI",
+  "executables": ["pi"],
+  "discovery": {
+    "version": {
+      "prefix": "",
+      "suffixes": [""],
+      "minimum": [1, 4, 0]
+    },
+    "facts": [
+      {
+        "id": "promptSupport",
+        "helpTokens": ["--session-id", "--session"],
+        "minimum": [1, 4, 0]
+      },
+      {
+        "id": "extensionSupport",
+        "helpTokens": ["--extension"],
+        "minimum": [1, 4, 0]
+      }
+    ]
+  },
+  "launch": {
+    "order": [
+      "resume",
+      "defaults",
+      "arguments",
+      "display",
+      "guidance",
+      "mcp",
+      "hooks",
+      "tools",
+      "prompt"
+    ],
+    "prompt": {
+      "arguments": ["--", "{prompt}"],
+      "requires": "promptSupport"
+    },
+    "resume": {
+      "arguments": ["--session", "{conversationId}"]
+    },
+    "extension": {
+      "api": "pi-v1",
+      "channel": "lifecycle",
+      "arguments": ["--extension", "{extensionFile}"],
+      "when": {
+        "all": [
+          {
+            "field": "extensionSupport",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    "mcp": {
+      "arguments": [],
+      "when": {
+        "all": [
+          {
+            "field": "extensionSupport",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    "model": {
+      "flags": ["--model"],
+      "arguments": ["--model", "{value}"]
+    }
+  },
+  "reservedArguments": [
+    {
+      "flag": "--session",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--session-id",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--session-dir",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--continue",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--resume",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--fork",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--no-session",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--print",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--mode",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "prefix": "-r"
+    },
+    {
+      "prefix": "-c"
+    },
+    {
+      "prefix": "-p"
+    },
+    {
+      "flag": "--extension",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "-e",
+      "forms": ["exact", "equals", "attached-short"]
+    },
+    {
+      "flag": "--no-mcp",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--no-extensions",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "-ne",
+      "forms": ["exact", "equals"]
+    }
+  ],
+  "bypassArguments": [
+    {
+      "flag": "--approve",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "-a",
+      "forms": ["exact", "equals"]
+    }
+  ],
+  "bypassEnvironment": [],
+  "conversation": {
+    "resumePin": "requested-on-paste",
+    "restoreControl": true,
+    "newId": {
+      "format": "uuid",
+      "arguments": ["--session-id", "{newId}"]
+    }
+  },
+  "resumePaste": [
+    {
+      "command": "pi",
+      "selector": "--session"
+    }
+  ],
+  "attention": {
+    "minimumEngineVersion": 1,
+    "rules": [
+      {
+        "id": "model-selection",
+        "state": "blocked",
+        "priority": 300,
+        "region": "bottom",
+        "lines": 40,
+        "match": {
+          "contains": ["Only showing models from configured providers.", "Model Name:"]
+        },
+        "reason": "Model selection requested",
+        "comment": "Pi 1.4.0 /model picker, measured on Linux; no file permission prompt was observed."
+      },
+      {
+        "id": "provider_model",
+        "state": "blocked",
+        "priority": 75,
+        "region": "bottom",
+        "lines": 8,
+        "match": {
+          "contains": ["Error: OpenAI API error (400):", "\"code\":\"model_not_found\""]
+        },
+        "reason": "Pi model is unavailable",
+        "comment": "Pi 1.4.0 OpenAI model-not-found error, measured on Linux; prevents idle from implying a completed turn."
+      },
+      {
+        "id": "working",
+        "state": "working",
+        "priority": 100,
+        "region": "bottom",
+        "lines": 6,
+        "match": {
+          "contains": ["Working \u2500", "(auto)"]
+        },
+        "reason": "Pi is working",
+        "comment": "Pi 1.4.0 fullscreen editor divider, measured on Linux."
+      },
+      {
+        "id": "idle",
+        "state": "idle",
+        "priority": 50,
+        "region": "bottom",
+        "lines": 4,
+        "match": {
+          "contains": [
+            "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+            "(auto)"
+          ]
+        },
+        "not": [
+          {
+            "contains": ["Working \u2500"]
+          }
+        ],
+        "reason": "Pi editor is idle",
+        "comment": "Pi 1.4.0 plain editor dividers and usage footer; working rule wins. Idle does not imply success."
+      }
+    ],
+    "provenance": {
+      "source": "docs/agents.md#pi-140-measurement-823; Pi 1.4.0 Linux manual PTY measurements, 2026-10-25",
+      "license": "Apache-2.0; Foom contributors",
+      "modified": "Original bounded rules from observed Working/editor/model-picker/model-error screens; no inferred file permission state."
+    },
+    "sampleWhileActive": true
+  },
+  "execution": {
+    "completion": "observed",
+    "completionChannels": ["lifecycle"],
+    "providerRules": ["provider_model"]
+  },
+  "hooks": {
+    "channels": [
+      {
+        "id": "lifecycle",
+        "when": {
+          "all": [
+            {
+              "field": "extensionSupport",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "hooksEnabled",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        },
+        "observer": {
+          "transport": "external"
+        },
+        "arguments": [],
+        "mapping": {
+          "session": {
+            "source": "payload",
+            "path": ["conversationId"]
+          },
+          "event": {
+            "source": "payload",
+            "path": ["event"]
+          },
+          "cases": [
+            {
+              "id": "session_start",
+              "event": "session_start",
+              "action": "ready"
+            },
+            {
+              "id": "agent_start",
+              "event": "agent_start",
+              "action": "working"
+            },
+            {
+              "id": "turn_start",
+              "event": "turn_start",
+              "action": "working"
+            },
+            {
+              "id": "turn_end",
+              "event": "turn_end",
+              "action": "working"
+            },
+            {
+              "id": "tool_execution_start",
+              "event": "tool_execution_start",
+              "action": "working"
+            },
+            {
+              "id": "ui_prompt_start",
+              "event": "ui_prompt_start",
+              "action": "needs_input"
+            },
+            {
+              "id": "ui_prompt_end_false",
+              "event": "ui_prompt_end",
+              "action": "working",
+              "endsTurn": false,
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["fullyIdle"]
+                  },
+                  "type": "boolean"
+                }
+              ],
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["fullyIdle"]
+                    },
+                    "op": "eq",
+                    "value": false
+                  }
+                ]
+              }
+            },
+            {
+              "id": "ui_prompt_end_true",
+              "event": "ui_prompt_end",
+              "action": "classify",
+              "endsTurn": false,
+              "facts": [
+                {
+                  "name": "fullyIdle",
+                  "field": {
+                    "source": "payload",
+                    "path": ["fullyIdle"]
+                  }
+                }
+              ],
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["fullyIdle"]
+                  },
+                  "type": "boolean"
+                }
+              ],
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["fullyIdle"]
+                    },
+                    "op": "eq",
+                    "value": true
+                  }
+                ]
+              }
+            },
+            {
+              "id": "settled_completed",
+              "event": "agent_settled",
+              "action": "classify",
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["outcome"]
+                  },
+                  "type": "string",
+                  "values": ["completed", "aborted", "error"]
+                }
+              ],
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["outcome"]
+                    },
+                    "op": "eq",
+                    "value": "completed"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "settled_aborted",
+              "event": "agent_settled",
+              "action": "failed",
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["outcome"]
+                  },
+                  "type": "string",
+                  "values": ["completed", "aborted", "error"]
+                }
+              ],
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["outcome"]
+                    },
+                    "op": "eq",
+                    "value": "aborted"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "settled_error",
+              "event": "agent_settled",
+              "action": "failed",
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["outcome"]
+                  },
+                  "type": "string",
+                  "values": ["completed", "aborted", "error"]
+                }
+              ],
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["outcome"]
+                    },
+                    "op": "eq",
+                    "value": "error"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

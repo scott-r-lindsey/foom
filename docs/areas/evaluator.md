@@ -45,14 +45,18 @@ A permission hook (`needs_input`) stays in force across later quiet evaluations.
 For agents, typing records reply feedback but does not establish resumed execution;
 neither typing nor dismissal overrides lifecycle evidence. Dismissal still clears the
 attention indicator and reminders; it does not start Working audio. A later working hook
-releases an explicit permission blocker. Opening a terminal is not a reply.
+releases an explicit permission blocker. Opening a terminal is not a reply. A mouse
+button press reported by an agent TUI still counts as reply input, including a click used to focus it; focus reports,
+mouse motion, releases and wheel reports do not. Shell click-as-reply behavior is
+unchanged.
 Shell reply/dismissal behavior remains separate: replies mark Working and dismissal
 marks Quiet. Terminal-generated reports are filtered by `terminal-reports.ts`.
 New lifecycle transitions invalidate asynchronous classifications. Host output
 invalidates pending screen classifications but never establishes agent execution.
 
 A verdict is published even if the log can't store it. It then has a null
-`verdictId`: a reply still clears it without recording anything, and
+`verdictId`: a shell reply still clears it without recording anything; agent reply
+input preserves attention until supported execution evidence or Dismiss clears it.
 `terminal:feedback` accepts null only for the terminal's current unstored verdict.
 
 A known exit is final, including when an older permission hook arrives afterward.
@@ -77,7 +81,14 @@ can address only verdicts issued by that instance, and historical records remain
 available on disk across restart. Only the latest committed verdict per terminal
 accepts feedback; superseded and removed terminals’ entries are released. ExecutionOwner
 keeps the current verdict and ID when classification repeats its state and signal,
-while failed writes remain retryable. No automatic
+while failed writes remain retryable. Each verdict has at most one logged action:
+a reply can consume that action while an execution-tracked agent stays amber.
+Dismiss validates the terminal, current verdict ID and action before attempting a
+conditional log write. It clears current attention even when that action was already
+recorded or the pending log entry was released; it adds `not_attention` only when
+Dismiss records the first action. A concurrent action write is awaited, and storage
+failures reject without clearing attention, preserving retry. Strict log calls still
+reject unknown, superseded or consumed IDs. No automatic
 inference of ignored actions or log retention policy is implemented yet. The reusable fixture suite in
 `tests/fixtures/evaluator.ts` contains sanitized, representative terminal tails.
 
@@ -135,3 +146,13 @@ The host accepts OSC 9;4 states 0–4 and optional integer values 0–100; state
 Claude and Antigravity have no verified provider-specific capacity/rate-limit mapping; lifecycle completion/error and generic exits cannot distinguish these causes. Support requires recorded evidence or a verified structured signal. [Evidence: #339](https://github.com/scott-r-lindsey/foom/issues/339).
 
 The live detector and saved-capture replay share `shared/providers/screen-rules.ts` (`evaluateScreenRules` and `ruleRegion`), including priorities, exclusions and evaluation budget. Replay reports raw rule state; idle is not Done. See [capture regression rules](../contracts/agent-report.md#saved-screen-rule-regressions-592).
+
+### Continuously redrawing agents (#823)
+
+A v2 manifest may opt in to `attention.sampleWhileActive`. ExecutionOwner then
+checks the local parsed screen during output at most once per second, with one
+queued/in-flight sample per invocation. It requires a matching declared rule;
+raw output and unknown screens remain neutral. The existing invocation, input
+and output revisions discard stale results. Quiet/title/hook evaluation and
+permission precedence remain unchanged. This supplies working evidence for Pi's
+static-title spinner without a provider-specific adapter or model request.

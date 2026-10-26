@@ -95,6 +95,11 @@ refused. Adopted checkouts count against the four-unused-worktree budget and are
 registered with forge tracking by the requested PR number for child session PR
 metadata, including when multiple open PRs share a head branch. The console fallback
 is `foom create-worktree --pull-request N --idempotency-key KEY`.
+With optional `review: true` (#843), main creates a separate detached checkout at
+the fetched head without a local branch and permits the author branch to be in
+use. It retains the PR validation and unused budget above. The console adds
+`--review`. See [review worktrees](control-mutations.md#detached-pr-review-worktrees-843)
+for review intent and the narrowly scoped close-time removal exception.
 
 Existing orchestration tools are listed to every agent for clients that cache tools
 (#303). The new `handoff` tool is listed only to live owned children, and

@@ -4,12 +4,16 @@ import { fail, isRecord } from "./agent-manifest-values";
 import { dataContainer, validateCommandSlots } from "./agent-manifest-container";
 
 const placeholders: Readonly<Record<string, readonly string[]>> = {
+  extensionFile: ["extension"],
   prompt: ["prompt"],
   conversationId: ["resume"],
   newId: ["newId"],
   hookDir: ["channel"],
   hookFile: ["channel"],
   file: ["mcp", "environment"],
+  fileContent: ["environment"],
+  observerModule: ["file"],
+  toolRules: ["file"],
   pluginDir: ["setup"],
   tool: ["tools"],
   mcpName: ["mcp", "file"],
@@ -19,6 +23,7 @@ const placeholders: Readonly<Record<string, readonly string[]>> = {
   observerVersion: ["file"],
 };
 const allowedPlaceholders: Readonly<Record<string, string>> = {
+  extension: "{extensionFile}",
   environment: "whole {file:NAME} or a fixed literal",
   arguments: "none",
   display: "none",
@@ -57,6 +62,7 @@ export function validateTemplates(manifest: AgentManifestV2): void {
   const channels = manifest.hooks?.channels ?? [];
   const commands = new Set<string>();
   const argvs = new Set<string>();
+  const generated = new Set<string>();
   let bytes = 0;
   const expand = (
     source: string,
@@ -77,6 +83,7 @@ export function validateTemplates(manifest: AgentManifestV2): void {
       .replace(/\\[ \t]*\n[ \t\n]*/gu, "");
     if (
       [
+        "FOOM_GENERATED_",
         "FOOM_OBSERVER_",
         "FOOM_MCP_URL_SENTINEL",
         "FOOM_MCP_NAME_SENTINEL",
@@ -92,20 +99,23 @@ export function validateTemplates(manifest: AgentManifestV2): void {
       (manifest.launch.mcp.arguments.some((arg) => arg.includes(`{file:${file.name}}`)) ||
         manifest.launch.environment?.some(
           (entry) =>
-            entry.value === `{file:${file.name}}` && implies(entry.when, manifest.launch.mcp?.when),
+            [`{file:${file.name}}`, `{fileContent:${file.name}}`].includes(entry.value) &&
+            implies(entry.when, manifest.launch.mcp?.when),
         ));
     if (
       (source.includes("{mcpName") ||
         source.includes("{mcpUrl") ||
-        source.includes("${FOOM_CONTROL_TOKEN}")) &&
+        source.includes("${FOOM_CONTROL_TOKEN}") ||
+        source.includes("{env:FOOM_CONTROL_TOKEN}")) &&
       location === "file" &&
       (!mcpFile || !implies(file.when, manifest.launch.mcp?.when))
     )
       fail(path, "incompatible-combination");
-    const environment = "${FOOM_CONTROL_TOKEN}";
-    if (result.includes(environment)) {
-      if (location !== "file" || file?.format !== "json") fail(path, "environment-reference");
-      result = result.replaceAll(environment, "FOOM_AUTHORIZATION_SENTINEL");
+    for (const environment of ["${FOOM_CONTROL_TOKEN}", "{env:FOOM_CONTROL_TOKEN}"]) {
+      if (result.includes(environment)) {
+        if (location !== "file" || file?.format !== "json") fail(path, "environment-reference");
+        result = result.replaceAll(environment, "FOOM_AUTHORIZATION_SENTINEL");
+      }
     }
     if (/\$\{|\$[A-Za-z_]|%[A-Za-z_][A-Za-z0-9_]*%/u.test(result))
       fail(path, "environment-reference");
@@ -127,6 +137,10 @@ export function validateTemplates(manifest: AgentManifestV2): void {
             `${name} is allowed only in ${locations.join(" or ")}. ${allowed}`,
           );
         const parts = detail?.split(":") ?? [];
+        if (name === "extensionFile") {
+          if (location !== "extension" || detail !== undefined) fail(path, "unknown-placeholder");
+          return "FOOM_VALUE";
+        }
         if (["prompt", "conversationId", "newId", "hookDir", "pluginDir", "tool"].includes(name)) {
           const allowed =
             name === "prompt"
@@ -143,10 +157,37 @@ export function validateTemplates(manifest: AgentManifestV2): void {
           if (location !== allowed || detail !== undefined) fail(path, "unknown-placeholder");
           return "FOOM_VALUE";
         }
-        if (name === "hookFile" || name === "file") {
+        if (name === "observerModule" || name === "toolRules") {
+          if (location !== "file" || file?.format !== "json" || file.scope !== "launch")
+            fail(path, "unknown-placeholder");
+          if (name === "observerModule") {
+            const channel = channels.find((entry) => entry.id === parts[0]);
+            if (
+              parts.length !== 2 ||
+              parts[1] !== "json" ||
+              channel?.observer.transport !== "event-module"
+            )
+              fail(path, "unknown-placeholder");
+            if (!implies(selected, channel.when)) fail(path, "unselected-attachment");
+          } else if (
+            parts.length !== 1 ||
+            parts[0] !== "json" ||
+            !manifest.launch.toolPermissions?.fileRules ||
+            !mcpFile
+          )
+            fail(path, "unknown-placeholder");
+          const marker = `FOOM_GENERATED_${String(generated.size)}_SENTINEL`;
+          generated.add(marker);
+          return JSON.stringify(marker);
+        }
+        if (name === "hookFile" || name === "file" || name === "fileContent") {
           if (
             parts.length !== 1 ||
-            !(name === "file" ? ["mcp", "environment"].includes(location) : location === "channel")
+            !(name === "fileContent"
+              ? location === "environment"
+              : name === "file"
+                ? ["mcp", "environment"].includes(location)
+                : location === "channel")
           )
             fail(path, "unknown-placeholder");
           const target = manifest.files.find((entry) => entry.name === parts[0]);
@@ -282,6 +323,17 @@ export function validateTemplates(manifest: AgentManifestV2): void {
     const block = manifest.launch[stage];
     if (block) check(block.arguments, stage, `$.launch.${stage}`, block.when);
   }
+  if (manifest.launch.extension) {
+    const extension = manifest.launch.extension;
+    if (
+      extension.arguments.filter((arg) => arg === "{extensionFile}").length !== 1 ||
+      extension.arguments.some(
+        (arg) => arg.includes("{extensionFile}") && arg !== "{extensionFile}",
+      )
+    )
+      fail("$.launch.extension.arguments", "missing-placeholder");
+    check(extension.arguments, "extension", "$.launch.extension.arguments", extension.when);
+  }
   for (const [index, entry] of (manifest.launch.environment ?? []).entries())
     expand(entry.value, "environment", `$.launch.environment[${String(index)}].value`, entry.when);
   if (manifest.launch.prompt) {
@@ -306,7 +358,15 @@ export function validateTemplates(manifest: AgentManifestV2): void {
     check(manifest.conversation.newId.arguments, "newId", "$.conversation.newId.arguments");
   }
   if (manifest.launch.toolPermissions) {
-    if (!manifest.launch.mcp || !manifest.launch.toolPermissions.arguments.includes("{tool}"))
+    if (
+      !manifest.launch.mcp ||
+      (manifest.launch.toolPermissions.fileRules
+        ? manifest.launch.toolPermissions.arguments.length !== 0 ||
+          manifest.launch.toolPermissions.merge !== undefined ||
+          manifest.launch.toolPermissions.format !== "server-underscore" ||
+          !manifest.files.some((file) => file.content.includes("{toolRules:json}"))
+        : !manifest.launch.toolPermissions.arguments.includes("{tool}"))
+    )
       fail("$.launch.toolPermissions", "incompatible-combination");
     check(manifest.launch.toolPermissions.arguments, "tools", "$.launch.toolPermissions.arguments");
   }
@@ -347,7 +407,7 @@ export function validateTemplates(manifest: AgentManifestV2): void {
       if (!isRecord(container) || container["name"] !== target)
         fail(path, "incompatible-combination");
     }
-    validateCommandSlots(container, commands, argvs, path);
+    validateCommandSlots(container, commands, argvs, path, undefined, generated);
     const checkAuth = (value: unknown, key?: string) => {
       if (
         typeof value === "string" &&

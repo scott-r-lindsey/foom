@@ -1,3 +1,4 @@
+import type { LaunchSelection } from "./agents";
 import type { ReviewState } from "./review";
 import type { Handoff } from "./handoff";
 import type { PreviewOpenAction } from "./previews";
@@ -74,6 +75,8 @@ export interface WorkspaceTerminal {
   startedAt?: number;
   exitCode?: number | undefined;
   launchFlags?: readonly string[];
+  /** Requested per-child options, not a claim about the provider's actual model. */
+  selection?: LaunchSelection;
   /** Names of the variables Foom set from Environment settings; never values. */
   environment?: readonly string[];
   /** Main-computed orchestration role and visible action history; never persisted. */

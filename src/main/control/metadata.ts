@@ -102,6 +102,7 @@ export class SessionMetadata {
       ...(review ? { review } : {}),
       id: row.id,
       agent: row.agent,
+      ...(row.selection ? { selection: row.selection } : {}),
       repository: locationId(row.repository),
       worktree: locationId(row.worktree),
       name: metadataName(row.branch ?? basename(row.worktree)),

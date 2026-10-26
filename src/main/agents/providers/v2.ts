@@ -1,4 +1,6 @@
 import { mcpTools } from "../../../shared/control-tools";
+import { extensionAsset } from "./extension-assets";
+import { writeOwnedFile } from "./v2-files";
 import { PluginSetup } from "../plugin-setup";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -208,7 +210,9 @@ export function v2Provider(
       if (configGreeting && promptSupported) prompts.push(CONFIG_PROMPT);
       else if (guidance) prompts.push(CLI_GUIDANCE);
       const newId =
-        request.conversationId === undefined && model.conversation.newId ? randomUUID() : undefined;
+        request.conversationId === undefined && model.conversation.newId
+          ? `${model.conversation.newId.prefix ?? ""}${randomUUID()}`
+          : undefined;
       const values: Record<string, string | string[] | number> = {
         ...binding?.v2?.values,
         ...(request.conversationId === undefined ? {} : { conversationId: request.conversationId }),
@@ -260,6 +264,25 @@ export function v2Provider(
           values["mcpUrl"] = url.href;
           values["mcpName"] = `foom_${randomUUID().replaceAll("-", "")}`;
         }
+        const toolNames = model.launch.toolPermissions?.names ?? [];
+        const grantedNames = mcp
+          ? verification
+            ? ["ping"]
+            : mcpTools(1, [])
+                .map((tool) => tool.name)
+                .filter(
+                  (name) =>
+                    toolNames.includes(name) &&
+                    (control?.toolNames === undefined || control.toolNames.includes(name)),
+                )
+          : [];
+        values["toolRules"] = JSON.stringify(
+          grantedNames.map((name) => ({
+            action: `${String(values["mcpName"])}_${name}`,
+            resource: "*",
+            effect: "allow",
+          })),
+        );
         const environment = (model.launch.environment ?? []).filter((entry) =>
           selected(entry.when, facts),
         );
@@ -269,10 +292,18 @@ export function v2Provider(
             file.scope === "launch" &&
             selected(file.when, facts) &&
             (mcp ||
-              environment.some((entry) => entry.value === `{file:${file.name}}`) ||
+              environment.some((entry) =>
+                [`{file:${file.name}}`, `{fileContent:${file.name}}`].includes(entry.value),
+              ) ||
               !model.launch.mcp?.arguments.some((arg) => arg.includes(`{file:${file.name}}`))),
         );
-        if (files.length) {
+        const extension = model.launch.extension;
+        const attachExtension = Boolean(
+          extension &&
+            selected(extension.when, facts) &&
+            (mcp || binding?.v2?.channels.has(extension.channel)),
+        );
+        if (files.length || attachExtension) {
           const hookDirectory = binding?.v2?.values["hookDir"];
           if (typeof hookDirectory !== "string")
             scratch = await mkdtemp(join(tmpdir(), "foom-v2-"));
@@ -280,6 +311,38 @@ export function v2Provider(
             typeof hookDirectory === "string"
               ? hookDirectory
               : await privateDirectory(scratch ?? "");
+          if (attachExtension && extension) {
+            const root = await privateDirectory(directory, "extension");
+            const asset = extensionAsset(extension.api);
+            const path = join(root, asset.name);
+            const names = verification
+              ? ["ping"]
+              : mcpTools(1, [])
+                  .map((tool) => tool.name)
+                  .filter(
+                    (name) => control?.toolNames === undefined || control.toolNames.includes(name),
+                  );
+            await writeOwnedFile(path, asset.source);
+            await writeOwnedFile(
+              join(root, "launch.json"),
+              JSON.stringify({
+                ...(binding?.v2?.channels.has(extension.channel)
+                  ? { channel: extension.channel }
+                  : {}),
+                ...(mcp
+                  ? {
+                      mcp: {
+                        url: values["mcpUrl"],
+                        name: values["mcpName"],
+                        tools: names,
+                        roleAware: !verification && control?.toolNames === undefined,
+                      },
+                    }
+                  : {}),
+              }),
+            );
+            values["extensionFile"] = path;
+          }
           for (const file of files) {
             values[`file:${file.name}`] = join(directory, file.name);
             values[`hookFile:${file.name}`] = join(directory, file.name);
@@ -287,7 +350,11 @@ export function v2Provider(
           for (const file of files) {
             const target = values[`file:${file.name}`];
             if (typeof target !== "string") throw new Error("Missing launch file");
-            const content = expandV2(file.content, values);
+            const content = expandV2(
+              file.content.replaceAll("{toolRules:json}", values["toolRules"]),
+              values,
+            );
+            values[`fileContent:${file.name}`] = content;
             dataContainer(content, file.format, "$.files", true);
             // Every directory is new, beneath the private launch root.
             let parent = directory;
@@ -318,9 +385,11 @@ export function v2Provider(
                     (control?.toolNames === undefined || control.toolNames.includes(tool.name)),
                 )
           ).map(({ name: tool }) =>
-            tools.format === "mcp-double-underscore"
-              ? `mcp__${String(values["mcpName"] ?? "")}__${tool}`
-              : `${String(values["mcpName"] ?? "")}(${tool})`,
+            tools.format === "server-underscore"
+              ? `${String(values["mcpName"] ?? "")}_${tool}`
+              : tools.format === "mcp-double-underscore"
+                ? `mcp__${String(values["mcpName"] ?? "")}__${tool}`
+                : `${String(values["mcpName"] ?? "")}(${tool})`,
           );
         const expand = (templates: readonly string[]) =>
           templates.map((arg) => expandV2(arg, values));
@@ -343,8 +412,13 @@ export function v2Provider(
           } else if (stage === "mcp") {
             if (mcp && model.launch.mcp) {
               mcpArguments = expand(model.launch.mcp.arguments);
-              args.push(...mcpArguments);
             }
+            if (attachExtension && extension) {
+              const extensionArgs = expand(extension.arguments);
+              if (mcp) mcpArguments.push(...extensionArgs);
+              else args.push(...extensionArgs);
+            }
+            args.push(...mcpArguments);
           } else if (stage === "hooks") {
             for (const channel of binding?.v2?.channels.values() ?? [])
               args.push(...expand(channel.arguments));

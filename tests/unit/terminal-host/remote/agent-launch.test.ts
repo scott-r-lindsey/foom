@@ -303,3 +303,14 @@ test("MCP conversion refuses unexpected data and never rewrites unrelated user c
   expect(() => remoteMcpFile("[]", "/helper", "name")).toThrow();
   expect(() => remoteMcpFile('{"mcpServers":{}}', "/helper", "name")).toThrow();
 });
+
+test.each(["pi", "opencode"])(
+  "host refuses %s attachments before discovery or checkout probes",
+  async (agent) => {
+    await expect(
+      prepareRemoteAgent({ ...spec, agent }, "/fixture/shell", home, () => {}, call),
+    ).rejects.toThrow("remote_agent_unsupported");
+    expect(hostDiscovery).not.toHaveBeenCalled();
+    expect(remoteCheckout).not.toHaveBeenCalled();
+  },
+);
