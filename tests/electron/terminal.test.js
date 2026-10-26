@@ -1452,3 +1452,100 @@ test("maximized-away terminals pause paints and restore without changing attachm
   await expect(original.locator(".xterm-rows")).toContainText("BUFFER_alternate_DONE");
   await page.evaluate(() => window.stopCoveredData());
 });
+
+test("macOS private selection pastes from terminal A to B through bracketed paste", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-selection-paste-"));
+  removeAfterApps(context, root);
+  const marker = path.join(root, "input");
+  await writeFile(marker, "");
+  const app = await launchApp(context, { fixture: "running-shell" });
+  let page = await boardPage(app);
+  // Exercise macOS renderer behavior on every CI platform without shipped test flags.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
+  });
+  await page.reload();
+  page = await boardPage(app);
+  // Leave room for both terminals under the normal minimum-column placement rule.
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(1400, 1000);
+  });
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await openSettingsScreen(page);
+  await expect(page.getByRole("checkbox", { name: "Middle-click pastes selection" })).toHaveCount(
+    0,
+  );
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Terminal", exact: true })).toBeFocused();
+  const toggle = page.getByRole("checkbox", { name: "Middle-click pastes selection", exact: true });
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.middleClickPaste),
+    )
+    .toBe(true);
+  if (process.env.FOOM_CAPTURE_856 === "1") {
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await expect
+        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+        .toBe(mode === "dark");
+      await toggle.scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: evidencePath(`screenshots-856/settings-terminal-${mode}.png`),
+        animations: "disabled",
+      });
+    }
+  }
+  await assertAccessible(page);
+  // Selecting the row queues input focus after the serialized reattachment.
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`;
+  await page.keyboard.type(command);
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".xterm-rows")).toContainText("INPUT_READY");
+  await launchCheckoutShell(app, page);
+  const tiles = page.locator(".terminal-tile[data-kind='shell']");
+  await expect(tiles).toHaveCount(2);
+  await expect(tiles.nth(1).locator(".xterm-helper-textarea")).toBeFocused();
+  await page.keyboard.type(command + " bracketed");
+  await page.keyboard.press("Enter");
+  await expect(tiles.locator(".xterm-rows")).toContainText(["INPUT_READY", "INPUT_READY"]);
+  // The probe places INPUT_READY in row one. Target xterm's event overlay and
+  // wait for the selection paint before moving to B, including during tile motion.
+  const screenA = tiles.nth(0).locator(".xterm-screen");
+  await screenA.dblclick({ position: { x: 20, y: 8 } });
+  await expect(tiles.nth(0).locator(".xterm-selection div:visible").first()).toBeVisible();
+  const screenB = tiles.nth(1).locator(".xterm-screen");
+  if (process.platform === "linux") {
+    // Chromium still emits Linux's native primary paste despite platform injection.
+    // macOS has no such ClipboardEvent; keep the real middle click but model its absence.
+    await page.evaluate(() => {
+      document.addEventListener(
+        "paste",
+        (event) => {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        },
+        true,
+      );
+    });
+  }
+  await writeFile(marker, "");
+  await screenB.click({ button: "middle", position: { x: 40, y: 40 } });
+  await page.keyboard.type("b");
+  await expect(tiles.nth(1).locator(".xterm-rows")).toContainText("INPUT_BARRIER");
+  const input = Buffer.from(
+    (await readFile(marker, "utf8")).replaceAll("\n", ""),
+    "hex",
+  ).toString();
+  assert.equal(input, "\x1b[200~INPUT_READY\x1b[201~b");
+  await page.keyboard.type("q");
+});
