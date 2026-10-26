@@ -212,7 +212,7 @@ const {execFile} = require('node:child_process');
 const args = process.argv.slice(2);
 const directory = path.join(require('node:os').homedir(), '.gemini/config/plugins/foom');
 if (args[0] === '--version') { console.log('${firstRun ? "1.3.1" : "1.4.2"}'); process.exit(0); }
-if (args[0] === '--help') { console.log('Antigravity CLI'); process.exit(0); }
+if (args[0] === '--help') { console.log('Antigravity CLI --prompt-interactive <prompt>'); process.exit(0); }
 if (args[0] === 'plugin') {
   if (args[1] === 'list') {
     if (${firstRun} && args[2] === '--json') process.exit(2);
