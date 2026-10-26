@@ -172,15 +172,16 @@ test("dismissal records feedback and clears attention; stale or ignored feedback
   expect(states.at(-1)?.state).toBe("needs_input");
   tails.set("t1", ["Password:"]);
   await workspace.quiet("t1");
-  await workspace.feedback("t1", "v1", "dismissed");
+  await expect(workspace.feedback("t1", "v1", "dismissed")).rejects.toThrow(
+    "Invalid verdict feedback",
+  );
   expect(states.at(-1)?.verdictId).toBe("v2");
   await workspace.feedback("t1", "v2", "dismissed");
-  expect(recordAction).toHaveBeenLastCalledWith("t1", "v2", "dismissed");
+  expect(recordAction).toHaveBeenLastCalledWith("t1", "v2", "dismissed", true);
   expect(states.at(-1)).toMatchObject({ state: "quiet_ok", signal: "user:dismissed" });
   await workspace.quiet("t1");
   await workspace.feedback("t1", "v3", "replied");
   expect(states.at(-1)).toMatchObject({ state: "working", signal: "user:reply" });
-  recordAction.mockRejectedValueOnce(new Error("Invalid verdict feedback"));
   await expect(workspace.feedback("t1", "v3", "dismissed")).rejects.toThrow("Invalid verdict");
 });
 

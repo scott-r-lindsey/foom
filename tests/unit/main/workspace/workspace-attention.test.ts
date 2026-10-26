@@ -195,10 +195,21 @@ test("input during an agent dismissal records no second action and failed feedba
   expect(recordAction).toHaveBeenCalledTimes(1);
   write.resolve(undefined);
   await dismissing;
+  await expect(workspace.feedback("t1", "v1", "dismissed")).rejects.toThrow(
+    "Invalid verdict feedback",
+  );
+  await workspace.hook({
+    terminalId: await bound(),
+    action: "needs_input",
+    signal: "plugin:claude:PermissionRequest",
+  });
+  const id = states.at(-1)?.verdictId ?? "missing";
   recordAction.mockRejectedValueOnce(new Error("disk"));
-  await expect(workspace.feedback("t1", "v1", "dismissed")).rejects.toThrow("disk");
-  workspace.input("t1");
-  expect(recordAction).toHaveBeenCalledTimes(2);
+  await expect(workspace.feedback("t1", id, "dismissed")).rejects.toThrow("disk");
+  expect(states.at(-1)?.state).toBe("needs_input");
+  await workspace.feedback("t1", id, "dismissed");
+  expect(states.at(-1)?.state).toBe("quiet_ok");
+  expect(recordAction).toHaveBeenCalledTimes(3);
   await workspace.dispose();
 });
 

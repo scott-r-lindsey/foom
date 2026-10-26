@@ -1,8 +1,13 @@
-import { afterEach, expect, test, vi } from "vitest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import piModelError from "../../../fixtures/agent-detection/pi-model-error.json";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { reduceV2 } from "../../../../src/main/agents/providers/v2-events";
 import { V2ExecutionHooks, V2Health } from "../../../../src/main/agents/providers/v2-health";
+import { VerdictLog } from "../../../../src/main/evaluator/verdict-log";
+import { isReply } from "../../../../src/main/terminals/terminal-reports";
 import { ExecutionOwner } from "../../../../src/main/workspace/execution-owner";
 import type { ExecutionOwnerDependencies } from "../../../../src/main/workspace/execution-owner";
 import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
@@ -252,6 +257,61 @@ test("reply is recorded once for agents without proving resumed execution", asyn
   expect(owner.view("t1").execution?.phase).toBe("working");
 });
 
+test.each(["y", "\u001b[<0;10;5M", "\u001b[M *%"])(
+  "dismisses the current agent verdict after reply input %j without a second log action",
+  async (input) => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "foom-dismiss-"));
+    onTestFinished(() => rm(dir, { recursive: true, force: true }));
+    const { owner, deps, hook } = setup(true);
+    deps.verdicts = new VerdictLog(dir);
+    await hook("needs_input");
+    const id = owner.currentState("t1")?.verdictId ?? "missing";
+    expect(isReply(input)).toBe(true);
+    owner.input("t1");
+    expect(owner.currentState("t1")).toMatchObject({ state: "needs_input", verdictId: id });
+    await expect(owner.feedback("t1", id, "dismissed")).resolves.toBeUndefined();
+    expect(owner.currentState("t1")).toMatchObject({ state: "quiet_ok", signal: "user:dismissed" });
+    expect(owner.view("t1").execution?.phase).toBe("blocked");
+    await owner.quiet("t1");
+    expect(owner.currentState("t1")?.state).toBe("quiet_ok");
+    const log = await readFile(path.join(dir, "verdicts.jsonl"), "utf8");
+    expect(log.match(/"type":"action"/g)).toHaveLength(1);
+    expect(log).toContain('"action":"replied"');
+  },
+);
+
+test("dismisses a current verdict whose pending log entry was forgotten", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "foom-dismiss-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const { owner, deps, hook } = setup(true);
+  const log = new VerdictLog(dir);
+  deps.verdicts = log;
+  await hook("needs_input");
+  const id = owner.currentState("t1")?.verdictId ?? "missing";
+  log.forget("t1");
+  await owner.feedback("t1", id, "dismissed");
+  expect(owner.currentState("t1")).toMatchObject({ state: "quiet_ok", signal: "user:dismissed" });
+  expect(await readFile(path.join(dir, "verdicts.jsonl"), "utf8")).not.toContain('"type":"action"');
+});
+
+test("rejects forged, superseded and invalid feedback before touching storage", async () => {
+  const { owner, deps, hook, tail } = setup(true);
+  await hook("needs_input");
+  const old = owner.currentState("t1")?.verdictId ?? "missing";
+  await hook("working");
+  tail(["Tests failed"]);
+  await owner.quiet("t1");
+  const current = owner.currentState("t1");
+  expect(current?.verdictId).not.toBe(old);
+  for (const id of [old, "forged", null])
+    await expect(owner.feedback("t1", id, "dismissed")).rejects.toThrow("Invalid verdict feedback");
+  await expect(
+    Reflect.apply(owner.feedback.bind(owner), owner, ["t1", current?.verdictId, "opened"]),
+  ).rejects.toThrow("Invalid verdict feedback");
+  expect(owner.currentState("t1")).toEqual(current);
+  expect(deps.verdicts.recordAction).not.toHaveBeenCalled();
+});
+
 test("shell reply clears attention even when reply logging fails", async () => {
   const { owner, deps } = setup();
   const error = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -284,6 +344,46 @@ test("feedback failure restores reply deduplication and allows retry", async () 
   owner.input("t1");
   expect(deps.verdicts.recordAction).toHaveBeenLastCalledWith("t1", id, "replied");
 });
+
+test("dismissal waits for reply storage failure, preserves attention and permits retry", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "foom-dismiss-"));
+  onTestFinished(() => rm(dir, { recursive: true, force: true }));
+  const { owner, deps, hook } = setup(true);
+  deps.verdicts = new VerdictLog(dir);
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  await hook("needs_input");
+  const before = owner.currentState("t1");
+  const id = before?.verdictId ?? "missing";
+  await rm(dir, { recursive: true });
+  await writeFile(dir, "not a directory");
+  owner.input("t1");
+  await expect(owner.feedback("t1", id, "dismissed")).rejects.toThrow();
+  expect(owner.currentState("t1")).toEqual(before);
+  await rm(dir);
+  await owner.feedback("t1", id, "dismissed");
+  expect(owner.currentState("t1")?.state).toBe("quiet_ok");
+  expect(await readFile(path.join(dir, "verdicts.jsonl"), "utf8")).toContain(
+    '"feedback":"not_attention"',
+  );
+});
+
+test.each(["reset", "removed"] as const)(
+  "feedback finishing after %s cannot clear a replacement invocation",
+  async (change) => {
+    const { owner, deps, hook, states } = setup(true);
+    await hook("needs_input");
+    const stored = deferred<undefined>();
+    vi.mocked(deps.verdicts.recordAction).mockReturnValueOnce(stored.promise);
+    const work = owner.feedback("t1", "v1", "dismissed");
+    owner[change]("t1");
+    owner.launched("t1");
+    const count = states.length;
+    stored.resolve(undefined);
+    await work;
+    expect(owner.currentState("t1")).toBeNull();
+    expect(states).toHaveLength(count);
+  },
+);
 
 test("feedback finishing after a newer verdict cannot clear it", async () => {
   const { owner, deps, tail } = setup();

@@ -45,14 +45,18 @@ A permission hook (`needs_input`) stays in force across later quiet evaluations.
 For agents, typing records reply feedback but does not establish resumed execution;
 neither typing nor dismissal overrides lifecycle evidence. Dismissal still clears the
 attention indicator and reminders; it does not start Working audio. A later working hook
-releases an explicit permission blocker. Opening a terminal is not a reply.
+releases an explicit permission blocker. Opening a terminal is not a reply. A mouse
+button press reported by an agent TUI still counts as reply input, including a click used to focus it; focus reports,
+mouse motion, releases and wheel reports do not. Shell click-as-reply behavior is
+unchanged.
 Shell reply/dismissal behavior remains separate: replies mark Working and dismissal
 marks Quiet. Terminal-generated reports are filtered by `terminal-reports.ts`.
 New lifecycle transitions invalidate asynchronous classifications. Host output
 invalidates pending screen classifications but never establishes agent execution.
 
 A verdict is published even if the log can't store it. It then has a null
-`verdictId`: a reply still clears it without recording anything, and
+`verdictId`: a shell reply still clears it without recording anything; agent reply
+input preserves attention until supported execution evidence or Dismiss clears it.
 `terminal:feedback` accepts null only for the terminal's current unstored verdict.
 
 A known exit is final, including when an older permission hook arrives afterward.
@@ -77,7 +81,14 @@ can address only verdicts issued by that instance, and historical records remain
 available on disk across restart. Only the latest committed verdict per terminal
 accepts feedback; superseded and removed terminals’ entries are released. ExecutionOwner
 keeps the current verdict and ID when classification repeats its state and signal,
-while failed writes remain retryable. No automatic
+while failed writes remain retryable. Each verdict has at most one logged action:
+a reply can consume that action while an execution-tracked agent stays amber.
+Dismiss validates the terminal, current verdict ID and action before attempting a
+conditional log write. It clears current attention even when that action was already
+recorded or the pending log entry was released; it adds `not_attention` only when
+Dismiss records the first action. A concurrent action write is awaited, and storage
+failures reject without clearing attention, preserving retry. Strict log calls still
+reject unknown, superseded or consumed IDs. No automatic
 inference of ignored actions or log retention policy is implemented yet. The reusable fixture suite in
 `tests/fixtures/evaluator.ts` contains sanitized, representative terminal tails.
 

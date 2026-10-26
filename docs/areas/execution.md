@@ -37,8 +37,16 @@ classification; later positive progress supersedes stale screen evidence only af
 classification verifies the current screen no longer requests attention. Repeated
 spinner frames can trigger this recovery while blocked. Dismissal is tracked
 separately from execution against a digest of the attention signal and screen;
-unchanged evaluations stay quiet. Changed attention evidence, a new permission
-hook, or a lifecycle transition invalidates that dismissal. Idle
+unchanged evaluations stay quiet. Reply input (typing or a reported mouse button
+press, including a focusing click) records at most one log action for a verdict and
+can leave the agent amber. Dismiss still clears that current verdict to `quiet_ok`
+with `user:dismissed` and the same attention suppression, without a second logged
+action or a false-positive record after a reply. If the pending log entry is gone,
+current-verdict validation still permits dismissal. An in-flight action write must
+finish successfully before attention clears; storage errors leave attention intact
+and retryable. Invalid senders, terminals, actions and non-current verdict IDs remain
+rejected. Shell reply/click semantics are unchanged. Changed attention evidence, a new
+permission hook, or a lifecycle transition invalidates that dismissal. Idle
 titles may end a turn started by a hook (including Claude Esc, which lacks Stop).
 With Claude hooks attached, a title-only turn end stays Quiet: Stop is required
 before reporting Done, including when Stop arrives after the idle title. Without

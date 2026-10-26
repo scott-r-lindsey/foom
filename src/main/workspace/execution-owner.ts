@@ -45,7 +45,12 @@ export interface ExecutionOwnerDependencies {
     classify: (input: EvaluationInput) => Promise<VerdictRecord>;
     commit: (record: VerdictRecord) => Promise<void>;
     forget: (id: string) => void;
-    recordAction: (id: string, verdictId: string, action: VerdictAction) => Promise<void>;
+    recordAction: (
+      id: string,
+      verdictId: string,
+      action: VerdictAction,
+      onlyIfPending?: boolean,
+    ) => Promise<void>;
   };
   enqueue: (id: string, work: () => Promise<void>) => Promise<void>;
   closed: () => boolean;
@@ -623,7 +628,7 @@ export class ExecutionOwner {
   }
 
   /**
-   * The user typed into the terminal (terminal-generated reports are filtered out
+   * The user typed, pasted or pressed a mouse button (passive reports are filtered out
    * before this). Record reply feedback once. For agents, lifecycle evidence alone
    * establishes resumed execution; shells retain their reply behavior.
    */
@@ -655,12 +660,23 @@ export class ExecutionOwner {
   async feedback(id: string, verdictId: string | null, action: VerdictAction): Promise<void> {
     const terminal = this.terminals.get(id);
     if (!terminal) throw new Error("Unknown terminal");
-    const current = () => terminal.state !== null && terminal.state.verdictId === verdictId;
+    const current = () =>
+      this.terminals.get(id) === terminal &&
+      terminal.state !== null &&
+      terminal.state.verdictId === verdictId;
+    if (
+      !current() ||
+      (verdictId === null && terminal.state?.signal.startsWith("user:")) ||
+      !["replied", "dismissed", "ignored"].includes(action)
+    )
+      throw new Error("Invalid verdict feedback");
     if (verdictId !== null) {
       const previousAction = terminal.actionVerdict;
       terminal.actionVerdict = verdictId;
       try {
-        await this.deps.verdicts.recordAction(id, verdictId, action);
+        // Current presentation authorizes dismissal even if logging consumed or
+        // released its single action slot. Storage failures must still reject.
+        await this.deps.verdicts.recordAction(id, verdictId, action, true);
       } catch (error) {
         if (terminal.actionVerdict === verdictId) {
           if (previousAction === undefined) delete terminal.actionVerdict;
@@ -668,8 +684,7 @@ export class ExecutionOwner {
         }
         throw error;
       }
-    } else if (!current() || terminal.state?.signal.startsWith("user:"))
-      throw new Error("Invalid verdict feedback");
+    }
     // A newer verdict may have arrived while the action was being recorded.
     if (action === "ignored" || !current()) return;
     terminal.generation += 1;
