@@ -2,7 +2,7 @@ const { evidencePath } = require("../helpers/evidence.js");
 const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const path = require("node:path");
-const { mkdir, mkdtemp, writeFile, rm, access } = require("node:fs/promises");
+const { mkdir, mkdtemp, writeFile, readFile, rm, access } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
 const {
@@ -204,20 +204,8 @@ async function checkCollapsedDisclosure(board, dialog, operation, captureScreens
   await dialog.getByRole("button", { name: "Cancel" }).focus();
 }
 
-for (const firstRun of [false, true]) {
-  test(`Antigravity plugin ${firstRun ? "first run" : "Settings"} disclosure installs and removes an observer that reports lifecycle`, {
-    timeout: deadline(60_000),
-    skip:
-      process.platform === "win32" &&
-      "Fake CLI is POSIX; Windows cmd/PowerShell observer runs in native unit integration",
-  }, async (context) => {
-    const root = await mkdtemp(path.join(tmpdir(), "foom-agy-plugin-"));
-    removeAfterApps(context, root);
-    const bin = path.join(root, "bin");
-    const home = path.join(root, "home");
-    const repo = path.join(root, "repository");
-    await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
-    const fake = `#!${process.execPath}
+function agyFixture(firstRun) {
+  return `#!${process.execPath}
 const fs = require('node:fs');
 const path = require('node:path');
 const {execFile} = require('node:child_process');
@@ -245,6 +233,32 @@ const spec = JSON.parse(fs.readFileSync(path.join(directory,'hooks.json'),'utf8'
 process.stdin.setRawMode(true);
 process.stdin.resume();
 console.log('AGY_READY');
+if (!${firstRun}) {
+  const server = JSON.parse(fs.readFileSync(path.join(directory,'mcp_config.json'),'utf8')).mcpServers.foom;
+  const mcp = require('node:child_process').spawn(server.command, server.args, {stdio:['pipe','pipe','pipe']});
+  let buffer = '';
+  mcp.stdout.on('data', (chunk) => {
+    buffer += chunk.toString();
+    let end;
+    while ((end = buffer.indexOf('\\n')) >= 0) {
+      const value = JSON.parse(buffer.slice(0,end)); buffer = buffer.slice(end+1);
+      if (value.id === 2) {
+        if (!value.result.tools.some((t) => t.name === 'whoami')) process.exit(5);
+        console.log('MCP_TOOLS_AVAILABLE');
+      }
+      if (value.id === 3) { console.log('MCP_ROLE_' + value.result.structuredContent.role); console.log('MCP_PARENT_' + value.result.structuredContent.parentId); mcp.stdin.end(); }
+    }
+  });
+  mcp.stderr.on('data', () => process.exit(6));
+  mcp.on('error', () => process.exit(7));
+  for (const message of [
+    {jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'fixture-agy',version:'1'}}},
+    {jsonrpc:'2.0', method:'notifications/initialized'},
+    {jsonrpc:'2.0', id:2, method:'tools/list'},
+    {jsonrpc:'2.0', id:3, method:'tools/call', params:{name:'whoami'}},
+  ]) mcp.stdin.write(JSON.stringify(message) + '\\n');
+}
+
 process.stdin.on('data', (data) => {
   const key = data.toString();
   if (key === 'q') process.exit(0);
@@ -256,6 +270,22 @@ process.stdin.on('data', (data) => {
   child.stdin.end(JSON.stringify({conversationId:'fake-agy-session', terminationReason:key === 'f' ? 'error' : 'NO_TOOL_CALL', fullyIdle:true, transcriptPath:'/must-not-read'}));
 });
 `;
+}
+
+for (const firstRun of [false, true]) {
+  test(`Antigravity plugin ${firstRun ? "first run" : "Settings"} disclosure installs and removes an observer that reports lifecycle`, {
+    timeout: deadline(60_000),
+    skip:
+      process.platform === "win32" &&
+      "Fake CLI is POSIX; Windows cmd/PowerShell observer runs in native unit integration",
+  }, async (context) => {
+    const root = await mkdtemp(path.join(tmpdir(), "foom-agy-plugin-"));
+    removeAfterApps(context, root);
+    const bin = path.join(root, "bin");
+    const home = path.join(root, "home");
+    const repo = path.join(root, "repository");
+    await Promise.all([bin, home, repo].map((directory) => mkdir(directory)));
+    const fake = agyFixture(firstRun);
     await writeFile(path.join(bin, "agy"), fake, { mode: 0o755 });
     isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
     isolatedGit(
@@ -303,11 +333,7 @@ process.stdin.on('data', (data) => {
     await expect(disclosure.locator("details").nth(1).locator("summary")).toContainText(
       "agy · ~/.gemini/config/plugins/foom · not-installed",
     );
-    await expect(
-      disclosure.getByText(
-        /observes only Foom launches, approves no tools, stores no credentials/u,
-      ),
-    ).toBeVisible();
+    await expect(disclosure.getByText(/Foom MCP server only in Foom launches/u)).toBeVisible();
     await expect(disclosure.getByText(/agy plugin uninstall foom/u)).toBeVisible();
     await disclosure.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByText("Plugin available", { exact: true })).toHaveCount(0);
@@ -416,6 +442,24 @@ process.stdin.on('data', (data) => {
     await expect
       .poll(() => page.evaluate((id) => window.desktop.tail(id, 10), id))
       .toContain("AGY_READY");
+    if (!firstRun) {
+      await expect
+        .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), id))
+        .toContain("MCP_TOOLS_AVAILABLE");
+      await expect
+        .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), id))
+        .toContain("MCP_ROLE_agent");
+      const spec = JSON.parse(
+        await readFile(path.join(home, ".gemini/config/plugins/foom/mcp_config.json"), "utf8"),
+      ).mcpServers.foom;
+      const result = await require("node:util").promisify(require("node:child_process").execFile)(
+        spec.command,
+        spec.args,
+        { env: {}, timeout: deadline(5000) },
+      );
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("");
+    }
     await page.evaluate((id) => window.desktop.input(id, "w"), id);
     await expect.poll(() => page.evaluate(() => window.agyTransitions.at(-1)?.to)).toBe("working");
     await page.evaluate((id) => window.desktop.input(id, "s"), id);
@@ -479,3 +523,98 @@ process.stdin.on('data', (data) => {
       .toBe(true);
   });
 }
+
+test("Antigravity plugin MCP inherits an owned child's read-only role", {
+  timeout: deadline(90_000),
+  skip:
+    process.platform === "win32" &&
+    "Fixture CLIs are POSIX; native launchers run in unit integration",
+}, async (context) => {
+  const { FAKE_ORCHESTRATED_CLAUDE } = require("./harness.js");
+  const { launchTrustedParent } = require("./agent-fixture.js");
+  const root = await mkdtemp(path.join(tmpdir(), "foom-agy-mcp-child-"));
+  removeAfterApps(context, root);
+  const bin = path.join(root, "bin");
+  const home = path.join(root, "home");
+  const repo = path.join(root, "app");
+  for (const directory of [bin, home, repo]) await mkdir(directory);
+  await writeFile(path.join(bin, "claude"), FAKE_ORCHESTRATED_CLAUDE, { mode: 0o755 });
+  await writeFile(path.join(bin, "agy"), agyFixture(false), { mode: 0o755 });
+  isolatedGit(["init", "-q", "-b", "main"], { cwd: repo });
+  isolatedGit(
+    [
+      "-c",
+      "user.name=Foom",
+      "-c",
+      "user.email=foom@example.com",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "init",
+    ],
+    { cwd: repo },
+  );
+  const credentials = path.join(root, "credentials.json");
+  const { app, page, parent } = await launchTrustedParent(context, {
+    repo,
+    credentials,
+    options: {
+      fixture: "agent",
+      env: { HOME: home, PATH: bin, TEST_FAKE_CREDENTIALS: credentials },
+    },
+  });
+  const call = async (method, params = {}) => {
+    const response = await fetch(parent.controlUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${parent.controlToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
+    });
+    expect(response.status).toBe(200);
+    return (await response.json()).result;
+  };
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  const agyRow = page
+    .locator(".agent-card")
+    .filter({ has: page.getByText("Antigravity", { exact: true }) });
+  await agyRow.getByRole("button", { name: "Install", exact: true }).click();
+  const install = await confirmationPage(app);
+  await install.getByRole("button", { name: "Install", exact: true }).click();
+  await expect(agyRow.getByText("Plugin · installed", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Close settings (Esc)" }).click();
+  const parentId = (await call("whoami")).terminalId;
+  const row = page
+    .locator(".session-entry")
+    .filter({ has: page.locator(`[data-drag-session="${parentId}"]`) });
+  await row
+    .locator(":scope > .board-row")
+    .getByRole("button", { name: /^Actions for/ })
+    .click();
+  await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
+  const elevate = await confirmationPage(app);
+  await elevate.getByRole("button", { name: "Make orchestrator" }).click();
+  await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
+  const tree = await call("create_worktree", { branch: "child-agy", idempotencyKey: "agy-tree" });
+  expect(tree.status).toBe("succeeded");
+  const launched = await call("launch", {
+    worktreeId: tree.resultId,
+    agent: "agy",
+    idempotencyKey: "agy-child",
+  });
+  expect(launched.status).toBe("succeeded");
+  await expect
+    .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), launched.resultId))
+    .toContain("MCP_TOOLS_AVAILABLE");
+  await expect
+    .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), launched.resultId))
+    .toContain("MCP_ROLE_agent");
+  await expect
+    .poll(() => page.evaluate((id) => window.desktop.tail(id, 20), launched.resultId))
+    .toContain(`MCP_PARENT_${parentId}`);
+  expect((await call("stop", { id: launched.resultId, idempotencyKey: "agy-stop" })).status).toBe(
+    "succeeded",
+  );
+});

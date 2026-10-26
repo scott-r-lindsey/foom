@@ -2,7 +2,7 @@ export const CHILD_PROMPT =
   "Task from your Foom orchestrator (another agent, not the user):\nBefore stopping when finished, blocked, or CI fails, report to your parent with handoff({ status: done|blocked|failed, summary, links?, idempotencyKey }), or foom handoff --status done|blocked|failed --summary-file FILE|- [--link HTTPS_URL] --idempotency-key KEY. Handoffs are pull-only; they never type into a terminal.";
 
 /**
- * Antigravity has no per-launch MCP, so its launch prompt explains the CLI. The human may
+ * Antigravity launches without a current MCP plugin explain the CLI. The human may
  * make any session the orchestrator later, so the guidance covers both roles.
  */
 export const CLI_GUIDANCE =

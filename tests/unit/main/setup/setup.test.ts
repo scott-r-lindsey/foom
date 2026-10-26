@@ -322,7 +322,7 @@ test("legacy ID-only acknowledgements require fresh disclosure and unknown IDs c
   expect(confirm).toHaveBeenCalledExactlyOnceWith("claude", ["--dangerously-skip-permissions"]);
 });
 
-test("historical built-in consent remains valid only for its pinned provider identity", async () => {
+test("historical consent stays pinned and Antigravity MCP requires fresh bypass consent", async () => {
   settings = {
     ...DEFAULT_SETTINGS,
     agentBypassAcknowledged: { claude: true, codex: true, agy: true },
@@ -330,14 +330,21 @@ test("historical built-in consent remains valid only for its pinned provider ide
   };
   const confirm = vi.fn(() => Promise.resolve(false));
   const setup = new Setup({ ...deps, confirmBypass: confirm });
-  await setup.save({
-    agentArguments: {
-      claude: ["--dangerously-skip-permissions"],
-      codex: ["--dangerously-bypass-approvals-and-sandbox"],
-      agy: ["--dangerously-skip-permissions"],
-    },
-  });
+  const defaults = {
+    claude: ["--dangerously-skip-permissions"],
+    codex: ["--dangerously-bypass-approvals-and-sandbox"],
+    agy: [],
+  };
+  await setup.save({ agentArguments: defaults });
   expect(confirm).not.toHaveBeenCalled();
+  const updated = { ...defaults, agy: ["--dangerously-skip-permissions"] };
+  await expect(setup.save({ agentArguments: updated })).rejects.toThrow("cancelled");
+  expect(confirm).toHaveBeenCalledExactlyOnceWith("agy", updated.agy);
+  expect(settings.agentBypassIdentities?.["agy"]).toBe(legacyBypassIdentities["agy"]);
+  confirm.mockResolvedValue(true);
+  await setup.save({ agentArguments: updated });
+  expect(settings.agentBypassIdentities?.["agy"]).toBe(bypassConsentIdentity("agy"));
+  expect(settings.agentBypassIdentities?.["agy"]).not.toBe(legacyBypassIdentities["agy"]);
 });
 
 test("failed persistence does not remember bypass acknowledgement", async () => {

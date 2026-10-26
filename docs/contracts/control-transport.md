@@ -6,8 +6,12 @@ Choose **Streamable HTTP on `127.0.0.1` with an OS-assigned port**. Main hosts
 `/mcp` and a versioned CLI endpoint `/control/v1`; both call the same service.
 This avoids spawning an MCP proxy for every agent and lets read-only MCP ship
 before the console helper. HTTP is supported by both verified MCP clients.
-Stdio `foom mcp` would still need an authenticated local app connection and a
-packaged console helper; it is not selected and need not ship as a third adapter.
+The opt-in Antigravity plugin (#855) uses `foom mcp` as an environment-only stdio
+bridge to the same authenticated `/mcp` endpoint. It has no discovery/pairing path
+and no additional policy or listener. It forwards newline-delimited JSON with
+64 KiB request and 256 KiB response bounds and a 65-second request deadline;
+HTTP session/protocol headers stay in memory. Redirects, invalid endpoints and
+missing/malformed launch credentials fail closed.
 
 Authenticate every request, including initialization, tool listing, and stream
 reconnection. Reject browser Origin headers and any Host other than the actual

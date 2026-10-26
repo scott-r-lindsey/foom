@@ -11,4 +11,5 @@ Config sessions only: foom agent probe start ID [--manifest PATH] [--resume CONV
 foom config status [--json] (config sessions only, read-only) | config test-rules AGENT_ID [--json] (config sessions only, local screen rules)
 foom config validate PATH [--json] (offline, read-only)
 foom --version | --help
+Plugin transport: foom mcp bridges stdio MCP using launch environment only; inert outside Foom.
 Observers: foom hook EVENT [--channel ID] reads bounded JSON on stdin; silent and inert outside Foom.

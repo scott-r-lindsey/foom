@@ -84,6 +84,11 @@ const commandHelp = [
     suffix: "",
   },
   {
+    prefix: "Plugin transport: foom ",
+    commands: ["mcp"],
+    suffix: " bridges stdio MCP using launch environment only; inert outside Foom.",
+  },
+  {
     prefix: "Observers: foom ",
     commands: ["hook EVENT [--channel ID]"],
     suffix: " reads bounded JSON on stdin; silent and inert outside Foom.",

@@ -202,7 +202,7 @@ export function validateV2(manifest: AgentManifestV2): void {
       (manifest.hooks?.channels.length !== 1 ||
         channel.observer.placement !== "plugin" ||
         channel.observer.transport !== "stdin" ||
-        (channel.observer.version !== 2 && channel.observer.version !== 3) ||
+        ![2, 3, 4].includes(Number(channel.observer.version)) ||
         channel.observer.response !== "empty-json-first" ||
         channel.observer.delivery !== "detached" ||
         channel.observer.timeoutMs !== 1000 ||

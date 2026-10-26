@@ -84,6 +84,18 @@ without running CLI discovery or setup probes. Agents cards refresh discovery on
 entry and config changes, keeping missing switches Off without saving a preference.
 Enablement changes invalidate workspace discovery caches.
 
+### Bundled Antigravity plugin MCP (#855)
+
+Antigravity's explicit opt-in lifecycle plugin version 4 includes a stdio MCP
+launcher. The generic setup inventory/fingerprint check must report installed,
+and discovery must verify agy 1.4.2+, before launch reports MCP attached and omits
+CLI fallback guidance. Absent, disabled, outdated or damaged plugins retain the
+CLI route. Hook enablement is independent of the inherited control grant.
+Settings keeps the same fixed installation, enable and removal arguments, with
+MCP included in the trusted disclosure. The changed provider identity requires fresh
+bypass-argument consent; historical consent pins are retained unchanged. See [attachment](../contracts/mcp-attachment.md#antigravity)
+and [measured evidence](../agents.md#antigravity-plugin-mcp-agy-142-855).
+
 ### Bundled OpenCode (#824)
 
 OpenCode joins the build-locked v2 catalog and provider-driven Settings cards.
