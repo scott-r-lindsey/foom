@@ -3,6 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import piModelError from "../../../fixtures/agent-detection/pi-model-error.json";
+import { agentProvider } from "../../../../src/main/agents/providers/registry";
+import { reduceV2 } from "../../../../src/main/agents/providers/v2-events";
+import { V2ExecutionHooks, V2Health } from "../../../../src/main/agents/providers/v2-health";
 import { VerdictLog } from "../../../../src/main/evaluator/verdict-log";
 import { isReply } from "../../../../src/main/terminals/terminal-reports";
 import { ExecutionOwner } from "../../../../src/main/workspace/execution-owner";
@@ -729,3 +732,73 @@ test("Pi quiet readiness is neutral, completion needs a working turn, and model 
   await owner.quiet("t1");
   expect(owner.currentState("t1")?.state).toBe("done");
 });
+
+test.each([false, true])(
+  "Pi idle UI close clears its blocker and preserves active turn=%s across quiet",
+  async (activeTurn) => {
+    const { owner, tail } = setup("pi");
+    tail(["Nothing pending"]);
+    const model = agentProvider("pi").model;
+    const channel = model.hooks?.channels[0];
+    if (!channel) throw new Error("Missing Pi lifecycle channel");
+    owner.attachHooks(
+      "t1",
+      new V2ExecutionHooks(
+        model,
+        new Map([[channel.id, channel]]),
+        new V2Health("unused-pi-health-fixture", "pi", "fixture"),
+      ),
+    );
+    const state = {};
+    const emit = async (event: string, extra: Record<string, unknown> = {}) => {
+      const signal = reduceV2(
+        channel,
+        state,
+        "t1",
+        "pi",
+        { event, conversationId: "pi-session", ...extra },
+        undefined,
+        undefined,
+      );
+      if (!signal) throw new Error("Missing Pi hook signal");
+      await owner.hook("t1", signal);
+    };
+    await emit("session_start");
+    if (activeTurn) await emit("agent_start");
+    const before = owner.view("t1").execution;
+    await emit("ui_prompt_start");
+    // Repeated notifications must not replace the phase to restore.
+    await emit("ui_prompt_start");
+    expect(owner.view("t1").execution?.phase).toBe("blocked");
+    expect(owner.currentState("t1")).toMatchObject({
+      state: "needs_input",
+      signal: "plugin:pi:ui_prompt_start",
+    });
+    // Ordinary classification must still preserve explicit permission evidence.
+    await owner.hook("t1", {
+      terminalId: "t1",
+      signal: "plugin:pi:classification",
+      action: "classify",
+      endsTurn: false,
+    });
+    await owner.quiet("t1");
+    expect(owner.currentState("t1")?.state).toBe("needs_input");
+    await emit("ui_prompt_end", { fullyIdle: true });
+    expect(owner.view("t1").execution).toMatchObject({
+      phase: activeTurn ? "working" : "idle",
+      turn: before?.turn,
+    });
+    for (let quiet = 0; quiet < 2; quiet++) {
+      await owner.quiet("t1");
+      expect(owner.currentState("t1")).toMatchObject({
+        state: activeTurn ? "working" : "quiet_ok",
+        execution: { phase: activeTurn ? "working" : "idle", turn: before?.turn },
+      });
+      expect(owner.currentState("t1")?.signal).not.toBe("plugin:pi:ui_prompt_start");
+    }
+    if (activeTurn) {
+      await emit("agent_settled", { outcome: "completed" });
+      expect(owner.currentState("t1")).toMatchObject({ state: "done" });
+    }
+  },
+);

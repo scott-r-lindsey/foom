@@ -4,6 +4,7 @@ import { fail, isRecord } from "./agent-manifest-values";
 import { dataContainer, validateCommandSlots } from "./agent-manifest-container";
 
 const placeholders: Readonly<Record<string, readonly string[]>> = {
+  extensionFile: ["extension"],
   prompt: ["prompt"],
   conversationId: ["resume"],
   newId: ["newId"],
@@ -22,6 +23,7 @@ const placeholders: Readonly<Record<string, readonly string[]>> = {
   observerVersion: ["file"],
 };
 const allowedPlaceholders: Readonly<Record<string, string>> = {
+  extension: "{extensionFile}",
   environment: "whole {file:NAME} or a fixed literal",
   arguments: "none",
   display: "none",
@@ -135,6 +137,10 @@ export function validateTemplates(manifest: AgentManifestV2): void {
             `${name} is allowed only in ${locations.join(" or ")}. ${allowed}`,
           );
         const parts = detail?.split(":") ?? [];
+        if (name === "extensionFile") {
+          if (location !== "extension" || detail !== undefined) fail(path, "unknown-placeholder");
+          return "FOOM_VALUE";
+        }
         if (["prompt", "conversationId", "newId", "hookDir", "pluginDir", "tool"].includes(name)) {
           const allowed =
             name === "prompt"
@@ -316,6 +322,17 @@ export function validateTemplates(manifest: AgentManifestV2): void {
   for (const stage of ["arguments", "display", "resume", "mcp"] as const) {
     const block = manifest.launch[stage];
     if (block) check(block.arguments, stage, `$.launch.${stage}`, block.when);
+  }
+  if (manifest.launch.extension) {
+    const extension = manifest.launch.extension;
+    if (
+      extension.arguments.filter((arg) => arg === "{extensionFile}").length !== 1 ||
+      extension.arguments.some(
+        (arg) => arg.includes("{extensionFile}") && arg !== "{extensionFile}",
+      )
+    )
+      fail("$.launch.extension.arguments", "missing-placeholder");
+    check(extension.arguments, "extension", "$.launch.extension.arguments", extension.when);
   }
   for (const [index, entry] of (manifest.launch.environment ?? []).entries())
     expand(entry.value, "environment", `$.launch.environment[${String(index)}].value`, entry.when);

@@ -373,10 +373,12 @@ See [saved screen-rule regressions](contracts/agent-report.md#saved-screen-rule-
 For an agent whose extension API runs code, use `"observer":{"transport":"external"}`
 and `"arguments":[]` on a channel. Its `when`, payload mapping, requirements,
 dedupe, attention and conversation tracking work exactly as for other channels.
-External channels create no observer files, counters or launch arguments. Observer
-placeholders cannot reference them. Foom ships no agent-specific extension glue
-for this transport. The user installs their own extension through their agent's
-extension mechanism; neither Foom nor the config agent edits global agent config.
+External channels alone create no observer files, counters or launch arguments.
+Observer placeholders cannot reference them. A separately selected
+[fixed per-launch extension](contracts/agent-launch.md#fixed-extension-attachment-834)
+can provide application-owned glue, as bundled Pi does. Otherwise the user installs
+their own extension through their agent's extension mechanism. Neither path edits
+global agent configuration.
 
 The launch environment is the credential contract:
 

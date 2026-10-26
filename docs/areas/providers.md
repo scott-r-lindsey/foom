@@ -100,17 +100,35 @@ and [measured evidence](../agents.md#antigravity-plugin-mcp-agy-142-855).
 
 Pi ships as a locked v2 manifest and appears in the shared Settings → Agents
 catalog. Pi opts in to bounded active screen sampling so its continuously redrawing
-spinner can establish Working. Pi 1.4.0 uses screen rules only: its CLI exposes code extensions, not
-per-launch command hooks. Foom does not install extension glue. New conversations
+spinner can establish Working. Pi 1.4.0 exposes code extensions rather than command hooks; Foom attaches its
+fixed per-launch observer when `--extension` is advertised, retaining screen rules
+as fallback. New conversations
 receive a Foom-generated UUID through `--session-id`; Resume uses `--session`,
 and pasted `pi --session <UUID>` commands are recognized. `--approve` and `-a`
 trust project-local files and require the normal bypass disclosure.
 
-Pi has no advertised per-launch MCP configuration interface. Its MCP commands
-write global or project `.pi/mcp.json` files, which Foom never writes. Pi cannot
-receive orchestration MCP roles or restore those roles. The measured file write
-ran without a permission prompt; blocked detection covers the measured model
-selector and OpenAI model-not-found error, not an invented file approval screen. See [measurements](../agents.md#pi-140-measurement-823).
+Pi 1.4.0 has no declarative per-launch MCP config flag. Foom instead selects the
+fixed `pi-v1` extension ABI through the generic v2 `launch.extension` block. It
+writes reviewed, versioned extension bytes and nonsecret attachment data into the
+private launch directory and passes the whole generated path through `--extension`.
+Manifest authors can select the same fixed ABI, never supply source, module paths
+or integrity hashes. No Pi-specific provider module or agent-ID branch exists.
+
+The extension registers Foom's random launch server with Pi's session-only
+`registerMcpServer`. The adapter reads the authenticated `whoami` capability list
+at session start and before new work, intersecting it with classified Foom names.
+It hides tools by default and exposes only currently granted names (only `manual`
+for config launches, only `ping` for verification probes). Calls keep Pi's normal
+tool validation and permission handlers and Foom's authoritative role checks.
+Resume supports orchestration restoration when the measured extension flag and
+version gates pass. Bearer credentials stay in the launch environment and Pi's
+in-process registration; attachment files, argv and renderer contain none.
+
+Pi's built-in MCP connector must be enabled. A user-installed replacement or user
+policy disabling the connector can refuse attachment; Foom does not change that
+policy or install a connector. Extension/disabling flags are reserved in Foom's
+default arguments so defaults cannot replace its attachment. No global or project
+Pi files are read or written by Foom. See [measurements](../agents.md#pi-140-extension-spike-834).
 
 Existing settings keep their original required keys; absent Pi settings use the
 normal enabled/empty-default behavior without rewriting the profile. Pi uses the
