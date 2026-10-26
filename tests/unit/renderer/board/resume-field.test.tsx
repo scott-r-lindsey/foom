@@ -11,6 +11,10 @@ test.each([
   ["claude -r abc", { agent: "claude", id: "abc" }],
   [" codex resume abc ", { agent: "codex", id: "abc" }],
   ["agy --conversation abc", { agent: "agy", id: "abc" }],
+  [
+    "pi --session 12345678-1234-4567-8910-123456789abc",
+    { agent: "pi", id: "12345678-1234-4567-8910-123456789abc" },
+  ],
   ["a".repeat(200), { id: "a".repeat(200) }],
 ])("parses %s", (text, expected) => {
   expect(parseResume(text)).toEqual(expected);

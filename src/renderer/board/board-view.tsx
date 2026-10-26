@@ -1,3 +1,4 @@
+import { restoreBoardFocus } from "./focus-restore";
 import type { ComponentProps, ReactNode, SetStateAction } from "react";
 import {
   useCallback,
@@ -223,6 +224,7 @@ function BoardContents({
   const sidebarRef = useRef<HTMLElement>(null);
   useBoardActivity(source, buttonsRef);
   const wasInactiveRef = useRef(paneInactive);
+  const boardFocusRef = useRef<Element | null>(null);
   const focusedInitialRowRef = useRef(false);
   useLayoutEffect(() => {
     if (!focusedInitialRowRef.current && rows.length) {
@@ -230,12 +232,24 @@ function BoardContents({
       buttonsRef.current.values().next().value?.focus();
     }
   }, [rows]);
-  useLayoutEffect(() => {
-    // Coming back from setup: restore the row now and again after attachment settles.
-    if (wasInactiveRef.current && !paneInactive && selected)
-      buttonsRef.current.get(selected)?.focus();
+  useEffect(() => {
+    // Child view effects queue attachment first. xterm's container stays hidden
+    // until that asynchronous work completes, so queue its input focus as well.
+    if (wasInactiveRef.current && !paneInactive) {
+      const previous = boardFocusRef.current;
+      restoreBoardFocus(previous ?? buttonsRef.current.get(selected ?? "") ?? null);
+      if (
+        previous?.matches(".xterm-helper-textarea") &&
+        previous.closest('.terminal-tile[data-empty="false"]')
+      ) {
+        // The interim tile fallback must not replace the original xterm if
+        // Settings reopens before queued attachment/focus has completed.
+        boardFocusRef.current = previous;
+        setFocusRequest((value) => value + 1);
+      }
+    }
     wasInactiveRef.current = paneInactive;
-  }, [paneInactive, selected]);
+  }, [paneInactive, selected, setFocusRequest]);
   const pickPreview = async (worktree: string) => {
     setRemoveError("");
     try {
@@ -465,6 +479,9 @@ function BoardContents({
   return (
     <main
       className="board-home"
+      onFocusCapture={(event) => {
+        if (!paneInactive) boardFocusRef.current = event.target;
+      }}
       data-dragging={Boolean(drag)}
       data-preview-covered={paneInactive}
       ref={boardRef}
@@ -611,7 +628,6 @@ function BoardContents({
             subscribe={source.subscribe}
             close={() => {
               setLogOpen(false);
-              setFocusRequest((value) => value + 1);
             }}
           />
         )}

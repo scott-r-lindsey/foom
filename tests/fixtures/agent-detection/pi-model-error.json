@@ -1,0 +1,25 @@
+{
+  "agent": "pi",
+  "version": "1.4.0",
+  "state": "blocked",
+  "platform": "linux",
+  "date": "2026-10-25",
+  "size": {
+    "cols": 80,
+    "rows": 24
+  },
+  "rules": ["provider_model"],
+  "titles": ["π - <temporary directory basename>"],
+  "progress": null,
+  "tail": [
+    "Error: OpenAI API error (400):",
+    "{\"type\":\"invalid_request_error\",\"code\":\"model_not_found\",\"message\":\"The",
+    "'gpt-5.5' model is not supported when using Codex with a ChatGPT account.\"}",
+    "If this looks like a pi bug, /bug sends a report to the developers.",
+    "────────────────────────────────────────────────────────────────────────────────",
+    "",
+    "────────────────────────────────────────────────────────────────────────────────",
+    "<temporary directory>",
+    "$0.000 (sub) 0.5%/272k (auto)                      gpt-5.5 • medium"
+  ]
+}

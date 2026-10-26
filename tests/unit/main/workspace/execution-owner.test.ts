@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
+import piModelError from "../../../fixtures/agent-detection/pi-model-error.json";
 import { VerdictLog } from "../../../../src/main/evaluator/verdict-log";
 import { isReply } from "../../../../src/main/terminals/terminal-reports";
 import { ExecutionOwner } from "../../../../src/main/workspace/execution-owner";
@@ -15,7 +16,7 @@ function deferred<T>() {
   return Promise.withResolvers<T>();
 }
 
-function setup(agent = false) {
+function setup(agent: boolean | string = false) {
   let closed = false;
   let count = 0;
   let waiting = 0;
@@ -32,7 +33,11 @@ function setup(agent = false) {
   const deps: ExecutionOwnerDependencies = {
     terminal: vi.fn<ExecutionOwnerDependencies["terminal"]>(() =>
       agent
-        ? { kind: "agent", agent: "claude", attention: "hooks" }
+        ? {
+            kind: "agent",
+            agent: typeof agent === "string" ? agent : "claude",
+            attention: typeof agent === "string" ? "evaluator" : "hooks",
+          }
         : { kind: "shell", agent: "shell", attention: "evaluator" },
     ),
     tail: vi.fn(() => Promise.resolve(tail)),
@@ -597,3 +602,130 @@ test.each(["reset", "removed"] as const)(
     expect(deps.verdicts.commit).not.toHaveBeenCalled();
   },
 );
+
+const piWorking = ["── ⠋ Working ─────", "────────────────", "temp", "0.5%/272k (auto)"];
+const piIdle = ["────────────────", "temp", "0.5%/272k (auto)"];
+
+test("active screen opt-in detects a static-title spinner without quiet events and throttles reads", async () => {
+  const { owner, deps, tail } = setup("pi");
+  let now = 0;
+  deps.now = () => now;
+  tail(piWorking);
+  owner.output("t1");
+  await deps.enqueue("t1", async () => {});
+  expect(owner.view("t1").execution?.phase).toBe("working");
+  expect(deps.tail).toHaveBeenCalledTimes(1);
+  for (now = 100; now < 1000; now += 100) owner.output("t1");
+  await deps.enqueue("t1", async () => {});
+  expect(deps.tail).toHaveBeenCalledTimes(1);
+  tail(piIdle);
+  owner.output("t1");
+  await deps.enqueue("t1", async () => {});
+  expect(deps.tail).toHaveBeenCalledTimes(2);
+  expect(owner.view("t1").execution?.phase).toBe("idle");
+  expect(owner.currentState("t1")?.state).toBe("done");
+});
+
+test("active screen sampling allows only one in-flight read and retries stale spinner frames", async () => {
+  const { owner, deps, tail } = setup("pi");
+  let now = 0;
+  deps.now = () => now;
+  const started = deferred<undefined>();
+  const screen = deferred<string[]>();
+  vi.mocked(deps.tail).mockImplementationOnce(() => {
+    started.resolve(undefined);
+    return screen.promise;
+  });
+  owner.output("t1");
+  await started.promise;
+  now = 2000;
+  owner.output("t1");
+  expect(deps.tail).toHaveBeenCalledTimes(1);
+  screen.resolve(piWorking);
+  await deps.enqueue("t1", async () => {});
+  expect(owner.view("t1").execution?.phase).toBe("starting");
+  now = 3000;
+  tail(piWorking);
+  owner.output("t1");
+  await deps.enqueue("t1", async () => {});
+  expect(owner.view("t1").execution?.phase).toBe("working");
+});
+
+test("active sampling requires a known rule, respects permission hooks, and excludes exited invocations", async () => {
+  const { owner, deps, tail, hook } = setup("pi");
+  let now = 0;
+  deps.now = () => now;
+  tail(["unrecognized active output"]);
+  owner.output("t1");
+  await deps.enqueue("t1", async () => {});
+  expect(deps.verdicts.classify).not.toHaveBeenCalled();
+  await hook("needs_input");
+  tail(piWorking);
+  now = 1000;
+  owner.output("t1");
+  await deps.enqueue("t1", async () => {});
+  expect(owner.currentState("t1")?.state).toBe("needs_input");
+  await hook("failed");
+  now = 2000;
+  owner.output("t1");
+  await deps.enqueue("t1", async () => {});
+  expect(owner.currentState("t1")?.state).toBe("failed");
+  expect(owner.view("t1").execution?.phase).toBe("idle");
+  owner.markExited("t1", 0);
+  vi.mocked(deps.tail).mockClear();
+  now = 3000;
+  owner.output("t1");
+  await deps.enqueue("t1", async () => {});
+  expect(deps.tail).not.toHaveBeenCalled();
+});
+
+test.each(["reset", "removed", "input", "closed", "exit"] as const)(
+  "invalidates an active screen sample on %s",
+  async (change) => {
+    const fixture = setup("pi");
+    const { owner, deps } = fixture;
+    const started = deferred<undefined>();
+    const screen = deferred<string[]>();
+    vi.mocked(deps.tail).mockImplementationOnce(() => {
+      started.resolve(undefined);
+      return screen.promise;
+    });
+    owner.output("t1");
+    await started.promise;
+    if (change === "reset") {
+      owner.reset("t1");
+      owner.ensure("t1");
+      owner.launched("t1");
+    }
+    if (change === "removed") owner.removed("t1");
+    if (change === "input") owner.input("t1");
+    if (change === "closed") fixture.close();
+    if (change === "exit") owner.markExited("t1", 0);
+    screen.resolve(piWorking);
+    await deps.enqueue("t1", async () => {});
+    expect(deps.verdicts.commit).not.toHaveBeenCalled();
+  },
+);
+
+test("Pi quiet readiness is neutral, completion needs a working turn, and model failures request attention", async () => {
+  const { owner, deps, tail } = setup("pi");
+  tail(piIdle);
+  await owner.quiet("t1");
+  expect(owner.currentState("t1")?.state).toBe("quiet_ok");
+  tail(piWorking);
+  owner.output("t1");
+  await deps.enqueue("t1", async () => {});
+  expect(owner.view("t1").execution?.phase).toBe("working");
+  tail(piModelError.tail);
+  await owner.quiet("t1");
+  expect(owner.currentState("t1")).toMatchObject({
+    state: "needs_input",
+    attentionKind: "provider",
+  });
+  tail(piWorking);
+  await owner.quiet("t1");
+  expect(owner.view("t1").execution?.phase).toBe("working");
+  tail(piIdle);
+  await owner.quiet("t1");
+  expect(owner.currentState("t1")?.state).toBe("done");
+});
