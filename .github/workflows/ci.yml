@@ -342,7 +342,7 @@ jobs:
       - name: Test hooks and control storage with native OS tools
         # Cold PowerShell probes compete for startup when these files run together.
         # Exercise native transport once per platform, with one OS probe at a time.
-        run: pnpm test --reporter=default --reporter=junit --outputFile.junit=test-results/hooks.xml --no-file-parallelism tests/unit/main/login-shell.test.ts tests/unit/main/agents/hook-receiver.test.ts tests/unit/main/agents/hook-adapters.test.ts tests/unit/main/agents/agy-observer.test.ts tests/unit/main/agents/hook-launch.test.ts tests/unit/main/agents/codex-hooks.test.ts tests/unit/main/agents/v2-native.test.ts tests/unit/main/control/private-native.test.ts tests/unit/main/update-package.test.ts
+        run: pnpm test --reporter=default --reporter=junit --outputFile.junit=test-results/hooks.xml --no-file-parallelism tests/unit/main/login-shell.test.ts tests/unit/main/agents/hook-receiver.test.ts tests/unit/main/agents/hook-adapters.test.ts tests/unit/main/agents/agy-observer.test.ts tests/unit/main/agents/agy-mcp.test.ts tests/unit/main/agents/hook-launch.test.ts tests/unit/main/agents/codex-hooks.test.ts tests/unit/main/agents/v2-native.test.ts tests/unit/main/control/private-native.test.ts tests/unit/main/update-package.test.ts
       - name: Test Antigravity observer alone
         run: pnpm test tests/unit/main/agents/agy-observer.test.ts --reporter=default --reporter=junit --outputFile.junit=test-results/agy-observer.xml
       - name: Test Git inventory paths on native filesystem

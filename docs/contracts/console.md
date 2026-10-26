@@ -108,8 +108,10 @@ after moving the installation. Both actions broadcast the Windows environment
 change so newly opened shells can inherit it. Existing shells must be reopened.
 Unrelated PATH entries and registry value kind are retained. Foom-launched agents
 get a process-local PATH addition independently of human installation. Antigravity
-with `--prompt-interactive` support receives CLI guidance composed with initial
-prompt data; no MCP configuration is installed.
+receives CLI guidance composed with initial prompt data unless its opt-in current
+plugin supplies MCP. `foom mcp` serves only that inherited launch via the
+[environment-only bridge](control-transport.md#transport-packaging-and-discovery);
+it never discovers or pairs.
 
 Offline validation uses `foom config validate PATH`; see [the console ownership contract](../areas/control.md#control-plane).
 

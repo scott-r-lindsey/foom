@@ -111,7 +111,7 @@ staging and fixed CLI actions. Status reads at most 64 KiB from each fixed metad
 path to establish ownership and observer version. agy 1.4.x uses `plugin list --json` (array with enabled state); failed --json calls may fall back to the legacy 1.3.x object/empty-text list. Unrecognized, linked or
 unreadable ownership remains unavailable and cannot authorize mutation. Settings
 and preflight use `agents:setup`, whose trusted dialog discloses the executable,
-fixed argv, installation location, observer-only behavior, exact staged bytes and
+fixed argv, installation location, lifecycle and MCP behavior, exact staged bytes and
 removal route. Every action, including enable and remove, requires separate human
 confirmation. Foom never writes the agent's home files directly.
 
@@ -123,7 +123,7 @@ bypass setup ownership or consent. New scans and actions use the model.
 The same `agy` enable/hooks/defaults/session keys are retained.
 
 The version-3 ordered observer preserves root-level filenames and native script bytes, but anchors commands to the absolute CLI-owned installed plugin directory (#467/#723). Generic staging under Foom's profile adds only a definition fingerprint
-to plugin metadata; the CLI alone copies it into its installation. Legacy versions 1 and 2 offer Update; version 3 requires the current definition fingerprint.
+to plugin metadata; the CLI alone copies it into its installation. Version 4 adds the environment-only MCP launcher (#855). Legacy versions 1–3 offer Update; version 4 requires the current definition fingerprint.
 Older versions offer Update; disabled versions offer Enable; explicit fingerprint
 mismatches offer reviewed Update. Owned installed/outdated/disabled plugins also offer a confirmed Reinstall (uninstall then install); unavailable status offers Retry status in the row. Launch adds credentials only when hooks are
 enabled and installed or outdated. Channel-less reports are accepted only for the

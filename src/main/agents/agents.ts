@@ -15,6 +15,7 @@ import type { ControlLaunch } from "../control/types";
 import { bypassConsentIdentity, parseAgentArguments } from "./default-arguments";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { readLoginShell } from "../login-shell";
 import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
@@ -262,6 +263,7 @@ export class AgentService {
       : undefined;
     let control: ControlLaunch | undefined;
     let manual: ManualMcp | undefined;
+    let manualEnvironment: Readonly<Record<string, string>> = {};
     let prepared: PreparedLaunch | undefined;
     try {
       // Config sessions get no repository-scoped control grant.
@@ -274,7 +276,16 @@ export class AgentService {
               request.control,
             )
           : undefined;
-      if (config !== undefined && agent.mcp) manual = await ManualMcp.listen();
+      if (config !== undefined && agent.mcp) {
+        manual = await ManualMcp.listen();
+        // Stdio plugin launchers need an identity and the packaged CLI, but this
+        // credential still reaches only the dedicated manual endpoint.
+        manualEnvironment = {
+          ...manual.env,
+          FOOM_SESSION: randomUUID(),
+          FOOM_CLI_DIRECTORY: config,
+        };
+      }
       this.ensureOpen();
       if (
         config === undefined &&
@@ -312,7 +323,12 @@ export class AgentService {
         base: baseEnvironment,
         path: scan.path,
         pathFirst: config ?? control?.env["FOOM_CLI_DIRECTORY"],
-        foom: { ...control?.env, ...manual?.env, ...binding?.env, ...request.configEnvironment },
+        foom: {
+          ...control?.env,
+          ...manualEnvironment,
+          ...binding?.env,
+          ...request.configEnvironment,
+        },
       });
       const finalEnvironment = { ...baseEnvironment, ...environment.env };
       // The host inherits OS names such as ProgramFiles(x86) itself. IPC accepts

@@ -4,8 +4,11 @@
 
 One main-process control service owns authorization and operations. A Streamable
 HTTP MCP server and the `foom` console CLI are thin adapters to it. Attach MCP per
-launch to supported agents; use the CLI fallback for Antigravity. Never install
-agent configuration, plugins or skills globally or into a repository. MCP server
+launch to supported agents. Antigravity uses the explicitly disclosed, opt-in
+Foom lifecycle plugin for environment-only MCP; absent, old, disabled or damaged
+plugins retain the CLI fallback. This plugin is the sole global installation
+exception; never install other agent configuration, plugins or skills globally
+or into a repository. See [attachment rules](mcp-attachment.md#antigravity). MCP server
 instructions and tool descriptions explain the workflow and limits.
 
 Only the human grants orchestration, from a running agent session's menu: **Make

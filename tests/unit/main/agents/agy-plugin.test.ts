@@ -41,12 +41,12 @@ test("detects absence, installed versions, updates and user-disabled preference"
   expect(await plugin.status("agy")).toEqual({ state: "unavailable" });
   await manifest({ name: "foom", foomObserverVersion: 1 });
   expect(await plugin.status("agy")).toEqual({ state: "outdated", version: 1 });
-  await manifest({ name: "foom", foomObserverVersion: 2, disabled: true });
-  expect(await plugin.status("agy")).toEqual({ state: "disabled", version: 2 });
+  await manifest({ name: "foom", foomObserverVersion: 4, disabled: true });
+  expect(await plugin.status("agy")).toEqual({ state: "disabled", version: 4 });
   await settings({ plugins: { foom: { enabled: true }, unrelated: { enabled: false } } });
-  expect(await plugin.status("agy")).toEqual({ state: "installed", version: 2 });
+  expect(await plugin.status("agy")).toEqual({ state: "installed", version: 4 });
   await settings({ plugins: { foom: { enabled: false } } });
-  expect(await plugin.status("agy")).toEqual({ state: "disabled", version: 2 });
+  expect(await plugin.status("agy")).toEqual({ state: "disabled", version: 4 });
 });
 
 test("refuses malformed, conflicting, oversized, or unreadable metadata and failed CLI probes", async () => {

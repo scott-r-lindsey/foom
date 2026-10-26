@@ -73,6 +73,46 @@ Observer version 3 uses absolute paths into the validated CLI-owned installed pl
 
 The #723 review found that absolute paths into a disposable Foom profile disappear on exit. Hooks now target the canonical CLI-owned installation instead; no documented agy plugin-root variable is assumed. Modern reported install paths require exact native spellings (case variants on Windows/macOS additionally require matching realpath identity); noncanonical or foreign paths are unavailable. Reported paths never select inventory reads or execute commands. Status verifies installed hook/observer bytes and reports missing or changed targets as outdated. Fixture tests delete disposable staging, rescan from another profile, and verify consistent installed status and working hooks. Same-definition Dev/everyday profiles share the installed target without scan-time rewriting or alternating status.
 
+### Antigravity plugin MCP (agy 1.4.2, #855)
+
+Measured on Linux on 2026-10-25. Read-only discovery used `agy --version`,
+`agy --help`, and `agy plugin --help` in a disposable HOME with a minimal
+explicit environment. Version output was `1.4.2`. Root help has no per-invocation
+plugin/config directory flag. HOME controls `.gemini/config` and
+`.gemini/antigravity-cli`; a `strace -f -e trace=file,connect` audit confirmed
+config/state accesses under the disposable root. XDG config/data/state/cache,
+`GEMINI_CLI_HOME`, `GEMINI_CONFIG_DIR`, `AGY_CONFIG_HOME`, and `AGY_CONFIG_DIR`
+were also redirected there; their individual support was not established.
+No real user configuration or credentials were copied, read or linked. The CLI
+completed the harmless print prompt without requesting login; no login was attempted.
+
+A legacy plugin uses root `plugin.json` (`name`, `version`) and
+`mcp_config.json` with `mcpServers`, a named server object, `command`, and `args`.
+`agy plugin validate <fixture> --json` reported one MCP server and no findings;
+`agy plugin install <fixture>` reported one processed MCP server. In contrast,
+inline `plugin.json.mcpServers` is ignored, `.mcp.json` is never loaded, and
+`mcp.json` requires the separate Agent Plugins schema. These were all disposable
+fixtures, without lifecycle hooks or Foom credentials.
+
+`agy --print "Reply with OK only." --print-timeout 10s` spawned the declared
+Python fixture server. Its only behavior was to log argv and the **names**, never
+values, of inherited `FOOM_*` variables, then exit. The log showed the declared
+script argv and `FOOM_CONTROL_URL`, `FOOM_CONTROL_TOKEN`, `FOOM_SESSION`.
+Values were synthetic and pointed at an unused loopback port. No bypass flags
+were used. This proves process environment inheritance, not real Foom tool
+execution, approval behavior, or Windows/macOS compatibility; fixture integration
+tests cover the bridge and main-owned role checks.
+
+The CLI also spawned its automatic `--bg-updater`, which accessed the executable
+installation directory outside the temporary HOME (including update-test files
+and cleanup of updater artifacts). HOME isolation does **not** isolate that
+updater. No update command was requested. No further real-agent probes were run.
+All probe process groups were terminated and disposable directories deleted.
+Subcommand `--help` is not consistently read-only in 1.4.2: install interprets it
+as a target, enable as a name, and uninstall reports removing that name. These
+calls were confined to the deleted temporary HOME; use `agy plugin --help` for
+command discovery.
+
 ### Pi 1.4.0 measurement (#823)
 
 Measured manually on Linux on 2026-10-25, using `/home/slindsey/.local/bin/pi`
