@@ -281,6 +281,14 @@ model/effort combinations it accepts.
 Per-launch values replace every matching default flag, then append one canonical
 template expansion in the defaults stage. Config matching normalizes key whitespace
 and a surrounding quote pair and requires the exact key, including its full path.
-Other config keys, bypass flags and all other defaults remain unchanged. Literal
-values are never reparsed as argv or evaluated by a shell. The existing default
+`launch.valueFlags?` declares up to 64 unique option names using the existing flag
+syntax. Each takes exactly one following literal argv value, even when that value
+looks like another option. Manifest authors must declare such options to preserve
+their ownership during selector replacement; do not list boolean or variadic
+options. Model/effort selector flags are automatically single-value options.
+Replacement scans defaults once, preserving owned values byte-for-byte instead of
+interpreting them as selectors. Bundled Claude declares its system-prompt and
+system-prompt-file options, including append variants. Other config keys, bypass
+flags and all other defaults remain unchanged. Literal values are never reparsed
+as argv or evaluated by a shell. The existing default
 argument reservations and final bypass checks remain authoritative.

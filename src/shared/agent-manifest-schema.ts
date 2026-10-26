@@ -288,11 +288,13 @@ export function launch(v: unknown, p: string) {
       "environment",
       "model",
       "effort",
+      "valueFlags",
     ],
   );
   if (d["effort"] !== undefined && launchSelection(d["effort"], `${p}.effort`).values === undefined)
     fail(`${p}.effort.values`);
   return {
+    valueFlags: optional(array(flag, 64))(d["valueFlags"], `${p}.valueFlags`),
     model: optional(launchSelection)(d["model"], `${p}.model`),
     effort: optional(launchSelection)(d["effort"], `${p}.effort`),
     order: array(

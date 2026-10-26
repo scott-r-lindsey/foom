@@ -4,6 +4,7 @@ import {
   selectionInput,
   validateSelection,
 } from "../../../../src/node-common/launch-selection";
+import { parseAgentArguments } from "../../../../src/main/agents/default-arguments";
 import { bundledProviders } from "../../../../src/main/agents/providers/bundled";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import fixture from "../../../fixtures/agent-plugin.json";
@@ -157,6 +158,112 @@ describe("bounded per-child launch selections", () => {
           },
         }),
       ),
+    ).toThrow();
+  });
+});
+
+describe("selector argument ownership", () => {
+  const claude = bundledProviders.find((entry) => entry.id === "claude");
+  const codex = bundledProviders.find((entry) => entry.id === "codex");
+  if (!claude || !codex) throw new Error("missing bundled provider");
+  it.each([
+    "--append-system-prompt",
+    "--system-prompt",
+    "--append-system-prompt-file",
+    "--system-prompt-file",
+  ])("preserves literal values belonging to %s", (flag) => {
+    for (const literal of ["--model=opus", "--effort=high", "--model", "--effort"]) {
+      const defaults = parseAgentArguments("claude", [
+        flag,
+        literal,
+        "--verbose",
+        "--model",
+        "old",
+        "--effort=high",
+      ]);
+      expect(selectedArguments(claude.model, defaults, { model: "sonnet", effort: "low" })).toEqual(
+        [flag, literal, "--verbose", "--model", "sonnet", "--effort", "low"],
+      );
+    }
+  });
+  it("preserves multiple prompt values without shifting ownership between selections", () => {
+    const defaults = [
+      "--append-system-prompt",
+      "--effort=high",
+      "--model=old",
+      "--system-prompt",
+      "--model=opus",
+      "--effort",
+      "high",
+    ];
+    expect(selectedArguments(claude.model, defaults, { model: "sonnet", effort: "low" })).toEqual([
+      "--append-system-prompt",
+      "--effort=high",
+      "--system-prompt",
+      "--model=opus",
+      "--model",
+      "sonnet",
+      "--effort",
+      "low",
+    ]);
+  });
+  it("does not replace a value owned by an unselected selector or another config key", () => {
+    expect(
+      selectedArguments(claude.model, ["--model", "--effort=high"], { effort: "low" }),
+    ).toEqual(["--model", "--effort=high", "--effort", "low"]);
+    expect(
+      selectedArguments(codex.model, ["--config", "--model=literal"], { model: "new" }),
+    ).toEqual(["--config", "--model=literal", "--model", "new"]);
+  });
+  it("does not reparse suspicious values after removing their selector", () => {
+    expect(
+      selectedArguments(claude.model, ["--model", "--effort=high"], {
+        model: "sonnet",
+        effort: "low",
+      }),
+    ).toEqual(["--effort=high", "--model", "sonnet", "--effort", "low"]);
+  });
+  it("honors config manifest ownership, including single-value short options", () => {
+    const manifest = parseAgentManifest(
+      JSON.stringify({
+        ...fixture,
+        launch: {
+          ...fixture.launch,
+          valueFlags: ["--literal", "-p"],
+          model: { flags: ["--model"], arguments: ["--model", "{value}"] },
+        },
+      }),
+    ).model;
+    const defaults = [
+      "--literal",
+      "--model=literal",
+      "-p",
+      "--model",
+      "--literal=inline",
+      "--model=old",
+      "-pinline",
+      "--model=older",
+    ];
+    expect(selectedArguments(manifest, defaults, { model: "new" })).toEqual([
+      "--literal",
+      "--model=literal",
+      "-p",
+      "--model",
+      "--literal=inline",
+      "-pinline",
+      "--model",
+      "new",
+    ]);
+  });
+  it.each([
+    null,
+    "--literal",
+    ["literal"],
+    ["--literal", "--literal"],
+    Array.from({ length: 65 }, (_, i) => `--flag${String(i)}`),
+  ])("rejects invalid ownership metadata %j", (valueFlags) => {
+    expect(() =>
+      parseAgentManifest(JSON.stringify({ ...fixture, launch: { ...fixture.launch, valueFlags } })),
     ).toThrow();
   });
 });

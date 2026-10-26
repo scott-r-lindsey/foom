@@ -310,7 +310,16 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       await page.evaluate(() =>
         window.desktop.saveSetup({
           agentArguments: {
-            claude: ["--model=old", "--effort", "low", "--verbose"],
+            claude: [
+              "--append-system-prompt",
+              "--model=literal-prompt",
+              "--system-prompt",
+              "--effort=high",
+              "--model=old",
+              "--effort",
+              "low",
+              "--verbose",
+            ],
             codex: [],
             agy: [],
           },
@@ -657,7 +666,11 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       await page.keyboard.press("Escape");
       await expect.poll(() => existsSync(`${credentials}.child-one`)).toBe(true);
       const child = await read("child-one");
-      assert.deepEqual(child.args.slice(0, 5), [
+      assert.deepEqual(child.args.slice(0, 9), [
+        "--append-system-prompt",
+        "--model=literal-prompt",
+        "--system-prompt",
+        "--effort=high",
         "--verbose",
         "--model",
         "fixture-model",

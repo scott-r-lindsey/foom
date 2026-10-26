@@ -123,7 +123,11 @@ Settings model allowlist.
 The main-only argument builder replaces all matching default selectors by the
 manifest's flags (separate, equals and attached one-letter short forms). Config
 selectors replace only the exact declared key, preserving other `-c` values.
-Other defaults retain their order and bytes; Settings is never rewritten.
+Manifest `launch.valueFlags` declares other single-value options; selector flags
+also own their following value. The replacement scan preserves those values even
+when they look like selectors (for example a Claude system prompt containing only
+`--model=opus`). Other defaults retain their order and bytes; Settings is never
+rewritten.
 Existing bypass-default refusal remains, and bypass inspection still checks the
 final expanded argv and environment before spawning. Requests cannot supply flags,
 templates or arbitrary extra argv. The provider may still reject a model/effort

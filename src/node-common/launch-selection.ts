@@ -37,36 +37,57 @@ export function selectedArguments(
   selection: LaunchSelection = {},
 ): string[] {
   validateSelection(manifest, selection);
-  let result = [...defaults];
-  for (const field of ["model", "effort"] as const) {
+  const requested = (["model", "effort"] as const).flatMap((field) => {
     const value = selection[field];
     const spec = manifest.launch[field];
-    if (value === undefined || !spec) continue;
+    if (value === undefined || !spec) return [];
     const template = spec.arguments.slice(1).join("");
     const key = template === "{value}" ? undefined : template.slice(0, template.indexOf("="));
-    const kept: string[] = [];
-    for (let i = 0; i < result.length; i++) {
-      const arg = result[i] ?? "";
+    return [{ spec, value, key }];
+  });
+  if (requested.length === 0) return [...defaults];
+  const valueFlags = new Set([
+    ...(manifest.launch.valueFlags ?? []),
+    ...(manifest.launch.model?.flags ?? []),
+    ...(manifest.launch.effort?.flags ?? []),
+  ]);
+  const kept: string[] = [];
+  let consumed = false;
+  // Scan the original argv once: a literal value never becomes an option on a later pass.
+  for (const [index, arg] of defaults.entries()) {
+    if (consumed) {
+      consumed = false;
+      continue;
+    }
+    const next = valueFlags.has(arg) ? defaults[index + 1] : undefined;
+    const replaced = requested.some(({ spec, key }) => {
       const flag = spec.flags.find(
         (name) =>
           arg === name || arg.startsWith(`${name}=`) || (name.length === 2 && arg.startsWith(name)),
       );
-      const separate = flag === arg;
-      const content = separate ? result[i + 1] : arg.slice(flag?.length).replace(/^=/u, "");
+      const content = flag === arg ? next : arg.slice(flag?.length).replace(/^=/u, "");
       // Normalize quoted config keys just as the existing config matcher does.
-      const matches =
+      return (
         flag !== undefined &&
         (key === undefined ||
           (content?.includes("=") &&
             content
               .slice(0, content.indexOf("="))
               .trim()
-              .replace(/^(["'])(.*)\1$/u, "$2") === key));
-      if (matches) {
-        if (separate && content !== undefined && !content.startsWith("-")) i++;
-      } else kept.push(arg);
+              .replace(/^(["'])(.*)\1$/u, "$2") === key))
+      );
+    });
+    if (!replaced) kept.push(arg);
+    if (next !== undefined) {
+      consumed = true;
+      // Retain option-looking values of removed selectors for the final bypass inspection.
+      if (!replaced || next.startsWith("-")) kept.push(next);
     }
-    result = [...kept, ...spec.arguments.map((arg) => arg.replaceAll("{value}", value))];
   }
-  return result;
+  return [
+    ...kept,
+    ...requested.flatMap(({ spec, value }) =>
+      spec.arguments.map((arg) => arg.replaceAll("{value}", value)),
+    ),
+  ];
 }

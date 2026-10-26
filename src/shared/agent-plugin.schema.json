@@ -364,6 +364,17 @@
       "additionalProperties": false,
       "required": ["order"],
       "properties": {
+        "valueFlags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^--?[A-Za-z][A-Za-z0-9-]*$"
+          },
+          "maxItems": 64,
+          "minItems": 0
+        },
         "model": {
           "$ref": "#/$defs/launchSelection"
         },
