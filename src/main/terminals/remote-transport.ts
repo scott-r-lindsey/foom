@@ -1,4 +1,5 @@
 import { remoteControlResult } from "../../shared/remote-agent-protocol";
+import { ApplicationError } from "../../shared/application-errors";
 import { EventEmitter } from "node:events";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { HostRequest } from "../../shared/terminal-host";
@@ -26,6 +27,13 @@ type Connection = {
 /** Utility-client-shaped adapter. It never exposes SSH/daemon text as diagnostics. */
 export class RemoteTransport extends EventEmitter {
   private connection: Connection | undefined;
+  private artifactUnavailable = false;
+
+  /** Only a local sealed-metadata rejection may select this trusted reason. */
+  get failureReason(): "remote-host-unavailable" | undefined {
+    return this.artifactUnavailable ? "remote-host-unavailable" : undefined;
+  }
+
   private artifact: Awaited<ReturnType<typeof selectHostArtifact>> | undefined;
   private closed = false;
   private ready = false;
@@ -61,7 +69,11 @@ export class RemoteTransport extends EventEmitter {
         this.artifact = artifact;
         this.connect();
       })
-      .catch(() => this.kill());
+      .catch((error: unknown) => {
+        this.artifactUnavailable =
+          error instanceof ApplicationError && error.code === "remote-host-unavailable";
+        this.kill();
+      });
   }
   private openRequest(request: number, reattach: boolean): RemoteRequest {
     const session = this.session;

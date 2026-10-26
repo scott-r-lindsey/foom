@@ -7,6 +7,7 @@ import {
 
 test("only the closed codes select fixed messages, with or without Electron's wrapper", () => {
   const cases = [
+    ["remote-host-unavailable", "Remote host artifact unavailable in this local build."],
     ["operation-failed", "Unable to complete this action."],
     ["worktree-prunable", "This worktree needs pruning."],
     ["worktree-locked", "This worktree is locked."],

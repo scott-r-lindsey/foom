@@ -30,7 +30,7 @@ test("every Forge packaging invocation runs one fresh build without sample argum
     assert.deepEqual(options, {
       cwd: root,
       stdio: "inherit",
-      env: { ...process.env, FOOM_REQUIRE_REMOTE_HOSTS: "1" },
+      env: { ...process.env, FOOM_PACKAGE: "1" },
     });
   }
 });

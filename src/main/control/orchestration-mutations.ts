@@ -414,6 +414,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
                     "worktree-main": "main_checkout",
                     "worktree-prunable": "prunable",
                     "operation-failed": "git_failed",
+                    "remote-host-unavailable": "git_failed",
                     "prune-unsafe": "git_failed",
                   } as const
                 )[error.code]

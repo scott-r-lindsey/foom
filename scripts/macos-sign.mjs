@@ -8,7 +8,12 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { extractFile } from "@electron/asar";
 import { assembleDarwinHost, verifyDarwinInputs } from "./remote-host-darwin.mjs";
-import { hostPlatforms, verifyHostArtifact, writeHostManifest } from "./remote-host-artifacts.mjs";
+import {
+  hostPlatforms,
+  requireRemoteHosts,
+  verifyHostArtifact,
+  writeHostManifest,
+} from "./remote-host-artifacts.mjs";
 import { FuseState, FuseV1Options, getCurrentFuseWire, pathToFuseFile } from "@electron/fuses";
 
 // Only Release credentials are secrets; workflow paths and unrelated environment
@@ -236,9 +241,21 @@ async function integrity(app, execute) {
 // contents. Complete this pass and refresh unpacked metadata before app sealing.
 export async function signBundledRemoteHosts(app, options, execute = run) {
   const archive = join(app, "Contents/Resources/app.asar");
-  const { source } = JSON.parse(extractFile(archive, "build/build-metadata.json").toString());
-  const { version } = JSON.parse(extractFile(archive, "package.json").toString());
+  const { source, remoteHostsAvailable } = JSON.parse(
+    extractFile(archive, "build/build-metadata.json").toString(),
+  );
   const catalog = join(app, "Contents/Resources/app.asar.unpacked/build/remote-hosts");
+  if (remoteHostsAvailable === false) {
+    assert.ok(
+      options.identity === "-" && !requireRemoteHosts(),
+      "Remote host artifacts required for CI or release signing",
+    );
+    // An omission cannot hide a present catalog from the verification below.
+    const entries = await readdir(join(app, "Contents/Resources/app.asar.unpacked/build"));
+    assert.ok(!entries.includes("remote-hosts"), "Sealed omission contains remote host artifacts");
+    return;
+  }
+  const { version } = JSON.parse(extractFile(archive, "package.json").toString());
   // Validate all inputs against the sealed app revision before modifying any.
   for (const target of hostPlatforms)
     await verifyHostArtifact(join(catalog, target), target, version, source);

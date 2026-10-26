@@ -64,7 +64,7 @@ const hostFixtureOutput = (args, adhoc) =>
       ? hostEntitlements(adhoc)
       : "";
 
-async function fixture(t) {
+async function fixture(t, metadata = {}) {
   const root = mkdtempSync(join(tmpdir(), "foom-sign-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const app = join(root, "Foom.app");
@@ -85,7 +85,7 @@ async function fixture(t) {
   mkdirSync(join(content, "build"), { recursive: true });
   writeFileSync(
     join(content, "build/build-metadata.json"),
-    JSON.stringify({ source: "a".repeat(40) }),
+    JSON.stringify({ source: "a".repeat(40), ...metadata }),
   );
   writeFileSync(join(content, "package.json"), JSON.stringify({ version: "0.1.0" }));
   await createPackage(content, join(app, "Contents/Resources/app.asar"));
@@ -1202,5 +1202,54 @@ require('node:module').syncBuiltinESMExports();
       ),
       /revision mismatch/,
     );
+  }
+});
+
+test("only local ad-hoc signing permits a sealed catalog omission", async (t) => {
+  const { app } = await fixture(t, { remoteHostsAvailable: false });
+  const { signBundledRemoteHosts } = await import("./macos-sign.mjs");
+  for (const key of ["CI", "GITHUB_ACTIONS", "FOOM_REQUIRE_REMOTE_HOSTS"]) {
+    const original = process.env[key];
+    t.after(() => {
+      if (original === undefined) delete process.env[key];
+      else process.env[key] = original;
+    });
+    delete process.env[key];
+  }
+  const execute = () => assert.fail("omitted catalog must not invoke codesign");
+  const catalog = join(app, "Contents/Resources/app.asar.unpacked/build/remote-hosts");
+  await assert.rejects(
+    signBundledRemoteHosts(app, { identity: "-" }, execute),
+    /omission contains/,
+  );
+  rmSync(catalog, { recursive: true });
+  await signBundledRemoteHosts(app, { identity: "-" }, execute);
+  await assert.rejects(
+    signBundledRemoteHosts(app, { identity: "Developer ID Application: Fixture" }, execute),
+    /required/,
+  );
+  for (const key of ["CI", "GITHUB_ACTIONS", "FOOM_REQUIRE_REMOTE_HOSTS"]) {
+    process.env[key] = "1";
+    await assert.rejects(signBundledRemoteHosts(app, { identity: "-" }, execute), /required/);
+    delete process.env[key];
+  }
+});
+
+test("present catalogs require both same-run Darwin inputs before any signing", async (t) => {
+  const { root, app } = await fixture(t, { remoteHostsAvailable: true });
+  const { signBundledRemoteHosts } = await import("./macos-sign.mjs");
+  for (const target of ["darwin-x64", "darwin-arm64"]) {
+    const path = join(root, "inputs", target, "manifest.json");
+    const original = readFileSync(path, "utf8");
+    writeFileSync(path, JSON.stringify({ ...JSON.parse(original), source: "b".repeat(40) }));
+    for (const identity of ["-", "Developer ID Application: Fixture"]) {
+      await assert.rejects(
+        signBundledRemoteHosts(app, { identity, remoteHostInputs: join(root, "inputs") }, () =>
+          assert.fail("must verify all Darwin inputs before signing"),
+        ),
+        /Input source revision mismatch/,
+      );
+    }
+    writeFileSync(path, original);
   }
 });

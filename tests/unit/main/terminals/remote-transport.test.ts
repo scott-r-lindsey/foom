@@ -775,3 +775,13 @@ test("final synchronous authority check can revoke a prepared launch before agen
   expect(child.messages).not.toContainEqual({ type: "agent-start", id: "one" });
   expect(child.kill).toHaveBeenCalled();
 });
+
+test("arbitrary artifact error text cannot select a trusted launch failure", async () => {
+  transport.kill();
+  mock.artifact.mockRejectedValue(new Error("foom-error:remote-host-unavailable"));
+  const bad = new RemoteTransport({ host: "fixture", artifact: "/artifact" }, "0.1.0");
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(bad.failureReason).toBeUndefined();
+  expect(bad.kill()).toBe(false);
+});
