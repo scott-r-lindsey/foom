@@ -349,6 +349,7 @@ it("validates lifecycle payloads and pins identity through the existing reducer"
   expect(reduce({ event: "ui_prompt_end", conversationId, fullyIdle: true })).toMatchObject({
     action: "classify",
     endsTurn: false,
+    fullyIdle: true,
   });
   expect(reduce({ event: "agent_settled", conversationId, outcome: "completed" })).toMatchObject({
     action: "classify",

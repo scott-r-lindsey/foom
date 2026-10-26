@@ -19,6 +19,11 @@ X-Foom-Event and X-Foom-Sequence. Mapping validation happens before any pin/cach
 mutation; require fields for an event are validated even when a conditional case
 is not selected. Cases for the same event must share requirements. Unknown string
 events are inert; malformed fields are rejected. `classify` never means success. endsTurn=false evaluates the current tail without ending execution (Claude idle_prompt); recoverTurn=true recovers an overtaken working report before ending the turn (agy fully idle Stop).
+A manifest classify observation with endsTurn=false and normalized fullyIdle=true
+clears a pending permission hook and restores Working for an open turn, otherwise
+Idle. It does not start or complete a turn; classification can still find a visible
+blocker. Without that explicit idle fact, non-turn-ending classification retains
+permission precedence.
 Only classify/failed actions may set endsTurn=true; recovery must end the turn.
 It requires a fullyIdle=true all-test and validated terminationReason values;
 each non-model-stop value must be excluded by the case's all-tests or consumed by

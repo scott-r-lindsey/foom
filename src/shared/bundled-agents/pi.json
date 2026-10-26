@@ -333,6 +333,15 @@
               "event": "ui_prompt_end",
               "action": "classify",
               "endsTurn": false,
+              "facts": [
+                {
+                  "name": "fullyIdle",
+                  "field": {
+                    "source": "payload",
+                    "path": ["fullyIdle"]
+                  }
+                }
+              ],
               "require": [
                 {
                   "field": {

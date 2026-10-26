@@ -72,7 +72,9 @@ The Pi adapter uses the existing external hook channel and authenticated receive
 Session start is readiness; agent/turn/tool starts and turn end mean Working.
 Turn end is not completion. Blocking extension UI start means Needs input, with
 no title/text forwarded; UI end observes `ctx.isIdle()` and reports progress or
-requests classification without ending the turn. Pi has no universal permission
+requests classification without ending the turn. An idle UI close clears its
+permission blocker and resumes the existing turn, or returns to idle if no turn
+is open; later quiet evaluations cannot retain the closed prompt. Pi has no universal permission
 notification. Foom neither registers a permission gate nor changes decisions.
 `agent_before_settle` only copies the enumerated outcome, returning no entries or
 continuation; final `agent_settled` classifies completed runs and reports error or
