@@ -100,7 +100,7 @@ it.skipIf(process.platform !== "win32")(
       process.env["SystemRoot"] ?? "C:\\Windows",
       "System32/WindowsPowerShell/v1.0/powershell.exe",
     );
-    const run = (values: NodeJS.ProcessEnv, input?: string) =>
+    const run = (values: NodeJS.ProcessEnv, input?: string, context = "valid environment") =>
       new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
         const child = execFile(
           shell,
@@ -114,7 +114,8 @@ it.skipIf(process.platform !== "win32")(
           ],
           { env: values, cwd: root, timeout: nativeDeadline(5000) },
           (error, stdout, stderr) => {
-            if (error) reject(new Error("Native MCP launcher failed", { cause: error }));
+            if (error)
+              reject(new Error(`Native MCP launcher failed: ${context}`, { cause: error }));
             else resolve({ stdout, stderr });
           },
         );
@@ -126,11 +127,13 @@ it.skipIf(process.platform !== "win32")(
       "FOOM_SESSION",
       "FOOM_CLI_DIRECTORY",
     ])
-      expect((await run({ ...env, [key]: "" })).stdout).toBe("");
+      expect((await run({ ...env, [key]: "" }, undefined, key)).stdout).toBe("");
     expect(JSON.parse((await run(env, '{"text":"é"}\n')).stdout)).toEqual({
       args: [],
       session: env.FOOM_SESSION,
       input: '{"text":"é"}\n',
     });
+    await writeFile(join(root, "mcp"), 'process.stdout.write("EXITED\\n");');
+    expect((await run(env)).stdout).toBe("EXITED\n");
   },
 );

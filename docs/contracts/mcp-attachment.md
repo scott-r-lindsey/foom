@@ -101,7 +101,8 @@ version can support it. Do not run `agy mcp add`, relocate HOME, or create
 The explicitly installed opt-in Foom lifecycle plugin version 4 adds one stdio
 server in `mcp_config.json` (`mcpServers.foom.command` and `args`). Its native
 `mcp.sh` / `mcp.ps1` launcher targets Foom's CLI in `FOOM_CLI_DIRECTORY` and runs
-`foom mcp`. Settings stages absolute paths into the validated CLI-owned plugin
+`foom mcp`. Windows relays raw stdin/stdout/stderr bytes, closes CLI stdin at
+caller EOF, and exits with the CLI even if the caller leaves stdin open. Settings stages absolute paths into the validated CLI-owned plugin
 installation, discloses the server and scripts, and uses only the existing fixed
 install/uninstall/enable commands. Older installations show Update; nothing is
 installed silently. See [agy 1.4.2 measurements](../agents.md#antigravity-plugin-mcp-agy-142-855)
