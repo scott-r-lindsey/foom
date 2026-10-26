@@ -110,7 +110,7 @@ remain a single value. Greeting and CLI guidance are the exact Foom-owned consta
 in `providers/cli-launch.ts`, not editable manifest prose. Config resume adds no
 greeting; no repository control grant is created. Guidance merges user prompt
 aliases/equals forms in order, then appends Foom text with two newlines. Guidance treats each user argv value as literal prompt text, preserving internal whitespace and punctuation; its separators describe the variadic option surface, not words to split inside a prompt. When guidance merge is selected, its canonical `output` flag replaces the prompt argv layout and carries the composed text as one value. Otherwise `prompt.arguments` supplies that layout. The guidance stage collects prompt text and the prompt stage emits it exactly once; no duplicate interactive prompt flags. Config greeting is omitted when the required prompt fact is false, matching agy today; an explicit child task fails instead. Children
-use no user default arguments; reject manifest-selected argument/environment bypass
+use the user's Settings default arguments (#535); reject manifest-selected argument/environment bypass
 rather than granting unattended bypass. Human role promotion and service tool
 permissions never come from manifest text. Availability is not authorization.
 
@@ -256,3 +256,31 @@ For `toolPermissions.fileRules:"action-resource"`, format must be
 classified, role-filtered tool list (only ping in isolated probe verification).
 No arbitrary action/resource/effect leaves are allowed in templates. The wildcard
 is only the resource of one exact Foom tool, never a tool/server action wildcard.
+
+## Child model and effort (#853)
+
+`launch.model?` and `launch.effort?` in a v2 manifest each declare
+`{flags, arguments, values?}`. `flags` has 1–8 option names using the existing flag
+syntax. `arguments` has exactly two entries: the first is one declared flag;
+the second is exactly `{value}` or a literal dotted config key followed by
+`="{value}"` (for example `model_reasoning_effort="{value}"`). Config keys match
+`[A-Za-z_][A-Za-z0-9_.]*`. No other substitutions or arguments are accepted.
+`values` is an optional list of 1–32 bounded selection tokens; effort requires it.
+A model list constrains requests to those exact values. Missing declarations refuse
+that field with `unsupported`. These templates are separate from general launch
+substitutions and can never be supplied by MCP or CLI callers.
+
+Bundled Claude and Antigravity use `--model` and `--effort`; Codex uses `--model`
+(alias `-m`) and `-c model_reasoning_effort="{value}"` (alias `--config`). Copilot
+uses `--model`; OpenCode uses `--model` (alias `-m`). Copilot/OpenCode do not declare
+effort. Pi is not bundled; a config manifest may declare its selectors.
+Claude/Antigravity effort values are `low`, `medium`, `high`, `max`; Codex declares
+`none`, `minimal`, `low`, `medium`, `high`, `xhigh`. The CLI still owns which
+model/effort combinations it accepts.
+
+Per-launch values replace every matching default flag, then append one canonical
+template expansion in the defaults stage. Config matching normalizes key whitespace
+and a surrounding quote pair and requires the exact key, including its full path.
+Other config keys, bypass flags and all other defaults remain unchanged. Literal
+values are never reparsed as argv or evaluated by a shell. The existing default
+argument reservations and final bypass checks remain authoritative.

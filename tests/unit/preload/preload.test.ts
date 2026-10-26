@@ -1341,3 +1341,17 @@ test("reconstructs the error branch of a sound reply", async () => {
     api.sounds.read({ kind: "done", source: "user", file: "bell.wav" }),
   ).resolves.toStrictEqual({ error: "Unavailable" });
 });
+
+test("validates requested child selections in session replies", async () => {
+  const api = await bridge();
+  const terminal = workspace.terminals[0];
+  if (!terminal) throw new Error("Missing fixture terminal");
+  const selection = { model: "fixture/model", effort: "high" };
+  mock.invoke.mockResolvedValue({ ...workspace, terminals: [{ ...terminal, selection }] });
+  expect((await api.workspace()).terminals[0]?.selection).toEqual(selection);
+  mock.invoke.mockResolvedValue({
+    ...workspace,
+    terminals: [{ ...terminal, selection: { model: "-bad" } }],
+  });
+  await expect(api.workspace()).rejects.toThrow();
+});

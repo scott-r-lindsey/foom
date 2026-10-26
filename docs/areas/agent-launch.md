@@ -103,3 +103,34 @@ and `--session` for resume. `OPENCODE_CONFIG` selects per-launch event observers
 files contain only an environment token reference. All are revoked/removed on
 release. Former same-ID config sessions remain dormant for explicit Resume; see
 [provider compatibility](providers.md#bundled-opencode-824).
+
+## Per-child model and effort (#853)
+
+Orchestrator `launch` accepts optional `model` and `effort`; `review.model` and
+`review.effort` select the sequential reviewers independently. Omission retains
+Settings → Agents defaults (#535). Author fixes reuse the author's requested
+selection. These fields never accept extra arguments or config expressions.
+
+Main validates both author and reviewer selections before reserving a launch or
+spawning discovery/agent processes. Values are 1–64 ASCII characters matching
+`^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$`: no leading hyphen, whitespace or equals.
+The loaded manifest must declare the corresponding selection template, otherwise
+`unsupported`; a value outside its declared list returns `invalid_request`.
+Effort always has a fixed manifest enum. Model values may be constrained by a
+manifest list; otherwise any well-formed token is accepted. There is no additional
+Settings model allowlist.
+
+The main-only argument builder replaces all matching default selectors by the
+manifest's flags (separate, equals and attached one-letter short forms). Config
+selectors replace only the exact declared key, preserving other `-c` values.
+Other defaults retain their order and bytes; Settings is never rewritten.
+Existing bypass-default refusal remains, and bypass inspection still checks the
+final expanded argv and environment before spawning. Requests cannot supply flags,
+templates or arbitrary extra argv. The provider may still reject a model/effort
+combination it does not support.
+
+Session metadata exposes `selection: {model?, effort?}` and persists it as the
+requested values, not proof of the provider's actual model. `session_state` and
+`sessions` let the parent verify the request alongside handoffs. Reviewer state
+retains its own requested options; restored review participants remain dormant.
+See the [manifest selection contract](../contracts/agent-launch.md#child-model-and-effort-853).

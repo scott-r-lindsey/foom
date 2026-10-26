@@ -53,8 +53,8 @@ provider, rejects forks and the default branch, validates its head, fetches from
 main-selected origin and tracks origin's branch for plain push. An orchestrator's
 own unused checkout may be reused after identity checks; other checked-out heads
 are refused. Both paths share the unused budget, branch locks and forge tracking. Children launch with
-the user's default arguments as written (refused, never stripped, when they bypass
-permissions), `sharedCheckout` off, a read-only grant
+the user's default arguments, with optional manifest-validated model/effort
+replacement (#853; refused, never stripped, when defaults bypass permissions), `sharedCheckout` off, a read-only grant
 naming their parent, and an optional prompt as one final argv entry. Claude Code
 and Codex place `--` immediately before that prompt, after all launch options, so
 variadic options cannot consume it. Launches without a prompt omit the terminator. Exit,
@@ -71,7 +71,7 @@ branch and review state remain.
 
 ## Optional child build/review loop (#690)
 
-Only an orchestrator's `launch` accepts `review: {rounds?, agent?, postFindings?, parentWaitMinutes?}`.
+Only an orchestrator's `launch` accepts `review: {rounds?, agent?, model?, effort?, postFindings?, parentWaitMinutes?}`.
 It is off by default; opting in defaults to three rounds (maximum five), Claude,
 and no posting. Both author and reviewer providers must support resume. Review-enabled task prompts
 reserve the fixed author brief within the combined 16 KiB UTF-8 launch limit;

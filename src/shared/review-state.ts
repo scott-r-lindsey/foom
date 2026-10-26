@@ -12,6 +12,8 @@ export function isReviewState(value: unknown): value is ReviewState {
         "authorId",
         "round",
         "phase",
+        "model",
+        "effort",
         "rounds",
         "agent",
         "postFindings",
@@ -19,6 +21,13 @@ export function isReviewState(value: unknown): value is ReviewState {
         "reason",
         "waiting",
       ].includes(key),
+    ) &&
+    ["model", "effort"].every(
+      (key) =>
+        data[key] === undefined ||
+        (typeof data[key] === "string" &&
+          data[key].trim() === data[key] &&
+          /^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$/u.test(data[key])),
     ) &&
     conversationId(data["authorId"]) &&
     validAgentId(data["agent"]) &&

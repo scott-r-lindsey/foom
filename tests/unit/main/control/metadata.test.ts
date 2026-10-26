@@ -258,3 +258,33 @@ it("projects one fresh repository-scoped snapshot for a batch of ten wait target
   expect(() => metadata.states(actor, [first.id])).toThrow("not_found");
   expect(() => metadata.states(actor, ["missing"])).toThrow("not_found");
 });
+
+it("exposes requested selections alongside handoff metadata", () => {
+  const row: WorkspaceTerminal = {
+    id: "child",
+    agent: "claude",
+    kind: "agent",
+    repository: "/repo",
+    worktree: "/tree",
+    branch: "child",
+    attention: "hooks",
+    state: null,
+    selection: { model: "requested", effort: "high" },
+  };
+  const metadata = new SessionMetadata(() => [row]);
+  expect(
+    metadata.states(
+      {
+        role: "orchestrator",
+        terminalId: "parent",
+        parentId: null,
+        repository: "/repo",
+        worktree: "/repo",
+        generation: "g",
+        sessionId: "s",
+        grantedAt: "now",
+      },
+      ["child"],
+    )[0],
+  ).toMatchObject({ selection: row.selection });
+});
