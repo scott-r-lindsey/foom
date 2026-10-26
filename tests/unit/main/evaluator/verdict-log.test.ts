@@ -134,3 +134,45 @@ it("does not restore feedback when a terminal is removed during a commit or fail
   await rm(dir);
   await expect(log.recordAction("t1", record.id, "ignored")).rejects.toThrow();
 });
+
+it("records only pending feedback after the caller validates the current verdict", async () => {
+  const dir = await directory();
+  const log = new VerdictLog(dir);
+  const record = await log.evaluate({ terminalId: "t1", tail: [] });
+  const reply = log.recordAction("t1", record.id, "replied");
+  await log.recordAction("t1", record.id, "dismissed", true);
+  await reply;
+  await log.recordAction("t1", record.id, "dismissed", true);
+  log.forget("t1");
+  await log.recordAction("t1", record.id, "dismissed", true);
+  // Runtime action validation still applies to the conditional write API.
+  await expect(
+    Reflect.apply(log.recordAction.bind(log), log, ["t1", record.id, "opened", true]),
+  ).rejects.toThrow("Invalid verdict feedback");
+  expect(
+    (await readFile(path.join(dir, "verdicts.jsonl"), "utf8")).trim().split("\n"),
+  ).toHaveLength(2);
+  const next = await log.evaluate({ terminalId: "t1", tail: [] });
+  await log.recordAction("t1", record.id, "dismissed", true);
+  await log.recordAction("t1", next.id, "dismissed", true);
+  expect(
+    (await readFile(path.join(dir, "verdicts.jsonl"), "utf8")).trim().split("\n"),
+  ).toHaveLength(4);
+});
+
+it("conditional feedback waits for an in-flight write and propagates storage failure", async () => {
+  const root = await directory();
+  const dir = path.join(root, "data");
+  const log = new VerdictLog(dir);
+  const record = await log.evaluate({ terminalId: "t1", tail: [] });
+  await rm(dir, { recursive: true });
+  await writeFile(dir, "not a directory");
+  const reply = log.recordAction("t1", record.id, "replied");
+  const dismiss = log.recordAction("t1", record.id, "dismissed", true);
+  await Promise.all([expect(reply).rejects.toThrow(), expect(dismiss).rejects.toThrow()]);
+  await rm(dir);
+  await log.recordAction("t1", record.id, "dismissed", true);
+  expect(await readFile(path.join(dir, "verdicts.jsonl"), "utf8")).toContain(
+    '"feedback":"not_attention"',
+  );
+});

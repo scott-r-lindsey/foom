@@ -19,6 +19,7 @@ is reused. Revoked hook capabilities cannot address that invocation.
 | --- | --- | --- | --- |
 | Claude | Per-launch UserPromptSubmit/PreToolUse observer hooks; half-circle title | PermissionRequest hook; live screen forms | Stop hook; star title |
 | Codex | Trusted per-launch UserPromptSubmit/PreToolUse/PostToolUse hooks; braille spinner title | PermissionRequest hook; Action Required title | Stop hook; fallback turn-complete notify; plain title |
+| Pi | Per-launch agent/turn/tool events | Blocking extension UI notifications and screen rules | Final agent_settled, with errors/aborts recorded as failure evidence |
 | Antigravity | Opt-in PreInvocation/PostToolUse observers | Screen rules | Fully idle Stop; error/step-limit Stop is failure |
 
 Evidence precedence is: process exit; lifecycle hooks (including Codex); active permission hooks; agent-specific
@@ -36,8 +37,16 @@ classification; later positive progress supersedes stale screen evidence only af
 classification verifies the current screen no longer requests attention. Repeated
 spinner frames can trigger this recovery while blocked. Dismissal is tracked
 separately from execution against a digest of the attention signal and screen;
-unchanged evaluations stay quiet. Changed attention evidence, a new permission
-hook, or a lifecycle transition invalidates that dismissal. Idle
+unchanged evaluations stay quiet. Reply input (typing or a reported mouse button
+press, including a focusing click) records at most one log action for a verdict and
+can leave the agent amber. Dismiss still clears that current verdict to `quiet_ok`
+with `user:dismissed` and the same attention suppression, without a second logged
+action or a false-positive record after a reply. If the pending log entry is gone,
+current-verdict validation still permits dismissal. An in-flight action write must
+finish successfully before attention clears; storage errors leave attention intact
+and retryable. Invalid senders, terminals, actions and non-current verdict IDs remain
+rejected. Shell reply/click semantics are unchanged. Changed attention evidence, a new
+permission hook, or a lifecycle transition invalidates that dismissal. Idle
 titles may end a turn started by a hook (including Claude Esc, which lacks Stop).
 With Claude hooks attached, a title-only turn end stays Quiet: Stop is required
 before reporting Done, including when Stop arrives after the idle title. Without
@@ -103,7 +112,7 @@ staging and fixed CLI actions. Status reads at most 64 KiB from each fixed metad
 path to establish ownership and observer version. agy 1.4.x uses `plugin list --json` (array with enabled state); failed --json calls may fall back to the legacy 1.3.x object/empty-text list. Unrecognized, linked or
 unreadable ownership remains unavailable and cannot authorize mutation. Settings
 and preflight use `agents:setup`, whose trusted dialog discloses the executable,
-fixed argv, installation location, observer-only behavior, exact staged bytes and
+fixed argv, installation location, lifecycle and MCP behavior, exact staged bytes and
 removal route. Every action, including enable and remove, requires separate human
 confirmation. Foom never writes the agent's home files directly.
 
@@ -115,7 +124,7 @@ bypass setup ownership or consent. New scans and actions use the model.
 The same `agy` enable/hooks/defaults/session keys are retained.
 
 The version-3 ordered observer preserves root-level filenames and native script bytes, but anchors commands to the absolute CLI-owned installed plugin directory (#467/#723). Generic staging under Foom's profile adds only a definition fingerprint
-to plugin metadata; the CLI alone copies it into its installation. Legacy versions 1 and 2 offer Update; version 3 requires the current definition fingerprint.
+to plugin metadata; the CLI alone copies it into its installation. Version 4 adds the environment-only MCP launcher (#855). Legacy versions 1–3 offer Update; version 4 requires the current definition fingerprint.
 Older versions offer Update; disabled versions offer Enable; explicit fingerprint
 mismatches offer reviewed Update. Owned installed/outdated/disabled plugins also offer a confirmed Reinstall (uninstall then install); unavailable status offers Retry status in the row. Launch adds credentials only when hooks are
 enabled and installed or outdated. Channel-less reports are accepted only for the

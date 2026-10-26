@@ -34,7 +34,7 @@ export const bundledProviders: readonly AgentProvider[] = [
     "codex",
     "76f9ed4ee169e3aae2c7ec7956f4a24dce3baae34089a0f7a279560ab213348e",
   ),
-  bundledProvider(agy, "agy", "023953c72d36e8500cbbb1039353c23a1afbbd3a0010f2eeb6cd84528cd0f640"),
+  bundledProvider(agy, "agy", "d61afcb2294573d0890391678f5c8f0ec9f601c1b6981085dd4c7964e18c0d16"),
   bundledProvider(
     copilot,
     "copilot",
@@ -45,7 +45,7 @@ export const bundledProviders: readonly AgentProvider[] = [
     "opencode",
     "050f6a0f72b29e98b7c6e11941812eeb90cd4b8c2a39113654d84336c318a943",
   ),
-  bundledProvider(pi, "pi", "2aa9b1fe9a4de01c91e5523aaa7e78d2d604291a5fc241beb2954f4f159125d8"),
+  bundledProvider(pi, "pi", "3360c8d7d855fe8d67d7550820e7b673febf17fc33647e84a3b98185afa822be"),
 ];
 
 /** Build-owned migrations: retain old config rows, but require an explicit bundled resume. */

@@ -16,6 +16,11 @@
         "id": "promptSupport",
         "helpTokens": ["--session-id", "--session"],
         "minimum": [1, 4, 0]
+      },
+      {
+        "id": "extensionSupport",
+        "helpTokens": ["--extension"],
+        "minimum": [1, 4, 0]
       }
     ]
   },
@@ -37,6 +42,37 @@
     },
     "resume": {
       "arguments": ["--session", "{conversationId}"]
+    },
+    "extension": {
+      "api": "pi-v1",
+      "channel": "lifecycle",
+      "arguments": ["--extension", "{extensionFile}"],
+      "when": {
+        "all": [
+          {
+            "field": "extensionSupport",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
+    },
+    "mcp": {
+      "arguments": [],
+      "when": {
+        "all": [
+          {
+            "field": "extensionSupport",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "control",
+            "op": "eq",
+            "value": true
+          }
+        ]
+      }
     },
     "model": {
       "flags": ["--model"],
@@ -88,6 +124,26 @@
     },
     {
       "prefix": "-p"
+    },
+    {
+      "flag": "--extension",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "-e",
+      "forms": ["exact", "equals", "attached-short"]
+    },
+    {
+      "flag": "--no-mcp",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "--no-extensions",
+      "forms": ["exact", "equals"]
+    },
+    {
+      "flag": "-ne",
+      "forms": ["exact", "equals"]
     }
   ],
   "bypassArguments": [
@@ -103,7 +159,7 @@
   "bypassEnvironment": [],
   "conversation": {
     "resumePin": "requested-on-paste",
-    "restoreControl": false,
+    "restoreControl": true,
     "newId": {
       "format": "uuid",
       "arguments": ["--session-id", "{newId}"]
@@ -149,7 +205,7 @@
         "region": "bottom",
         "lines": 6,
         "match": {
-          "contains": ["Working ─", "(auto)"]
+          "contains": ["Working \u2500", "(auto)"]
         },
         "reason": "Pi is working",
         "comment": "Pi 1.4.0 fullscreen editor divider, measured on Linux."
@@ -161,11 +217,14 @@
         "region": "bottom",
         "lines": 4,
         "match": {
-          "contains": ["────────────────", "(auto)"]
+          "contains": [
+            "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+            "(auto)"
+          ]
         },
         "not": [
           {
-            "contains": ["Working ─"]
+            "contains": ["Working \u2500"]
           }
         ],
         "reason": "Pi editor is idle",
@@ -181,7 +240,218 @@
   },
   "execution": {
     "completion": "observed",
-    "completionChannels": [],
+    "completionChannels": ["lifecycle"],
     "providerRules": ["provider_model"]
+  },
+  "hooks": {
+    "channels": [
+      {
+        "id": "lifecycle",
+        "when": {
+          "all": [
+            {
+              "field": "extensionSupport",
+              "op": "eq",
+              "value": true
+            },
+            {
+              "field": "hooksEnabled",
+              "op": "eq",
+              "value": true
+            }
+          ]
+        },
+        "observer": {
+          "transport": "external"
+        },
+        "arguments": [],
+        "mapping": {
+          "session": {
+            "source": "payload",
+            "path": ["conversationId"]
+          },
+          "event": {
+            "source": "payload",
+            "path": ["event"]
+          },
+          "cases": [
+            {
+              "id": "session_start",
+              "event": "session_start",
+              "action": "ready"
+            },
+            {
+              "id": "agent_start",
+              "event": "agent_start",
+              "action": "working"
+            },
+            {
+              "id": "turn_start",
+              "event": "turn_start",
+              "action": "working"
+            },
+            {
+              "id": "turn_end",
+              "event": "turn_end",
+              "action": "working"
+            },
+            {
+              "id": "tool_execution_start",
+              "event": "tool_execution_start",
+              "action": "working"
+            },
+            {
+              "id": "ui_prompt_start",
+              "event": "ui_prompt_start",
+              "action": "needs_input"
+            },
+            {
+              "id": "ui_prompt_end_false",
+              "event": "ui_prompt_end",
+              "action": "working",
+              "endsTurn": false,
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["fullyIdle"]
+                  },
+                  "type": "boolean"
+                }
+              ],
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["fullyIdle"]
+                    },
+                    "op": "eq",
+                    "value": false
+                  }
+                ]
+              }
+            },
+            {
+              "id": "ui_prompt_end_true",
+              "event": "ui_prompt_end",
+              "action": "classify",
+              "endsTurn": false,
+              "facts": [
+                {
+                  "name": "fullyIdle",
+                  "field": {
+                    "source": "payload",
+                    "path": ["fullyIdle"]
+                  }
+                }
+              ],
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["fullyIdle"]
+                  },
+                  "type": "boolean"
+                }
+              ],
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["fullyIdle"]
+                    },
+                    "op": "eq",
+                    "value": true
+                  }
+                ]
+              }
+            },
+            {
+              "id": "settled_completed",
+              "event": "agent_settled",
+              "action": "classify",
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["outcome"]
+                  },
+                  "type": "string",
+                  "values": ["completed", "aborted", "error"]
+                }
+              ],
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["outcome"]
+                    },
+                    "op": "eq",
+                    "value": "completed"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "settled_aborted",
+              "event": "agent_settled",
+              "action": "failed",
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["outcome"]
+                  },
+                  "type": "string",
+                  "values": ["completed", "aborted", "error"]
+                }
+              ],
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["outcome"]
+                    },
+                    "op": "eq",
+                    "value": "aborted"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "settled_error",
+              "event": "agent_settled",
+              "action": "failed",
+              "require": [
+                {
+                  "field": {
+                    "source": "payload",
+                    "path": ["outcome"]
+                  },
+                  "type": "string",
+                  "values": ["completed", "aborted", "error"]
+                }
+              ],
+              "when": {
+                "all": [
+                  {
+                    "field": {
+                      "source": "payload",
+                      "path": ["outcome"]
+                    },
+                    "op": "eq",
+                    "value": "error"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
   }
 }

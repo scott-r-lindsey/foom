@@ -786,6 +786,52 @@ it("deduplicates matching branches before request sizing and publishes to every 
   expect(h.tracker.readBoard(tree.repository, second.path)).toEqual(h.observation.board);
 });
 
+it("resolves a branch once when a newly added review has a different cached PR hint", async () => {
+  const h = batched();
+  h.tracker.setEnabled(true);
+  h.tracker.track(tree);
+  await h.tracker.poll();
+  h.tracker.track({ ...tree, path: join(root, "review") });
+  h.tracker.recheck(tree.path);
+  await h.tracker.poll();
+  expect(h.batch).toHaveBeenLastCalledWith([{ branch: tree.branch }]);
+  expect(h.tracker.readBoard(tree.repository, tree.path)).toEqual(h.observation.board);
+  expect(h.tracker.readBoard(tree.repository, join(root, "review"))).toEqual(h.observation.board);
+});
+
+it("retires removed review checkouts from the provider context before sampling", async () => {
+  const review = { ...tree, path: join(root, "removed-review") };
+  let removed = false;
+  const h = batched();
+  const tracker = new ForgeTracking(
+    directory,
+    (row) =>
+      Promise.resolve(removed && row.path === review.path ? undefined : "https://github.com/o/r"),
+    vi.fn(),
+    async (_remote, getContext) => {
+      const context = await getContext?.();
+      return {
+        lookup: () => Promise.resolve(undefined),
+        batch: async (matches) => {
+          await context?.validate(matches.map((match) => match.branch));
+          return new Map([[tree.branch, h.observation]]);
+        },
+      };
+    },
+  );
+  trackers.push(tracker);
+  tracker.track(tree, pending.number);
+  tracker.track(review, pending.number);
+  await tracker.poll();
+  expect(tracker.read(tree.repository, review.path)).toEqual(pending);
+  removed = true;
+  tracker.recheck(tree.path);
+  await tracker.poll();
+  expect(tracker.read(tree.repository, review.path)).toBeUndefined();
+  expect(tracker.read(tree.repository, tree.path)).toEqual(pending);
+  expect(tracker.readSettled(tree.repository, tree.path)).toEqual(pending);
+});
+
 it("revalidates the sampled chunk without publishing observations for unselected checkouts", async () => {
   let sampling = false;
   const second = { ...tree, path: join(root, "unselected"), branch: "other" };

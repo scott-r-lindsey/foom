@@ -1,3 +1,4 @@
+import { mcpCommand } from "./mcp";
 import { hookCommand } from "./hook";
 import { probeCommand, probeRequest } from "../node-common/agent-probe";
 import { exchange } from "./client";
@@ -19,6 +20,7 @@ export async function execute(
   env: NodeJS.ProcessEnv,
   executable: string,
 ): Promise<number> {
+  if (args[0] === "mcp") return mcpCommand(args, io, env);
   if (args[0] === "hook") return hookCommand(args, io.input, env);
   const json = args.includes("--json");
   const output = (value: unknown, error = false) => {

@@ -21,6 +21,10 @@ export class AgentExecution {
   snapshot(): ExecutionSnapshot {
     return { ...this.current };
   }
+  /** Closing a blocker resumes an existing turn; it never starts a new one. */
+  unblockedPhase(): "working" | "idle" {
+    return this.openTurn ? "working" : "idle";
+  }
   transition(
     to: ExecutionPhase,
     source: ExecutionSource,

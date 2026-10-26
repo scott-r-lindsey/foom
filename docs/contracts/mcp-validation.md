@@ -23,8 +23,10 @@ evidence; the orchestrator will record real-model discovery after merge.
 These tested releases establish the minimum supported stable versions: Claude Code
 2.1.293 with `--mcp-config` in help, and Codex 0.161.0 with `-c` in help. Later stable
 versions with the flag are available too; malformed and prerelease versions, older
-versions, missing flags and Antigravity remain unavailable. The probe exercises any
-supplied binary without an exact-release assertion.
+versions and missing flags remain unavailable through those CLI attachment flags.
+Antigravity's opt-in plugin is measured separately in
+[the agy 1.4.2 evidence](../agents.md#antigravity-plugin-mcp-agy-142-855), not by this
+Claude/Codex probe. The probe exercises any supplied binary without an exact-release assertion.
 
 The **Real CLI MCP probe** CI job (#254) runs nightly even when main is unchanged,
 and on manual CI dispatch. Optional `claude_version` and `codex_version` inputs

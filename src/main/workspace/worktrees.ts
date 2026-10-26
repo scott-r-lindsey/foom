@@ -1,3 +1,5 @@
+import { reviewRefs, unchangedReview } from "./review-worktrees";
+import type { ReviewCheckout } from "./review-worktrees";
 import { RemovalError } from "./worktree-outcome";
 import { lstat, opendir, readFile, readdir, realpath, rm, rmdir } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -38,9 +40,29 @@ export class WorktreeService {
   private readonly repositories = new Map<string, Repository>();
   private readonly managed = new Map<
     string,
-    { repository: string; root: string; identity: string }
+    { repository: string; root: string; identity: string; review?: ReviewCheckout }
   >();
   private readonly root: string;
+  reviewIdentity(repository: string, path: string): string | undefined {
+    this.repository(repository);
+    const record = this.managed.get(path);
+    return record?.repository === repository && record.review ? record.identity : undefined;
+  }
+
+  reviewBranch(repository: string, path: string, head: string | null): string | undefined {
+    this.repository(repository);
+    const record = this.managed.get(path);
+    return record?.repository === repository && record.review?.head === head
+      ? record.review.branch
+      : undefined;
+  }
+
+  async canAutoRemoveReview(repository: string, path: string, identity: string): Promise<boolean> {
+    const record = this.managed.get(path);
+    if (record?.repository !== repository || record.identity !== identity || !record.review)
+      return false;
+    return unchangedReview(this, repository, path, identity, record.review);
+  }
 
   private store: WorktreeStore | undefined;
   private async save(): Promise<void> {
@@ -147,7 +169,12 @@ export class WorktreeService {
         )
           continue;
         if ((await worktreeIdentity(path)) !== identity) continue;
-        this.managed.set(path, { repository, root, identity });
+        this.managed.set(path, {
+          repository,
+          root,
+          identity,
+          ...(entry.review ? { review: entry.review } : {}),
+        });
       } catch {
         // A stored record is only a claim: stale or redirected paths lose ownership.
       }
@@ -460,6 +487,7 @@ export class WorktreeService {
     identity?: string,
     head?: string | null,
     inspectReflogs = false,
+    historyHead?: string,
   ): Promise<string> {
     const expected = identity ?? (await this.removalIdentity(repository, path));
     const read = (args: string[]) => cleanupGit(path, args);
@@ -474,7 +502,7 @@ export class WorktreeService {
     )
       throw new Error("Submodules prevent cleanup");
     await this.checkCleanupState(path);
-    await this.checkCleanupEvidence(path, undefined, inspectReflogs);
+    await this.checkCleanupEvidence(path, undefined, inspectReflogs, historyHead);
     await walkCleanupDirectory(path, true);
     const paths = entries.map((entry) => entry.slice(entry.indexOf("\t") + 1));
     if (paths.length) {
@@ -532,6 +560,7 @@ export class WorktreeService {
     path: string,
     gitDirectory?: string,
     inspectReflogs = true,
+    historyHead?: string,
   ): Promise<void> {
     const read = (args: string[]) =>
       cleanupGit(path, [...(gitDirectory ? ["--git-dir", gitDirectory] : []), ...args]);
@@ -582,6 +611,27 @@ export class WorktreeService {
     if (!files.includes(join(logs, "HEAD"))) throw new Error("Missing worktree HEAD reflog");
     const commits = new Set<string>();
     let remaining = 4 * 1024 * 1024;
+    if (historyHead) {
+      // Root refs (ORIG_HEAD, FETCH_HEAD, custom uppercase refs) are private to
+      // a linked checkout and are not included by for-each-ref. Unknown root
+      // metadata cannot establish that there is no history to lose.
+      const entries = await readdir(admin);
+      if (entries.some((name) => name.endsWith(".lock")))
+        throw new Error("A Git operation prevents review cleanup");
+      for (const name of entries.filter((name) => /^[A-Z_]+$/u.test(name))) {
+        const contents = await readOwnedFile(join(admin, name), remaining, async (target) => {
+          const entry = await lstat(target);
+          if (!entry.isFile() || entry.isSymbolicLink()) throw new Error("Unsafe root ref");
+        });
+        remaining -= Buffer.byteLength(contents);
+        if (!contents || !contents.endsWith("\n")) throw new Error("Incomplete root ref");
+        for (const line of contents.trimEnd().split("\n")) {
+          const match = /^([a-f0-9]{40}|[a-f0-9]{64})(?:\s|$)/u.exec(line);
+          if (!match?.[1]) throw new Error("Unknown root ref metadata");
+          if (!/^0+$/.test(match[1])) commits.add(match[1]);
+        }
+      }
+    }
     for (const file of files) {
       const contents = await readOwnedFile(file, remaining, async (target) => {
         const entry = await lstat(target);
@@ -596,6 +646,8 @@ export class WorktreeService {
         for (const oid of match.slice(1)) if (!/^0+$/.test(oid)) commits.add(oid);
       }
     }
+    if (historyHead !== undefined && !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(historyHead))
+      throw new Error("Invalid review history head");
     // Bound argument size on Windows as well as the filesystem reads above.
     const revisions = [...commits];
     for (let start = 0; start < revisions.length; start += 128) {
@@ -606,7 +658,7 @@ export class WorktreeService {
             "--count",
             ...revisions.slice(start, start + 128),
             "--not",
-            "--remotes",
+            ...(historyHead ? [historyHead] : ["--remotes"]),
             "--",
           ])
         ).trim() !== "0"
@@ -732,6 +784,7 @@ export class WorktreeService {
     unused: readonly { path: string; identity: string }[],
     revalidate: (path?: string, branch?: string) => void,
     location: "root" | "adjacent" = "root",
+    review = false,
   ): Promise<{ path: string; branch: string; identity: string }> {
     this.repository(repositoryPath);
     return adoptWorktree(
@@ -742,6 +795,7 @@ export class WorktreeService {
       unused,
       revalidate,
       location,
+      review,
     );
   }
 
@@ -751,7 +805,8 @@ export class WorktreeService {
     branch: string,
     options: CreateWorktreeOptions = {},
   ): Promise<CreatedWorktree> {
-    return createWorktree(
+    const refs = options.detachedHead ? await reviewRefs(repositoryPath) : undefined;
+    const result = await createWorktree(
       {
         root: this.root,
         managed: this.managed,
@@ -764,6 +819,13 @@ export class WorktreeService {
       branch,
       options,
     );
+    if (options.detachedHead && refs !== undefined) {
+      const record = this.managed.get(result.path);
+      if (!record) throw new Error("Missing creation record");
+      record.review = { head: options.detachedHead, branch: options.reviewBranch ?? branch, refs };
+      await this.save();
+    }
+    return result;
   }
 
   /** Local remote metadata only; no fetch or credential lookup. */

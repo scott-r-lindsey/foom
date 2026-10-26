@@ -72,3 +72,16 @@ asset URL query is used only for the asset request. The same Settings switch
 controls macOS metadata, ZIP downloads and GitHub API notices; no other hosts
 are added. Electron receives only private local feed and archive `file:` URLs,
 with remote extra fields discarded, so native work cannot start a network request.
+
+## Opt-in Antigravity plugin MCP (#855)
+
+Installing or updating the disclosed Foom lifecycle plugin also installs one
+stdio MCP launcher. Only Foom launches receive its environment credentials;
+ordinary agy invocations exit without contacting Foom. Plugin files store no tokens.
+The launcher executes the bundled `foom mcp` bridge, which forwards authenticated
+requests only to that launch's loopback server. Main retains role, child-ownership,
+output-privacy and revocation checks; MCP adds no authority to prompt text.
+Explicitly scoped child tails/reports can enter the requesting agent's model
+context under the [existing disclosure](../contracts/control-privacy.md#output-privacy-and-visibility).
+No global MCP config or credentials are written. Existing installations offer an
+explicit Update, with the MCP server included in the trusted disclosure.

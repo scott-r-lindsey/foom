@@ -1,10 +1,17 @@
+import type { ReviewCheckout } from "./review-worktrees";
 import type { Repository, Worktree } from "../../shared/worktrees";
 import type { FetchFacts, ForgeProviderFor } from "./worktree-features.d";
 
 export interface WorktreeStoredState {
   version: 1;
   repositories: string[];
-  managed: { path: string; repository: string; root: string; identity: string }[];
+  managed: {
+    path: string;
+    repository: string;
+    root: string;
+    identity: string;
+    review?: ReviewCheckout;
+  }[];
 }
 export interface InventoryDependencies {
   listWorktrees(repository: string): Promise<readonly Worktree[]>;

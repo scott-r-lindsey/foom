@@ -1,3 +1,4 @@
+import { agyMcpFiles } from "./agy-mcp";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -38,6 +39,11 @@ export function pluginContent(
     const folder = channel.observer.protocol === "ordered-v2" ? "" : `observers/${channel.id}`;
     for (const [name, content] of Object.entries(observerAssets(channel, windows)))
       assets.push({ name: folder ? `${folder}/${name}` : name, content });
+    if (channel.observer.protocol === "ordered-v2" && channel.observer.version === 4)
+      for (const [name, content] of Object.entries(
+        agyMcpFiles(windows, directory ?? "/FOOM_INSTALLED_PLUGIN_ROOT"),
+      ))
+        assets.push({ name, content });
     const script = `${directory ?? "/FOOM_INSTALLED_PLUGIN_ROOT"}/${folder ? `${folder}/` : ""}observer.${windows ? "ps1" : "sh"}`;
     values[`observerVersion:${channel.id}`] = observerVersion(channel, windows);
     const add = (event?: string) => {

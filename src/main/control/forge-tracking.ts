@@ -3,7 +3,13 @@ import { lstat, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { atomicPrivate, privateDirectory, verifyPrivate } from "../../node-common/private-files";
 import { forgeBranch, forgeWebUrl, pullRequest } from "./forge";
-import type { ForgeProvider, ForgeProviderFactory, ForgeWorktree, PullRequest } from "./forge.d";
+import type {
+  ForgeMatch,
+  ForgeProvider,
+  ForgeProviderFactory,
+  ForgeWorktree,
+  PullRequest,
+} from "./forge.d";
 
 interface Entry extends ForgeWorktree {
   binding?: string;
@@ -169,7 +175,7 @@ export class ForgeTracking {
     this.changed();
   }
 
-  private context(rows: readonly Entry[], remote: string) {
+  private context(rows: readonly Entry[], remote: string, retired: ReadonlySet<Entry>) {
     return {
       identity: JSON.stringify(
         rows.map(({ repository, path, identity, branch }) => [
@@ -182,6 +188,9 @@ export class ForgeTracking {
       ),
       validate: async (branches?: readonly string[]) => {
         for (const row of rows) {
+          // Batch preparation explicitly retires invalid checkouts before sampling.
+          // Later removals or replacements still invalidate the captured context.
+          if (retired.has(row)) continue;
           if (branches && !branches.includes(row.branch)) continue;
           if (
             this.stopped() ||
@@ -325,12 +334,13 @@ export class ForgeTracking {
           const candidates = [...this.entries.values()].filter(
             (row) => row.repository === entry.repository && (row.orchestrator || this.enabled),
           );
+          const retired = new Set<Entry>();
           const provider = await this.provider(remote, () =>
-            Promise.resolve(this.context(candidates, remote)),
+            Promise.resolve(this.context(candidates, remote, retired)),
           );
           if (generation !== this.generation) return;
           if (provider?.batch) {
-            await this.pollRepository(entry.repository, remote, provider);
+            await this.pollRepository(entry.repository, remote, provider, retired);
             return;
           }
           this.bind(entry, provider);
@@ -381,6 +391,7 @@ export class ForgeTracking {
     repository: string,
     remote: string,
     provider: ForgeProvider,
+    retired: Set<Entry>,
   ): Promise<void> {
     const generation = this.generation;
     const candidates = [...this.entries.values()].filter(
@@ -392,6 +403,7 @@ export class ForgeTracking {
       if (this.stopped() || this.pauses.size > 0) return;
       if (this.entries.get(entry.path) !== entry) continue;
       if (current !== remote) {
+        retired.add(entry);
         this.entries.delete(entry.path);
         this.changed();
         continue;
@@ -420,13 +432,23 @@ export class ForgeTracking {
         Number(b.followUp === true && b.due <= this.now()) -
           Number(a.followUp === true && a.due <= this.now()) || a.due - b.due,
     );
-    const requests = [
-      ...new Map(rows.map((entry) => [JSON.stringify(match(entry)), match(entry)])).values(),
-    ];
+    // Author and detached review checkouts can have different cached PR hints for
+    // one branch. Resolve conflicting hints by branch instead of sending duplicate
+    // branches, which the provider deliberately rejects.
+    const byBranch = new Map<string, ForgeMatch>();
+    for (const entry of rows) {
+      const request = match(entry);
+      const previous = byBranch.get(request.branch);
+      byBranch.set(
+        request.branch,
+        previous && previous.number !== request.number ? { branch: request.branch } : request,
+      );
+    }
+    const requests = [...byBranch.values()];
     const size = provider.batchSize?.(requests) ?? requests.length;
     const matches = requests.slice(0, Math.max(1, size));
-    const keys = new Set(matches.map((request) => JSON.stringify(request)));
-    const selected = rows.filter((entry) => keys.has(JSON.stringify(match(entry))));
+    const keys = new Set(matches.map((request) => request.branch));
+    const selected = rows.filter((entry) => keys.has(entry.branch));
     const revisions = new Map(rows.map((entry) => [entry, entry.refresh]));
     const observation = ++this.observation;
     const result = await provider.batch?.(matches).catch(() => undefined);

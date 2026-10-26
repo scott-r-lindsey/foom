@@ -3,7 +3,4 @@
 <plist version="1.0"><dict>
   <!-- Node SEA requires MAP_JIT. -->
   <key>com.apple.security.cs.allow-jit</key><true/>
-  <!-- The SEA embeds node-pty's prebuild, outside the enclosing app signing pass.
-       The host verifies the extracted native asset's embedded SHA-256 before load. -->
-  <key>com.apple.security.cs.disable-library-validation</key><true/>
 </dict></plist>

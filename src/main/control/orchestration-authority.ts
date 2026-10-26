@@ -491,6 +491,7 @@ export class OrchestrationAuthority {
       repository: parent.repository,
       tree: parent.worktrees.get(child.worktreeId),
       valid,
+      closeScope: () => this.closeScope(actor, id),
       exited: () => child.exited,
       active: () => parent.active,
       validate: () => {
@@ -498,6 +499,28 @@ export class OrchestrationAuthority {
       },
       note: (record) => {
         this.note(parent, this.entry(record, label));
+      },
+    };
+  }
+
+  protected closeScope(actor: Principal, id: string) {
+    const parent = this.parent(actor);
+    const child = this.own(parent, id);
+    if (!child) throw new ControlError("forbidden");
+    const abort = new AbortController();
+    parent.aborts.add(abort);
+    const unsubscribe = this.childEvents.subscribe(() => {
+      try {
+        if (this.parent(actor) !== parent || this.own(parent, id) !== child) abort.abort();
+      } catch {
+        abort.abort();
+      }
+    });
+    return {
+      signal: abort.signal,
+      release: () => {
+        unsubscribe();
+        parent.aborts.delete(abort);
       },
     };
   }
@@ -614,14 +637,20 @@ export class OrchestrationAuthority {
     operations: Operations,
     operation: Operation,
     label: string,
-    status: "succeeded" | "failed" | "indeterminate",
+    status: "succeeded" | "failed" | "indeterminate" | "declined",
     resultId: string | null = null,
   ): Promise<Operation> {
     const record = await operations.finish(
       actor,
       operation.operationId,
       status,
-      status === "succeeded" ? "completed" : status === "failed" ? "error" : "uncertain",
+      status === "succeeded"
+        ? "completed"
+        : status === "failed"
+          ? "error"
+          : status === "declined"
+            ? "user_declined"
+            : "uncertain",
       resultId,
     );
     this.note(parent, this.entry(record, label));

@@ -98,13 +98,52 @@ version can support it. Do not run `agy mcp add`, relocate HOME, or create
 `.agents/mcp_config.json` to simulate per-launch attachment.
 [MCP documentation](https://www.antigravity.google/docs/mcp/).
 
-Launch with `FOOM_CONTROL_URL`, `FOOM_CONTROL_TOKEN`, and `FOOM_SESSION` plus Foom's
-CLI directory prepended to that process's PATH. Provide short CLI guidance through
-the initial prompt, using the documented-in-help `--prompt-interactive` option;
-compose it with the user's prompt as data. Ordinary sessions receive read-only
-access; a human-elevated orchestrator gets its main-assigned role. When MCP
-becomes verifiably available, the same control API can replace this fallback.
+The explicitly installed opt-in Foom lifecycle plugin version 4 adds one stdio
+server in `mcp_config.json` (`mcpServers.foom.command` and `args`). Its native
+`mcp.sh` / `mcp.ps1` launcher targets Foom's CLI in `FOOM_CLI_DIRECTORY` and runs
+`foom mcp`. Windows relays raw stdin/stdout/stderr bytes, closes CLI stdin at
+caller EOF, and exits with the CLI even if the caller leaves stdin open. Settings stages absolute paths into the validated CLI-owned plugin
+installation, discloses the server and scripts, and uses only the existing fixed
+install/uninstall/enable commands. Older installations show Update; nothing is
+installed silently. See [agy 1.4.2 measurements](../agents.md#antigravity-plugin-mcp-agy-142-855)
+for manifest keys, inherited environment evidence and probe isolation limits.
+
+The launcher and bridge fail closed without valid `FOOM_CONTROL_URL`,
+`FOOM_CONTROL_TOKEN`, and `FOOM_SESSION`. No token is written into plugin files,
+argv, logs or configuration. The bridge uses only that environment's literal
+loopback endpoint; it never discovers another app, pairs, follows redirects, or
+falls back to a stored credential. Main authenticates every MCP request and owns
+roles, child ownership and revocation. Ordinary sessions remain read-only; a
+human-elevated orchestrator gets its main-assigned role.
+
+Launch still supplies those environment variables and prepends Foom's CLI directory
+to the process PATH. Without an enabled, intact current plugin and agy 1.4.2+
+verification, short CLI guidance is composed with the initial prompt through
+`--prompt-interactive`. Current plugin MCP launches omit that fallback guidance.
+Hook enablement is independent of MCP: disabling observers does not grant or revoke
+control authority. Outside a Foom launch, the installed MCP launcher exits silently
+without reading stdin or accessing the network.
 
 Permissions and sandboxing remain the user's settings. Prompt text is not a stable
 permission API; owned child input follows the same #629 policy as other adapters.
 [Permissions](https://www.antigravity.google/docs/permissions/).
+
+### Pi (#834)
+
+Pi 1.4.0's `registerMcpServer` extension API supports a session-only HTTP server
+with headers and exact per-tool exposure. The fixed `pi-v1` adapter registers the
+random launch server through this API, with a bearer token from the process's
+environment. No token enters argv, the extension source, generated JSON or renderer.
+
+The existing MCP catalog includes tools a role might be granted later. Pi's
+adapter exposes only names in the authenticated `whoami` capability list,
+intersected with main's classified registry, with all other tools hidden. It
+refreshes at session start and before new work and withdraws the registration if
+that bounded lookup fails. Config sessions expose only `manual`; verification
+probes expose only `ping` through their independent listeners. Pi's normal tool
+validation and permission handlers still run. Every Foom call rechecks current
+server-side authority, including revocation while a turn is running.
+
+The built-in MCP connector must be enabled; Foom never overrides user policy or
+installs a replacement. See the [manual spike](../agents.md#pi-140-extension-spike-834)
+and [fixed attachment rules](agent-launch.md#fixed-extension-attachment-834).

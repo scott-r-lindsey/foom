@@ -2,10 +2,9 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { gzip, gunzip } from "node:zlib";
-import { run, signingArgs } from "./macos-sign.mjs";
 
 export const hostPlatforms = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"];
 export const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -18,19 +17,6 @@ export function checkoutRevision(root, execute = execFileSync) {
   }).trim();
   assert.match(revision, /^[a-f0-9]{40}$/, "Invalid checkout source revision");
   return revision;
-}
-
-// Native builds are ad-hoc. The main-only Release pass re-signs bundled Darwin
-// payloads with Developer ID before sealing the app (#844).
-export function signRemoteHost(executable, execute = run) {
-  execute(
-    "codesign",
-    signingArgs(executable, {
-      identity: "-",
-      entitlements: resolve("scripts/entitlements-adhoc.plist"),
-    }),
-  );
-  execute("codesign", ["--verify", "--strict", executable]);
 }
 
 export async function writeHostManifest(output, { version, platform, arch, source }) {
