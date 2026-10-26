@@ -15,7 +15,7 @@ retry with the same key returns that record.
 | Tool | Parameters | Result |
 |---|---|---|
 | `create_worktree` | Exactly one of `branch` or `pullRequest` | New local branch, or continue an open same-repository PR; `resultId` is the opaque worktree ID |
-| `launch` | `worktreeId`, `agent` (`claude`, `codex`, `agy`), optional `prompt` ≤16 KiB (including the fixed author brief when `review` is enabled) and `review` | `resultId` is the child session ID |
+| `launch` | `worktreeId`, `agent` (a loaded provider ID), optional `model`, `effort`, `prompt` ≤16 KiB (including the fixed author brief when `review` is enabled) and `review` | `resultId` is the child session ID |
 | `prompt` | `id`, `text` ≤16 KiB | Text plus submit, honoring bracketed paste, without review |
 | `send_keys` | `id`, `keys` (1–64) | Validated logical keys, without review |
 | `stop` | `id` | Existing graceful stop; an already exited child succeeds; a stop error is `indeterminate` |
@@ -27,8 +27,8 @@ retry with the same key returns that record.
 
 Initial launch prompts and branch names reject control characters other than newline and tab,
 Unicode format characters, and a leading `-`, so they cannot become options.
-Children receive the user's Settings default arguments for their agent exactly as
-written (for example a model choice), never share a checkout, and get a read-only
+Children receive the user's Settings default arguments for their agent, with only
+explicit model/effort selections replacing the corresponding declared selectors, never share a checkout, and get a read-only
 grant naming their parent. If those defaults bypass permissions, `launch` is refused
 with `forbidden` before spawning and the worktree stays unused. The prompt follows a fixed line naming the orchestrator
 as its author, so the argv entry can never equal a subcommand such as `logout`.
@@ -104,3 +104,24 @@ initial launch. The loop's internal review/resume steps reuse that checkout with
 ordinary owned-child grants and the existing per-parent capacity reservations.
 No child receives launch/prompt authority and parentless agents cannot opt in.
 See [the loop rules](../areas/orchestration.md#optional-child-buildreview-loop-690).
+
+### Per-child selections (#853)
+
+MCP `launch` accepts `model?: string`, `effort?: string` and
+`review: {rounds?, agent?, model?, effort?, postFindings?, parentWaitMinutes?}`.
+Both selections are validated before launch reservation. Tokens match
+`^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$`; absent manifest support returns
+`unsupported`, malformed tokens or values outside a declared enum return
+`invalid_request`. Effort requires a manifest enum. Model uses the manifest's list
+when present, otherwise any well-formed token. Unknown fields, including free-form
+`args`, remain refused. Omission preserves Settings defaults.
+
+The reviewer selection applies only to reviewers. Fix steps retain the initial
+author selection. Session metadata (`sessions`, `session_state`, including wait
+results) carries `selection: {model?, effort?}` for the requested options, also
+persisted with the session. It does not assert what model the CLI actually used.
+The parent's handoff read remains paired with session metadata; children cannot
+replace this main-owned record through handoff text.
+
+See [manifest expansion and replacement](agent-launch.md#child-model-and-effort-853)
+and [CLI flags](console.md).

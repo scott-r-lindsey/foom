@@ -291,3 +291,14 @@ test("retains bounded child handoffs across restart and deletes them with the ro
     readSessions([{ ...record, handoffs: [{ ...handoffs[0], summary: "bad\u001b" }] }]),
   ).toThrow();
 });
+
+test("persists requested selections as validated metadata", async () => {
+  const { store } = await setup();
+  const selection = { model: "fixture/model", effort: "high" };
+  await store.save([{ ...record, kind: "agent", attention: "hooks", state: null, selection }]);
+  expect((await store.load())[0]?.selection).toEqual(selection);
+  expect(() => readSessions([{ ...record, selection: { model: "--bad" } }])).toThrow(
+    "invalid_request",
+  );
+  expect(() => readSessions([{ ...record, selection: { args: [] } }])).toThrow("invalid_request");
+});

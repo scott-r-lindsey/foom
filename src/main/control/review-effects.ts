@@ -151,7 +151,17 @@ export class ReviewEffects {
         tree.identity,
         agent,
         prompt,
-        { ...(resume ? { resume } : {}), loop: state, validate },
+        {
+          ...(resume ? { resume } : {}),
+          selection: reviewer
+            ? {
+                ...(state.model === undefined ? {} : { model: state.model }),
+                ...(state.effort === undefined ? {} : { effort: state.effort }),
+              }
+            : author.selection,
+          loop: state,
+          validate,
+        },
       );
       reservation.attach(id, reviewer);
       this.reviews().attach(id, authorId);

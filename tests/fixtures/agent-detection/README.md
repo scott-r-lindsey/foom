@@ -96,6 +96,18 @@ advice are negative test cases. Claude and Antigravity have no provider fixtures
 or shipped provider rules. Generic hooks and exit codes cannot distinguish these
 conditions, so no speculative mappings are shipped.
 
+## Pi 1.4.0 (#823)
+
+Manually observed 2026-10-25 on Linux in an 80×24 PTY in a disposable OS temp
+directory, with `--model gpt-6.1-sol`. These redacted fragments retain the
+working divider, completed reply/editor/usage footer, `/model` picker, and the
+earlier OpenAI model-not-found error (before selecting the working model).
+Irrelevant model list entries and blank padding are omitted. The title stayed
+constant. A second harmless prompt created `ready.txt` without approval; no file
+permission screen was observed. Escape dismissed the picker and Ctrl+D exited.
+No global configuration or credential files were inspected or changed.
+See [measurement details](../../../docs/agents.md#pi-140-measurement-823).
+
 OpenCode v2.0.32 (#824), Linux 2026-10-24: four short PTY sessions in a disposable
 OS-temp directory, parsed with the pinned headless xterm at 120×40. The three
 OpenCode JSON fixtures retain only observed matching viewport fragments from

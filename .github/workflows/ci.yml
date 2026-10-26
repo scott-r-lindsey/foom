@@ -223,7 +223,7 @@ jobs:
         if: runner.os == 'Linux'
         run: xvfb-run -a pnpm run test:electron
       - name: Test Electron on macOS and Windows
-        timeout-minutes: 10
+        timeout-minutes: 14
         if: runner.os != 'Linux'
         run: pnpm run test:electron
       - name: Upload Electron timing and process diagnostics

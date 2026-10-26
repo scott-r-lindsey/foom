@@ -1,0 +1,22 @@
+{
+  "agent": "pi",
+  "version": "1.4.0",
+  "state": "idle",
+  "platform": "linux",
+  "date": "2026-10-25",
+  "size": {
+    "cols": 80,
+    "rows": 24
+  },
+  "rules": ["idle"],
+  "titles": ["π - <temporary directory basename>"],
+  "progress": null,
+  "tail": [
+    "ready",
+    "────────────────────────────────────────────────────────────────────────────────",
+    "",
+    "────────────────────────────────────────────────────────────────────────────────",
+    "<temporary directory>",
+    "↑1.2k ↓5 $0.003 (sub) 0.5%/272k (auto)                      gpt-6.1-sol • medium"
+  ]
+}

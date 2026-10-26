@@ -254,6 +254,24 @@ export function launchEnvironment(v: unknown, p: string) {
     when: optional(condition)(d["when"], `${p}.when`),
   };
 }
+/** Narrow two-argument selections; callers never supply flags or config keys. */
+export function launchSelection(v: unknown, p: string) {
+  const d = object(v, p, ["flags", "arguments"], ["values"]);
+  const flags = array(flag, 8, 1)(d["flags"], `${p}.flags`);
+  const arguments_ = array(text, 2, 2)(d["arguments"], `${p}.arguments`);
+  if (
+    !flags.includes(arguments_[0] ?? "") ||
+    !/^(?:\{value\}|[A-Za-z_][A-Za-z0-9_.]*="\{value\}")$/u.test(arguments_[1] ?? "")
+  )
+    fail(p, "invalid-selection-template");
+  return {
+    flags: array(flag, 8, 1)(d["flags"], `${p}.flags`),
+    arguments: array(text, 2, 2)(d["arguments"], `${p}.arguments`),
+    values: optional(array(selectionToken, 32, 1))(d["values"], `${p}.values`),
+  };
+}
+const selectionToken = (v: unknown, p: string) =>
+  pattern(v, p, /^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$/u, 64);
 export function launch(v: unknown, p: string) {
   const d = object(
     v,
@@ -268,9 +286,17 @@ export function launch(v: unknown, p: string) {
       "mcp",
       "toolPermissions",
       "environment",
+      "model",
+      "effort",
+      "valueFlags",
     ],
   );
+  if (d["effort"] !== undefined && launchSelection(d["effort"], `${p}.effort`).values === undefined)
+    fail(`${p}.effort.values`);
   return {
+    valueFlags: optional(array(flag, 64))(d["valueFlags"], `${p}.valueFlags`),
+    model: optional(launchSelection)(d["model"], `${p}.model`),
+    effort: optional(launchSelection)(d["effort"], `${p}.effort`),
     order: array(
       enumeration(
         "resume",
@@ -533,11 +559,13 @@ export function provenance(v: unknown, p: string) {
   };
 }
 export function attention(v: unknown, p: string) {
-  const d = object(v, p, ["minimumEngineVersion", "rules"], ["provenance"]);
+  const d = object(v, p, ["minimumEngineVersion", "rules"], ["provenance", "sampleWhileActive"]);
   return {
     minimumEngineVersion: literal(1)(d["minimumEngineVersion"], `${p}.minimumEngineVersion`),
     rules: array(rule, 64)(d["rules"], `${p}.rules`),
     provenance: optional(provenance)(d["provenance"], `${p}.provenance`),
+    // Omission stays absent so unrelated providers retain their parsed-model consent identity.
+    sampleWhileActive: optional(boolean)(d["sampleWhileActive"], `${p}.sampleWhileActive`),
   };
 }
 export function execution(v: unknown, p: string) {

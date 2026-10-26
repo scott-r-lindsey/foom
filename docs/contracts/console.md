@@ -38,7 +38,7 @@ Orchestrator commands (all support `--json`):
 
 ```text
 foom create-worktree BRANCH --idempotency-key KEY
-foom launch WORKTREE_ID --agent claude|codex|agy [--prompt TEXT] --idempotency-key KEY
+foom launch WORKTREE_ID --agent PROVIDER [--model MODEL] [--effort EFFORT] [--prompt TEXT] [--review-model MODEL] [--review-effort EFFORT] --idempotency-key KEY
 foom stop ID --idempotency-key KEY
 foom close ID --idempotency-key KEY
 foom remove-worktree WORKTREE_ID --idempotency-key KEY
@@ -123,3 +123,11 @@ to the literal loopback hook URL using the environment's launch credential.
 Missing URL/session/token makes it immediately inert with exit 0 and no output,
 stdin read or network call. All outcomes are silent. See [protocol 1](../agent-plugins.md#user-authored-extensions-public-hook-protocol-1-635)
 for channel selection, exit codes and extension ownership.
+
+`foom launch` also accepts the existing `--review-rounds`, `--review-agent`,
+`--review-post-findings` and `--review-parent-wait-minutes` flags. Either
+`--review-model` or `--review-effort` opts into review with the usual defaults.
+Model/effort fields use the same bounded tokens, manifest support and enum checks
+as [MCP launch](control-mutations.md#per-child-selections-853). The console never
+accepts free-form child arguments. Manifest validation stays in main; `unsupported`
+is a fixed control error. Omission preserves Settings default arguments.

@@ -1,3 +1,4 @@
+import { restoreBoardFocus } from "../board/focus-restore";
 import {
   useCallback,
   useEffect,
@@ -42,7 +43,7 @@ export function AboutDialog({ menu, close }: { menu: AppMenuApi; close: () => vo
     return () => {
       active = false;
       element?.close();
-      if (previous instanceof HTMLElement) previous.focus();
+      restoreBoardFocus(previous);
     };
   }, [menu]);
   const closeNote = () => {

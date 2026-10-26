@@ -113,6 +113,15 @@
           }
         ]
       }
+    },
+    "model": {
+      "flags": ["--model"],
+      "arguments": ["--model", "{value}"]
+    },
+    "effort": {
+      "flags": ["--effort"],
+      "arguments": ["--effort", "{value}"],
+      "values": ["low", "medium", "high", "max"]
     }
   },
   "files": [
