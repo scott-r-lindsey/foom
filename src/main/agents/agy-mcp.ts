@@ -33,12 +33,13 @@ if (!$env:FOOM_CONTROL_URL -or $env:FOOM_CONTROL_URL -cnotmatch '^http://127\\.0
     !$env:FOOM_CONTROL_TOKEN -or $env:FOOM_CONTROL_TOKEN -cnotmatch '^[a-f0-9]{64}$' -or
     !$env:FOOM_SESSION -or $env:FOOM_SESSION -cnotmatch '^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$' -or
     !$env:FOOM_CLI_DIRECTORY -or $env:FOOM_CLI_DIRECTORY -notmatch '^(?:[A-Za-z]:[\\\\/]|\\\\\\\\)') { exit 0 }
-$cli = Join-Path $env:FOOM_CLI_DIRECTORY 'foom.exe'
-if (!(Test-Path -LiteralPath $cli -PathType Leaf)) { exit 0 }
+# Use framework APIs without autoloading ambient PowerShell modules.
+$cli = [System.IO.Path]::Combine($env:FOOM_CLI_DIRECTORY, 'foom.exe')
+if (![System.IO.File]::Exists($cli)) { exit 0 }
 # Inherit the native stdio handles directly. PowerShell's pipeline must not read,
 # encode or buffer MCP frames, or keep stdin open after the caller closes it.
 try {
-  $start = New-Object System.Diagnostics.ProcessStartInfo
+  $start = [System.Diagnostics.ProcessStartInfo]::new()
   $start.FileName = $cli
   $start.Arguments = 'mcp'
   $start.UseShellExecute = $false

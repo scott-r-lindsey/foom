@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -84,13 +85,27 @@ it.skipIf(process.platform !== "win32")(
     const root = await mkdtemp(join(tmpdir(), "foom mcp ' $-"));
     roots.push(root);
     await writeFile(join(root, "mcp.ps1"), agyMcpFiles(true, root)["mcp.ps1"] ?? "");
+    const modules = join(root, "modules");
+    for (const [name, commands] of [
+      ["Microsoft.PowerShell.Management", "@('Join-Path','Test-Path')"],
+      ["Microsoft.PowerShell.Utility", "@('New-Object')"],
+    ]) {
+      const module = join(modules, name ?? "");
+      await mkdir(module, { recursive: true });
+      await writeFile(
+        join(module, `${name ?? ""}.psd1`),
+        `@{ ModuleVersion='1.0'; RootModule='blocked.psm1'; FunctionsToExport=${commands ?? "@()"} }`,
+      );
+      await writeFile(join(module, "blocked.psm1"), "throw 'Ambient module must not load'");
+    }
     await copyFile(process.execPath, join(root, "foom.exe"));
     await writeFile(
       join(root, "mcp"),
-      "let input='';process.stdin.setEncoding('utf8');process.stdin.on('data',chunk=>input+=chunk);process.stdin.on('end',()=>console.log(JSON.stringify({args:process.argv.slice(2),session:process.env.FOOM_SESSION,input})));",
+      "const mark=phase=>require('node:fs').appendFileSync('fixture-phases',phase+'\\n');mark('started');let input='';process.stdin.setEncoding('utf8');process.stdin.on('data',chunk=>{mark('input');input+=chunk;});process.stdin.on('end',()=>{mark('EOF');console.log(JSON.stringify({args:process.argv.slice(2),session:process.env.FOOM_SESSION,input}));});",
     );
     const env = {
       SystemRoot: process.env["SystemRoot"],
+      PSModulePath: modules,
       FOOM_CONTROL_URL: "http://127.0.0.1:12345/control/v1",
       FOOM_CONTROL_TOKEN: "a".repeat(64),
       FOOM_SESSION: "00000000-0000-4000-8000-000000000001",
@@ -100,32 +115,54 @@ it.skipIf(process.platform !== "win32")(
       process.env["SystemRoot"] ?? "C:\\Windows",
       "System32/WindowsPowerShell/v1.0/powershell.exe",
     );
-    const run = (values: NodeJS.ProcessEnv, input?: string, context = "valid environment") =>
+    const run = (
+      values: NodeJS.ProcessEnv,
+      input?: string,
+      context = "valid environment",
+      direct = false,
+    ) =>
       new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
         const child = execFile(
-          shell,
-          [
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            join(root, "mcp.ps1"),
-          ],
+          direct ? join(root, "foom.exe") : shell,
+          direct
+            ? ["mcp"]
+            : [
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                join(root, "mcp.ps1"),
+              ],
           { env: values, cwd: root, timeout: nativeDeadline(5000) },
           (error, stdout, stderr) => {
-            if (error)
+            if (error) {
+              let phases = "fixture did not start";
+              try {
+                phases = readFileSync(join(root, "fixture-phases"), "utf8");
+              } catch {
+                // A failure before fixture startup has no phase log.
+              }
               reject(
                 new Error(
-                  `Native MCP launcher failed: ${context}; stdout=${JSON.stringify(stdout)}; stderr=${JSON.stringify(stderr)}`,
+                  `Native MCP launcher failed: ${context}; phases=${JSON.stringify(phases)}; stdout=${JSON.stringify(stdout)}; stderr=${JSON.stringify(stderr)}`,
                   { cause: error },
                 ),
               );
-            else resolve({ stdout, stderr });
+            } else resolve({ stdout, stderr });
           },
         );
         if (input !== undefined) child.stdin?.end(input);
       });
+    const expected = {
+      args: [],
+      session: env.FOOM_SESSION,
+      input: '{"text":"é"}\n',
+    };
+    expect(JSON.parse((await run(env, expected.input, "fixture baseline", true)).stdout)).toEqual(
+      expected,
+    );
+    await rm(join(root, "fixture-phases"));
     for (const key of [
       "FOOM_CONTROL_URL",
       "FOOM_CONTROL_TOKEN",
@@ -133,11 +170,9 @@ it.skipIf(process.platform !== "win32")(
       "FOOM_CLI_DIRECTORY",
     ])
       expect((await run({ ...env, [key]: "" }, undefined, key)).stdout).toBe("");
-    expect(JSON.parse((await run(env, '{"text":"é"}\n', "echo input and EOF")).stdout)).toEqual({
-      args: [],
-      session: env.FOOM_SESSION,
-      input: '{"text":"é"}\n',
-    });
+    expect(JSON.parse((await run(env, expected.input, "echo input and EOF")).stdout)).toEqual(
+      expected,
+    );
     await writeFile(join(root, "mcp"), 'process.stdout.write("EXITED\\n");');
     expect((await run(env, undefined, "exit with caller stdin open")).stdout).toBe("EXITED\n");
   },
