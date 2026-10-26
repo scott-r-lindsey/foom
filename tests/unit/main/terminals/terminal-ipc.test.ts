@@ -21,8 +21,9 @@ const mock = vi.hoisted(() => ({
     quit: vi.fn(),
   },
   spawn: vi.fn(),
+  clipboard: { writeText: vi.fn() },
 }));
-vi.mock("electron", () => ({ app: mock.app, ipcMain: mock }));
+vi.mock("electron", () => ({ app: mock.app, ipcMain: mock, clipboard: mock.clipboard }));
 vi.mock("node-pty", () => ({ spawn: mock.spawn }));
 vi.mock("../../../../src/main/terminals/terminal-host-client", async () => {
   const { TerminalManager } = await import("../../../../src/terminal-host/terminal-manager");
@@ -1430,4 +1431,49 @@ test("snapshot budgets include reset, colors and token while preserving retained
   } finally {
     view.dispose();
   }
+});
+
+test("selection copying validates sender, attached ownership, payload and preference", async () => {
+  const id = await create();
+  await expect(invoke("copy-selection", [id, "text"])).rejects.toThrow("unattached");
+  await invoke("attach", [id]);
+  await invoke("copy-selection", [id, "disabled"]);
+  expect(mock.clipboard.writeText).not.toHaveBeenCalled();
+  await terminalControl.dispose();
+  mock.handle.mockClear();
+  let enabled = true;
+  terminalControl = attachTerminal(
+    window as unknown as BrowserWindow,
+    {},
+    undefined,
+    undefined,
+    () => enabled,
+  );
+  const next = await create();
+  await invoke("attach", [next]);
+  for (const value of [null, {}, 12, "", "x".repeat(65_537)])
+    await expect(invoke("copy-selection", [next, value])).rejects.toThrow(
+      "Invalid terminal selection",
+    );
+  await expect(invoke("copy-selection", ["foreign", "text"])).rejects.toThrow("unattached");
+  await expect(
+    invoke("copy-selection", [next, "text"], { ...event, senderFrame: null }),
+  ).rejects.toThrow("Untrusted");
+  await expect(
+    invoke("copy-selection", [next, "text"], { ...event, sender: {} } as IpcMainInvokeEvent &
+      IpcMainEvent),
+  ).rejects.toThrow("Untrusted");
+  await expect(
+    invoke("copy-selection", [next, "text"], {
+      ...event,
+      senderFrame: { url: "app://bundle/index.html" },
+    } as IpcMainInvokeEvent & IpcMainEvent),
+  ).rejects.toThrow("Untrusted");
+  await invoke("copy-selection", [next, "x".repeat(65_536)]);
+  expect(mock.clipboard.writeText).toHaveBeenCalledExactlyOnceWith("x".repeat(65_536));
+  enabled = false;
+  await invoke("copy-selection", [next, "off"]);
+  await invoke("detach", [next]);
+  await expect(invoke("copy-selection", [next, "hidden"])).rejects.toThrow("unattached");
+  expect(mock.clipboard.writeText).toHaveBeenCalledTimes(1);
 });

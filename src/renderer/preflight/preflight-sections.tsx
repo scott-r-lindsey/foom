@@ -147,6 +147,16 @@ export function PreflightSections({
             <span>Middle-click pastes selection</span>
           </label>
         )}
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={state.settings.copyOnSelect}
+            onChange={(event) => {
+              save({ copyOnSelect: event.target.checked });
+            }}
+          />
+          <span>Copy on select</span>
+        </label>
       </>
     );
   } else if (step === 7) {

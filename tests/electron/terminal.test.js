@@ -1549,3 +1549,93 @@ test("macOS private selection pastes from terminal A to B through bracketed past
   assert.equal(input, "\x1b[200~INPUT_READY\x1b[201~b");
   await page.keyboard.type("q");
 });
+
+test("copy on select writes only completed terminal selections when enabled", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-copy-select-"));
+  removeAfterApps(context, root);
+  const marker = path.join(root, "input");
+  await writeFile(marker, "");
+  const app = await launchApp(context, { fixture: "running-shell" });
+  let page = await boardPage(app);
+  // Show both neighboring options in review captures on all CI platforms.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
+  });
+  await page.reload();
+  page = await boardPage(app);
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(1200, 900);
+  });
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  const toggle = page.getByRole("checkbox", { name: "Copy on select", exact: true });
+  await expect(toggle).not.toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Middle-click pastes selection", exact: true }),
+  ).toBeVisible();
+  if (process.env.FOOM_CAPTURE_872 === "1") {
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await expect
+        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+        .toBe(mode === "dark");
+      await toggle.scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: evidencePath(`screenshots-872/settings-terminal-${mode}.png`),
+        animations: "disabled",
+      });
+    }
+  }
+  await assertAccessible(page);
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`;
+  await page.keyboard.type(command);
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".xterm-rows")).toContainText("INPUT_READY");
+  const screen = page.locator(".xterm-screen");
+  await app.evaluate(({ clipboard }) => clipboard.writeText("COPY_SENTINEL"));
+  await screen.dblclick({ position: { x: 20, y: 8 } });
+  await expect(page.locator(".xterm-selection div:visible").first()).toBeVisible();
+  // Wait beyond the selection debounce to prove the disabled path stays unchanged.
+  await page.waitForTimeout(150);
+  assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), "COPY_SENTINEL");
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await toggle.check();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.copyOnSelect),
+    )
+    .toBe(true);
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await expect(page.locator(".xterm-rows")).toContainText("INPUT_READY");
+  const bounds = await screen.boundingBox();
+  assert.ok(bounds);
+  await page.mouse.move(bounds.x + 1, bounds.y + 8);
+  await page.mouse.down();
+  // INPUT_READY is eleven monospace characters on the probe's first row.
+  // Measure the marker span instead of depending on platform font metrics.
+  const width = await page
+    .locator(".xterm-rows > div")
+    .first()
+    .locator("span")
+    .first()
+    .evaluate((span) => span.getBoundingClientRect().width);
+  await page.mouse.move(bounds.x + width, bounds.y + 8, { steps: 4 });
+  await page.waitForTimeout(150);
+  assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), "COPY_SENTINEL");
+  await page.mouse.up();
+  await expect
+    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe("INPUT_READY");
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await toggle.uncheck();
+  await quitAndWait(app, page);
+});
