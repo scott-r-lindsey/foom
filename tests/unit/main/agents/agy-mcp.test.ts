@@ -115,7 +115,12 @@ it.skipIf(process.platform !== "win32")(
           { env: values, cwd: root, timeout: nativeDeadline(5000) },
           (error, stdout, stderr) => {
             if (error)
-              reject(new Error(`Native MCP launcher failed: ${context}`, { cause: error }));
+              reject(
+                new Error(
+                  `Native MCP launcher failed: ${context}; stdout=${JSON.stringify(stdout)}; stderr=${JSON.stringify(stderr)}`,
+                  { cause: error },
+                ),
+              );
             else resolve({ stdout, stderr });
           },
         );
@@ -128,12 +133,12 @@ it.skipIf(process.platform !== "win32")(
       "FOOM_CLI_DIRECTORY",
     ])
       expect((await run({ ...env, [key]: "" }, undefined, key)).stdout).toBe("");
-    expect(JSON.parse((await run(env, '{"text":"é"}\n')).stdout)).toEqual({
+    expect(JSON.parse((await run(env, '{"text":"é"}\n', "echo input and EOF")).stdout)).toEqual({
       args: [],
       session: env.FOOM_SESSION,
       input: '{"text":"é"}\n',
     });
     await writeFile(join(root, "mcp"), 'process.stdout.write("EXITED\\n");');
-    expect((await run(env)).stdout).toBe("EXITED\n");
+    expect((await run(env, undefined, "exit with caller stdin open")).stdout).toBe("EXITED\n");
   },
 );

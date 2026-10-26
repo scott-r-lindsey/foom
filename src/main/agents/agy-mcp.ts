@@ -70,9 +70,11 @@ public static class FoomPluginMcp {
     };
     using (var child = new Process { StartInfo = info }) {
       if (!child.Start()) return 1;
-      var output = Output(child.StandardOutput.BaseStream, Console.OpenStandardOutput(), child);
-      var error = Output(child.StandardError.BaseStream, Console.OpenStandardError(), child);
-      var input = Input(Console.OpenStandardInput(), child.StandardInput);
+      // Framework console streams can block before CopyToAsync returns its Task.
+      // None of the pumps may block process-exit handling on this thread.
+      var output = Task.Run(() => Output(child.StandardOutput.BaseStream, Console.OpenStandardOutput(), child));
+      var error = Task.Run(() => Output(child.StandardError.BaseStream, Console.OpenStandardError(), child));
+      var input = Task.Run(() => Input(Console.OpenStandardInput(), child.StandardInput));
       child.WaitForExit();
       Task.WaitAll(output, error);
       GC.KeepAlive(input);
