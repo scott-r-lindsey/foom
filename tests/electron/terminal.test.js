@@ -1513,14 +1513,11 @@ test("macOS private selection pastes from terminal A to B through bracketed past
   await page.keyboard.type(command + " bracketed");
   await page.keyboard.press("Enter");
   await expect(tiles.locator(".xterm-rows")).toContainText(["INPUT_READY", "INPUT_READY"]);
-  const screenA = tiles
-    .nth(0)
-    .locator(".xterm-rows > div")
-    .filter({ hasText: /^INPUT_READY$/ });
-  const selectionBox = await screenA.boundingBox();
-  assert.ok(selectionBox);
-  // xterm handles selection on its screen overlay, above the painted row DOM.
-  await page.mouse.dblclick(selectionBox.x + 20, selectionBox.y + selectionBox.height / 2);
+  // The probe places INPUT_READY in row one. Target xterm's event overlay and
+  // wait for the selection paint before moving to B, including during tile motion.
+  const screenA = tiles.nth(0).locator(".xterm-screen");
+  await screenA.dblclick({ position: { x: 20, y: 8 } });
+  await expect(tiles.nth(0).locator(".xterm-selection div:visible").first()).toBeVisible();
   const screenB = tiles.nth(1).locator(".xterm-screen");
   if (process.platform === "linux") {
     // Chromium still emits Linux's native primary paste despite platform injection.
