@@ -1,3 +1,5 @@
+import { extensionAsset } from "./extension-assets";
+import { writeOwnedFile } from "./v2-files";
 import { mcpTools } from "../../control/mcp-tools";
 import { PluginSetup } from "../plugin-setup";
 import { randomUUID } from "node:crypto";
@@ -295,7 +297,13 @@ export function v2Provider(
               ) ||
               !model.launch.mcp?.arguments.some((arg) => arg.includes(`{file:${file.name}}`))),
         );
-        if (files.length) {
+        const extension = model.launch.extension;
+        const attachExtension = Boolean(
+          extension &&
+            selected(extension.when, facts) &&
+            (mcp || binding?.v2?.channels.has(extension.channel)),
+        );
+        if (files.length || attachExtension) {
           const hookDirectory = binding?.v2?.values["hookDir"];
           if (typeof hookDirectory !== "string")
             scratch = await mkdtemp(join(tmpdir(), "foom-v2-"));
@@ -303,6 +311,38 @@ export function v2Provider(
             typeof hookDirectory === "string"
               ? hookDirectory
               : await privateDirectory(scratch ?? "");
+          if (attachExtension && extension) {
+            const root = await privateDirectory(directory, "extension");
+            const asset = extensionAsset(extension.api);
+            const path = join(root, asset.name);
+            const names = verification
+              ? ["ping"]
+              : mcpTools(1, [])
+                  .map((tool) => tool.name)
+                  .filter(
+                    (name) => control?.toolNames === undefined || control.toolNames.includes(name),
+                  );
+            await writeOwnedFile(path, asset.source);
+            await writeOwnedFile(
+              join(root, "launch.json"),
+              JSON.stringify({
+                ...(binding?.v2?.channels.has(extension.channel)
+                  ? { channel: extension.channel }
+                  : {}),
+                ...(mcp
+                  ? {
+                      mcp: {
+                        url: values["mcpUrl"],
+                        name: values["mcpName"],
+                        tools: names,
+                        roleAware: !verification && control?.toolNames === undefined,
+                      },
+                    }
+                  : {}),
+              }),
+            );
+            values["extensionFile"] = path;
+          }
           for (const file of files) {
             values[`file:${file.name}`] = join(directory, file.name);
             values[`hookFile:${file.name}`] = join(directory, file.name);
@@ -372,8 +412,13 @@ export function v2Provider(
           } else if (stage === "mcp") {
             if (mcp && model.launch.mcp) {
               mcpArguments = expand(model.launch.mcp.arguments);
-              args.push(...mcpArguments);
             }
+            if (attachExtension && extension) {
+              const extensionArgs = expand(extension.arguments);
+              if (mcp) mcpArguments.push(...extensionArgs);
+              else args.push(...extensionArgs);
+            }
+            args.push(...mcpArguments);
           } else if (stage === "hooks") {
             for (const channel of binding?.v2?.channels.values() ?? [])
               args.push(...expand(channel.arguments));

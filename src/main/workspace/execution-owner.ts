@@ -538,6 +538,18 @@ export class ExecutionOwner {
       runtime?.accept(signal, this.execution(id).snapshot().turn);
       return Promise.resolve();
     }
+    // A non-turn-ending idle observation closes a blocking UI without implying
+    // completion or inventing a working turn for an otherwise idle session.
+    if (
+      runtime &&
+      signal.action === "classify" &&
+      signal.endsTurn === false &&
+      signal.fullyIdle === true &&
+      health.hook?.action === "needs_input"
+    ) {
+      delete health.hook;
+      this.transition(id, this.execution(id).unblockedPhase(), "hook");
+    }
     // A fully idle Stop proves a turn ran even when its background start report
     // was overtaken. Recover the turn identity before classifying completion.
     if (

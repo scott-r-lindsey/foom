@@ -15,6 +15,7 @@ engine after substitution and layering; this parser never expands launch data.
 | --- | --- |
 | launch.order | Required permutation of resume, defaults, arguments, display, guidance, mcp, hooks, tools, prompt; all once. Defaults engine-controlled; hooks follow channel array order |
 | Launch block | `{arguments,when?}`; Argv and Condition. arguments/display/resume/mcp use this shape; resume implies validated requested conversationId |
+| extension | `{api:"pi-v1",channel,arguments,when}`; fixed application-owned ABI, existing external channel ID, Argv and Condition; no source/path/hash fields |
 | prompt | `{arguments,requires?}`; requires fact ID; final task is one argv value. Foom rejects a launch requiring a missing fact |
 | guidance | `{when,merge?}`; inserts fixed CLI_GUIDANCE or CONFIG_PROMPT through the prompt stage; merge `{flags,output,separators}` with <=8 flag names, output flag, separators literal whitespace-comma or whitespace; only merges when selected |
 | toolPermissions | `{names,format,arguments,merge?,fileRules?}`; names drawn uniquely from the classified Foom server tools in `src/shared/control-tool-classes.ts`; format mcp-double-underscore, server-parentheses or server-underscore; optional fileRules:"action-resource" emits native JSON action/resource/effect rules rather than argv; arguments template expanded once per tool (unless merge combines); merge `{flags,output,separators:"whitespace-comma-parentheses"}` |
@@ -28,6 +29,7 @@ Allowed placeholders, with no recursion or environment interpolation by Foom:
 | Placeholder | Allowed location and type |
 | --- | --- |
 | {prompt}, {conversationId} | prompt/resume argv respectively; prompt includes main-owned child provenance or config/guidance text, ID validated |
+| {extensionFile} | launch.extension.arguments only; exactly one whole generated versioned module path, no prefix/suffix or path arithmetic |
 | {newId} | conversation.newId argv only; generated UUID with optional fixed prefix, new launches only |
 | {hookDir}, {hookFile:NAME} | hooks.channels[].arguments only; whole owned launch directory/file path. Nested NAME is allowed; declare scope "launch" files |
 | {pluginDir} | setup action argv only; owned persistent plugin staging directory |
@@ -212,6 +214,24 @@ metadata records names only. Bypass inspection and disclosure use the final
 environment, including manifest entries; unattended children and probes refuse
 matching bypass values. Probe discovery receives no manifest launch environment.
 Validation reports the entry's exact path and reason through `foom config validate`.
+
+### Fixed extension attachment (#834)
+
+`launch.extension` selects fixed executable bytes distributed with the application;
+this is separate from data-only `files`. The first API is `pi-v1`. Its channel must
+exist and use `observer.transport:external`; channel and MCP conditions must imply
+the extension condition. Arguments must include exactly one whole `{extensionFile}`
+value, which is forbidden in all other template locations. Unknown APIs, source,
+module, path or digest fields are rejected. Custom copies may select the same fixed
+ABI, with the same credential and manual-only config-session limits.
+
+Main writes the fixed integrity-checked module and a generated nonsecret JSON
+attachment record into a private launch directory. The extension argv appears at
+the MCP stage, once, for hooks and/or tools; a tool-only launch works with hooks
+disabled. It uses only launch-environment tokens. Runtime adapters remain reviewed
+Foom code, never user-authored manifest content. Observer API changes require a
+new versioned filename and code-owned integrity lock. This adds no global install,
+configuration mutation, permission bypass, or executable template surface.
 
 
 ### Generated context-event modules (#824)

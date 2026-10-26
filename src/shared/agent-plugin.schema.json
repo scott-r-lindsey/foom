@@ -417,6 +417,9 @@
         "mcp": {
           "$ref": "#/$defs/block"
         },
+        "extension": {
+          "$ref": "#/$defs/extension"
+        },
         "environment": {
           "type": "array",
           "items": {
@@ -550,6 +553,28 @@
         },
         "separators": {
           "enum": ["whitespace", "whitespace-comma", "whitespace-comma-parentheses"]
+        }
+      }
+    },
+    "extension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api", "channel", "arguments", "when"],
+      "properties": {
+        "api": {
+          "const": "pi-v1"
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "arguments": {
+          "$ref": "#/$defs/argv"
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
         }
       }
     },

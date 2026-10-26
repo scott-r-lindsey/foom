@@ -127,3 +127,23 @@ without reading stdin or accessing the network.
 Permissions and sandboxing remain the user's settings. Prompt text is not a stable
 permission API; owned child input follows the same #629 policy as other adapters.
 [Permissions](https://www.antigravity.google/docs/permissions/).
+
+### Pi (#834)
+
+Pi 1.4.0's `registerMcpServer` extension API supports a session-only HTTP server
+with headers and exact per-tool exposure. The fixed `pi-v1` adapter registers the
+random launch server through this API, with a bearer token from the process's
+environment. No token enters argv, the extension source, generated JSON or renderer.
+
+The existing MCP catalog includes tools a role might be granted later. Pi's
+adapter exposes only names in the authenticated `whoami` capability list,
+intersected with main's classified registry, with all other tools hidden. It
+refreshes at session start and before new work and withdraws the registration if
+that bounded lookup fails. Config sessions expose only `manual`; verification
+probes expose only `ping` through their independent listeners. Pi's normal tool
+validation and permission handlers still run. Every Foom call rechecks current
+server-side authority, including revocation while a turn is running.
+
+The built-in MCP connector must be enabled; Foom never overrides user policy or
+installs a replacement. See the [manual spike](../agents.md#pi-140-extension-spike-834)
+and [fixed attachment rules](agent-launch.md#fixed-extension-attachment-834).
