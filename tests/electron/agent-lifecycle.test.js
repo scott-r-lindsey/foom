@@ -249,6 +249,11 @@ process.stdin.on('data', data => {
           (await window.desktop.workspace()).terminals.find((terminal) => terminal.id === id).state,
         id,
       );
+    // Execution can raise the amber presentation before verdict storage and
+    // publication finish. Reply/Dismiss must target the committed verdict.
+    await expect
+      .poll(current)
+      .toMatchObject({ state: "needs_input", verdictId: expect.any(String) });
     const verdictId = (await current()).verdictId;
     assert.ok(verdictId);
     if (reply === "typing") {
