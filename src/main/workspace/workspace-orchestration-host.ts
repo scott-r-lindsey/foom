@@ -18,7 +18,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       await caps.sessions.save();
     },
     createWorktree: (repository, branch) => caps.createChildWorktree(repository, branch),
-    adoptWorktree: (repository, number, unused, revalidate) =>
+    adoptWorktree: (repository, number, unused, revalidate, review) =>
       caps.withRepository(repository, async () => {
         const key = `${repository}\0:adopt-pr-${String(number)}`;
         if (caps.busyWorktrees.has(key)) throw new ControlError("branch_in_use");
@@ -41,6 +41,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
                 throw new ControlError("branch_in_use");
             },
             caps.location,
+            review,
           );
         } finally {
           caps.busyWorktrees.delete(key);
@@ -62,13 +63,22 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       const tree = (await caps.deps.worktrees.listWorktrees(repository)).find(
         (item) => item.path === path,
       );
-      if (!tree?.managed || tree.bare || tree.locked || tree.prunable || tree.branch === null)
-        return undefined;
+      if (!tree?.managed || tree.bare || tree.locked || tree.prunable) return undefined;
+      const branch = tree.branch ?? caps.deps.worktrees.reviewBranch(repository, path, tree.head);
+      if (!branch) return undefined;
       const identity = await caps.deps.worktrees.launchIdentity(repository, path);
-      return { branch: tree.branch, identity };
+      return { branch, identity };
     },
     stop: (id) => caps.deps.terminals.stop(id),
-    close: (id) => caps.sidebarCommand({ kind: "close", id }, () => Promise.resolve(true)),
+    close: async (id, validate, signal) => {
+      await caps.sidebarCommand(
+        { kind: "close", id },
+        () => Promise.resolve(true),
+        validate,
+        signal,
+      );
+      return !caps.snapshot().terminals.some((row) => row.id === id);
+    },
     place: (id, parentId) => {
       if (caps.showNewChildren) caps.deps.placeChild?.(id, parentId);
     },

@@ -22,6 +22,9 @@ export interface CreateWorktreeOptions {
   readonly newBranch?: boolean;
   /** Main-only PR adoption: fetch and track origin, preserving existing local commits. */
   readonly trackOrigin?: boolean;
+  /** Main-only review creation: validated fetched commit; branch argument is a directory label only. */
+  readonly detachedHead?: string;
+  readonly reviewBranch?: string;
 }
 
 /** What creating a worktree for a branch did: `open` means it was already checked out. */
