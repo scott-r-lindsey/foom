@@ -479,21 +479,16 @@ preceding phase unless noted; do not mark #846 closed through this spike PR.
   document opt-in installation/removal, no global setting changes, shutdown/logout
   limits and redacted notifications. Neither is required for Unix phase C.
 
-## Open product decisions for approval
+## Product decisions (approved 2026-10-26)
 
-1. Approve Stop everything and quit as the default, with an explicit per-quit
-   Keep running choice and no remembered silent detach preference?
-2. Is an opt-in A–C milestone acceptable with Foom-dependent orchestration paused
-   while Electron is closed, or must D land before any public detach release?
-3. Should the UI-absence 24-hour deadline stop even active unattended children,
-   as recommended, or should a later explicit unattended mode use a different
-   retention/reconciliation policy? Who owns its spending limit?
-4. Accept no OS notifications while the app is absent initially, and the loss of
-   undelivered final screen content for detached exit tombstones?
-5. Accept a compatibility window with host updates deferred until idle, explicit
-   stop for incompatible/security-critical replacements, and no live migration?
-6. Accept the documented same-UID threat limit and scoped ID disclosure, rather
-   than promise isolation from arbitrary same-user agents? Is a stronger OS
-   boundary a prerequisite?
-7. Accept first-phase long-profile-path and unavailable-secret-store refusal,
-   disposable-profile stop-only semantics, and Windows retaining stop-on-quit?
+The user approved every recommendation:
+
+1. Quit stops everything by default. "Keep running" is an explicit choice on each quit, and there is no remembered silent-detach preference.
+2. Phases A–C ship opt-in, with Foom-dependent orchestration paused while Electron is closed. Phase D is a separate approval gate.
+3. The 24-hour UI-absence deadline also stops active children. Only a later explicit unattended mode may change that policy.
+4. No OS notifications while the app is absent. Detached exits keep tombstones with exit codes only.
+5. Hosts stay compatible across updates. Replacement waits until the host is idle. Incompatible or security-critical replacements need an explicit stop. No live migration.
+6. The same-UID threat limit and scoped ID disclosure are documented. A stronger OS boundary is not a prerequisite.
+7. First phases refuse long profile socket paths and an unavailable secret store. Disposable profiles only stop. Windows keeps stop-on-quit.
+
+Phase tickets: A #861, B #862, C #863, D #864 (approval gate), E #866.
