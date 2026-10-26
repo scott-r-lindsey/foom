@@ -128,9 +128,11 @@ test("local packages without a catalog refuse remote shells and allow a verified
     f.metadata,
     JSON.stringify({ source: f.manifest.source, remoteHostsAvailable: false }),
   );
+  mock.execFile.mockClear();
   await expect(
     selectHostArtifact({ host: "fixture" }, "0.1.0", f.root, f.metadata),
-  ).rejects.toThrow("Remote host artifact unavailable");
+  ).rejects.toThrow("foom-error:remote-host-unavailable");
+  expect(mock.execFile).not.toHaveBeenCalled();
   await expect(
     selectHostArtifact({ host: "fixture", artifact: f.path }, "0.1.0", f.root, f.metadata),
   ).resolves.toHaveProperty("version", "0.1.0");

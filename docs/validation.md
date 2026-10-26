@@ -197,8 +197,10 @@ specified by `FOOM_REMOTE_HOST_ARTIFACTS`. No CI download or detached checkout i
 needed. If any entry is missing, stale or invalid, the build warns and omits the
 **entire** catalog, removes any partially copied entries, and records
 `remoteHostsAvailable: false` inside ASAR. Remote shells then refuse with
-"Remote host artifact unavailable"; an explicit native artifact override still
-undergoes runtime platform, version and byte verification. A complete supplied
+"Remote host artifact unavailable in this local build." The sealed omission is
+checked before SSH discovery or bootstrap; the transport and client preserve a
+fixed application error code through launch and IPC, never SSH output. An explicit
+native artifact override still undergoes runtime platform, version and byte verification. A complete supplied
 catalog must pass the same checks as CI. Local packaged smoke verifies the sealed
 omission and absence of unpacked hosts, or validates all four entries when present.
 

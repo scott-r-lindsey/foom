@@ -65,7 +65,10 @@ or corrupt catalog. Both builders derive the full checkout commit with Git;
 packaging requires every included source to equal the app checkout, even outside CI.
 Local packages may warn and omit the entire catalog when any entry fails validation
 (#848); sealed metadata marks the omission and remote shells refuse with
-"Remote host artifact unavailable" unless a verified explicit artifact is supplied.
+"Remote host artifact unavailable in this local build." unless a verified explicit
+artifact is supplied. The sealed-omission preflight runs before any SSH process;
+its fixed application error code survives the transport/client launch path and IPC.
+Remote output can never select that diagnostic.
 See [local and strict packaging](../validation.md#bundled-remote-host-artifacts-825).
 `development` is never a packaged source revision. There are no runtime artifact downloads.
 
