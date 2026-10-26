@@ -60,7 +60,13 @@ export interface WorkspaceMethods {
     replacement?: { id: string; conversationId?: string },
     extra?: Pick<
       AgentLaunch,
-      "control" | "prompt" | "conversationId" | "pinConversation" | "beforeSpawn" | "loop"
+      | "control"
+      | "prompt"
+      | "conversationId"
+      | "pinConversation"
+      | "beforeSpawn"
+      | "loop"
+      | "selection"
     >,
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }>;
   startWorktree(request: StartWorktreeRequest, confirm?: ConfirmWorkspace): Promise<string | null>;
@@ -121,6 +127,7 @@ export interface WorkspaceMethods {
     agent: AgentId,
     prompt: string | undefined,
     step?: {
+      selection?: AgentLaunch["selection"];
       resume?: { id: string; conversationId: string };
       loop?: AgentLaunch["loop"];
       validate(): void;

@@ -173,6 +173,7 @@ export async function launchChild(
   agent: AgentId,
   prompt: string | undefined,
   step?: {
+    selection?: AgentLaunch["selection"];
     resume?: { id: string; conversationId: string };
     loop?: AgentLaunch["loop"];
     validate(): void;
@@ -215,6 +216,7 @@ export async function launchChild(
           identity,
           replacement,
           {
+            ...(step?.selection ? { selection: step.selection } : {}),
             control: { parentId },
             prompt: prompt ?? "Await your assigned task.",
             ...(step

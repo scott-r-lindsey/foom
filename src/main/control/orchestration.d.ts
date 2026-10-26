@@ -36,6 +36,7 @@ export interface OrchestrationHost {
     agent: AgentId,
     prompt: string | undefined,
     step?: {
+      selection?: AgentLaunch["selection"];
       resume?: { id: string; conversationId: string };
       loop?: AgentLaunch["loop"];
       validate(): void;

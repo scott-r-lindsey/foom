@@ -50,7 +50,13 @@ export interface AgentHooks {
   bind?(terminalId: string): void;
   dispose(): void;
 }
+export interface LaunchSelection {
+  model?: string;
+  effort?: string;
+}
+
 export interface AgentLaunch {
+  readonly selection?: LaunchSelection;
   /** Main-only automation authority recheck immediately before the PTY spawn. */
   readonly beforeSpawn?: () => void;
   /** Main-only metadata written before the first session save, never process authority. */
@@ -89,6 +95,8 @@ export interface AgentLaunch {
   readonly environment?: readonly (readonly EnvironmentVariable[])[];
 }
 export interface AgentLaunched {
+  /** Effective default arguments when a child supplied a selection. */
+  readonly launchFlags?: readonly string[];
   readonly conversationId?: string;
   readonly bypass?: boolean;
   readonly providerOrigin?: "config" | "bundled";

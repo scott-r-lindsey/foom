@@ -143,6 +143,8 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       for (const [key, flag] of [
         ["idempotencyKey", "--idempotency-key"],
         ["agent", "--agent"],
+        ["model", "--model"],
+        ["effort", "--effort"],
         ["prompt", "--prompt"],
         ["lines", "--lines"],
         ["timeoutMs", "--timeout-ms"],
@@ -304,6 +306,25 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       await assertAccessible(page);
       await page.keyboard.press("Escape");
     }
+    if (phase === "children")
+      await page.evaluate(() =>
+        window.desktop.saveSetup({
+          agentArguments: {
+            claude: [
+              "--append-system-prompt",
+              "--model=literal-prompt",
+              "--system-prompt",
+              "--effort=high",
+              "--model=old",
+              "--effort",
+              "low",
+              "--verbose",
+            ],
+            codex: [],
+            agy: [],
+          },
+        }),
+      );
     const tree = await call(parent.controlToken, "create_worktree", {
       idempotencyKey: "tree-1",
       branch: "child-one",
@@ -341,6 +362,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       worktreeId: tree.body.result.resultId,
       agent: "claude",
       prompt: "Summarize the README",
+      ...(phase === "children" ? { model: "fixture-model", effort: "high" } : {}),
     });
     const launched = await launching;
     assert.equal(launched.status, 200, JSON.stringify(launched.body));
@@ -644,6 +666,21 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       await page.keyboard.press("Escape");
       await expect.poll(() => existsSync(`${credentials}.child-one`)).toBe(true);
       const child = await read("child-one");
+      assert.deepEqual(child.args.slice(0, 9), [
+        "--append-system-prompt",
+        "--model=literal-prompt",
+        "--system-prompt",
+        "--effort=high",
+        "--verbose",
+        "--model",
+        "fixture-model",
+        "--effort",
+        "high",
+      ]);
+      assert.equal(child.args.filter((arg) => arg === "--model").length, 1);
+      const selectedState = (await call(parent.controlToken, "session_state", { id: childId })).body
+        .result;
+      assert.deepEqual(selectedState.selection, { model: "fixture-model", effort: "high" });
       assert.match(
         child.args.at(-1),
         /^Task from your Foom orchestrator.*\n\nSummarize the README$/s,
