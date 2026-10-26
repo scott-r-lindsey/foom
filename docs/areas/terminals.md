@@ -4,6 +4,13 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 ## Terminals
 
+On macOS, the board window sets `acceptFirstMouse: true`: the activating click
+reaches the page and focuses the clicked terminal. It is ordinary mouse input,
+including delivery to terminal applications with mouse reporting enabled; there
+is no focus-only mouse-report guard. The trusted-dialog child accepts activating
+clicks too, subject to the existing [confirmation guards](confirmations.md).
+Linux and Windows behavior is unchanged.
+
 [Remote hosts #753](https://github.com/scott-r-lindsey/foom/issues/753) decides
 SSH-only transport and persistent remote PTYs. The older [#518 research](../research/remote-machines.md)
 is historical; the opt-in phase-1 spike is described below. There is no Hosts setting yet.

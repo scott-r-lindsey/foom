@@ -22,7 +22,11 @@ Decisions with content use a separate trusted Foom window. Removing a dirty
 worktree lists the exact uncommitted status from Git and offers **Cancel** and
 **Discard N changes and remove**. Quitting with live terminals lists each session,
 its status light and location, then **Cancel** and **Stop all and quit**. Cancel is
-focused initially; Escape cancels, Tab stays within the dialog and Enter activates
+focused initially. On macOS, clicking an inactive trusted dialog activates it and
+delivers that same click to the control under the pointer. The board accepts
+activating clicks too; while blocked by a trusted dialog, its clicks only recover
+the dialog as before. Click-again confirmations still require at least 300 ms.
+Escape cancels, Tab stays within the dialog and Enter activates
 the focused button. The card-sized window follows Interface scale and stays centered on the board’s content.
 The board stays visible under a translucent scrim and regains focus on dismissal.
 It remains usable if the board renderer crashes or hangs. Confirmation buttons
