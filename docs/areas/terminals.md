@@ -222,7 +222,8 @@ See [measurements and fixture verification](../../spikes/remote-host/phase-1.md)
 Linux retains native primary-selection paste. Mouse-reporting applications own
 middle clicks; Shift forces paste. macOS optionally emulates this through xterm's
 `paste` path (including bracketed paste and newline normalization), enabled
-by the profile-only `middleClickPaste` boolean, off by default. Windows has no
+by the profile-only `middleClickPaste` boolean, off by default. Settings → Terminal
+shows its single checkbox on macOS. Windows has no
 emulation or checkbox.
 
 Each board renderer keeps its own last nonempty terminal selection, shared by

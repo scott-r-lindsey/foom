@@ -1477,6 +1477,11 @@ test("macOS private selection pastes from terminal A to B through bracketed past
   await page.locator(".board-row[data-kind='shell']").click();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await openSettingsScreen(page);
+  await expect(page.getByRole("checkbox", { name: "Middle-click pastes selection" })).toHaveCount(
+    0,
+  );
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Terminal", exact: true })).toBeFocused();
   const toggle = page.getByRole("checkbox", { name: "Middle-click pastes selection", exact: true });
   await expect(toggle).not.toBeChecked();
   await toggle.check();
@@ -1493,7 +1498,7 @@ test("macOS private selection pastes from terminal A to B through bracketed past
         .toBe(mode === "dark");
       await toggle.scrollIntoViewIfNeeded();
       await page.screenshot({
-        path: evidencePath(`screenshots-856/settings-${mode}.png`),
+        path: evidencePath(`screenshots-856/settings-terminal-${mode}.png`),
         animations: "disabled",
       });
     }

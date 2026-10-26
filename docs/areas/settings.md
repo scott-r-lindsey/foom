@@ -82,7 +82,7 @@ Terminal colors are independently stored as `terminalTheme`: `follow` (default),
 
 The renderer shows preflight until setup is complete; subsequent configuration lives in Settings. The default worktree location applies to the New worktree flow.
 
-The profile-only `middleClickPaste` boolean defaults to false. Settings → General
+The profile-only `middleClickPaste` boolean defaults to false. Settings → Terminal
 shows its single checkbox on macOS only; see [terminal selection paste](terminals.md#middle-click-selection-paste-856). Only the preference persists, never selection text.
 
 Settings opens on General by default; explicitly targeted sections still open directly.

@@ -9,7 +9,7 @@ validated by Foom. You can edit them yourself or launch an agent from the sideba
 Foom config entry. Invalid files are rejected and the last good version stays.
 
 Settings opens on **General** unless an entry point targets a specific section.
-On macOS, General offers **Middle-click pastes selection**, off by default. It
+On macOS, Terminal offers **Middle-click pastes selection**, off by default. It
 pastes the last nonempty terminal selection from the same board window. Mouse
 reporting keeps middle clicks unless Shift is held. Turning it off clears the
 private in-memory selection buffer; closing or reloading the window also clears

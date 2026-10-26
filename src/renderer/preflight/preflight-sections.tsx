@@ -135,6 +135,18 @@ export function PreflightSections({
             ))}
           </select>
         </label>
+        {navigator.platform.startsWith("Mac") && (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={state.settings.middleClickPaste}
+              onChange={(event) => {
+                save({ middleClickPaste: event.target.checked });
+              }}
+            />
+            <span>Middle-click pastes selection</span>
+          </label>
+        )}
       </>
     );
   } else if (step === 7) {
@@ -202,18 +214,6 @@ export function PreflightSections({
           General
         </h2>
         <WorktreeLocationControls state={state} repositories={repositories} save={save} />
-        {navigator.platform.startsWith("Mac") && (
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={state.settings.middleClickPaste}
-              onChange={(event) => {
-                save({ middleClickPaste: event.target.checked });
-              }}
-            />
-            <span>Middle-click pastes selection</span>
-          </label>
-        )}
         <label className="check">
           <input
             type="checkbox"
