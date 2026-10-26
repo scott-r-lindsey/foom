@@ -1,3 +1,4 @@
+import { terminalSelectionBuffer } from "../../../../src/renderer/terminal/middle-click";
 import { terminalThemes } from "../../../../src/shared/terminal-themes";
 // @vitest-environment jsdom
 import { setupState } from "../../../fixtures/setup";
@@ -84,6 +85,9 @@ const mock = vi.hoisted(() => {
     disconnect: vi.fn(),
     onRender: vi.fn<(callback: () => void) => { dispose: () => void }>(),
     offRender: vi.fn(),
+    onSelectionChange: vi.fn<(callback: () => void) => { dispose: () => void }>(),
+    getSelection: vi.fn<() => string>(),
+    paste: vi.fn(),
     onInput: vi.fn<(callback: (data: string) => void) => void>(),
     onData: vi.fn<(callback: (id: string, token: string, data: string) => void) => () => void>(),
     onTerminalAvailability:
@@ -128,6 +132,9 @@ vi.mock("@xterm/xterm", () => ({
     dispose = mock.dispose;
     onData = mock.onInput;
     onRender = mock.onRender;
+    onSelectionChange = mock.onSelectionChange;
+    getSelection = mock.getSelection;
+    paste = mock.paste;
     attachCustomKeyEventHandler = mock.key;
     attachCustomWheelEventHandler = mock.wheel;
     buffer = { active: { type: "alternate" } };
@@ -1365,4 +1372,27 @@ test("attachment rejection ends loading and retains the failure status", async (
     }),
   );
   shell.dispose();
+});
+
+test("macOS controllers paste only while ready and dispose selection listeners", async () => {
+  const platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
+  const offSelection = vi.fn();
+  mock.onSelectionChange.mockReturnValue({ dispose: offSelection });
+  mock.getSelection.mockReturnValue("LAST_SELECTION");
+  const container = document.createElement("div");
+  const controller = createShell(container, vi.fn(), false, undefined, false);
+  await controller.open("a");
+  terminalSelectionBuffer.setEnabled(true);
+  mock.onSelectionChange.mock.calls[0]?.[0]();
+  expect(terminalSelectionBuffer.read()).toBe("LAST_SELECTION");
+  container.dispatchEvent(new MouseEvent("auxclick", { button: 1 }));
+  expect(mock.paste).toHaveBeenCalledWith("LAST_SELECTION");
+  await controller.hide();
+  mock.paste.mockClear();
+  container.dispatchEvent(new MouseEvent("auxclick", { button: 1 }));
+  expect(mock.paste).not.toHaveBeenCalled();
+  controller.dispose();
+  expect(offSelection).toHaveBeenCalledOnce();
+  terminalSelectionBuffer.setEnabled(false);
+  platform.mockRestore();
 });

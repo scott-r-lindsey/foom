@@ -4,7 +4,7 @@ import type { SetupState } from "../../shared/setup";
 import { resolveTerminalTheme } from "../../shared/terminal-themes";
 import type { TerminalThemeChoice } from "../../shared/terminal-theme";
 import { alternateScroll } from "./alternate-scroll";
-import { suppressTrackedMiddleClick } from "./middle-click";
+import { suppressTrackedMiddleClick, emulateMiddleClickPaste } from "./middle-click";
 import { TerminalColors } from "../../shared/terminal-colors";
 import { Terminal } from "@xterm/xterm";
 import { suppressTerminalReplies } from "./terminal-replies";
@@ -86,6 +86,13 @@ export function createShell(
   let selection = Promise.resolve();
   let request = 0;
   let attached = false;
+  const offSelectionPaste = emulateMiddleClickPaste(
+    container,
+    terminal,
+    undefined,
+    navigator.platform,
+    () => attached && !busy && !exited,
+  );
   let visibleRequested = initiallyOpen;
   const wantsVisible = () => visibleRequested;
   let busy = false;
@@ -386,6 +393,7 @@ export function createShell(
     offRemoved();
     offSetup();
     offMiddleClick();
+    offSelectionPaste();
     if (activeId && attached && isAvailable(activeId))
       void window.desktop.detach(activeId).catch(() => {});
     renderer.dispose();

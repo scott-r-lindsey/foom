@@ -1,3 +1,4 @@
+import { attachTerminalSelectionBuffer } from "./terminal/middle-click";
 import { LegalDialog } from "./about/legal-dialog";
 import type { LegalDocument } from "../shared/app-menu";
 import { AboutDialog } from "./about/about-dialog";
@@ -54,6 +55,7 @@ function AppContents() {
   useEffect(() => source.confirmations?.onScrim?.(setScrim), [source]);
   const [setup] = useState(createSetupSource);
   useEffect(() => attachInterfaceTheme(setup), [setup]);
+  useEffect(() => attachTerminalSelectionBuffer(setup), [setup]);
   const [state, setState] = useState<SetupState>();
   const [preflight, setPreflight] = useState(false);
   const [settings, setSettings] = useState(false);

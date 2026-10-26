@@ -31,6 +31,8 @@ export interface Settings {
   showPullRequests?: boolean;
   /** Display repository paths relative to codeFolder; off by default. Profile only. */
   showNestedRepositoryNames: boolean;
+  /** macOS-only, profile preference; selection text remains in renderer memory. */
+  middleClickPaste: boolean;
   /** Profile-only forge preferences; consumed by a future provider migration. */
   forges: Readonly<Record<string, boolean>>;
   forgeHosts: Readonly<Record<string, string>>;
