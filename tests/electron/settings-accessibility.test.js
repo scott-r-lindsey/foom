@@ -253,7 +253,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await boardCommand(app, "B");
   await expect(row).toBeFocused();
   await page.keyboard.press("Enter");
-  await page.locator(".xterm-helper-textarea").waitFor();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await shortcut();
   await expect(page.getByRole("region", { name: "Settings" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Terminal sidebar" })).toBeVisible();
@@ -334,7 +334,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     .toBe(15);
   await page.keyboard.press("Escape");
 
-  await expect(row).toBeFocused();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await expect(page.locator(".xterm-rows")).toHaveCSS("font-size", "15px");
   await shortcut();
   await section("Appearance");
@@ -348,7 +348,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await expect(page.getByRole("radio", { name: "Light", exact: true })).toBeChecked();
   await expect(page.getByRole("status").filter({ hasText: "120%" })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(row).toBeFocused();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   // The close control stays at the top right in both layouts and scales with zoom.
   for (const scale of [100, 150, 300]) {
     await page.evaluate((interfaceScale) => window.desktop.saveSetup({ interfaceScale }), scale);
@@ -420,11 +420,11 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     await writeFile(evidencePath(`settings-close-${scale}.png`), Buffer.from(screenshot, "base64"));
     await close.click();
     await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
-    await expect(row).toBeFocused();
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await shortcut();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("region", { name: "Settings" })).toBeHidden();
-    await expect(row).toBeFocused();
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   }
   assert.deepEqual(
     await app.evaluate(({ BrowserWindow }) =>
