@@ -35,55 +35,23 @@ if (!$env:FOOM_CONTROL_URL -or $env:FOOM_CONTROL_URL -cnotmatch '^http://127\\.0
     !$env:FOOM_CLI_DIRECTORY -or $env:FOOM_CLI_DIRECTORY -notmatch '^(?:[A-Za-z]:[\\\\/]|\\\\\\\\)') { exit 0 }
 $cli = Join-Path $env:FOOM_CLI_DIRECTORY 'foom.exe'
 if (!(Test-Path -LiteralPath $cli -PathType Leaf)) { exit 0 }
-# PowerShell's native invocation does not reliably forward pipe EOF. Relay bytes,
-# without decoding MCP frames or keeping the caller alive after the CLI exits.
+# Inherit the native stdio handles directly. PowerShell's pipeline must not read,
+# encode or buffer MCP frames, or keep stdin open after the caller closes it.
 try {
-  Add-Type -TypeDefinition @'
-using System;
-using System.IO;
-using System.Diagnostics;
-using System.Threading.Tasks;
-public static class FoomPluginMcp {
-  static async Task Input(Stream source, StreamWriter target) {
-    try { await source.CopyToAsync(target.BaseStream).ConfigureAwait(false); }
-    catch (IOException) { }
-    catch (ObjectDisposedException) { }
-    finally {
-      try { target.Close(); }
-      catch (IOException) { }
-      catch (ObjectDisposedException) { }
-    }
+  $start = New-Object System.Diagnostics.ProcessStartInfo
+  $start.FileName = $cli
+  $start.Arguments = 'mcp'
+  $start.UseShellExecute = $false
+  $start.CreateNoWindow = $true
+  $child = [System.Diagnostics.Process]::Start($start)
+  if (!$child) { exit 1 }
+  try {
+    $child.WaitForExit()
+    $code = $child.ExitCode
+  } finally {
+    $child.Dispose()
   }
-  static async Task Output(Stream source, Stream target, Process child) {
-    try { await source.CopyToAsync(target).ConfigureAwait(false); }
-    catch (IOException) {
-      try { child.Kill(); } catch (InvalidOperationException) { }
-    }
-  }
-  public static int Run(string path) {
-    // Process's stdin writer must never emit a BOM before the raw bytes.
-    Console.InputEncoding = new System.Text.UTF8Encoding(false);
-    var info = new ProcessStartInfo(path, "mcp") {
-      UseShellExecute = false, CreateNoWindow = true,
-      RedirectStandardInput = true, RedirectStandardOutput = true,
-      RedirectStandardError = true
-    };
-    using (var child = new Process { StartInfo = info }) {
-      if (!child.Start()) return 1;
-      // Framework console streams can block before CopyToAsync returns its Task.
-      // None of the pumps may block process-exit handling on this thread.
-      var output = Task.Run(() => Output(child.StandardOutput.BaseStream, Console.OpenStandardOutput(), child));
-      var error = Task.Run(() => Output(child.StandardError.BaseStream, Console.OpenStandardError(), child));
-      var input = Task.Run(() => Input(Console.OpenStandardInput(), child.StandardInput));
-      child.WaitForExit();
-      Task.WaitAll(output, error);
-      GC.KeepAlive(input);
-      return child.ExitCode;
-    }
-  }
-}
-'@
-  exit ([FoomPluginMcp]::Run($cli))
+  exit $code
 } catch { exit 1 }
 `,
   };
