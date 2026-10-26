@@ -213,11 +213,13 @@ After the Quality gate, a main-only `Release` environment job downloads the
 already-tested macOS ZIP, signs it with Developer ID and hardened runtime plus
 secure timestamp, notarizes through notarytool API-key mode, staples and verifies
 it. It preserves the ASAR bytes, embedded integrity record and hardened fuse
-values, and re-zips with `ditto -c -k --keepParent` without rebuilding. Signing refreshes
+values, and re-zips with `ditto -c -k --keepParent` without rebuilding the app. Signing refreshes
 the unpacked console manifest SHA-256 before sealing the containing app, because
-the SEA code signature changes its bytes. Before app signing, it also unpacks,
-signs and verifies both compressed Darwin remote hosts, then regenerates and
-verifies their compressed/expanded manifest hashes and sizes (#844). All catalog
+the SEA code signature changes its bytes. Before app signing, it also rebuilds
+both Darwin remote SEAs from verified,
+same-run credential-free inputs, signing the native assets before embedding and
+signing the host (#851). It regenerates and verifies their compressed/expanded
+manifest hashes and sizes (#844). All catalog
 entries must match the version and revision sealed in ASAR. The ASAR archive is
 never rewritten. It must pass strict codesign verification, Gatekeeper assessment reporting `Notarized
 Developer ID`, and stapler validation. A separate publisher with contents write
@@ -234,12 +236,14 @@ file paths remain visible; `ditto -k` is an archive option, not a password flag.
 
 The Developer ID app/console entitlement is `com.apple.security.cs.allow-jit` for
 Electron/V8 (main and helpers, including the utility host) and the Node 24 SEA
-console. Remote hosts use a dedicated entitlement file with allow-jit and
-`disable-library-validation`: their SEA embeds the node-pty prebuild outside the
-app signing pass and verifies the extracted bytes against the embedded SHA-256
-before loading. This exception is confined to the remote host. The app's node-pty
-native addon is signed with the same team and needs no library-validation
-exception. Its spawn-helper and native observers need no entitlements. No unsigned executable-memory or sandbox-inheritance exception
+console. Remote hosts also grant only allow-jit: their embedded node-pty addon and
+spawn helper are signed with the same identity before SEA assembly, and signing
+checks the resulting entitlements and Team IDs (#851). Native extraction retains
+its SHA-256 and private-file checks; library validation protects Developer ID
+loads against unsigned/other-team substitutions across the remaining filesystem
+verify-then-reopen race. The app's node-pty native addon is also signed with the
+same team and needs no library-validation exception. Its spawn-helper and native
+observers need no entitlements. No unsigned executable-memory or sandbox-inheritance exception
 is granted. Ad-hoc runtime signatures additionally disable library validation
 because they lack a team identity. Developer ID app/console signatures do not
 disable library validation.

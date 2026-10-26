@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, open, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { extractFile } from "@electron/asar";
+import { assembleDarwinHost, verifyDarwinInputs } from "./remote-host-darwin.mjs";
 import { hostPlatforms, verifyHostArtifact, writeHostManifest } from "./remote-host-artifacts.mjs";
 import { FuseState, FuseV1Options, getCurrentFuseWire, pathToFuseFile } from "@electron/fuses";
 
@@ -241,22 +242,26 @@ export async function signBundledRemoteHosts(app, options, execute = run) {
   // Validate all inputs against the sealed app revision before modifying any.
   for (const target of hostPlatforms)
     await verifyHostArtifact(join(catalog, target), target, version, source);
+  const inputs =
+    options.remoteHostInputs ??
+    process.env.FOOM_REMOTE_HOST_INPUTS ??
+    resolve(".cache/remote-host-inputs");
+  for (const target of hostPlatforms.filter((target) => target.startsWith("darwin-")))
+    await verifyDarwinInputs(join(inputs, target), target, version, source);
   const temporary = await mkdtemp(join(tmpdir(), "foom-host-sign-"));
   try {
     for (const target of hostPlatforms.filter((target) => target.startsWith("darwin-"))) {
       const directory = join(catalog, target);
-      const { manifest, bytes } = await verifyHostArtifact(directory, target, version, source);
-      const executable = join(temporary, "foom-host");
-      await writeFile(executable, bytes);
-      await chmod(executable, 0o700);
-      execute(
-        "codesign",
-        signingArgs(executable, {
-          ...options,
-          entitlements: resolve("scripts/entitlements-remote-host.plist"),
-        }),
+      const { manifest } = await verifyHostArtifact(directory, target, version, source);
+      await assembleDarwinHost(
+        join(inputs, target),
+        temporary,
+        target,
+        version,
+        source,
+        options,
+        execute,
       );
-      execute("codesign", ["--verify", "--strict", executable]);
       // Write into private scratch first; never leave an expanded host in the app.
       await writeHostManifest(temporary, manifest);
       for (const name of ["foom-host.gz", "manifest.json"])
