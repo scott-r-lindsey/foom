@@ -27,6 +27,7 @@ function hostFixture() {
     deps: {
       forge: undefined,
       worktrees: {
+        reviewBranch: vi.fn(),
         adoptWorktree: vi.fn(),
         listWorktrees: vi.fn(),
         launchIdentity: vi.fn(),
@@ -157,4 +158,28 @@ it("does not persist or refresh host changes after shutdown", () => {
   workspaceOrchestrationHost({ ...caps, closed: true }).changed();
   expect(caps.persist).not.toHaveBeenCalled();
   expect(caps.refresh).not.toHaveBeenCalled();
+});
+
+it("restores only recorded detached review heads and retains the source PR branch", async () => {
+  const caps = hostFixture();
+  vi.mocked(caps.deps.worktrees.listWorktrees).mockResolvedValue([
+    {
+      path: "/review",
+      branch: null,
+      head: "head",
+      managed: true,
+      bare: false,
+      locked: false,
+      prunable: false,
+    },
+  ]);
+  vi.mocked(caps.deps.worktrees.launchIdentity).mockResolvedValue("identity");
+  const host = workspaceOrchestrationHost(caps);
+  expect(await host.restoreWorktree("/repo", "/review")).toBeUndefined();
+  vi.mocked(caps.deps.worktrees.reviewBranch).mockReturnValue("feature");
+  expect(await host.restoreWorktree("/repo", "/review")).toEqual({
+    branch: "feature",
+    identity: "identity",
+  });
+  expect(caps.deps.worktrees.reviewBranch).toHaveBeenCalledWith("/repo", "/review", "head");
 });

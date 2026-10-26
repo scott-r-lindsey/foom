@@ -242,3 +242,15 @@ A loop author also stays open while its review attention is unread on the parent
 The final loop participant stays open to keep the review record; close it explicitly
 when you no longer need it. Other PR-based closes wait for the existing exit status
 refresh to finish, so a stale closed-PR observation cannot close a reopened PR.
+
+### Separate PR review checkout (#843)
+
+An orchestrator can create a detached review checkout for an open same-repository
+PR while the author keeps its branch checked out. No scratch branch is created.
+Reviewers report findings by default. Closing an exited reviewer removes an
+unchanged and clean review checkout without confirmation, independently of the
+merged-worktree setting and PR state. Identity, exact fetched head, local refs,
+reflogs, files and absence of other sessions/operations are checked again before
+deletion. A failed or unavailable proof asks through trusted confirmation; the
+existing safety guards still apply. Declining retains the screen and files.
+Ordinary checkout removal is unchanged.

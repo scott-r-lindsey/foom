@@ -101,6 +101,12 @@ function orchestration(name: string | undefined, words: string[]): Command {
     words.splice(words.indexOf("--until-event"), 1);
     params["untilEvent"] = true;
   }
+  if (name === "create-worktree" && words.includes("--review")) {
+    if (words.filter((word) => word === "--review").length !== 1)
+      throw new ControlError("invalid_request");
+    words.splice(words.indexOf("--review"), 1);
+    params["review"] = true;
+  }
   const flags = new Map<string, string>();
   for (let i = 0; i < words.length; i += 2) {
     const flag = words[i];
@@ -133,6 +139,7 @@ function orchestration(name: string | undefined, words: string[]): Command {
         params["pullRequest"] = integer(number, Number.MAX_SAFE_INTEGER, 1);
         break;
       }
+      if (params["review"] !== undefined) throw new ControlError("invalid_request");
       const branch = text(positional[0], 200);
       if (/\s/u.test(branch)) throw new ControlError("invalid_request");
       params["branch"] = branch;

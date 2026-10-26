@@ -69,6 +69,10 @@ function fixture() {
     deleteMergedBranches: vi.fn<CleanupOwnerDependencies["worktrees"]["deleteMergedBranches"]>(() =>
       Promise.resolve([]),
     ),
+    reviewIdentity: vi.fn<CleanupOwnerDependencies["worktrees"]["reviewIdentity"]>(() => undefined),
+    canAutoRemoveReview: vi.fn<CleanupOwnerDependencies["worktrees"]["canAutoRemoveReview"]>(() =>
+      Promise.resolve(false),
+    ),
     canAutoRemove: vi.fn(() => Promise.resolve(true)),
   };
   const acquireWorktree = vi.fn((_repository: string, branch: string | null) => {
@@ -689,4 +693,73 @@ it("refuses an untracked snapshot that changes before group approval", async () 
     return Promise.resolve(true);
   });
   expect(f.worktrees.removeWorktree).not.toHaveBeenCalled();
+});
+
+it.each([
+  "clean",
+  "other-session",
+  "new-session",
+  "busy-operation",
+  "running",
+  "identity",
+  "missing",
+  "unavailable",
+  "lost-proof",
+  "resource-release",
+])("review exception remains narrow: %s", async (mode) => {
+  const f = fixture();
+  // Review failures must still ask when ordinary merged cleanup would approve.
+  f.owner.configure(true);
+  f.worktrees.reviewIdentity.mockReturnValue("identity");
+  f.worktrees.canAutoRemoveReview.mockResolvedValue(true);
+  f.rows([row("reviewer")]);
+  if (mode === "other-session") f.rows([row("reviewer"), row("other")]);
+  if (mode === "new-session")
+    f.worktrees.canAutoRemoveReview.mockImplementation(() => {
+      f.rows([row("reviewer"), row("other")]);
+      return Promise.resolve(true);
+    });
+  if (mode === "busy-operation") f.locks.add("feature");
+  if (mode === "running") f.deps.running.mockReturnValue(true);
+  if (mode === "identity") f.worktrees.launchIdentity.mockResolvedValue("replacement");
+  if (mode === "missing") f.trees([]);
+  if (mode === "unavailable")
+    f.worktrees.canAutoRemoveReview.mockRejectedValue(new Error("cannot inspect"));
+  if (mode === "lost-proof")
+    f.worktrees.canAutoRemoveReview.mockResolvedValueOnce(true).mockResolvedValue(false);
+  if (mode === "resource-release")
+    f.deps.prepareWorktreeRemoval.mockImplementation(() => {
+      f.worktrees.canAutoRemoveReview.mockResolvedValue(false);
+      return Promise.resolve(() => {});
+    });
+  // Exercise the service's final callback after resource release, before deletion.
+  const deleted = vi.fn();
+  f.worktrees.removeWorktree.mockImplementation(
+    async (_repo, _path, _force, _identity, beforeRemove) => {
+      await beforeRemove?.();
+      deleted();
+    },
+  );
+  const trusted = vi.fn((_branch: string, _changes: string) => Promise.resolve(false));
+  const result = await f.owner
+    .removeOwnedTree(
+      repository,
+      tree().path,
+      "identity",
+      (branch, changes, automatic) =>
+        automatic ? Promise.resolve(true) : trusted(branch, changes),
+      () => {},
+      "reviewer",
+    )
+    .catch(() => false);
+  expect(f.worktrees.canAutoRemove).not.toHaveBeenCalled();
+  if (mode === "clean") {
+    expect(result).toBe(true);
+    expect(trusted).not.toHaveBeenCalled();
+    expect(deleted).toHaveBeenCalledOnce();
+  } else {
+    expect(result).toBe(false);
+    expect(trusted).toHaveBeenCalledOnce();
+    expect(deleted).not.toHaveBeenCalled();
+  }
 });

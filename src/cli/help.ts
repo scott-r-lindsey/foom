@@ -26,7 +26,7 @@ const commandHelp = [
     prefix: "Orchestrators only: ",
     commands: [
       "read-handoff ID [--seq N]",
-      "create-worktree BRANCH|--pull-request N --idempotency-key KEY",
+      "create-worktree BRANCH|--pull-request N [--review] --idempotency-key KEY",
       "launch WORKTREE_ID --agent claude|codex|agy [--prompt TEXT] [--review-rounds 1-5] [--review-agent PROVIDER] [--review-post-findings true|false] [--review-parent-wait-minutes 1-1440] --idempotency-key KEY",
       "prompt ID --text TEXT --idempotency-key KEY",
       "send-keys ID --keys y,enter --idempotency-key KEY",

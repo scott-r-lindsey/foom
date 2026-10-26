@@ -48,6 +48,7 @@ export function automationFixture() {
     valid: vi.fn(() => true),
     validate: vi.fn(),
     note: vi.fn(),
+    closeScope: () => ({ signal: new AbortController().signal, release: () => {} }),
   } satisfies AuthorizedChild;
   const reservation = { release: vi.fn(), exited: vi.fn(), attach: vi.fn() };
   const authority = {

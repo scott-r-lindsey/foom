@@ -159,3 +159,16 @@ it("parses blocking waits, optional owned-child targets and overall deadlines", 
   ])
     expect(() => command(["wait-for", "child", ...args])).toThrow("invalid_request");
 });
+
+it("parses review mode only with a PR number", () => {
+  expect(command(["create-worktree", "--pull-request", "843", "--review", ...key])).toEqual({
+    method: "create_worktree",
+    params: { pullRequest: 843, review: true, idempotencyKey: "retry-1" },
+  });
+  for (const args of [
+    ["create-worktree", "branch", "--review", ...key],
+    ["create-worktree", "--review", ...key],
+    ["create-worktree", "--pull-request", "843", "--review", "--review", ...key],
+  ])
+    expect(() => command(args)).toThrow("invalid_request");
+});

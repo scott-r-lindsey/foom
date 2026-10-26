@@ -53,7 +53,13 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     params: Record<string, unknown>,
     operations: Operations,
   ): Promise<Operation> {
-    exact(params, ["idempotencyKey", "branch", "pullRequest"]);
+    exact(params, ["idempotencyKey", "branch", "pullRequest", "review"]);
+    const review = params["review"];
+    if (
+      review !== undefined &&
+      (typeof review !== "boolean" || params["pullRequest"] === undefined)
+    )
+      throw new ControlError("invalid_request");
     const key = identifier(params["idempotencyKey"]);
     const number = params["pullRequest"];
     if (
@@ -70,7 +76,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       actor,
       "create_worktree",
       key,
-      JSON.stringify([branch, number ?? null]),
+      JSON.stringify([branch, number ?? null, review ?? false]),
     );
     if (!operation.created) return publicOperation(operation);
     const parent = this.parent(actor);
@@ -84,19 +90,25 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       const tree =
         number === undefined
           ? await this.host.createWorktree(parent.repository, branch)
-          : await (this.host.adoptWorktree?.(parent.repository, number, unused, (path) => {
-              this.parent(actor);
-              if (path === undefined && this.unused(parent) + parent.creating > WORKTREE_LIMIT)
-                throw new ControlError("capacity");
-              if (
-                unused.some(
-                  (tree) =>
-                    tree.path === path &&
-                    (tree.state !== "unused" || ![...parent.worktrees.values()].includes(tree)),
+          : await (this.host.adoptWorktree?.(
+              parent.repository,
+              number,
+              unused,
+              (path) => {
+                this.parent(actor);
+                if (path === undefined && this.unused(parent) + parent.creating > WORKTREE_LIMIT)
+                  throw new ControlError("capacity");
+                if (
+                  unused.some(
+                    (tree) =>
+                      tree.path === path &&
+                      (tree.state !== "unused" || ![...parent.worktrees.values()].includes(tree)),
+                  )
                 )
-              )
-                throw new ControlError("branch_in_use");
-            }) ?? Promise.reject(new ControlError("forge_unavailable")));
+                  throw new ControlError("branch_in_use");
+              },
+              review === true,
+            ) ?? Promise.reject(new ControlError("forge_unavailable")));
       if (number === undefined) this.host.forge?.track({ repository: parent.repository, ...tree });
       else this.host.forge?.track({ repository: parent.repository, ...tree }, number);
       const id = locationId(tree.path);
@@ -228,12 +240,26 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       return this.refuse(actor, parent, operations, operation, label, "forbidden");
     if (!child.exited) return this.refuse(actor, parent, operations, operation, label, "conflict");
     this.note(parent, this.entry(operation, label));
+    const scope = this.closeScope(actor, id);
     try {
-      await this.host.close(id);
+      const closed = await this.host.close(
+        id,
+        () => {
+          operations.lookup(actor, { operationId: operation.operationId });
+          const current = this.parent(actor);
+          if (current.children.get(id) !== child || child.takenOver || !child.exited)
+            throw new ControlError("forbidden");
+        },
+        scope.signal,
+      );
+      if (!closed)
+        return await this.finish(actor, parent, operations, operation, label, "declined", id);
     } catch {
-      return this.finish(actor, parent, operations, operation, label, "failed", id);
+      return await this.finish(actor, parent, operations, operation, label, "failed", id);
+    } finally {
+      scope.release();
     }
-    return this.finish(actor, parent, operations, operation, label, "succeeded", id);
+    return await this.finish(actor, parent, operations, operation, label, "succeeded", id);
   }
 
   protected async stop(

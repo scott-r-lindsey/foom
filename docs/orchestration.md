@@ -124,3 +124,22 @@ the main-computed `review` state; `read_handoff` returns each participant's reta
 structured verdict. See [loop policy](areas/orchestration.md#optional-child-buildreview-loop-690)
 and [handoff schema](areas/handoffs.md#review-verdicts-690). Human New-worktree
 launches have no review option.
+
+## Separate review checkouts (#843)
+
+To review an open same-repository PR while its author keeps working in their own
+checkout, use `create_worktree` with `pullRequest: N, review: true`, then launch
+one reviewer in the returned worktree. No scratch branch is created. The CLI
+fallback is `foom create-worktree --pull-request N --review --idempotency-key KEY`.
+This checkout is detached at the fetched PR head. Ask the reviewer to report
+findings; editing or pushing is a deliberate separate choice. It counts against
+the unused-worktree budget until launch succeeds.
+
+Close the exited reviewer normally. Foom removes an unchanged, clean review
+checkout without confirmation even with an open PR and merged cleanup disabled.
+It verifies the creation identity, exact detached head, absence of local work
+(including reflog commits reset away), and absence of other sessions/operations.
+Any failed or unavailable proof falls back to the trusted removal confirmation;
+declining keeps the checkout and screen. Existing safety guards remain in force.
+Ordinary checkouts keep their existing removal policy. See the
+[removal contract](contracts/control-mutations.md#orchestrators-and-children-155).

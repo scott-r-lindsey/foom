@@ -13,7 +13,7 @@ retry with the same key returns that record.
 
 | Tool | Parameters | Result |
 |---|---|---|
-| `create_worktree` | Exactly one of `branch` or `pullRequest` | New local branch, or continue an open same-repository PR; `resultId` is the opaque worktree ID |
+| `create_worktree` | Exactly one of `branch` or `pullRequest`; optional `review` boolean with `pullRequest` | New local branch, or continue an open same-repository PR; `resultId` is the opaque worktree ID |
 | `launch` | `worktreeId`, `agent` (`claude`, `codex`, `agy`), optional `prompt` ≤16 KiB (including the fixed author brief when `review` is enabled) and `review` | `resultId` is the child session ID |
 | `prompt` | `id`, `text` ≤16 KiB | Text plus submit, honoring bracketed paste, without review |
 | `send_keys` | `id`, `keys` (1–64) | Validated logical keys, without review |
@@ -49,7 +49,21 @@ single oversized line keeps its end on a UTF-8 boundary). The HTTP adapter exten
 the socket deadline to 65 seconds after a request body arrives, allowing the CLI's
 60-second mutation deadline and bounded `wait_for` calls.
 
-**Removal.** Settings → General offers one **Auto-remove merged worktrees** checkbox
+**Removal.** Review checkouts have one narrowly scoped exception (#843). Closing
+a reviewer can remove its checkout without confirmation, regardless of the
+**Auto-remove merged worktrees** setting or whether the PR is still open, only
+when Foom created it for review, its identity still validates, it remains detached
+at the exact fetched and recorded PR head, it has no tracked or untracked changes
+and no local refs or commits beyond that head, and no other session or operation
+is using it. Main checks local refs against the creation baseline and inspects
+worktree reflogs, including commits later reset away. Ignored content and unavailable
+evidence also refuse automatic deletion. The closing exited session is released
+by the removal sequence. The proof is repeated under the removal lock and next to
+Git deletion; failure falls back to trusted confirmation. Existing identity,
+membership, active-session and operation guards still apply after approval.
+Ordinary worktrees keep the policy below.
+
+Settings → General offers one **Auto-remove merged worktrees** checkbox
 for all repositories, off by default, stored in the profile rather than agent-editable
 config. Saved per-repository lists migrate to on when non-empty and off when empty;
 new settings accept only a boolean. With it on, an orchestrator can remove only its own created worktree without
@@ -102,3 +116,15 @@ initial launch. The loop's internal review/resume steps reuse that checkout with
 ordinary owned-child grants and the existing per-parent capacity reservations.
 No child receives launch/prompt authority and parentless agents cannot opt in.
 See [the loop rules](../areas/orchestration.md#optional-child-buildreview-loop-690).
+
+### Detached PR review worktrees (#843)
+
+`create_worktree({pullRequest: N, review: true, idempotencyKey})` creates a
+separate checkout detached at the fetched PR head without a local branch, even
+when the author has that branch checked out elsewhere. `review` is an optional
+boolean valid only with `pullRequest`; false preserves ordinary PR adoption.
+The open, same-repository, non-default-branch validation and unused-worktree budget
+remain unchanged. The console form is
+`foom create-worktree --pull-request N --review --idempotency-key KEY`.
+The reviewer reports findings by default; this is read-only intent rather than
+filesystem enforcement. Deliberate edits and pushes remain possible.

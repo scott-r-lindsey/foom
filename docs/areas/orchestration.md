@@ -52,7 +52,11 @@ The narrow `pullRequest` path (#337) resolves an open PR through the #340 forge
 provider, rejects forks and the default branch, validates its head, fetches from
 main-selected origin and tracks origin's branch for plain push. An orchestrator's
 own unused checkout may be reused after identity checks; other checked-out heads
-are refused. Both paths share the unused budget, branch locks and forge tracking. Children launch with
+are refused. With `pullRequest` and `review: true` (#843), main instead creates
+a detached checkout at the fetched PR head without any branch, including when
+the author has the branch checked out. Closing its reviewer uses the
+[narrow review removal exception](../contracts/control-mutations.md#orchestrators-and-children-155),
+with trusted confirmation when the proof fails. All creation paths share the unused budget, branch locks and forge tracking. Children launch with
 the user's default arguments as written (refused, never stripped, when they bypass
 permissions), `sharedCheckout` off, a read-only grant
 naming their parent, and an optional prompt as one final argv entry. Claude Code
@@ -67,7 +71,8 @@ current board when hidden). The renderer queues it until inventory arrives, uses
 sidebar placement without replacing the current tile, and preserves focus. Restore
 sends no placement event. `close` accepts only owned, exited children and delegates
 to the normal sidebar close path; the final screen is discarded while the checkout,
-branch and review state remain.
+branch and review state remain for ordinary worktrees. Foom-created detached
+review checkouts instead use the narrow #843 removal exception above.
 
 ## Optional child build/review loop (#690)
 
