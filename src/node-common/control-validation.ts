@@ -1,6 +1,7 @@
 export class ControlError extends Error {
   constructor(
     readonly code:
+      | "unsupported"
       | "invalid_request"
       | "unauthorized"
       | "forbidden"

@@ -17,7 +17,7 @@ security checks beyond JSON Schema. `examples/agent.json` is a generic starter;
 | Primitive | Definition |
 | --- | --- |
 | Manifest | Strict UTF-8 JSON, <=64 KiB original bytes, depth <=24, <=8192 total JSON nodes; no BOM |
-| ID | 1–40 lowercase ASCII letters/digits/hyphens, first letter; filename <id>.json; `shell`, `all`, `constructor`, `prototype` and bundled IDs (`claude`, `codex`, `agy`, `copilot`, `opencode`) reserved for config files |
+| ID | 1–40 lowercase ASCII letters/digits/hyphens, first letter; filename <id>.json; `shell`, `all`, `constructor`, `prototype` and bundled IDs (`claude`, `codex`, `agy`, `copilot`, `opencode`, `pi`) reserved for config files |
 | Text | 1–4096 Unicode code units unless narrower below; no Cc/Cf/Co/Cs or U+2028/U+2029; literal rendered text |
 | Multiline template | <=16384 bytes each, LF and tab allowed; other hidden/control characters forbidden; aggregate template bytes <=32768 |
 | Argv | <=64 nonempty Text entries; <=256 expanded entries/65536 bytes per process invocation, each expanded entry <=20480 bytes (prompt may contain LF/tab); no shell evaluation |
@@ -34,13 +34,13 @@ security checks beyond JSON Schema. `examples/agent.json` is a generic starter;
 | kind, version | Required literals agent, 2 |
 | id, name, badge, executables | Required ID, Text <=40, [A-Z0-9]{1,4}, 1–8 basenames <=64 [A-Za-z0-9][A-Za-z0-9_.-]* excluding .cmd/.bat/.ps1 |
 | discovery | Required `{version?,facts}`; version `{prefix,suffixes,minimum?}`; prefix/suffixes Text or empty, <=4 suffixes, minimum three safe nonnegative integers; facts <=16 `{id,enabled?,minimum?,helpTokens?,when?}`; enabled boolean defaults true, false is a hard verification gate |
-| launch | Required `{order,arguments?,display?,resume?,prompt?,guidance?,mcp?,toolPermissions?,environment?}` |
+| launch | Required `{order,arguments?,display?,resume?,prompt?,guidance?,mcp?,toolPermissions?,environment?,model?,effort?,valueFlags?}` |
 | files? | <=16 File records |
 | hooks? | `{channels}`; 1–8 Channel records |
 | reservedArguments, bypassArguments, bypassEnvironment | Required matcher arrays (may be empty); environment <=16 records |
 | conversation | Required `{newId?,resumePin,restoreControl}`; newId optional `{format:"uuid",prefix?:Local fact/case name,arguments:Argv}`; resumePin first-event or requested-on-paste; restoreControl boolean |
 | resumePaste | Required <=8 `{command,selector}` token patterns; command basename <=64, selector literal Text <=40; [paste details](agent-detection.md) |
-| attention | Required `{minimumEngineVersion:1,rules,provenance?}`; rules <=64; provenance `{source,license,modified}` each Text <=256; inert, never fetched |
+| attention | Required `{minimumEngineVersion:1,rules,provenance?,sampleWhileActive?}`; rules <=64; provenance `{source,license,modified}` each Text <=256; inert, never fetched |
 | execution | Required `{completion,completionChannels,providerRules?}`; completion attached or observed; channels <=8 IDs, providerRules <=16 rule IDs |
 | health? | `{channel,requiredEvents,completionEvent,promptEvent,review,instructions}`; event arrays <=16 case IDs, instructions Text <=4096; review `{contains,lines,caseSensitive}` <=8 strings <=128, lines 1–40, boolean |
 | setup? | `{status,actions,offer?}`; [status contract](agent-setup.md), actions <=8; offer `{unansweredLabel}` Text <=80 |
@@ -58,3 +58,9 @@ health only. Each declaration without a minimum does not require a parsed versio
 
 `launch.environment` accepts up to eight `{name,value,when?}` entries; see the
 [per-launch environment bounds and security rules](agent-launch.md#per-launch-manifest-environment-636).
+
+`launch.model` and `launch.effort` declare bounded selection templates and optional
+value lists; effort requires a list. Optional `launch.valueFlags` lists up to 64
+unique single-value option names, preserving literal argument ownership during
+selection replacement. See [child model and effort](agent-launch.md#child-model-and-effort-853)
+for the exact closed shape, token bounds, replacement semantics and bundled options.

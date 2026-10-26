@@ -107,7 +107,8 @@ test("wordmark opens a menu below it, skips disabled actions and restores keyboa
     expect(f.api.execute).toHaveBeenCalledWith("maximize");
     expect(screen.queryByRole("menu")).toBeNull();
   });
-  expect(document.activeElement).not.toBe(button);
+  // An absent opener falls back to the board menu instead of leaving body focused.
+  expect(document.activeElement).toBe(button);
   act(f.open);
   await screen.findByRole("menu");
   fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });

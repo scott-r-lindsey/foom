@@ -1,17 +1,22 @@
 import { attachTerminalSelectionBuffer } from "./terminal/middle-click";
+import { restoreBoardFocus } from "./board/focus-restore";
 import { LegalDialog } from "./about/legal-dialog";
 import type { LegalDocument } from "../shared/app-menu";
 import { AboutDialog } from "./about/about-dialog";
 import { ActionError, ErrorPresentation } from "./board/error-presentation";
 import { attachPreviewComposition } from "./board/preview-composition";
 import { attachInterfaceTheme } from "./ui/interface-theme";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SetupState } from "../shared/setup";
 import { Board } from "./board/board-view";
 import { createSampleSource } from "./board/sample-board-source";
 import { createAppSource } from "./board/live-board-source";
 import { Preflight } from "./preflight/preflight-view";
 import { createSetupSource } from "./preflight/setup-source";
+
+function showConfirmationScrim(element: HTMLDivElement | null): void {
+  element?.showPopover();
+}
 
 /**
  * Preflight runs until setup is complete; later changes live in Settings.
@@ -51,8 +56,28 @@ function AppContents() {
     const api = window.desktop.previews;
     if (api) return attachPreviewComposition(api);
   }, []);
-  const [scrim, setScrim] = useState(false);
-  useEffect(() => source.confirmations?.onScrim?.(setScrim), [source]);
+  const [scrim, setScrim] = useState({ visible: false });
+  const scrimOriginRef = useRef<{ target: Element | null } | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (scrim.visible) return;
+    const origin = scrimOriginRef.current;
+    scrimOriginRef.current = undefined;
+    // Remove the top-layer popover before restoring input: its native focus
+    // cleanup can otherwise overwrite the fallback with body on Windows/macOS.
+    if (!origin) return;
+    restoreBoardFocus(origin.target);
+  }, [scrim]);
+  useEffect(() => {
+    let showing = false;
+    return source.confirmations?.onScrim?.((visible) => {
+      if (visible === showing) return;
+      if (visible && scrimOriginRef.current === undefined)
+        scrimOriginRef.current = { target: document.activeElement };
+      // A batched true/false pair must still commit its dismissal effect.
+      setScrim({ visible });
+      showing = visible;
+    });
+  }, [source]);
   const [setup] = useState(createSetupSource);
   useEffect(() => attachInterfaceTheme(setup), [setup]);
   useEffect(() => attachTerminalSelectionBuffer(setup), [setup]);
@@ -151,14 +176,12 @@ function AppContents() {
           }
         />
       )}
-      {scrim && (
+      {scrim.visible && (
         <div
           className="board-confirmation-scrim"
           aria-hidden="true"
           popover="manual"
-          ref={(element) => {
-            element?.showPopover();
-          }}
+          ref={showConfirmationScrim}
         />
       )}
     </>

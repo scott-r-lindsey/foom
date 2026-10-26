@@ -1,5 +1,7 @@
 /** Main-owned, opt-in automation for an orchestrator's child. */
 export interface ReviewOptions {
+  model?: string;
+  effort?: string;
   rounds: number;
   agent: string;
   postFindings: boolean;

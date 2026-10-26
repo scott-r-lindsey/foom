@@ -1,3 +1,4 @@
+import { restoreBoardFocus } from "./focus-restore";
 import { ActionError } from "./error-presentation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppMenuApi, AppMenuEntry, CommandItem, ShortcutGroup } from "../../shared/app-menu";
@@ -17,8 +18,8 @@ function captureFocus(): () => void {
   const selection = window.getSelection();
   const range = selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : undefined;
   return () => {
+    restoreBoardFocus(target);
     if (!(target instanceof HTMLElement) || !target.isConnected) return;
-    target.focus({ preventScroll: true });
     if (input && start != null && end != null)
       input.setSelectionRange(start, end, direction ?? undefined);
     // A form selection is not a DOM Range. Restoring a collapsed document range
