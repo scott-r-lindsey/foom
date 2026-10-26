@@ -18,10 +18,17 @@ const {
   removeAfterApps,
 } = require("./harness.js");
 
-for (const showNewChildren of [true, false]) {
-  test(showNewChildren
-    ? "an orchestrator adopts an open PR, launches its child without taking focus and closes it after exit"
-    : "an orchestrator adopts an open PR with child board placement off", {
+for (const scenario of [
+  { showNewChildren: true, review: false },
+  { showNewChildren: false, review: false },
+  { showNewChildren: true, review: true },
+]) {
+  const { showNewChildren } = scenario;
+  test(scenario.review
+    ? "a detached PR review works beside the author and closes with safe cleanup and dirty confirmation"
+    : showNewChildren
+      ? "an orchestrator adopts an open PR, launches its child without taking focus and closes it after exit"
+      : "an orchestrator adopts an open PR with child board placement off", {
     skip: process.platform === "win32" && "The fake agent is a POSIX script",
   }, async (context) => {
     const { chmod, mkdir, symlink, writeFile } = require("node:fs/promises");
@@ -192,6 +199,90 @@ for (const showNewChildren of [true, false]) {
       isolatedGit(["rev-parse", "HEAD"], { cwd: childRow.worktree, encoding: "utf8" }).trim(),
       git("rev-parse", "origin/child-one").trim(),
     );
+    if (scenario.review) {
+      await page.evaluate(() => window.desktop.saveSetup({ autoRemoveMergedWorktrees: false }));
+      const branches = git("branch", "--format=%(refname)");
+      for (const dirty of [false, true]) {
+        const suffix = dirty ? "dirty" : "clean";
+        const reviewTree = await tool("create_worktree", {
+          pullRequest: 340,
+          review: true,
+          idempotencyKey: `review-tree-${suffix}`,
+        });
+        const reviewer = await tool("launch", {
+          worktreeId: reviewTree.resultId,
+          agent: "claude",
+          prompt: "Report review findings; do not push.",
+          idempotencyKey: `reviewer-${suffix}`,
+        });
+        const reviewRow = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.id === reviewer.resultId,
+        );
+        assert.ok(reviewRow);
+        assert.equal(
+          isolatedGit(["rev-parse", "--symbolic-full-name", "HEAD"], {
+            cwd: reviewRow.worktree,
+            encoding: "utf8",
+          }).trim(),
+          "HEAD",
+        );
+        assert.equal(
+          isolatedGit(["rev-parse", "HEAD"], { cwd: reviewRow.worktree, encoding: "utf8" }).trim(),
+          git("rev-parse", "origin/child-one").trim(),
+        );
+        if (dirty)
+          await writeFile(
+            path.join(reviewRow.worktree, "review-notes.txt"),
+            "retain these findings",
+          );
+        await tool("stop", { id: reviewer.resultId, idempotencyKey: `stop-reviewer-${suffix}` });
+        await expect
+          .poll(async () => (await call("session_state", { id: reviewer.resultId })).state)
+          .toBe("exited");
+        if (dirty) {
+          const pendingClose = tool("close", {
+            id: reviewer.resultId,
+            idempotencyKey: "decline-review-cleanup",
+          });
+          const dialog = await confirmationPage(app);
+          await expect(dialog.getByText("review-notes.txt", { exact: false })).toBeVisible();
+          await expect(
+            dialog.getByRole("button", { name: "Discard changes and remove", exact: true }),
+          ).toBeEnabled();
+          await dialog.screenshot({ path: evidencePath("review-worktree-dirty-confirmation.png") });
+          await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+          await pendingClose;
+          assert.ok(existsSync(reviewRow.worktree));
+          await expect(page.locator(`[data-drag-session="${reviewer.resultId}"]`)).toBeVisible();
+          const approvedClose = tool("close", {
+            id: reviewer.resultId,
+            idempotencyKey: "approve-review-cleanup",
+          });
+          await expect(
+            dialog.getByRole("button", { name: "Discard changes and remove", exact: true }),
+          ).toBeVisible();
+          await dialog
+            .getByRole("button", { name: "Discard changes and remove", exact: true })
+            .click();
+          await approvedClose;
+        } else {
+          assert.equal(
+            (await tool("close", { id: reviewer.resultId, idempotencyKey: "close-clean-review" }))
+              .status,
+            "succeeded",
+          );
+        }
+        assert.equal(existsSync(reviewRow.worktree), false);
+        await expect(page.locator(`[data-drag-session="${reviewer.resultId}"]`)).toHaveCount(0);
+        assert.equal(git("branch", "--format=%(refname)"), branches);
+        assert.ok(existsSync(childRow.worktree));
+        assert.equal(
+          (await call("session_state", { id: child.resultId })).state === "exited",
+          false,
+        );
+      }
+      await page.locator(`[data-drag-session="${parentId}"]`).click();
+    }
     const closed = await tool("stop", { id: child.resultId, idempotencyKey: "stop-child" });
     assert.equal(closed.status, "succeeded");
     await expect
@@ -200,6 +291,10 @@ for (const showNewChildren of [true, false]) {
     let close;
     if (showNewChildren) {
       await writeFile(forgeState, JSON.stringify({ pr: { state: "MERGED" }, checks: [] }));
+      // The review flow outlasts discovery's short follow-up. Request a fresh
+      // observation instead of depending on the normal two-minute poll cadence.
+      if (scenario.review)
+        await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: false }));
       await page.evaluate(() => window.desktop.saveSetup({ showPullRequests: true }));
       await expect
         .poll(
@@ -209,7 +304,11 @@ for (const showNewChildren of [true, false]) {
             ),
           { timeout: deadline(60000) },
         )
-        .toBe(false);
+        .toBe(false)
+        .catch(async (error) => {
+          context.diagnostic(JSON.stringify(await call("session_state", { id: child.resultId })));
+          throw error;
+        });
     } else {
       close = await tool("close", { id: child.resultId, idempotencyKey: "close-child" });
       assert.equal(close.status, "succeeded");

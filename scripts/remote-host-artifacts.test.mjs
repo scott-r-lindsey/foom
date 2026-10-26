@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { test } from "node:test";
 import {
   checkoutRevision,
@@ -9,39 +9,9 @@ import {
   packageRemoteHosts,
   prepareRemoteHosts,
   requireRemoteHosts,
-  signRemoteHost,
   writeHostManifest,
   digest,
 } from "./remote-host-artifacts.mjs";
-
-test("native host build signing is ad-hoc with runtime entitlements and strict verification", () => {
-  const calls = [];
-  signRemoteHost("/fixture/foom-host", (command, args) => calls.push([command, args]));
-  assert.deepEqual(calls, [
-    [
-      "codesign",
-      [
-        "--force",
-        "--sign",
-        "-",
-        "--options",
-        "runtime",
-        "--timestamp=none",
-        "--entitlements",
-        resolve("scripts/entitlements-adhoc.plist"),
-        "/fixture/foom-host",
-      ],
-    ],
-    ["codesign", ["--verify", "--strict", "/fixture/foom-host"]],
-  ]);
-  assert.throws(
-    () =>
-      signRemoteHost("/fixture/foom-host", () => {
-        throw new Error("Apple fixture failure");
-      }),
-    /Apple fixture failure/,
-  );
-});
 
 test("catalog packaging validates all native manifests and both hashes before shipping compressed payloads", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "host-catalog-"));

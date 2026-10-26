@@ -104,6 +104,8 @@ export interface WorkspaceMethods {
   sidebarCommand(
     command: Exclude<SidebarCommand, { kind: "open-handoff-link" }>,
     confirm: ConfirmWorkspace,
+    validateClose?: () => void,
+    closeSignal?: AbortSignal,
   ): Promise<void>;
   auditHuman(
     action: string,
@@ -193,6 +195,9 @@ export interface WorkspaceDependencies {
     | "mergedCommit"
     | "deleteMergedBranch"
     | "deleteMergedBranches"
+    | "reviewBranch"
+    | "reviewIdentity"
+    | "canAutoRemoveReview"
     | "canAutoRemove"
     | "panelFacts"
   >;
@@ -209,7 +214,12 @@ export interface WorkspaceDependencies {
     classify(input: EvaluationInput): Promise<VerdictRecord>;
     commit(record: VerdictRecord): Promise<void>;
     forget(terminalId: string): void;
-    recordAction(terminalId: string, verdictId: string, action: VerdictAction): Promise<void>;
+    recordAction(
+      terminalId: string,
+      verdictId: string,
+      action: VerdictAction,
+      onlyIfPending?: boolean,
+    ): Promise<void>;
   };
   /** Started on the first agent launch, independently of hook support. */
   control?: () => Promise<

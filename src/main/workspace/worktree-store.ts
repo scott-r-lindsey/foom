@@ -1,3 +1,4 @@
+import { forgeBranch } from "../control/forge";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -27,14 +28,32 @@ export class WorktreeStore {
     return {
       version: 1,
       repositories: state["repositories"].filter(absolutePath),
-      managed: state["managed"].filter(
-        (entry): entry is WorktreeStoredState["managed"][number] =>
-          record(entry) &&
-          absolutePath(entry["path"]) &&
-          absolutePath(entry["repository"]) &&
-          absolutePath(entry["root"]) &&
-          typeof entry["identity"] === "string",
-      ),
+      managed: state["managed"]
+        .filter(
+          (entry): entry is WorktreeStoredState["managed"][number] =>
+            record(entry) &&
+            absolutePath(entry["path"]) &&
+            absolutePath(entry["repository"]) &&
+            absolutePath(entry["root"]) &&
+            typeof entry["identity"] === "string",
+        )
+        .map((entry) => {
+          const review: unknown = entry.review;
+          return {
+            path: entry.path,
+            repository: entry.repository,
+            root: entry.root,
+            identity: entry.identity,
+            ...(record(review) &&
+            forgeBranch(review["branch"]) &&
+            typeof review["head"] === "string" &&
+            /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(review["head"]) &&
+            typeof review["refs"] === "string" &&
+            review["refs"].length <= 1024 * 1024
+              ? { review: { head: review["head"], branch: review["branch"], refs: review["refs"] } }
+              : {}),
+          };
+        }),
     };
   }
   async save(snapshot: () => WorktreeStoredState): Promise<void> {

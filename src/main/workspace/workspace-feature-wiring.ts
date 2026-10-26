@@ -261,6 +261,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       },
       deps: {
         worktrees: {
+          get reviewIdentity() {
+            return owner.deps.worktrees.reviewIdentity.bind(owner.deps.worktrees);
+          },
           get cleanupBrokenWorktree() {
             return owner.deps.worktrees.cleanupBrokenWorktree.bind(owner.deps.worktrees);
           },
@@ -279,6 +282,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
         },
         get config() {
           return owner.deps.config;
+        },
+        get dialog() {
+          return owner.deps.dialog;
         },
         get copyText() {
           return owner.deps.copyText?.bind(owner.deps);
@@ -615,6 +621,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
           return owner.deps.forge;
         },
         worktrees: {
+          get reviewBranch() {
+            return owner.deps.worktrees.reviewBranch.bind(owner.deps.worktrees);
+          },
           get adoptWorktree() {
             return owner.deps.worktrees.adoptWorktree.bind(owner.deps.worktrees);
           },

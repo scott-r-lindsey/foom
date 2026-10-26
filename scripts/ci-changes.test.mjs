@@ -436,3 +436,40 @@ test("native host matrix builds four same-run catalog entries without Release cr
       platform.indexOf("run: pnpm run make"),
   );
 });
+
+test("Darwin assembly inputs stay in same-run artifacts and Developer ID keeps library validation", async () => {
+  const { readFileSync } = await import("node:fs");
+  const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
+  const workflow = read("../.github/workflows/ci.yml");
+  const hosts = workflow.split("\n  remote-host:\n")[1].split("\n  platform:\n")[0];
+  const platform = workflow.split("\n  platform:\n")[1].split("\n  quality:\n")[0];
+  const release = workflow
+    .split("\n  macos-sign:\n")[1]
+    .split("\n  macos-credentials:\n")[0]
+    .split("\n  nightly:\n")[0];
+  assert.match(read("../.nvmrc"), /^24\.\d+\.\d+\n$/);
+  assert.match(hosts, /Upload credential-free Darwin SEA inputs\n +if: runner.os == 'macOS'/);
+  assert.match(hosts, /FOOM_REMOTE_HOST_INPUTS_OUTPUT: remote-host-inputs/);
+  for (const job of [platform, release]) {
+    const download = job
+      .split("- name: Download this run's Darwin SEA inputs")[1]
+      .split("\n      - ")[0];
+    assert.match(download, /pattern: host-inputs-darwin-\*/);
+    assert.match(download, /path: \.cache\/remote-host-inputs/);
+    assert.match(download, /merge-multiple: true/);
+    assert.doesNotMatch(download, /run-id:|repository:|github-token:/);
+  }
+  assert.ok(
+    release.indexOf("Download this run's Darwin SEA inputs") <
+      release.indexOf("Import Release credentials"),
+  );
+  const developer = read("./entitlements-remote-host.plist");
+  assert.deepEqual(
+    [...developer.matchAll(/<key>([^<]+)<\/key>/g)].map((match) => match[1]),
+    ["com.apple.security.cs.allow-jit"],
+  );
+  assert.match(
+    read("./entitlements-adhoc.plist"),
+    /com\.apple\.security\.cs\.disable-library-validation/,
+  );
+});

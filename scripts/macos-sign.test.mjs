@@ -55,6 +55,15 @@ test("keychain search-list parsing preserves paths, spaces, order and escaped qu
     assert.throws(() => parseKeychains(output));
 });
 
+const hostEntitlements = (adhoc) =>
+  `<dict><key>com.apple.security.cs.allow-jit</key><true/>${adhoc ? "<key>com.apple.security.cs.disable-library-validation</key><true/>" : ""}</dict>`;
+const hostFixtureOutput = (args, adhoc) =>
+  args.includes("--verbose=4")
+    ? "TeamIdentifier=FIXTURE123\n"
+    : args.includes("--display") && args.includes("--entitlements")
+      ? hostEntitlements(adhoc)
+      : "";
+
 async function fixture(t, metadata = {}) {
   const root = mkdtempSync(join(tmpdir(), "foom-sign-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -91,6 +100,29 @@ async function fixture(t, metadata = {}) {
       arch,
       source: "a".repeat(40),
     });
+    if (platform === "darwin") {
+      const inputs = join(root, "inputs", target);
+      mkdirSync(inputs, { recursive: true });
+      const files = {};
+      for (const name of ["node", "host.cjs", "pty.node", "spawn-helper"]) {
+        const bytes = Buffer.from("fixture host");
+        writeFileSync(join(inputs, name), bytes);
+        files[name] = { size: bytes.length, sha256: digest(bytes) };
+      }
+      writeFileSync(
+        join(inputs, "manifest.json"),
+        JSON.stringify({
+          format: 1,
+          protocol: 1,
+          platform,
+          arch,
+          source: "a".repeat(40),
+          version: "0.1.0",
+          nodeVersion: process.version,
+          files,
+        }),
+      );
+    }
     rmSync(join(directory, "foom-host"));
   }
   writeFileSync(
@@ -117,11 +149,16 @@ test("signs every Mach-O inside out, ignores symlink aliases and grants only run
   const calls = [];
   await signApp(
     app,
-    { identity: "Developer ID Application: Fixture (TEAM)", keychain: "/temporary/keychain" },
+    {
+      identity: "Developer ID Application: Fixture (TEAM)",
+      keychain: "/temporary/keychain",
+      remoteHostInputs: join(root, "inputs"),
+    },
     (command, args) => {
       calls.push([command, args]);
       if (args.at(-1) === join(app, paths[5]))
         writeFileSync(join(app, paths[5]), "fixture changed by signing");
+      return hostFixtureOutput(args, false);
     },
     async () => ({ fuses: "unchanged", archive: "unchanged" }),
   );
@@ -136,7 +173,7 @@ test("signs every Mach-O inside out, ignores symlink aliases and grants only run
       .update(readFileSync(join(app, paths[5])))
       .digest("hex"),
   );
-  assert.equal(calls.length, order.length + 5);
+  assert.equal(calls.filter(([, args]) => args.includes("--sign")).length, order.length + 6);
   assert.deepEqual(calls.at(-1), [
     "codesign",
     ["--verify", "--deep", "--strict", "--verbose=2", app],
@@ -156,8 +193,8 @@ test("signs every Mach-O inside out, ignores symlink aliases and grants only run
   await assert.rejects(
     signApp(
       app,
-      { identity: "-" },
-      () => {},
+      { identity: "-", remoteHostInputs: join(root, "inputs") },
+      (_command, args) => hostFixtureOutput(args, true),
       (() => {
         let count = 0;
         return async () => count++;
@@ -168,7 +205,7 @@ test("signs every Mach-O inside out, ignores symlink aliases and grants only run
   await assert.rejects(
     signApp(
       app,
-      { identity: "-" },
+      { identity: "-", remoteHostInputs: join(root, "inputs") },
       () => {
         throw new Error("fixture signing failure");
       },
@@ -395,7 +432,7 @@ test("credential setup validates the team, restricts files and cleanup removes p
 });
 
 test("signing enforces hardened fuse values and detects ASAR or embedded-integrity changes", async (t) => {
-  const { app } = await fixture(t);
+  const { root, app } = await fixture(t);
   const framework = join(
     app,
     "Contents/Frameworks/Electron Framework.framework/Electron Framework",
@@ -409,21 +446,26 @@ test("signing enforces hardened fuse values and detects ASAR or embedded-integri
       Buffer.from([1, 1, ...Array(32).fill(42)]),
     ]);
   writeFileSync(framework, binary(48));
-  const execute = (command) =>
-    command === "/usr/libexec/PlistBuddy" ? "algorithm = SHA256; hash = fixture" : "";
-  await signApp(app, { identity: "-" }, execute);
+  const execute = (command, args = []) =>
+    command === "/usr/libexec/PlistBuddy"
+      ? "algorithm = SHA256; hash = fixture"
+      : hostFixtureOutput(args, true);
+  await signApp(app, { identity: "-", remoteHostInputs: join(root, "inputs") }, execute);
   writeFileSync(framework, binary(49));
-  await assert.rejects(signApp(app, { identity: "-" }, execute), /Unexpected fuse 0/);
+  await assert.rejects(
+    signApp(app, { identity: "-", remoteHostInputs: join(root, "inputs") }, execute),
+    /Unexpected fuse 0/,
+  );
   writeFileSync(framework, binary(48));
   await assert.rejects(
-    signApp(app, { identity: "-" }, () => "missing"),
+    signApp(app, { identity: "-", remoteHostInputs: join(root, "inputs") }, () => "missing"),
     /Missing embedded ASAR integrity/,
   );
   await assert.rejects(
-    signApp(app, { identity: "-" }, (command) => {
+    signApp(app, { identity: "-", remoteHostInputs: join(root, "inputs") }, (command, args) => {
       if (command === "codesign")
         writeFileSync(join(app, "Contents/Resources/app.asar"), "tampered");
-      return execute(command);
+      return execute(command, args);
     }),
     /Signing changed fuses or ASAR integrity/,
   );
@@ -1016,30 +1058,53 @@ test("nested gzip hosts are signed and verified before app sealing with refreshe
 const {appendFileSync}=require('node:fs');
 const args=process.argv.slice(2);
 appendFileSync(${JSON.stringify(log)},JSON.stringify(args)+'\\n');
-if (args.at(-1).endsWith('/foom-host')) {
-  if (process.env.FIXTURE_FAIL === (args.includes('--sign') ? 'sign' : 'verify')) process.exit(1);
-  if (args.includes('--sign')) appendFileSync(args.at(-1),'fixture signature');
-}
+if (process.env.FIXTURE_FAIL === 'sign' && args.includes('--sign')) process.exit(1);
+if (process.env.FIXTURE_FAIL === 'verify' && args.includes('--verify')) process.exit(1);
+if (args.at(-1).endsWith('/foom-host') && args.includes('--sign')) appendFileSync(args.at(-1),'fixture signature');
+if (args.includes('--verbose=4')) console.log('TeamIdentifier=FIXTURE123');
+if (args.includes('--display') && args.includes('--entitlements')) console.log(${JSON.stringify(hostEntitlements(identity === "-"))});
 `,
     );
     chmodSync(tool, 0o755);
-    const options = { identity, keychain: "/fixture/keychain" };
+    const options = {
+      identity,
+      keychain: "/fixture/keychain",
+      remoteHostInputs: join(root, "inputs"),
+    };
     const execute = (command, args, fail) =>
-      run(command, args, {
-        env: { PATH: bin, FIXTURE_FAIL: fail ?? "" },
-      });
+      command === process.execPath
+        ? ""
+        : run(command, args, {
+            env: { PATH: bin, FIXTURE_FAIL: fail ?? "" },
+          });
     await signApp(app, options, execute, async () => ({}));
     const calls = readFileSync(log, "utf8").trim().split("\n").map(JSON.parse);
-    for (const index of [0, 2]) {
+    const hostSigns = calls.filter(
+      (args) => args.includes("--sign") && args.at(-1).endsWith("/foom-host"),
+    );
+    assert.equal(hostSigns.length, 2);
+    assert.equal(
+      calls.filter(
+        (args) =>
+          args.includes("--sign") &&
+          args.at(-1).endsWith("/pty.node") &&
+          !args.at(-1).startsWith(app),
+      ).length,
+      2,
+    );
+    for (const args of hostSigns) {
       assert.deepEqual(
-        calls[index],
-        signingArgs(calls[index].at(-1), {
+        args,
+        signingArgs(args.at(-1), {
           ...options,
-          entitlements: resolve("scripts/entitlements-remote-host.plist"),
+          entitlements: resolve(
+            identity === "-"
+              ? "scripts/entitlements-adhoc.plist"
+              : "scripts/entitlements-remote-host.plist",
+          ),
         }),
       );
-      assert.deepEqual(calls[index + 1], ["--verify", "--strict", calls[index].at(-1)]);
-      assert.equal(existsSync(calls[index].at(-1)), false, "private expanded host removed");
+      assert.equal(existsSync(args.at(-1)), false, "private expanded host removed");
     }
     assert.equal(calls.at(-2).at(-1), app, "app sealed after both nested hosts");
     for (const target of hostPlatforms) {
@@ -1093,7 +1158,7 @@ if (args.at(-1).endsWith('/foom-host')) {
         preload,
         `const cp=require('node:child_process');
 const spawn=cp.spawnSync;
-cp.spawnSync=(command,args,options)=>spawn(command==='/usr/libexec/PlistBuddy'?${JSON.stringify(plistTool)}:command,args,options);
+cp.spawnSync=(command,args,options)=> command===process.execPath ? {status:0,stdout:'',stderr:''} : spawn(command==='/usr/libexec/PlistBuddy'?${JSON.stringify(plistTool)}:command,args,options);
 require('node:module').syncBuiltinESMExports();
 `,
       );
@@ -1101,7 +1166,7 @@ require('node:module').syncBuiltinESMExports();
         process.execPath,
         ["--require", preload, resolve("scripts/macos-sign.mjs"), "adhoc", app],
         {
-          env: { PATH: bin },
+          env: { PATH: bin, FOOM_REMOTE_HOST_INPUTS: join(root, "inputs") },
           encoding: "utf8",
           timeout: 10000,
         },
@@ -1152,11 +1217,39 @@ test("only local ad-hoc signing permits a sealed catalog omission", async (t) =>
     delete process.env[key];
   }
   const execute = () => assert.fail("omitted catalog must not invoke codesign");
+  const catalog = join(app, "Contents/Resources/app.asar.unpacked/build/remote-hosts");
+  await assert.rejects(
+    signBundledRemoteHosts(app, { identity: "-" }, execute),
+    /omission contains/,
+  );
+  rmSync(catalog, { recursive: true });
   await signBundledRemoteHosts(app, { identity: "-" }, execute);
   await assert.rejects(
     signBundledRemoteHosts(app, { identity: "Developer ID Application: Fixture" }, execute),
     /required/,
   );
-  process.env.CI = "true";
-  await assert.rejects(signBundledRemoteHosts(app, { identity: "-" }, execute), /required/);
+  for (const key of ["CI", "GITHUB_ACTIONS", "FOOM_REQUIRE_REMOTE_HOSTS"]) {
+    process.env[key] = "1";
+    await assert.rejects(signBundledRemoteHosts(app, { identity: "-" }, execute), /required/);
+    delete process.env[key];
+  }
+});
+
+test("present catalogs require both same-run Darwin inputs before any signing", async (t) => {
+  const { root, app } = await fixture(t, { remoteHostsAvailable: true });
+  const { signBundledRemoteHosts } = await import("./macos-sign.mjs");
+  for (const target of ["darwin-x64", "darwin-arm64"]) {
+    const path = join(root, "inputs", target, "manifest.json");
+    const original = readFileSync(path, "utf8");
+    writeFileSync(path, JSON.stringify({ ...JSON.parse(original), source: "b".repeat(40) }));
+    for (const identity of ["-", "Developer ID Application: Fixture"]) {
+      await assert.rejects(
+        signBundledRemoteHosts(app, { identity, remoteHostInputs: join(root, "inputs") }, () =>
+          assert.fail("must verify all Darwin inputs before signing"),
+        ),
+        /Input source revision mismatch/,
+      );
+    }
+    writeFileSync(path, original);
+  }
 });

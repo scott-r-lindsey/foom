@@ -154,7 +154,7 @@ it("accepts installed channel-less observers only through their launch-bound pro
 it.each([
   ["placement", "launch"],
   ["transport", "argv-last"],
-  ["version", 4],
+  ["version", 5],
   ["response", "silent"],
   ["delivery", "foreground"],
   ["timeoutMs", 2000],
@@ -180,3 +180,32 @@ it("retains origin-less Antigravity session IDs and accepts only the bundled per
   expect(readSessions([{ ...row, providerOrigin: "bundled" }])[0]?.providerOrigin).toBe("bundled");
   expect(() => readSessions([{ ...row, providerOrigin: "config" }])).toThrow("Invalid");
 });
+
+it.each(["not-installed", "outdated", "disabled", "unavailable", "installed"] as const)(
+  "uses plugin MCP only for a current intact installation: %s",
+  async (state) => {
+    vi.spyOn(PluginSetup.prototype, "status").mockResolvedValue({ state, actions: [] });
+    const installation = await provider.enrich(
+      provider.discover("/fixture/agy", "1.4.2", "--prompt-interactive"),
+    );
+    const launch = await provider.prepareLaunch(
+      installation,
+      request,
+      [],
+      {
+        ...control,
+        env: { FOOM_CONTROL_URL: "http://127.0.0.1:12345/control/v1" },
+      },
+      false,
+      false,
+    );
+    expect(installation.mcp).toBe(state === "installed");
+    expect(launch.mcp).toBe(state === "installed");
+    expect(launch.args.join(" ").includes(CLI_GUIDANCE)).toBe(state !== "installed");
+    launch.dispose();
+    const old = await provider.enrich(
+      provider.discover("/fixture/agy", "1.3.1", "--prompt-interactive"),
+    );
+    expect(old.mcp).toBe(false);
+  },
+);

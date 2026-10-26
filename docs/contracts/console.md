@@ -38,6 +38,7 @@ Orchestrator commands (all support `--json`):
 
 ```text
 foom create-worktree BRANCH --idempotency-key KEY
+foom create-worktree --pull-request N [--review] --idempotency-key KEY
 foom launch WORKTREE_ID --agent PROVIDER [--model MODEL] [--effort EFFORT] [--prompt TEXT] [--review-model MODEL] [--review-effort EFFORT] --idempotency-key KEY
 foom stop ID --idempotency-key KEY
 foom close ID --idempotency-key KEY
@@ -50,7 +51,10 @@ foom wait-for [ID...] --until-event [--after '{"ID":"EVENT"}'] [--timeout SECOND
 
 Every mutation requires an idempotency key. After losing a response, query
 `operation-status --idempotency-key KEY`; reusing a key with different input is
-refused. Removal still needs the trusted app confirmation. `tail` retains secret
+refused. Removal follows the [trusted confirmation and narrow automatic-removal policies](control-mutations.md#orchestrators-and-children-155).
+The optional `--review` flag is valid only with `--pull-request`; it creates a
+detached review checkout without a branch, including while the author branch is
+in use. `tail` retains secret
 redaction, the 40-line/16 KiB cap and one request per child per second; `wait-for`
 accepts one to the configured child limit of distinct IDs and waits at most 30 seconds. The console gives
 that wait a 35-second transport deadline.
@@ -108,8 +112,10 @@ after moving the installation. Both actions broadcast the Windows environment
 change so newly opened shells can inherit it. Existing shells must be reopened.
 Unrelated PATH entries and registry value kind are retained. Foom-launched agents
 get a process-local PATH addition independently of human installation. Antigravity
-with `--prompt-interactive` support receives CLI guidance composed with initial
-prompt data; no MCP configuration is installed.
+receives CLI guidance composed with initial prompt data unless its opt-in current
+plugin supplies MCP. `foom mcp` serves only that inherited launch via the
+[environment-only bridge](control-transport.md#transport-packaging-and-discovery);
+it never discovers or pairs.
 
 Offline validation uses `foom config validate PATH`; see [the console ownership contract](../areas/control.md#control-plane).
 

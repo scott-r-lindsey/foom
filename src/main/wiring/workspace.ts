@@ -83,7 +83,9 @@ export async function initializeWorkspace(
         if (
           !owned ||
           (orchestrator && !owned.managed) ||
-          owned.branch !== tree.branch ||
+          (owned.branch ??
+            wiring.worktrees.reviewBranch(tree.repository, tree.path, owned.head)) !==
+            tree.branch ||
           (await wiring.worktrees.launchIdentity(tree.repository, tree.path)) !== tree.identity
         )
           return undefined;
