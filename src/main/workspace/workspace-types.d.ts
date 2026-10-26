@@ -209,7 +209,12 @@ export interface WorkspaceDependencies {
     classify(input: EvaluationInput): Promise<VerdictRecord>;
     commit(record: VerdictRecord): Promise<void>;
     forget(terminalId: string): void;
-    recordAction(terminalId: string, verdictId: string, action: VerdictAction): Promise<void>;
+    recordAction(
+      terminalId: string,
+      verdictId: string,
+      action: VerdictAction,
+      onlyIfPending?: boolean,
+    ): Promise<void>;
   };
   /** Started on the first agent launch, independently of hook support. */
   control?: () => Promise<

@@ -12,6 +12,7 @@ import type {
 /** One main-process writer; append-only metadata, never tails, prompts, or keystrokes. */
 export class VerdictLog {
   private writes: Promise<void> = Promise.resolve();
+  private readonly actions = new Map<string, Promise<void>>();
   private readonly pending = new Map<string, { verdictId: string | null }>();
 
   constructor(
@@ -70,31 +71,46 @@ export class VerdictLog {
     return record;
   }
 
-  /** Call explicitly for ignored; opening a terminal is not a reply or dismissal. */
-  async recordAction(terminalId: string, verdictId: string, action: VerdictAction): Promise<void> {
+  /**
+   * Call explicitly for ignored; opening a terminal is not a reply or dismissal.
+   * onlyIfPending requires the caller to validate the terminal's current verdict.
+   * It tolerates a consumed/forgotten slot, but never hides an in-flight write failure.
+   */
+  async recordAction(
+    terminalId: string,
+    verdictId: string,
+    action: VerdictAction,
+    onlyIfPending = false,
+  ): Promise<void> {
+    if (!["replied", "dismissed", "ignored"].includes(action))
+      throw new Error("Invalid verdict feedback");
+    const key = `${terminalId}:${verdictId}`;
+    const writing = this.actions.get(key);
+    if (onlyIfPending && writing) return writing;
     const entry = this.pending.get(terminalId);
-    if (
-      !entry ||
-      entry.verdictId !== verdictId ||
-      !["replied", "dismissed", "ignored"].includes(action)
-    ) {
+    if (!entry || entry.verdictId !== verdictId) {
+      if (onlyIfPending) return;
       throw new Error("Invalid verdict feedback");
     }
     // Reserve synchronously so concurrent calls cannot record two next actions.
     entry.verdictId = null;
+    const write = this.append({
+      type: "action",
+      terminalId,
+      verdictId,
+      action,
+      timestamp: new Date().toISOString(),
+      feedback: action === "dismissed" ? "not_attention" : null,
+    });
+    this.actions.set(key, write);
     try {
-      await this.append({
-        type: "action",
-        terminalId,
-        verdictId,
-        action,
-        timestamp: new Date().toISOString(),
-        feedback: action === "dismissed" ? "not_attention" : null,
-      });
+      await write;
     } catch (error) {
       const current = this.pending.get(terminalId);
       if (current?.verdictId === null && current === entry) current.verdictId = verdictId;
       throw error;
+    } finally {
+      this.actions.delete(key);
     }
   }
 }
