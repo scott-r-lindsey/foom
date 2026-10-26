@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import opencode from "../../../shared/bundled-agents/opencode.json";
+import pi from "../../../shared/bundled-agents/pi.json";
 import agy from "../../../shared/bundled-agents/agy.json";
 import copilot from "../../../shared/bundled-agents/copilot.json";
 import codex from "../../../shared/bundled-agents/codex.json";
@@ -44,10 +45,11 @@ export const bundledProviders: readonly AgentProvider[] = [
     "opencode",
     "c732911ab07e95876cf273d9a7cd1aa0a889a8a90c5078fb1884665ee8dc6508",
   ),
+  bundledProvider(pi, "pi", "c991bbc7073a9bd168dc7321a64850e12660f739932caa57ff516653acbc13f6"),
 ];
 
 /** Build-owned migrations: retain old config rows, but require an explicit bundled resume. */
-export const formerConfigAgentIds: readonly string[] = ["opencode"];
+export const formerConfigAgentIds: readonly string[] = ["opencode", "pi"];
 
 /** Historical build identities: these IDs were reserved before config providers existed.
  * Never extend this attestation to a newly bundled ID or repin it for a changed policy.

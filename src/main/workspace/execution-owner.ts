@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { agentProviders } from "../agents/providers/registry";
 import { AgentExecution } from "../agents/execution";
 import { builtinAgent } from "../../shared/providers/catalog";
 import { detectAgent, ruleRegion } from "../evaluator/agent-rules";
@@ -31,6 +32,8 @@ type Terminal = {
   generation: number;
   outputVersion: number;
   inputVersion?: number;
+  activeScreenAt?: number;
+  activeScreenPending?: boolean;
 };
 
 export interface ExecutionOwnerDependencies {
@@ -235,11 +238,13 @@ export class ExecutionOwner {
     terminal: Terminal,
     generation?: number,
     outputVersion = terminal.outputVersion,
+    requireScreenRule = false,
   ): Promise<void> {
     const inputVersion = terminal.inputVersion ?? 0;
     // A reply or dismissal since this evaluation began makes its evidence stale.
     const stale = () =>
       this.deps.closed() ||
+      (requireScreenRule && terminal.exitCode !== undefined) ||
       this.terminals.get(id) !== terminal ||
       (terminal.exitCode === undefined && (terminal.inputVersion ?? 0) !== inputVersion) ||
       (generation !== undefined && generation !== terminal.generation) ||
@@ -253,6 +258,12 @@ export class ExecutionOwner {
     } catch {
       // A failed host has no screen. Exit codes and hooks still decide.
     }
+    const agentInput = this.agentInput(id, terminal);
+    const detected =
+      agentInput.agent && agentInput.evidence
+        ? detectAgent(agentInput.agent, agentInput.evidence, tail)
+        : undefined;
+    if (requireScreenRule && (!detected || detected.state === "unknown")) return;
     terminal.v2Hooks?.review(tail);
     let record = await this.deps.verdicts.classify({
       terminalId: id,
@@ -262,12 +273,19 @@ export class ExecutionOwner {
       ...(terminal.exitCode !== undefined ? { exitCode: terminal.exitCode } : {}),
     });
     if (stale()) return;
+    if (
+      terminal.exitCode === undefined &&
+      terminal.hook?.action !== "failed" &&
+      record.verdict.state !== "needs_input" &&
+      detected?.region !== "title" &&
+      (detected?.state === "working" || detected?.state === "idle") &&
+      agentProviders().some(
+        (provider) =>
+          provider.id === agentInput.agent && provider.model.attention.sampleWhileActive,
+      )
+    )
+      this.transition(id, detected.state, "screen");
     const execution = terminal.execution?.snapshot();
-    const agentInput = this.agentInput(id, terminal);
-    const detected =
-      agentInput.agent && agentInput.evidence
-        ? detectAgent(agentInput.agent, agentInput.evidence, tail)
-        : undefined;
     if (execution && terminal.exitCode === undefined) {
       if (record.verdict.state === "needs_input") {
         // Compare the attention evidence, not verdict IDs or animated title frames.
@@ -404,6 +422,27 @@ export class ExecutionOwner {
   output(id: string): void {
     const terminal = this.track(id);
     terminal.outputVersion += 1;
+    const { agent } = this.agentInput(id, terminal);
+    const now = this.deps.now();
+    if (
+      terminal.exitCode === undefined &&
+      !terminal.activeScreenPending &&
+      (terminal.activeScreenAt === undefined || now - terminal.activeScreenAt >= 1000) &&
+      agentProviders().some(
+        (provider) => provider.id === agent && provider.model.attention.sampleWhileActive,
+      )
+    ) {
+      terminal.activeScreenAt = now;
+      terminal.activeScreenPending = true;
+      const { generation, outputVersion } = terminal;
+      void this.deps.enqueue(id, async () => {
+        try {
+          await this.evaluate(id, terminal, generation, outputVersion, true);
+        } finally {
+          terminal.activeScreenPending = false;
+        }
+      });
+    }
     if (
       terminal.execution !== undefined ||
       this.deps.terminal(id)?.kind === "agent" ||

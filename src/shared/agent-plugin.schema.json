@@ -1139,6 +1139,9 @@
         },
         "provenance": {
           "$ref": "#/$defs/provenance"
+        },
+        "sampleWhileActive": {
+          "type": "boolean"
         }
       }
     },
