@@ -19,6 +19,6 @@ MCP protocol sessions are keyed by grant generation, so they survive the swap, a
 the next request sees the new role. Foom sends no tool-list notification and lists every orchestration tool to every agent from startup. Client refresh evidence: [#303](https://github.com/scott-r-lindsey/foom/issues/303).
 Each orchestration tool's description begins "Orchestrator only: the human grants
 this role, and whoami shows whether you hold it"; a call without the role returns
-an error naming `whoami`. Server instructions and Antigravity's launch guidance
+an error naming `whoami`. Server instructions and Antigravity's fallback CLI guidance
 describe both roles. Codex's TUI asked to approve an MCP tool without
 annotations, so the tools keep accurate `readOnlyHint` and `destructiveHint`.

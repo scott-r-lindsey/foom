@@ -9,7 +9,7 @@ The v2 engine is implemented; older agent manifest formats are unsupported. Copi
 | Agent manifest versions | Only version 2 is accepted. Version 1 rejects the file whole with `Agent manifest version 1 is no longer supported; use version 2 (see README.md)`; any other version with `Agent manifest version must be 2 (see README.md)` |
 | Bundled defaults/consents | Same IDs/enable switches/default argv/session IDs. Profile acknowledgements map to equivalent disclosure identity only if content/effect unchanged; otherwise ask again. Never import trust from agent stores |
 | Codex health | Transfer only identical definition fingerprint; stable observer command/timeout must remain identical for unchanged observer. Changed generated definition invalidates Foom health and lets Codex request review |
-| agy plugin | Recognize foomObserverVersion >=3 with the current staging fingerprint; legacy or mismatched definitions offer update, disabled needs enable; unknown foom refuses mutation |
+| agy plugin | Current foomObserverVersion 4 and staging fingerprint include the MCP launcher; legacy or mismatched definitions offer update, disabled needs enable; unknown foom refuses mutation |
 | Config copy of a built-in | Copy with identity changed; full manifest, hand-made (#538 removed the Settings action). No loss of hooks/setup/resume/protections. Consent/observed health not copied; same ownership target serialized across copies |
 | Dormant conversations | Missing/invalid provider preserves row/ID but grants no launch; new invocation rechecks the loaded provider and checkout |
 

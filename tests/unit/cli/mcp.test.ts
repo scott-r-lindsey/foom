@@ -6,6 +6,7 @@ import { execute } from "../../../src/cli/execute";
 import { ControlHttp } from "../../../src/main/control/http";
 import { ControlService } from "../../../src/main/control/service";
 import { Operations } from "../../../src/main/control/operations";
+import { ManualMcp } from "../../../src/main/control/manual-mcp";
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
@@ -112,6 +113,24 @@ it("relays the authenticated MCP handshake, notifications and the launch role wi
   expect(elevated.out.mock.calls.map(([line]) => line).join("")).toContain('"role":"orchestrator"');
   launch.dispose();
   expect((await run(env, [initialize])).code).toBe(4);
+});
+it("relays a config session's manual-only endpoint without granting control tools", async () => {
+  const manual = await ManualMcp.listen();
+  cleanup.push(() => {
+    manual.close();
+    return Promise.resolve();
+  });
+  const result = await run({ ...base, ...manual.env }, [
+    initialize,
+    initialized,
+    list,
+    { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "whoami" } },
+  ]);
+  expect(result.code).toBe(0);
+  const replies = result.out.mock.calls.map(([line]): unknown => JSON.parse(line));
+  expect(replies[1]).toMatchObject({ result: { tools: [{ name: "manual" }] } });
+  expect(replies[2]).toMatchObject({ error: { code: -32602 } });
+  expect(JSON.stringify(replies)).not.toContain(manual.token);
 });
 it("refuses extra arguments before reading stdin", async () => {
   expect((await run(base, [], ["mcp", "--repository", "/repo"])).code).toBe(2);

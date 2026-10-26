@@ -387,6 +387,48 @@ it("per-agent screen rules suppress only that agent's hooks and retain the globa
   expect((await agentFixture.service.launch(request)).attention).toBe("evaluator");
 });
 
+it.each([false, true])(
+  "config Antigravity plugin receives manual bridge fields without control authority, hooks=%s",
+  async (hooksEnabled) => {
+    const status = vi
+      .spyOn(PluginSetup.prototype, "status")
+      .mockResolvedValue({ state: "installed", actions: [] });
+    const previousVersion = versions.agy;
+    versions.agy = "1.4.2";
+    agentFixture.help = "--prompt-interactive <prompt>";
+    if (hooksEnabled)
+      prepare.mockResolvedValueOnce({
+        ...binding,
+        env: { ...binding.env, FOOM_SESSION: "00000000-0000-4000-8000-000000000001" },
+      });
+    const grant = vi.fn(() => Promise.resolve({ env: {}, bind: vi.fn(), dispose: vi.fn() }));
+    agentFixture.service = new AgentService(
+      { listWorktrees, launchIdentity },
+      { create },
+      prepare,
+      grant,
+    );
+    agentFixture.service.setHooksEnabled(hooksEnabled, { agy: hooksEnabled });
+    try {
+      await agentFixture.service.launch({ ...request, agent: "agy", configCli: "/app/console" });
+      const spec = create.mock.calls.at(-1)?.[0];
+      expect(spec?.env?.["FOOM_CLI_DIRECTORY"]).toBe("/app/console");
+      expect(spec?.env?.["FOOM_SESSION"]).toMatch(/^[a-f0-9-]{36}$/u);
+      expect(spec?.env?.["FOOM_CONTROL_TOKEN"]).toMatch(/^[a-f0-9]{64}$/u);
+      expect(spec?.env?.["FOOM_CONTROL_URL"]).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/control\/v1$/u);
+      expect(spec?.env?.["FOOM_CONTROL_INSTANCE"]).toBeUndefined();
+      expect(grant).not.toHaveBeenCalled();
+      expect(listWorktrees).not.toHaveBeenCalled();
+      expect(spec?.args.join("\n")).not.toContain(CLI_GUIDANCE);
+      agentFixture.service.release("terminal-id");
+    } finally {
+      agentFixture.service.dispose();
+      versions.agy = previousVersion;
+      status.mockRestore();
+    }
+  },
+);
+
 it.each(["exit", "early-exit", "spawn-failure", "shutdown", "prepare-failure"])(
   "config manual attachments have no control grant and clean up on %s",
   async (outcome) => {

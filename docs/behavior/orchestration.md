@@ -18,7 +18,10 @@ orchestrators. Ordinary agent launches receive a private credential for their ow
 identity, with no process or file mutation capabilities. Claude Code 2.1.293+ and Codex 0.161.0+ stable releases with their per-launch MCP
 help flag receive MCP access to read-only session metadata and scoped preview view actions in their own repository,
 independently of hooks. These tested releases are the version floors. Older or
-unparseable versions, missing flags and Antigravity do not attach MCP; managed client policy may deny attachment. These tools
+unparseable versions and missing flags do not attach MCP through those CLI flags.
+Antigravity 1.4.2+ attaches through the enabled, intact Foom v4 lifecycle plugin
+after its disclosed opt-in installation; other installations retain the CLI
+fallback. Managed client policy may deny attachment. These tools
 never return terminal output. **Make orchestrator…** in a running Claude Code, Codex or
 Antigravity session's menu grants that session permission to create worktrees and run up to
 the concurrent child limit set in Settings → General (default 4, integer 1–16),
@@ -34,8 +37,10 @@ Connected after the first successful authenticated request, or Not connected aft
 record it without alerting. A later request clears the failure. Settings → Agents
 shows MCP available or unavailable from the version and capability gate.
 You can stop a child or take it over, which ends the orchestrator's access to it. Agents launched outside Foom receive no automatic
-access. Agent configuration is attached per launch, never installed globally or
-written into the repository. With MCP attached, Claude Code pre-approves every tool
+access. Agent configuration is attached per launch, with the disclosed opt-in
+Antigravity Foom plugin as the sole global installation exception. The plugin
+stores no launch credentials; no agent configuration is written into the repository.
+With MCP attached, Claude Code pre-approves every tool
 on Foom’s own random per-launch server, merging your default allow rules. This
 covers previews, session metadata, child handoffs and orchestration; other MCP
 servers and non-Foom tools receive no added grant. Managed policy and deny rules
@@ -48,7 +53,7 @@ The packaged `foom` console can inspect session metadata and, for sessions you
 made orchestrator, create worktrees, launch, prompt, send keys to and stop children, request worktree
 removal, and read bounded tails or handoffs, or wait for child state. Every agent and child gets
 the CLI on its process-local PATH, including when MCP is unavailable. Antigravity
-orchestrates through the CLI alone. Agents launched by Foom
+uses MCP with its current opt-in plugin and the CLI fallback otherwise. Agents launched by Foom
 use only their inherited repository scope. Humans and scripts request pairing with
 `--repository PATH`: compare the code in the CLI and Foom's trusted dialog, then
 grant read-only access for ten minutes. Pairing expires after 60 seconds and never

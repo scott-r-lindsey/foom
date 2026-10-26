@@ -4,7 +4,8 @@
 
 **Launch.** Only the human elevates a running agent through its session menu; see [elevation](control-elevation.md#elevation-303). Every agent, including children, gets the console directory on its
 process-local PATH, and the CLI works when MCP attachment is unavailable or denied
-by client policy. Antigravity uses only the CLI, without any MCP configuration.
+by client policy. Antigravity's current opt-in Foom plugin supplies MCP using
+only inherited launch credentials; other installations retain the CLI fallback.
 
 **Tools.** Every mutation takes an `idempotencyKey` (`[a-zA-Z0-9_-]{1,200}`) and
 returns the operation record. Limits and foreign targets are recorded as
@@ -32,7 +33,8 @@ grant naming their parent. If those defaults bypass permissions, `launch` is ref
 with `forbidden` before spawning and the worktree stays unused. The prompt follows a fixed line naming the orchestrator
 as its author, so the argv entry can never equal a subcommand such as `logout`.
 Claude Code and Codex take it as the final positional argument; Antigravity composes
-it with the CLI guidance through `--prompt-interactive` and refuses a prompt on
+it through `--prompt-interactive`, adding CLI guidance only without the current
+MCP plugin, and refuses a prompt on
 releases without that option.
 
 **Limits.** The configured number of children that have not confirmed exit, including starting ones and
