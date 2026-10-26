@@ -272,8 +272,8 @@ substitutions and can never be supplied by MCP or CLI callers.
 
 Bundled Claude and Antigravity use `--model` and `--effort`; Codex uses `--model`
 (alias `-m`) and `-c model_reasoning_effort="{value}"` (alias `--config`). Copilot
-uses `--model`; OpenCode uses `--model` (alias `-m`). Copilot/OpenCode do not declare
-effort. Pi is not bundled; a config manifest may declare its selectors.
+uses `--model`; OpenCode uses `--model` (alias `-m`); Pi uses `--model`.
+Copilot, OpenCode and Pi do not declare effort.
 Claude/Antigravity effort values are `low`, `medium`, `high`, `max`; Codex declares
 `none`, `minimal`, `low`, `medium`, `high`, `xhigh`. The CLI still owns which
 model/effort combinations it accepts.
