@@ -1,3 +1,4 @@
+import { ApplicationError } from "../../shared/application-errors";
 import { RemoteTransport } from "./remote-transport";
 import type { RemoteTarget } from "../../shared/remote-host";
 import type { ChildInput } from "../../shared/child-input";
@@ -95,7 +96,12 @@ export class TerminalHostClient {
         this.receive(child, message);
       });
       child.once("exit", () => {
-        this.fail(child);
+        this.fail(
+          child,
+          child.failureReason === "remote-host-unavailable"
+            ? new ApplicationError("remote-host-unavailable")
+            : undefined,
+        );
       });
       return child;
     }
@@ -203,17 +209,16 @@ export class TerminalHostClient {
     return `Terminal host stopped: ${JSON.stringify(diagnostics)}`;
   }
 
-  private fail(child: UtilityProcess | RemoteTransport): void {
+  private fail(child: UtilityProcess | RemoteTransport, failure?: ApplicationError): void {
     if (this.child !== child) return;
     this.child = undefined;
     child.kill();
     const diagnostics = this.diagnostics;
-    const error = new Error(
-      diagnostics ? this.failureMessage(diagnostics) : "Terminal host stopped",
-      {
+    const error =
+      failure ??
+      new Error(diagnostics ? this.failureMessage(diagnostics) : "Terminal host stopped", {
         cause: diagnostics,
-      },
-    );
+      });
     this.failure = error;
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);

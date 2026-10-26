@@ -7,6 +7,8 @@ import {
   checkoutRevision,
   hostPlatforms,
   packageRemoteHosts,
+  prepareRemoteHosts,
+  requireRemoteHosts,
   writeHostManifest,
   digest,
 } from "./remote-host-artifacts.mjs";
@@ -82,4 +84,50 @@ test("checkout identity uses git argv and rejects non-revisions", () => {
     "a".repeat(40),
   );
   assert.throws(() => checkoutRevision("/fixture", () => "development"), /source revision/);
+});
+
+test("local packaging omits missing, stale or corrupt catalogs; CI cannot opt out", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "host-modes-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const source = join(root, "source");
+  const output = join(root, "output");
+  const revision = "a".repeat(40);
+  const strictEnvs = [
+    { CI: "true", FOOM_REQUIRE_REMOTE_HOSTS: "0" },
+    { GITHUB_ACTIONS: "true", FOOM_REQUIRE_REMOTE_HOSTS: "0" },
+    { FOOM_REQUIRE_REMOTE_HOSTS: "1" },
+  ];
+  assert.equal(requireRemoteHosts({}), false);
+  for (const env of strictEnvs) assert.equal(requireRemoteHosts(env), true);
+  const warnings = [];
+  const prepare = (env) =>
+    prepareRemoteHosts(source, output, "0.1.0", revision, env, (warning) => warnings.push(warning));
+  for (const problem of ["missing", "source", "gzipSize", "gzipSha256", "size", "sha256"]) {
+    for (const target of hostPlatforms) {
+      const directory = join(source, target);
+      await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, "foom-host"), "fixture host");
+      const [platform, arch] = target.split("-");
+      await writeHostManifest(directory, { version: "0.1.0", platform, arch, source: revision });
+    }
+    assert.equal(await prepare({}), true);
+    const directory = join(source, "darwin-arm64");
+    if (problem === "missing") await rm(directory, { recursive: true });
+    else {
+      const path = join(directory, "manifest.json");
+      const manifest = JSON.parse(await readFile(path));
+      manifest[problem] =
+        problem === "source"
+          ? "b".repeat(40)
+          : problem.endsWith("256")
+            ? "b".repeat(64)
+            : manifest[problem] + 1;
+      await writeFile(path, JSON.stringify(manifest));
+    }
+    assert.equal(await prepare({}), false, problem);
+    await assert.rejects(readFile(join(output, "linux-x64", "manifest.json")), /ENOENT/);
+    for (const env of strictEnvs) await assert.rejects(prepare(env), undefined, problem);
+  }
+  assert.equal(warnings.length, 6);
+  assert.ok(warnings.every((warning) => warning.includes("Remote host artifact unavailable")));
 });

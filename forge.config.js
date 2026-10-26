@@ -25,7 +25,7 @@ module.exports = {
         {
           cwd: __dirname,
           stdio: "inherit",
-          env: { ...process.env, FOOM_REQUIRE_REMOTE_HOSTS: "1" },
+          env: { ...process.env, FOOM_PACKAGE: "1" },
         },
       );
     },

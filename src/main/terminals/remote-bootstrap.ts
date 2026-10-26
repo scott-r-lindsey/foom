@@ -1,3 +1,4 @@
+import { ApplicationError } from "../../shared/application-errors";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
@@ -230,12 +231,6 @@ export async function selectHostArtifact(
   ),
   metadata = join(__dirname, "../../build-metadata.json"),
 ) {
-  const { stdout } = await promisify(execFile)(
-    "ssh",
-    [...sshArguments(target.host), "uname -s; uname -m"],
-    { env: sshEnvironment(), shell: false, timeout: 10000, maxBuffer: 256, encoding: "utf8" },
-  );
-  const remote = remotePlatform(stdout);
   let expectedSource: string | undefined;
   if (!target.artifact) {
     const value: unknown = JSON.parse((await boundedFile(metadata, 4096)).toString("utf8"));
@@ -247,8 +242,16 @@ export async function selectHostArtifact(
       !/^[a-f0-9]{40}$/u.test(value.source)
     )
       throw new Error("Invalid application source revision");
+    if ("remoteHostsAvailable" in value && value.remoteHostsAvailable === false)
+      throw new ApplicationError("remote-host-unavailable");
     expectedSource = value.source;
   }
+  const { stdout } = await promisify(execFile)(
+    "ssh",
+    [...sshArguments(target.host), "uname -s; uname -m"],
+    { env: sshEnvironment(), shell: false, timeout: 10000, maxBuffer: 256, encoding: "utf8" },
+  );
+  const remote = remotePlatform(stdout);
   const artifact = await hostArtifact(
     target.artifact ?? join(catalog, `${remote.platform}-${remote.arch}`, "foom-host.gz"),
     expectedSource,
