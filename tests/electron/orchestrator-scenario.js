@@ -309,7 +309,11 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
     if (phase === "children")
       await page.evaluate(() =>
         window.desktop.saveSetup({
-          agentArguments: { claude: ["--model=old", "--effort", "low", "--verbose"] },
+          agentArguments: {
+            claude: ["--model=old", "--effort", "low", "--verbose"],
+            codex: [],
+            agy: [],
+          },
         }),
       );
     const tree = await call(parent.controlToken, "create_worktree", {
