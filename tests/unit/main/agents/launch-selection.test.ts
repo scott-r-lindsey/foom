@@ -10,19 +10,11 @@ import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import fixture from "../../../fixtures/agent-plugin.json";
 
 describe("bounded per-child launch selections", () => {
-  it.each(bundledProviders)(
-    "expands or refuses the $id model using its declared argv",
-    (provider) => {
-      if (provider.model.launch.model) {
-        expect(
-          selectedArguments(provider.model, ["--other", "keep"], { model: "provider/model:v1" }),
-        ).toEqual(["--other", "keep", "--model", "provider/model:v1"]);
-      } else
-        expect(() =>
-          selectedArguments(provider.model, ["--other", "keep"], { model: "provider/model:v1" }),
-        ).toThrow("unsupported");
-    },
-  );
+  it.each(bundledProviders)("expands the $id model using only its declared argv", (provider) => {
+    expect(
+      selectedArguments(provider.model, ["--other", "keep"], { model: "provider/model:v1" }),
+    ).toEqual(["--other", "keep", "--model", "provider/model:v1"]);
+  });
   it.each(bundledProviders)("expands or refuses $id effort", (provider) => {
     if (provider.model.launch.effort) {
       expect(selectedArguments(provider.model, [], { effort: "high" })).toEqual(

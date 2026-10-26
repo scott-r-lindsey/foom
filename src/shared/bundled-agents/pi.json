@@ -73,6 +73,10 @@
           }
         ]
       }
+    },
+    "model": {
+      "flags": ["--model"],
+      "arguments": ["--model", "{value}"]
     }
   },
   "reservedArguments": [

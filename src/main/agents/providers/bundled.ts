@@ -45,7 +45,7 @@ export const bundledProviders: readonly AgentProvider[] = [
     "opencode",
     "050f6a0f72b29e98b7c6e11941812eeb90cd4b8c2a39113654d84336c318a943",
   ),
-  bundledProvider(pi, "pi", "88d93b444f0f536f8ddff58261afbd8db2daa113a9fd97581bb00c9bf7aa8a9e"),
+  bundledProvider(pi, "pi", "3360c8d7d855fe8d67d7550820e7b673febf17fc33647e84a3b98185afa822be"),
 ];
 
 /** Build-owned migrations: retain old config rows, but require an explicit bundled resume. */
