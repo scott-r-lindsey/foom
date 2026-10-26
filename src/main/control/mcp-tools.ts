@@ -1,4 +1,12 @@
 import { CHILD_KEYS } from "../../shared/child-input";
+
+const selectionToken = {
+  type: "string",
+  pattern: "^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$",
+  maxLength: 64,
+  description:
+    "Manifest-declared model or effort selection; unsupported options refuse. No arbitrary arguments.",
+};
 const tools = [
   {
     name: "manual",
@@ -122,11 +130,15 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
         idempotencyKey: key,
         worktreeId: id,
         agent: { type: "string", enum: agents },
+        model: selectionToken,
+        effort: selectionToken,
         prompt: { type: "string", maxLength: 16384 },
         review: {
           type: "object",
           additionalProperties: false,
           properties: {
+            model: selectionToken,
+            effort: selectionToken,
             rounds: { type: "integer", minimum: 1, maximum: 5, default: 3 },
             agent: { type: "string", enum: agents, default: "claude" },
             parentWaitMinutes: {

@@ -107,6 +107,10 @@
         "output": "--allow-tool",
         "separators": "whitespace-comma-parentheses"
       }
+    },
+    "model": {
+      "flags": ["--model"],
+      "arguments": ["--model", "{value}"]
     }
   },
   "files": [

@@ -325,3 +325,33 @@ it("validates review creation, includes mode in idempotency and preserves the un
     status: "succeeded",
   });
 });
+
+it("validates author and reviewer selections before reserving or launching", async () => {
+  const h = harness();
+  const tree = await h.mutate("create_worktree", { branch: "selections" });
+  for (const selection of [
+    { model: "-bad" },
+    { effort: "unknown" },
+    { args: ["--bypass"] },
+    { review: { model: "white space" } },
+    { review: { agent: "opencode", effort: "high" } },
+  ]) {
+    await expect(
+      h.mutate("launch", { worktreeId: tree.resultId, agent: "claude", ...selection }),
+    ).rejects.toMatchObject({
+      code: "effort" in (selection.review ?? {}) ? "unsupported" : "invalid_request",
+    });
+  }
+  expect(h.host.launch).not.toHaveBeenCalled();
+  await h.mutate("launch", {
+    worktreeId: tree.resultId,
+    agent: "claude",
+    model: "author",
+    effort: "high",
+    review: { model: "reviewer", effort: "low" },
+  });
+  expect(h.host.launch.mock.calls.at(-1)?.[6]).toMatchObject({
+    selection: { model: "author", effort: "high" },
+    loop: { model: "reviewer", effort: "low" },
+  });
+});

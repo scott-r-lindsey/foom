@@ -172,3 +172,37 @@ it("parses review mode only with a PR number", () => {
   ])
     expect(() => command(args)).toThrow("invalid_request");
 });
+
+it("maps child and reviewer selections without accepting free-form argv", () => {
+  expect(
+    command([
+      "launch",
+      "tree",
+      "--agent",
+      "codex",
+      "--model",
+      "test/model",
+      "--effort",
+      "high",
+      "--review-model",
+      "reviewer",
+      "--review-effort",
+      "low",
+      ...key,
+    ]).params,
+  ).toEqual({
+    worktreeId: "tree",
+    agent: "codex",
+    model: "test/model",
+    effort: "high",
+    idempotencyKey: "retry-1",
+    review: { rounds: 3, agent: "claude", postFindings: false, model: "reviewer", effort: "low" },
+  });
+  for (const flag of ["--model", "--effort", "--review-model", "--review-effort"])
+    expect(() =>
+      command(["launch", "tree", "--agent", "codex", flag, "bad=value", ...key]),
+    ).toThrow("invalid_request");
+  expect(() =>
+    command(["launch", "tree", "--agent", "codex", "--args", "--bypass", ...key]),
+  ).toThrow("invalid_request");
+});

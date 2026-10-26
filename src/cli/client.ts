@@ -143,6 +143,7 @@ export function exchange(
 
 function serverError(value: unknown): ControlError {
   const codes = [
+    "unsupported",
     "invalid_request",
     "unauthorized",
     "forbidden",

@@ -26,3 +26,17 @@ patterns but raw paste stays local; main checks the loaded provider and ID again
 ## Detection bounds
 
 At most 64 rules, eight strings per matcher and 128 characters per pattern. Rules select working, blocked, idle or unknown and title, bottom or after_horizontal_rule regions. Match and optional not contain contains or regex arrays. Every regex uses `boundedRegex`; groups, repetition, alternation and backreferences are forbidden. The existing screen-tail and evaluation-budget limits apply.
+
+### Active screen sampling (#823)
+
+`attention.sampleWhileActive` is an optional boolean; omission disables sampling and
+stays absent in the parsed model, preserving existing provider consent identities. An agent
+whose spinner continuously redraws without changing its title can opt in to local
+screen evaluation during output. Main samples at most once per second per
+invocation, with at most one sample queued or in flight. There is no timer or
+background polling once output stops. A sample must match a declared non-unknown
+rule before classification; output bytes alone establish no execution state.
+The normal 40-line/500-character/5 ms limits and hook precedence still apply.
+Output, input, exit, removal and replacement invalidate asynchronous samples
+through the same revision and invocation checks as quiet evaluations. Pi enables
+this to observe its Working divider while its static title remains unchanged.

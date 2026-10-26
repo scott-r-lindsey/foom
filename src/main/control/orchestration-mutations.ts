@@ -1,3 +1,4 @@
+import { selectionInput, validateSelection } from "../../node-common/launch-selection";
 import { ApplicationError } from "../../shared/application-errors";
 import { RemovalError } from "../workspace/worktree-outcome";
 import type { RemovalReason } from "../workspace/worktree-outcome";
@@ -137,11 +138,13 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     params: Record<string, unknown>,
     operations: Operations,
   ): Promise<Operation> {
-    exact(params, ["idempotencyKey", "worktreeId", "agent", "prompt", "review"]);
+    exact(params, ["idempotencyKey", "worktreeId", "agent", "prompt", "review", "model", "effort"]);
     const key = identifier(params["idempotencyKey"]);
     const worktreeId = identifier(params["worktreeId"]);
     const agent = params["agent"];
     if (!knownAgentId(agent)) throw new ControlError("invalid_request");
+    const selection = selectionInput(params);
+    validateSelection(agentProvider(agent).model, selection);
     const review = params["review"] === undefined ? undefined : reviewOptions(params["review"]);
     if (
       review &&
@@ -150,6 +153,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         !agentProvider(agent).model.launch.resume)
     )
       throw new ControlError("invalid_request");
+    if (review) validateSelection(agentProvider(review.agent).model, review);
     if (review && this.host.reviewAvailable && !(await this.host.reviewAvailable(review.agent)))
       throw new ControlError("invalid_request");
     const prompt =
@@ -160,7 +164,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       actor,
       "launch",
       key,
-      JSON.stringify([worktreeId, agent, prompt ?? null, review ?? null]),
+      JSON.stringify([worktreeId, agent, prompt ?? null, review ?? null, selection]),
       worktreeId,
     );
     if (!operation.created) return publicOperation(operation);
@@ -188,10 +192,11 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         tree.identity,
         agent,
         review ? `${AUTHOR_REVIEW_BRIEF}\n\n${prompt ?? "Await your assigned task."}` : prompt,
-        ...(review
+        ...(review || selection.model !== undefined || selection.effort !== undefined
           ? [
               {
-                loop: review,
+                selection,
+                ...(review ? { loop: review } : {}),
                 validate: () => {
                   operations.lookup(actor, { operationId: operation.operationId });
                   this.parent(actor);

@@ -1,3 +1,4 @@
+import { selectionInput } from "../node-common/launch-selection";
 import { reviewOptions } from "../node-common/review";
 import { isChildInput } from "../shared/child-input";
 import { readHandoffRequest } from "../node-common/handoff";
@@ -150,11 +151,18 @@ function orchestration(name: string | undefined, words: string[]): Command {
       const agent = take("--agent");
       if (!validAgentId(agent)) throw new ControlError("invalid_request");
       params["agent"] = agent;
+      const model = take("--model");
+      const effort = take("--effort");
+      Object.assign(params, selectionInput({ model, effort }));
+      const reviewModel = take("--review-model");
+      const reviewEffort = take("--review-effort");
       const rounds = take("--review-rounds");
       const reviewer = take("--review-agent");
       const post = take("--review-post-findings");
       const parentWait = take("--review-parent-wait-minutes");
       if (
+        reviewModel !== undefined ||
+        reviewEffort !== undefined ||
         rounds !== undefined ||
         reviewer !== undefined ||
         post !== undefined ||
@@ -163,6 +171,8 @@ function orchestration(name: string | undefined, words: string[]): Command {
         if (post !== undefined && post !== "true" && post !== "false")
           throw new ControlError("invalid_request");
         params["review"] = reviewOptions({
+          ...(reviewModel === undefined ? {} : { model: reviewModel }),
+          ...(reviewEffort === undefined ? {} : { effort: reviewEffort }),
           ...(rounds === undefined ? {} : { rounds: integer(rounds, 5, 1) }),
           ...(reviewer === undefined ? {} : { agent: reviewer }),
           ...(post === undefined ? {} : { postFindings: post === "true" }),

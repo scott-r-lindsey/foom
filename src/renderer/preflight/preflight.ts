@@ -98,7 +98,7 @@ export function pollRows(
       detail: ready.length
         ? ready.map((agent) => agentName(agent.id)).join(", ")
         : report
-          ? "None ready. Install Claude Code, Codex or Antigravity, then scan again"
+          ? "None ready. Install a supported agent, then scan again"
           : "Still scanning",
       step: 1,
     },

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import opencode from "../../../shared/bundled-agents/opencode.json";
+import pi from "../../../shared/bundled-agents/pi.json";
 import agy from "../../../shared/bundled-agents/agy.json";
 import copilot from "../../../shared/bundled-agents/copilot.json";
 import codex from "../../../shared/bundled-agents/codex.json";
@@ -26,28 +27,29 @@ export const bundledProviders: readonly AgentProvider[] = [
   bundledProvider(
     claude,
     "claude",
-    "68bcf38cd5432680ce3d293b6a453129aa8b59dafd98127b5d51e0a085973dd5",
+    "7741c7d4fc2ba9197ae2cdf9c3f0c6e6bd2fc5332bd94d8939d9b9c639bc6d03",
   ),
   bundledProvider(
     codex,
     "codex",
-    "e5afbef90ce00779271cbebb22f0571f76446d16ef355674d7ebd8e9a3061c9d",
+    "76f9ed4ee169e3aae2c7ec7956f4a24dce3baae34089a0f7a279560ab213348e",
   ),
-  bundledProvider(agy, "agy", "db7f8b59d03461d2d7e7d1d1af8f54419ba76e9f625b3b083e5b83c15d8fb668"),
+  bundledProvider(agy, "agy", "023953c72d36e8500cbbb1039353c23a1afbbd3a0010f2eeb6cd84528cd0f640"),
   bundledProvider(
     copilot,
     "copilot",
-    "d06d9f7f37417e2fb022e15d257aefe5005861b023af420655b6706088c5c088",
+    "488e9800fe5cee3327a44f5095aa492f33ec4d6ff0ea1de4257e8cf73f087a5d",
   ),
   bundledProvider(
     opencode,
     "opencode",
-    "c732911ab07e95876cf273d9a7cd1aa0a889a8a90c5078fb1884665ee8dc6508",
+    "050f6a0f72b29e98b7c6e11941812eeb90cd4b8c2a39113654d84336c318a943",
   ),
+  bundledProvider(pi, "pi", "2aa9b1fe9a4de01c91e5523aaa7e78d2d604291a5fc241beb2954f4f159125d8"),
 ];
 
 /** Build-owned migrations: retain old config rows, but require an explicit bundled resume. */
-export const formerConfigAgentIds: readonly string[] = ["opencode"];
+export const formerConfigAgentIds: readonly string[] = ["opencode", "pi"];
 
 /** Historical build identities: these IDs were reserved before config providers existed.
  * Never extend this attestation to a newly bundled ID or repin it for a changed policy.

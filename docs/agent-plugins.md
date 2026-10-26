@@ -38,7 +38,7 @@ See [Bundled manifest delivery (#434)](contracts/agent-compatibility.md#bundled-
 
 ## Complete manifests
 
-The shipped, build-locked JSON is authoritative: [Claude Code](../src/shared/bundled-agents/claude.json), [Codex](../src/shared/bundled-agents/codex.json), [Antigravity](../src/shared/bundled-agents/agy.json), [GitHub Copilot](../src/shared/bundled-agents/copilot.json), [OpenCode](../src/shared/bundled-agents/opencode.json). Config copies must change ID and name; see [customization](contracts/agent-trust.md#customizing-a-built-in-agent). Copilot 1.0.103 Linux measurements are recorded in [the agent evidence](agents.md#github-copilot-cli-410); the [older draft](research/copilot-manifest.md) is historical only.
+The shipped, build-locked JSON is authoritative: [Claude Code](../src/shared/bundled-agents/claude.json), [Codex](../src/shared/bundled-agents/codex.json), [Antigravity](../src/shared/bundled-agents/agy.json), [GitHub Copilot](../src/shared/bundled-agents/copilot.json), [OpenCode](../src/shared/bundled-agents/opencode.json), [Pi](../src/shared/bundled-agents/pi.json). Config copies must change ID and name; see [customization](contracts/agent-trust.md#customizing-a-built-in-agent). Copilot 1.0.103 Linux measurements are recorded in [the agent evidence](agents.md#github-copilot-cli-410); the [older draft](research/copilot-manifest.md) is historical only.
 
 ## Open questions and shipping gates
 

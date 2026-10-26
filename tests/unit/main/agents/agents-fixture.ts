@@ -53,6 +53,7 @@ export const versions: Record<string, string> & {
   opencode: "opencode v2.0.32",
 
   copilot: "GitHub Copilot CLI 1.0.103.",
+  pi: "1.4.0",
 };
 export const listWorktrees = vi.fn();
 export const launchIdentity = vi.fn(() => Promise.resolve("identity"));

@@ -50,7 +50,7 @@ test("go / no-go needs a ready agent and a repository", () => {
     ["Agents", 1],
     ["Repositories", 2],
   ]);
-  expect(none[0]?.detail).toMatch(/Install Claude Code, Codex or Antigravity/);
+  expect(none[0]?.detail).toMatch(/Install a supported agent/);
   expect(none[1]?.detail).toBe("Nothing to watch yet");
   expect(none.map((row) => row.system)).toEqual(["Agents", "Signals", "Repositories"]);
   expect(pollRows(setupState(), undefined, [])[0]?.detail).toBe("Still scanning");

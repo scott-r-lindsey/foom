@@ -1,3 +1,4 @@
+import { restoreBoardFocus } from "./focus-restore";
 import { createContext, useCallback, use, useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -130,7 +131,7 @@ export function ActionError({
     dialog?.focus();
     return () => {
       dialog?.close();
-      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+      restoreBoardFocus(previous);
     };
   }, []);
   return createPortal(
