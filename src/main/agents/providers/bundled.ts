@@ -49,7 +49,7 @@ export const bundledProviders: readonly AgentProvider[] = [
 ];
 
 /** Build-owned migrations: retain old config rows, but require an explicit bundled resume. */
-export const formerConfigAgentIds: readonly string[] = ["opencode"];
+export const formerConfigAgentIds: readonly string[] = ["opencode", "pi"];
 
 /** Historical build identities: these IDs were reserved before config providers existed.
  * Never extend this attestation to a newly bundled ID or repin it for a changed policy.

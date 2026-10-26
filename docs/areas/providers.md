@@ -107,6 +107,12 @@ a custom provider identity, or an identity for an older manifest cannot authoriz
 `--approve` or `-a`. Cancelling disclosure saves no new consent; approving a single
 launch does not grant persistent Settings consent.
 
+Saved rows from a former `agents/pi.json` provider retain `providerOrigin: config`
+and their conversation IDs alongside unrelated saved sessions. The shared
+former-config migration keeps those Pi rows dormant, excludes them from automatic
+launch and grants no orchestration role or authority. Explicit Resume resolves the
+bundled provider and uses fresh launch bindings.
+
 ### Bundled OpenCode (#824)
 
 OpenCode joins the build-locked v2 catalog and provider-driven Settings cards.
