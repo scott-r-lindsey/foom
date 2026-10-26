@@ -1,4 +1,4 @@
-import { builtinAgent } from "../../shared/providers/catalog";
+import { BUILTIN_AGENTS } from "../../shared/providers/catalog";
 import type { AgentId } from "../../shared/agents";
 import { conversationId } from "../../shared/conversation";
 
@@ -14,14 +14,9 @@ export function parseResume(
   const parts = trimmed.split(/[ \t]+/u);
   const [command, option, id] = parts;
   if (parts.length !== 3 || !conversationId(id)) return;
-  const agent = ["claude", "codex", "agy"]
-    .map(builtinAgent)
-    .find(
-      (entry) =>
-        entry !== undefined &&
-        entry.command === command &&
-        entry.resume.some((selector) => selector === option),
-    );
+  const agent = BUILTIN_AGENTS.find(
+    (entry) => entry.command === command && entry.resume.some((selector) => selector === option),
+  );
   const matches = new Set(
     patterns
       .filter((entry) => entry.command === command && entry.selector === option)

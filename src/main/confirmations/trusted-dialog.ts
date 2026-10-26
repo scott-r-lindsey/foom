@@ -73,7 +73,7 @@ export class TrustedDialog {
     }
     if (this.removalFeed) {
       if (accepted === false) {
-        this.finish(false);
+        this.finish(false, true);
         return;
       }
       const ids = new Set(this.pending.request.removals?.map((item) => item.id));
@@ -81,7 +81,7 @@ export class TrustedDialog {
         const item = this.removalFeed.current()[0];
         if (accepted !== true || !item) return;
         this.removalFeed.select([item.id]);
-        this.finish(true);
+        this.finish(true, true);
         return;
       }
       if (
@@ -92,7 +92,7 @@ export class TrustedDialog {
       )
         return;
       this.removalFeed.select(accepted);
-      this.finish(true);
+      this.finish(true, true);
       return;
     }
     if (typeof accepted !== "boolean") return;
@@ -100,7 +100,7 @@ export class TrustedDialog {
       this.feed.act();
       return;
     }
-    this.finish(accepted);
+    this.finish(accepted, true);
   };
   private readonly resize = (event: IpcMainEvent, value: unknown) => {
     const contents = this.window?.webContents;
@@ -205,7 +205,7 @@ export class TrustedDialog {
     });
     window.on("close", (event) => {
       event.preventDefault();
-      this.finish(false);
+      this.finish(false, true);
     });
     window.webContents.on("render-process-gone", () => {
       this.finish(false);
@@ -280,7 +280,7 @@ export class TrustedDialog {
           this.refresh();
         });
       const cancel = () => {
-        if (this.pending && this.removalFeed === removalFeed) this.finish(false);
+        if (this.pending && this.removalFeed === removalFeed) this.finish(false, true);
       };
       signal?.addEventListener("abort", cancel, { once: true });
       this.parentEnabled = this.parent.isEnabled();
@@ -479,10 +479,20 @@ export class TrustedDialog {
     this.present();
     this.watchReachability();
   };
-  private finish(accepted: boolean): void {
+  private finish(accepted: boolean, restoreFocus = false): void {
     const pending = this.pending;
-    this.pending = undefined;
     if (!pending) return;
+    // Decide before hide() relinquishes native focus. Availability failures must
+    // never activate the board, nor may an abort after the person switches apps.
+    const restore =
+      restoreFocus &&
+      !this.disposed &&
+      !this.parent.isDestroyed() &&
+      this.parent.isVisible() &&
+      !this.parent.isMinimized() &&
+      pending.request.presented &&
+      this.isReachable();
+    this.pending = undefined;
     if (!accepted) this.removalFeed?.select([]);
     clearTimeout(this.settling);
     this.settling = undefined;
@@ -511,10 +521,15 @@ export class TrustedDialog {
     screen.removeListener("display-removed", this.restoreDialog);
     this.parent.removeListener("focus", this.restoreDialog);
     if (!this.parent.isDestroyed()) {
-      this.parentContents.send("confirmation:scrim", false);
       if (this.platform === "darwin") this.parent.setFocusable(this.parentFocusable);
       else if (this.platform === "win32") this.parent.setEnabled(this.parentEnabled);
-      this.parent.focus();
+      if (restore) {
+        this.parent.focus();
+        this.parentContents.focus();
+      }
+      // The renderer must not select its input while the Windows board is
+      // still disabled or before native web focus has been requested.
+      this.parentContents.send("confirmation:scrim", false);
     }
     // Leave Electron's native IPC/close callback before resuming shutdown work.
     setImmediate(() => {

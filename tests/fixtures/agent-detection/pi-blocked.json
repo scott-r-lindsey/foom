@@ -1,0 +1,25 @@
+{
+  "agent": "pi",
+  "version": "1.4.0",
+  "state": "blocked",
+  "platform": "linux",
+  "date": "2026-10-25",
+  "size": {
+    "cols": 80,
+    "rows": 24
+  },
+  "rules": ["model-selection"],
+  "titles": ["π - <temporary directory basename>"],
+  "progress": null,
+  "tail": [
+    "Created ready.txt containing only ready.",
+    "────────────────────────────────────────────────────────────────────────────────",
+    "Only showing models from configured providers. Use /login to add providers.",
+    ">",
+    "→ ✓ gpt-6.1-sol [openai]",
+    "  (1/42)",
+    "  Model Name: GPT-6.1 Sol",
+    "  Model catalogs refreshed.",
+    "<temporary directory>"
+  ]
+}

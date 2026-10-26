@@ -305,6 +305,53 @@ test.each([
   },
 );
 
+test.each(["--approve", "-a"])(
+  "Pi %s requires fresh consent for legacy/custom and changed provider identities",
+  async (bypass) => {
+    const provider = agentProvider("pi");
+    const current = bypassConsentIdentity(provider);
+    const identities = [
+      undefined, // An old profile has only agentBypassAcknowledged.pi=true.
+      bypassConsentIdentity({ ...provider, origin: "config" }),
+      bypassConsentIdentity({
+        ...provider,
+        model: { ...provider.model, executables: ["former-pi"] },
+      }),
+      bypassConsentIdentity({
+        ...provider,
+        model: { ...provider.model, bypassArguments: [] },
+      }),
+    ];
+    expect(current).toEqual(expect.any(String));
+    for (const identity of identities) {
+      expect(identity).not.toBe(current);
+      const agentArguments = { ...DEFAULT_SETTINGS.agentArguments, pi: [bypass] };
+      settings = {
+        ...DEFAULT_SETTINGS,
+        agentArguments,
+        agentBypassAcknowledged: { ...DEFAULT_SETTINGS.agentBypassAcknowledged, pi: true },
+        agentBypassIdentities: identity ? { pi: identity } : {},
+      };
+      const before = settings;
+      const confirm = vi.fn(() => Promise.resolve(false));
+      const setup = new Setup({ ...deps, confirmBypass: confirm });
+      vi.mocked(deps.store.update).mockClear();
+      await expect(setup.save({ agentArguments })).rejects.toThrow("cancelled");
+      expect(confirm).toHaveBeenCalledExactlyOnceWith("pi", [bypass]);
+      expect(deps.store.update).not.toHaveBeenCalled();
+      expect(settings).toBe(before);
+      // Cancellation leaves stale consent stale on the next save too.
+      await expect(setup.save({ agentArguments })).rejects.toThrow("cancelled");
+      expect(settings).toBe(before);
+      confirm.mockResolvedValue(true);
+      await setup.save({ agentArguments });
+      expect(settings.agentBypassIdentities?.["pi"]).toBe(current);
+      await setup.save({ agentArguments });
+      expect(confirm).toHaveBeenCalledTimes(3);
+    }
+  },
+);
+
 test("legacy ID-only acknowledgements require fresh disclosure and unknown IDs cannot grant consent", async () => {
   expect(bypassConsentIdentity("missing-provider")).toBeUndefined();
   settings = {
@@ -322,7 +369,7 @@ test("legacy ID-only acknowledgements require fresh disclosure and unknown IDs c
   expect(confirm).toHaveBeenCalledExactlyOnceWith("claude", ["--dangerously-skip-permissions"]);
 });
 
-test("historical built-in consent remains valid only for its pinned provider identity", async () => {
+test("changed built-in manifests require fresh disclosure for historical consent", async () => {
   settings = {
     ...DEFAULT_SETTINGS,
     agentBypassAcknowledged: { claude: true, codex: true, agy: true },
@@ -330,14 +377,21 @@ test("historical built-in consent remains valid only for its pinned provider ide
   };
   const confirm = vi.fn(() => Promise.resolve(false));
   const setup = new Setup({ ...deps, confirmBypass: confirm });
-  await setup.save({
-    agentArguments: {
-      claude: ["--dangerously-skip-permissions"],
-      codex: ["--dangerously-bypass-approvals-and-sandbox"],
-      agy: ["--dangerously-skip-permissions"],
-    },
-  });
-  expect(confirm).not.toHaveBeenCalled();
+  const agentArguments = {
+    claude: ["--dangerously-skip-permissions"],
+    codex: ["--dangerously-bypass-approvals-and-sandbox"],
+    agy: ["--dangerously-skip-permissions"],
+  };
+  await expect(setup.save({ agentArguments })).rejects.toThrow("cancelled");
+  expect(settings.agentBypassIdentities).toEqual(legacyBypassIdentities);
+  expect(confirm).toHaveBeenCalledExactlyOnceWith("claude", agentArguments.claude);
+  confirm.mockResolvedValue(true).mockClear();
+  await setup.save({ agentArguments });
+  expect(confirm).toHaveBeenCalledTimes(3);
+  for (const id of ["claude", "codex", "agy"])
+    expect(settings.agentBypassIdentities?.[id]).toBe(bypassConsentIdentity(id));
+  await setup.save({ agentArguments });
+  expect(confirm).toHaveBeenCalledTimes(3);
 });
 
 test("failed persistence does not remember bypass acknowledgement", async () => {

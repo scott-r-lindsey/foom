@@ -282,3 +282,41 @@ it("launches an external checkout without a creation record", async () => {
   expect(launchIdentity).toHaveBeenCalledWith(root, tree);
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ cwd: tree }));
 });
+
+describe("per-child selections", () => {
+  it("refuses invalid values before discovery or terminal creation", async () => {
+    await expect(
+      agentFixture.service.launch({ ...request, selection: { model: "--bad" } }),
+    ).rejects.toThrow("invalid_request");
+    expect(execFile).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["--model", "old", "--dangerously-skip-permissions"],
+    ["--model", "--dangerously-skip-permissions"],
+  ])("keeps bypass refusal on the final expanded argv %j", async (...defaults) => {
+    await expect(
+      agentFixture.service.launch({
+        ...request,
+        control: { parentId: "parent" },
+        defaultArguments: defaults,
+        selection: { model: "new", effort: "high" },
+      }),
+    ).rejects.toThrow("Unattended child bypass is unavailable");
+    expect(create).not.toHaveBeenCalled();
+  });
+  it("replaces defaults and preserves unrelated arguments", async () => {
+    await agentFixture.service.launch({
+      ...request,
+      defaultArguments: ["--model=old", "--verbose"],
+      selection: { model: "new", effort: "low" },
+    });
+    expect(create.mock.calls[0]?.[0].args.slice(0, 5)).toEqual([
+      "--verbose",
+      "--model",
+      "new",
+      "--effort",
+      "low",
+    ]);
+  });
+});

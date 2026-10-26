@@ -1,3 +1,4 @@
+import { restoreBoardFocus } from "./focus-restore";
 import { registerErrorFocus } from "./error-presentation";
 import { AgentBadge } from "./agent-badge";
 import { CommandGlyph, PanelMark } from "./panel-glyphs";
@@ -89,6 +90,14 @@ export function RowMenu({
   const [selected, setSelected] = useState<number>();
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
+    const menu = ref.current;
+    return () => {
+      // Scroll, resize and programmatic closure can remove the focused item.
+      // An outside click that already moved focus retains its chosen target.
+      if (menu?.contains(document.activeElement)) restoreBoardFocus(anchor);
+    };
+  }, [anchor]);
+  useLayoutEffect(() => {
     const element = ref.current;
     if (element) return registerErrorFocus(element, anchor, close);
     return undefined;
@@ -97,7 +106,7 @@ export function RowMenu({
     () =>
       confirmations?.onDialog?.(() => {
         close();
-        anchor.focus({ preventScroll: true });
+        restoreBoardFocus(anchor);
       }),
     [confirmations, close, anchor],
   );
@@ -199,7 +208,7 @@ export function RowMenu({
         // Pressing a disabled item leaves focus on the body, outside the menu's handler.
         event.preventDefault();
         close();
-        anchor.focus({ preventScroll: true });
+        restoreBoardFocus(anchor);
       }
     };
     document.addEventListener("keydown", escape);
@@ -259,7 +268,7 @@ export function RowMenu({
           if (event.key === "Escape") event.preventDefault();
           event.stopPropagation();
           close();
-          anchor.focus({ preventScroll: true });
+          restoreBoardFocus(anchor);
         } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
           event.preventDefault();
           const next =
@@ -377,7 +386,7 @@ export function RowMenu({
                   setSelected(index);
                   void confirmation.run(action.run, () => {
                     close();
-                    anchor.focus({ preventScroll: true });
+                    restoreBoardFocus(anchor);
                   });
                 }}
               >
@@ -408,11 +417,11 @@ export function RowMenu({
             focus: sub.focus,
             back: () => {
               setSub(undefined);
-              sub.anchor.focus({ preventScroll: true });
+              restoreBoardFocus(sub.anchor);
             },
             dismiss: () => {
               close();
-              anchor.focus({ preventScroll: true });
+              restoreBoardFocus(anchor);
             },
           }}
         />

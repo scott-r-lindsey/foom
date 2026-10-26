@@ -108,3 +108,22 @@ motion. Linux explicitly uses SwiftShader software WebGL, so GPU-process CPU
 is software-rendering work, not a hardware GPU-utilization measurement. Reports
 and traces go to ignored `test-results/flight-725/`; screenshots go to untracked
 `screenshots-725/`. No real agent CLI or everyday profile is used.
+
+## Modal focus restoration (#852)
+
+Settings and Action Log retain the last focused board element while covered.
+Closing them restores that element, including an xterm textarea, rather than
+always selecting a sidebar row. Interim tile focus while reattaching does not
+replace the saved xterm target, including during rapid Settings reopening.
+Trusted scrims, About, legal views, action errors
+and menu dismissal share `board/focus-restore.ts` for detached or unfocusable
+opener fallback. A coalesced prepare/dismiss pair still commits its dismissal effect, even when
+the final visible flag is unchanged. Serial handoffs retain the original focus
+until the scrim is actually removed, with a stable native-popover ref.
+Scrim restoration runs in a layout effect after removing the top-layer popover;
+its native focus cleanup must finish before selecting the fallback. A closed
+terminal falls back to the stable sidebar navigation root ahead of session rows,
+which can disappear when a later workspace snapshot reaches the renderer.
+Restoration requires no delayed focus retry. DOM restoration
+never requests native app activation. Native
+trusted-window restoration follows the [confirmation rules](confirmations.md#focus-restoration-852).

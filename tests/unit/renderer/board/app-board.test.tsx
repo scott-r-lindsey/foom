@@ -139,16 +139,47 @@ test("main's cosmetic scrim follows visibility and unsubscribes when the app unm
   });
   const view = render(<App />);
   await settle();
+  const input = document.createElement("textarea");
+  view.container.append(input);
+  input.focus();
+  // The board may process preparation and cancellation in one React batch.
   act(() => {
     receive(true);
+    receive(false);
+    input.blur();
   });
+  expect(document.activeElement).toBe(input);
+  act(() => {
+    receive(false);
+    receive(true);
+    receive(true);
+  });
+  input.blur();
+  act(() => {
+    receive(false);
+    receive(true);
+  });
+  expect(showPopover).toHaveBeenCalledOnce();
   expect(
     view.container.querySelector(".board-confirmation-scrim")?.getAttribute("aria-hidden"),
   ).toBe("true");
   act(() => {
     receive(false);
+    // Native popover dismissal can clear focus before React commits removal.
+    input.blur();
   });
   expect(view.container.querySelector(".board-confirmation-scrim")).toBeNull();
+  expect(document.activeElement).toBe(input);
+  act(() => {
+    receive(true);
+  });
+  act(() => {
+    receive(false);
+  });
+  const other = document.createElement("button");
+  view.container.append(other);
+  other.focus();
+  expect(document.activeElement).toBe(other);
   expect(showPopover).toHaveBeenCalled();
   view.unmount();
   Reflect.deleteProperty(HTMLElement.prototype, "showPopover");
@@ -291,4 +322,32 @@ test.each([
   expect(view.getByRole("dialog", { name: "About Foom" })).toBe(about);
   view.unmount();
   expect(off).toHaveBeenCalledOnce();
+});
+
+test("Settings queues terminal input focus after reattaching its original xterm", async () => {
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [agent("a")] });
+  const screen = render(<App />);
+  await settle();
+  fireEvent.click(screen.getByRole("treeitem", { name: /Running/ }));
+  await settle();
+  const input = document.createElement("textarea");
+  input.className = "xterm-helper-textarea";
+  screen.container.querySelector(".tile-terminal")?.append(input);
+  act(() => {
+    input.focus();
+  });
+  act(() => mock.command?.("settings"));
+  await settle();
+  input.hidden = true;
+  mock.focus.mockClear();
+  fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "Escape" });
+  await settle();
+  expect(mock.focus).toHaveBeenCalledOnce();
+  // Reopen while the asynchronous view would still be hidden, then finish it.
+  act(() => mock.command?.("settings"));
+  await settle();
+  input.hidden = false;
+  fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "Escape" });
+  await settle();
+  expect(document.activeElement).toBe(input);
 });

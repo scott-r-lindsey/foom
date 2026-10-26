@@ -70,7 +70,13 @@ export async function launchAgent(
   replacement?: { id: string; conversationId?: string },
   extra: Pick<
     AgentLaunch,
-    "control" | "prompt" | "conversationId" | "pinConversation" | "beforeSpawn" | "loop"
+    | "control"
+    | "prompt"
+    | "conversationId"
+    | "pinConversation"
+    | "beforeSpawn"
+    | "loop"
+    | "selection"
   > = {},
 ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
   return this.withRepository(request.repository, async () => {
@@ -123,7 +129,8 @@ export async function launchAgent(
         : {}),
       ...(result.providerOrigin ? { providerOrigin: result.providerOrigin } : {}),
       startedAt: this.now(),
-      launchFlags: [...defaultArguments],
+      launchFlags: [...(result.launchFlags ?? defaultArguments)],
+      ...(extra.selection ? { selection: extra.selection } : {}),
       ...(result.environment?.length ? { environment: [...result.environment] } : {}),
       kind: "agent",
       agent: request.agent,

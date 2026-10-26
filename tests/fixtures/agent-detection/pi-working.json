@@ -1,0 +1,22 @@
+{
+  "agent": "pi",
+  "version": "1.4.0",
+  "state": "working",
+  "platform": "linux",
+  "date": "2026-10-25",
+  "size": {
+    "cols": 80,
+    "rows": 24
+  },
+  "rules": ["working"],
+  "titles": ["π - <temporary directory basename>"],
+  "progress": null,
+  "tail": [
+    "reply with the word ready",
+    "── ⠋ Working ───────────────────────────────────────────────────────────────────",
+    "",
+    "────────────────────────────────────────────────────────────────────────────────",
+    "<temporary directory>",
+    "$0.000 (sub) 0.5%/272k (auto)                      gpt-6.1-sol • medium"
+  ]
+}

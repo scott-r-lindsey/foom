@@ -1480,3 +1480,254 @@ test("trusted confirmations keep their first shown bounds while the parent is st
     }
   }
 });
+
+// Use the production main-only dialog API with a harmless action so approval
+// leaves the shell alive. No renderer capability is added for these fixtures.
+async function focusRestoreDialog(app) {
+  const mainModule = path.resolve("build/main/confirmations/trusted-dialog.js");
+  await app.evaluate(({ BrowserWindow, session }, mainModule) => {
+    const load = process.getBuiltinModule("node:module").createRequire(mainModule);
+    const { TrustedDialog } = load(mainModule);
+    const { resolveInterfaceTheme } = load("../../shared/interface-themes.js");
+    const parent = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    globalThis.focusRestoreDialog = new TrustedDialog(
+      parent,
+      session.fromPartition("confirmation"),
+      () => resolveInterfaceTheme("follow", false),
+    );
+  }, mainModule);
+}
+async function escapeFocusedConfirmation(app) {
+  // CDP keyboard.press sends key-up to its original page even after key-down
+  // dismisses it. Follow native focus, as the terminal typing assertions do.
+  await app.evaluate(({ webContents }) => {
+    const contents = webContents.getFocusedWebContents();
+    if (!contents || contents.getURL() !== "app://confirmation/confirmation.html")
+      throw Error("The trusted confirmation must own native keyboard focus");
+    contents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    contents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+  });
+}
+async function requestFocusRestore(app) {
+  await app.evaluate(() => {
+    globalThis.focusRestoreAbort = new AbortController();
+    globalThis.focusRestoreAnswer = undefined;
+    void globalThis.focusRestoreDialog
+      .request(
+        { title: "Focus restoration", accept: "Approve" },
+        globalThis.focusRestoreAbort.signal,
+      )
+      .then((answer) => {
+        globalThis.focusRestoreAnswer = answer;
+      });
+  });
+  let page;
+  await expect
+    .poll(async () => {
+      for (const candidate of app.windows()) {
+        if (await candidate.getByRole("alertdialog", { name: "Focus restoration" }).count()) {
+          page = candidate;
+          return true;
+        }
+      }
+      return false;
+    })
+    .toBe(true);
+  await expect(page.getByRole("button", { name: "Approve", exact: true })).toBeEnabled();
+  await assertConfirmationFocus(
+    app,
+    page,
+    page.getByRole("button", { name: "Cancel", exact: true }),
+  );
+  return page;
+}
+
+test("modal dismissal restores the same terminal input for cancel, approve, Escape, abort and Settings", async (context) => {
+  const { typeIntoFocusedContents } = require("./preview-fixture.js");
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const board = await boardPage(app);
+  const id = await board.evaluate(async () => (await window.desktop.workspace()).terminals[0].id);
+  await board.locator(".xterm-helper-textarea").focus();
+  await focusRestoreDialog(app);
+  try {
+    for (const action of ["Cancel", "Approve", "Escape", "abort"]) {
+      const dialog = await requestFocusRestore(app);
+      if (action === "abort") await app.evaluate(() => globalThis.focusRestoreAbort.abort());
+      else if (action === "Escape") await escapeFocusedConfirmation(app);
+      else await dialog.getByRole("button", { name: action, exact: true }).click();
+      await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+      await expect
+        .poll(() => app.evaluate(() => globalThis.focusRestoreAnswer))
+        .toBe(action === "Approve");
+      await expect(board.locator(".xterm-helper-textarea")).toBeFocused();
+      await expect
+        .poll(() =>
+          app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()),
+        )
+        .toBe("app://bundle/index.html");
+      const text = `focus${action.toLowerCase()}`;
+      await typeIntoFocusedContents(app, text);
+      await expect
+        .poll(async () => (await board.evaluate((id) => window.desktop.tail(id, 30), id)).join(""))
+        .toContain(text);
+    }
+    await board.evaluate(() => window.desktop.appMenu.execute("about"));
+    await expect(board.getByRole("dialog", { name: "About Foom" })).toBeVisible();
+    await board.keyboard.press("Escape");
+    await expect(board.getByRole("dialog", { name: "About Foom" })).toHaveCount(0);
+    await expect(board.locator(".xterm-helper-textarea")).toBeFocused();
+    await typeIntoFocusedContents(app, "aboutrestored");
+    await expect
+      .poll(async () => (await board.evaluate((id) => window.desktop.tail(id, 30), id)).join(""))
+      .toContain("aboutrestored");
+    await board.evaluate(() => window.desktop.appMenu.execute("settings"));
+    await expect(board.getByRole("heading", { name: "General", exact: true })).toBeFocused();
+    await board.keyboard.press("Escape");
+    await expect(board.getByRole("region", { name: "Settings" })).toHaveCount(0);
+    await expect(board.locator(".xterm-helper-textarea")).toBeFocused();
+    await typeIntoFocusedContents(app, "settingsrestored");
+    await expect
+      .poll(async () => (await board.evaluate((id) => window.desktop.tail(id, 30), id)).join(""))
+      .toContain("settingsrestored");
+    await board.evaluate(() => {
+      window.closedFocusTrace = [];
+      const record = (kind, target = document.activeElement) => {
+        window.closedFocusTrace.push({
+          kind,
+          time: performance.now(),
+          tag: target instanceof Element ? target.tagName : null,
+          className: target instanceof Element ? target.getAttribute("class") : null,
+          active: document.activeElement?.tagName,
+          focused: document.hasFocus(),
+          scrim: Boolean(document.querySelector(".board-confirmation-scrim")),
+        });
+        if (window.closedFocusTrace.length > 32) window.closedFocusTrace.shift();
+      };
+      const entered = (event) => record("focusin", event.target);
+      const left = (event) => record("focusout", event.target);
+      document.addEventListener("focusin", entered);
+      document.addEventListener("focusout", left);
+      const focus = HTMLElement.prototype.focus;
+      HTMLElement.prototype.focus = function (...args) {
+        record("focus-attempt", this);
+        return focus.apply(this, args);
+      };
+      const off = window.desktop.confirmations.onScrim((visible) => record(`scrim:${visible}`));
+      window.stopClosedFocusTrace = () => {
+        off();
+        document.removeEventListener("focusin", entered);
+        document.removeEventListener("focusout", left);
+        HTMLElement.prototype.focus = focus;
+      };
+    });
+    await requestFocusRestore(app);
+    await board.evaluate((id) => window.desktop.kill(id), id);
+    await expect
+      .poll(() =>
+        board.evaluate(
+          async (id) =>
+            (await window.desktop.workspace()).terminals.some((terminal) => terminal.id === id),
+          id,
+        ),
+      )
+      .toBe(false);
+    await expect(board.locator(".xterm-helper-textarea")).toBeHidden();
+    // With no remaining sessions the compact rail has no row or visible wordmark.
+    await board.evaluate(() => window.desktop.appMenu.execute("toggle-sidebar"));
+    await expect(board.locator(".sidebar-shell")).toHaveAttribute("data-compact", "true");
+    await escapeFocusedConfirmation(app);
+    await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+    try {
+      await expect(board.getByRole("navigation", { name: "Terminal sidebar" })).toBeFocused();
+    } catch (error) {
+      console.error(
+        "Closed-terminal focus diagnostics",
+        JSON.stringify({
+          document: await board.evaluate(() => ({
+            focused: document.hasFocus(),
+            tag: document.activeElement?.tagName,
+            className: document.activeElement?.className,
+            role: document.activeElement?.getAttribute("role"),
+            trace: window.closedFocusTrace,
+            sidebar: Array.from(document.querySelectorAll(".board-list"), (element) => ({
+              connected: element.isConnected,
+              inert: Boolean(element.closest("[inert]")),
+              hidden: Boolean(element.closest("[hidden]")),
+              display: getComputedStyle(element).display,
+              visibility: getComputedStyle(element).visibility,
+              width: element.getBoundingClientRect().width,
+              height: element.getBoundingClientRect().height,
+            })),
+          })),
+          windows: await app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows().map((window) => ({
+              url: window.webContents.getURL(),
+              focused: window.isFocused(),
+              contentsFocused: window.webContents.isFocused(),
+              enabled: window.isEnabled(),
+              visible: window.isVisible(),
+            })),
+          ),
+        }),
+      );
+      throw error;
+    }
+  } finally {
+    await board.evaluate(() => window.stopClosedFocusTrace?.());
+    await app.evaluate(() => globalThis.focusRestoreDialog.dispose());
+  }
+});
+
+test("inactive agent confirmation dismissal preserves the other application's native focus", async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const board = await boardPage(app);
+  // Start both processes before raising consent: the existing reachability
+  // guard must not compete with the second launch's native-readiness gate.
+  const other = await launchApp(context, { fixture: "empty-board" });
+  await app.evaluate(({ app, BrowserWindow }) => {
+    if (process.platform === "darwin") app.focus({ steal: true });
+    const board = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    board.focus();
+    board.webContents.focus();
+  });
+  await focusRestoreDialog(app);
+  try {
+    await requestFocusRestore(app);
+    // Another isolated application process is the native first responder.
+    await other.evaluate(({ app, BrowserWindow }) => {
+      if (process.platform === "darwin") app.focus({ steal: true });
+      const board = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      board.focus();
+      board.webContents.focus();
+    });
+    await expect
+      .poll(() => app.evaluate(() => globalThis.focusRestoreDialog.window.isFocused()))
+      .toBe(false);
+    await app.evaluate(() => globalThis.focusRestoreAbort.abort());
+    await expect.poll(() => app.evaluate(() => globalThis.focusRestoreAnswer)).toBe(false);
+    await expect(board.locator(".board-confirmation-scrim")).toHaveCount(0);
+    await board.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    assert.equal(
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows().some((window) => window.isFocused()),
+      ),
+      false,
+    );
+    assert.equal(
+      await other.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows().some((window) => window.isFocused()),
+      ),
+      true,
+    );
+  } finally {
+    await app.evaluate(() => globalThis.focusRestoreDialog.dispose());
+  }
+});

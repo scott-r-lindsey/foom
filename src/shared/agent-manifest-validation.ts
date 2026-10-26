@@ -142,6 +142,7 @@ export function validateV2(manifest: AgentManifestV2): void {
   unique(channels, "$.hooks.channels", (channel) => channel.id);
   unique(manifest.files, "$.files", (file) => file.name);
   unique(manifest.launch.order, "$.launch.order");
+  unique(manifest.launch.valueFlags ?? [], "$.launch.valueFlags");
   unique(manifest.attention.rules, "$.attention.rules", (rule) => rule.id);
   unique(metadata, "$.setup.status.metadata", (entry) => entry.id);
   unique(manifest.resumePaste, "$.resumePaste", (entry) => `${entry.command} ${entry.selector}`);
