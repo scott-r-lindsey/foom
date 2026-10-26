@@ -139,6 +139,10 @@
       "format": "server-underscore",
       "arguments": [],
       "fileRules": "action-resource"
+    },
+    "model": {
+      "flags": ["--model", "-m"],
+      "arguments": ["--model", "{value}"]
     }
   },
   "files": [

@@ -206,3 +206,19 @@ test("footer panel aligns its bottom with the gear and points at it", () => {
   width.mockRestore();
   sidebar.remove();
 });
+
+test("programmatic menu dismissal restores its anchor and respects focus moved elsewhere", () => {
+  const anchor = document.createElement("button");
+  const other = document.createElement("input");
+  document.body.append(anchor, other);
+  const props = { anchor, actions: [{ label: "Action", run: vi.fn() }], close: vi.fn() };
+  const menu = render(<RowMenu {...props} />);
+  menu.unmount();
+  expect(document.activeElement).toBe(anchor);
+  const next = render(<RowMenu {...props} />);
+  other.focus();
+  next.unmount();
+  expect(document.activeElement).toBe(other);
+  anchor.remove();
+  other.remove();
+});

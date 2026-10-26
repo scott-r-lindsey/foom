@@ -98,7 +98,13 @@ it.each([true, false])(
     const started = (await workspace.orchestration.call(
       actor,
       "launch",
-      { idempotencyKey: "b", worktreeId: tree.resultId, agent: "claude", prompt: "Write tests" },
+      {
+        idempotencyKey: "b",
+        worktreeId: tree.resultId,
+        agent: "claude",
+        prompt: "Write tests",
+        ...(showNewChildren ? { model: "child-model", effort: "low" } : {}),
+      },
       operations,
     )) as Operation;
     expect(started).toMatchObject({ status: "succeeded", resultId: "child" });
@@ -115,7 +121,13 @@ it.each([true, false])(
         prompt: "Write tests",
       }),
     );
+    if (showNewChildren)
+      expect(launch.mock.calls.at(-1)?.[0].selection).toEqual({
+        model: "child-model",
+        effort: "low",
+      });
     const row = workspace.snapshot().terminals.find((entry) => entry.id === "child");
+    if (showNewChildren) expect(row?.selection).toEqual({ model: "child-model", effort: "low" });
     expect(row).toMatchObject({
       launchFlags: ["--model", "opus"],
       bypass: false,

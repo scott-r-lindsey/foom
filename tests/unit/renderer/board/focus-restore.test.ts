@@ -1,0 +1,53 @@
+// @vitest-environment jsdom
+import { afterEach, expect, test } from "vitest";
+import { restoreBoardFocus } from "../../../../src/renderer/board/focus-restore";
+
+afterEach(() => {
+  document.body.replaceChildren();
+});
+
+test("closed-terminal fallback survives a sidebar row removed by a later snapshot", () => {
+  document.body.innerHTML =
+    '<aside class="sidebar-shell"><nav class="board-list" tabindex="-1"><div class="board-row" data-nav tabindex="0"></div></nav></aside>';
+  const previous = document.createElement("textarea");
+  document.body.append(previous);
+  previous.focus();
+  previous.remove();
+  restoreBoardFocus(previous);
+  expect(document.activeElement).toBe(document.querySelector("nav"));
+  document.querySelector(".board-row")?.remove();
+  expect(document.activeElement).toBe(document.querySelector("nav"));
+});
+
+test("restores the exact input and falls back when it was closed or cannot take focus", () => {
+  document.body.innerHTML =
+    '<input id="origin"><section class="terminal-tile" data-focused="true" tabindex="0"><textarea class="xterm-helper-textarea"></textarea></section><aside class="sidebar-shell"><button role="treeitem" data-nav>Session</button><button class="wordmark-menu">Foom</button></aside>';
+  const previous = document.querySelector("input");
+  restoreBoardFocus(previous);
+  expect(document.activeElement).toBe(previous);
+  previous?.setAttribute("hidden", "");
+  restoreBoardFocus(previous);
+  expect(document.activeElement).toBe(document.querySelector("textarea"));
+  previous?.remove();
+  restoreBoardFocus(previous);
+  expect(document.activeElement).toBe(document.querySelector("textarea"));
+  document.querySelector("textarea")?.remove();
+  restoreBoardFocus(document.body);
+  expect(document.activeElement).toBe(document.querySelector("section"));
+  document.querySelector("section")?.remove();
+  restoreBoardFocus(document.createElement("input"));
+  expect(document.activeElement).toBe(document.querySelector('[role="treeitem"]'));
+  document.querySelector('[role="treeitem"]')?.remove();
+  restoreBoardFocus(null);
+  expect(document.activeElement).toBe(document.querySelector("button"));
+  document.querySelector("button")?.setAttribute("disabled", "");
+  const unfocusable = document.createElement("div");
+  document.body.append(unfocusable);
+  restoreBoardFocus(unfocusable);
+  const sidebar = document.createElement("nav");
+  sidebar.className = "board-list";
+  sidebar.tabIndex = -1;
+  document.body.append(sidebar);
+  restoreBoardFocus(null);
+  expect(document.activeElement).toBe(sidebar);
+});

@@ -1,3 +1,4 @@
+import { selectedArguments } from "../../node-common/launch-selection";
 import { agentCapabilities } from "../../shared/agent-capabilities";
 import type { DialogContent } from "../../shared/confirmation";
 import type { PreparedLaunch } from "./providers/provider";
@@ -214,7 +215,11 @@ export class AgentService {
   private async start(request: AgentLaunch): Promise<AgentLaunched> {
     const provider = agentProvider(request.agent);
     await provider.validate?.();
-    const defaults = parseAgentArguments(request.agent, request.defaultArguments ?? []);
+    const defaults = selectedArguments(
+      provider.model,
+      parseAgentArguments(request.agent, request.defaultArguments ?? []),
+      request.selection,
+    );
     if (request.conversationId !== undefined) provider.resume(request.conversationId);
     const config = request.configCli;
     if (config === undefined) {
@@ -386,6 +391,7 @@ export class AgentService {
         return {
           id,
           ...(provider.origin ? { providerOrigin: provider.origin } : {}),
+          ...(request.selection ? { launchFlags: defaults } : {}),
           attention: binding ? "hooks" : "evaluator",
           ...(prepared.conversationId ? { conversationId: prepared.conversationId } : {}),
           bypass,
@@ -406,6 +412,7 @@ export class AgentService {
       return {
         id,
         ...(provider.origin ? { providerOrigin: provider.origin } : {}),
+        ...(request.selection ? { launchFlags: defaults } : {}),
         attention: binding ? "hooks" : "evaluator",
         ...(prepared.conversationId ? { conversationId: prepared.conversationId } : {}),
         bypass,

@@ -8,7 +8,8 @@ companion job per platform, alongside the four Electron shards and static checks
 The Quality gate requires all twelve Electron jobs and all three companion jobs.
 Failed, cancelled or skipped required jobs fail the gate; documentation-only runs
 permit skipping both desktop matrices together. Native hook probes stay serial.
-Electron steps have a ten-minute budget on every platform. Test deadlines are unchanged.
+Electron steps allow ten minutes on Linux and fourteen minutes on Windows and
+macOS. Per-test deadlines and the worker watchdog are unchanged.
 
 ## Feature suites and local runs
 
@@ -385,3 +386,47 @@ refresh. Actual PR step wall times must leave at least 60s; record those separat
 in the PR body. Earlier budget statements and measurements above are historical.
 Per-test deadlines, worker watchdog, shard count, coverage and Quality gate
 requirements remain unchanged.
+
+
+## Windows and macOS step headroom (#868)
+
+Keep the current four-shard assignment and raise the Windows/macOS Electron step
+from 600s to 840s. Downloaded the unmodified `electron-results-*` JUnit and fixture
+timing artifacts with `gh run download` from runs
+[40232541625](https://github.com/scott-r-lindsey/foom/actions/runs/40232541625),
+[40234284775](https://github.com/scott-r-lindsey/foom/actions/runs/40234284775), and
+[40246912522](https://github.com/scott-r-lindsey/foom/actions/runs/40246912522).
+The Actions jobs/steps API supplies elapsed step time, excluding job setup.
+These runs use the current shard plan; later reports include new hash-assigned cases.
+
+Seconds in shard order (1 / 2 / 3 / 4):
+
+| Run / platform | Named JUnit case sums | Electron step wall time |
+| --- | --- | --- |
+| 40232541625 Windows | 476.6 / 383.3 / 355.4 / 353.5 | 540 / 419 / 394 / 391 |
+| 40232541625 macOS | 405.1 / 339.1 / 409.6 / 387.1 | 466 / 390 / 476 / 439 |
+| 40234284775 Windows | 464.9 / 523.5 / 472.3 / 382.9 | 528 / 585 / 534 / 426 |
+| 40234284775 macOS | 319.7 / interrupted / 400.5 / 362.2 | 364 / 613 (cancelled) / 481 / 417 |
+| 40246912522 Windows | 486.3 / 489.5 / 517.5 / 486.5 | 549 / 544 / 582 / 549 |
+| 40246912522 macOS | 442.8 / 404.1 / 506.2 / 365.6 | 502 / 475 / 587 / 424 |
+
+The last run's Windows shard 2 and macOS shard 3 timings/reports are successful
+reruns; their first attempts were cancelled at 601s and 613s respectively. The
+main-run macOS shard 2 log explicitly reports the ten-minute action timeout;
+its last completed case passed seven seconds before cancellation. Its incomplete
+report is not a passing measurement or rebalance input. Its 41 completed fixture records already sum to 512.1s
+(130.9s setup, 338.8s body, 42.4s teardown), before remaining cases and runner
+work. Complete JUnit rows above contain no failed named cases.
+
+Successful Windows steps leave as little as 15s under 600s; macOS leaves 13s.
+The observed cancellations and macOS rerun at 587s support increasing both
+platforms rather than Windows alone. An 840s budget leaves 255s above the
+slowest observed successful Windows step and 253s above macOS, allowing about
+43% variation beyond those observations. This is explicit headroom, not a
+prediction of interrupted runs' completion times. The existing 20-minute job
+limit remains the outer bound, including setup and diagnostic uploads.
+
+All four Windows shards reach 544–582s in the latest run. Reassignment alone
+cannot provide comparable headroom across the platform, so no tests move and
+the plan needs no regeneration. Linux retains 600s; test deadlines, worker
+watchdog, coverage and Quality gate required jobs are unchanged.

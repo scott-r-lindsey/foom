@@ -1,3 +1,4 @@
+import { restoreBoardFocus } from "../board/focus-restore";
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AppMenuApi, LegalDocument } from "../../shared/app-menu";
@@ -31,7 +32,7 @@ export function LegalDialog({
     return () => {
       active = false;
       element?.close();
-      if (previous instanceof HTMLElement) previous.focus();
+      restoreBoardFocus(previous);
     };
   }, [id, menu]);
   const dismiss = () => {

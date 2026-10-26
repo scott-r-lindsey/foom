@@ -364,6 +364,23 @@
       "additionalProperties": false,
       "required": ["order"],
       "properties": {
+        "valueFlags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^--?[A-Za-z][A-Za-z0-9-]*$"
+          },
+          "maxItems": 64,
+          "minItems": 0
+        },
+        "model": {
+          "$ref": "#/$defs/launchSelection"
+        },
+        "effort": {
+          "$ref": "#/$defs/launchSelection"
+        },
         "order": {
           "type": "array",
           "items": {
@@ -415,6 +432,49 @@
           "$ref": "#/$defs/tools"
         }
       }
+    },
+    "launchSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["flags", "arguments"],
+      "properties": {
+        "flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^--?[A-Za-z][A-Za-z0-9-]*$"
+          },
+          "maxItems": 8,
+          "minItems": 1
+        },
+        "arguments": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+          },
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/selectionToken"
+          },
+          "maxItems": 32,
+          "minItems": 1
+        }
+      }
+    },
+    "selectionToken": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$"
     },
     "block": {
       "type": "object",

@@ -90,6 +90,21 @@
         "output": "--allowedTools",
         "separators": "whitespace-comma-parentheses"
       }
+    },
+    "valueFlags": [
+      "--append-system-prompt",
+      "--system-prompt",
+      "--append-system-prompt-file",
+      "--system-prompt-file"
+    ],
+    "model": {
+      "flags": ["--model"],
+      "arguments": ["--model", "{value}"]
+    },
+    "effort": {
+      "flags": ["--effort"],
+      "arguments": ["--effort", "{value}"],
+      "values": ["low", "medium", "high", "max"]
     }
   },
   "files": [
