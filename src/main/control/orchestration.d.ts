@@ -16,6 +16,7 @@ export interface OrchestrationHost {
     number: number,
     unused: readonly { path: string; identity: string }[],
     revalidate: (path?: string, branch?: string) => void,
+    review?: boolean,
   ): Promise<{ path: string; branch: string; identity: string }>;
   terminals(): readonly WorkspaceTerminal[];
   /**
@@ -52,7 +53,7 @@ export interface OrchestrationHost {
   /** Whether the user's default arguments for this agent bypass permissions. */
   bypassDefaults?(agent: AgentId): boolean;
   stop(id: string): Promise<boolean>;
-  close(id: string): Promise<void>;
+  close(id: string, validate?: () => void, signal?: AbortSignal): Promise<boolean>;
   place?(id: string, parentId: string): void;
   /** Starting restored sessions do not yet have a stoppable PTY. */
   starting?(id: string): boolean;

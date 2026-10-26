@@ -107,11 +107,16 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "create_worktree",
       description:
-        "Create a worktree for one child: supply exactly one of branch (new local branch) or pullRequest (open same-repository PR number, fetched and tracking origin). Forks, the default branch and branches checked out elsewhere are refused; your own unused checkout may be reused. Existing local branches fast-forward to the fetched PR head; local commits absent from it are refused with branch_diverged. At most four unused worktrees. Returns an operation whose resultId is the worktree ID.",
+        "Create a worktree for one child: supply exactly one of branch (new local branch) or pullRequest (open same-repository PR number, fetched and tracking origin). With review: true, create a detached review checkout at the fetched PR head even if its branch is in use, without creating a branch. Forks and the default branch are refused. Without review, branches checked out elsewhere are refused; your own unused checkout may be reused. Existing local branches fast-forward to the fetched PR head; local commits absent from it are refused with branch_diverged. At most four unused worktrees. Returns an operation whose resultId is the worktree ID.",
       properties: {
         idempotencyKey: key,
         branch: { type: "string", maxLength: 200 },
         pullRequest: { type: "integer", minimum: 1 },
+        review: {
+          type: "boolean",
+          description:
+            "With pullRequest only: detached review checkout, no branch or default push. Clean unchanged review checkouts are removed on close; otherwise removal needs trusted confirmation.",
+        },
       },
       required: ["idempotencyKey"],
       readOnly: false,
@@ -198,7 +203,7 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "close",
       description:
-        "Close one of your exited children, removing its tile and sidebar row. Discards its final screen; tail first if needed. Keeps the worktree, branch and review state. Running or stopping children return conflict, taken-over children forbidden, and other parents' children not_found.",
+        "Close one of your exited children, removing its tile and sidebar row. Discards its final screen; tail first if needed. Keeps ordinary worktrees, branches and review state. A Foom-created detached review checkout is removed if unchanged and clean with no other sessions; failed safety proofs require trusted confirmation. Running or stopping children return conflict, taken-over children forbidden, and other parents' children not_found.",
       properties: { idempotencyKey: key, id },
       required: ["idempotencyKey", "id"],
       readOnly: false,
@@ -207,7 +212,7 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "remove_worktree",
       description:
-        "Remove a worktree you created. Returns an operation; poll operation_status. Human review is required unless Settings → General enables Auto-remove merged worktrees for removing idle, clean worktrees fully merged into the fetched default branch. The branch is kept. Detached HEAD must be reachable from a local branch, remote-tracking ref or tag; worktree-private refs do not qualify. Untracked files are listed for confirmation; ignored files retain ordinary Git deletion behavior. Fixed failure/decline reasons and details are listed by whoami.removalReasons.",
+        "Remove a worktree you created. Returns an operation; poll operation_status. A Foom-created review checkout may be removed without confirmation only with validated identity, the exact recorded detached PR head, no local work and no sessions. Other worktrees require human review unless Settings → General enables Auto-remove merged worktrees for removing idle, clean worktrees fully merged into the fetched default branch. The branch is kept. Detached HEAD must be reachable from a local branch, remote-tracking ref or tag; worktree-private refs do not qualify. Untracked files are listed for confirmation; ignored files retain ordinary Git deletion behavior. Fixed failure/decline reasons and details are listed by whoami.removalReasons.",
       properties: { idempotencyKey: key, worktreeId: id },
       required: ["idempotencyKey", "worktreeId"],
       readOnly: false,

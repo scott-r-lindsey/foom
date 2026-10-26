@@ -121,6 +121,7 @@ export class FinishedChildCloser {
     operations: Operations,
   ): Promise<void> {
     let operation: Operation | undefined;
+    const scope = owned.closeScope();
     try {
       operation = await operations.begin(
         actor,
@@ -142,12 +143,28 @@ export class FinishedChildCloser {
         this.closing.delete(id);
         return;
       }
-      await this.host.close(id);
-      await this.finish(owned, actor, operations, operation, "succeeded", id);
+      const closed = await this.host.close(
+        id,
+        () => {
+          if (!owned.valid() || !this.finishedChild(owned, id))
+            throw new Error("Child close eligibility changed");
+        },
+        scope.signal,
+      );
+      await this.finish(
+        owned,
+        actor,
+        operations,
+        operation,
+        !closed ? "declined" : "succeeded",
+        id,
+      );
     } catch {
       if (operation)
         await this.finish(owned, actor, operations, operation, "failed", id).catch(() => undefined);
       // Retain the final screen on failure, without a self-sustaining retry loop.
+    } finally {
+      scope.release();
     }
   }
 
@@ -156,14 +173,14 @@ export class FinishedChildCloser {
     actor: Principal,
     operations: Operations,
     operation: Operation,
-    status: "succeeded" | "failed",
+    status: "succeeded" | "failed" | "declined",
     id: string,
   ): Promise<void> {
     const record = await operations.finish(
       actor,
       operation.operationId,
       status,
-      status === "succeeded" ? "completed" : "error",
+      status === "succeeded" ? "completed" : status === "declined" ? "user_declined" : "error",
       id,
     );
     owned.note(record);

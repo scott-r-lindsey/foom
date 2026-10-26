@@ -104,6 +104,8 @@ export interface WorkspaceMethods {
   sidebarCommand(
     command: Exclude<SidebarCommand, { kind: "open-handoff-link" }>,
     confirm: ConfirmWorkspace,
+    validateClose?: () => void,
+    closeSignal?: AbortSignal,
   ): Promise<void>;
   auditHuman(
     action: string,
@@ -193,6 +195,9 @@ export interface WorkspaceDependencies {
     | "mergedCommit"
     | "deleteMergedBranch"
     | "deleteMergedBranches"
+    | "reviewBranch"
+    | "reviewIdentity"
+    | "canAutoRemoveReview"
     | "canAutoRemove"
     | "panelFacts"
   >;

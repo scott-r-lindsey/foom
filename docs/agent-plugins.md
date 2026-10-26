@@ -431,6 +431,18 @@ capability and is discarded; never log, save or copy credentials into a manifest
 agent configuration, extension source or conversation transcript. Same-user code
 inheriting the launch environment is within that launch's trust boundary.
 
+## Antigravity opt-in plugin MCP (#855)
+
+The bundled Antigravity ordered observer ABI version 4 stages lifecycle scripts
+plus `mcp_config.json`, `mcp.sh` and `mcp.ps1`. Its definition fingerprint and
+installed-byte checks cover all these assets. The server uses the launching
+session's environment only; plugin files contain no credential values. Settings
+keeps the existing explicit installation/enable/removal confirmations and fixed
+CLI argument arrays. Current intact enabled installations on agy 1.4.2+ provide
+MCP without extra launch arguments. Older, disabled, absent or damaged plugins
+retain CLI prompt guidance and offer the existing reviewed update flow.
+See [attachment and evidence](contracts/mcp-attachment.md#antigravity).
+
 ## Per-launch environment (#636)
 
 For CLIs that accept a configuration path through the environment, declare

@@ -73,7 +73,10 @@ export async function sidebarCommand(
   this: SidebarCommandsContext,
   command: Exclude<SidebarCommand, { kind: "open-handoff-link" }>,
   confirm: ConfirmWorkspace,
+  validateClose?: () => void,
+  closeSignal?: AbortSignal,
 ): Promise<void> {
+  validateClose?.();
   if (this.closed) throw new Error("Workspace is closed");
   if (command.kind === "resume-id") return this.resumeId(command, confirm);
   if (command.kind === "home-shell") return this.startHomeShell();
@@ -176,6 +179,37 @@ export async function sidebarCommand(
       if (entry.config) await this.startConfig("shell");
       else if (entry.home) await this.startHomeShell();
       else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
+    }
+    const identity =
+      command.kind === "close" && entry
+        ? this.deps.worktrees.reviewIdentity(entry.repository, entry.worktree)
+        : undefined;
+    if (entry && identity !== undefined) {
+      await this.cleanup.removeOwnedTree(
+        entry.repository,
+        entry.worktree,
+        identity,
+        async (branch, changes, automatic) =>
+          automatic === true ||
+          (await this.deps.dialog?.(
+            {
+              title: "Remove review worktree?",
+              accept: changes ? "Discard changes and remove" : "Remove worktree",
+              removal: {
+                group: `review-close-${command.id}`,
+                item: { id: command.id, branch, path: entry.worktree, changes },
+              },
+            },
+            closeSignal ?? new AbortController().signal,
+          )) === true,
+        () => {
+          validateClose?.();
+          if (this.closed || this.launched.get(command.id) !== entry)
+            throw new Error("Session changed");
+        },
+        command.id,
+      );
+      return;
     }
     if (!entry?.dormant) await this.deps.terminals.kill(command.id);
     this.removed(command.id);

@@ -9,6 +9,9 @@ export function worktreeFake(
   overrides: Partial<WorkspaceDependencies["worktrees"]> = {},
 ): WorkspaceDependencies["worktrees"] {
   return {
+    reviewBranch: vi.fn(() => undefined),
+    reviewIdentity: vi.fn(() => undefined),
+    canAutoRemoveReview: vi.fn(() => Promise.resolve(false)),
     canAutoRemove: vi.fn(() => Promise.resolve(false)),
     panelFacts: vi.fn(),
     listRepositories: vi.fn(() => [repo]),

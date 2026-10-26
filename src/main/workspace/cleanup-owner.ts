@@ -23,6 +23,8 @@ export interface CleanupOwnerDependencies {
     | "mergedFetchTime"
     | "mergedCommit"
     | "deleteMergedBranches"
+    | "reviewIdentity"
+    | "canAutoRemoveReview"
     | "canAutoRemove"
   >;
   inventory: (repository: string) => Promise<readonly Worktree[]>;
@@ -100,39 +102,73 @@ export class CleanupOwner {
     identity: string,
     confirm: (branch: string, changes: string, automatic?: boolean) => Promise<boolean>,
     revalidate: () => void,
+    closingId?: string,
   ): Promise<boolean> {
-    const tree = (await this.deps.inventory(repository)).find((item) => item.path === worktree);
-    if (!tree) throw new RemovalError("not_found");
-    if (tree.path === repository) throw new RemovalError("main_checkout");
-    // removeTree holds the branch lock while it calls this, so no launch can slip in.
-    const available = async () => {
-      this.requireIdleWorktree(worktree);
-      if ((await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity)
-        throw new RemovalError("identity_changed", "Worktree has changed");
-      revalidate();
-    };
-    const removed = await this.deps.withWorktreeRemoval(
-      repository,
-      worktree,
-      tree.branch,
-      async (branch, changes, automatic = false) => {
-        await available();
-        const accepted = await confirm(branch, changes, automatic);
-        if (accepted) await available();
-        return accepted;
-      },
-      available,
-      undefined,
-      async () => {
-        await available();
-        if (!this.autoRemoveMergedWorktrees) return false;
-        const eligible = await this.deps.worktrees.canAutoRemove(repository, worktree, identity);
-        await available();
-        return eligible && this.autoRemoveMergedWorktrees;
-      },
-    );
-    this.deps.refresh();
-    return removed;
+    const review = this.deps.worktrees.reviewIdentity(repository, worktree) !== undefined;
+    const outcome = { reviewed: false };
+    try {
+      const tree = (await this.deps.inventory(repository)).find((item) => item.path === worktree);
+      if (!tree) throw new RemovalError("not_found");
+      if (tree.path === repository) throw new RemovalError("main_checkout");
+      // removeTree holds the branch lock while it calls this, so no launch can slip in.
+      const available = async () => {
+        this.requireIdleWorktree(worktree);
+        if ((await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity)
+          throw new RemovalError("identity_changed", "Worktree has changed");
+        revalidate();
+      };
+      const removed = await this.deps.withWorktreeRemoval(
+        repository,
+        worktree,
+        tree.branch,
+        async (branch, changes, automatic = false) => {
+          await available();
+          if (!automatic) outcome.reviewed = true;
+          const accepted = await confirm(branch, changes, automatic);
+          if (accepted) await available();
+          return accepted;
+        },
+        available,
+        undefined,
+        async () => {
+          await available();
+          if (review) {
+            if (
+              this.deps
+                .terminals()
+                .some((entry) => entry.worktree === worktree && entry.id !== closingId)
+            )
+              return false;
+            const eligible = await this.deps.worktrees.canAutoRemoveReview(
+              repository,
+              worktree,
+              identity,
+            );
+            await available();
+            return (
+              eligible &&
+              !this.deps
+                .terminals()
+                .some((entry) => entry.worktree === worktree && entry.id !== closingId)
+            );
+          }
+          if (!this.autoRemoveMergedWorktrees) return false;
+          const eligible = await this.deps.worktrees.canAutoRemove(repository, worktree, identity);
+          await available();
+          return eligible && this.autoRemoveMergedWorktrees;
+        },
+      );
+      this.deps.refresh();
+      return removed;
+    } catch (error) {
+      // An unavailable proof still gets trusted review. Approval cannot waive
+      // a failed identity, membership, active-session or reservation guard.
+      if (review && !outcome.reviewed) {
+        revalidate();
+        await confirm(worktree, "");
+      }
+      throw error;
+    }
   }
 
   inventory(repository: string, worktrees: readonly Worktree[]) {
@@ -194,11 +230,12 @@ export class CleanupOwner {
     readSnapshot?: () => Promise<string>,
   ): Promise<boolean> {
     const entry = { repository, worktree, branch };
+    const review = this.deps.worktrees.reviewIdentity(repository, worktree) !== undefined;
     const identity = await this.deps.worktrees.removalIdentity(entry.repository, entry.worktree);
     const readChanges =
       readSnapshot ?? (() => this.deps.worktrees.changes(repository, worktree, identity));
     let changes = await readChanges();
-    const automatic = changes === "" && (await autoApprove?.()) === true;
+    let automatic = changes === "" && (await autoApprove?.()) === true;
     const accepted = automatic
       ? await confirm(entry.branch ?? entry.worktree, changes, true)
       : await confirm(entry.branch ?? entry.worktree, changes);
@@ -217,6 +254,7 @@ export class CleanupOwner {
     // has no intervening work before the final revalidation, so do it only once.
     if (automatic) await revalidate?.();
     if (automatic && !(await autoApprove?.())) {
+      automatic = false;
       changes = await readChanges();
       if (!(await confirm(entry.branch ?? entry.worktree, changes))) return false;
       await revalidate?.();
@@ -236,6 +274,13 @@ export class CleanupOwner {
           // Preview shutdown and the service's identity check both await external
           // work. Validate the approved snapshot after them, next to Git removal.
           await revalidate?.();
+          if (automatic && review && !(await autoApprove?.())) {
+            automatic = false;
+            changes = await readChanges();
+            if (!(await confirm(entry.branch ?? entry.worktree, changes)))
+              throw new RemovalError("changes_changed");
+            await revalidate?.();
+          }
           if ((await readChanges()) !== changes) throw new RemovalError("changes_changed");
         },
       );

@@ -14,7 +14,11 @@ An orchestrator can `close` its own exited child with `id` and `idempotencyKey`
 (`foom close ID --idempotency-key KEY`). It uses the normal exited-session close
 path, removing the tile and sidebar row and leaving an empty landing space.
 Closing discards the final screen; nothing is retained. Tail first if output is
-needed. The worktree, branch and review state remain; worktree removal is separate.
+needed. Ordinary worktrees, branches and review state remain; their removal is separate.
+Foom-created detached review checkouts use the
+[review removal exception](control-mutations.md#orchestrators-and-children-155):
+unchanged, clean and unoccupied reviews are removed on close; failed or unavailable
+proofs require trusted confirmation. Cancellation retains the screen and checkout.
 Running and stopping children return `conflict`, taken-over children `forbidden`,
 and other orchestrators' children or unknown IDs `not_found`. Close is recorded in
 the action log and supports the same operations and idempotency as other mutations.

@@ -77,7 +77,7 @@ test("static plugin installs only observer events on both native shells", () => 
       platform === "win32" ? "powershell.exe" : "sh ./observer.sh",
     );
     expect(files["hooks.json"]).toContain('"timeout":3');
-    expect(files["plugin.json"]).toContain('"foomObserverVersion":2');
+    expect(files["plugin.json"]).toContain('"foomObserverVersion":4');
   }
 });
 

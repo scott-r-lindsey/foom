@@ -16,7 +16,8 @@ CLI grants cannot use them. They never take focus or need a trusted dialog.
 Console equivalents are `foom open-preview PATH [--json]`, `foom previews
 [--json]`, and `foom close-preview PREVIEW_ID [--json]`, with existing exit codes
 (0 success, 2 schema/usage, 3 authentication/scope, 4 capacity/not found/unavailable).
-Antigravity's process-local guidance names `open-preview`. Server instructions
+Antigravity's fallback CLI guidance names `open-preview`; current plugin launches
+omit that guidance. Server instructions
 name `open_preview` so clients can discover the view action.
 
 No idempotency key is needed. Canonical-path reuse returns the same ID. A tiled preview stays in place; an existing sidebar preview is placed unless human-dismissed. New opens fill the landing spot, then empty space, then use far-right column growth or minimum-width replacement while preserving the focused tile and keyboard focus. Capacity/board limits can leave a preview in the sidebar. See [preview actions](../areas/preview-actions.md#agent-preview-view-actions-297). Limits are four previews per agent, twelve per

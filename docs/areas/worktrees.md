@@ -256,3 +256,37 @@ them. Ignored paths keep ordinary Git behavior: deleted without listing.
 
 Removal operation reasons and fixed details are documented in the
 [control identity contract](../contracts/control-identity.md#removal-reason-codes-819).
+
+## Detached PR review checkouts (#843)
+
+Orchestrator `create_worktree` accepts `review: true` only with `pullRequest`.
+The same open/same-repository/default-branch and validated-head rules apply.
+Main fetches the PR branch from origin using a unique temporary fetch ref,
+reads its exact commit and removes that ref afterward. It creates a detached
+checkout in a unique review directory, without creating or moving a local branch.
+This works while an author has the PR branch checked out. Ordinary branch creation
+and PR adoption retain their existing behavior. Review checkouts count toward the
+four-unused-worktree limit until launch succeeds. Review is read-only by intent:
+reviewers report findings; editing or pushing requires a deliberate decision.
+
+Creation metadata stores the fetched head, checkout identity and the initial local
+ref inventory. These records persist with managed worktree history and are claims
+that must be validated again against Git and the filesystem. Closing a session in
+such a checkout uses the existing removal lock and trusted removal path. A narrow
+exception permits confirmation-free removal independently of the merged-worktree
+setting and PR state: the identity must match, HEAD must remain detached at the
+captured commit, config-neutral status must show no tracked, untracked or ignored
+content, and local refs and worktree reflogs must contain no new history beyond
+that head. Unchanged pre-existing shared refs are not reviewer work. Private root refs such as `ORIG_HEAD` are checked too. HEAD reflogs
+protect commits followed by reset; missing, malformed or unreadable evidence fails
+closed. Index concealment, in-progress Git operations and unsafe configuration also
+refuse automatic removal. No other session may occupy it; launch/removal operations
+share the existing reservations. The closing exited session is released by removal.
+The proof is repeated before deletion, including after checkout resources close.
+
+Every unsuccessful proof falls back to trusted confirmation; identity/membership,
+locks, active sessions and changed-snapshot guards still forbid unsafe deletion
+even after approval. Cancellation keeps the checkout and exited screen. Ordinary
+worktrees retain the existing merged-clean opt-in policy. Branches are never
+created for review or deleted by this path. This remains subject to the existing
+local concurrent-filesystem-mutation limitation.

@@ -65,6 +65,15 @@ or corrupt catalog. Both builders derive the full checkout commit with Git;
 packaging requires every source to equal the app checkout, even outside CI.
 `development` is never a packaged source revision. There are no runtime artifact downloads.
 
+Darwin catalog signing assembles the SEA from verified same-run build inputs
+(#851). The node-pty addon and spawn helper are signed before embedding, with the
+same identity as the host. Developer ID hosts grant only allow-jit and enforce
+library validation; only ad-hoc signatures retain the exception. Extraction keeps
+its owner/mode/hash checks. The check and path-based load are still separate
+filesystem operations: Developer ID library validation rejects unsigned/other-team
+substitutions, while Linux/ad-hoc builds retain that same-UID race. See
+[artifact and validation details](../validation.md#bundled-remote-host-artifacts-825).
+
 Launch with `--remote-shell-spike=SSH_ALIAS` to route the **home shell** to that
 host. A bounded SSH `uname -s; uname -m` probe accepts only Linux/x86_64,
 Linux/aarch64, Darwin/x86_64 and Darwin/arm64. Only those fixed mappings select
