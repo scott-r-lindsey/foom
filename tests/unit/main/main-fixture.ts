@@ -256,9 +256,11 @@ vi.mock("../../../src/main/terminals/terminal-ipc", () => ({
     events: Record<string, (...args: never[]) => void>,
     allow: (contents: unknown, id: string) => boolean,
     shellEnvironment: () => Record<string, string>,
+    copyOnSelect: () => boolean,
   ) => {
     mock.allowView = allow;
     mock.shellEnvironment = shellEnvironment;
+    mock.copyOnSelect = copyOnSelect;
     mock.terminalEvents = events;
     return mock.terminals;
   },
@@ -527,6 +529,7 @@ const mock = vi.hoisted(() => {
     },
     allowView: (_contents: unknown, _id: string): boolean => false,
     shellEnvironment: undefined as (() => Record<string, string>) | undefined,
+    copyOnSelect: (): boolean => false,
     environmentChanged: undefined as (() => void) | undefined,
     terminalEvents: {},
     workspace,
@@ -577,7 +580,7 @@ const mock = vi.hoisted(() => {
       update: vi.fn(() => Promise.resolve()),
       get: (): Pick<
         Settings,
-        "colorMode" | "interfaceScale" | "interfaceTheme" | "forges" | "forgeHosts"
+        "colorMode" | "interfaceScale" | "interfaceTheme" | "forges" | "forgeHosts" | "copyOnSelect"
       > &
         Partial<
           Pick<
@@ -588,6 +591,7 @@ const mock = vi.hoisted(() => {
         forges: { github: true },
         forgeHosts: { "github.com": "github" },
         showPullRequests: false,
+        copyOnSelect: false,
         colorMode: "dark",
         interfaceScale: 120,
         interfaceTheme: "follow",
