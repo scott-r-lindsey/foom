@@ -25,7 +25,7 @@ not evidence of Developer ID validation or unsigned-swap rejection.
 Initial complete spike step wall times (including that final failed assertion):
 x64 29.6s with Node v24.19.0, arm64 11.1s with Node v24.20.0. The floating `.nvmrc`
 selected different patches on different runner images. The implementation pins
-24.20.0 and rejects input/generator version differences. The shared production
+an exact patch and rejects input/generator version differences. The shared production
 assembler prints `assemblyMs` for each target; the corrected spike also prints
 its total elapsed time and the observed ad-hoc behavior in CI logs.
 
@@ -48,3 +48,15 @@ of shipped application bundles. Release rebuilds only the nested hosts, preservi
 the tested app's ASAR and fuse identity. Native extraction stays unchanged: the
 filesystem race still exists, while Developer ID library validation enforces the
 team boundary at load. Real Developer ID and notarization checks remain post-merge.
+
+
+The first production-path run at `f0a58cf4` passed x64 assembly with Node 24.20.0:
+23.6s for spike assembly, 27.9s complete spike, 17.8s production host assembly.
+That initial pin selected an older macOS image's version and downgraded Windows
+from the floating range's 24.22.1. Windows shard 2 then aborted twice in libuv's
+`fs-event.c` short-path assertion. This is treated as a pin regression, not an
+unrelated flake. The final pin is 24.22.1, the current
+[Node 24 security release](https://nodejs.org/en/blog/release/v24.22.1), keeping
+all input generators and the signer identical without that downgrade. No test
+assertions, deadlines or shard configuration changed. Final CI must prove both
+native Darwin architectures and packaging with this pin before review.
