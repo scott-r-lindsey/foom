@@ -11,7 +11,8 @@ import { pluginContent } from "../../../../src/main/agents/plugin-staging";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 const roots: string[] = [];
 afterEach(async () => {
-  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+  for (const root of roots.splice(0))
+    await rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 });
 it.each([false, true])(
   "stages one platform-native MCP server and credentials only as environment names: %s",
@@ -101,7 +102,7 @@ it.skipIf(process.platform !== "win32")(
     await copyFile(process.execPath, join(root, "foom.exe"));
     await writeFile(
       join(root, "mcp"),
-      "const mark=phase=>require('node:fs').appendFileSync('fixture-phases',phase+'\\n');mark('started');let input='';process.stdin.setEncoding('utf8');process.stdin.on('data',chunk=>{mark('input');input+=chunk;});process.stdin.on('end',()=>{mark('EOF');console.log(JSON.stringify({args:process.argv.slice(2),session:process.env.FOOM_SESSION,input}));});",
+      "const mark=phase=>require('node:fs').appendFileSync('fixture-phases',phase+'\\n');mark('started');const parent=process.ppid;setInterval(()=>{try{process.kill(parent,0);}catch{process.exit(1);}},100).unref();process.stderr.write('fixture é\\n');let input='';process.stdin.setEncoding('utf8');process.stdin.on('data',chunk=>{mark('input');input+=chunk;});process.stdin.on('end',()=>{mark('EOF');console.log(JSON.stringify({args:process.argv.slice(2),session:process.env.FOOM_SESSION,input}));});",
     );
     const env = {
       SystemRoot: process.env["SystemRoot"],
@@ -170,9 +171,9 @@ it.skipIf(process.platform !== "win32")(
       "FOOM_CLI_DIRECTORY",
     ])
       expect((await run({ ...env, [key]: "" }, undefined, key)).stdout).toBe("");
-    expect(JSON.parse((await run(env, expected.input, "echo input and EOF")).stdout)).toEqual(
-      expected,
-    );
+    const echoed = await run(env, expected.input, "echo input and EOF");
+    expect(JSON.parse(echoed.stdout)).toEqual(expected);
+    expect(echoed.stderr).toBe("fixture é\n");
     await writeFile(join(root, "mcp"), 'process.stdout.write("EXITED\\n");');
     expect((await run(env, undefined, "exit with caller stdin open")).stdout).toBe("EXITED\n");
   },

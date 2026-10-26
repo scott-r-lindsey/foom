@@ -44,11 +44,18 @@ try {
   $start.Arguments = 'mcp'
   $start.UseShellExecute = $false
   $start.CreateNoWindow = $true
+  # Redirecting stderr makes .NET explicitly supply all three startup handles.
+  # With no redirects, CREATE_NO_WINDOW can discard inherited stdin/stdout.
+  $start.RedirectStandardError = $true
   $child = [System.Diagnostics.Process]::Start($start)
   if (!$child) { exit 1 }
   try {
+    $child.StandardError.BaseStream.CopyTo([Console]::OpenStandardError())
     $child.WaitForExit()
     $code = $child.ExitCode
+  } catch {
+    try { $child.Kill() } catch { }
+    exit 1
   } finally {
     $child.Dispose()
   }
