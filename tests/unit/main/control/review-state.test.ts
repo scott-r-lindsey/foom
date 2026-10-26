@@ -79,3 +79,10 @@ describe("review presentation and safe restore", () => {
     );
   });
 });
+
+it("validates saved reviewer selections without granting launch authority", () => {
+  expect(isReviewState({ ...state, model: "review/model", effort: "low" })).toBe(true);
+  expect(isReviewState({ ...state, model: "--bad" })).toBe(false);
+  expect(isReviewState({ ...state, model: "trailing\n" })).toBe(false);
+  expect(isReviewState({ ...state, effort: "bad=value" })).toBe(false);
+});

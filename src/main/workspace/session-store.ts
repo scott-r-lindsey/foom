@@ -1,3 +1,5 @@
+import { selectionInput } from "../../node-common/launch-selection";
+import { exact, object } from "../../node-common/control-validation";
 import { formerConfigAgentIds } from "../agents/providers/bundled";
 import { isReviewState } from "../../shared/review-state";
 import { storedHandoffs } from "../../node-common/handoff";
@@ -71,12 +73,15 @@ export function readSessions(value: unknown): StoredSession[] {
       throw new Error("Invalid session");
     if (!storedAgent(agent, providerOrigin) && agent !== "shell") throw new Error("Invalid agent");
     if (review !== undefined && !isReviewState(review)) throw new Error("Invalid review");
+    const selection = data["selection"] === undefined ? undefined : object(data["selection"]);
+    if (selection) exact(selection, ["model", "effort"]);
     const role = readOrchestrator(orchestrator);
     if (role && (parentId !== undefined || agent === "shell" || home || config))
       throw new Error("Invalid role");
     ids.add(id);
     return {
       id,
+      ...(selection ? { selection: selectionInput(selection) } : {}),
       ...(isReviewState(review)
         ? {
             review: {
@@ -135,12 +140,14 @@ export class SessionStore {
           home,
           config,
           handoffs,
+          selection,
           review,
           running,
           orchestrator,
           parentId,
         }) => ({
           handoffs,
+          selection,
           review,
           running,
           orchestrator,
