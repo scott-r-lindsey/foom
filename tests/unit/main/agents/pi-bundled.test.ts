@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, it, vi } from "vitest";
 import data from "../../../../src/shared/bundled-agents/pi.json";
 import modelError from "../../../fixtures/agent-detection/pi-model-error.json";
@@ -11,7 +14,8 @@ import {
   hasBypassArgument,
   parseAgentArguments,
 } from "../../../../src/main/agents/default-arguments";
-import { readSessions } from "../../../../src/main/workspace/session-store";
+import { restoreAuthority, restorePlan } from "../../../../src/main/workspace/session-restore";
+import { SessionStore, readSessions } from "../../../../src/main/workspace/session-store";
 import { detectAgent } from "../../../../src/main/evaluator/agent-rules";
 
 const provider = agentProvider("pi");
@@ -220,4 +224,68 @@ it("current Working beats a historical model error and newly appended content ex
   expect(detectAgent("pi", evidence, [...modelError.tail, "new output"])?.id).not.toBe(
     "provider_model",
   );
+});
+
+it("loads mixed saved sessions while former config Pi stays dormant without restore authority", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "foom-pi-migration-"));
+  try {
+    const base = { repository: "/repo", worktree: "/repo", branch: "main", running: true };
+    const rows = [
+      { ...base, id: "shell", agent: "shell" },
+      {
+        ...base,
+        id: "former-pi",
+        agent: "pi",
+        providerOrigin: "config",
+        conversationId: id,
+        orchestrator: { identity: "identity", history: [] },
+      },
+      {
+        ...base,
+        id: "codex",
+        agent: "codex",
+        providerOrigin: "bundled",
+        conversationId: "codex-saved",
+      },
+      {
+        ...base,
+        id: "bundled-pi",
+        agent: "pi",
+        providerOrigin: "bundled",
+        conversationId: "bundled-pi-saved",
+      },
+    ];
+    await writeFile(join(directory, "sessions.json"), JSON.stringify(rows));
+    const store = new SessionStore(directory);
+    const entries = await store.load();
+    expect(entries).toEqual(readSessions(rows));
+    expect(entries.map((entry) => entry.id)).toEqual(rows.map((row) => row.id));
+    const former = entries.find((entry) => entry.id === "former-pi");
+    if (!former) throw Error("Missing former Pi session");
+    expect(former).toMatchObject({
+      providerOrigin: "config",
+      conversationId: id,
+      dormant: true,
+      exited: true,
+    });
+    expect(restorePlan(entries, true).map((entry) => entry.id)).toEqual([
+      "shell",
+      "codex",
+      "bundled-pi",
+    ]);
+    expect(restoreAuthority(former, "identity", installation(), true)).toBe(false);
+    // Migration must deny authority even if a future bundled version gains MCP.
+    expect(
+      restoreAuthority(
+        former,
+        "identity",
+        { ...installation(), mcp: true, restoreControl: true },
+        true,
+      ),
+    ).toBe(false);
+    await store.save(entries);
+    expect(await store.load()).toEqual(entries);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
