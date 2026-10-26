@@ -88,7 +88,7 @@ export function createShell(
   let request = 0;
   let attached = false;
   let selectionCopyEnabled = false;
-  const offSelectionCopy = copyOnSelect(terminal, () =>
+  const offSelectionCopy = copyOnSelect(container, terminal, () =>
     selectionCopyEnabled && attached && !busy ? activeId : undefined,
   );
   const offSelectionPaste = emulateMiddleClickPaste(

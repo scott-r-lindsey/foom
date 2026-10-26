@@ -1637,5 +1637,8 @@ test("copy on select writes only completed terminal selections when enabled", {
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Terminal", exact: true }).click();
   await toggle.uncheck();
-  await quitAndWait(app, page);
+  // The fixture cleanup owns confirmation and quit ordering.
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await page.keyboard.type("q");
 });

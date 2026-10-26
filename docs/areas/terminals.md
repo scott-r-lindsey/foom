@@ -250,7 +250,9 @@ visible, attached terminal that is ready for input.
 The profile-only `copyOnSelect` boolean is off by default on every platform.
 Settings → Terminal places **Copy on select** directly below the macOS-only
 middle-click checkbox, without helper copy. xterm's public `onSelectionChange`
-reports completed mouse selections rather than intermediate drag paints; keyboard
+reports completed mouse selections rather than intermediate drag paints. A terminal-only
+mouse-up fallback handles repeated selections whose coordinates xterm considers
+unchanged, including a release outside the tile. Intermediate drags never copy; keyboard
 and programmatic selection changes settle for 100 ms before copying. Empty and
 oversized selections (over the shared 65,536 UTF-16 code-unit bound) never write,
 and oversized selections are rejected whole. Deselection never clears the clipboard.
