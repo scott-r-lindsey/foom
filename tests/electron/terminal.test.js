@@ -411,6 +411,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "attach",
           "detach",
           "kill",
+          "copyTerminalSelection",
           "input",
           "resize",
           "acknowledge",
@@ -1559,25 +1560,31 @@ test("copy on select writes only completed terminal selections when enabled", {
   await writeFile(marker, "");
   const app = await launchApp(context, { fixture: "running-shell" });
   let page = await boardPage(app);
-  // Show both neighboring options in review captures on all CI platforms.
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
-  });
-  await page.reload();
-  page = await boardPage(app);
+  const capture = process.env.FOOM_CAPTURE_872 === "1";
+  if (capture) {
+    // Show both neighboring options in review captures on Linux.
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
+    });
+    await page.reload();
+    page = await boardPage(app);
+  }
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
       .setSize(1200, 900);
   });
+  // Wait for reattachment before Settings claims focus, especially on Windows.
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Terminal", exact: true }).click();
   const toggle = page.getByRole("checkbox", { name: "Copy on select", exact: true });
   await expect(toggle).not.toBeChecked();
   await expect(
     page.getByRole("checkbox", { name: "Middle-click pastes selection", exact: true }),
-  ).toBeVisible();
-  if (process.env.FOOM_CAPTURE_872 === "1") {
+  ).toHaveCount(capture || process.platform === "darwin" ? 1 : 0);
+  if (capture) {
     for (const mode of ["light", "dark"]) {
       await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
       await expect
