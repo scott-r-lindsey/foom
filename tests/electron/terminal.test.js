@@ -1622,21 +1622,47 @@ test("copy on select writes only completed terminal selections when enabled", {
   await page.locator(".board-row[data-kind='shell']").click();
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await expect(page.locator(".xterm-rows")).toContainText("INPUT_READY");
-  const bounds = await screen.boundingBox();
+  // xterm replaces row spans during selection/focus paints. Resolving a span
+  // handle and measuring it in a later browser call can read a detached node's
+  // zero rectangle. Query and measure the marker in one turn from the stable screen.
+  await screen.hover({ position: { x: 1, y: 8 } });
+  const markerBounds = () =>
+    screen.evaluate((element) => {
+      const row = element.querySelector(".xterm-rows > div");
+      if (row?.textContent !== "INPUT_READY") return null;
+      const range = document.createRange();
+      range.selectNodeContents(row);
+      const { x, y, width, height } = range.getBoundingClientRect();
+      return width > 0 && height > 0 ? { x, y, width, height } : null;
+    });
+  let bounds;
+  await expect
+    .poll(async () => {
+      bounds = await markerBounds();
+      return bounds;
+    })
+    .not.toBeNull();
   assert.ok(bounds);
-  await page.mouse.move(bounds.x + 1, bounds.y + 8);
+  await page.mouse.move(bounds.x + 1, bounds.y + bounds.height / 2);
   await page.mouse.down();
-  // INPUT_READY is eleven monospace characters on the probe's first row.
-  // Measure the marker span instead of depending on platform font metrics.
-  const width = await page
-    .locator(".xterm-rows > div")
-    .first()
-    .locator("span")
-    .first()
-    .evaluate((span) => span.getBoundingClientRect().width);
-  await page.mouse.move(bounds.x + width, bounds.y + 8, { steps: 4 });
+  await page.mouse.move(bounds.x + bounds.width, bounds.y + bounds.height / 2, { steps: 4 });
+  // Prove the held drag selected the marker before checking completion/copy.
+  const selection = page.locator(".xterm-selection div:visible").first();
+  await expect(selection).toBeVisible();
+  await expect
+    .poll(async () => (await selection.boundingBox())?.width)
+    .toBeCloseTo(bounds.width, 0);
   await page.waitForTimeout(150);
   assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), "COPY_SENTINEL");
+  await page.mouse.up();
+  await expect
+    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe("INPUT_READY");
+  // The same bounds may omit xterm's onSelectionChange; mouse-up still copies.
+  await app.evaluate(({ clipboard }) => clipboard.writeText("COPY_REPEAT_SENTINEL"));
+  await page.mouse.move(bounds.x + 1, bounds.y + bounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width, bounds.y + bounds.height / 2, { steps: 4 });
   await page.mouse.up();
   await expect
     .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
