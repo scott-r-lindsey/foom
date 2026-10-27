@@ -271,4 +271,44 @@ for the configured team, proves signing with the disposable binary, and runs
 operations; neither is dispatched by the implementation. Windows remains unsigned
 (#665) and its installers ship on the nightly channel only. See
 [installer validation and draft release procedure](validation.md#installers-and-versioned-drafts-602)
-for DMG notarization and tag publication. Auto-update remains #603.
+for DMG notarization and tag publication. See [stable update rules](areas/application.md#updates-603) and the nightly feed below.
+
+## Nightly update feed (#604)
+
+The build selects the channel: a CI-stamped `X.Y.Z-nightly.YYYYMMDD+abcdef0`
+uses `https://foom-term.com/updates/nightly/`. Stable macOS keeps
+update.electronjs.org; stable Linux keeps its GitHub release notice. Windows
+remains notice-only and nightly-only. Channels never switch automatically.
+
+macOS reads `darwin-<arch>/latest-mac.json`; Linux and Windows read
+`<platform>-<arch>/latest.json` for notices only. Currently published targets are
+`darwin-arm64`, `linux-x64`, and `win32-x64`; unsupported feeds return no update.
+There is no Windows Squirrel RELEASES feed. All feeds carry the stamped version,
+full commit, commit timestamp, archive URL and SHA-256. The macOS JSON additionally
+has Squirrel's `currentRelease` and `releases[].updateTo.url` fields. Squirrel's
+release versions use the numeric bundle version described below; the top-level
+`version` retains the full nightly stamp. Archive URLs
+are immutable under `artifacts/<full-commit-sha>/`. Foom validates the exact origin,
+path, architecture, version/commit/date relationship and checksum before giving
+Squirrel private local files. Nightly archive GETs reject every redirect. Older
+base versions or nightly dates cannot update a newer build. Same-day different
+commits require a strictly later commit timestamp; older builds without a stored
+timestamp wait for a later day. Stable metadata cannot enter the nightly path.
+
+Nightly macOS uses the same never-restart, ordinary quit installation, explicit
+restart barrier and opt-out behavior as [stable updates](areas/application.md#updates-603).
+Linux and Windows never stage or invoke a native updater. Check failures retain
+the fixed Settings error message. The [publication and user provisioning contract](validation.md#nightly-feed-provisioning-604)
+describes OIDC, S3/CloudFront paths, permissions and the disabled-by-default upload.
+
+Squirrel's pinned native downgrade guard accepts only three-part numeric
+`CFBundleShortVersionString` values. Nightly macOS packaging therefore uses
+`YYYYMMDD.<UTC-seconds-since-midnight>.0` for the bundle version; stable bundles
+keep `X.Y.Z`. The signed ASAR package retains the complete nightly version and
+commit date; Electron initializes `app.getVersion()` from that package, so channel
+selection and About retain the nightly identity. Numeric bundle dates also avoid
+same-day commit hashes sorting in the wrong order. Existing notice-only nightlies
+with nonnumeric bundle versions need a manual upgrade to this implementation;
+their old code never checks this feed. See the pinned
+[Squirrel downgrade check](https://github.com/Squirrel/Squirrel.Mac/blob/fffea30e4a339a7f7d69a3391314b72548d209bd/Squirrel/SQRLUpdater.m#L914)
+and [Electron startup version](https://github.com/electron/electron/blob/v44.9.3/lib/browser/init.ts#L112).

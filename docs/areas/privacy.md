@@ -41,9 +41,9 @@ identify every unlabelled secret.
 **Check for updates** in Settings → General defaults on and persists only in the
 profile. It controls all update checks: stable macOS checks update.electronjs.org;
 stable Linux anonymously GETs GitHub's latest-release metadata at api.github.com;
-CI-stamped nightly builds on every platform anonymously GET the rolling nightly
-prerelease there. Windows is notice-only and currently nightly-only. No nightly
-build installs in place (#604).
+CI-stamped nightly builds anonymously GET their platform/architecture feed at
+foom-term.com, with macOS installing on normal quit and Linux/Windows showing
+notices only. Windows remains nightly-only. See the [nightly feed contract](../architecture.md#nightly-update-feed-604).
 
 These servers see the client's IP and Foom version. Requests contain version and
 platform (macOS feed includes architecture), no terminal content, paths, agent
@@ -70,7 +70,10 @@ GitHub's download hosts see the IP and request metadata, including the offered
 version in the URL. No user/account credentials are attached; GitHub's temporary
 asset URL query is used only for the asset request. The same Settings switch
 controls macOS metadata, ZIP downloads and GitHub API notices; no other hosts
-are added. Electron receives only private local feed and archive `file:` URLs,
+are added for stable builds. Nightlies use only foom-term.com, including the
+immutable commit-scoped ZIP path, with no redirects and SHA-256 verification.
+That server sees the IP and request metadata, including platform/architecture
+and offered commit in archive URLs. Electron receives only private local feed and archive `file:` URLs,
 with remote extra fields discarded, so native work cannot start a network request.
 
 ## Opt-in Antigravity plugin MCP (#855)

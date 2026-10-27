@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { getEventListeners } from "node:events";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
@@ -8,7 +9,11 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 const mock = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("node:https", () => ({ get: mock.get }));
-import { macUpdatePackage, prepareLocalUpdate } from "../../../src/main/update-package";
+import {
+  macUpdatePackage,
+  nightlyUpdatePackage,
+  prepareLocalUpdate,
+} from "../../../src/main/update-package";
 
 const archive =
   "https://github.com/scott-r-lindsey/foom/releases/download/v0.2.0/Foom-darwin-arm64-0.2.0.zip";
@@ -428,3 +433,73 @@ int main(int argc, const char *argv[]) {
   },
   30000,
 );
+
+const nightlyMetadata = () => ({
+  version: "0.1.0-nightly.20261023+aaaaaaa",
+  commit: "a".repeat(40),
+  commitDate: "2026-10-23T01:00:00Z",
+  sha256: createHash("sha256").update("fake signed archive").digest("hex"),
+  url: `https://foom-term.com/updates/nightly/artifacts/${"a".repeat(40)}/Foom-nightly-20261023-aaaaaaa-darwin-arm64.zip`,
+});
+test.each([
+  null,
+  {},
+  { version: 2 },
+  { ...nightlyMetadata(), version: "0.2.0" },
+  Object.fromEntries(Object.entries(nightlyMetadata()).filter(([key]) => key !== "url")),
+  Object.fromEntries(Object.entries(nightlyMetadata()).filter(([key]) => key !== "commit")),
+  Object.fromEntries(Object.entries(nightlyMetadata()).filter(([key]) => key !== "commitDate")),
+  Object.fromEntries(Object.entries(nightlyMetadata()).filter(([key]) => key !== "sha256")),
+  { ...nightlyMetadata(), version: 2 },
+  { ...nightlyMetadata(), commit: 2 },
+  { ...nightlyMetadata(), commitDate: 2 },
+  { ...nightlyMetadata(), commit: "bad" },
+  { ...nightlyMetadata(), commitDate: "2026-99-99T00:00:00Z" },
+  { ...nightlyMetadata(), commit: "b".repeat(40) },
+  { ...nightlyMetadata(), commitDate: "invalid" },
+  { ...nightlyMetadata(), commitDate: "2026-10-24T00:00:00Z" },
+  { ...nightlyMetadata(), sha256: "bad" },
+  { ...nightlyMetadata(), sha256: 5 },
+  { ...nightlyMetadata(), url: nightlyMetadata().url + "?evil=1" },
+  { ...nightlyMetadata(), url: nightlyMetadata().url.replace("arm64", "x64") },
+])("rejects untrusted nightly archive metadata %j", (value) => {
+  expect(() => nightlyUpdatePackage(value, "darwin", "arm64")).toThrow();
+});
+test("nightly archive is downloaded directly and checksum-verified before native handoff", async () => {
+  const update = nightlyUpdatePackage(
+    {
+      ...nightlyMetadata(),
+      currentRelease: "99.0.0",
+      releases: [{ version: "99.0.0", updateTo: { url: "https://evil.example/archive.zip" } }],
+      delta: { url: "https://evil.example/delta.zip" },
+    },
+    "darwin",
+    "arm64",
+  );
+  const local = await prepareLocalUpdate(directory, update, signal());
+  expect(requests).toEqual([update.url]);
+  expect(JSON.parse(await readFile(fileURLToPath(local.url), "utf8"))).toEqual({
+    currentRelease: "20261023.3600.0",
+    releases: [
+      { version: "20261023.3600.0", updateTo: { url: new URL("update.zip", local.url).href } },
+    ],
+  });
+  await local.dispose();
+  responses = [{ status: 200, body: "tampered" }];
+  await expect(prepareLocalUpdate(directory, update, signal())).rejects.toThrow(
+    "Update download failed",
+  );
+  expect(await readdir(directory)).toEqual([]);
+});
+test("nightly origin cannot redirect even to the stable GitHub CDN", async () => {
+  responses = [{ status: 302, location: cdn }];
+  await expect(
+    prepareLocalUpdate(
+      directory,
+      nightlyUpdatePackage(nightlyMetadata(), "darwin", "arm64"),
+      signal(),
+    ),
+  ).rejects.toThrow();
+  expect(requests).toEqual([nightlyMetadata().url]);
+  expect(await readdir(directory)).toEqual([]);
+});

@@ -53,6 +53,12 @@ module.exports = {
     packageAfterPrune: require("./scripts/package-conpty.cjs"),
   },
   packagerConfig: {
+    // Electron reads the full package.json version; native Squirrel requires numeric bundle versions.
+    ...(process.platform === "darwin"
+      ? {
+          appVersion: require("./scripts/nightly.mjs").macBundleVersion(require("./package.json")),
+        }
+      : {}),
     asar: {
       unpack: "**/build/{observers/**/*,console/**/*,remote-hosts/**/*,manual/!(sections.json)}",
       unpackDir: "**/node_modules/node-pty/**",

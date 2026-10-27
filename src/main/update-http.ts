@@ -8,7 +8,8 @@ export function getUpdateRelease(
   signal: AbortSignal,
 ): Promise<unknown> {
   if (
-    !/^https:\/\/api\.github\.com\/repos\/scott-r-lindsey\/foom\/releases\/(?:latest|tags\/nightly)$/.test(
+    !/^https:\/\/api\.github\.com\/repos\/scott-r-lindsey\/foom\/releases\/latest$/.test(url) &&
+    !/^https:\/\/foom-term\.com\/updates\/nightly\/(?:darwin-(?:arm64|x64)\/latest-mac|(?:linux|win32)-(?:arm64|x64)\/latest)\.json$/.test(
       url,
     ) &&
     !/^https:\/\/update\.electronjs\.org\/scott-r-lindsey\/foom\/darwin-(?:arm64|x64)\/\d+\.\d+\.\d+$/.test(
