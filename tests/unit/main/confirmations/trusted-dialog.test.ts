@@ -145,6 +145,17 @@ beforeEach(() => {
   parent.isVisible.mockReturnValue(true);
   parent.isMinimized.mockReturnValue(false);
 });
+test.each(["darwin", "linux", "win32"] as const)(
+  "%s trusted window accepts the macOS activating click",
+  (platform) => {
+    const dialog = setup(platform);
+    expect(mock.construct).toHaveBeenCalledWith(
+      expect.objectContaining({ acceptFirstMouse: true }),
+    );
+    dialog.dispose();
+  },
+);
+
 test("prewarms an isolated sandbox, rejects foreign frames, forged IDs and malformed answers", async () => {
   const dialog = setup();
   expect(window().show).not.toHaveBeenCalled();

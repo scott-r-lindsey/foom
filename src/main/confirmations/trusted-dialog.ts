@@ -168,6 +168,7 @@ export class TrustedDialog {
       transparent: false,
       backgroundColor: this.theme().colors.surface,
       show: false,
+      acceptFirstMouse: true,
       resizable: false,
       roundedCorners: true,
       hasShadow: true,
