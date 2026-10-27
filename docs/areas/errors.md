@@ -25,3 +25,9 @@ Pruning uses the [worktree safety contract](worktrees.md#pruning-stale-worktrees
 Update checks (#603) are deliberately quiet: their background failure appears only
 as a fixed sentence in Settings → General. An explicit Restart to update capability
 failure uses the normal action error dialog.
+
+Local packages that deliberately omit the remote-host catalog use the fixed
+`remote-host-unavailable` code. Main checks sealed metadata before starting SSH,
+preserves only that trusted preflight reason through transport and terminal-client
+failure, and renders "Remote host artifact unavailable in this local build."
+Arbitrary artifact errors and host-supplied text cannot select this code.

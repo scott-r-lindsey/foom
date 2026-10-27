@@ -158,6 +158,7 @@ it.each([
   [new RemovalError("identity_changed"), "identity_changed"],
   [new ApplicationError("worktree-locked"), "locked"],
   [new ApplicationError("worktree-missing"), "not_found"],
+  [new ApplicationError("remote-host-unavailable"), "git_failed"],
   [new Error("secret git stderr"), "git_failed"],
 ] as const)("returns fixed removal diagnostics (%s)", async (error, reason) => {
   const h = harness();

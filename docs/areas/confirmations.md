@@ -4,6 +4,12 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 ## Confirmations
 
+On macOS, both the board and its trusted-dialog child set `acceptFirstMouse: true`.
+The click that activates an inactive window reaches its web contents as an ordinary
+click, including a trusted dialog's controls. Cancel still receives default focus;
+keyboard behavior, board input guards, click-again arming and its 300 ms minimum
+remain unchanged. A blocked board click still follows the recovery rules below.
+
 `main/confirmations/arming.ts` owns the click-again capability. A validated workspace
 command begins one generation and retains its action/target in main while its
 confirmation callback waits. Main emits `confirmation:armed` with a random UUID,

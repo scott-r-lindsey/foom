@@ -67,6 +67,7 @@ export async function buildWindow(
       wiring.themes.snapshot(),
     ).colors.bg,
     show: false,
+    acceptFirstMouse: true,
     autoHideMenuBar: true,
     ...windowIcon(process.platform, path.join(__dirname, "../..")),
     webPreferences: {

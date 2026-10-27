@@ -1,6 +1,7 @@
 import type { ApplicationErrorCode } from "./application-error";
 
 const messages = {
+  "remote-host-unavailable": "Remote host artifact unavailable in this local build.",
   "operation-failed": "Unable to complete this action.",
   "worktree-prunable": "This worktree needs pruning.",
   "worktree-locked": "This worktree is locked.",
