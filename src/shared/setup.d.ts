@@ -33,6 +33,7 @@ export interface Settings {
   showNestedRepositoryNames: boolean;
   /** macOS-only, profile preference; selection text remains in renderer memory. */
   middleClickPaste: boolean;
+  copyOnSelect: boolean;
   /** Profile-only forge preferences; consumed by a future provider migration. */
   forges: Readonly<Record<string, boolean>>;
   forgeHosts: Readonly<Record<string, string>>;

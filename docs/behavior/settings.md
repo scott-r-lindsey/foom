@@ -16,6 +16,12 @@ private in-memory selection buffer; closing or reloading the window also clears
 it. Other apps, previews and dialogs are excluded. Linux keeps native primary
 selection behavior and has no checkbox; Windows has no checkbox.
 
+Terminal also offers **Copy on select** on every platform, off by default, directly
+below the macOS middle-click option. Completed nonempty terminal selections copy
+to the system clipboard. Empty selections leave it unchanged; selections exceeding
+65,536 UTF-16 code units are rejected whole. Previews and dialogs are excluded.
+Linux retains its native primary selection behavior.
+
 General offers **Show repository paths relative to code folder**, off by default.
 When on, sidebar repositories beneath the chosen code folder show relative paths
 (such as `work/foom`); repositories outside it keep their names.

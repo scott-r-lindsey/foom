@@ -375,6 +375,7 @@ const validSettings: Validator<Settings> = shape({
   showPullRequests: either(absent, boolean),
   showNestedRepositoryNames: boolean,
   middleClickPaste: boolean,
+  copyOnSelect: boolean,
   forges: dictionary(boolean),
   forgeHosts: dictionary(text),
   agents: both(
@@ -1451,6 +1452,7 @@ const desktop: DesktopApi = {
   async kill(id) {
     await ipcRenderer.invoke("terminal:kill", id);
   },
+  copyTerminalSelection: (id, text) => invokeVoid("terminal:copy-selection", id, text),
   input(id, data, origin) {
     for (let offset = 0; offset < data.length; ) {
       let end = Math.min(offset + 65536, data.length);

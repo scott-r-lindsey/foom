@@ -1,3 +1,4 @@
+import { isTerminalSelection } from "../../shared/terminal-selection";
 import type { SetupSource } from "../preflight/setup-source.d";
 import type { Terminal } from "@xterm/xterm";
 
@@ -53,7 +54,7 @@ export class TerminalSelectionBuffer {
 
   select(text: string) {
     // Reject oversized selections whole rather than pasting a surprising prefix.
-    if (this.enabled && text.length > 0 && text.length <= 65_536) this.text = text;
+    if (this.enabled && isTerminalSelection(text)) this.text = text;
   }
 
   read() {
