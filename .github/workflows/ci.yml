@@ -632,6 +632,7 @@ jobs:
     permissions:
       contents: write
       actions: read
+      id-token: write
     concurrency:
       group: publish-nightly
       cancel-in-progress: false
@@ -655,3 +656,23 @@ jobs:
           script: |
             const { publish } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/nightly.mjs`);
             await publish({ github, context });
+      - name: Nightly feed upload disabled
+        if: vars.NIGHTLY_FEED_ROLE_ARN == ''
+        run: echo 'Nightly feed upload skipped; set NIGHTLY_FEED_ROLE_ARN after provisioning the scoped OIDC role and site path.'
+      - name: Assume nightly feed role with GitHub OIDC
+        if: vars.NIGHTLY_FEED_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: ${{ vars.NIGHTLY_FEED_ROLE_ARN }}
+          aws-region: ${{ vars.NIGHTLY_FEED_REGION }}
+          role-session-name: foom-nightly-feed-${{ github.run_id }}
+          allowed-account-ids: ${{ vars.NIGHTLY_FEED_AWS_ACCOUNT_ID }}
+          unset-current-credentials: true
+      - name: Upload immutable nightly artifacts then feed metadata
+        if: vars.NIGHTLY_FEED_ROLE_ARN != ''
+        env:
+          NIGHTLY_FEED_BUCKET: ${{ vars.NIGHTLY_FEED_BUCKET }}
+          NIGHTLY_FEED_DISTRIBUTION_ID: ${{ vars.NIGHTLY_FEED_DISTRIBUTION_ID }}
+          NIGHTLY_FEED_REGION: ${{ vars.NIGHTLY_FEED_REGION }}
+          PUBLISH_NIGHTLY: ${{ inputs.publish_nightly }}
+        run: node scripts/nightly-feed.mjs

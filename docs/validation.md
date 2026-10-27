@@ -139,7 +139,7 @@ Follow [AGENTS.md](../AGENTS.md#validation-and-delivery) for pre-push checks and
 
 Account owners should configure an Actions budget with **Stop usage when budget limit is reached** enabled in GitHub billing settings, plus usage alerts. Budget alerts alone do not stop spending. Review and delete obsolete development artifacts in Actions after preserving any needed downloads; reducing workflow retention affects new uploads, and deleting old artifacts prevents future storage accrual without reversing existing charges. Billing settings and existing artifact cleanup are account operations, not changes this workflow applies. See [GitHub budgets](https://docs.github.com/en/billing/how-tos/set-up-budgets) and [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
 
-Local `package` output goes to `out/`; `make` installers and ZIPs go to `out/make/`. Build on each target OS. These are ad-hoc development artifacts on macOS and unsigned on Linux/Windows. Published macOS nightlies are Developer ID signed, notarized and stapled in the main-only `Release` job after the Quality gate; the publisher waits for its signed artifact. See [packaging and signing](architecture.md#packaging-and-macos-signing-601) for credentials, entitlements and the manual credential check. Windows signing remains #665; unsigned Windows installers are published only on the nightly channel. The rolling nightly is a public prerelease, never Latest; its tag points to the tested commit. Publication reuses the tested ZIPs. CI stamps the version only in its disposable checkout, leaving the committed package and lockfile versions unchanged. A serialized publisher ignores duplicate or older commits. Updates follow the [stable/nightly policy](product.md#updates-603); nightly builds are notice-only until #604. Versioned draft publication is described below.
+Local `package` output goes to `out/`; `make` installers and ZIPs go to `out/make/`. Build on each target OS. These are ad-hoc development artifacts on macOS and unsigned on Linux/Windows. Published macOS nightlies are Developer ID signed, notarized and stapled in the main-only `Release` job after the Quality gate; the publisher waits for its signed artifact. See [packaging and signing](architecture.md#packaging-and-macos-signing-601) for credentials, entitlements and the manual credential check. Windows signing remains #665; unsigned Windows installers are published only on the nightly channel. The rolling nightly is a public prerelease, never Latest; its tag points to the tested commit. Publication reuses the tested ZIPs. CI stamps the version only in its disposable checkout, leaving the committed package and lockfile versions unchanged. A serialized publisher ignores duplicate or older commits. Updates follow the [stable/nightly policy](product.md#updates-603); nightly macOS installs on quit through the [static feed](#nightly-feed-provisioning-604), while Linux/Windows remain notice-only. Versioned draft publication is described below.
 
 The independent Real CLI MCP probe runs on every scheduled and manual dispatch
 except credential-only checks, including nights without changes to main. It is excluded from the Quality gate and
@@ -303,8 +303,8 @@ without credentials. Nightly publication consumes these signed macOS assets and
 the tested Linux/unsigned Windows installers plus ZIPs and checksums. Installer
 asset names include the commit identity so staging a new nightly never overwrites
 previous assets before the metadata/checksum commit. The commit-scoped RELEASES
-file references the renamed full nupkg; rolling prereleases do not yet provide
-an auto-update endpoint (#603).
+file references the renamed full nupkg; the separate [nightly feed](#nightly-feed-provisioning-604) provides macOS updates
+and Linux/Windows notices.
 
 Human release procedure: commit the desired stable package version and lockfile,
 merge to main, and wait for CI including **Sign and notarize tested macOS ZIP and
@@ -345,4 +345,95 @@ PR tests use fixture Apple tools and no Release credentials.
 Nightly stamping also records `foomNightlyDate` in the disposable package manifest
 for same-day notice ordering against the rolling release's commit date. Existing
 nightlies without that field can detect a later UTC day, but do not guess the
-order of two different commits from the same day. No nightly installer runs (#604).
+order of two different commits from the same day. Nightly macOS installation now uses the [static feed](#nightly-feed-provisioning-604).
+
+## Nightly feed provisioning (#604)
+
+The user-approved URL contract is in [architecture](architecture.md#nightly-update-feed-604).
+`scripts/nightly-feed.mjs` generates metadata from the same tested packages used
+by the rolling prerelease publisher. The existing `nightly` job remains gated by
+successful Quality and macOS signing jobs, main, and schedule/opt-in publication.
+It downloads only this run's tested Linux/Windows packages and Developer ID signed,
+notarized and stapled macOS package; no rebuild or ad-hoc fallback is allowed.
+`scripts/nightly-feed.test.mjs` tests generation, conditional writes, failure and
+retry behavior through a fake AWS boundary. App update tests use fake HTTP/updaters.
+
+Upload uses short-lived GitHub OIDC credentials, with `id-token: write` only on
+the existing nightly publisher. It uses no AWS access-key secrets and no additional
+GitHub environment. If `NIGHTLY_FEED_ROLE_ARN` is absent, both credential and upload
+steps are skipped, with a clear log line; GitHub nightly release publication still
+works. Setting the variable before the remaining infrastructure is ready makes
+publication fail closed. No code in this change provisions infrastructure or
+modifies repository settings, environments, secrets, or foom-site.
+
+The user must provision the following in AWS/foom-site and GitHub; this repository
+only names the configuration:
+
+1. In the AWS account holding the foom-site bucket/distribution, create or reuse
+   the IAM OIDC provider `https://token.actions.githubusercontent.com`, audience
+   `sts.amazonaws.com`. Create a dedicated assumable role. Its trust policy must
+   allow only `sts:AssumeRoleWithWebIdentity` from that account's
+   `arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com`,
+   with **StringEquals** conditions:
+   `token.actions.githubusercontent.com:aud = sts.amazonaws.com` and
+   `token.actions.githubusercontent.com:sub = repo:scott-r-lindsey/foom:ref:refs/heads/main`.
+   Do not allow wildcard subjects, pull requests, other branches or environment
+   subjects. If immutable OIDC subjects have been explicitly enabled for this
+   repository, use the exact corresponding subject containing owner ID `457016`
+   and repository ID `1394006699` instead:
+   `repo:scott-r-lindsey@457016/foom@1394006699:ref:refs/heads/main`.
+   See [GitHub's AWS OIDC guidance](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws).
+2. Grant that role `s3:GetObject` and `s3:PutObject` only on
+   `arn:aws:s3:::<BUCKET>/updates/nightly/*`. Also grant `s3:ListBucket` on `arn:aws:s3:::<BUCKET>` with the
+   **StringEquals** condition `s3:prefix = updates/nightly/`, exclusively for
+   inventorying this prefix before checking existing objects. Without ListBucket,
+   S3 returns 403 for absent objects, so HEAD alone cannot safely detect absence.
+   No deletion, ACL, settings or unrelated website writes are needed. Grant
+   `cloudfront:CreateInvalidation` only on
+   `arn:aws:cloudfront::<ACCOUNT_ID>:distribution/<DISTRIBUTION_ID>`.
+   CloudFront IAM scopes this action to a distribution, not individual paths;
+   the uploader restricts requested paths to the three feed files below.
+   Use bucket policy enforcement of conditional `If-None-Match: *` puts for
+   `updates/nightly/artifacts/*` as an additional immutable-storage guard.
+   The uploader itself always uses conditional artifact creation and refuses
+   existing bytes with a different recorded SHA-256 or length. Retries may reuse
+   identical bytes; re-signing the same commit with different bytes fails rather
+   than replacing a published archive. Never delete referenced archives.
+3. Configure foom-site's existing S3/CloudFront to serve the bucket prefix
+   `updates/nightly/` at the same public URL prefix on `https://foom-term.com`,
+   without redirecting archive or feed requests. Its private S3 origin access
+   must allow CloudFront to read that prefix. Return JSON as `application/json`;
+   disable negative caching of missing feeds (a new architecture can appear).
+   Honor feed `Cache-Control: no-cache,max-age=0,must-revalidate` and artifact
+   `Cache-Control: public,max-age=31536000,immutable`; use a zero minimum TTL for
+   metadata. Do not apply a website SPA fallback to this prefix. Document this
+   contract in foom-site separately; this task cannot edit that repository.
+4. Create repository Actions **variables**, not secrets:
+   `NIGHTLY_FEED_ROLE_ARN` (the role ARN), `NIGHTLY_FEED_AWS_ACCOUNT_ID` (account
+   ID), `NIGHTLY_FEED_REGION` (bucket region), `NIGHTLY_FEED_BUCKET` (bucket name,
+   no `s3://` or path), and `NIGHTLY_FEED_DISTRIBUTION_ID` (distribution ID).
+   Set the role variable last to enable uploading. No environment creation is
+   required. Never store long-lived AWS keys for this flow.
+
+The serialized publisher preflights existing object checksums/lengths and feed
+commit dates. It refuses to move a feed to an older commit date. All immutable
+artifacts are uploaded first using S3 conditional creates, then each metadata
+object is replaced atomically. Failure before metadata publication leaves the
+previous feeds usable. Failure between feed writes can leave architectures on
+different nightlies, each referencing complete immutable archives; retry repairs
+this. Feeds are independent, not a cross-object transaction. A conflicting
+conditional upload fails closed and may be retried without replacing bytes.
+Existing immutable objects are trusted only within this dedicated writer's prefix.
+
+Only these paths are invalidated after successful feed writes:
+
+- `/updates/nightly/darwin-arm64/latest-mac.json`
+- `/updates/nightly/linux-x64/latest.json`
+- `/updates/nightly/win32-x64/latest.json`
+
+No wildcard website invalidation or artifact invalidation is issued. The uploader
+never deletes S3 objects or overwrites immutable artifacts. After merge, the user
+may run the already-existing main `publish_nightly` dispatch to verify real OIDC,
+CloudFront delivery and notarized update installation. Implementation never
+dispatches workflows or uses real AWS in tests. Until provisioned, new nightly
+builds quietly see missing feed metadata and cannot update automatically.

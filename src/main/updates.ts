@@ -1,4 +1,4 @@
-import { macUpdatePackage } from "./update-package";
+import { macUpdatePackage, nightlyUpdatePackage } from "./update-package";
 import type { LocalUpdate, UpdatePackage } from "./update-package";
 import type { UpdateState } from "../shared/updates";
 
@@ -64,7 +64,8 @@ export class Updates {
 
   constructor(private readonly deps: UpdateDependencies) {
     this.nightly = NIGHTLY.exec(deps.version);
-    this.native = deps.platform === "darwin" && STABLE.test(deps.version);
+    this.native =
+      deps.platform === "darwin" && (STABLE.test(deps.version) || this.nightly !== null);
     this.listeners = [
       [
         "update-not-available",
@@ -145,9 +146,11 @@ export class Updates {
       const request = new AbortController();
       this.request = request;
       const release = await this.deps.getRelease(
-        this.native
-          ? `https://update.electronjs.org/scott-r-lindsey/foom/darwin-${this.deps.arch}/${this.deps.version}`
-          : `${API}${this.nightly ? "tags/nightly" : "latest"}`,
+        this.nightly
+          ? `https://foom-term.com/updates/nightly/${this.deps.platform}-${this.deps.arch}/${this.native ? "latest-mac.json" : "latest.json"}`
+          : this.native
+            ? `https://update.electronjs.org/scott-r-lindsey/foom/darwin-${this.deps.arch}/${this.deps.version}`
+            : `${API}latest`,
         request.signal,
       );
       if (generation !== this.generation) return;
@@ -155,10 +158,20 @@ export class Updates {
         this.finish("idle");
         return;
       }
-      if (this.native) {
-        const update = macUpdatePackage(release, this.deps.arch);
-        if (!newerStable(update.version, this.deps.version)) {
+      if (this.nightly || this.native) {
+        const update = this.nightly
+          ? nightlyUpdatePackage(release, this.deps.platform, this.deps.arch)
+          : macUpdatePackage(release, this.deps.arch);
+        if (
+          !(this.nightly
+            ? this.newerNightly(update)
+            : newerStable(update.version, this.deps.version))
+        ) {
           this.finish("idle");
+          return;
+        }
+        if (!this.native) {
+          this.finish("available");
           return;
         }
         const local = await this.deps.prepareUpdate(update, request.signal);
@@ -181,32 +194,28 @@ export class Updates {
         typeof release["tag_name"] !== "string"
       )
         throw new Error("Invalid release");
-      let available = false;
-      if (this.nightly) {
-        // Publisher commits metadata after immutable assets. The signed CI version is in the body.
-        const body = release["body"];
-        if (release["tag_name"] !== "nightly" || !release["prerelease"] || typeof body !== "string")
-          throw new Error("Invalid nightly");
-        const version = /^Version: (\S+)$/m.exec(body)?.[1];
-        const next = version === undefined ? null : NIGHTLY.exec(version);
-        if (!next) throw new Error("Invalid nightly version");
-        available =
-          Number(next[2]) > Number(this.nightly[2]) ||
-          (next[2] === this.nightly[2] &&
-            next[3] !== this.nightly[3] &&
-            typeof this.deps.nightlyDate === "string" &&
-            Date.parse(/^Commit date: (\S+)$/m.exec(body)?.[1] ?? "") >
-              Date.parse(this.deps.nightlyDate));
-      } else {
-        if (release["prerelease"]) throw new Error("Invalid stable release");
-        available = newerStable(release["tag_name"], this.deps.version);
-      }
-      this.finish(available ? "available" : "idle");
+      if (release["prerelease"]) throw new Error("Invalid stable release");
+      this.finish(newerStable(release["tag_name"], this.deps.version) ? "available" : "idle");
     } catch {
       if (generation === this.generation) this.finish("error");
     } finally {
       if (generation === this.generation) this.request = undefined;
     }
+  }
+
+  private newerNightly(update: UpdatePackage): boolean {
+    const next = NIGHTLY.exec(update.version);
+    const current = this.nightly;
+    if (!next || !current || !next[1] || !current[1]) return false;
+    // Channel never changes, and a lower base version is never an update.
+    if (newerStable(current[1], next[1])) return false;
+    return (
+      Number(next[2]) > Number(current[2]) ||
+      (next[2] === current[2] &&
+        next[3] !== current[3] &&
+        typeof this.deps.nightlyDate === "string" &&
+        Date.parse(update.commitDate ?? "") > Date.parse(this.deps.nightlyDate))
+    );
   }
 
   private current(generation: number): boolean {

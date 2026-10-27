@@ -38,8 +38,12 @@ function fixture(
     requestQuit: vi.fn(async () => {}),
     ...overrides,
   };
-  if (deps.platform === "darwin" && !deps.version.includes("nightly"))
-    deps.getRelease.mockResolvedValue({ url: archive });
+  if (deps.platform === "darwin")
+    deps.getRelease.mockResolvedValue(
+      deps.version.includes("nightly")
+        ? nightly("0.1.0-nightly.20261023+aaaaaaa", "darwin", "arm64")
+        : { url: archive },
+    );
   const updates = new Updates(deps);
   active.push(updates);
   return { updates, deps, updater, local };
@@ -72,29 +76,32 @@ test("stable macOS stages silently; explicit restart only relaunches behind the 
   expect(deps.getRelease).toHaveBeenCalledOnce();
 });
 
-test("cancelled or failed quit cannot relaunch, and duplicate restart requests share the quit", async () => {
-  const { updates, deps, updater } = fixture();
-  updates.configure(true);
-  updater.emit("update-downloaded");
-  let finish: () => void = () => {};
-  deps.requestQuit.mockImplementation(
-    () =>
-      new Promise<void>((resolve) => {
-        finish = resolve;
-      }),
-  );
-  const pending = updates.restartToUpdate();
-  await updates.restartToUpdate();
-  expect(deps.requestQuit).toHaveBeenCalledOnce();
-  finish();
-  await pending;
-  updates.quitting();
-  expect(updater.quitAndInstall).not.toHaveBeenCalled();
-  deps.requestQuit.mockRejectedValueOnce(new Error("shutdown failed"));
-  await expect(updates.restartToUpdate()).rejects.toThrow("shutdown failed");
-  updates.quitting();
-  expect(updater.quitAndInstall).not.toHaveBeenCalled();
-});
+test.each(["0.1.0", "0.1.0-nightly.20261022+bbbbbbb"])(
+  "cancelled or failed quit cannot relaunch, and duplicate restart requests share the quit (%s)",
+  async (version) => {
+    const { updates, deps, updater } = fixture({ version });
+    updates.configure(true);
+    updater.emit("update-downloaded");
+    let finish: () => void = () => {};
+    deps.requestQuit.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = updates.restartToUpdate();
+    await updates.restartToUpdate();
+    expect(deps.requestQuit).toHaveBeenCalledOnce();
+    finish();
+    await pending;
+    updates.quitting();
+    expect(updater.quitAndInstall).not.toHaveBeenCalled();
+    deps.requestQuit.mockRejectedValueOnce(new Error("shutdown failed"));
+    await expect(updates.restartToUpdate()).rejects.toThrow("shutdown failed");
+    updates.quitting();
+    expect(updater.quitAndInstall).not.toHaveBeenCalled();
+  },
+);
 
 test("opt-out, development and stable Windows never check or restart", async () => {
   for (const options of [{}, { packaged: false }, { platform: "win32" }, { platform: "freebsd" }]) {
@@ -113,34 +120,37 @@ test("opt-out, development and stable Windows never check or restart", async () 
   }
 });
 
-test("off switch stops retries and ignores late native events; errors use fixed local status", async () => {
-  vi.useFakeTimers();
-  const { updates, updater } = fixture();
-  updates.configure(true);
-  await vi.advanceTimersByTimeAsync(0);
-  updater.emit("error", new Error("secret remote text"));
-  expect(updates.state(0).status).toBe("error");
-  await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
-  expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
-  updater.emit("update-not-available");
-  expect(updates.state(0).status).toBe("idle");
-  updates.configure(false);
-  updater.emit("update-downloaded");
-  updater.emit("error");
-  await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
-  await updates.restartToUpdate();
-  updates.quitting();
-  expect(updates.state(0).status).toBe("idle");
-  expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
-  expect(updater.quitAndInstall).not.toHaveBeenCalled();
-  updates.configure(true);
-  updater.checkForUpdates.mockImplementationOnce(() => {
-    throw new Error("failed");
-  });
-  updater.emit("update-not-available");
-  await vi.advanceTimersByTimeAsync(0);
-  expect(updates.state(0).status).toBe("error");
-});
+test.each(["0.1.0", "0.1.0-nightly.20261022+bbbbbbb"])(
+  "off switch stops retries and ignores late native events; errors use fixed local status (%s)",
+  async (version) => {
+    vi.useFakeTimers();
+    const { updates, updater } = fixture({ version });
+    updates.configure(true);
+    await vi.advanceTimersByTimeAsync(0);
+    updater.emit("error", new Error("secret remote text"));
+    expect(updates.state(0).status).toBe("error");
+    await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+    updater.emit("update-not-available");
+    expect(updates.state(0).status).toBe("idle");
+    updates.configure(false);
+    updater.emit("update-downloaded");
+    updater.emit("error");
+    await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+    await updates.restartToUpdate();
+    updates.quitting();
+    expect(updates.state(0).status).toBe("idle");
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2);
+    expect(updater.quitAndInstall).not.toHaveBeenCalled();
+    updates.configure(true);
+    updater.checkForUpdates.mockImplementationOnce(() => {
+      throw new Error("failed");
+    });
+    updater.emit("update-not-available");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(updates.state(0).status).toBe("error");
+  },
+);
 
 test("Linux uses anonymous stable release metadata and never installs or restarts", async () => {
   const { updates, deps, updater } = fixture({ platform: "linux" });
@@ -160,26 +170,33 @@ test("Linux uses anonymous stable release metadata and never installs or restart
   expect(updater.quitAndInstall).not.toHaveBeenCalled();
 });
 
-const nightly = (version: string) => ({
-  draft: false,
-  prerelease: true,
-  tag_name: "nightly",
-  body: `Commit: ${"a".repeat(40)}\nCommit date: 2026-10-23T01:00:00Z\nVersion: ${version}\n`,
-});
-test.each(["darwin", "linux", "win32"])(
-  "%s nightly is notice only, with no native updater",
+const nightly = (version: string, platform = "linux", arch = "x64") => {
+  const day = /nightly\.(\d{8})/.exec(version)?.[1] ?? "invalid";
+  const short = version.split("+")[1] ?? "invalid";
+  const commit = short.padEnd(40, short[0]);
+  return {
+    version,
+    commit,
+    commitDate: `2026-10-${day.slice(6)}T01:00:00Z`,
+    sha256: "a".repeat(64),
+    url: `https://foom-term.com/updates/nightly/artifacts/${commit}/Foom-nightly-${day}-${short}-${platform}-${arch}.zip`,
+  };
+};
+test.each(["linux", "win32"])(
+  "%s nightly uses site notices only, with no native updater",
   async (platform) => {
     const { updates, deps, updater } = fixture({
       platform,
+      arch: "x64",
       version: "0.1.0-nightly.20261022+bbbbbbb",
     });
-    deps.getRelease.mockResolvedValue(nightly("0.1.0-nightly.20261023+aaaaaaa"));
+    deps.getRelease.mockResolvedValue(nightly("0.1.0-nightly.20261023+aaaaaaa", platform));
     updates.configure(true);
     await vi.waitFor(() => {
       expect(updates.state(0).status).toBe("available");
     });
     expect(deps.getRelease).toHaveBeenCalledWith(
-      "https://api.github.com/repos/scott-r-lindsey/foom/releases/tags/nightly",
+      `https://foom-term.com/updates/nightly/${platform}-x64/latest.json`,
       expect.any(AbortSignal),
     );
     await updates.restartToUpdate();
@@ -189,11 +206,47 @@ test.each(["darwin", "linux", "win32"])(
   },
 );
 
+test("macOS nightly stages an immutable archive and only restarts through the normal quit barrier", async () => {
+  const { updates, deps, updater } = fixture({ version: "0.1.0-nightly.20261022+bbbbbbb" });
+  const metadata = nightly("0.1.0-nightly.20261023+aaaaaaa", "darwin", "arm64");
+  deps.getRelease.mockResolvedValue(metadata);
+  updates.configure(true);
+  await vi.waitFor(() => {
+    expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+  });
+  expect(deps.getRelease).toHaveBeenCalledWith(
+    "https://foom-term.com/updates/nightly/darwin-arm64/latest-mac.json",
+    expect.any(AbortSignal),
+  );
+  expect(deps.prepareUpdate).toHaveBeenCalledWith(
+    {
+      version: metadata.version,
+      url: metadata.url,
+      sha256: metadata.sha256,
+      commitDate: metadata.commitDate,
+      bundleVersion: "20261023.3600.0",
+    },
+    expect.any(AbortSignal),
+  );
+  updater.emit("update-downloaded");
+  expect(updates.state(4)).toEqual({ status: "downloaded", runningAgents: 4 });
+  expect(updates.quitting()).toBe(false);
+  expect(deps.requestQuit).not.toHaveBeenCalled();
+  expect(updater.quitAndInstall).not.toHaveBeenCalled();
+  deps.requestQuit.mockImplementation(() => {
+    updates.quitting();
+    return Promise.resolve();
+  });
+  await updates.restartToUpdate();
+  expect(updater.quitAndInstall).toHaveBeenCalledOnce();
+});
+
 test.each(["0.1.0-nightly.20261022+bbbbbbb", "0.1.0-nightly.20261021+aaaaaaa"])(
   "same or older nightly %s stays quiet",
   async (version) => {
     const { updates, deps } = fixture({
       platform: "linux",
+      arch: "x64",
       version: "0.1.0-nightly.20261022+bbbbbbb",
     });
     deps.getRelease.mockResolvedValue(nightly(version));
@@ -283,7 +336,12 @@ test.each([
   ["2026-10-23T02:00:00Z", "idle"],
   [undefined, "idle"],
 ])("same-day nightly uses commit timestamp %s", async (nightlyDate, status) => {
-  const { updates, deps } = fixture({ version: "0.1.0-nightly.20261023+bbbbbbb", nightlyDate });
+  const { updates, deps } = fixture({
+    platform: "linux",
+    arch: "x64",
+    version: "0.1.0-nightly.20261023+bbbbbbb",
+    nightlyDate,
+  });
   deps.getRelease.mockResolvedValue(nightly("0.1.0-nightly.20261023+aaaaaaa"));
   updates.configure(true);
   await vi.waitFor(() => {
@@ -315,64 +373,73 @@ test.each(["0.1.0", "0.0.9"])(
   },
 );
 
-test("opting out during native metadata prevents both ZIP and native work, even after re-enable", async () => {
-  const { updates, deps, updater } = fixture();
-  let complete: (value: unknown) => void = () => {};
-  deps.getRelease.mockImplementationOnce(
-    () =>
-      new Promise((resolve) => {
-        complete = resolve;
-      }),
-  );
-  updates.configure(true);
-  const signal = deps.getRelease.mock.calls[0]?.[1];
-  updates.configure(false);
-  expect(signal?.aborted).toBe(true);
-  complete({ url: archive });
-  await Promise.resolve();
-  expect(deps.prepareUpdate).not.toHaveBeenCalled();
-  expect(updater.checkForUpdates).not.toHaveBeenCalled();
-  updates.configure(true);
-  await vi.waitFor(() => {
-    expect(updater.checkForUpdates).toHaveBeenCalledOnce();
-  });
-});
-
-test("opting out during the ZIP download aborts it and disposes a stale completed feed", async () => {
-  const { updates, deps, updater, local } = fixture();
-  let complete: (value: typeof local) => void = () => {};
-  deps.prepareUpdate.mockImplementationOnce(
-    () =>
-      new Promise((resolve) => {
-        complete = resolve;
-      }),
-  );
-  updates.configure(true);
-  await vi.waitFor(() => {
-    expect(deps.prepareUpdate).toHaveBeenCalledOnce();
-  });
-  const signal = deps.prepareUpdate.mock.calls[0]?.[1];
-  updates.configure(false);
-  expect(signal?.aborted).toBe(true);
-  complete(local);
-  await vi.waitFor(() => {
-    expect(local.dispose).toHaveBeenCalledOnce();
-  });
-  expect(updater.setFeedURL).not.toHaveBeenCalled();
-  expect(updater.checkForUpdates).not.toHaveBeenCalled();
-});
-
-test("last opt-out guard runs immediately before the native check", async () => {
-  const { updates, updater } = fixture();
-  updater.setFeedURL.mockImplementationOnce(() => {
+test.each(["0.1.0", "0.1.0-nightly.20261022+bbbbbbb"])(
+  "opting out during native metadata prevents both ZIP and native work, even after re-enable (%s)",
+  async (version) => {
+    const { updates, deps, updater } = fixture({ version });
+    let complete: (value: unknown) => void = () => {};
+    deps.getRelease.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    updates.configure(true);
+    const signal = deps.getRelease.mock.calls[0]?.[1];
     updates.configure(false);
-  });
-  updates.configure(true);
-  await vi.waitFor(() => {
-    expect(updater.setFeedURL).toHaveBeenCalledOnce();
-  });
-  expect(updater.checkForUpdates).not.toHaveBeenCalled();
-});
+    expect(signal?.aborted).toBe(true);
+    complete({ url: archive });
+    await Promise.resolve();
+    expect(deps.prepareUpdate).not.toHaveBeenCalled();
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
+    updates.configure(true);
+    await vi.waitFor(() => {
+      expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+    });
+  },
+);
+
+test.each(["0.1.0", "0.1.0-nightly.20261022+bbbbbbb"])(
+  "opting out during the ZIP download aborts it and disposes a stale completed feed (%s)",
+  async (version) => {
+    const { updates, deps, updater, local } = fixture({ version });
+    let complete: (value: typeof local) => void = () => {};
+    deps.prepareUpdate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    updates.configure(true);
+    await vi.waitFor(() => {
+      expect(deps.prepareUpdate).toHaveBeenCalledOnce();
+    });
+    const signal = deps.prepareUpdate.mock.calls[0]?.[1];
+    updates.configure(false);
+    expect(signal?.aborted).toBe(true);
+    complete(local);
+    await vi.waitFor(() => {
+      expect(local.dispose).toHaveBeenCalledOnce();
+    });
+    expect(updater.setFeedURL).not.toHaveBeenCalled();
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
+  },
+);
+
+test.each(["0.1.0", "0.1.0-nightly.20261022+bbbbbbb"])(
+  "last opt-out guard runs immediately before the native check (%s)",
+  async (version) => {
+    const { updates, updater } = fixture({ version });
+    updater.setFeedURL.mockImplementationOnce(() => {
+      updates.configure(false);
+    });
+    updates.configure(true);
+    await vi.waitFor(() => {
+      expect(updater.setFeedURL).toHaveBeenCalledOnce();
+    });
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
+  },
+);
 
 test.each(["throw", "error", "stall", "quit throws"])(
   "native restart %s has a bounded shutdown fallback after disposal",
@@ -422,3 +489,19 @@ test("a hostile macOS feed never reaches ZIP preparation or native code", async 
   expect(updater.setFeedURL).not.toHaveBeenCalled();
   expect(updater.checkForUpdates).not.toHaveBeenCalled();
 });
+
+test.each(["0.2.0", "0.0.9-nightly.20261024+aaaaaaa", "0.1.0-nightly.20261021+aaaaaaa"])(
+  "macOS nightly never stages cross-channel or older version %s",
+  async (version) => {
+    const { updates, deps, updater } = fixture({ version: "0.1.0-nightly.20261022+bbbbbbb" });
+    deps.getRelease.mockResolvedValue(
+      version.includes("nightly") ? nightly(version, "darwin", "arm64") : { url: archive, version },
+    );
+    updates.configure(true);
+    await vi.waitFor(() => {
+      expect(deps.getRelease).toHaveResolved();
+    });
+    expect(deps.prepareUpdate).not.toHaveBeenCalled();
+    expect(updater.setFeedURL).not.toHaveBeenCalled();
+  },
+);

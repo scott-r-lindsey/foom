@@ -58,3 +58,11 @@ test("packaged macOS bundles prevent Squirrel downgrades", () => {
     true,
   );
 });
+
+test("macOS packaging preserves full app identity while supplying numeric Squirrel bundle version", () => {
+  const { packagerConfig } = require("../forge.config.js");
+  assert.equal(
+    packagerConfig.appVersion,
+    process.platform === "darwin" ? require("./nightly.mjs").macBundleVersion(manifest) : undefined,
+  );
+});

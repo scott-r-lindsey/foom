@@ -111,12 +111,13 @@ restart errors or has not exited within five seconds after shutdown, Foom calls
 
 Stable Linux builds show **Update available** using an anonymous GET of
 `api.github.com/repos/scott-r-lindsey/foom/releases/latest`. CI-stamped nightly
-builds on every platform check the rolling `nightly` GitHub prerelease and show
-only a notice. Windows also uses notices only; its releases are currently
-nightly-only. Nightly in-place installation belongs to #604.
+builds use the [foom-term.com nightly feed](architecture.md#nightly-update-feed-604).
+macOS nightlies install on normal quit with the same never-restart and opt-out
+rules as stable. Linux and Windows show notices only; Windows releases remain
+nightly-only. The build selects the channel and never crosses to the other channel.
 
 Update checks are Foom's only app-owned outbound network feature. Metadata
-requests go to update.electronjs.org and api.github.com and contain only the app
+requests go to update.electronjs.org, api.github.com and (for nightlies) foom-term.com and contain only the app
 version and platform (including architecture for the macOS feed), never terminal
 content, repository paths, agent identities or credentials. Those servers see the
 client IP address and app version. Failures stay quiet apart from **Could not
@@ -134,11 +135,12 @@ are discarded. Squirrel performs signature verification and installation without
 outbound requests. Packaged macOS Info.plist also enables
 `ElectronSquirrelPreventDowngrades` to reject older bundle versions.
 
-The same switch controls all three request kinds: macOS metadata at
+For stable builds, the same switch controls macOS metadata at
 update.electronjs.org, the macOS ZIP from the two GitHub download hosts above,
 and GitHub Releases API notices at api.github.com. GitHub's download servers see
 the client IP and request metadata (including the offered version in the URL).
-No other hosts are added. Redirect/error bodies are destroyed without being
+Nightlies use foom-term.com for metadata and immutable, checksum-verified archives,
+with no redirects. Redirect/error bodies are destroyed without being
 read. The chain shares one cancellation signal, size budget and total deadline;
 all requests close before preparation returns, including after success or opt-out.
 Foom bounds and can abort its ZIP transfer; only local
