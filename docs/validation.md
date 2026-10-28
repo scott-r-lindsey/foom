@@ -271,7 +271,11 @@ contain macOS and Linux assets only. This supersedes #602's original assumption
 that #601 would also provide Windows signing.
 
 The DMG uses a local Forge maker backed by Apple's `hdiutil` (ULFO), with Foom.app
-and an Applications shortcut. This avoids appdmg's vulnerable image-size chain
+and an Applications shortcut. Each `hdiutil create` attempt logs a timestamp and
+exit status and prints captured output. Only output containing `Resource busy`
+retries, up to five attempts, waiting 1, 2, 3 and 4 seconds and removing any partial
+DMG before each retry. Other failures stop immediately; exhaustion reports the
+last error. The same maker serves Forge and the signing job. This avoids appdmg's vulnerable image-size chain
 (GHSA-w3rx-r6r6-pgpr), incompatible image-size API upgrade, and extra native build
 scripts. All Forge packages are pinned at 8.0.1. Squirrel's bundled host 7-Zip
 files are selected explicitly in preMake; its transitive install script stays
