@@ -364,5 +364,5 @@ test("Close removes a restored session after its repository registration is drop
     .poll(async () => JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8")))
     .toEqual([]);
   assert.equal(await readFile(path.join(moved, "keep.txt"), "utf8"), "Keep checkout contents");
-  assert.equal(isolatedGit(["-C", moved, "worktree", "list", "--porcelain"]), before);
+  assert.deepEqual(isolatedGit(["-C", moved, "worktree", "list", "--porcelain"]), before);
 });
