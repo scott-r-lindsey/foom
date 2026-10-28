@@ -742,8 +742,9 @@ test("selecting live IDs detaches before resetting, routes only the selected str
   expect(mock.acknowledge).toHaveBeenCalledWith("agent-a", "view-a", 5);
   mock.onInput.mock.calls[0]?.[0]("y");
   expect(mock.input).toHaveBeenCalledWith("agent-a", "y");
+  const openingB = controller.open("agent-b");
   mock.onExit.mock.calls[0]?.[0]("agent-b", 0);
-  await controller.open("agent-b");
+  await openingB;
   expect(mock.detach).toHaveBeenLastCalledWith("agent-a");
   expect(update).toHaveBeenLastCalledWith(
     expect.objectContaining({ state: "done", restartDisabled: true }),
@@ -753,8 +754,9 @@ test("selecting live IDs detaches before resetting, routes only the selected str
   await controller.open("agent-b");
   expect(mock.attach).toHaveBeenCalledTimes(attachments);
   await controller.hide();
+  const openingC = controller.open("agent-c");
   mock.onExit.mock.calls[0]?.[0]("agent-c", -1);
-  await controller.open("agent-c");
+  await openingC;
   expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ state: "failed" }));
   controller.dispose();
 });
@@ -1418,5 +1420,56 @@ test("copy preference updates reach attached terminal selections and stop while 
   change?.();
   await new Promise((resolve) => setTimeout(resolve, 120));
   expect(copy).not.toHaveBeenCalled();
+  controller.dispose();
+});
+
+test("persistent controllers bound exit and removal caches across 200 closed sessions", async () => {
+  const mapSpy = vi.spyOn(Map.prototype, "set");
+  const setSpy = vi.spyOn(Set.prototype, "add");
+  const controllers = Array.from({ length: 8 }, () =>
+    createShell(document.createElement("div"), vi.fn(), false, undefined, false),
+  );
+  try {
+    for (let i = 0; i < 200; i++) {
+      const id = `cache-session-${String(i)}`;
+      const controller = controllers[i % controllers.length];
+      await controller?.open(id);
+      for (const [receive] of mock.onExit.mock.calls) receive(id, 0);
+      for (const [receive] of mock.onTerminalAvailability.mock.calls) receive(id, false);
+      controller?.release(id);
+    }
+    const caches = new Set([
+      ...mapSpy.mock.contexts.filter((cache, index): cache is Map<unknown, unknown> => {
+        const key: unknown = mapSpy.mock.calls[index]?.[0];
+        return cache instanceof Map && typeof key === "string" && key.startsWith("cache-session-");
+      }),
+      ...setSpy.mock.contexts.filter((cache, index): cache is Set<unknown> => {
+        const key: unknown = setSpy.mock.calls[index]?.[0];
+        return cache instanceof Set && typeof key === "string" && key.startsWith("cache-session-");
+      }),
+    ]);
+    expect(Math.max(...[...caches].map((cache) => cache.size))).toBeLessThanOrEqual(2);
+  } finally {
+    mapSpy.mockRestore();
+    setSpy.mockRestore();
+    for (const controller of controllers) controller.dispose();
+  }
+});
+
+test("an initial shell launch preserves exit evidence for a queued selection", async () => {
+  const created = Promise.withResolvers<{ id: string; title: string }>();
+  mock.create.mockReturnValueOnce(created.promise);
+  const update = vi.fn();
+  const controller = createShell(document.createElement("div"), update, false);
+  const opening = controller.open("queued");
+  await vi.waitFor(() => {
+    expect(mock.create).toHaveBeenCalled();
+  });
+  mock.onExit.mock.calls[0]?.[0]("queued", 4);
+  created.resolve({ id: "one", title: "Shell" });
+  await opening;
+  expect(update).toHaveBeenLastCalledWith(
+    expect.objectContaining({ state: "failed", status: "Terminal exited (4)" }),
+  );
   controller.dispose();
 });
