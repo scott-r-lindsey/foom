@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import {
   contentType,
@@ -12,13 +13,13 @@ import {
 
 export interface OpenedFile {
   status: 200;
-  fd: number;
+  handle: FileHandle;
   real: string;
   relative: string;
   size: number;
   type: string;
 }
-export type ReadFile = Omit<OpenedFile, "fd"> & { body: Buffer };
+export type ReadFile = Omit<OpenedFile, "handle"> & { body: Buffer };
 
 export interface CanonicalRoot {
   readonly path: string;
@@ -45,24 +46,24 @@ function targetRefusal(root: string, real: string): Refusal | undefined {
 
 /**
  * Open a file for one request. Returns `{ status, ... }`. On success the caller
- * owns `fd` and must close it. The file is opened by its resolved real path and
+ * owns `handle` and must close it. The file is opened by its resolved real path and
  * checked against its descriptor, post-open target, and captured root identity.
  */
-export function openInside(
+export async function openInside(
   root: CanonicalRoot,
   pathname: unknown,
   recordMissing?: (file: string) => void,
-): OpenedFile | Refusal {
+): Promise<OpenedFile | Refusal> {
   const parsed = segmentsFor(pathname);
   if ("error" in parsed) return { status: 400, reason: parsed.error };
   let candidate = path.join(root.path, ...parsed.segments);
   let real: string;
   try {
-    real = fs.realpathSync.native(candidate);
+    real = await fs.promises.realpath(candidate);
     if (!inside(root.path, real, path.sep)) return { status: 403, reason: "escape" };
-    if (fs.statSync(real).isDirectory()) {
+    if ((await fs.promises.stat(real)).isDirectory()) {
       candidate = path.join(real, "index.html");
-      real = fs.realpathSync.native(candidate);
+      real = await fs.promises.realpath(candidate);
       if (!inside(root.path, real, path.sep)) return { status: 403, reason: "escape" };
     }
   } catch {
@@ -71,17 +72,17 @@ export function openInside(
   }
   const recheck = targetRefusal(root.path, real);
   if (recheck) return recheck;
-  let fd: number | undefined;
+  let handle: FileHandle | undefined;
+  let transferred = false;
   try {
     // Check the type first: opening a FIFO or device could block or have effects.
-    const named = fs.statSync(real, { bigint: true });
+    const named = await fs.promises.stat(real, { bigint: true });
     if (!named.isFile()) return { status: 403, reason: "not-file" };
     // Node does not expose O_NOFOLLOW or O_NONBLOCK on Windows. Use zero for
     // those unavailable flags there; the descriptor type/dev/ino check remains.
-    fd = fs.openSync(real, openFlags(fs.constants));
-    const stat = fs.fstatSync(fd, { bigint: true });
+    handle = await fs.promises.open(real, openFlags(fs.constants));
+    const stat = await handle.stat({ bigint: true });
     if (!stat.isFile() || stat.ino !== named.ino || stat.dev !== named.dev) {
-      fs.closeSync(fd);
       return { status: 403, reason: "not-file" };
     }
     // Linux's fd link names the opened object rather than traversing the request
@@ -90,27 +91,24 @@ export function openInside(
     // compare identity instead. Repeated root flips remain a documented limit.
     const verified =
       process.platform === "linux"
-        ? fs.readlinkSync(`/proc/self/fd/${String(fd)}`)
-        : fs.realpathSync.native(candidate);
+        ? await fs.promises.readlink(`/proc/self/fd/${String(handle.fd)}`)
+        : await fs.promises.realpath(candidate);
     const refusal = targetRefusal(root.path, verified);
     if (refusal) {
-      fs.closeSync(fd);
       return refusal;
     }
     if (process.platform !== "linux") {
-      const current = fs.statSync(verified, { bigint: true });
+      const current = await fs.promises.stat(verified, { bigint: true });
       if (!current.isFile() || current.dev !== stat.dev || current.ino !== stat.ino) {
-        fs.closeSync(fd);
         return { status: 403, reason: "not-file" };
       }
     }
-    const currentRoot = fs.statSync(root.path, { bigint: true });
+    const currentRoot = await fs.promises.stat(root.path, { bigint: true });
     if (
       !currentRoot.isDirectory() ||
       currentRoot.dev !== root.dev ||
       currentRoot.ino !== root.ino
     ) {
-      fs.closeSync(fd);
       return { status: 403, reason: "escape" };
     }
     real = verified;
@@ -118,29 +116,35 @@ export function openInside(
     const type = contentType(real);
     const limit = fileLimit(type);
     if (stat.size > limit) {
-      fs.closeSync(fd);
       return { status: 413, reason: "too-large" };
     }
-    return { status: 200, fd, real, relative, size: Number(stat.size), type };
+    transferred = true;
+    return { status: 200, handle, real, relative, size: Number(stat.size), type };
   } catch {
     recordMissing?.(real);
-    if (fd !== undefined) fs.closeSync(fd);
     return { status: 404, reason: "unreadable" };
+  } finally {
+    if (!transferred) await handle?.close();
   }
 }
 
-export function readInside(
+export async function readInside(
   root: CanonicalRoot,
   pathname: unknown,
   recordMissing?: (file: string) => void,
-): ReadFile | Refusal {
-  const opened = openInside(root, pathname, recordMissing);
+): Promise<ReadFile | Refusal> {
+  const opened = await openInside(root, pathname, recordMissing);
   if (opened.status !== 200) return opened;
   try {
     const body = Buffer.alloc(opened.size);
     let offset = 0;
     while (offset < opened.size) {
-      const read = fs.readSync(opened.fd, body, offset, opened.size - offset, offset);
+      const { bytesRead: read } = await opened.handle.read({
+        buffer: body,
+        offset,
+        length: opened.size - offset,
+        position: offset,
+      });
       if (read === 0) break;
       offset += read;
     }
@@ -153,20 +157,20 @@ export function readInside(
       body: body.subarray(0, offset),
     };
   } finally {
-    fs.closeSync(opened.fd);
+    await opened.handle.close();
   }
 }
 
 /** Session-independent request adapter. No protocol or scheme is registered here. */
-export function readPreview(
+export async function readPreview(
   root: CanonicalRoot,
   url: unknown,
   origin: string,
   record?: (file: string) => void,
   network = false,
-): (ReadFile | Refusal) & { headers: Record<string, string> } {
+): Promise<(ReadFile | Refusal) & { headers: Record<string, string> }> {
   const parsed = pathnameFor(url, origin);
-  const result = "pathname" in parsed ? readInside(root, parsed.pathname, record) : parsed;
+  const result = "pathname" in parsed ? await readInside(root, parsed.pathname, record) : parsed;
   if ("pathname" in parsed && (result.status === 200 || result.status === 404)) {
     const segments = segmentsFor(parsed.pathname);
     if ("segments" in segments) record?.(path.join(root.path, ...segments.segments));

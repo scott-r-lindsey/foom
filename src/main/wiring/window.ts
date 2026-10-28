@@ -139,7 +139,7 @@ export async function buildWindow(
         if (about === "manual") {
           const host = wiring.previewHosts.get(created.id);
           if (!host) return;
-          const id = host.openManual();
+          const id = await host.openManual();
           await wiring.previewPlacements.get(created.id)?.place(id);
           host.focusManual(id);
         } else if (about) created.webContents.send("board:command", "about");
@@ -155,7 +155,7 @@ export async function buildWindow(
     );
     const owner = existing?.[0] ?? window.id;
     const host = existing?.[1] ?? previewHost;
-    const id = host.openManual();
+    const id = await host.openManual();
     const target = wiring.windows.get(owner)?.window;
     if (target?.isMinimized()) target.restore();
     target?.show();

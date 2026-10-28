@@ -18,9 +18,9 @@ test("served and missing files reload with isolated scroll, release watchers and
   const { id, view } = await f.open();
   const handler = partition.protocol.handle.mock.calls[0]?.[1];
   if (!handler) throw new Error("Missing protocol");
-  handler({ url: `foom-preview://${id}/a.html` });
+  await handler({ url: `foom-preview://${id}/a.html` });
   expect(f.host.watcherCount).toBe(1);
-  expect(await handler({ url: `foom-preview://${id}/missing.html` }).text()).toBe(
+  expect(await (await handler({ url: `foom-preview://${id}/missing.html` })).text()).toBe(
     "File not found. Waiting for it to appear.",
   );
   notify?.();
@@ -63,7 +63,7 @@ test("closing while isolated scroll capture is pending cannot resurrect a previe
   );
   const f = await fixture();
   const { id, view } = await f.open();
-  partition.protocol.handle.mock.calls[0]?.[1]({ url: `foom-preview://${id}/a.html` });
+  await partition.protocol.handle.mock.calls[0]?.[1]({ url: `foom-preview://${id}/a.html` });
   let resolve: ((value: unknown) => void) | undefined;
   view.webContents.executeJavaScriptInIsolatedWorld.mockReturnValueOnce(
     new Promise((done) => {

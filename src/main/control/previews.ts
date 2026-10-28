@@ -71,7 +71,7 @@ export class PreviewBroker {
     if (bucket.tokens === 0) throw new ControlError("capacity");
     bucket.tokens--;
   }
-  private resolve(actor: Principal, raw: unknown) {
+  private async resolve(actor: Principal, raw: unknown) {
     if (typeof raw !== "string" || !raw || Buffer.byteLength(raw) > 1024 || /\p{Cc}/u.test(raw))
       throw new ControlError("invalid_request");
     let root: CanonicalRoot;
@@ -91,7 +91,7 @@ export class PreviewBroker {
     )
       throw new ControlError("forbidden");
     if (!/\.(md|markdown|html|htm)$/i.test(relative)) throw new ControlError("invalid_request");
-    const opened = openInside(
+    const opened = await openInside(
       root,
       `/${relative.split(path.sep).map(encodeURIComponent).join("/")}`,
     );
@@ -103,7 +103,7 @@ export class PreviewBroker {
             ? "invalid_request"
             : "forbidden",
       );
-    fs.closeSync(opened.fd);
+    await opened.handle.close();
     // A document-looking directory and a symlink onto an unsupported type are not documents.
     try {
       if (!fs.statSync(path.resolve(root.path, relative)).isFile())
@@ -182,8 +182,9 @@ export class PreviewBroker {
     if (method !== "open_preview") throw new ControlError("forbidden");
     exact(params, ["path"]);
     this.take(actor);
-    const target = this.resolve(actor, params["path"]);
-    const existing = owned.find((p) => p.real === target.real);
+    const target = await this.resolve(actor, params["path"]);
+    this.active(actor);
+    const existing = this.owned(actor).find((p) => p.real === target.real);
     if (existing) {
       await this.record(actor, method, existing, "existing");
       this.assertOwned(actor, existing);

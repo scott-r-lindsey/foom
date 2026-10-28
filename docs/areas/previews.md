@@ -27,8 +27,9 @@ The pure policy rejects empty/dot segments, encoded separators, NUL, controls,
 hidden names and Windows aliases (colons, trailing dots/spaces, device names and
 reserved characters) on every OS. Queries and fragments do not name files.
 
-Resolution uses `realpath.native`, a byte-exact root/separator comparison with no
-case folding, and another segment check after symlinks. Directories resolve their
+Request resolution uses asynchronous `fs/promises` operations (`realpath` uses
+the native implementation), a byte-exact root/separator comparison with no case
+folding, and another segment check after symlinks. Directories resolve their
 `index.html` through the same containment checks. Main stats before opening,
 refuses non-files, opens the resolved path with `O_NOFOLLOW | O_NONBLOCK`, and
 verifies descriptor type and `dev`/`ino`. Windows exposes neither flag through
@@ -36,7 +37,7 @@ Node; zero substitutes explicitly there, with the descriptor checks retained.
 Before releasing bytes, Linux reads `/proc/self/fd/<fd>` with `readlink` and
 rechecks containment and hidden/reserved segments against that opened object's
 path. Missing or inaccessible procfs refuses the read; there is no pathname
-fallback. macOS and Windows re-run `realpath.native` on the requested path after
+fallback. macOS and Windows re-run `realpath` on the requested path after
 open, recheck containment and hidden/reserved segments, and stat the resolved path
 to require its bigint `dev`/`ino` to match the opened descriptor exactly. All
 platforms then stat the captured canonical root and require its directory type
@@ -45,7 +46,10 @@ refuse with 403; failed filesystem lookups refuse with 404. These checks also
 apply to directory indexes and the bundled manual.
 Only the verified descriptor supplies bytes; reads are bounded by its checked
 size (16 MiB, or 2 MiB for Markdown) and handles close even on read failure.
-`openInside` transfers handle ownership to its caller, which must close it.
+`openInside` transfers `FileHandle` ownership to its caller, which must close it.
+The protocol handler awaits contained opens and bounded descriptor reads so slow
+filesystem operations yield the main event loop. Opening a preview validates and
+closes the contained handle without reading its body; the protocol reads it on load.
 
 Malformed paths return 400, escapes/hidden targets/non-files 403, missing or
 unreadable files 404, and oversized files 413. Types use a fixed extension map,
@@ -113,8 +117,8 @@ The main-owned registry stores `{ id, worktree, relativePath, network: false }`
 per stable window ID in profile JSON, with bounded validation and serialized
 atomic writes. Paths never enter layout localStorage. Opens revalidate membership
 and canonical checkout identity against registered worktrees, then validate and
-read the contained document. `preview:pick`, `preview:close` and `preview:bounds`
-use `WindowIpcRouter` to validate the owning board, exact app URL and top frame,
+open the contained document without reading its body. `preview:pick`,
+`preview:close` and `preview:bounds` use `WindowIpcRouter` to validate the owning board, exact app URL and top frame,
 and validate argument counts, worktree IDs and finite bounded rectangles.
 The picker command carries only the inventory worktree path that identifies the checkout.
 Main dismisses the command panel before the native picker can change focus, so

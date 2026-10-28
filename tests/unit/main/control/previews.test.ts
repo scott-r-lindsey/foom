@@ -340,10 +340,15 @@ it("refuses CLI callers, unknown methods, backend failure and authority lost dur
 });
 
 it("returns not_found if a document disappears between containment validation and registration", async () => {
-  const close = fs.closeSync;
-  vi.spyOn(fs, "closeSync").mockImplementationOnce((fd) => {
-    close(fd);
-    rmSync(join(tree, "docs", "plan.md"));
+  const openFile = fs.promises.open;
+  vi.spyOn(fs.promises, "open").mockImplementationOnce(async (...args) => {
+    const handle = await openFile(...args);
+    const close = handle.close.bind(handle);
+    handle.close = async () => {
+      await close();
+      rmSync(join(tree, "docs", "plan.md"));
+    };
+    return handle;
   });
   await expect(open("docs/plan.md")).rejects.toMatchObject({ code: "not_found" });
   expect(board.previews.size).toBe(0);
@@ -463,4 +468,18 @@ it("keeps bounded successful open history after human dismissal, with terminal i
   audit.mockRejectedValueOnce(new Error("audit"));
   await expect(open("mockup.html")).rejects.toMatchObject({ code: "unavailable" });
   expect(broker.history).toHaveLength(256);
+});
+
+it("rechecks the live grant after asynchronous containment validation before auditing or placement", async () => {
+  const openFile = fs.promises.open;
+  vi.spyOn(fs.promises, "open").mockImplementationOnce(async (...args) => {
+    const handle = await openFile(...args);
+    active.mockImplementation(() => {
+      throw new ControlError("forbidden");
+    });
+    return handle;
+  });
+  await expect(open("docs/plan.md")).rejects.toMatchObject({ code: "forbidden" });
+  expect(board.previews.size).toBe(0);
+  expect(events).toEqual([]);
 });
