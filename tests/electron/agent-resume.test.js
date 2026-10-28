@@ -2,7 +2,7 @@ const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, readFile, realpath, writeFile } = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, realpath, rename, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
 const { boardPage, launchApp, quitAndWait, removeAfterApps } = require("./harness.js");
@@ -313,3 +313,56 @@ process.exit(1);
       .toBe("external-123");
   });
 }
+
+test("Close removes a restored session after its repository registration is dropped", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-missing-repository-"));
+  removeAfterApps(context, root);
+  const profile = path.join(root, "profile");
+  const options = { args: [`--user-data-dir=${profile}`] };
+  const app = await launchApp(context, { ...options, fixture: "repository" });
+  const page = await boardPage(app);
+  const repository = await page.evaluate(
+    async () => (await window.desktop.sidebarInventory()).repositories[0],
+  );
+  await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+  const moved = path.join(root, "moved-repository");
+  await rename(repository.path, moved);
+  await writeFile(path.join(moved, "keep.txt"), "Keep checkout contents");
+  const before = isolatedGit(["-C", moved, "worktree", "list", "--porcelain"]);
+  await writeFile(
+    path.join(profile, "sessions.json"),
+    JSON.stringify([
+      {
+        id: "missing-repository-session",
+        agent: "claude",
+        repository: repository.path,
+        worktree: repository.path,
+        branch: "main",
+        running: false,
+      },
+    ]),
+  );
+  const restoredApp = await launchApp(context, { ...options, fixture: "restored" });
+  const restored = await boardPage(restoredApp);
+  await expect
+    .poll(() =>
+      restored.evaluate(async () => (await window.desktop.sidebarInventory()).repositories),
+    )
+    .toEqual([]);
+  await expect
+    .poll(() => restored.evaluate(async () => (await window.desktop.workspace()).terminals))
+    .toMatchObject([{ id: "missing-repository-session", exited: true, dormant: true }]);
+  const row = restored.locator('[data-drag-session="missing-repository-session"]');
+  await expect(row).toBeVisible();
+  await row.getByRole("button", { name: /^Actions for / }).click();
+  await restored.getByRole("menuitem", { name: "Close", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  await expect
+    .poll(() => restored.evaluate(async () => (await window.desktop.workspace()).terminals))
+    .toEqual([]);
+  await expect
+    .poll(async () => JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8")))
+    .toEqual([]);
+  assert.equal(await readFile(path.join(moved, "keep.txt"), "utf8"), "Keep checkout contents");
+  assert.equal(isolatedGit(["-C", moved, "worktree", "list", "--porcelain"]), before);
+});
