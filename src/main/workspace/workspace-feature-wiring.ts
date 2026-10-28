@@ -565,6 +565,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       },
     } satisfies ExecutionEventsContext,
     orchestrationHost: {
+      get launchAgent() {
+        return owner.launchAgent.bind(owner);
+      },
       get busyWorktrees() {
         return owner.busyWorktrees;
       },
@@ -617,12 +620,18 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
         return owner.withRepository.bind(owner);
       },
       deps: {
+        get hosts() {
+          return owner.deps.hosts;
+        },
         get forge() {
           return owner.deps.forge;
         },
         worktrees: {
           get reviewBranch() {
             return owner.deps.worktrees.reviewBranch.bind(owner.deps.worktrees);
+          },
+          get adoptionBranch() {
+            return owner.deps.worktrees.adoptionBranch.bind(owner.deps.worktrees);
           },
           get adoptWorktree() {
             return owner.deps.worktrees.adoptWorktree.bind(owner.deps.worktrees);

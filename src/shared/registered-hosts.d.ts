@@ -29,6 +29,21 @@ export type HostManagement = {
 } & (
   | { operation: "inspect" }
   | { operation: "repository" | "clone"; directory: string; origin: string }
+  | {
+      operation: "create-worktree";
+      directory: string;
+      origin: string;
+      branch: string;
+      fromOrigin?: boolean;
+    }
+  | {
+      operation: "inspect-worktree" | "remove-worktree";
+      directory: string;
+      origin: string;
+      path: string;
+      identity: string;
+      changes?: string;
+    }
 );
 export type HostResult =
   | { ok: false; reason: HostFailure }
@@ -36,6 +51,7 @@ export type HostResult =
       ok: true;
       facts: HostFacts;
       checkout?: { path: string; state: "clean" | "changed" | "absent" };
+      worktree?: { path: string; branch: string; identity: string; changes: string };
     };
 export interface HostRow extends RegisteredHost {
   result?: HostResult | undefined;

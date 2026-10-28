@@ -78,16 +78,20 @@ export async function launchAgent(
     | "beforeSpawn"
     | "loop"
     | "selection"
+    | "remoteCheckout"
   > = {},
 ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
   return this.withRepository(request.repository, async () => {
     if (this.enabled[request.agent] === false) throw new LaunchFailure("agent_disabled");
     // Scan once so launches don't each probe the login shell.
-    if (!remoteAgentTarget(process.argv, request.worktree)) await this.scanAgents(false);
+    if (!extra.remoteCheckout && !remoteAgentTarget(process.argv, request.worktree))
+      await this.scanAgents(false);
     // Look up the branch before spawning, so nothing can fail between spawn and tracking.
-    const tree = (await this.deps.worktrees.listWorktrees(request.repository)).find(
-      (entry) => entry.path === request.worktree,
-    );
+    const tree = extra.remoteCheckout
+      ? { branch: `${extra.remoteCheckout.branch} · ${extra.remoteCheckout.target.host}` }
+      : (await this.deps.worktrees.listWorktrees(request.repository)).find(
+          (entry) => entry.path === request.worktree,
+        );
     // Children use the user's defaults as written, but never bypass: an orchestrator
     // cannot pass on the user's acknowledgement for manual launches.
     const child = extra.control !== undefined && "parentId" in extra.control;
@@ -325,8 +329,11 @@ export async function startExisting(
   authorityIdentity?: string,
   pastedId?: string,
 ): Promise<string | undefined> {
+  const registeredRemote = await this.orchestration.remoteCheckout(worktree, run);
+  const isRemote =
+    registeredRemote !== undefined || remoteAgentTarget(process.argv, worktree) !== undefined;
   const remoteParentGuard =
-    remoteAgentTarget(process.argv, worktree) && control && "parentId" in control
+    isRemote && control && "parentId" in control
       ? this.orchestration.remoteParentGuard(control.parentId)
       : undefined;
   return this.withRepository(repository, async () => {
@@ -337,16 +344,18 @@ export async function startExisting(
     if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
-      const identity = await this.deps.worktrees.launchIdentity(repository, worktree);
+      const identity =
+        registeredRemote?.identity ??
+        (await this.deps.worktrees.launchIdentity(repository, worktree));
       if (authorityIdentity !== undefined && identity !== authorityIdentity)
         throw new Error("Repository identity changed during restore");
       if (run !== "shell" && !restoring && !(await this.confirmAgentLaunch(worktree, confirm)))
         return;
       if (run !== "shell") {
-        if (!remoteAgentTarget(process.argv, worktree)) await this.scanAgents(false);
+        if (!isRemote) await this.scanAgents(false);
         if (replacement) {
           const old = this.launched.get(replacement.id);
-          if (old?.remote && !remoteAgentTarget(process.argv, worktree))
+          if (old?.remote && !isRemote)
             throw new Error("Remote mapping is required to resume this child");
           if (!old || this.executionOwner.view(old.id).exitCode === undefined)
             throw new Error("Session is no longer exited");
@@ -376,7 +385,8 @@ export async function startExisting(
               identity,
               replacement,
               {
-                ...(remoteAgentTarget(process.argv, worktree) && control && "parentId" in control
+                ...(registeredRemote ? { remoteCheckout: registeredRemote } : {}),
+                ...(isRemote && control && "parentId" in control
                   ? {
                       beforeSpawn: () => {
                         remoteParentGuard?.();

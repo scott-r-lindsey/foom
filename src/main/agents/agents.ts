@@ -226,7 +226,7 @@ export class AgentService {
     );
     if (request.conversationId !== undefined) provider.resume(request.conversationId);
     const config = request.configCli;
-    if (config === undefined) {
+    if (config === undefined && !request.remoteCheckout) {
       const trees = await this.worktrees.listWorktrees(request.repository);
       if (
         !trees.some(
@@ -236,13 +236,13 @@ export class AgentService {
         throw new Error("Worktree is missing, bare, locked, or prunable");
     }
     const checkoutIdentity =
-      config === undefined
+      config === undefined && !request.remoteCheckout
         ? (request.checkoutIdentity ??
           (await this.worktrees.launchIdentity(request.repository, request.worktree)))
         : undefined;
     const remote = request.localOnly
       ? undefined
-      : remoteAgentTarget(process.argv, request.worktree);
+      : (request.remoteCheckout ?? remoteAgentTarget(process.argv, request.worktree));
     if (remote) {
       if (request.loop) throw new ControlError("remote_review_unsupported");
       if (provider.model.launch.extension || provider.id === "opencode")
@@ -271,10 +271,12 @@ export class AgentService {
           async () => {
             this.ensureOpen();
             await provider.validate?.();
-            if (
-              agentProvider(request.agent) !== provider ||
+            if (agentProvider(request.agent) !== provider)
+              throw new Error("Worktree or provider changed");
+            if (request.remoteCheckout) await request.remoteCheckout.validate();
+            else if (
               (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
-                checkoutIdentity
+              checkoutIdentity
             )
               throw new Error("Worktree or provider changed");
           },

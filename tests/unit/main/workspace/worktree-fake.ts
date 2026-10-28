@@ -32,6 +32,7 @@ export function worktreeFake(
     removeRepository: vi.fn(async () => {}),
     pruneWorktree: vi.fn(async () => {}),
     removeWorktree: vi.fn(async () => {}),
+    adoptionBranch: vi.fn(),
     adoptWorktree: vi.fn(),
     createWorktree: vi.fn(() => Promise.resolve({ path: tree.path, outcome: "new" as const })),
     branches: vi.fn(),

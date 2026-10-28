@@ -8,6 +8,7 @@ export interface RemoteAgentSpec {
   prompt?: string;
   conversationId?: string;
   hooks: boolean;
+  checkoutIdentity?: string;
 }
 export type RemoteControlResult =
   | { type: "identity"; alias: string; role: "child"; capabilities: string[] }

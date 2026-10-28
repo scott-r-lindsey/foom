@@ -229,3 +229,134 @@ test("host inventory is projected onto Foom-selected enabled manifests, with mis
   expect(JSON.stringify(state)).not.toContain("host-invented");
   expect(JSON.stringify(run.mock.calls[0]?.[1].agents)).not.toContain("agy");
 });
+
+test("fleet inventory uses registered hosts, shares in-flight probes, and refuses cached missing agents before preparation", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  const pending = Promise.withResolvers<HostResult>();
+  run.mockReturnValueOnce(pending.promise);
+  const first = hosts.requireAgent("worker", "codex");
+  const second = hosts.inventory("worker");
+  pending.resolve({ ok: true, facts: { ...facts, agents: [{ id: "codex", state: "missing" }] } });
+  await expect(first).rejects.toMatchObject({ reason: "remote_agent_unavailable" });
+  await second;
+  await expect(hosts.requireAgent("worker", "codex")).rejects.toMatchObject({
+    reason: "remote_agent_unavailable",
+  });
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(await hosts.fleet()).toHaveLength(1);
+  await expect(hosts.requireAgent("unregistered", "claude")).rejects.toMatchObject({
+    code: "not_found",
+  });
+  expect(run).toHaveBeenCalledTimes(1);
+  settings = { ...settings, agents: { ...settings.agents, claude: false } };
+  await expect(hosts.requireAgent("worker", "claude")).rejects.toMatchObject({
+    reason: "agent_disabled",
+  });
+});
+
+test("stale, missing, failed and changed-enabled inventories are probed rather than guessed", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+  try {
+    run.mockResolvedValue({
+      ok: true,
+      facts: { ...facts, agents: [{ id: "codex", state: "ready" }] },
+    });
+    await hosts.requireAgent("worker", "codex");
+    await hosts.requireAgent("worker", "codex");
+    expect(run).toHaveBeenCalledTimes(1);
+    now.mockReturnValue(61000);
+    run.mockResolvedValueOnce({ ok: false, reason: "unreachable" });
+    await expect(hosts.requireAgent("worker", "codex")).rejects.toMatchObject({
+      reason: "remote_host_unreachable",
+    });
+    await hosts.requireAgent("worker", "codex");
+    expect(run).toHaveBeenCalledTimes(3);
+    settings = { ...settings, agents: { ...settings.agents, agy: false } };
+    await hosts.inventory("worker");
+    expect(run).toHaveBeenCalledTimes(4);
+    now.mockReturnValue(0);
+    await hosts.inventory("worker");
+    expect(run).toHaveBeenCalledTimes(5);
+  } finally {
+    now.mockRestore();
+  }
+});
+
+test("registration revocation or a manifest-selection change during inventory cannot authorize launch", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  run.mockImplementationOnce(() => {
+    settings = { ...settings, agents: { ...settings.agents, codex: false } };
+    return Promise.resolve({ ok: true, facts });
+  });
+  expect(await hosts.inventory("worker")).toEqual({ ok: false, reason: "unreachable" });
+  run.mockImplementationOnce(() => {
+    settings = { ...settings, registeredHosts: [] };
+    return Promise.resolve({ ok: true, facts });
+  });
+  await expect(hosts.inventory("worker")).rejects.toMatchObject({ code: "not_found" });
+});
+
+test("remote worktree commands never clone and only use the registered origin and approved code folder", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  const origin = "git@forge.test:me/repo.git";
+  const { createHash } = await import("node:crypto");
+  const directory = `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
+  const tree = {
+    path: `${facts.codeFolder}/.foom-worktree-fixture`,
+    branch: "feature",
+    identity: "a".repeat(64),
+    changes: "",
+  };
+  run
+    .mockResolvedValueOnce({
+      ok: true,
+      facts,
+      checkout: { path: `${facts.codeFolder}/${directory}`, state: "clean" },
+    })
+    .mockResolvedValueOnce({ ok: true, facts, worktree: tree });
+  expect(
+    await hosts.worktree("worker", "/local/repo", {
+      operation: "create-worktree",
+      branch: "feature",
+    }),
+  ).toEqual({ repository: `${facts.codeFolder}/${directory}`, ...tree });
+  expect(run.mock.calls.map((call) => call[1].operation)).toEqual([
+    "repository",
+    "create-worktree",
+  ]);
+  expect(run.mock.calls[1]?.[1]).toMatchObject({
+    origin,
+    directory,
+    codeFolder: facts.codeFolder,
+    branch: "feature",
+  });
+  await expect(
+    hosts.worktree("worker", "/foreign", { operation: "create-worktree", branch: "feature" }),
+  ).rejects.toMatchObject({ code: "not_found" });
+  run.mockResolvedValueOnce({
+    ok: true,
+    facts,
+    checkout: { path: `${facts.codeFolder}/${directory}`, state: "absent" },
+  });
+  await expect(
+    hosts.worktree("worker", "/local/repo", { operation: "create-worktree", branch: "feature" }),
+  ).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
+  for (const result of [
+    { ok: false, reason: "checkout-refused" } as const,
+    { ok: true, facts } as const,
+    { ok: true, facts, worktree: { ...tree, path: "/outside" } } as const,
+    { ok: true, facts, worktree: { ...tree, path: `${tree.path}/child` } } as const,
+  ]) {
+    run
+      .mockResolvedValueOnce({
+        ok: true,
+        facts,
+        checkout: { path: `${facts.codeFolder}/${directory}`, state: "clean" },
+      })
+      .mockResolvedValueOnce(result);
+    await expect(
+      hosts.worktree("worker", "/local/repo", { operation: "create-worktree", branch: "feature" }),
+    ).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
+  }
+});

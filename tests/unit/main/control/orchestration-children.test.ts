@@ -343,7 +343,14 @@ it("validates review creation, includes mode in idempotency and preserves the un
   const params = { idempotencyKey: "review-checkout", pullRequest: 843, review: true };
   const first = (await h.call("create_worktree", params)) as Operation;
   expect(first.status).toBe("succeeded");
-  expect(h.host.adoptWorktree).toHaveBeenCalledWith(repo, 843, [], expect.any(Function), true);
+  expect(h.host.adoptWorktree).toHaveBeenCalledWith(
+    repo,
+    843,
+    [],
+    expect.any(Function),
+    true,
+    undefined,
+  );
   expect(await h.call("create_worktree", params)).toEqual(first);
   await expect(h.call("create_worktree", { ...params, review: false })).rejects.toThrow("conflict");
   for (const branch of ["a", "b", "c"]) await h.mutate("create_worktree", { branch });
@@ -386,4 +393,31 @@ it("validates author and reviewer selections before reserving or launching", asy
     selection: { model: "author", effort: "high" },
     loop: { model: "reviewer", effort: "low" },
   });
+});
+
+it("binds host selection into creation/launch idempotency and refuses a different launch host", async () => {
+  const h = harness();
+  Object.assign(h.host, { worktreeHost: () => "worker" });
+  const params = { branch: "remote", host: "worker", idempotencyKey: "host-tree" };
+  const tree = (await h.call("create_worktree", params)) as Operation;
+  expect(h.host.createWorktree).toHaveBeenCalledWith(repo, "remote", "worker");
+  expect(await h.call("create_worktree", params)).toEqual(tree);
+  await expect(h.call("create_worktree", { ...params, host: "other" })).rejects.toThrow();
+  await expect(
+    h.mutate("launch", { worktreeId: tree.resultId, agent: "codex", host: "other" }),
+  ).rejects.toThrow("not_found");
+  expect(h.host.launch).not.toHaveBeenCalled();
+  expect(
+    await h.mutate("launch", { worktreeId: tree.resultId, agent: "codex", host: "worker" }),
+  ).toMatchObject({ status: "succeeded" });
+  for (const method of ["create_worktree", "launch"])
+    await expect(
+      h.call(method, {
+        idempotencyKey: `invalid-${method}`,
+        host: "-evil",
+        branch: "feature",
+        worktreeId: tree.resultId,
+        agent: "codex",
+      }),
+    ).rejects.toThrow("invalid_request");
 });

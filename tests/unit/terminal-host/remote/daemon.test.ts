@@ -1,3 +1,4 @@
+import type { HostResult } from "../../../../src/shared/registered-hosts.d";
 import { LaunchFailure } from "../../../../src/shared/launch-failure";
 import { hostDiscovery } from "../../../../src/terminal-host/remote/agent-discovery";
 import type { TerminalTelemetry } from "../../../../src/shared/desktop";
@@ -1116,5 +1117,76 @@ test.skipIf(process.platform === "win32")(
     live.send({ type: "manage", operation: "inspect", codeFolder: "/code" });
     await closed;
     expect(mock.manage).toHaveBeenCalledTimes(1);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "remote removal refuses prepared and live worktrees, and reserves the path against new launches",
+  async () => {
+    await start();
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    const agent = {
+      agent: "claude",
+      repository: "/remote/repo",
+      worktree: "/remote/tree",
+      defaults: [],
+      hooks: false,
+    };
+    c.send({ type: "agent-open", id: "owned", request: 1, cols: 80, rows: 24, spec: agent });
+    await c.wait(2);
+    const m = await client();
+    m.send({ type: "hello", build });
+    await m.wait(1);
+    const request = {
+      type: "manage",
+      operation: "remove-worktree",
+      codeFolder: "/remote",
+      directory: "repo",
+      origin: "git@fixture.test:team/repo.git",
+      path: agent.worktree,
+      identity: "a".repeat(64),
+      changes: "",
+    } as const;
+    m.send(request);
+    await m.wait(2);
+    expect(m.messages[1]).toEqual({
+      type: "managed",
+      result: { ok: false, reason: "checkout-refused" },
+    });
+    expect(mock.manage).not.toHaveBeenCalled();
+    c.send({ type: "agent-start", id: "owned" });
+    await c.wait(4);
+    m.send(request);
+    await m.wait(3);
+    expect(m.messages[2]).toEqual(m.messages[1]);
+    expect(mock.manage).not.toHaveBeenCalled();
+    mock.exited("owned", 0);
+    const pending = Promise.withResolvers<HostResult>();
+    mock.manage.mockReturnValueOnce(pending.promise);
+    m.send(request);
+    await vi.waitFor(() => {
+      expect(mock.manage).toHaveBeenCalledOnce();
+    });
+    const blocked = await client();
+    blocked.send({ type: "hello", build });
+    await blocked.wait(1);
+    blocked.send({
+      type: "agent-open",
+      id: "blocked",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      spec: agent,
+    });
+    await blocked.wait(2);
+    expect(blocked.messages[1]).toMatchObject({
+      type: "agent-failed",
+      reason: "remote_prepare_refused",
+    });
+    expect(mock.create).toHaveBeenCalledOnce();
+    pending.resolve({ ok: false, reason: "checkout-refused" });
+    await m.wait(4);
   },
 );

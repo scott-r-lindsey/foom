@@ -17,6 +17,7 @@ import { LaunchFailure } from "../../../../src/shared/launch-failure";
 import { HOST_CLONE_TIMEOUT_MS } from "../../../../src/shared/registered-hosts";
 import { gitSync } from "../../../helpers/git.js";
 const mock = vi.hoisted(() => ({
+  checkout: vi.fn(),
   discovery: vi.fn(),
   probe: vi.fn(),
   read: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("node:fs/promises", async (original) => {
   return { ...fs, readFile: mock.read, lstat: mock.lstat };
 });
 vi.mock("../../../../src/terminal-host/remote/agent-discovery", () => ({
+  remoteCheckout: mock.checkout,
   hostDiscovery: mock.discovery,
   hostProbe: mock.probe,
   hostLoginEnvironment: () => Promise.resolve({ PATH: "/fixture-login" }),
@@ -41,6 +43,7 @@ import {
 let home: string;
 beforeEach(async () => {
   home = await realpath(await mkdtemp(join(tmpdir(), "management-")));
+  mock.checkout.mockReset().mockResolvedValue("identity");
   mock.discovery.mockReset().mockResolvedValue({ version: "1.0", help: "--help" });
   mock.probe.mockReset().mockResolvedValue("");
   mock.read.mockResolvedValue("MemAvailable: 1234 kB\n");
@@ -417,5 +420,184 @@ test.skipIf(process.platform === "win32").each(["unborn", "destination-appeared"
     });
     expect(await readdir(folder)).toEqual(scenario === "unborn" ? [] : ["repo"]);
     if (scenario === "destination-appeared") expect(await readdir(path)).toEqual(["keep"]);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "branch worktrees are fetched from the default, remain inside the approved folder, and removal binds identity and displayed changes",
+  async () => {
+    const folder = await approvedCodeFolder("~/code", home);
+    const repository = join(folder, "repo");
+    await mkdir(repository, { mode: 0o700 });
+    const base = {
+      type: "manage",
+      codeFolder: folder,
+      directory: "repo",
+      origin: "git@fixture.test:team/repo.git",
+      agents: [],
+    } as const;
+    let changes = "";
+    let refs = "";
+    let advertised = "ref: refs/heads/main\tHEAD\n";
+    mock.probe.mockImplementation((_command: string, args: string[], cwd: string) => {
+      if (args.includes("config")) return Promise.resolve(base.origin);
+      if (args.includes("--show-toplevel")) return Promise.resolve(cwd);
+      if (args.includes("for-each-ref")) return Promise.resolve(refs);
+      if (args.includes("ls-remote")) return Promise.resolve(advertised);
+      if (args.includes("symbolic-ref")) return Promise.resolve("feature\n");
+      if (args.includes("status") && cwd !== repository) return Promise.resolve(changes);
+      return Promise.resolve("");
+    });
+    const created = await manageHost(
+      { ...base, operation: "create-worktree", branch: "feature" },
+      0,
+      "/fixture",
+      "0.1.0",
+      home,
+    );
+    if (!created.ok || !created.worktree) throw new Error("Missing worktree");
+    const tree = created.worktree;
+    expect(tree.path).toMatch(new RegExp(`^${folder}/\\.foom-worktree-[a-f0-9-]+$`, "u"));
+    expect(mock.probe).toHaveBeenCalledWith(
+      "git",
+      [
+        "--no-optional-locks",
+        "fetch",
+        "--no-tags",
+        "origin",
+        "+refs/heads/main:refs/remotes/origin/main",
+      ],
+      repository,
+      expect.anything(),
+      true,
+    );
+    expect(mock.probe).toHaveBeenCalledWith(
+      "git",
+      [
+        "--no-optional-locks",
+        "worktree",
+        "add",
+        "--no-track",
+        "-b",
+        "feature",
+        "--",
+        tree.path,
+        "refs/remotes/origin/main",
+      ],
+      repository,
+      expect.anything(),
+      true,
+    );
+    mock.probe.mockClear();
+    expect(
+      await manageHost(
+        { ...base, operation: "create-worktree", branch: "pr-branch", fromOrigin: true },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toMatchObject({ ok: true, worktree: { branch: "pr-branch" } });
+    expect(mock.probe).toHaveBeenCalledWith(
+      "git",
+      [
+        "--no-optional-locks",
+        "fetch",
+        "--no-tags",
+        "origin",
+        "+refs/heads/pr-branch:refs/remotes/origin/pr-branch",
+      ],
+      repository,
+      expect.anything(),
+      true,
+    );
+    expect(mock.probe).toHaveBeenCalledWith(
+      "git",
+      ["--no-optional-locks", "config", "branch.pr-branch.pushRemote", "origin"],
+      repository,
+      expect.anything(),
+      true,
+    );
+    expect(
+      await manageHost(
+        { ...base, operation: "create-worktree", branch: "main", fromOrigin: true },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toEqual({ ok: false, reason: "checkout-refused" });
+    const request = {
+      ...base,
+      operation: "inspect-worktree",
+      path: tree.path,
+      identity: tree.identity,
+    } as const;
+    changes = "?? new-file\n";
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toMatchObject({
+      ok: true,
+      worktree: { changes },
+    });
+    for (const invalid of [
+      { ...request, path: repository },
+      { ...request, path: "/outside" },
+      { ...request, path: `${tree.path}/nested` },
+      { ...request, identity: "b".repeat(64) },
+    ])
+      expect(await manageHost(invalid, 0, "/fixture", "0.1.0", home)).toEqual({
+        ok: false,
+        reason: "checkout-refused",
+      });
+    const removal = { ...request, operation: "remove-worktree", changes: "" } as const;
+    expect(await manageHost(removal, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    expect(
+      mock.probe.mock.calls.some(([, args]) => Array.isArray(args) && args.includes("remove")),
+    ).toBe(false);
+    expect(await manageHost({ ...removal, changes }, 0, "/fixture", "0.1.0", home)).toMatchObject({
+      ok: true,
+    });
+    expect(mock.probe).toHaveBeenCalledWith(
+      "git",
+      ["--no-optional-locks", "worktree", "remove", "--force", "--", tree.path],
+      repository,
+      expect.anything(),
+      true,
+    );
+    mock.checkout.mockResolvedValueOnce("identity").mockResolvedValueOnce("replaced");
+    expect(await manageHost({ ...removal, changes }, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    changes = "x".repeat(65537);
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    refs = "refs/heads/feature\n";
+    expect(
+      await manageHost(
+        { ...base, operation: "create-worktree", branch: "feature" },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toEqual({ ok: false, reason: "checkout-refused" });
+    refs = "";
+    for (const value of ["", "ref: refs/heads/-evil\tHEAD\n"]) {
+      advertised = value;
+      expect(
+        await manageHost(
+          { ...base, operation: "create-worktree", branch: "feature" },
+          0,
+          "/fixture",
+          "0.1.0",
+          home,
+        ),
+      ).toEqual({ ok: false, reason: "checkout-refused" });
+    }
   },
 );

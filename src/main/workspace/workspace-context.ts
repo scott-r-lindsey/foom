@@ -478,7 +478,31 @@ export class WorkspaceContext {
 
   async worktrees(repository: string): Promise<readonly Worktree[]> {
     this.known(repository);
-    return this.deps.worktrees.listWorktrees(repository);
+    const local = await this.deps.worktrees.listWorktrees(repository);
+    const remote = [
+      ...new Map(
+        [...this.launched.values()]
+          .filter(
+            (row) =>
+              row.repository === repository &&
+              row.placement?.kind === "remote" &&
+              row.worktree.startsWith("/foom-remote/"),
+          )
+          .map((row) => [
+            row.worktree,
+            {
+              path: row.worktree,
+              branch: row.branch,
+              head: null,
+              bare: false,
+              locked: false,
+              prunable: false,
+              managed: false,
+            },
+          ]),
+      ).values(),
+    ];
+    return [...local, ...remote];
   }
 
   async branches(repository: string): Promise<BranchInventory> {

@@ -39,6 +39,8 @@ const signal = {
 };
 test("agent launch requests admit bounded literal data and reject unknown capabilities, invalid paths, arguments and prompts", () => {
   expect(remoteAgentSpec(spec)).toBe(true);
+  expect(remoteAgentSpec({ ...spec, checkoutIdentity: "a".repeat(64) })).toBe(true);
+  expect(remoteAgentSpec({ ...spec, checkoutIdentity: "invalid" })).toBe(false);
   expect(
     remoteAgentSpec({ ...spec, prompt: "Task\nsecond line", conversationId: "conversation" }),
   ).toBe(true);

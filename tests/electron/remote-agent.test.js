@@ -44,7 +44,11 @@ test("a local orchestrator launches and resumes a remote child with private hook
   const remoteTree = path.join(root, "remote-tree");
   for (const dir of [bin, remoteBin, repo, home, remoteRepo, remoteTree])
     await mkdir(dir, { mode: 0o700 });
-  await mkdir(path.join(remoteRepo, ".git"));
+  await mkdir(path.join(remoteRepo, ".git", "worktrees", "fixture"), { recursive: true });
+  await writeFile(
+    path.join(remoteTree, ".git"),
+    `gitdir: ${path.join(remoteRepo, ".git", "worktrees", "fixture")}\n`,
+  );
   gitSync(["init", "-q", "-b", "main"], { cwd: repo });
   gitSync(
     [
@@ -110,6 +114,7 @@ req.end(JSON.stringify({session_id:conversation,hook_event_name:"Stop"}));
 const args = process.argv.slice(2);
 if (args.includes('worktree')) process.stdout.write('worktree ' + ${JSON.stringify(remoteTree)} + '\\0HEAD fixture\\0branch refs/heads/child-remote\\0\\0');
 else if (args.includes('--git-common-dir')) console.log(${JSON.stringify(path.join(remoteRepo, ".git"))});
+else if (args.includes('--absolute-git-dir')) console.log(${JSON.stringify(path.join(remoteRepo, ".git", "worktrees", "fixture"))});
 else process.exit(2);
 `,
     { mode: 0o700 },

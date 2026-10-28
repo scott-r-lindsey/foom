@@ -4,7 +4,7 @@ Settings → Hosts is the only enrollment surface. Registrations are profile-onl
 `registeredHosts` records, validated on load, with an SSH alias/account selector
 and approved absolute code folder. The agent-editable config excludes them;
 `setup:save` cannot write them. Developer spike mappings register nothing and
-confer no later fleet authority. Host-aware orchestration (#756) is separate.
+confer no later fleet authority. Host-aware orchestration (#756) uses the same registration and management service.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
 list, test, add, refresh, remove, locations or clone. Main selects enabled agent
@@ -64,3 +64,28 @@ available for retry; an existing destination is never used as clone staging.
 
 Persistent sessions, hub-restart reattachment and daemon upgrade negotiation are
 PR 2 of #757 and are not implemented by this settings surface.
+
+## Host-aware orchestration (#756)
+
+Only profile registrations authorize fleet operations. The management protocol adds
+closed create/inspect/remove-worktree operations; no terminal ID, executable,
+arbitrary destination or credential enters these requests. Main derives the remote
+checkout from the registered repository's own origin and approved code folder.
+Absent checkouts refuse: only Settings can clone. New branch worktrees live directly
+inside the code folder and start from the freshly fetched origin default branch,
+without tracking that default. Open same-repository PR adoption fetches and tracks
+its validated origin branch. Existing branches refuse rather than overwrite work.
+
+The shared inventory has a 60-second on-demand freshness budget, also invalidated
+by provider or enablement changes. Concurrent reads share one probe. Missing,
+stale or failed observations are probed over management; missing/uncheckable agents
+are never inferred from the hub. A current non-ready observation refuses launch
+with `remote_agent_unavailable` before launch inspection/preparation or SSH launch
+work. A failed inventory connection reports `remote_host_unreachable`. No sign-in
+probe or new inventory UI is added here; Settings → Hosts owns that presentation.
+
+Orchestrator session reads expose a bounded host list with fixed agent states and
+CPU/memory observations, including Local. Paths, raw probe output and credentials
+are omitted. Linux available memory uses MemAvailable; macOS uses the same
+free + inactive + speculative page definition locally and remotely. No polling,
+busy warning or Foom-enforced heavy-validation lock is added.
