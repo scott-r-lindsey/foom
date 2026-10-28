@@ -364,7 +364,12 @@ successful Quality and macOS signing jobs, main, and schedule/opt-in publication
 It downloads only this run's tested Linux/Windows packages and Developer ID signed,
 notarized and stapled macOS package; no rebuild or ad-hoc fallback is allowed.
 `scripts/nightly-feed.test.mjs` tests generation, conditional writes, failure and
-retry behavior through a fake AWS boundary. App update tests use fake HTTP/updaters.
+retry behavior through a fake AWS boundary. App update tests use fake HTTP/updaters,
+including the `/u/v1/` counting proxy and per-channel fallback. The proxy does not
+change publication paths or archive validation. Its infrastructure is tracked in
+foom-site#34 and is not yet live; manual dev-endpoint verification depends on
+that deployment. Client fixture tests cover unavailable endpoints without
+contacting production update services.
 
 Upload uses short-lived GitHub OIDC credentials, with `id-token: write` only on
 the existing nightly publisher. It uses no AWS access-key secrets and no additional

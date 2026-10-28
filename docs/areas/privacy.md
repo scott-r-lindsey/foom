@@ -39,15 +39,35 @@ identify every unlabelled secret.
 ## Update requests (#603)
 
 **Check for updates** in Settings → General defaults on and persists only in the
-profile. It controls all update checks: stable macOS checks update.electronjs.org;
-stable Linux anonymously GETs GitHub's latest-release metadata at api.github.com;
-CI-stamped nightly builds anonymously GET their platform/architecture feed at
-foom-term.com, with macOS installing on normal quit and Linux/Windows showing
-notices only. Windows remains nightly-only. See the [nightly feed contract](../architecture.md#nightly-update-feed-604).
+profile. Packaged builds first GET
+`https://foom-term.com/u/v1/<channel>/<os>/<arch>/<version>` for update metadata.
+The path contains the build channel (`stable` or `nightly`), operating system,
+architecture and app version. Optional `d=1`, `w=1`, `m=1` query flags mark the
+first check in each UTC day, ISO week and UTC month. Only three last-sent calendar
+dates are stored in `update-activity.json` in the profile, validated at load;
+invalid or missing dates mean never sent. Dates never move backwards, so turning
+the clock back does not resend flags. A sent attempt consumes its flags even
+when the endpoint fails. If the dates cannot be saved, the check uses the
+channel's direct metadata source without activity flags; counting storage failures
+never prevent update checks. No install ID, counters or request-linking identifiers
+are stored or sent.
 
-These servers see the client's IP and Foom version. Requests contain version and
-platform (macOS feed includes architecture), no terminal content, paths, agent
-identities, cookies, tokens or account credentials. There is no telemetry.
+The [counting endpoint contract](https://github.com/scott-r-lindsey/foom-site/issues/34)
+excludes client IP and other identifying fields from its logs; it retains only
+path fields and flags for aggregate active-install counts. The server necessarily
+receives the IP to serve the request. Requests have no body, terminal content,
+repository paths, agent identities, cookies, tokens or account credentials.
+There is no telemetry beyond these disclosed anonymous update-check counts.
+
+Network failures, timeouts and non-2xx responses fall back to the channel's
+existing source: update.electronjs.org for stable macOS, api.github.com latest
+release metadata for stable Linux, and the static foom-term.com
+`/updates/nightly/<os>-<arch>/latest-mac.json` (macOS) or `latest.json`
+(Linux/Windows) feed for nightlies. Fallback requests contain no activity flags;
+these servers see the client IP and request metadata. Windows remains nightly-only.
+See the [nightly feed contract](../architecture.md#nightly-update-feed-604).
+Development launches never check; automated tests inject fixture HTTP adapters.
+
 Metadata GETs are bounded and reject redirects. Only fixed local status words
 reach Settings; remote errors and release notes are never rendered. Opt-out stops
 future checks and aborts pending metadata and ZIP GETs. A request already sent may
@@ -69,8 +89,8 @@ failure or opt-out before preparation returns.
 GitHub's download hosts see the IP and request metadata, including the offered
 version in the URL. No user/account credentials are attached; GitHub's temporary
 asset URL query is used only for the asset request. The same Settings switch
-controls macOS metadata, ZIP downloads and GitHub API notices; no other hosts
-are added for stable builds. Nightlies use only foom-term.com, including the
+controls proxy and fallback metadata, ZIP downloads and notices. Nightlies use
+only foom-term.com, including the
 immutable commit-scoped ZIP path, with no redirects and SHA-256 verification.
 That server sees the IP and request metadata, including platform/architecture
 and offered commit in archive URLs. Electron receives only private local feed and archive `file:` URLs,

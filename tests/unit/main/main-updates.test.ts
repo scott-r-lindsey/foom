@@ -99,7 +99,7 @@ test("stable Linux startup uses only the fake anonymous release HTTP adapter", a
   expect(updateMock.getRelease).toHaveBeenCalledWith(
     "0.1.0",
     "linux",
-    "https://api.github.com/repos/scott-r-lindsey/foom/releases/latest",
+    `https://foom-term.com/u/v1/stable/linux/${process.arch}/0.1.0?d=1&w=1&m=1`,
     expect.any(AbortSignal),
   );
   const setupDeps = mock.setup.deps as { updates(): unknown; restartToUpdate(): Promise<void> };

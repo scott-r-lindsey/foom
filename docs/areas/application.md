@@ -38,6 +38,14 @@ launches continue through the existing profile and single-instance lifecycle.
 Main owns update checks, timers and fixed status facts in `updates.ts`; the HTTP
 adapter uses anonymous, bounded HTTPS metadata GETs. Settings stores the opt-out
 in the profile. Only packaged builds check, once at startup and every six hours.
+Metadata checks first use the anonymous foom-term.com `/u/v1/` endpoint with
+UTC day/ISO week/month activity flags (#847); a network failure, timeout or
+non-2xx falls back to the channel's existing source. A failed activity-date
+reservation also uses that direct source, without flags, so counting storage
+failures do not disable updates. Main retains only validated
+last-sent dates in the profile and never moves them backwards. Proxy metadata
+passes the same channel validation and never changes archive trust. See the
+[request disclosure](privacy.md#update-requests-603).
 The [approved channel policy](../product.md#updates-603) distinguishes stable
 macOS installation from notice-only Linux and Windows. CI-stamped macOS nightlies
 use the [nightly feed](../architecture.md#nightly-update-feed-604) with the same installation rules.

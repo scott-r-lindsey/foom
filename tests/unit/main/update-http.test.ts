@@ -183,3 +183,68 @@ test.each([
   await expect(getUpdateRelease("0.1.0", "darwin", endpoint, signal())).rejects.toThrow();
   expect(mock.get).not.toHaveBeenCalled();
 });
+
+const proxy = "https://foom-term.com/u/v1/stable/linux/x64/0.1.0";
+test.each(["", "?d=1", "?w=1", "?m=1", "?d=1&w=1", "?d=1&m=1", "?w=1&m=1", "?d=1&w=1&m=1"])(
+  "allows only anonymous activity flags %s",
+  async (flags) => {
+    const result = getUpdateRelease("0.1.0", "linux", proxy + flags, signal());
+    respond(200, '{"draft":false,"prerelease":false,"tag_name":"v0.1.0"}');
+    await expect(result).resolves.toMatchObject({ tag_name: "v0.1.0" });
+  },
+);
+
+test.each([
+  proxy + "?d=0",
+  proxy + "?d=1&d=1",
+  proxy + "?id=123",
+  proxy + "?m=1&d=1",
+  proxy.replace("stable", "unknown"),
+  proxy.replace("linux", "freebsd"),
+  proxy.replace("x64", "unknown"),
+  proxy.replace("0.1.0", "0.1.0/other"),
+  proxy.replace("foom-term.com", "foom-term.com.evil"),
+  proxy.replace("linux", "win32"),
+  proxy.replace("0.1.0", "0.1.0-nightly.20261022%2Bbbbbbbb"),
+])("rejects altered counting endpoint %s", async (endpoint) => {
+  await expect(getUpdateRelease("0.1.0", "linux", endpoint, signal())).rejects.toThrow(
+    "Invalid update endpoint",
+  );
+  expect(mock.get).not.toHaveBeenCalled();
+});
+
+test.each(["darwin", "linux", "win32"])(
+  "allows stamped nightly counting route on %s",
+  async (platform) => {
+    const result = getUpdateRelease(
+      "0.1.0-nightly.20261022+bbbbbbb",
+      platform,
+      `https://foom-term.com/u/v1/nightly/${platform}/arm64/0.1.0-nightly.20261022%2Bbbbbbbb?d=1&w=1&m=1`,
+      signal(),
+    );
+    respond(200, "{}");
+    await expect(result).resolves.toEqual({});
+  },
+);
+
+test.each([301, 302, 400, 404, 429, 500, 503])(
+  "proxy HTTP %i fails so the caller can use its upstream fallback",
+  async (status) => {
+    const result = getUpdateRelease("0.1.0", "linux", proxy, signal());
+    respond(status, "remote secret");
+    await expect(result).rejects.toThrow("Update check failed");
+    expect(mock.get).toHaveBeenCalledOnce();
+  },
+);
+
+test("proxy no-update and invalid metadata preserve upstream validation", async () => {
+  let result = getUpdateRelease("0.1.0", "linux", proxy, signal());
+  respond(204);
+  await expect(result).resolves.toBeNull();
+  result = getUpdateRelease("0.1.0", "linux", proxy, signal());
+  respond(200, "secret");
+  await expect(result).rejects.toThrow("Invalid update response");
+  result = getUpdateRelease("0.1.0", "linux", proxy, signal());
+  respond(200, "x".repeat(262145));
+  await expect(result).rejects.toThrow("Update check failed");
+});
