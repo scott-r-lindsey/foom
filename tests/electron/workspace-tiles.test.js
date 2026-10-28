@@ -1102,3 +1102,43 @@ test("directional pads and empty-space menu split, grow, launch and close", {
   ).toHaveCSS("width", "28px");
   await narrow.press("Escape");
 });
+
+test("empty-space split refusals stay inside the menu at resource limits", async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.evaluate(() => {
+    let tree = { kind: "tile", id: "limit-space", content: null };
+    for (let index = 0; index < 64; index++)
+      tree = {
+        kind: "split",
+        id: `limit-split-${index}`,
+        direction: "horizontal",
+        ratio: 0.999,
+        first: tree,
+        second: { kind: "tile", id: `side-${index}`, content: null },
+      };
+    localStorage.setItem(
+      `foom.tiles.v1.${window.desktop.windows.id}`,
+      JSON.stringify({ version: 2, tree, focused: "limit-space", maximized: null }),
+    );
+  });
+  await page.reload();
+  const space = page.locator('[data-tile="limit-space"]');
+  await expect(space).toBeVisible();
+  await space.click({ button: "right", position: { x: 100, y: 100 } });
+  const menu = page.getByRole("menu", { name: "Empty space", exact: true });
+  for (const axis of ["horizontal", "vertical"]) {
+    const button = menu.getByRole("menuitem", { name: `Split ${axis}`, exact: true });
+    await expect(button).toBeDisabled();
+    await button.focus();
+    await expect(button).toHaveAccessibleDescription("Split depth limit reached");
+    const reason = menu.locator(`[id="${await button.getAttribute("aria-describedby")}"]`);
+    await expect(reason).toBeVisible();
+    const bounds = await menu.boundingBox();
+    const tip = await reason.boundingBox();
+    assert.ok(bounds && tip);
+    assert.ok(tip.y >= bounds.y && tip.y + tip.height <= bounds.y + bounds.height);
+    assert.ok(tip.x >= bounds.x && tip.x + tip.width <= bounds.x + bounds.width);
+  }
+});

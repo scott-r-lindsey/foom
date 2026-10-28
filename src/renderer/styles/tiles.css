@@ -518,13 +518,11 @@
 }
 
 .space-splits {
+  position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   padding: 4px 6px 6px;
-}
-.space-split {
-  position: relative;
 }
 .row-menu .space-split button {
   display: flex;
@@ -564,4 +562,10 @@
 .space-split:hover .pad-reason,
 .space-split:focus-within .pad-reason {
   display: block;
+}
+
+.space-splits .pad-reason {
+  top: calc(100% + 2px);
+  bottom: auto;
+  max-width: calc(100% - 12px);
 }
