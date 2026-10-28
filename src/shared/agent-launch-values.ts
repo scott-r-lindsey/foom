@@ -128,12 +128,18 @@ export function boundedArguments(args: string[]): string[] {
 }
 
 type Merge = NonNullable<NonNullable<AgentManifestV2["launch"]["guidance"]>["merge"]>;
-/** Collect literal variadic/equals values; parentheses shield separators only for tool rules. */
+/** Collect merge values without reinterpreting values owned by other single-value options. */
 export function collectMerge(
   args: readonly string[],
   merge: Merge,
+  launch: Pick<AgentManifestV2["launch"], "valueFlags" | "model" | "effort">,
   split = true,
 ): { args: string[]; values: string[] } {
+  const valueFlags = new Set([
+    ...(launch.valueFlags ?? []),
+    ...(launch.model?.flags ?? []),
+    ...(launch.effort?.flags ?? []),
+  ]);
   const result: string[] = [];
   const values: string[] = [];
   const add = (value: string) => {
@@ -160,8 +166,12 @@ export function collectMerge(
     const arg = args[index];
     if (arg === undefined) continue;
     const flag = merge.flags.find((entry) => arg === entry || arg.startsWith(`${entry}=`));
-    if (!flag) result.push(arg);
-    else if (arg !== flag) add(arg.slice(flag.length + 1));
+    if (!flag) {
+      result.push(arg);
+      if (valueFlags.has(arg) && args[index + 1] !== undefined) {
+        result.push(args[++index] ?? "");
+      }
+    } else if (arg !== flag) add(arg.slice(flag.length + 1));
     else if (!split) {
       const value = args[++index];
       if (value === undefined) throw new Error("Merge option is missing its value");

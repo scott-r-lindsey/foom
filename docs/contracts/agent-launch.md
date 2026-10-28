@@ -116,6 +116,10 @@ use the user's Settings default arguments (#535); reject manifest-selected argum
 rather than granting unattended bypass. Human role promotion and service tool
 permissions never come from manifest text. Availability is not authorization.
 
+Guidance and tool merge preserve each `launch.valueFlags` option and model/effort
+selector together with its following literal value. Values that look like merge
+flags or equals forms are not prompt aliases or tool grants.
+
 Tool merge parses variadic aliases and equals forms; commas/whitespace inside
 balanced parentheses belong to the rule. Unbalanced input is refused. Preserve
 user rules, deduplicate, and append exact random-server names from the real Foom
@@ -304,8 +308,8 @@ and a surrounding quote pair and requires the exact key, including its full path
 `launch.valueFlags?` declares up to 64 unique option names using the existing flag
 syntax. Each takes exactly one following literal argv value, even when that value
 looks like another option. Manifest authors must declare such options to preserve
-their ownership during selector replacement; do not list boolean or variadic
-options. Model/effort selector flags are automatically single-value options.
+their ownership during selector replacement and guidance/tool merging; do not
+list boolean or variadic options. Model/effort selector flags are automatically single-value options.
 Replacement scans defaults once, preserving owned values byte-for-byte instead of
 interpreting them as selectors. Bundled Claude declares its system-prompt and
 system-prompt-file options, including append variants. Other config keys, bypass

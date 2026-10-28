@@ -202,7 +202,12 @@ export function v2Provider(
       let userDefaults = [...defaults];
       const prompts: string[] = [];
       if (guidance && model.launch.guidance?.merge) {
-        const collected = collectMerge(userDefaults, model.launch.guidance.merge, false);
+        const collected = collectMerge(
+          userDefaults,
+          model.launch.guidance.merge,
+          model.launch,
+          false,
+        );
         userDefaults = collected.args;
         prompts.push(...collected.values);
       }
@@ -437,8 +442,9 @@ export function v2Provider(
         }
         let finalArgs = args;
         if (mcp && tools?.merge) {
-          const merged = collectMerge(args, tools.merge);
-          const insertion = collectMerge(args.slice(0, toolIndex), tools.merge).args.length;
+          const merged = collectMerge(args, tools.merge, model.launch);
+          const insertion = collectMerge(args.slice(0, toolIndex), tools.merge, model.launch).args
+            .length;
           finalArgs = [...merged.args];
           const permissions = [...new Set(merged.values)];
           if (permissions.length)
