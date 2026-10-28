@@ -79,7 +79,10 @@ its validated origin branch. Existing branches refuse rather than overwrite work
 Registration, origin and repository preflight refusals fail without charging the
 orchestrator's unused-worktree budget. Once creation may have been dispatched,
 an unsuccessful or invalid result remains indeterminate and charged: partial
-creation or a failed final identity check may have left a checkout behind.
+creation or a failed final identity check may have left a checkout behind. A
+refusal during post-creation authority/capacity revalidation or registration
+bookkeeping also remains indeterminate and charged, even after a successful
+creation reply.
 
 The shared inventory has a 60-second on-demand freshness budget, also invalidated
 by provider or enablement changes. Concurrent reads share one probe. Missing,

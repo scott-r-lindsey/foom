@@ -6,6 +6,8 @@ import type { Handoff } from "../../../../src/shared/handoff";
 import type { OrchestrationHostContext } from "../../../../src/main/workspace/workspace-capabilities";
 import { workspaceOrchestrationHost } from "../../../../src/main/workspace/workspace-orchestration-host";
 import { UncertainEffect } from "../../../../src/main/workspace/worktree-outcome";
+import { ControlError } from "../../../../src/shared/control-validation";
+import { harness } from "../control/orchestration-helpers";
 
 vi.mock("../../../../src/main/setup/local-host", () => ({
   localResources: vi.fn(() =>
@@ -415,6 +417,59 @@ it("remote PR branch creation keeps forge validation and refuses unsupported rem
     host.adoptWorktree?.("/local/repo", 756, [], validate, true, "worker"),
   ).rejects.toMatchObject({ code: "remote_review_unsupported" });
   expect(hosts.worktree).not.toHaveBeenCalled();
+});
+
+it("charges a remote PR checkout when concurrent adoption makes post-creation validation refuse", async () => {
+  const { caps, hosts, host, tree } = fleetFixture();
+  const h = harness();
+  const adopt = host.adoptWorktree?.bind(host);
+  if (!adopt) throw new Error("Missing adoption capability");
+  h.host.adoptWorktree.mockImplementation((repository, number, unused, revalidate) =>
+    adopt(repository, number, unused, revalidate, false, "worker"),
+  );
+  for (const branch of ["one", "two", "three"]) await h.mutate("create_worktree", { branch });
+  const created = Promise.withResolvers<typeof tree>();
+  const resolvingBranch = Promise.withResolvers<string>();
+  vi.mocked(caps.deps.worktrees.adoptionBranch)
+    .mockResolvedValueOnce("pr1")
+    .mockReturnValueOnce(resolvingBranch.promise);
+  hosts.worktree
+    .mockReturnValueOnce(created.promise)
+    .mockResolvedValueOnce({ ...tree, path: "/code/.foom-worktree-second", branch: "pr2" });
+  const first = h.mutate("create_worktree", { host: "worker", pullRequest: 1 });
+  const firstOutcome = first.catch((error: unknown) => error);
+  await vi.waitFor(() => {
+    expect(hosts.worktree).toHaveBeenCalledOnce();
+  });
+  const second = h.mutate("create_worktree", { host: "worker", pullRequest: 2 });
+  const secondOutcome = second.catch((error: unknown) => error);
+  await vi.waitFor(() => {
+    expect(caps.deps.worktrees.adoptionBranch).toHaveBeenCalledTimes(2);
+  });
+  created.resolve({ ...tree, branch: "pr1" });
+  const result = await firstOutcome;
+  resolvingBranch.resolve("pr2");
+  const refused = await secondOutcome;
+  expect(result).toMatchObject({ status: "indeterminate", reason: "uncertain" });
+  expect(refused).toMatchObject({ code: "capacity" });
+  expect(h.orchestration.ownedWorktrees("parent")).toHaveLength(3);
+  expect(h.orchestration.uncertainWorktrees("parent")).toBe(1);
+  expect(hosts.worktree).toHaveBeenCalledOnce();
+  await expect(h.mutate("create_worktree", { branch: "fifth" })).rejects.toThrow("capacity");
+});
+
+it("retains uncertainty when registration disappears after remote creation", async () => {
+  const { caps, hosts, host } = fleetFixture();
+  hosts.registered
+    .mockReturnValueOnce({ host: "worker", codeFolder: "/code" })
+    .mockImplementationOnce(() => {
+      throw new ControlError("not_found");
+    });
+  await expect(host.createWorktree("/local/repo", "feature", "worker")).rejects.toBeInstanceOf(
+    UncertainEffect,
+  );
+  expect(hosts.worktree).toHaveBeenCalledOnce();
+  expect(caps.createChildWorktree).not.toHaveBeenCalled();
 });
 
 it("branch changes retain checkout authority and use the current branch in launch and removal", async () => {

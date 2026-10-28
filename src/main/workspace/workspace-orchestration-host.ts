@@ -28,6 +28,27 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     if (!caps.deps.hosts) throw new ControlError("not_found");
     return caps.deps.hosts;
   };
+  const rememberRemote = (
+    repository: string,
+    host: string,
+    tree: { repository: string; path: string; branch: string; identity: string },
+    revalidate?: () => void,
+  ) => {
+    try {
+      revalidate?.();
+      const path = `/foom-remote/${locationId(JSON.stringify([host, tree.path]))}`;
+      remote.set(path, {
+        ...tree,
+        host,
+        codeFolder: hosts().registered(host).codeFolder,
+        localRepository: repository,
+      });
+      return { path, branch: tree.branch, identity: tree.identity };
+    } catch {
+      // Creation succeeded; a later refusal cannot prove the checkout is absent.
+      throw new UncertainEffect();
+    }
+  };
   const reserved = async <T>(
     repository: string,
     key: string,
@@ -126,14 +147,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
           operation: "create-worktree",
           branch,
         });
-        const path = `/foom-remote/${locationId(JSON.stringify([host, tree.path]))}`;
-        remote.set(path, {
-          ...tree,
-          host,
-          codeFolder: hosts().registered(host).codeFolder,
-          localRepository: repository,
-        });
-        return { path, branch, identity: tree.identity };
+        return rememberRemote(repository, host, tree);
       }),
     adoptWorktree: (repository, number, unused, revalidate, review, host) =>
       caps.withRepository(repository, async () => {
@@ -147,15 +161,9 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
             branch,
             fromOrigin: true,
           });
-          revalidate(undefined, branch);
-          const path = `/foom-remote/${locationId(JSON.stringify([host, tree.path]))}`;
-          remote.set(path, {
-            ...tree,
-            host,
-            codeFolder: hosts().registered(host).codeFolder,
-            localRepository: repository,
+          return rememberRemote(repository, host, tree, () => {
+            revalidate(undefined, branch);
           });
-          return { path, branch, identity: tree.identity };
         }
         const key = `${repository}\0:adopt-pr-${String(number)}`;
         if (caps.busyWorktrees.has(key)) throw new ControlError("branch_in_use");
