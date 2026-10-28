@@ -260,10 +260,109 @@ test.skipIf(process.platform === "win32")(
     await refused;
     expect(mock.create).toHaveBeenCalledTimes(32);
     const held = [];
-    for (let index = 0; index < 32; index++) held.push(await client());
-    const thirtyThird = await client();
-    const disconnected = once(thirtyThird.socket, "close");
+    for (let index = 0; index < 4; index++) held.push(await client());
+    const excessPending = await client();
+    const disconnected = once(excessPending.socket, "close");
     await disconnected;
+    expect(held.every((connection) => !connection.socket.destroyed)).toBe(true);
+  },
+);
+
+test.skipIf(process.platform === "win32").each([false, true])(
+  "bounds the reserve at full capacity and expires idle peers (negotiated: %s)",
+  async (negotiated) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await start();
+    const held = [];
+    for (let index = 0; index < 32; index++) held.push(await open(`session-${String(index)}`));
+    const pending = [];
+    for (let index = 0; index < 4; index++) {
+      const c = await client();
+      if (negotiated) {
+        c.send({ type: "hello", build });
+        await c.wait(1);
+      }
+      pending.push(c);
+    }
+    const excess = await client();
+    await once(excess.socket, "close");
+    expect(pending.every((connection) => !connection.socket.destroyed)).toBe(true);
+    const expired = pending.map((connection) => once(connection.socket, "close"));
+    await vi.advanceTimersByTimeAsync(10000);
+    await Promise.all(expired);
+    expect(held.every((connection) => !connection.socket.destroyed)).toBe(true);
+    const refused = await client();
+    refused.send({ type: "hello", build });
+    await refused.wait(1);
+    const closed = once(refused.socket, "close");
+    refused.send({ type: "open", reattach: false, id: "excess", request: 1, cols: 80, rows: 24 });
+    await closed;
+    expect(mock.create).toHaveBeenCalledTimes(32);
+    const original = held[0];
+    if (!original) throw new Error("Missing session");
+    const replaced = once(original.socket, "close");
+    const next = await open("session-0", true);
+    await replaced;
+    await vi.advanceTimersByTimeAsync(10000);
+    next.send({ type: "tail", id: "session-0", request: 2, lines: 1 });
+    await next.wait(3);
+    expect(next.messages[2]).toEqual({
+      type: "result",
+      id: "session-0",
+      request: 2,
+      lines: ["tail"],
+    });
+    expect(mock.kill).not.toHaveBeenCalled();
+  },
+);
+
+test.skipIf(process.platform === "win32").each(["close", "takeover"])(
+  "%s succeeds with all 32 daemon sessions connected",
+  async (operation) => {
+    await start();
+    const child = await client();
+    child.send({ type: "hello", build });
+    await child.wait(1);
+    child.send({
+      type: "agent-open",
+      id: "child",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      spec: { agent: "claude", repository: "/repo", worktree: "/tree", defaults: [], hooks: true },
+    });
+    await child.wait(2);
+    child.send({ type: "agent-start", id: "child" });
+    await child.wait(4);
+    const held = [];
+    for (let index = 0; index < 31; index++) held.push(await open(`session-${String(index)}`));
+    const next = await client();
+    next.send({ type: "hello", build });
+    await vi.waitFor(() => {
+      expect(next.messages).toContainEqual({ type: "hello", build });
+    });
+    if (operation === "close") {
+      next.send({ type: "agent-close", id: "child", request: 2 });
+      await next.wait(2);
+      expect(next.messages[1]).toEqual({ type: "result", id: "child", request: 2, lines: [] });
+      expect(mock.stop).toHaveBeenCalledExactlyOnceWith("child");
+      expect(mock.kill).toHaveBeenCalledExactlyOnceWith("child");
+    } else {
+      const replaced = once(child.socket, "close");
+      next.send({ type: "open", id: "child", reattach: true, request: 2, cols: 80, rows: 24 });
+      await next.wait(3);
+      await replaced;
+      expect(next.messages).toContainEqual({
+        type: "open-result",
+        id: "child",
+        request: 2,
+        state: "live",
+      });
+      expect(mock.detach).toHaveBeenCalledWith("child");
+      expect(mock.stop).not.toHaveBeenCalled();
+      expect(mock.kill).not.toHaveBeenCalled();
+    }
+    expect(mock.create).toHaveBeenCalledTimes(32);
     expect(held.every((connection) => !connection.socket.destroyed)).toBe(true);
   },
 );
