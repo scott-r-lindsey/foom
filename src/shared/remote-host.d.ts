@@ -1,3 +1,4 @@
+import type { HostManagement, HostResult } from "./registered-hosts.d";
 import type { LaunchReason } from "./launch-failure";
 import type {
   RemoteAgentBinding,
@@ -14,6 +15,7 @@ export type RemoteTarget = {
   cleanup?: true;
 };
 export type RemoteRequest =
+  | HostManagement
   | { type: "hello"; build: string }
   | { type: "open"; request: number; id: string; cols: number; rows: number; reattach: boolean }
   | {
@@ -41,6 +43,7 @@ export type RemoteOpenResult = { type: "open-result"; request: number; id: strin
   | { state: "exited"; code: number }
 );
 export type RemoteResponse =
+  | { type: "managed"; result: HostResult }
   | { type: "agent-failed"; id: string; reason: LaunchReason }
   | { type: "hello"; build: string }
   | HostResponse

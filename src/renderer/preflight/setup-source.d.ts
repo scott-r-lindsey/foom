@@ -1,3 +1,4 @@
+import type { HostsApi } from "../../shared/registered-hosts.d";
 import type { ReadinessReport } from "../../shared/readiness";
 import type { ThemeKind } from "../../shared/theme-file";
 import type { EnvironmentApi } from "../../shared/environment";
@@ -16,6 +17,7 @@ import type { ConfigStatus } from "../../shared/foom-config";
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
+  hosts?: HostsApi["hosts"];
   restartToUpdate?(): Promise<void>;
   checkReadiness?(): Promise<ReadinessReport>;
   listTerminalFonts?(refresh?: boolean): Promise<readonly string[]>;

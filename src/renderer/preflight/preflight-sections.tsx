@@ -1,3 +1,4 @@
+import { HostsSettings } from "./hosts-settings";
 import { ThemeMenu } from "./theme-menu";
 import { ForgesSettings } from "./forges-settings";
 import { TerminalFontPicker } from "./terminal-font-picker";
@@ -186,6 +187,8 @@ export function PreflightSections({
         <ConfigControls config={source.config} />
       </>
     );
+  } else if (step === 13 && settingsMode) {
+    content = <HostsSettings source={source} headingRef={headingRef} />;
   } else if (step === 12) {
     content = (
       <ForgesSettings

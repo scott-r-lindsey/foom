@@ -212,6 +212,8 @@ export function sshEnvironment(): NodeJS.ProcessEnv {
   return env;
 }
 
+export class UnsupportedRemotePlatform extends Error {}
+
 /** Strict uname output mapping; remote text is never used as a path or shell code. */
 export function remotePlatform(output: string) {
   switch (output) {
@@ -224,7 +226,7 @@ export function remotePlatform(output: string) {
     case "Darwin\narm64\n":
       return { platform: "darwin", arch: "arm64" };
     default:
-      throw new Error("Unsupported remote host platform");
+      throw new UnsupportedRemotePlatform("Unsupported remote host platform");
   }
 }
 
@@ -236,6 +238,7 @@ export async function selectHostArtifact(
     "../../remote-hosts",
   ),
   metadata = join(__dirname, "../../build-metadata.json"),
+  signal?: AbortSignal,
 ) {
   let expectedSource: string | undefined;
   if (!target.artifact) {
@@ -255,7 +258,14 @@ export async function selectHostArtifact(
   const { stdout } = await promisify(execFile)(
     "ssh",
     [...sshArguments(target.host), "uname -s; uname -m"],
-    { env: sshEnvironment(), shell: false, timeout: 10000, maxBuffer: 256, encoding: "utf8" },
+    {
+      env: sshEnvironment(),
+      shell: false,
+      timeout: 10000,
+      maxBuffer: 256,
+      encoding: "utf8",
+      ...(signal ? { signal } : {}),
+    },
   ).catch(() => {
     throw new LaunchFailure("remote_host_unreachable");
   });

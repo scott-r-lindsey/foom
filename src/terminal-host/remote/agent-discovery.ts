@@ -4,7 +4,6 @@ import { devNull } from "node:os";
 import { access, realpath, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
-import type { AgentManifestV2 } from "../../shared/agent-manifest-v2";
 
 /** Remote-only fixed probes. Strip inherited Git/Foom selectors before every subprocess. */
 export function hostEnvironment(): NodeJS.ProcessEnv {
@@ -19,12 +18,16 @@ export async function hostProbe(
   args: readonly string[],
   cwd: string,
   env = hostEnvironment(),
+  hostGitConfig = false,
+  timeoutMs = 5000,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, [...args], {
       cwd,
       env:
-        command === "git" ? { ...env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: devNull } : env,
+        command === "git" && !hostGitConfig
+          ? { ...env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: devNull }
+          : env,
       detached: true,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
@@ -45,7 +48,7 @@ export async function hostProbe(
     const timer = setTimeout(() => {
       failure = new Error("Remote probe timed out");
       kill();
-    }, 5000);
+    }, timeoutMs);
     child.stdout.on("data", (data: Buffer) => {
       stdout += data.length;
       if (stdout > 256 * 1024) {
@@ -78,11 +81,10 @@ export async function hostProbe(
     });
   });
 }
-export async function hostDiscovery(
-  model: AgentManifestV2,
+export async function hostLoginEnvironment(
   shell: string,
   home: string,
-): Promise<{ command: string; env: NodeJS.ProcessEnv; version: string; help: string }> {
+): Promise<NodeJS.ProcessEnv> {
   const env = hostEnvironment();
   let path = env["PATH"] ?? "";
   try {
@@ -96,7 +98,15 @@ export async function hostDiscovery(
   } catch {
     /* Inherited remote PATH is the conservative discovery fallback. */
   }
-  const launchEnv = { ...env, PATH: path };
+  return { ...env, PATH: path.split(":").filter(isAbsolute).join(":") };
+}
+export async function hostDiscovery(
+  model: { executables: readonly string[] },
+  shell: string,
+  home: string,
+): Promise<{ command: string; env: NodeJS.ProcessEnv; version: string; help: string }> {
+  const launchEnv = await hostLoginEnvironment(shell, home);
+  const path = launchEnv["PATH"] ?? "";
   let command: string | undefined;
   for (const name of model.executables) {
     for (const directory of path.split(":")) {

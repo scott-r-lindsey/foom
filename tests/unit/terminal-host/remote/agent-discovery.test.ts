@@ -11,6 +11,7 @@ import {
 } from "../../../../src/terminal-host/remote/agent-discovery";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import claude from "../../../../src/shared/bundled-agents/claude.json";
+import { HOST_CLONE_TIMEOUT_MS } from "../../../../src/shared/registered-hosts";
 let root: string;
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "ad-")));
@@ -26,6 +27,27 @@ async function script(name: string, source: string) {
   await writeFile(file, `#!${process.execPath}\n${source}`, { mode: 0o700 });
   return file;
 }
+test.skipIf(process.platform === "win32")(
+  "the clone deadline survives the short probe limit but still kills an overdue subprocess",
+  async () => {
+    vi.useFakeTimers();
+    const kill = vi.spyOn(process, "kill");
+    const pending = hostProbe(
+      process.execPath,
+      ["-e", "setTimeout(() => {}, 600000)"],
+      root,
+      {},
+      false,
+      HOST_CLONE_TIMEOUT_MS,
+    );
+    const rejected = expect(pending).rejects.toThrow("timed out");
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(kill).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(HOST_CLONE_TIMEOUT_MS - 5000);
+    await rejected;
+    expect(kill).toHaveBeenCalledWith(expect.any(Number), "SIGKILL");
+  },
+);
 test.skipIf(process.platform === "win32")(
   "discovery runs only fixed remote probes against executable absolute PATH entries and its fixture login shell",
   async () => {
@@ -132,5 +154,36 @@ test.skipIf(process.platform === "win32")(
     await expect(remoteCheckout(repo, root, env)).rejects.toThrow("unavailable");
     gitSync(["worktree", "lock", tree], { cwd: repo });
     await expect(remoteCheckout(repo, tree, env)).rejects.toThrow("unavailable");
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "host Git access uses only the host's own configuration when explicitly selected",
+  async () => {
+    await script("git", "process.stdout.write(process.env.GIT_CONFIG_GLOBAL || 'host-default')");
+    const env = { PATH: root, HOME: root };
+    expect(await hostProbe("git", ["--version"], root, env, true)).toBe("host-default");
+    expect(await hostProbe("git", ["--version"], root, env)).toBe("/dev/null");
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "missing and malformed login PATH output never enables relative executable discovery",
+  async () => {
+    const model = parseAgentManifest(JSON.stringify(claude), "bundled").model;
+    const shell = await script(
+      "no-path-shell",
+      "process.stdout.write('login banner without a path marker')",
+    );
+    vi.stubEnv("PATH", undefined);
+    await expect(hostDiscovery(model, shell, root)).rejects.toMatchObject({
+      reason: "remote_agent_unavailable",
+    });
+    await script("claude", "process.stdout.write('fixed probe')");
+    vi.stubEnv("PATH", `relative:${root}`);
+    expect(await hostDiscovery(model, shell, root)).toMatchObject({
+      command: join(root, "claude"),
+      env: { PATH: root },
+    });
   },
 );

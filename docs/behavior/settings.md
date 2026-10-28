@@ -291,3 +291,16 @@ notice-only channels, and a fixed **Could not check for updates.** failure messa
 A downloaded stable macOS update offers **Restart to update** and the number of
 running agents. Restart follows normal quit confirmation and session saving.
 See the [channel and privacy policy](../product.md#updates-603).
+
+## Hosts and repository locations (#757 PR 1)
+
+Hosts adds an SSH alias or user@host after Test connection and a code-folder
+check. The folder defaults to `~/foom`. Each row has Refresh and Remove, daemon
+version, live sessions, CPU cores/load average, total/available memory and agents.
+Ready means installed and probeable; Not found and Unable to check are fixed
+states. Foom does not check sign-in. Remove forgets the host without stopping sessions.
+
+Repositories shows Local plus registered hosts, each checkout's path and state,
+and Clone here where absent. Clones use that repository's own origin and the
+host's own Git access, inside its approved code folder. Failures show fixed reasons.
+Persistent sessions, reattachment and upgrades are a separate #757 PR.

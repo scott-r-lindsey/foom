@@ -1,3 +1,4 @@
+import { hostAlias, hostManagement, hostResult } from "./registered-hosts";
 import { isLaunchReason } from "./launch-failure";
 import {
   remoteAgentSpec,
@@ -20,13 +21,7 @@ export function remoteId(value: unknown): value is string {
   return typeof value === "string" && /^[a-zA-Z0-9_-]{1,200}$/u.test(value);
 }
 export function remoteHost(value: unknown): value is string {
-  // SSH aliases, DNS, IPv4 and user@host only. No options, whitespace, shell
-  // metacharacters, URI syntax or config fragments; IPv6 can use an SSH alias.
-  return (
-    typeof value === "string" &&
-    value.length <= 253 &&
-    /^(?:[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}@)?[a-zA-Z0-9][a-zA-Z0-9_.-]*$/u.test(value)
-  );
+  return hostAlias(value);
 }
 function hello(value: object): boolean {
   return (
@@ -41,6 +36,7 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
   if (!record(value)) return false;
   if (typeof value["type"] !== "string") return false;
   if (hello(value)) return true;
+  if (value["type"] === "manage") return hostManagement(value);
   if (!remoteId(value["id"])) return false;
   if (value["type"] === "agent-close")
     return keys(value, ["type", "id", "request"]) && hostRequest({ ...value, type: "kill" });
@@ -82,6 +78,8 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
 }
 export function remoteResponse(value: unknown): value is RemoteResponse {
   if (typeof value !== "object" || value === null) return false;
+  if (record(value) && value["type"] === "managed")
+    return keys(value, ["type", "result"]) && hostResult(value["result"]);
   if (record(value) && remoteId(value["id"])) {
     if (value["type"] === "agent-failed")
       return keys(value, ["type", "id", "reason"]) && isLaunchReason(value["reason"]);
@@ -206,7 +204,8 @@ export function* remoteResponseFrames(
   if (
     data.length <= REMOTE_FRAGMENT_SIZE ||
     message.type === "hello" ||
-    message.type === "activity"
+    message.type === "activity" ||
+    message.type === "managed"
   ) {
     yield remoteFrame(message);
     return;
@@ -246,6 +245,7 @@ export class RemoteMessages {
       !remoteResponse(value) ||
       value.type === "hello" ||
       value.type === "fragment" ||
+      value.type === "managed" ||
       value.type === "activity" ||
       value.id !== partial.id
     )

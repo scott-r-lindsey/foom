@@ -1,4 +1,10 @@
 import type {
+  HostsState,
+  HostResult,
+  HostFacts,
+  RegisteredHost,
+} from "../shared/registered-hosts.d";
+import type {
   CodeScan,
   CodeSuggestion,
   FoundRepository,
@@ -359,7 +365,79 @@ const validSoundSettings: Validator<SoundSettings> = shape({
   alertVolume: range(0, 1),
 } satisfies Contract<SoundSettings>);
 
+const hostAlias: Validator<string> = (value): value is string =>
+  typeof value === "string" &&
+  value.length <= 253 &&
+  !/\p{Cc}/u.test(value) &&
+  /^(?:[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}@)?[a-zA-Z0-9][a-zA-Z0-9_.-]*$/u.test(value);
+const hostFolder: Validator<string> = (value): value is string =>
+  typeof value === "string" &&
+  value.length <= 4096 &&
+  value.startsWith("/") &&
+  !/[\p{Cc}\u202a-\u202e\u2066-\u2069]/u.test(value) &&
+  !value.split("/").some((part) => part === "." || part === "..");
+const hostVersion: Validator<string> = (value): value is string =>
+  typeof value === "string" &&
+  !/\p{Cc}/u.test(value) &&
+  /^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?(?:\+[a-zA-Z0-9.-]+)?$/u.test(value) &&
+  value.length <= 128;
+const hostAgentId: Validator<string> = (value): value is string =>
+  typeof value === "string" && !/\p{Cc}/u.test(value) && /^[a-z][a-z0-9-]{0,63}$/u.test(value);
+const validRegisteredHost: Validator<RegisteredHost> = shape({
+  host: hostAlias,
+  codeFolder: hostFolder,
+} satisfies Contract<RegisteredHost>);
+const hostFactsShape = shape({
+  codeFolder: hostFolder,
+  version: hostVersion,
+  sessions: count,
+  cores: count,
+  load: array(range(0, Number.MAX_SAFE_INTEGER)),
+  memoryTotal: count,
+  memoryAvailable: count,
+  agents: array(shape({ id: hostAgentId, state: literal("ready", "missing", "unable") })),
+} satisfies Contract<HostFacts>);
+const validHostFacts: Validator<HostFacts> = copying(
+  (value): value is HostFacts =>
+    hostFactsShape(value) &&
+    value.load.length === 3 &&
+    value.memoryAvailable <= value.memoryTotal &&
+    value.agents.length <= 100,
+  (value) => project(hostFactsShape, value),
+);
+const validHostResult: Validator<HostResult> = either(
+  shape({
+    ok: literal(false),
+    reason: literal(
+      "unreachable",
+      "unsupported",
+      "artifact-unavailable",
+      "folder-refused",
+      "unsafe-folder",
+      "origin-unavailable",
+      "clone-failed",
+      "checkout-refused",
+    ),
+  }),
+  shape({
+    ok: literal(true),
+    facts: validHostFacts,
+    checkout: either(
+      absent,
+      shape({ path: hostFolder, state: literal("clean", "changed", "absent") }),
+    ),
+  }),
+);
+const validHostsState: Validator<HostsState> = shape({
+  hosts: array(
+    shape({ host: hostAlias, codeFolder: hostFolder, result: either(absent, validHostResult) }),
+  ),
+  locations: array(shape({ repository: text, host: hostAlias, result: validHostResult })),
+  result: either(absent, validHostResult),
+} satisfies Contract<HostsState>);
+
 const validSettings: Validator<Settings> = shape({
+  registeredHosts: either(absent, array(validRegisteredHost)),
   setupComplete: boolean,
   checkForUpdates: boolean,
   agyPluginOfferAnswered: boolean,
@@ -1576,6 +1654,7 @@ const desktop: DesktopApi = {
       ipcRenderer.removeListener("config:changed", listener);
     };
   },
+  hosts: (action) => reply("setup:hosts", validHostsState, action),
   listTerminalFonts: (refresh = false) => reply("setup:terminal-fonts", array(text), refresh),
   listThemes: () => reply("theme:list", validThemeCatalog),
   openThemesFolder: (kind) => invokeVoid("theme:open-folder", kind),

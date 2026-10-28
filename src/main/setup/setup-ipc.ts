@@ -51,6 +51,13 @@ export function attachSetup(
     ],
     ["setup:state", () => setup.state()],
     [
+      "setup:hosts",
+      (...args) => {
+        if (args.length !== 1) throw new Error("Invalid hosts request");
+        return setup.hosts(args[0]);
+      },
+    ],
+    [
       "setup:restart-update",
       (...args) => {
         if (args.length) throw new Error("Invalid update request");

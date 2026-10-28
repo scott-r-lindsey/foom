@@ -1393,6 +1393,56 @@ test.each([{ kind: "local" }, { kind: "remote", host: "fixture-alias" }])(
   },
 );
 
+test("host bridge validates every nested fact and strips undeclared host data", async () => {
+  const api = await bridge();
+  const facts = {
+    codeFolder: "/home/worker/foom",
+    version: "0.1.0-nightly.20261028+abcdef0",
+    sessions: 2,
+    cores: 8,
+    load: [1, 2, 3],
+    memoryTotal: 8000,
+    memoryAvailable: 4000,
+    agents: [{ id: "claude", state: "ready" }],
+  };
+  const result = { ok: true, facts, checkout: { path: "/home/worker/foom/repo", state: "clean" } };
+  const value = {
+    hosts: [{ host: "worker", codeFolder: facts.codeFolder, result }],
+    locations: [{ host: "worker", repository: "/local/repo", result }],
+    result: { ok: false, reason: "clone-failed" },
+  };
+  mock.invoke.mockResolvedValue(withUndeclaredFields(value));
+  await expect(api.hosts({ action: "list" })).resolves.toEqual(value);
+  expect(mock.invoke).toHaveBeenCalledWith("setup:hosts", { action: "list" });
+  for (const bad of [
+    {},
+    { ...value, result: { ok: false, reason: "secret" } },
+    {
+      ...value,
+      hosts: [
+        {
+          host: "worker",
+          codeFolder: facts.codeFolder,
+          result: { ok: true, facts: { ...facts, cores: NaN } },
+        },
+      ],
+    },
+    {
+      ...value,
+      locations: [
+        {
+          host: "worker",
+          repository: "/repo",
+          result: { ok: true, facts: { ...facts, agents: [{ id: "claude", state: "unknown" }] } },
+        },
+      ],
+    },
+  ]) {
+    mock.invoke.mockResolvedValue(bad);
+    await expect(api.hosts({ action: "list" })).rejects.toThrow();
+  }
+});
+
 test("home-shell returns only its validated request-specific terminal ID", async () => {
   const api = await bridge();
   mock.invoke.mockResolvedValue({ terminalId: "home-one", extra: "private" });
