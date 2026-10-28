@@ -6,6 +6,7 @@ vi.mock("node:fs", async (original) => ({ ...(await original<typeof syncFs>()) }
 import { readFile, stat } from "node:fs/promises";
 import * as fs from "node:fs/promises";
 vi.mock("node:fs/promises", async (original) => ({ ...(await original<typeof fs>()) }));
+import claudeManifest from "../../../../src/shared/bundled-agents/claude.json";
 import hookFixture from "../../../fixtures/agent-plugins-v2/claude.json";
 import setupFixture from "../../../fixtures/agent-plugins-v2/agy.json";
 import healthFixture from "../../../fixtures/agent-plugins-v2/codex.json";
@@ -243,21 +244,33 @@ it("merges aliases, equals and variadic tools with balanced parentheses and lite
     collectMerge(
       ["--allowed=Bash(git status, git log),Read", "--allow", "Read", "Write", "--safe"],
       merge,
+      model().launch,
     ),
   ).toEqual({ args: ["--safe"], values: ["Bash(git status, git log)", "Read", "Read", "Write"] });
   for (const arg of ["--allow=Bad(", "--allow=Bad)"])
-    expect(() => collectMerge([arg], merge)).toThrow("Unbalanced");
-  expect(() => collectMerge(["--allow", "--safe"], merge)).toThrow("missing");
+    expect(() => collectMerge([arg], merge, model().launch)).toThrow("Unbalanced");
+  expect(() => collectMerge(["--allow", "--safe"], merge, model().launch)).toThrow("missing");
   expect(
     collectMerge(
       ["--prompt", "user prompt with spaces", "-i=other"],
       required(required(model().launch.guidance).merge),
+      model().launch,
       false,
     ).values,
   ).toEqual(["user prompt with spaces", "other"]);
   expect(
-    collectMerge(["--prompt=a b"], required(required(model().launch.guidance).merge)).values,
+    collectMerge(
+      ["--prompt=a b"],
+      required(required(model().launch.guidance).merge),
+      model().launch,
+    ).values,
   ).toEqual(["a", "b"]);
+});
+it("retains equals options and missing single-value options without treating their contents as grants", () => {
+  const m = parseAgentManifest(JSON.stringify(claudeManifest), "bundled").model;
+  const merge = required(required(m.launch.toolPermissions).merge);
+  const args = ["--system-prompt=--allowedTools=Read", "--system-prompt"];
+  expect(collectMerge(args, merge, m.launch)).toEqual({ args, values: [] });
 });
 it("prepares ordered argv, UUID, display and prompt; resume adds no greeting or new ID", async () => {
   const fresh = await launch();
@@ -297,6 +310,69 @@ it("prepares ordered argv, UUID, display and prompt; resume adds no greeting or 
   expect(() => minimal.provider.resume("saved")).toThrow("cannot resume");
   await expect(launch(m, { conversationId: "saved" })).rejects.toThrow("cannot resume");
 });
+it.each(["--system-prompt", "--model", "--effort"])(
+  "preserves literal tool option values owned by %s when attaching Claude MCP",
+  async (flag) => {
+    for (const literal of ["--allowedTools=Read", "--allowedTools"]) {
+      const defaults = [flag, literal, "--allowed-tools", "Write", "Bash(git status, git log)"];
+      const { prepared } = await launch(
+        parseAgentManifest(JSON.stringify(claudeManifest), "bundled").model,
+        { agent: "claude" },
+        defaults,
+        { ...control, toolNames: ["manual"] },
+        false,
+        "2.1.293 (Claude Code)",
+        "--mcp-config",
+      );
+      expect(prepared.mcp).toBe(true);
+      expect(prepared.args).toEqual([
+        flag,
+        literal,
+        "--mcp-config",
+        expect.any(String),
+        "--allowedTools",
+        "Write",
+        "Bash(git status, git log)",
+        expect.stringMatching(/^mcp__foom_.*__manual$/u),
+      ]);
+    }
+  },
+);
+it.each(["--allowedTools=Read", "--allowedTools"])(
+  "leaves Claude defaults unchanged without MCP when a value is %s",
+  async (literal) => {
+    const defaults = ["--system-prompt", literal, "--allowedTools", "Write"];
+    const { prepared } = await launch(
+      parseAgentManifest(JSON.stringify(claudeManifest), "bundled").model,
+      { agent: "claude" },
+      defaults,
+      undefined,
+      false,
+      "2.1.293 (Claude Code)",
+      "--mcp-config",
+    );
+    expect(prepared.mcp).toBe(false);
+    expect(prepared.args).toEqual(defaults);
+  },
+);
+it.each(["--context", "--model", "--effort"])(
+  "preserves literal guidance option values owned by %s",
+  async (flag) => {
+    const m = model();
+    m.launch.valueFlags = ["--context"];
+    m.launch.model = { flags: ["--model"], arguments: ["--model", "{value}"], values: undefined };
+    m.launch.effort = {
+      flags: ["--effort"],
+      arguments: ["--effort", "{value}"],
+      values: undefined,
+    };
+    for (const literal of ["--prompt=literal", "--prompt"]) {
+      const { prepared } = await launch(m, {}, [flag, literal, "--prompt", "human text"], control);
+      expect(prepared.args.slice(0, 2)).toEqual([flag, literal]);
+      expect(prepared.args.at(-1)).toMatch(/^human text\n\nFoom provides/u);
+    }
+  },
+);
 it("writes private MCP data, merges preview grants and cleans on disposal and failures", async () => {
   const { prepared } = await launch(
     model(),
