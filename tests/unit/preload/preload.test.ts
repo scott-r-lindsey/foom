@@ -1392,3 +1392,15 @@ test.each([{ kind: "local" }, { kind: "remote", host: "fixture-alias" }])(
     }
   },
 );
+
+test("sidebar repository unavailability is validated and preserved", async () => {
+  const api = await bridge();
+  const repository = { path: "/missing", name: "Missing", unavailable: true, worktrees: [] };
+  mock.invoke.mockResolvedValue({ repositories: [repository], shell: "bash" });
+  await expect(api.sidebarInventory()).resolves.toMatchObject({ repositories: [repository] });
+  mock.invoke.mockResolvedValue({
+    repositories: [{ ...repository, unavailable: "Git output" }],
+    shell: "bash",
+  });
+  await expect(api.sidebarInventory()).rejects.toThrow();
+});

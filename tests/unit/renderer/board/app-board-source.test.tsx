@@ -1,3 +1,5 @@
+import { act, render } from "@testing-library/react";
+import { Board } from "../../../../src/renderer/board/board-view";
 import { agent, mock, settle, verdict } from "./app-board-fixture";
 // @vitest-environment jsdom
 import { expect, test, vi } from "vitest";
@@ -125,11 +127,11 @@ test("late snapshots and disconnected refreshes cannot undo newer inventory or v
   mock.changed?.();
   await settle();
   expect(source.getSnapshot()[0]?.verdictId).toBe("v-300");
-  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
   mock.workspace.mockRejectedValueOnce(new Error("offline"));
   mock.changed?.();
   await settle();
-  expect(error).toHaveBeenCalled();
+  expect(source.getSnapshot()[0]?.id).toBe("new");
   mock.workspace.mockReturnValueOnce(
     new Promise((resolve) => {
       finish = resolve;
@@ -218,4 +220,170 @@ test("activity subscribers receive the final cached zero when views remount", as
   expect(listener).toHaveBeenCalledWith([{ id: "a", rate: 0 }]);
   off();
   disconnect?.();
+});
+
+test("repository outages retain locations and sessions and clear only their inventory mark on recovery", async () => {
+  const repository = { path: "/code/app", name: "app" };
+  const tree = {
+    path: "/code/a",
+    branch: "a",
+    head: "abc",
+    bare: false,
+    locked: false,
+    prunable: false,
+    managed: false,
+  };
+  mock.workspace.mockResolvedValue({ repositories: [repository], terminals: [agent("a")] });
+  mock.sidebarInventory.mockResolvedValue({
+    repositories: [{ ...repository, worktrees: [tree] }],
+    shell: "bash",
+  });
+  const errors = { report: vi.fn(), clear: vi.fn() };
+  const source = createAppSource();
+  const off = source.connect?.(errors);
+  await settle();
+  mock.sidebarInventory.mockResolvedValue({
+    repositories: [{ ...repository, unavailable: true, worktrees: [] }],
+    shell: "bash",
+  });
+  mock.workspace.mockResolvedValue({
+    repositories: [repository],
+    terminals: [agent("a"), agent("b")],
+  });
+  mock.changed?.();
+  await settle();
+  expect(source.getSnapshot().map((row) => row.id)).toEqual(["a", "b"]);
+  expect(source.getSnapshot()[0]?.worktreeRemoved).toBe(false);
+  expect(source.getSidebar?.()[0]).toMatchObject({ unavailable: true, worktrees: [tree] });
+  expect(errors.report).toHaveBeenCalledWith(
+    "sidebar-inventory:/code/app",
+    "Repository unavailable.",
+    "repository:/code/app",
+  );
+  const reports = errors.report.mock.calls.length;
+  mock.changed?.();
+  await settle();
+  expect(errors.report).toHaveBeenCalledTimes(reports);
+  mock.sidebarInventory.mockResolvedValue({
+    repositories: [{ ...repository, worktrees: [tree] }],
+    shell: "bash",
+  });
+  mock.changed?.();
+  await settle();
+  expect(source.getSidebar?.()[0]?.unavailable).toBeUndefined();
+  expect(errors.clear).toHaveBeenCalledWith("sidebar-inventory:/code/app");
+  off?.();
+});
+
+test("workspace and sidebar reads publish independently even when the other read fails or hangs", async () => {
+  const errors = { report: vi.fn(), clear: vi.fn() };
+  mock.sidebarInventory.mockRejectedValueOnce(new Error("private IPC failure"));
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [agent("a")] });
+  const source = createAppSource();
+  const off = source.connect?.(errors);
+  await settle();
+  expect(source.isReady?.()).toBe(true);
+  expect(source.getSnapshot().map((row) => row.id)).toEqual(["a"]);
+  expect(errors.report).toHaveBeenCalledWith(
+    "sidebar-refresh",
+    "Unable to load sidebar inventory.",
+  );
+  mock.workspace.mockRejectedValueOnce(new Error("workspace failure"));
+  mock.sidebarInventory.mockResolvedValueOnce({
+    repositories: [{ path: "/healthy", name: "Healthy", worktrees: [] }],
+    shell: "zsh",
+  });
+  mock.changed?.();
+  await settle();
+  expect(source.shellName?.()).toBe("zsh");
+  expect(source.getSidebar?.()[0]?.path).toBe("/healthy");
+  expect(source.getSnapshot().map((row) => row.id)).toEqual(["a"]);
+  expect(errors.report).toHaveBeenCalledWith("workspace-refresh", "Unable to load terminals.");
+  mock.workspace.mockResolvedValue({ repositories: [], terminals: [agent("b")] });
+  const pending =
+    Promise.withResolvers<Awaited<ReturnType<typeof window.desktop.sidebarInventory>>>();
+  mock.sidebarInventory.mockReturnValueOnce(pending.promise);
+  mock.changed?.();
+  await settle();
+  expect(source.getSnapshot().map((row) => row.id)).toEqual(["b"]);
+  expect(errors.clear).toHaveBeenCalledWith("workspace-refresh");
+  off?.();
+  pending.reject(new Error("late failure"));
+  const reports = errors.report.mock.calls.length;
+  await settle();
+  expect(errors.report).toHaveBeenCalledTimes(reports);
+});
+
+test("a board retains healthy and unavailable sessions without moving focus and recovers the row mark", async () => {
+  const checkout = (path: string) => ({
+    path,
+    branch: "main",
+    head: "abc",
+    bare: false,
+    locked: false,
+    prunable: false,
+    managed: false,
+  });
+  const broken = { path: "/missing", name: "Missing", unavailable: true, worktrees: [] };
+  const recovered = { ...broken, unavailable: false, worktrees: [checkout("/missing/tree")] };
+  const healthy = { path: "/code/app", name: "app", worktrees: [checkout("/code/healthy")] };
+  mock.workspace.mockResolvedValue({
+    repositories: [broken, healthy],
+    terminals: [
+      { ...agent("lost"), repository: broken.path, worktree: "/missing/tree" },
+      agent("healthy"),
+    ],
+  });
+  mock.sidebarInventory.mockResolvedValue({ repositories: [recovered, healthy], shell: "bash" });
+  const source = createAppSource();
+  const view = render(<Board source={source} />);
+  await settle();
+  const input = document.createElement("input");
+  document.body.append(input);
+  input.focus();
+  mock.sidebarInventory.mockResolvedValue({ repositories: [broken, healthy], shell: "bash" });
+  act(() => {
+    mock.changed?.();
+  });
+  await settle();
+  expect(source.getSnapshot().map((row) => row.id)).toEqual(["lost", "healthy"]);
+  expect(view.getAllByText("Unavailable")).toHaveLength(2);
+  expect(view.getByRole("button", { name: "Show failure" })).toBeTruthy();
+  expect(view.queryByRole("dialog", { name: "Action failed" })).toBeNull();
+  expect(document.activeElement).toBe(input);
+  expect(view.queryByText("Worktree removed")).toBeNull();
+  mock.sidebarInventory.mockResolvedValue({ repositories: [recovered, healthy], shell: "bash" });
+  act(() => {
+    mock.changed?.();
+  });
+  await settle();
+  expect(view.queryByRole("button", { name: "Show failure" })).toBeNull();
+  expect(view.queryByText("Unavailable")).toBeNull();
+  expect(document.activeElement).toBe(input);
+  view.unmount();
+  input.remove();
+});
+
+test("a fresh unavailable inventory publishes before a pending workspace and keeps membership unknown", async () => {
+  const repository = { path: "/missing", name: "Missing", unavailable: true, worktrees: [] };
+  const pending = Promise.withResolvers<WorkspaceSnapshot>();
+  mock.workspace.mockReturnValueOnce(pending.promise);
+  mock.sidebarInventory.mockResolvedValue({ repositories: [repository], shell: "bash" });
+  const source = createAppSource();
+  const listener = vi.fn();
+  source.subscribe(listener);
+  const errors = { report: vi.fn(), clear: vi.fn() };
+  const off = source.connect?.(errors);
+  await settle();
+  expect(source.getSidebar?.()).toEqual([repository]);
+  expect(source.isReady?.()).toBe(false);
+  expect(listener).toHaveBeenCalled();
+  pending.resolve({
+    repositories: [repository],
+    terminals: [{ ...agent("a"), repository: repository.path }],
+  });
+  await settle();
+  expect(source.getSnapshot()[0]).toMatchObject({ id: "a", worktreeRemoved: false });
+  off?.();
+  expect(errors.clear).toHaveBeenCalledWith("sidebar-inventory:/missing");
 });

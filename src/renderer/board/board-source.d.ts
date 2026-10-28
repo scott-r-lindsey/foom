@@ -35,6 +35,10 @@ export interface WorktreeSource {
   create(repository: string, branch: string): Promise<Worktree & { outcome: CreateOutcome }>;
   remove(id: string): Promise<boolean>;
 }
+export interface BackgroundErrorReporter {
+  report(operation: string, message: string, row?: string): void;
+  clear(operation: string): void;
+}
 /** Samples and the live source share rows, verdicts and activity batches. */
 export interface BoardSource {
   onFocusWorktree?: (callback: (path: string) => void) => () => void;
@@ -55,7 +59,7 @@ export interface BoardSource {
   confirmations?: ConfirmationClient;
   readonly isDevelopment?: boolean;
   isReady?: () => boolean;
-  connect?: () => () => void;
+  connect?: (errors?: BackgroundErrorReporter) => () => void;
   createView?: () => TerminalViewSource;
   getSidebar?: () => SidebarRepository[] | readonly SidebarRepository[];
   sidebarCommand?: (command: SidebarCommand) => Promise<void>;

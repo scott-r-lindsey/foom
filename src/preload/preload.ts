@@ -778,6 +778,7 @@ const validSidebarInventory: Validator<SidebarInventory> = shape({
     shape({
       path: text,
       name: text,
+      unavailable: either(absent, boolean),
       worktrees: array(validWorktree),
       cleanup: either(absent, validCleanupProgress),
       canDeleteMerged: either(absent, boolean),

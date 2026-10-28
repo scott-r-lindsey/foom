@@ -261,6 +261,7 @@ export function Sidebar(props: SidebarProps) {
           {compact
             ? tree.map((repo) => (
                 <div className="rail-group" key={repo.repository.path}>
+                  <BackgroundErrorMark row={repositoryKey(repo.repository.path)} />
                   {repo.worktrees
                     .flatMap((worktree) => worktree.sessions)
                     .map((row) => session(row))}
@@ -419,6 +420,7 @@ export function Sidebar(props: SidebarProps) {
                               }}
                               actions={
                                 !worktree.removed &&
+                                !worktree.unavailable &&
                                 actions(
                                   wid,
                                   name,

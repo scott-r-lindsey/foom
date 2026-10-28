@@ -380,8 +380,8 @@ test("concurrent sidebar readers share pending inventory and reread after succes
   const failed = workspace.sidebarInventory();
   const alsoFailed = workspace.sidebarInventory();
   const assertions = [
-    expect(failed).rejects.toThrow("unavailable"),
-    expect(alsoFailed).rejects.toThrow("unavailable"),
+    expect(failed).resolves.toMatchObject({ repositories: [{ unavailable: true }] }),
+    expect(alsoFailed).resolves.toMatchObject({ repositories: [{ unavailable: true }] }),
   ];
   failure.reject(new Error("unavailable"));
   await Promise.all(assertions);
@@ -425,5 +425,46 @@ test("broken-row cleanup uses its own safety capability rather than legacy prune
   );
   expect(deps.worktrees.cleanupBrokenWorktree).toHaveBeenCalledWith(repo.path, tree.path);
   expect(deps.worktrees.pruneWorktree).not.toHaveBeenCalled();
+  await workspace.dispose();
+});
+
+test("unavailable repository inventory is isolated and never becomes successful membership", async () => {
+  const broken = { path: "/unavailable", name: "unavailable" };
+  vi.mocked(deps.worktrees.listRepositories).mockReturnValue([broken, repo]);
+  vi.mocked(deps.worktrees.listWorktrees).mockImplementation((path) => {
+    if (path === broken.path) return Promise.reject(new Error("private Git diagnostic"));
+    return Promise.resolve([tree]);
+  });
+  const workspace = new Workspace(deps);
+  expect(await workspace.sidebarInventory()).toMatchObject({
+    repositories: [
+      { ...broken, unavailable: true, worktrees: [] },
+      { ...repo, worktrees: [tree] },
+    ],
+  });
+  await expect(workspace.worktrees(broken.path)).rejects.toThrow("private Git diagnostic");
+  await expect(
+    workspace.sidebarCommand(
+      {
+        kind: "launch",
+        repository: broken.path,
+        worktree: broken.path,
+        run: "shell",
+      },
+      () => Promise.resolve(true),
+    ),
+  ).rejects.toThrow("private Git diagnostic");
+  await workspace.sidebarCommand(
+    {
+      kind: "launch",
+      repository: repo.path,
+      worktree: tree.path,
+      run: "shell",
+    },
+    () => Promise.resolve(true),
+  );
+  expect(workspace.snapshot().terminals).toHaveLength(1);
+  vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree]);
+  expect((await workspace.sidebarInventory()).repositories[0]).not.toHaveProperty("unavailable");
   await workspace.dispose();
 });

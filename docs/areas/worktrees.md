@@ -290,3 +290,15 @@ even after approval. Cancellation keeps the checkout and exited screen. Ordinary
 worktrees retain the existing merged-clean opt-in policy. Branches are never
 created for review or deleted by this path. This remains subject to the existing
 local concurrent-filesystem-mutation limitation.
+
+
+## Partial sidebar inventory (#890)
+
+Sidebar reads isolate checkout-list failures per registered repository. An
+`unavailable` repository has unknown membership, retains its session locations
+and the board's last displayed checkout rows, and shows a fixed unavailable
+status. The live source publishes workspace/session snapshots independently of
+sidebar reads. Operation-scoped background failure marks never request focus and
+clear on recovery (or repository removal). Display fallbacks never feed launch,
+removal or cleanup authorization: those capabilities still reread Git and reject
+unavailable membership rather than treating it as an empty successful list.
