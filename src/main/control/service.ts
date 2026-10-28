@@ -51,6 +51,7 @@ export class ControlService {
       Partial<
         Pick<
           Orchestration,
+          | "hosts"
           | "bindAutomation"
           | "childLimit"
           | "pullRequest"
@@ -371,6 +372,12 @@ export class ControlService {
       const result = await this.previews.call(actor, method, request["params"]);
       this.assertActive(actor);
       return result;
+    }
+    if (actor.role === "orchestrator" && (method === "sessions" || method === "session_state")) {
+      const result = object(this.dispatch(actor, input));
+      const hosts = (await this.orchestration?.hosts?.()) ?? [];
+      this.assertActive(actor);
+      return { ...result, hosts };
     }
     if (typeof method !== "string" || !ORCHESTRATION_METHODS.includes(method))
       return this.dispatch(actor, input);

@@ -51,6 +51,15 @@ export function gitOrigin(value: unknown): value is string {
       ))
   );
 }
+export function hostBranch(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 200 &&
+    !/[\p{Cc}\p{Cf}\s]/u.test(value) &&
+    !value.startsWith("-")
+  );
+}
 function agentId(value: unknown): value is string {
   return (
     typeof value === "string" && !/\p{Cc}/u.test(value) && /^[a-z][a-z0-9-]{0,63}$/u.test(value)
@@ -82,6 +91,37 @@ export function hostManagement(value: unknown): value is HostManagement {
     return false;
   if (value["operation"] === "inspect")
     return keys(value, ["type", "operation", "codeFolder", "agents"]);
+  if (
+    value["operation"] === "create-worktree" ||
+    value["operation"] === "inspect-worktree" ||
+    value["operation"] === "remove-worktree"
+  ) {
+    const common = ["type", "operation", "codeFolder", "directory", "origin", "agents"];
+    if (
+      !hostManagement({
+        type: "manage",
+        operation: "repository",
+        codeFolder: value["codeFolder"],
+        directory: value["directory"],
+        origin: value["origin"],
+      })
+    )
+      return false;
+    if (value["operation"] === "create-worktree")
+      return (
+        keys(value, [...common, "branch", "fromOrigin"]) &&
+        hostBranch(value["branch"]) &&
+        (value["fromOrigin"] === undefined || typeof value["fromOrigin"] === "boolean")
+      );
+    return (
+      keys(value, [...common, "path", "identity", "changes"]) &&
+      remotePath(value["path"]) &&
+      typeof value["identity"] === "string" &&
+      /^[a-f0-9]{64}$/u.test(value["identity"]) &&
+      (value["changes"] === undefined ||
+        (typeof value["changes"] === "string" && value["changes"].length <= 65536))
+    );
+  }
   return (
     (value["operation"] === "repository" || value["operation"] === "clone") &&
     keys(value, ["type", "operation", "codeFolder", "directory", "origin", "agents"]) &&
@@ -114,7 +154,16 @@ export function hostResult(value: unknown): value is HostResult {
   const checkout = value["checkout"];
   return (
     value["ok"] === true &&
-    keys(value, ["ok", "facts", "checkout"]) &&
+    keys(value, ["ok", "facts", "checkout", "worktree"]) &&
+    (value["worktree"] === undefined ||
+      (record(value["worktree"]) &&
+        keys(value["worktree"], ["path", "branch", "identity", "changes"]) &&
+        remotePath(value["worktree"]["path"]) &&
+        hostBranch(value["worktree"]["branch"]) &&
+        typeof value["worktree"]["identity"] === "string" &&
+        /^[a-f0-9]{64}$/u.test(value["worktree"]["identity"]) &&
+        typeof value["worktree"]["changes"] === "string" &&
+        value["worktree"]["changes"].length <= 65536)) &&
     record(facts) &&
     keys(facts, [
       "codeFolder",

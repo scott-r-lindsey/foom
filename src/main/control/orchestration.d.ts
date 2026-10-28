@@ -9,6 +9,10 @@ import type { Principal } from "./types";
 
 /** Main-owned effects. Every path is chosen by main; the API only names IDs. */
 export interface OrchestrationHost {
+  hosts?(): Promise<unknown>;
+  remoteCheckout?(path: string, agent: AgentId): Promise<AgentLaunch["remoteCheckout"]>;
+  worktreeHost?(path: string): string | undefined;
+  worktreeLabel?(path: string): string;
   forge?: Pick<ForgeTracking, "track" | "read"> &
     Partial<Pick<ForgeTracking, "readSettled" | "revision" | "waitForRead">>;
   adoptWorktree?(
@@ -17,6 +21,7 @@ export interface OrchestrationHost {
     unused: readonly { path: string; identity: string }[],
     revalidate: (path?: string, branch?: string) => void,
     review?: boolean,
+    host?: string,
   ): Promise<{ path: string; branch: string; identity: string }>;
   terminals(): readonly WorkspaceTerminal[];
   /**
@@ -27,6 +32,7 @@ export interface OrchestrationHost {
   createWorktree(
     repository: string,
     branch: string,
+    host?: string,
   ): Promise<{ path: string; branch: string; identity: string }>;
   /** An ordinary child in the checkout created with `identity`: the user's non-bypass defaults, a read-only grant. */
   launch(

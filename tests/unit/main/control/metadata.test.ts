@@ -288,3 +288,64 @@ it("exposes requested selections alongside handoff metadata", () => {
     )[0],
   ).toMatchObject({ selection: row.selection });
 });
+
+it("host filters and metadata keep identical remote paths distinct and attach fleet facts only for orchestrators", async () => {
+  const repository = join(tmpdir(), "fleet");
+  const row: WorkspaceTerminal = {
+    id: "local",
+    agent: "claude",
+    kind: "agent",
+    repository,
+    worktree: repository,
+    branch: "main",
+    attention: "evaluator",
+    state: null,
+    placement: { kind: "local" },
+  };
+  const rows = [
+    row,
+    { ...row, id: "remote", placement: { kind: "remote" as const, host: "worker" } },
+  ];
+  const hosts = vi.fn(() =>
+    Promise.resolve([
+      { host: "worker", resources: { cores: 8 }, agents: [{ id: "codex", state: "missing" }] },
+    ]),
+  );
+  const service = new ControlService(
+    new Operations(
+      () => Promise.resolve(),
+      () => {},
+    ),
+    () => rows,
+    { call: vi.fn(), hosts },
+  );
+  const grant = service.prepare(repository, repository, "orchestrator");
+  grant.bind("parent");
+  const actor = service.authenticate(grant.env["FOOM_CONTROL_TOKEN"] ?? "");
+  const call = (method: string, params = {}) =>
+    service.call(actor, { version: 1, instanceId: service.instanceId, method, params });
+  expect(await call("sessions", { host: "worker" })).toMatchObject({
+    sessions: [{ id: "remote", host: "worker" }],
+    hosts: [{ host: "worker" }],
+  });
+  expect(await call("session_state", { id: "local" })).toMatchObject({
+    host: null,
+    placement: { kind: "local" },
+    hosts: [{ host: "worker" }],
+  });
+  await expect(call("session_state", { id: "remote", host: "other" })).rejects.toThrow("not_found");
+  await expect(call("sessions", { host: "-evil" })).rejects.toThrow("invalid_request");
+  hosts.mockClear();
+  service.setRole("parent", "agent");
+  const ordinary = service.authenticate(grant.env["FOOM_CONTROL_TOKEN"] ?? "");
+  expect(
+    await service.call(ordinary, {
+      version: 1,
+      instanceId: service.instanceId,
+      method: "sessions",
+      params: {},
+    }),
+  ).not.toHaveProperty("hosts");
+  expect(hosts).not.toHaveBeenCalled();
+  service.close();
+});

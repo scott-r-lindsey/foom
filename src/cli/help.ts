@@ -4,8 +4,8 @@ const commandHelp = [
     prefix: "foom [--json] ",
     commands: [
       "whoami",
-      "sessions [--limit N] [--cursor ID]",
-      "session-state ID",
+      "sessions [--limit N] [--cursor ID] [--host HOST]",
+      "session-state ID [--host HOST]",
       "operation-status --operation-id ID | operation-status --idempotency-key KEY",
     ],
     suffix: "",
@@ -26,8 +26,8 @@ const commandHelp = [
     prefix: "Orchestrators only: ",
     commands: [
       "read-handoff ID [--seq N]",
-      "create-worktree BRANCH|--pull-request N [--review] --idempotency-key KEY",
-      "launch WORKTREE_ID --agent PROVIDER [--model MODEL] [--effort EFFORT] [--prompt TEXT] [--review-rounds 1-5] [--review-agent PROVIDER] [--review-model MODEL] [--review-effort EFFORT] [--review-post-findings true|false] [--review-parent-wait-minutes 1-1440] --idempotency-key KEY",
+      "create-worktree BRANCH|--pull-request N [--review] [--host HOST] --idempotency-key KEY",
+      "launch WORKTREE_ID [--host HOST] --agent PROVIDER [--model MODEL] [--effort EFFORT] [--prompt TEXT] [--review-rounds 1-5] [--review-agent PROVIDER] [--review-model MODEL] [--review-effort EFFORT] [--review-post-findings true|false] [--review-parent-wait-minutes 1-1440] --idempotency-key KEY",
       "prompt ID --text TEXT --idempotency-key KEY",
       "send-keys ID --keys y,enter --idempotency-key KEY",
       "stop ID --idempotency-key KEY",

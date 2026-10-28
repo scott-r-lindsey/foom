@@ -1,3 +1,4 @@
+import { hostAlias } from "../../shared/registered-hosts";
 import type { ReviewState } from "../../shared/review";
 import type { HandoffMetadata } from "../../shared/handoff";
 import { pullRequest } from "./forge";
@@ -35,8 +36,14 @@ export class SessionMetadata {
     method: "sessions" | "session_state",
     params: Record<string, unknown>,
   ): unknown {
-    exact(params, method === "sessions" ? ["cursor", "limit"] : ["id"]);
-    const rows = this.source().filter((row) => row.repository === actor.repository);
+    exact(params, method === "sessions" ? ["cursor", "limit", "host"] : ["id", "host"]);
+    const host = params["host"];
+    if (host !== undefined && !hostAlias(host)) throw new ControlError("invalid_request");
+    const rows = this.source().filter(
+      (row) =>
+        row.repository === actor.repository &&
+        (host === undefined || (row.placement?.kind === "remote" && row.placement.host === host)),
+    );
     if (method === "session_state") {
       const id = identifier(params["id"]);
       const row = rows.find((entry) => entry.id === id);
@@ -102,6 +109,7 @@ export class SessionMetadata {
       ...(review ? { review } : {}),
       id: row.id,
       agent: row.agent,
+      host: row.placement?.kind === "remote" ? row.placement.host : row.remote ? undefined : null,
       placement: row.placement ?? (row.remote ? undefined : { kind: "local" }),
       ...(row.selection ? { selection: row.selection } : {}),
       repository: locationId(row.repository),

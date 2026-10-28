@@ -1,3 +1,5 @@
+import { ControlError } from "../../shared/control-validation";
+import { forgeBranch } from "../control/forge";
 import { reviewRefs, unchangedReview } from "./review-worktrees";
 import type { ReviewCheckout } from "./review-worktrees";
 import { RemovalError } from "./worktree-outcome";
@@ -803,6 +805,22 @@ export class WorktreeService {
       path,
       remote,
     );
+  }
+
+  /** Resolve only an open same-repository PR; the selected host still validates Git refs. */
+  async adoptionBranch(repository: string, number: number): Promise<string> {
+    this.repository(repository);
+    const origin = await this.forgeRemote(repository);
+    const head =
+      origin === undefined
+        ? undefined
+        : await (await this.forgeProviderFor(repository, repository, origin))?.resolve?.(number);
+    if (!head) throw new ControlError("forge_unavailable");
+    if (head.state !== "OPEN") throw new ControlError("pr_not_open");
+    if (!head.sameRepository) throw new ControlError("pr_from_fork");
+    if (!forgeBranch(head.branch)) throw new ControlError("invalid_branch");
+    await this.validateBranch(repository, head.branch);
+    return head.branch;
   }
 
   /** Only main-owned unused checkouts can be reused; no caller supplies a remote or path. */

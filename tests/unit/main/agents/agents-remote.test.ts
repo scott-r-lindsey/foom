@@ -182,3 +182,47 @@ test("a saved local launch remains local despite a new matching remote mapping",
   expect(f.create.mock.calls.at(-1)?.[0].remote).toBeUndefined();
   expect(execFile).toHaveBeenCalled();
 });
+
+test("a main-owned registered checkout skips local Git and binds the expected remote identity", async () => {
+  const f = fixture();
+  const validate = vi.fn(() => Promise.resolve());
+  const launched = await f.service.launch({
+    ...request,
+    worktree: "/foom-remote/opaque",
+    control: { parentId: "parent" },
+    remoteCheckout: {
+      target: { host: "registered" },
+      repository: "/code/repo",
+      worktree: "/code/tree",
+      branch: "feature",
+      identity: "a".repeat(64),
+      validate,
+    },
+  });
+  expect(launched.placement).toEqual({ kind: "remote", host: "registered" });
+  expect(listWorktrees).not.toHaveBeenCalled();
+  expect(launchIdentity).not.toHaveBeenCalled();
+  expect(validate).toHaveBeenCalledTimes(2);
+  expect(f.target()?.spec).toMatchObject({
+    repository: "/code/repo",
+    worktree: "/code/tree",
+    checkoutIdentity: "a".repeat(64),
+  });
+  f.service.release(launched.id);
+  validate.mockRejectedValueOnce(new Error("Registration removed"));
+  await expect(
+    f.service.launch({
+      ...request,
+      worktree: "/foom-remote/other",
+      control: { parentId: "parent" },
+      remoteCheckout: {
+        target: { host: "registered" },
+        repository: "/code/repo",
+        worktree: "/code/tree",
+        branch: "feature",
+        identity: "a".repeat(64),
+        validate,
+      },
+    }),
+  ).rejects.toThrow("Registration removed");
+});

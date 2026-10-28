@@ -33,7 +33,7 @@ export interface WorktreeLaunchContext {
   readonly now: () => number;
   readonly orchestration: Pick<
     Orchestration,
-    "relaunched" | "view" | "exited" | "remoteParentGuard"
+    "relaunched" | "view" | "exited" | "remoteParentGuard" | "remoteCheckout"
   >;
   readonly persist: () => void;
   readonly queues: Map<string, Promise<void>>;
@@ -247,6 +247,7 @@ export interface ExecutionEventsContext {
 }
 
 export interface OrchestrationHostContext {
+  readonly launchAgent: WorkspaceMethods["launchAgent"];
   readonly busyWorktrees: Set<string>;
   readonly cleanup: Pick<CleanupOwner, "removeOwnedTree">;
   readonly closed: boolean;
@@ -267,10 +268,11 @@ export interface OrchestrationHostContext {
   readonly snapshot: () => WorkspaceSnapshot;
   readonly withRepository: <T>(repository: string, work: () => Promise<T>) => Promise<T>;
   readonly deps: {
+    readonly hosts: WorkspaceDependencies["hosts"];
     readonly forge: OrchestrationHost["forge"];
     readonly worktrees: Pick<
       WorkspaceDependencies["worktrees"],
-      "adoptWorktree" | "listWorktrees" | "launchIdentity" | "reviewBranch"
+      "adoptionBranch" | "adoptWorktree" | "listWorktrees" | "launchIdentity" | "reviewBranch"
     >;
     readonly terminals: Pick<WorkspaceDependencies["terminals"], "stop" | "tail"> & {
       readonly childInput: WorkspaceDependencies["terminals"]["childInput"];

@@ -56,6 +56,15 @@ export interface LaunchSelection {
 }
 
 export interface AgentLaunch {
+  /** Main-only registered-host capability. Never accepted from IPC. */
+  readonly remoteCheckout?: {
+    target: { host: string };
+    repository: string;
+    worktree: string;
+    branch: string;
+    identity: string;
+    validate(): Promise<void>;
+  };
   /** Main-only restoration preserves the original local placement. */
   localOnly?: boolean;
   readonly selection?: LaunchSelection;

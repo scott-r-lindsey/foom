@@ -1,7 +1,7 @@
 import { LaunchFailure } from "../../shared/launch-failure";
 import { spawn } from "node:child_process";
 import { devNull } from "node:os";
-import { access, realpath, stat } from "node:fs/promises";
+import { access, lstat, realpath, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 
@@ -169,12 +169,30 @@ export async function remoteCheckout(
     );
   const repositoryCommon = await common(repository);
   if (repositoryCommon !== (await common(worktree))) throw new Error("Foreign remote worktree");
+  const gitDirectory = (
+    await hostProbe(
+      "git",
+      ["--no-optional-locks", "rev-parse", "--absolute-git-dir"],
+      worktree,
+      env,
+    )
+  ).trim();
+  if (
+    (await realpath(repositoryCommon)) !== repositoryCommon ||
+    (await realpath(gitDirectory)) !== gitDirectory
+  )
+    throw new Error("Remote checkout changed");
+  const marker = join(worktree, ".git");
   const identities = await Promise.all(
-    [repository, worktree, repositoryCommon].map(async (path) => {
-      const info = await stat(path);
-      if (!info.isDirectory()) throw new Error("Invalid remote checkout");
-      return `${String(info.dev)}:${String(info.ino)}`;
+    [repository, worktree, repositoryCommon, marker, gitDirectory].map(async (path) => {
+      const info = await lstat(path, { bigint: true });
+      if (
+        info.isSymbolicLink() ||
+        (path === marker ? !info.isFile() && !info.isDirectory() : !info.isDirectory())
+      )
+        throw new Error("Invalid remote checkout");
+      return [info.dev, info.ino, info.birthtimeNs].map(String);
     }),
   );
-  return JSON.stringify([repositoryCommon, identities]);
+  return JSON.stringify([repositoryCommon, gitDirectory, identities]);
 }

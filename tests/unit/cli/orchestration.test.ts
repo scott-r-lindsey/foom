@@ -206,3 +206,28 @@ it("maps child and reviewer selections without accepting free-form argv", () => 
     command(["launch", "tree", "--agent", "codex", "--args", "--bypass", ...key]),
   ).toThrow("invalid_request");
 });
+
+it("accepts host selection only on the host-aware commands and rejects option/shell injection", () => {
+  expect(command(["create-worktree", "feature", "--host", "user@worker", ...key])).toMatchObject({
+    params: { host: "user@worker", branch: "feature" },
+  });
+  expect(command(["launch", "tree", "--host", "worker", "--agent", "codex", ...key])).toMatchObject(
+    { params: { host: "worker" } },
+  );
+  expect(command(["sessions", "--host", "worker"])).toEqual({
+    method: "sessions",
+    params: { host: "worker" },
+  });
+  expect(command(["session-state", "child", "--host", "worker"])).toEqual({
+    method: "session_state",
+    params: { id: "child", host: "worker" },
+  });
+  for (const args of [
+    ["launch", "tree", "--agent", "codex", "--host", "-evil", ...key],
+    ["sessions", "--host", "a;b"],
+    ["session-state", "child", "--host", "-evil"],
+    ["session-state"],
+    ["stop", "child", "--host", "worker", ...key],
+  ])
+    expect(() => command(args)).toThrow("invalid_request");
+});

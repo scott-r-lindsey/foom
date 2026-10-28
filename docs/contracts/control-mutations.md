@@ -14,8 +14,8 @@ retry with the same key returns that record.
 
 | Tool | Parameters | Result |
 |---|---|---|
-| `create_worktree` | Exactly one of `branch` or `pullRequest`; optional `review` boolean with `pullRequest` | New local branch, or continue an open same-repository PR; `resultId` is the opaque worktree ID |
-| `launch` | `worktreeId`, `agent` (a loaded provider ID), optional `model`, `effort`, `prompt` ≤16 KiB (including the fixed author brief when `review` is enabled) and `review` | `resultId` is the child session ID |
+| `create_worktree` | Exactly one of `branch` or `pullRequest`; optional `review` boolean with `pullRequest`, optional registered `host` | New local branch, or continue an open same-repository PR; `resultId` is the opaque worktree ID |
+| `launch` | `worktreeId`, `agent` (a loaded provider ID), optional matching `host`, `model`, `effort`, `prompt` ≤16 KiB (including the fixed author brief when `review` is enabled) and `review` | `resultId` is the child session ID |
 | `prompt` | `id`, `text` ≤16 KiB | Text plus submit, honoring bracketed paste, without review |
 | `send_keys` | `id`, `keys` (1–64) | Validated logical keys, without review |
 | `stop` | `id` | Existing graceful stop; an already exited child succeeds; a stop error is `indeterminate` |
@@ -182,3 +182,22 @@ Closing a dormant remote row reconnects through the bounded agent cleanup protoc
 and removes the remote process and private assets before deleting the local row.
 A failed cleanup retains the row; the close operation and session reason report
 `remote_host_unreachable`. Remote authority and routing remain phase-2 restricted.
+
+### Host-aware placement (#756)
+
+`host` is a Settings-registered SSH alias/account selector, never an arbitrary
+command. `create_worktree` uses that host's approved existing checkout; it never
+clones. Branch creation starts from the freshly fetched origin default. PR
+adoption retains open/same-repository/default-branch checks and tracks origin.
+`launch` uses the created worktree's host; an explicit different host refuses.
+A host's current inventory can refuse an absent/uncheckable agent with
+`remote_agent_unavailable` before launch preparation. Missing/stale inventories
+are probed. Existing remote review restrictions remain in effect.
+
+`sessions` and `session_state` accept optional `host` to filter for that remote
+host. Every row includes `host: SSH_ALIAS | null` alongside actual `placement`.
+Orchestrator calls also return `hosts`: observations with `host`, `resources`
+(cores, three load averages, memoryTotal and memoryAvailable in bytes) and `agents`
+(id and ready/missing/unable state). Null resources plus a fixed `reason` indicate
+an unavailable host observation. Local uses null for its host. These observations
+inform placement; there is no Foom validation lock or busy classification.

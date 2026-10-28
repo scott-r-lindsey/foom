@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -269,7 +270,7 @@ test.skipIf(process.platform === "win32")(
     );
     endpoints.push(prepared.endpoint);
     expect(prepared.ready).toMatchObject({ hooks: true, mcp: false });
-    expect(prepared.spec.args.join(" ")).toContain("#756");
+    expect(prepared.spec.args.join(" ")).toContain("unavailable to remote children");
     await writeFile(
       join(home, ".gemini/config/config.json"),
       '{"plugins":{"foom":{"enabled":false}}}',
@@ -316,5 +317,42 @@ test.each(["pi", "opencode"])(
     ).rejects.toThrow("remote_agent_unsupported");
     expect(hostDiscovery).not.toHaveBeenCalled();
     expect(remoteCheckout).not.toHaveBeenCalled();
+  },
+);
+
+test("a registered worktree's creation identity is checked before agent discovery or preparation", async () => {
+  vi.mocked(hostDiscovery).mockClear();
+  await expect(
+    prepareRemoteAgent(
+      { ...spec, checkoutIdentity: "a".repeat(64) },
+      "/fixture/shell",
+      home,
+      () => {},
+      call,
+    ),
+  ).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
+  expect(hostDiscovery).not.toHaveBeenCalled();
+});
+
+test.skipIf(process.platform === "win32")(
+  "a prepared agent rechecks its captured identity immediately before start",
+  async () => {
+    const prepared = await prepareRemoteAgent(
+      {
+        ...spec,
+        hooks: false,
+        checkoutIdentity: createHash("sha256").update("identity").digest("hex"),
+      },
+      "/fixture/shell",
+      home,
+      () => {},
+      call,
+    );
+    endpoints.push(prepared.endpoint);
+    await prepared.validate();
+    vi.mocked(remoteCheckout).mockResolvedValueOnce("replaced");
+    await expect(prepared.validate()).rejects.toMatchObject({
+      reason: "remote_worktree_unavailable",
+    });
   },
 );

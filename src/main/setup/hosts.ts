@@ -1,3 +1,6 @@
+import { ControlError } from "../../shared/control-validation";
+import { LaunchFailure } from "../../shared/launch-failure";
+import { providerRevision } from "../agents/providers/registry";
 import { loginPath } from "../agents/agents";
 import { resolveForgeExecutable } from "../control/forge-process";
 import { agentProviders } from "../agents/providers/registry";
@@ -20,9 +23,109 @@ import { sshEnvironment } from "../terminals/remote-bootstrap";
 
 /** Profile-owned registrations only. Developer mappings never enter this service. */
 export class Hosts {
+  private readonly inventoryReads = new Map<string, Promise<HostResult>>();
   private readonly cancellation = new AbortController();
   dispose(): void {
     this.cancellation.abort();
+  }
+  private readonly observed = new Map<string, { at: number; revision: number; enabled: string }>();
+  /** No timers: stale or absent observations are refreshed on demand. */
+  async inventory(host: string): Promise<HostResult> {
+    const registration = this.registered(host);
+    const seen = this.observed.get(host);
+    const enabled = JSON.stringify(this.store.get().agents);
+    if (
+      !seen ||
+      Date.now() < seen.at ||
+      Date.now() - seen.at >= 60000 ||
+      seen.revision !== providerRevision() ||
+      seen.enabled !== enabled ||
+      !this.results.get(host)?.ok
+    ) {
+      let pending = this.inventoryReads.get(host);
+      if (!pending) {
+        pending = this.run(host, {
+          type: "manage",
+          operation: "inspect",
+          codeFolder: registration.codeFolder,
+        });
+        this.inventoryReads.set(host, pending);
+      }
+      let result: HostResult;
+      try {
+        result = await pending;
+      } finally {
+        if (this.inventoryReads.get(host) === pending) this.inventoryReads.delete(host);
+      }
+
+      this.registered(host, registration.codeFolder);
+      this.results.set(host, result);
+    }
+    return this.results.get(host) ?? { ok: false, reason: "unreachable" };
+  }
+  registered(host: string, folder?: string) {
+    const entry = this.store.get().registeredHosts?.find((entry) => entry.host === host);
+    if (!entry || (folder !== undefined && entry.codeFolder !== folder))
+      throw new ControlError("not_found");
+    return entry;
+  }
+  async requireAgent(host: string, agent: string): Promise<void> {
+    if (this.store.get().agents[agent] === false) throw new LaunchFailure("agent_disabled");
+    const result = await this.inventory(host);
+    if (!result.ok) throw new LaunchFailure("remote_host_unreachable");
+    if (result.facts.agents.find((entry) => entry.id === agent)?.state !== "ready")
+      throw new LaunchFailure("remote_agent_unavailable");
+  }
+  async fleet(): Promise<readonly { host: string; result: HostResult }[]> {
+    return Promise.all(
+      (this.store.get().registeredHosts ?? []).map(async ({ host }) => ({
+        host,
+        result: await this.inventory(host),
+      })),
+    );
+  }
+  async worktree(
+    host: string,
+    repository: string,
+    action:
+      | { operation: "create-worktree"; branch: string; fromOrigin?: boolean }
+      | {
+          operation: "inspect-worktree" | "remove-worktree";
+          path: string;
+          identity: string;
+          changes?: string;
+        },
+  ) {
+    const entry = this.registered(host);
+    if (!this.repositories().some((repo) => repo.path === repository))
+      throw new ControlError("not_found");
+    const source = await this.repository(host, entry.codeFolder, repository, false);
+    this.registered(host, entry.codeFolder);
+    if (!source.ok || !source.checkout || source.checkout.state === "absent")
+      throw new LaunchFailure("remote_worktree_unavailable");
+    const origin = await this.origin(repository);
+    this.registered(host, entry.codeFolder);
+    const result = await this.run(host, {
+      type: "manage",
+      codeFolder: entry.codeFolder,
+      directory: source.checkout.path.slice(entry.codeFolder.length + 1),
+      origin,
+      ...action,
+    });
+    this.registered(host, entry.codeFolder);
+    if (!result.ok || !result.worktree) throw new LaunchFailure("remote_worktree_unavailable");
+    if (
+      action.operation === "create-worktree"
+        ? result.worktree.branch !== action.branch
+        : result.worktree.path !== action.path || result.worktree.identity !== action.identity
+    )
+      throw new LaunchFailure("remote_worktree_unavailable");
+    if (
+      !result.worktree.path.startsWith(`${entry.codeFolder}/.foom-worktree-`) ||
+      result.worktree.path.slice(entry.codeFolder.length + 1).includes("/")
+    )
+      throw new LaunchFailure("remote_worktree_unavailable");
+    return { repository: source.checkout.path, ...result.worktree };
   }
   private readonly results = new Map<string, HostResult>();
   private locations: RepositoryLocation[] = [];
@@ -134,6 +237,8 @@ export class Hosts {
   }
   private async run(host: string, request: HostManagement): Promise<HostResult> {
     try {
+      const revision = providerRevision();
+      const enabled = JSON.stringify(this.store.get().agents);
       const providers = agentProviders().filter(
         (provider) => this.store.get().agents[provider.id] !== false,
       );
@@ -154,6 +259,14 @@ export class Hosts {
       )
         return { ok: false, reason: "unreachable" };
       if (!result.ok) return result;
+      if (providerRevision() !== revision || JSON.stringify(this.store.get().agents) !== enabled)
+        return { ok: false, reason: "unreachable" };
+      if (request.operation === "inspect")
+        this.observed.set(host, {
+          at: Date.now(),
+          revision,
+          enabled,
+        });
       return {
         ...result,
         facts: {
@@ -168,13 +281,7 @@ export class Hosts {
       return { ok: false, reason: "unreachable" };
     }
   }
-  private async repository(
-    host: string,
-    codeFolder: string,
-    repository: string,
-    clone: boolean,
-  ): Promise<HostResult> {
-    let origin: string;
+  private async origin(repository: string): Promise<string> {
     try {
       const { path } = await loginPath();
       const { executable } = await resolveForgeExecutable(["git"], path);
@@ -196,8 +303,22 @@ export class Hosts {
           signal: this.cancellation.signal,
         },
       );
-      origin = result.stdout.trim();
+      const origin = result.stdout.trim();
       if (!gitOrigin(origin)) throw new Error("Unsupported origin");
+      return origin;
+    } catch {
+      throw new Error("Origin unavailable");
+    }
+  }
+  private async repository(
+    host: string,
+    codeFolder: string,
+    repository: string,
+    clone: boolean,
+  ): Promise<HostResult> {
+    let origin: string;
+    try {
+      origin = await this.origin(repository);
     } catch {
       return { ok: false, reason: "origin-unavailable" };
     }

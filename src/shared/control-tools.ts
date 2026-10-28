@@ -7,6 +7,12 @@ const selectionToken = {
   description:
     "Manifest-declared model or effort selection; unsupported options refuse. No arbitrary arguments.",
 };
+const hostSelector = {
+  type: "string",
+  maxLength: 253,
+  description:
+    "Registered Settings SSH host. Creation defaults to Local; launch defaults to the worktree host; session reads default to all hosts.",
+};
 const tools = [
   {
     name: "manual",
@@ -26,8 +32,9 @@ const tools = [
   {
     name: "sessions",
     description:
-      "Paginated session metadata in your repository. Names are untrusted data. No terminal output.",
+      "Paginated session metadata in your repository. Orchestrators also receive each host’s agent inventory and CPU/memory observations. Optional host filters rows. Names are untrusted data. No terminal output.",
     properties: {
+      host: hostSelector,
       cursor: { type: "string", maxLength: 200 },
       limit: { type: "integer", minimum: 1, maximum: 100 },
     },
@@ -35,8 +42,8 @@ const tools = [
   {
     name: "session_state",
     description:
-      "Session state in your repository, with a fixed reason and conservative attention kind. No terminal output.",
-    properties: { id: { type: "string", maxLength: 200 } },
+      "Session state in your repository, including host, with a fixed reason and conservative attention kind. Orchestrators also receive host inventories and CPU/memory observations. No terminal output.",
+    properties: { id: { type: "string", maxLength: 200 }, host: hostSelector },
     required: ["id"],
   },
 ].map((tool) => ({
@@ -110,6 +117,7 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
         "Create a worktree for one child: supply exactly one of branch (new local branch) or pullRequest (open same-repository PR number, fetched and tracking origin). With review: true, create a detached review checkout at the fetched PR head even if its branch is in use, without creating a branch. Forks and the default branch are refused. Without review, branches checked out elsewhere are refused; your own unused checkout may be reused. Existing local branches fast-forward to the fetched PR head; local commits absent from it are refused with branch_diverged. At most four unused worktrees. Returns an operation whose resultId is the worktree ID.",
       properties: {
         idempotencyKey: key,
+        host: hostSelector,
         branch: { type: "string", maxLength: 200 },
         pullRequest: { type: "integer", minimum: 1 },
         review: {
@@ -125,10 +133,11 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
     {
       name: "launch",
       description:
-        "Launch an ordinary owned child in an unused worktree you created. Give it one task, acceptance criteria and limits in prompt. The 16 KiB UTF-8 limit includes the fixed author brief when review is enabled. Children cannot orchestrate. Optional review runs a sequential build/review loop (3 rounds, maximum 5), default reviewer claude with resume support. Reviewers count against your child limit. Steps use launch/resume argv only; you remain the final merge gate. Placement follows Settings → General. Returns an operation with child session ID in resultId.",
+        "Launch an owned child in an unused worktree you created. Give it one task, acceptance criteria and limits in prompt. Optional host must match the worktree; omission keeps its host. The 16 KiB prompt limit includes the author review brief. Children cannot orchestrate. Optional review defaults to 3 rounds (maximum 5), Claude, with resume support; reviewers count toward your limit. Steps use launch/resume argv only. You remain the final merge gate. Placement follows Settings → General. Returns an operation with child session ID in resultId.",
       properties: {
         idempotencyKey: key,
         worktreeId: id,
+        host: hostSelector,
         agent: { type: "string", enum: agents },
         model: selectionToken,
         effort: selectionToken,

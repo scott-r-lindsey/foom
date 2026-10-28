@@ -1,3 +1,4 @@
+import type { Hosts } from "../setup/hosts";
 import type { SidebarCommandResult } from "../../shared/workspace";
 import type { AgentEvidence } from "../../shared/agent-detection";
 import type { AgentHooks, AgentId, AgentLaunch } from "../../shared/agents";
@@ -68,6 +69,7 @@ export interface WorkspaceMethods {
       | "beforeSpawn"
       | "loop"
       | "selection"
+      | "remoteCheckout"
     >,
   ): Promise<{ id: string; attention: "hooks" | "evaluator" }>;
   startWorktree(request: StartWorktreeRequest, confirm?: ConfirmWorkspace): Promise<string | null>;
@@ -170,6 +172,7 @@ export type Agents = Pick<
   "scan" | "launch" | "release" | "dispose" | "setHooksEnabled" | "setBypassIdentities"
 >;
 export interface WorkspaceDependencies {
+  hosts?: Pick<Hosts, "fleet" | "worktree" | "registered" | "requireAgent">;
   /** Main-owned clock budget; tests may inject a shorter probe reminder. */
   probeWaitingMs?: number;
   pluginStagingRoot?: string;
@@ -181,6 +184,7 @@ export interface WorkspaceDependencies {
     | "branches"
     | "createWorktree"
     | "adoptWorktree"
+    | "adoptionBranch"
     | "validateBranch"
     | "changes"
     | "cleanupChanges"

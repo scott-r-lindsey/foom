@@ -169,10 +169,10 @@ The remote child grant exposes only `handoff`, `manual` and a sanitized `whoami`
 Its identity is a fresh opaque per-launch alias, never a hub terminal ID or parent
 ID. Local `whoami` and parent-facing terminal IDs are unchanged. Filesystem preview
 and fleet/repository tools are refused with a fixed phase-2 restriction reason;
-this limitation is deferred to the host-aware control surface in #756.
+host-aware placement (#756) does not widen the remote child's tool authority.
 Review-enabled remote launches fail with `remote_review_unsupported`; local
 HEAD/dirty snapshots and forge observations cannot attest to the remote checkout.
-Host-aware review snapshots and forge evidence remain future work for #756/#757.
+Host-aware review snapshots and forge evidence remain future work.
 
 Remote hook and control endpoints terminate on private Unix sockets. A local
 stdio MCP adapter talks to the remote endpoint; only bounded, versioned, validated
@@ -242,3 +242,15 @@ Launch diagnostics use the fixed `launchReasons` codes in
 [the control contract](../contracts/control-mutations.md#launch-failure-reasons).
 Main logs one bounded code-only failure line. Remote output, stderr, paths and
 provider text never select or enter a diagnostic message.
+
+## Registered-host children (#756)
+
+Ordinary host-aware child launches use a main-only registered-host checkout
+capability instead of developer mappings or a shadow local worktree. The opaque
+hub checkout key is distinct from the remote path and host. Local Git validation
+is replaced only for that capability by remote membership/identity checks; local
+launches retain their existing checks. The expected remote creation identity is
+sent as a digest, never a terminal ID. Registration and live parent ownership are
+rechecked around preparation and before start. Resume under the same live parent
+uses the same host capability and fresh credentials, never a local fallback.
+Remote inventories and host resource observations are described in [Hosts](hosts.md).

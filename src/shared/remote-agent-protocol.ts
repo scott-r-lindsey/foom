@@ -5,7 +5,7 @@ import type { HookSignal } from "./hooks";
 import { conversationId } from "./conversation";
 
 export const REMOTE_PHASE_2_REASON =
-  "Remote phase 2 permits only handoff, manual and sanitized identity; filesystem preview and fleet/repository tools require #756.";
+  "Remote phase 2 permits only handoff, manual and sanitized identity; filesystem preview and fleet/repository tools are unavailable to remote children.";
 export const REMOTE_AGENT_BYTES = 65536;
 export function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -35,7 +35,11 @@ export function remoteAgentSpec(value: unknown): value is RemoteAgentSpec {
       "prompt",
       "conversationId",
       "hooks",
+      "checkoutIdentity",
     ]) &&
+    (value["checkoutIdentity"] === undefined ||
+      (typeof value["checkoutIdentity"] === "string" &&
+        /^[a-f0-9]{64}$/u.test(value["checkoutIdentity"]))) &&
     typeof value["agent"] === "string" &&
     /^[a-z][a-z0-9-]{0,63}$/u.test(value["agent"]) &&
     remotePath(value["repository"]) &&
