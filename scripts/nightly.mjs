@@ -29,7 +29,7 @@ export function identity(sha, date, version) {
   };
 }
 
-/** Squirrel's downgrade guard requires a three-part numeric macOS bundle version. */
+/** Native plist identity only: Packager's appVersion would also overwrite ASAR semver. */
 export function macBundleVersion(manifest) {
   if (!manifest.version.includes("-nightly.")) return manifest.version;
   const match = /^(\d+\.\d+\.\d+)-nightly\.(\d{8})\+([a-f0-9]{7})$/.exec(manifest.version);

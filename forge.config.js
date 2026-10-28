@@ -37,6 +37,8 @@ module.exports = {
       const { execFileSync } = require("node:child_process");
       for (const output of result.outputPaths) {
         const app = require("node:path").join(output, "Foom.app");
+        // Keep ASAR/app.getVersion() semver; only native plists use Squirrel's numeric identity.
+        require("./scripts/macos-bundle-version.mjs").setMacBundleVersions(app);
         execFileSync(process.execPath, ["scripts/macos-sign.mjs", "adhoc", app], {
           cwd: __dirname,
           stdio: "inherit",
@@ -53,12 +55,7 @@ module.exports = {
     packageAfterPrune: require("./scripts/package-conpty.cjs"),
   },
   packagerConfig: {
-    // Electron reads the full package.json version; native Squirrel requires numeric bundle versions.
-    ...(process.platform === "darwin"
-      ? {
-          appVersion: require("./scripts/nightly.mjs").macBundleVersion(require("./package.json")),
-        }
-      : {}),
+    // Let Packager infer the real semver. appVersion also rewrites ASAR's package.json.
     asar: {
       unpack: "**/build/{observers/**/*,console/**/*,remote-hosts/**/*,manual/!(sections.json)}",
       unpackDir: "**/node_modules/node-pty/**",
