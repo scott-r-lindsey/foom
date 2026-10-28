@@ -689,6 +689,9 @@ vi.mock("electron", () => ({
     getPath: () => "/test/user-data",
     quit: mock.quit,
     exit: mock.exit,
+    once: (name: string, handler: (event: { preventDefault(): void }) => void) => {
+      mock.appEvents.set(name, handler);
+    },
     on: (name: string, handler: (event: { preventDefault(): void }) => void) => {
       mock.appEvents.set(name, handler);
     },

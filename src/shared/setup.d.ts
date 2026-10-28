@@ -1,3 +1,4 @@
+import type { RegisteredHost, HostsApi } from "./registered-hosts.d";
 import type { UpdateState } from "./updates";
 import type { ReadinessReport } from "./readiness";
 import type { ThemeCatalog, ThemeKind } from "./theme-file";
@@ -8,6 +9,8 @@ import type { AgentValues } from "./agents";
 import type { Repository } from "./worktrees";
 /** Everything first-run setup decides. Stored in main; the renderer holds only a copy. */
 export interface Settings {
+  /** Main-owned host authorizations, never agent-editable config. */
+  registeredHosts?: readonly RegisteredHost[];
   setupComplete: boolean;
   /** Profile-only update network opt-out. */
   checkForUpdates: boolean;
@@ -114,7 +117,7 @@ export interface SetupState {
   worktreeRoot: string;
 }
 
-export interface SetupApi {
+export interface SetupApi extends HostsApi {
   restartToUpdate(): Promise<void>;
   checkReadiness(): Promise<ReadinessReport>;
   listTerminalFonts(refresh?: boolean): Promise<readonly string[]>;

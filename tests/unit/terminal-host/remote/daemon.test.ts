@@ -19,6 +19,7 @@ import {
 import type { RemoteRequest } from "../../../../src/shared/remote-host";
 let telemetry: TerminalTelemetry = {};
 const mock = vi.hoisted(() => ({
+  manage: vi.fn(),
   create: vi.fn(),
   attach: vi.fn(),
   detach: vi.fn(),
@@ -34,6 +35,7 @@ const mock = vi.hoisted(() => ({
   childInput: vi.fn(),
   exited: (_id: string, _code: number) => {},
 }));
+vi.mock("../../../../src/terminal-host/remote/management", () => ({ manageHost: mock.manage }));
 vi.mock("../../../../src/terminal-host/terminal-manager", () => ({
   TerminalManager: class {
     create = mock.create;
@@ -975,5 +977,45 @@ test.skipIf(process.platform === "win32").each(["missing", "prepare", "start"])(
             : "remote_start_refused",
     });
     expect(JSON.stringify(c.messages)).not.toContain("PRIVATE");
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "management reports live sessions without opening, detaching or killing a PTY",
+  async () => {
+    await start();
+    const live = await open();
+    mock.manage.mockImplementation((_request: unknown, sessions: number) =>
+      Promise.resolve({
+        ok: true,
+        facts: {
+          codeFolder: "/code",
+          version: "0.1.0",
+          sessions,
+          cores: 4,
+          load: [0, 0, 0],
+          memoryTotal: 8000,
+          memoryAvailable: 4000,
+          agents: [],
+        },
+      }),
+    );
+    const management = await client();
+    management.send({ type: "hello", build });
+    await management.wait(1);
+    management.send({ type: "manage", operation: "inspect", codeFolder: "/code" });
+    await management.wait(2);
+    expect(management.messages[1]).toMatchObject({
+      type: "managed",
+      result: { ok: true, facts: { sessions: 1 } },
+    });
+    management.socket.destroy();
+    expect(mock.create).toHaveBeenCalledTimes(1);
+    expect(mock.stop).not.toHaveBeenCalled();
+    expect(mock.kill).not.toHaveBeenCalled();
+    const closed = once(live.serverSocket, "close");
+    live.send({ type: "manage", operation: "inspect", codeFolder: "/code" });
+    await closed;
+    expect(mock.manage).toHaveBeenCalledTimes(1);
   },
 );

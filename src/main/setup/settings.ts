@@ -1,3 +1,4 @@
+import { registeredHosts } from "../../shared/registered-hosts";
 import { parseForgeEnablement, parseForgeHosts } from "./forge-settings";
 import { legacyBypassIdentities } from "../agents/providers/bundled";
 import { DEFAULT_TERMINAL_FONT } from "../../shared/terminal-fonts";
@@ -128,6 +129,8 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
       entry <= 1440
     )
       patch.unreadChildMinutes = entry;
+    else if (key === "registeredHosts" && registeredHosts(entry))
+      patch.registeredHosts = entry.map((host) => ({ ...host }));
     else if (key === "forges") patch.forges = parseForgeEnablement(entry);
     else if (key === "forgeHosts") patch.forgeHosts = parseForgeHosts(entry);
     else if (key === "agentArguments") patch.agentArguments = parseAgentDefaults(entry);

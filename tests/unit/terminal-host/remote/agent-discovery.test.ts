@@ -134,3 +134,34 @@ test.skipIf(process.platform === "win32")(
     await expect(remoteCheckout(repo, tree, env)).rejects.toThrow("unavailable");
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "host Git access uses only the host's own configuration when explicitly selected",
+  async () => {
+    await script("git", "process.stdout.write(process.env.GIT_CONFIG_GLOBAL || 'host-default')");
+    const env = { PATH: root, HOME: root };
+    expect(await hostProbe("git", ["--version"], root, env, true)).toBe("host-default");
+    expect(await hostProbe("git", ["--version"], root, env)).toBe("/dev/null");
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "missing and malformed login PATH output never enables relative executable discovery",
+  async () => {
+    const model = parseAgentManifest(JSON.stringify(claude), "bundled").model;
+    const shell = await script(
+      "no-path-shell",
+      "process.stdout.write('login banner without a path marker')",
+    );
+    vi.stubEnv("PATH", undefined);
+    await expect(hostDiscovery(model, shell, root)).rejects.toMatchObject({
+      reason: "remote_agent_unavailable",
+    });
+    await script("claude", "process.stdout.write('fixed probe')");
+    vi.stubEnv("PATH", `relative:${root}`);
+    expect(await hostDiscovery(model, shell, root)).toMatchObject({
+      command: join(root, "claude"),
+      env: { PATH: root },
+    });
+  },
+);

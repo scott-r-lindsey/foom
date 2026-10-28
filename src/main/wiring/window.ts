@@ -1,3 +1,4 @@
+import { hostsForStore } from "../setup/hosts";
 import { checkReadiness } from "../setup/readiness";
 import { app, BrowserWindow, dialog, nativeTheme, screen, session } from "electron";
 import { randomUUID } from "node:crypto";
@@ -254,6 +255,14 @@ export async function buildWindow(
     confirmations.refresh();
   };
   const setup = new Setup({
+    hosts: hostsForStore(
+      wiring.settings,
+      () => wiring.worktrees.listRepositories(),
+      app.getVersion(),
+      (dispose) => {
+        app.once("will-quit", dispose);
+      },
+    ),
     updates: () =>
       wiring.updates.state(
         wiring.workspace

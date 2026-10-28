@@ -1,3 +1,4 @@
+import { RepositoryHosts } from "./hosts-settings";
 import { RecentDaysInput } from "./recent-days-input";
 import type { Repository } from "../../shared/worktrees";
 import type { StepHeading } from "./preflight-step.d";
@@ -50,6 +51,7 @@ export function RepositoriesStep({
           </>
         )}
       </p>
+      {immediate && source.hosts && <RepositoryHosts source={source} repositories={repositories} />}
       <RepositoryPicker
         recentDays={recentDays}
         onRecentDays={onRecentDays}

@@ -1,3 +1,5 @@
+import { manageHost } from "./management";
+import { version } from "../../../package.json";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { record } from "../../shared/remote-agent-protocol";
 import { prepareRemoteAgent } from "./agent-launch";
@@ -256,6 +258,21 @@ export function serveHost(
         return;
       }
       if (message.type === "hello") throw new Error("Repeated negotiation");
+      if (message.type === "manage") {
+        if (id !== undefined) throw new Error("Session already open");
+        await send(socket, {
+          type: "managed",
+          result: await manageHost(
+            message,
+            [...sessions.values()].filter((entry) => entry.exited === undefined && !entry.removing)
+              .length,
+            remoteShell(),
+            version,
+            home,
+          ),
+        });
+        return;
+      }
       if (message.type === "agent-close") {
         if (id !== undefined) throw new Error("Already open");
         const session = sessions.get(message.id);

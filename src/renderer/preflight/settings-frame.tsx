@@ -7,6 +7,7 @@ const SETTINGS_SECTIONS = [
   { step: 1, label: "Agents" },
   { step: 12, label: "Forges" },
   { step: 10, label: "Environment" },
+  { step: 13, label: "Hosts" },
   { step: 2, label: "Repositories" },
   { step: 5, label: "Appearance" },
   { step: 6, label: "Terminal" },
@@ -54,7 +55,8 @@ export function SettingsFrame({
         {SETTINGS_SECTIONS.filter(
           (entry) =>
             ((entry.step !== 9 && entry.step !== 12) || source.config) &&
-            (entry.step !== 10 || source.environment),
+            (entry.step !== 10 || source.environment) &&
+            (entry.step !== 13 || source.hosts),
         ).map((entry) => (
           <button
             key={entry.step}
