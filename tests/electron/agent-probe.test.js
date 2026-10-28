@@ -288,7 +288,9 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
     launch.env.sort(),
     [
       "FOOM_CHANNEL_lifecycle",
+      "FOOM_CLI_DIRECTORY",
       "FOOM_CONTROL_TOKEN",
+      "FOOM_CONTROL_URL",
       "FOOM_HOOK_URL",
       "FOOM_HOOK_PROTOCOL",
       "FOOM_HOOK_CHANNELS",
