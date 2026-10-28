@@ -1,4 +1,5 @@
 import type { PreviewOpenAction } from "../../shared/previews";
+import type { SidebarCommandResult } from "../../shared/workspace";
 import type { PreviewSummary } from "../../shared/workspace";
 import type { HomeShellFacts } from "../../shared/panel";
 import type { ExecutionSnapshot } from "../../shared/execution";
@@ -490,8 +491,9 @@ export function createAppSource(): BoardSource {
             : row,
         );
       }
+      let result: SidebarCommandResult;
       try {
-        await window.desktop.sidebarCommand(command);
+        result = await window.desktop.sidebarCommand(command);
       } finally {
         if (command.kind === "resume" || command.kind === "new-conversation")
           snapshot(await window.desktop.workspace(), command.id);
@@ -507,6 +509,7 @@ export function createAppSource(): BoardSource {
       shellName = inventory.shell;
       home = inventory.home;
       snapshot(await window.desktop.workspace());
+      return result;
     },
     worktrees: {
       subscribe: (listener) => window.desktop.onSetupChange(listener),

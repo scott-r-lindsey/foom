@@ -372,7 +372,7 @@ function BoardContents({
         ? { tile: original.id, session: sessionId(original) ?? "" }
         : undefined;
     return (source.sidebarCommand?.(value) ?? Promise.resolve())
-      .then(() => {
+      .then((result) => {
         if (value.kind === "resume" || value.kind === "new-conversation") {
           const resumed = source.getSnapshot().find((row) => row.id === value.id && !row.exited);
           if (resumed) open(resumed, true);
@@ -386,7 +386,11 @@ function BoardContents({
         ) {
           const created = source
             .getSnapshot()
-            .find((row) => !before.has(row.id) && (value.kind !== "config-launch" || row.config));
+            .find((row) =>
+              value.kind === "home-shell"
+                ? row.id === result?.terminalId
+                : !before.has(row.id) && (value.kind !== "config-launch" || row.config),
+            );
           if (created) {
             open(created, false, destination);
             const name = value.kind === "restart" ? preferences.names[value.id] : undefined;

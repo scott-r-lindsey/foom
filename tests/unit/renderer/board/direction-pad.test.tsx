@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { SpaceMenu } from "../../../../src/renderer/board/tile-menu";
 import { DirectionPad } from "../../../../src/renderer/board/direction-pad";
 import { initialLayout, splitTile, placeSession } from "../../../../src/renderer/board/tiles";
 afterEach(cleanup);
@@ -61,4 +62,37 @@ test("split refusal is described and inert at the resource limit", () => {
   );
   fireEvent.click(arrow);
   expect(run).not.toHaveBeenCalled();
+});
+
+test("space menu keeps Tab navigation inside and dismisses at its boundaries", () => {
+  const close = vi.fn();
+  const run = vi.fn();
+  const screen = render(
+    <SpaceMenu
+      anchor={document.body}
+      point={{ x: 0, y: 0 }}
+      layout={initialLayout()}
+      close={close}
+      action={run}
+    />,
+  );
+  const down = screen.getByRole("menuitem", { name: "Split down" });
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(down);
+  fireEvent.keyDown(down, { key: "Tab" });
+  expect(close).not.toHaveBeenCalled();
+  const shell = screen.getByRole("menuitem", { name: "New shell here" });
+  shell.focus();
+  fireEvent.keyDown(shell, { key: "Tab", shiftKey: true });
+  expect(close).not.toHaveBeenCalled();
+  fireEvent.keyDown(shell, { key: "ArrowDown" });
+  const remove = screen.getByRole("menuitem", { name: "Close space" });
+  expect(document.activeElement).toBe(remove);
+  fireEvent.keyDown(remove, { key: "Tab" });
+  expect(close).toHaveBeenCalledOnce();
+  close.mockClear();
+  const right = screen.getByRole("menuitem", { name: "Split right" });
+  right.focus();
+  fireEvent.keyDown(right, { key: "Tab", shiftKey: true });
+  expect(close).toHaveBeenCalledOnce();
 });

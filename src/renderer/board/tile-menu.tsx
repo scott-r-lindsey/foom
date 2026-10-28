@@ -195,6 +195,7 @@ export function SpaceMenu({
     <RowMenu
       anchor={anchor}
       dismissOnAnchor
+      tabWithin
       point={point}
       placement="below"
       label="Empty space"

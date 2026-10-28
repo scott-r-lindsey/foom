@@ -244,13 +244,16 @@ test("home shells use only main-owned paths, persist and restart without a repos
   const create = vi.spyOn(deps.terminals, "create");
   const { homeDirectory } = await import("../../../../src/main/workspace/home-shell");
   const workspace = new Workspace(deps);
-  await workspace.sidebarCommand({ kind: "home-shell" }, () => Promise.resolve(false));
+  const result = await workspace.sidebarCommand({ kind: "home-shell" }, () =>
+    Promise.resolve(false),
+  );
   expect(create).toHaveBeenCalledWith(
     expect.objectContaining({ cwd: homeDirectory, shellIntegration: true }),
   );
   const entry = workspace.snapshot().terminals[0];
   expect(entry).toMatchObject({ home: true, kind: "shell", worktree: homeDirectory });
   if (!entry) throw new Error("Missing home shell");
+  expect(result).toEqual({ terminalId: entry.id });
   await workspace.exited(entry.id, 0);
   await workspace.sidebarCommand({ kind: "restart", id: entry.id }, () => Promise.resolve(false));
   expect(create).toHaveBeenCalledTimes(2);

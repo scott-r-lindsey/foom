@@ -379,6 +379,7 @@ test("empty-space menu splits, closes, dismisses and launches through the home-s
   source.sidebarCommand = vi.fn(async () => {
     data.update("permission", { id: "home-created", kind: "shell", home: true });
     await Promise.resolve();
+    return { terminalId: "home-created" };
   });
   open();
   fireEvent.click(screen.getByRole("menuitem", { name: "New shell here" }));
@@ -428,6 +429,7 @@ test.each(["filled", "removed"] as const)(
         finish = resolve;
       });
       data.update("check", { id: "home-created", kind: "shell", home: true });
+      return { terminalId: "home-created" };
     });
     const space = screen.container.querySelector('[data-empty="true"]') ?? document.body;
     fireEvent.contextMenu(space, { clientX: 50, clientY: 50 });
@@ -445,3 +447,41 @@ test.each(["filled", "removed"] as const)(
     expect(screen.queryByRole("alert")).toBeNull();
   },
 );
+
+test("concurrent new shells use each request's identity and destination", async () => {
+  const { screen, click, send, source, data, views } = setup();
+  click(0);
+  send("split-right");
+  const first = screen.container.querySelector('[data-empty="true"]') ?? document.body;
+  fireEvent.contextMenu(first);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Split down" }));
+  const spaces = Array.from(screen.container.querySelectorAll('[data-empty="true"]'));
+  const finish: ((value: { terminalId: string }) => void)[] = [];
+  source.sidebarCommand = vi.fn(
+    () =>
+      new Promise<{ terminalId: string }>((resolve) => {
+        finish.push(resolve);
+      }),
+  );
+  for (const space of spaces) {
+    fireEvent.contextMenu(space);
+    fireEvent.click(screen.getByRole("menuitem", { name: "New shell here" }));
+  }
+  expect(finish).toHaveLength(2);
+  await act(async () => {
+    data.update("check", { id: "home-one", kind: "shell", home: true });
+    data.update("build", { id: "home-two", kind: "shell", home: true });
+    finish[1]?.({ terminalId: "home-two" });
+    await Promise.resolve();
+    finish[0]?.({ terminalId: "home-one" });
+  });
+  expect(spaces.every((space) => space.getAttribute("data-empty") === "false")).toBe(true);
+  for (const [index, id] of ["home-one", "home-two"].entries()) {
+    const view = views.find((view) =>
+      view.mount.mock.calls.some(
+        ([element]: unknown[]) => element instanceof Node && spaces[index]?.contains(element),
+      ),
+    );
+    expect(view?.open).toHaveBeenLastCalledWith(id);
+  }
+});

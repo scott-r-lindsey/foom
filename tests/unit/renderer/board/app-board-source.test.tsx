@@ -219,3 +219,16 @@ test("activity subscribers receive the final cached zero when views remount", as
   off();
   disconnect?.();
 });
+
+test("home-shell source refreshes rows and preserves its request-specific result", async () => {
+  const source = createAppSource();
+  mock.sidebarCommand.mockResolvedValueOnce({ terminalId: "home-created" });
+  mock.workspace.mockResolvedValue({
+    repositories: [],
+    terminals: [{ ...agent("home-created"), kind: "shell", home: true }],
+  });
+  await expect(source.sidebarCommand?.({ kind: "home-shell" })).resolves.toEqual({
+    terminalId: "home-created",
+  });
+  expect(source.getSnapshot().some((row) => row.id === "home-created")).toBe(true);
+});

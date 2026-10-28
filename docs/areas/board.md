@@ -29,8 +29,9 @@ it refuses with “Occupied tile to the left/right” or “Occupied tile above/
 No matching split reports “At the left/right/top/bottom edge”.
 Right-clicking an empty space opens a pointer-positioned menu with only the Split
 pad, New shell here and Close space. New shell here uses the validated home-shell
-command (main chooses the directory), then places its result in that leaf if still
-empty. Close space removes the empty leaf and gives its area to its sibling, as a
+command (main chooses the directory), then places the returned request-specific
+terminal ID in that leaf if still empty, falling back to ordinary placement if it
+filled or closed. Tab moves between the pad and commands; leaving the menu dismisses it. Close space removes the empty leaf and gives its area to its sibling, as a
 collapsed gutter does. Escape and outside clicks dismiss the menu. Spaces remain
 unfocusable with no chrome.
 Gutters clamp occupied sides to 15–85%; empty sides can reach zero and collapse

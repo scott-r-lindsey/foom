@@ -1167,7 +1167,7 @@ it(
         return true;
       },
     );
-    let first: Promise<void> | undefined;
+    let first: ReturnType<typeof workspace.sidebarCommand> | undefined;
     try {
       await branchesEntered.promise;
       await expect(realpath(path)).rejects.toThrow();

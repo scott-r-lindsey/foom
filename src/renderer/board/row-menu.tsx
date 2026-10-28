@@ -67,9 +67,12 @@ export function RowMenu({
   bottomAligned = false,
   leading,
   dismissOnAnchor = false,
+  tabWithin = false,
 }: {
   /** Context menus on unfocusable regions also dismiss when that region is clicked. */
   dismissOnAnchor?: boolean;
+  /** Keep native Tab navigation between controls inside a composite context menu. */
+  tabWithin?: boolean;
   leading?: ReactNode;
   bottomAligned?: boolean;
   /** Reposition rather than close when the window resizes, as interface size steps do. */
@@ -269,6 +272,12 @@ export function RowMenu({
         } else if (nested && event.key === "Tab") {
           event.stopPropagation();
           nested.dismiss();
+        } else if (
+          event.key === "Tab" &&
+          tabWithin &&
+          items[items.findIndex((item) => item === active) + (event.shiftKey ? -1 : 1)]
+        ) {
+          event.stopPropagation();
         } else if (event.key === "Escape" || (event.key === "Tab" && !panel)) {
           if (event.key === "Escape") event.preventDefault();
           event.stopPropagation();
