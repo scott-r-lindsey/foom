@@ -123,7 +123,7 @@ export class TerminalManager {
         )
       : undefined;
     this.sessions.set(id, session);
-    this.activity.start(id);
+    this.activity.start(id, () => this.readTail(session, 1).at(-1) ?? "");
     session.subscriptions = [
       {
         dispose: () => {
@@ -164,7 +164,7 @@ export class TerminalManager {
         this.updateFlow(session);
         screen.write(data, () => {
           if (!this.sessions.has(id)) return;
-          if (data) this.activity.parsed(id, this.readTail(session, 1).at(-1) ?? "");
+          if (data) this.activity.parsed(id);
           session.parserPending -= data.length;
           if (session.parserPending < 65536) session.parserBlocked = false;
           if (session.parserPending === 0 && session.evidenceChanged && !session.exited) {
