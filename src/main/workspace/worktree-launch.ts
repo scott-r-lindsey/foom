@@ -88,7 +88,9 @@ export async function launchAgent(
       await this.scanAgents(false);
     // Look up the branch before spawning, so nothing can fail between spawn and tracking.
     const tree = extra.remoteCheckout
-      ? { branch: `${extra.remoteCheckout.branch} · ${extra.remoteCheckout.target.host}` }
+      ? {
+          branch: `${extra.remoteCheckout.branch === "HEAD" ? "Detached HEAD" : extra.remoteCheckout.branch} · ${extra.remoteCheckout.target.host}`,
+        }
       : (await this.deps.worktrees.listWorktrees(request.repository)).find(
           (entry) => entry.path === request.worktree,
         );
@@ -329,21 +331,34 @@ export async function startExisting(
   authorityIdentity?: string,
   pastedId?: string,
 ): Promise<string | undefined> {
-  const registeredRemote = await this.orchestration.remoteCheckout(worktree, run);
-  const isRemote =
-    registeredRemote !== undefined || remoteAgentTarget(process.argv, worktree) !== undefined;
-  const remoteParentGuard =
-    isRemote && control && "parentId" in control
-      ? this.orchestration.remoteParentGuard(control.parentId)
-      : undefined;
   return this.withRepository(repository, async () => {
-    const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
-    if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
-    if (tree.bare || tree.prunable || tree.locked) throw new Error("Worktree is unavailable");
-    const key = `${repository}\0${tree.branch ?? ""}`;
-    if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
-    this.busyWorktrees.add(key);
+    let reservation: string | undefined;
     try {
+      const registeredHost = this.orchestration.worktreeHost(worktree);
+      if (registeredHost !== undefined) {
+        const candidate = `${repository}\0:remote:${worktree}`;
+        if (this.busyWorktrees.has(candidate)) throw new Error("This worktree is busy");
+        this.busyWorktrees.add(candidate);
+        reservation = candidate;
+      }
+      const mappedRemote =
+        registeredHost !== undefined || remoteAgentTarget(process.argv, worktree) !== undefined;
+      // Capture the live parent before inventory probes; a later re-grant cannot authorize this resume.
+      const remoteParentGuard =
+        mappedRemote && control && "parentId" in control
+          ? this.orchestration.remoteParentGuard(control.parentId)
+          : undefined;
+      const registeredRemote = await this.orchestration.remoteCheckout(worktree, run);
+      const isRemote = registeredRemote !== undefined || mappedRemote;
+      const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
+      if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
+      if (tree.bare || tree.prunable || tree.locked) throw new Error("Worktree is unavailable");
+      if (reservation === undefined) {
+        const candidate = `${repository}\0${tree.branch ?? ""}`;
+        if (this.busyWorktrees.has(candidate)) throw new Error("This worktree is busy");
+        this.busyWorktrees.add(candidate);
+        reservation = candidate;
+      }
       const identity =
         registeredRemote?.identity ??
         (await this.deps.worktrees.launchIdentity(repository, worktree));
@@ -436,7 +451,7 @@ export async function startExisting(
         );
       }
     } finally {
-      this.busyWorktrees.delete(key);
+      if (reservation !== undefined) this.busyWorktrees.delete(reservation);
     }
   });
 }

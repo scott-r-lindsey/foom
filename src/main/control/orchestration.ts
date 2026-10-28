@@ -74,6 +74,9 @@ function eventCursor(row: SessionEventFacts): string {
 
 /** Dispatch, owned child input, handoff reads, terminal tails and event waits. */
 export class Orchestration extends OrchestrationMutations {
+  worktreeHost(path: string): string | undefined {
+    return this.host.worktreeHost?.(path);
+  }
   remoteCheckout(path: string, agent: AgentId) {
     return this.host.remoteCheckout?.(path, agent);
   }

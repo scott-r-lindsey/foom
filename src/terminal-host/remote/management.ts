@@ -222,10 +222,17 @@ export async function manageHost(
         .update(await remoteCheckout(path, request.path, env))
         .digest("hex");
       if (identity !== request.identity) throw new Error("Identity changed");
-      const branch = (
-        await git(["symbolic-ref", "--quiet", "--short", "HEAD"], request.path)
-      ).trim();
-      await git(["check-ref-format", "--branch", branch], path);
+      const branch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], request.path)
+        .then((value) => value.trim())
+        .catch(async () => {
+          if (
+            (await git(["rev-parse", "--symbolic-full-name", "HEAD"], request.path)).trim() !==
+            "HEAD"
+          )
+            throw new Error("Branch unavailable");
+          return "HEAD";
+        });
+      if (branch !== "HEAD") await git(["check-ref-format", "--branch", branch], path);
       const changes = await git(["status", "--porcelain", "--untracked-files=all"], request.path);
       if (changes.length > 65536) throw new Error("Changes too large");
       if (request.operation === "remove-worktree") {
@@ -237,6 +244,28 @@ export async function manageHost(
             .digest("hex") !== identity
         )
           throw new Error("Identity changed");
+        if (branch === "HEAD") {
+          const head = (await git(["rev-parse", "--verify", "HEAD^{commit}"], request.path)).trim();
+          if (
+            !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(head) ||
+            !(
+              await git(
+                [
+                  "for-each-ref",
+                  "--format=%(refname)",
+                  `--contains=${head}`,
+                  "refs/heads",
+                  "refs/remotes",
+                  "refs/tags",
+                ],
+                request.path,
+              )
+            ).trim()
+          )
+            throw new Error("Unreachable detached HEAD");
+          if ((await git(["rev-parse", "--verify", "HEAD^{commit}"], request.path)).trim() !== head)
+            throw new Error("HEAD changed");
+        }
         await git(["worktree", "remove", "--force", "--", request.path], path);
       }
       return { ok: true, facts, worktree: { path: request.path, branch, identity, changes } };

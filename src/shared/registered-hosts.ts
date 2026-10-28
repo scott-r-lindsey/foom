@@ -57,7 +57,8 @@ export function hostBranch(value: unknown): value is string {
     value.length > 0 &&
     value.length <= 200 &&
     !/[\p{Cc}\p{Cf}\s]/u.test(value) &&
-    !value.startsWith("-")
+    !value.startsWith("-") &&
+    !value.includes("@{")
   );
 }
 function agentId(value: unknown): value is string {

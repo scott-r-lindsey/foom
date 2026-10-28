@@ -5,6 +5,7 @@ import type { Principal } from "../../../../src/main/control/types";
 import type { Handoff } from "../../../../src/shared/handoff";
 import type { OrchestrationHostContext } from "../../../../src/main/workspace/workspace-capabilities";
 import { workspaceOrchestrationHost } from "../../../../src/main/workspace/workspace-orchestration-host";
+import { UncertainEffect } from "../../../../src/main/workspace/worktree-outcome";
 
 vi.mock("../../../../src/main/setup/local-host", () => ({
   localResources: vi.fn(() =>
@@ -257,7 +258,7 @@ it("creates a host-bound opaque checkout and probes inventory before preparing a
   await expect(
     host.launch("parent", "/local/repo", created.path, "wrong", "codex", undefined),
   ).rejects.toThrow();
-  hosts.worktree.mockResolvedValueOnce({ ...tree, branch: "changed" });
+  hosts.worktree.mockResolvedValueOnce({ ...tree, identity: "changed" });
   await expect(
     host.launch("parent", "/local/repo", created.path, created.identity, "codex", undefined),
   ).rejects.toThrow();
@@ -313,6 +314,22 @@ it("remote removal retains confirmation, rechecks authorization and refuses whil
   });
   expect(host.worktreeHost?.(created.path)).toBeUndefined();
   expect(caps.busyWorktrees.size).toBe(0);
+});
+
+it("uncertain remote removal retains the checkout record for reconciliation", async () => {
+  const { host, hosts, tree } = fleetFixture();
+  const created = await host.createWorktree("/local/repo", "feature", "worker");
+  hosts.worktree.mockResolvedValueOnce(tree).mockRejectedValueOnce(new Error("Connection lost"));
+  await expect(
+    host.remove(
+      "/local/repo",
+      created.path,
+      created.identity,
+      () => Promise.resolve(true),
+      () => {},
+    ),
+  ).rejects.toBeInstanceOf(UncertainEffect);
+  expect(host.worktreeHost?.(created.path)).toBe("worker");
 });
 
 it("unknown hosts and uncertain creation never fall back to a local checkout", async () => {
@@ -397,4 +414,23 @@ it("remote PR branch creation keeps forge validation and refuses unsupported rem
     host.adoptWorktree?.("/local/repo", 756, [], validate, true, "worker"),
   ).rejects.toMatchObject({ code: "remote_review_unsupported" });
   expect(hosts.worktree).not.toHaveBeenCalled();
+});
+
+it("branch changes retain checkout authority and use the current branch in launch and removal", async () => {
+  const { caps, hosts, host, tree } = fleetFixture();
+  const created = await host.createWorktree("/local/repo", "feature", "worker");
+  hosts.worktree.mockResolvedValue({ ...tree, branch: "changed" });
+  await host.launch("parent", "/local/repo", created.path, created.identity, "codex", undefined);
+  expect(vi.mocked(caps.launchAgent).mock.calls.at(-1)?.[5]?.remoteCheckout?.branch).toBe(
+    "changed",
+  );
+  const capability = await host.remoteCheckout?.(created.path, "codex");
+  expect(capability?.branch).toBe("changed");
+  await capability?.validate();
+  hosts.worktree.mockResolvedValue({ ...tree, branch: "HEAD" });
+  const confirm = vi.fn(() => Promise.resolve(false));
+  expect(await host.remove("/local/repo", created.path, created.identity, confirm, () => {})).toBe(
+    false,
+  );
+  expect(confirm).toHaveBeenCalledWith("Detached HEAD · worker", "");
 });

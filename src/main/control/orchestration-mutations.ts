@@ -1,4 +1,4 @@
-import { hostAlias } from "../../shared/registered-hosts";
+import { hostAlias, hostBranch } from "../../shared/registered-hosts";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { selectionInput, validateSelection } from "../../node-common/launch-selection";
 import { ApplicationError } from "../../shared/application-errors";
@@ -87,7 +87,8 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     )
       throw new ControlError("invalid_request");
     const branch = number === undefined ? text(params["branch"], 200) : `PR #${String(number)}`;
-    if (number === undefined && /\s/u.test(branch)) throw new ControlError("invalid_request");
+    if (number === undefined && (/\s/u.test(branch) || (host !== undefined && !hostBranch(branch))))
+      throw new ControlError("invalid_request");
     const operation = await operations.begin(
       actor,
       "create_worktree",
@@ -473,19 +474,21 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         const reason: RemovalReason =
           error instanceof RemovalError
             ? error.reason
-            : error instanceof ApplicationError
-              ? (
-                  {
-                    "worktree-locked": "locked",
-                    "worktree-missing": "not_found",
-                    "worktree-main": "main_checkout",
-                    "worktree-prunable": "prunable",
-                    "operation-failed": "git_failed",
-                    "remote-host-unavailable": "git_failed",
-                    "prune-unsafe": "git_failed",
-                  } as const
-                )[error.code]
-              : "git_failed";
+            : error instanceof ControlError && error.code === "conflict"
+              ? "busy"
+              : error instanceof ApplicationError
+                ? (
+                    {
+                      "worktree-locked": "locked",
+                      "worktree-missing": "not_found",
+                      "worktree-main": "main_checkout",
+                      "worktree-prunable": "prunable",
+                      "operation-failed": "git_failed",
+                      "remote-host-unavailable": "git_failed",
+                      "prune-unsafe": "git_failed",
+                    } as const
+                  )[error.code]
+                : "git_failed";
         const record = await operations
           .finish(
             actor,

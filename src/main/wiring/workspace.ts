@@ -161,7 +161,7 @@ export async function initializeWorkspace(
       ...(forge === undefined ? {} : { forge }),
       hosts: hostsForStore(
         wiring.settings,
-        () => wiring.worktrees.listRepositories(),
+        wiring.worktrees.listRepositories.bind(wiring.worktrees),
         app.getVersion(),
         (dispose) => {
           app.once("will-quit", dispose);

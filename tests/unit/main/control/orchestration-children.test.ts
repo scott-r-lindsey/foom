@@ -421,3 +421,11 @@ it("binds host selection into creation/launch idempotency and refuses a differen
       }),
     ).rejects.toThrow("invalid_request");
 });
+
+it("refuses remote branch shorthand before creating an operation or contacting a host", async () => {
+  const h = harness();
+  await expect(
+    h.call("create_worktree", { host: "worker", branch: "@{-1}", idempotencyKey: "shorthand" }),
+  ).rejects.toThrow("invalid_request");
+  expect(h.host.createWorktree).not.toHaveBeenCalled();
+});

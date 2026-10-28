@@ -777,6 +777,7 @@ beforeEach(() => {
   });
   mock.openWorktrees.mockResolvedValue({
     worktreeRoot: "/home/.foom/worktrees",
+    listRepositories: () => [],
     managesPath: mock.managesPath,
   });
   mock.config.initialize.mockResolvedValue({});

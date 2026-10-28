@@ -265,11 +265,8 @@ export async function buildWindow(
   const setup = new Setup({
     hosts: hostsForStore(
       wiring.settings,
-      () => wiring.worktrees.listRepositories(),
+      wiring.worktrees.listRepositories.bind(wiring.worktrees),
       app.getVersion(),
-      (dispose) => {
-        app.once("will-quit", dispose);
-      },
     ),
     updates: () =>
       wiring.updates.state(

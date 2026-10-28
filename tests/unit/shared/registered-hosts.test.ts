@@ -222,6 +222,7 @@ test("worktree management is closed, bounded and cannot select arbitrary command
   expect(remoteRequest(request)).toBe(true);
   for (const patch of [
     { branch: "-evil" },
+    { branch: "@{-1}" },
     { branch: "a b" },
     { branch: "a\n" },
     { branch: "a\u202e" },

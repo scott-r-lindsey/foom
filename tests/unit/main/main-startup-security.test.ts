@@ -9,7 +9,7 @@ test("loads worktree state from userData before creating a window", async () => 
     () =>
       new Promise((resolve) => {
         finish = () => {
-          resolve({});
+          resolve({ listRepositories: () => [] });
         };
       }),
   );

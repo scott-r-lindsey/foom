@@ -49,7 +49,6 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       identity: tree.identity,
     });
     if (
-      current.branch !== tree.branch ||
       current.identity !== tree.identity ||
       current.repository !== tree.repository ||
       current.path !== tree.path
@@ -96,12 +95,12 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       const tree = remote.get(path);
       if (!tree) return undefined;
       await hosts().requireAgent(tree.host, agent);
-      await inspect(tree.localRepository, tree);
+      const current = await inspect(tree.localRepository, tree);
       return {
         target: { host: tree.host },
         repository: tree.repository,
         worktree: tree.path,
-        branch: tree.branch,
+        branch: current.branch,
         identity: tree.identity,
         validate: () => {
           hosts().registered(tree.host, tree.codeFolder);
@@ -204,7 +203,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
           if (identity !== tree.identity) throw new LaunchFailure("remote_worktree_unavailable");
           await hosts().requireAgent(tree.host, agent);
           step?.validate();
-          await inspect(repository, tree);
+          const current = await inspect(repository, tree);
           const result = await caps.launchAgent(
             { repository, worktree, agent, cols: 80, rows: 24 },
             false,
@@ -223,7 +222,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
                 target: { host: tree.host },
                 repository: tree.repository,
                 worktree: tree.path,
-                branch: tree.branch,
+                branch: current.branch,
                 identity: tree.identity,
                 // The daemon checks the creation digest during preparation and start.
                 // Keep the hub's final grant/registration check independent of another SSH connection.
@@ -293,7 +292,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
           const current = await inspect(repository, tree);
           if (
             !(await confirm(
-              `${tree.branch} · ${tree.host}`,
+              `${current.branch === "HEAD" ? "Detached HEAD" : current.branch} · ${tree.host}`,
               prepareTail([current.changes]).replace(/[^\P{Cc}\n\t]|\p{Cf}/gu, " "),
             ))
           )
@@ -301,12 +300,17 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
           revalidate();
           if (caps.snapshot().terminals.some((row) => row.worktree === worktree && !row.exited))
             throw new ControlError("conflict");
-          await hosts().worktree(tree.host, repository, {
-            operation: "remove-worktree",
-            path: tree.path,
-            identity,
-            changes: current.changes,
-          });
+          try {
+            await hosts().worktree(tree.host, repository, {
+              operation: "remove-worktree",
+              path: tree.path,
+              identity,
+              changes: current.changes,
+            });
+          } catch {
+            // A lost reply or failed post-delete validation cannot prove non-deletion.
+            throw new UncertainEffect();
+          }
           remote.delete(worktree);
           return true;
         }),

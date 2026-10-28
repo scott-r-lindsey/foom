@@ -176,3 +176,103 @@ test("closing a dormant remote row uses its saved host, retains unreachable fail
   expect(kill).toHaveBeenCalledWith("remote", "original-host");
   expect(workspace.snapshot().terminals.find((row) => row.id === "remote")).toBeUndefined();
 });
+
+test("registered remote children have sidebar checkout rows without a local shadow and resume on their captured host", async () => {
+  const remote = {
+    repository: "/code/repository-fixture",
+    path: "/code/.foom-worktree-fixture",
+    branch: "feature",
+    identity: "a".repeat(64),
+    changes: "",
+  };
+  const hosts = {
+    registered: vi.fn(() => ({ host: "worker", codeFolder: "/code" })),
+    worktree: vi.fn(() => Promise.resolve({ ...remote })),
+    requireAgent: vi.fn(() => Promise.resolve()),
+    fleet: vi.fn(() => Promise.resolve([])),
+  };
+  const workspace = createWorkspace({ ...deps, hosts });
+  await orchestrate(workspace);
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => {},
+  );
+  const tree = object(
+    await workspace.orchestration.call(
+      principal(),
+      "create_worktree",
+      { host: "worker", branch: "feature", idempotencyKey: "fleet-tree" },
+      operations,
+    ),
+  );
+  launch.mockImplementation(async (request) => {
+    await request.remoteCheckout?.validate();
+    request.beforeSpawn?.();
+    return {
+      id: "remote-registered",
+      attention: "evaluator",
+      remote: true,
+      placement: { kind: "remote", host: "worker" },
+      conversationId: "saved",
+    };
+  });
+  const started = object(
+    await workspace.orchestration.call(
+      principal(),
+      "launch",
+      { worktreeId: tree["resultId"], agent: "codex", idempotencyKey: "fleet-child" },
+      operations,
+    ),
+  );
+  expect(started["status"]).toBe("succeeded");
+  expect(deps.worktrees.createWorktree).not.toHaveBeenCalled();
+  const row = workspace.snapshot().terminals.find((row) => row.id === "remote-registered");
+  expect(row).toMatchObject({
+    placement: { kind: "remote", host: "worker" },
+    branch: "feature · worker",
+  });
+  const inventory = await workspace.sidebarInventory();
+  expect(inventory.repositories[0]?.worktrees).toContainEqual(
+    expect.objectContaining({ path: row?.worktree, branch: "feature · worker" }),
+  );
+  expect(await workspace.worktrees(repo.path)).toContainEqual(
+    expect.objectContaining({ path: row?.worktree }),
+  );
+  await workspace.exited("remote-registered", 0);
+  remote.branch = "HEAD";
+  await workspace.sidebarCommand({ kind: "resume", id: "remote-registered" }, () =>
+    Promise.resolve(true),
+  );
+  expect(launch.mock.calls.at(-1)?.[0]).toMatchObject({
+    terminalId: "remote-registered",
+    remoteCheckout: { target: { host: "worker" }, worktree: remote.path },
+  });
+  expect(workspace.snapshot().terminals.find((row) => row.id === "remote-registered")?.branch).toBe(
+    "Detached HEAD · worker",
+  );
+  await workspace.exited("remote-registered", 0);
+  const probe = Promise.withResolvers<undefined>();
+  hosts.requireAgent.mockClear().mockReturnValueOnce(probe.promise);
+  const resuming = workspace.sidebarCommand({ kind: "resume", id: "remote-registered" }, () =>
+    Promise.resolve(true),
+  );
+  await vi.waitFor(() => {
+    expect(hosts.requireAgent).toHaveBeenCalledOnce();
+  });
+  const removal = object(
+    await workspace.orchestration.call(
+      principal(),
+      "remove_worktree",
+      { worktreeId: tree["resultId"], idempotencyKey: "remove-during-resume" },
+      operations,
+    ),
+  );
+  await vi.waitFor(() => {
+    expect(operations.lookup(principal(), { operationId: removal["operationId"] })).toMatchObject({
+      status: "failed",
+      reason: "busy",
+    });
+  });
+  probe.resolve(undefined);
+  await resuming;
+});

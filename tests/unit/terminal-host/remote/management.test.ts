@@ -601,3 +601,83 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "detached remote removal requires HEAD reachability from a retained public ref and refuses changing evidence",
+  async () => {
+    const folder = await approvedCodeFolder("~/code", home);
+    const repository = join(folder, "repo");
+    const path = join(folder, ".foom-worktree-detached");
+    await mkdir(repository, { mode: 0o700 });
+    await mkdir(path, { mode: 0o700 });
+    const { createHash } = await import("node:crypto");
+    const identity = createHash("sha256").update("identity").digest("hex");
+    const request = {
+      type: "manage",
+      operation: "remove-worktree",
+      codeFolder: folder,
+      directory: "repo",
+      origin: "git@fixture.test:team/repo.git",
+      agents: [],
+      path,
+      identity,
+      changes: "",
+    } as const;
+    let symbolic = "HEAD";
+    let refs = "refs/heads/preserved\n";
+    let head = "a".repeat(40);
+    let changed = false;
+    let reads = 0;
+    mock.probe.mockImplementation((_command: string, args: string[], cwd: string) => {
+      if (args.includes("config")) return Promise.resolve(request.origin);
+      if (args.includes("--show-toplevel")) return Promise.resolve(cwd);
+      if (args.includes("symbolic-ref")) return Promise.reject(new Error("Detached HEAD"));
+      if (args.includes("--symbolic-full-name")) return Promise.resolve(symbolic);
+      if (args.includes("HEAD^{commit}"))
+        return Promise.resolve(changed && cwd === path && reads++ > 0 ? "b".repeat(40) : head);
+      if (args.includes("for-each-ref")) return Promise.resolve(refs);
+      return Promise.resolve("");
+    });
+    expect(
+      await manageHost({ ...request, operation: "inspect-worktree" }, 0, "/fixture", "0.1.0", home),
+    ).toMatchObject({ ok: true, worktree: { branch: "HEAD" } });
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toMatchObject({ ok: true });
+    expect(mock.probe).toHaveBeenCalledWith(
+      "git",
+      [
+        "--no-optional-locks",
+        "for-each-ref",
+        "--format=%(refname)",
+        `--contains=${head}`,
+        "refs/heads",
+        "refs/remotes",
+        "refs/tags",
+      ],
+      path,
+      expect.anything(),
+      true,
+    );
+    refs = "";
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    refs = "refs/heads/preserved\n";
+    head = "malformed";
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    head = "a".repeat(40);
+    changed = true;
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    symbolic = "refs/heads/other";
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+  },
+);

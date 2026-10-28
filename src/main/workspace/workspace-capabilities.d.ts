@@ -33,7 +33,7 @@ export interface WorktreeLaunchContext {
   readonly now: () => number;
   readonly orchestration: Pick<
     Orchestration,
-    "relaunched" | "view" | "exited" | "remoteParentGuard" | "remoteCheckout"
+    "relaunched" | "view" | "exited" | "remoteParentGuard" | "remoteCheckout" | "worktreeHost"
   >;
   readonly persist: () => void;
   readonly queues: Map<string, Promise<void>>;
