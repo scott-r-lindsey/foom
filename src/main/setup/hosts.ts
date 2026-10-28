@@ -1,4 +1,5 @@
 import { ControlError } from "../../shared/control-validation";
+import { UncertainEffect } from "../workspace/worktree-outcome";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { providerRevision } from "../agents/providers/registry";
 import { loginPath } from "../agents/agents";
@@ -105,27 +106,34 @@ export class Hosts {
       throw new LaunchFailure("remote_worktree_unavailable");
     const origin = await this.origin(repository);
     this.registered(host, entry.codeFolder);
-    const result = await this.run(host, {
-      type: "manage",
-      codeFolder: entry.codeFolder,
-      directory: source.checkout.path.slice(entry.codeFolder.length + 1),
-      origin,
-      ...action,
-    });
-    this.registered(host, entry.codeFolder);
-    if (!result.ok || !result.worktree) throw new LaunchFailure("remote_worktree_unavailable");
-    if (
-      action.operation === "create-worktree"
-        ? result.worktree.branch !== action.branch
-        : result.worktree.path !== action.path || result.worktree.identity !== action.identity
-    )
-      throw new LaunchFailure("remote_worktree_unavailable");
-    if (
-      !result.worktree.path.startsWith(`${entry.codeFolder}/.foom-worktree-`) ||
-      result.worktree.path.slice(entry.codeFolder.length + 1).includes("/")
-    )
-      throw new LaunchFailure("remote_worktree_unavailable");
-    return { repository: source.checkout.path, ...result.worktree };
+    try {
+      const result = await this.run(host, {
+        type: "manage",
+        codeFolder: entry.codeFolder,
+        directory: source.checkout.path.slice(entry.codeFolder.length + 1),
+        origin,
+        ...action,
+      });
+      this.registered(host, entry.codeFolder);
+      if (!result.ok || !result.worktree) throw new LaunchFailure("remote_worktree_unavailable");
+      if (
+        action.operation === "create-worktree"
+          ? result.worktree.branch !== action.branch
+          : result.worktree.path !== action.path || result.worktree.identity !== action.identity
+      )
+        throw new LaunchFailure("remote_worktree_unavailable");
+      if (
+        !result.worktree.path.startsWith(`${entry.codeFolder}/.foom-worktree-`) ||
+        result.worktree.path.slice(entry.codeFolder.length + 1).includes("/")
+      )
+        throw new LaunchFailure("remote_worktree_unavailable");
+      return { repository: source.checkout.path, ...result.worktree };
+    } catch (error) {
+      // Preflight above cannot create a checkout. After dispatch, even a failed
+      // reply may follow a partial creation or a failed final identity check.
+      if (action.operation === "create-worktree") throw new UncertainEffect();
+      throw error;
+    }
   }
   private readonly results = new Map<string, HostResult>();
   private locations: RepositoryLocation[] = [];

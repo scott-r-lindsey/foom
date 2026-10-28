@@ -342,8 +342,9 @@ it("unknown hosts and uncertain creation never fall back to a local checkout", a
   );
   expect(hosts.worktree).not.toHaveBeenCalled();
   expect(caps.createChildWorktree).not.toHaveBeenCalled();
-  hosts.worktree.mockRejectedValueOnce(new Error("Disconnected after creation"));
-  await expect(host.createWorktree("/local/repo", "feature", "worker")).rejects.toThrow();
+  const uncertain = new UncertainEffect();
+  hosts.worktree.mockRejectedValueOnce(uncertain);
+  await expect(host.createWorktree("/local/repo", "feature", "worker")).rejects.toBe(uncertain);
 });
 
 it("orchestrator host observations contain agent availability and resource numbers, without remote paths or raw output", async () => {

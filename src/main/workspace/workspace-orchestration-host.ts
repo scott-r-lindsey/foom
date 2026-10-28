@@ -122,12 +122,10 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       caps.withRepository(repository, async () => {
         if (host === undefined) return caps.createChildWorktree(repository, branch);
         hosts().registered(host);
-        let tree;
-        try {
-          tree = await hosts().worktree(host, repository, { operation: "create-worktree", branch });
-        } catch {
-          throw new UncertainEffect();
-        }
+        const tree = await hosts().worktree(host, repository, {
+          operation: "create-worktree",
+          branch,
+        });
         const path = `/foom-remote/${locationId(JSON.stringify([host, tree.path]))}`;
         remote.set(path, {
           ...tree,
@@ -144,16 +142,11 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
           if (review) throw new ControlError("remote_review_unsupported");
           const branch = await caps.deps.worktrees.adoptionBranch(repository, number);
           revalidate(undefined, branch);
-          let tree;
-          try {
-            tree = await hosts().worktree(host, repository, {
-              operation: "create-worktree",
-              branch,
-              fromOrigin: true,
-            });
-          } catch {
-            throw new UncertainEffect();
-          }
+          const tree = await hosts().worktree(host, repository, {
+            operation: "create-worktree",
+            branch,
+            fromOrigin: true,
+          });
           revalidate(undefined, branch);
           const path = `/foom-remote/${locationId(JSON.stringify([host, tree.path]))}`;
           remote.set(path, {

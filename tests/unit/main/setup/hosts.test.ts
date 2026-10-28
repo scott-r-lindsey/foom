@@ -19,6 +19,7 @@ vi.mock("../../../../src/main/terminals/remote-transport", () => ({
   remoteManagement: mock.remote,
 }));
 import { Hosts, hostsForStore } from "../../../../src/main/setup/hosts";
+import { UncertainEffect } from "../../../../src/main/workspace/worktree-outcome";
 let settings: Settings;
 const store = {
   get: () => settings,
@@ -345,6 +346,7 @@ test("remote worktree commands never clone and only use the registered origin an
   for (const result of [
     { ok: false, reason: "checkout-refused" } as const,
     { ok: true, facts } as const,
+    { ok: true, facts, worktree: { ...tree, branch: "unexpected" } } as const,
     { ok: true, facts, worktree: { ...tree, path: "/outside" } } as const,
     { ok: true, facts, worktree: { ...tree, path: `${tree.path}/child` } } as const,
   ]) {
@@ -357,6 +359,20 @@ test("remote worktree commands never clone and only use the registered origin an
       .mockResolvedValueOnce(result);
     await expect(
       hosts.worktree("worker", "/local/repo", { operation: "create-worktree", branch: "feature" }),
-    ).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
+    ).rejects.toBeInstanceOf(UncertainEffect);
   }
+  run
+    .mockResolvedValueOnce({
+      ok: true,
+      facts,
+      checkout: { path: `${facts.codeFolder}/${directory}`, state: "clean" },
+    })
+    .mockResolvedValueOnce({ ok: true, facts, worktree: tree });
+  await expect(
+    hosts.worktree("worker", "/local/repo", {
+      operation: "inspect-worktree",
+      path: tree.path,
+      identity: "b".repeat(64),
+    }),
+  ).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
 });

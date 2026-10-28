@@ -76,6 +76,11 @@ inside the code folder and start from the freshly fetched origin default branch,
 without tracking that default. Open same-repository PR adoption fetches and tracks
 its validated origin branch. Existing branches refuse rather than overwrite work.
 
+Registration, origin and repository preflight refusals fail without charging the
+orchestrator's unused-worktree budget. Once creation may have been dispatched,
+an unsuccessful or invalid result remains indeterminate and charged: partial
+creation or a failed final identity check may have left a checkout behind.
+
 The shared inventory has a 60-second on-demand freshness budget, also invalidated
 by provider or enablement changes. Concurrent reads share one probe. Missing,
 stale or failed observations are probed over management; missing/uncheckable agents
