@@ -177,8 +177,13 @@ interactive login shell (`-i -l`): its own `SHELL` if it is an absolute path to 
 existing executable regular file, otherwise the account shell from
 `os.userInfo().shell` under the same validation, finally `/bin/sh` if neither is
 valid (including unavailable account lookup). Neither hub nor protocol selects it.
-It supports at most 32 full sessions and connections, serializes operations per connection,
-and rejects a backlog above 256 operations. Only the current connection can operate
+It supports at most 32 full sessions plus a separate reserve of four pending
+connections for negotiation, cleanup and takeover, with at most 36 sockets total.
+Pending connections have a ten-second deadline from acceptance, including after
+`hello`; only acquiring a live session releases the reserve slot and cancels
+that deadline. Cleanup and missing/exited-session queries retain the deadline.
+The reserve cannot create a 33rd session. Operations are serialized per connection,
+and a backlog above 256 operations is rejected. Only the current connection can operate
 on its selected ID. An `open` with an existing ID transfers the session and
 disconnects its prior connection; its only protection is the 0600 socket plus an
 unguessable terminal ID, so IDs must never be exposed to remote processes through
