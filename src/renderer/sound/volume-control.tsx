@@ -12,6 +12,10 @@ export function VolumeControl({
   onSample: (settings: SoundSettings) => void;
 }) {
   const wheelNotch = useWheelNotch();
+  const pendingSettingsRef = useRef<SoundSettings>(undefined);
+  useEffect(() => {
+    pendingSettingsRef.current = undefined;
+  }, [settings]);
   const sampleTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(
     () => () => {
@@ -81,10 +85,12 @@ export function VolumeControl({
         aria-valuetext={settings.muted ? "Muted" : `${String(percent)}%`}
         title={label}
         onChange={(event) => {
-          onChange({ ...settings, volume: Number(event.target.value) / 100, muted: false });
+          const next = { ...settings, volume: Number(event.target.value) / 100, muted: false };
+          pendingSettingsRef.current = next;
+          onChange(next);
         }}
-        onPointerUp={(event) => {
-          onSample({ ...settings, volume: Number(event.currentTarget.value) / 100 });
+        onPointerUp={() => {
+          onSample(pendingSettingsRef.current ?? settings);
         }}
         onKeyUp={(event) => {
           if (
@@ -99,10 +105,7 @@ export function VolumeControl({
               "PageDown",
             ].includes(event.key)
           )
-            onSample({
-              ...settings,
-              volume: Number(event.currentTarget.value) / 100,
-            });
+            onSample(pendingSettingsRef.current ?? settings);
         }}
       />
     </div>
