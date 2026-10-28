@@ -443,3 +443,40 @@ test("a workspace snapshot cannot prune saved previews while their inventory is 
   view.unmount();
   vi.unstubAllGlobals();
 });
+
+test("file picking publishes inventory before returning an ID for placement", async () => {
+  const preview = {
+    id: "picked-preview",
+    repository: "/r",
+    worktree: "/r",
+    relativePath: "picked.md",
+    kind: "markdown" as const,
+    network: false,
+  };
+  window.desktop.previews = {
+    pick: vi.fn(() => Promise.resolve(preview.id)),
+    reload: vi.fn(() => Promise.resolve()),
+    network: vi.fn(() => Promise.resolve()),
+    popout: vi.fn(() => Promise.resolve()),
+    close: vi.fn(() => Promise.resolve()),
+    bounds: vi.fn(() => Promise.resolve()),
+    painted: vi.fn(() => Promise.resolve()),
+    cover: vi.fn(),
+    onSnapshots: vi.fn(),
+  };
+  const inventory =
+    Promise.withResolvers<Awaited<ReturnType<typeof window.desktop.sidebarInventory>>>();
+  mock.sidebarInventory.mockReturnValueOnce(inventory.promise);
+  const source = createAppSource();
+  let returned = false;
+  const picked = source.previews?.pick("/r").then((id) => {
+    returned = true;
+    return id;
+  });
+  await settle();
+  expect(returned).toBe(false);
+  inventory.resolve({ repositories: [], shell: "bash", previews: [preview] });
+  await expect(picked).resolves.toBe(preview.id);
+  expect(source.previews?.getSnapshot()).toEqual([preview]);
+  delete window.desktop.previews;
+});

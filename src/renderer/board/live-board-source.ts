@@ -462,7 +462,18 @@ export function createAppSource(): BoardSource {
       network: (id, enabled) =>
         window.desktop.previews?.network(id, enabled) ??
         Promise.reject(new Error("Preview host unavailable")),
-      pick: (worktree) => window.desktop.previews?.pick(worktree) ?? Promise.resolve(null),
+      pick: async (worktree) => {
+        const id = (await window.desktop.previews?.pick(worktree)) ?? null;
+        if (id) {
+          acceptInventory(await window.desktop.sidebarInventory());
+          if (workspaceSnapshot) snapshot(workspaceSnapshot);
+          else {
+            rows = [...rows];
+            publish();
+          }
+        }
+        return id;
+      },
       bounds: (id, bounds) => window.desktop.previews?.bounds(id, bounds) ?? Promise.resolve(),
       close: (id) => window.desktop.previews?.close(id) ?? Promise.resolve(),
       ...(window.desktop.previews?.onPlace
