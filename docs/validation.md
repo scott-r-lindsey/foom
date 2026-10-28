@@ -22,6 +22,15 @@ files no test imports; only declarations are excluded. Thresholds are defined in
 
 PR checks enforce the contributor changed-line coverage threshold and fail if a changed application file is missing from LCOV. The scripts under `scripts/` adapt the reporting tools from the Crab Attack II reference, with stricter enforcement and regression tests.
 
+Windows observer unit tests run under a test-only job supervisor. Successful runs
+publish the same parent result without diagnostic output. On failure, the
+supervisor emits buffered UTC phases (parent start/exit/result and drain), the
+parent's PID and available exit code/time, and a bounded snapshot of the owned
+job's active/total/limit-terminated counts and member PIDs with exit metadata.
+Query failures and exit races report numeric errors; no command lines,
+environment, paths or observer payloads are collected. These diagnostics do not
+change the observer measurement, wait deadlines or kill-on-close cleanup.
+
 ## Test evidence and worktree cleanliness (#822)
 
 Electron and packaged tests write evidence images through

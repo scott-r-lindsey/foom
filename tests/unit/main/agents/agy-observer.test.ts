@@ -272,3 +272,47 @@ test.skipIf(process.platform !== "win32")(
     expect(await observer.closed).toBeInstanceOf(Error);
   },
 );
+
+test.skipIf(process.platform !== "win32")(
+  "drain failure reports fixed phases and owned survivors without observer data",
+  { timeout: nativeDeadline(15000) },
+  async () => {
+    const dir = await fixture();
+    await writeFile(
+      join(dir, "send.ps1"),
+      "[System.IO.File]::WriteAllText((Join-Path $PSScriptRoot 'worker-pid'), [string]$PID); Start-Sleep -Seconds 60",
+    );
+    const observer = windowsObserver(
+      dir,
+      {
+        ...process.env,
+        FOOM_HOOK_URL: "http://127.0.0.1:1/hooks",
+        FOOM_SESSION: "private-session-909",
+        FOOM_TOKEN: "private-token-909",
+        FOOM_HOOK_ORDER: join(dir, "order"),
+      },
+      "Stop",
+      '{"output":"private-payload-909"}',
+    );
+    expect(JSON.parse((await observer.result).stdout)).toEqual({});
+    // This failure is expected and joined here rather than in afterAll.
+    const failure = await observer.closed;
+    expect(failure).toBeInstanceOf(Error);
+    const message = failure?.message ?? "";
+    const phases = [...message.matchAll(/observer-phase timestamp=(\S+) phase=(\S+)/gu)];
+    expect(phases.map((match) => match[2])).toEqual([
+      "parent-start",
+      "parent-exit",
+      "parent-result",
+      "drain-start",
+      "drain-failed",
+    ]);
+    for (const match of phases) expect(Number.isFinite(Date.parse(match[1] ?? ""))).toBe(true);
+    const pid = await readFile(join(dir, "worker-pid"), "utf8");
+    expect(message).toMatch(/observer-job active=[1-9]\d* total=\d+ terminated=\d+/u);
+    expect(message).toContain(`observer-member pid=${pid} exited=false`);
+    expect(message).toMatch(/observer-parent pid=\d+ exited=true exitCode=0 exitTime=\S+/u);
+    expect(message).not.toMatch(/private-session-909|private-token-909|private-payload-909/u);
+    expect(message).not.toContain(dir);
+  },
+);
