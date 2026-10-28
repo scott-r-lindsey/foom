@@ -1,7 +1,6 @@
 import { ForgesSettings } from "./forges-settings";
 import { TerminalFontPicker } from "./terminal-font-picker";
 import { EnvironmentSettings } from "./environment-settings";
-import { InterfaceThemePicker } from "./interface-theme-picker";
 import { SoundControls } from "../sound/sound-controls";
 import { ConfigControls } from "./config-controls";
 import { TerminalThemePicker } from "./terminal-theme-picker";
@@ -104,10 +103,12 @@ export function PreflightSections({
         <h2 ref={headingRef} tabIndex={-1}>
           Appearance
         </h2>
-        <p className="preflight-intro">
-          Choose the light or dark appearance and the size of the interface.
-        </p>
-        <AppearanceControls settings={state.settings} catalog={state.themes} onChange={save} />
+        <AppearanceControls
+          settings={state.settings}
+          catalog={state.themes}
+          openFolder={() => source.openThemesFolder("theme")}
+          onChange={save}
+        />
       </>
     );
   } else if (step === 6) {
@@ -157,22 +158,6 @@ export function PreflightSections({
           />
           <span>Copy on select</span>
         </label>
-      </>
-    );
-  } else if (step === 7) {
-    content = (
-      <>
-        <h2 ref={headingRef} tabIndex={-1}>
-          Themes
-        </h2>
-        <h3>Interface theme</h3>
-        <InterfaceThemePicker
-          settings={state.settings}
-          catalog={state.themes}
-          openFolder={() => source.openThemesFolder("theme")}
-          onChange={save}
-        />
-        <h3>Terminal theme</h3>
         <TerminalThemePicker
           settings={state.settings}
           catalog={state.themes}

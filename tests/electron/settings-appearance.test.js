@@ -15,6 +15,11 @@ const {
   removeAfterApps,
 } = require("./harness.js");
 
+async function chooseTheme(page, name, label = "Theme") {
+  await page.getByRole("button", { name: new RegExp(`^${label} `) }).click();
+  await page.getByRole("menuitemradio", { name, exact: true }).click();
+}
+
 test("appearance switches light and dark, and zoom shortcuts resize the interface", async (context) => {
   const app = await launchApp(context, { fixture: "first-run" });
   const page = await boardPage(app);
@@ -41,13 +46,13 @@ test("appearance switches light and dark, and zoom shortcuts resize the interfac
   const background = () =>
     page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
 
-  await page.getByRole("radio", { name: "Dark" }).check();
+  await chooseTheme(page, "Eclipse Dark");
   // Media emulation from the loop above can linger; wait for the saved source itself.
   await expect.poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.themeSource)).toBe("dark");
   await expect.poll(dark).toBe(true);
   await expect.poll(background).toBe("rgb(5, 4, 10)");
   await assertAccessible(page);
-  await page.getByRole("radio", { name: "Light" }).check();
+  await chooseTheme(page, "Eclipse Light");
   await expect.poll(dark).toBe(false);
   await expect.poll(background).toBe("rgb(243, 240, 250)");
 
@@ -179,11 +184,11 @@ test("every interface theme applies live to native chrome and passes axe on boar
   ];
   for (const [id, name, base, background] of choices) {
     await boardCommand(app, ",", process.platform !== "darwin");
-    await page.getByRole("button", { name: "Themes", exact: true }).click();
-    await page.getByRole("button", { name, exact: true }).click();
-    await expect(page.getByRole("button", { name, exact: true })).toHaveAttribute(
-      "aria-pressed",
-      "true",
+    await page.getByRole("button", { name: "Appearance", exact: true }).click();
+    await chooseTheme(page, name);
+    await expect(page.getByRole("button", { name: `Theme ${name}`, exact: true })).toHaveAttribute(
+      "aria-expanded",
+      "false",
     );
     await expect
       .poll(() =>
@@ -215,9 +220,6 @@ test("every interface theme applies live to native chrome and passes axe on boar
     const colors = await page.evaluate(() => {
       const root = getComputedStyle(document.documentElement);
       const preview = document.querySelector(".interface-theme-preview");
-      const selected = document.querySelector(
-        '.interface-theme-choices button[aria-pressed="true"]',
-      );
       const working = preview.querySelector('[data-state="working"] .board-light');
       const cssColor = (hex) => {
         const node = document.createElement("span");
@@ -231,16 +233,12 @@ test("every interface theme applies live to native chrome and passes axe on boar
         highlight,
         highlightRgb: cssColor(highlight),
         accentRgb: cssColor(accent),
-        selection: getComputedStyle(selected).outlineColor,
-        swatch: getComputedStyle(selected.querySelectorAll("i")[3]).backgroundColor,
         working: getComputedStyle(working).backgroundColor,
         brand: getComputedStyle(document.querySelector(".wordmark")).color,
         inkRgb: cssColor(root.getPropertyValue("--ink").trim()),
       };
     });
     assert.equal(colors.highlight, expectedHighlight ?? colors.accent);
-    assert.equal(colors.selection, colors.highlightRgb);
-    assert.equal(colors.swatch, colors.highlightRgb);
     assert.equal(colors.working, colors.accentRgb);
     assert.equal(colors.brand, colors.inkRgb);
     await assertAccessible(page);
@@ -253,8 +251,8 @@ test("every interface theme applies live to native chrome and passes axe on boar
     await assertAccessible(page);
   }
   await boardCommand(app, ",", process.platform !== "darwin");
-  await page.getByRole("button", { name: "Themes", exact: true }).click();
-  await page.getByRole("button", { name: /^System/ }).click();
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await chooseTheme(page, "Default");
   await expect
     .poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.themeSource))
     .toBe("system");
@@ -268,7 +266,7 @@ test("every interface theme applies live to native chrome and passes axe on boar
       .toBe(expected);
   }
   await page.emulateMedia({ colorScheme: null });
-  await page.getByRole("button", { name: "High Contrast", exact: true }).click();
+  await chooseTheme(page, "High Contrast");
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows().find(
       (window) => window.webContents.getURL() === "app://bundle/index.html",
@@ -366,14 +364,14 @@ test("custom theme files appear live, update selected colors and retain rejected
   const app = await launchApp(context, { fixture: "empty-board", home: root });
   const page = await boardPage(app);
   await boardCommand(app, ",", process.platform !== "darwin");
-  await page.getByRole("button", { name: "Themes", exact: true }).click();
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
   const { interfaceThemes } = require("../../build/shared/interface-themes.js");
   const { terminalThemes, ansiNames } = require("../../build/shared/terminal-themes.js");
   const file = path.join(root, ".foom/config/themes/custom.json");
   const palette = interfaceThemes["eclipse-dark"];
   const theme = { kind: "theme", name: "Live custom", base: palette.base, colors: palette.colors };
   await writeFile(file, JSON.stringify(theme));
-  await page.getByRole("button", { name: "Live custom", exact: true }).click();
+  await chooseTheme(page, "Live custom");
   await expect
     .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--bg")))
     .toBe(palette.colors.bg);
@@ -397,7 +395,8 @@ test("custom theme files appear live, update selected colors and retain rejected
     await page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceTheme),
     "user:custom.json",
   );
-  await page.getByRole("button", { name: "Themes", exact: true }).click();
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
   const terminal = terminalThemes.dracula;
   const terminalFile = path.join(root, ".foom/config/terminal-themes/custom.json");
   const terminalTheme = {
@@ -409,8 +408,8 @@ test("custom theme files appear live, update selected colors and retain rejected
     ansi: ansiNames.map((key) => terminal[key]),
   };
   await writeFile(terminalFile, JSON.stringify(terminalTheme));
-  await page.getByRole("button", { name: "Live terminal", exact: true }).click();
-  const choicesBounds = await page.getByRole("group", { name: "Terminal colors" }).boundingBox();
+  await chooseTheme(page, "Live terminal", "Colors");
+  const choicesBounds = await page.locator(".terminal-theme-picker-column").boundingBox();
   const previewBounds = await page.getByLabel("Terminal theme preview").boundingBox();
   assert.ok(choicesBounds && previewBounds);
   assert.ok(previewBounds.x > choicesBounds.x, "terminal preview stays beside the picker");
@@ -474,8 +473,8 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   const file = path.join(root, ".foom/config/themes/personal.json");
   await writeFile(file, JSON.stringify(theme));
   await boardCommand(app, ",", process.platform !== "darwin");
-  await page.getByRole("button", { name: "Themes", exact: true }).click();
-  await page.getByRole("button", { name: "Personal v2", exact: true }).click();
+  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await chooseTheme(page, "Personal v2");
   await expect(page.locator(".sidebar-shell")).toHaveCSS("background-color", "rgb(1, 2, 3)");
   await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
   await expect(page.locator(".tile-title").first()).toHaveCSS("--surface", "#141414");
@@ -552,7 +551,6 @@ test("terminal font picker updates open shells and config shells and refits thei
       page.evaluate(async () => (await window.desktop.setupState()).settings.terminalFont),
     )
     .toBe(family);
-  await page.getByRole("button", { name: "Themes", exact: true }).click();
   await expect(page.getByLabel("Terminal theme preview")).toHaveCSS("font-family", stack);
   await app.evaluate(() => {
     global.fontResizes = [];
@@ -631,4 +629,111 @@ test("interface zoom follows the shared setting in every window", async (context
   await assertScale(120);
   await zoomButton(first, 120).click();
   await assertScale(100);
+});
+
+test("Default themes follow native appearance live and Settings theme menus share the config launcher", async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  await app.evaluate(({ BrowserWindow }) => {
+    const board = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    board.setSize(1200, 900);
+  });
+  for (const [mode, bg] of [
+    ["light", "rgb(243, 240, 250)"],
+    ["dark", "rgb(5, 4, 10)"],
+  ]) {
+    // Simulate the native OS appearance update, including Chromium media and host palettes.
+    // No settings save occurs: both choices must remain Default across the change.
+    await app.evaluate(({ nativeTheme }, mode) => {
+      nativeTheme.themeSource = mode;
+    }, mode);
+    await expect(page.locator(".xterm-scrollable-element")).toHaveCSS("background-color", bg);
+    await expect(page.locator("html")).toHaveCSS("background-color", bg);
+    const settings = await page.evaluate(async () => (await window.desktop.setupState()).settings);
+    assert.equal(settings.interfaceTheme, "follow");
+    assert.equal(settings.terminalTheme, "follow");
+    assert.equal(Object.hasOwn(settings, "colorMode"), false);
+    await openSettingsScreen(page);
+    await page.getByRole("button", { name: "Appearance", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Themes", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Theme Default", exact: true }).click();
+    await expect(page.getByRole("menuitemradio", { name: "Default", exact: true })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await assertAccessible(page);
+    await page.screenshot({ path: evidencePath(`screenshots-878/appearance-${mode}.png`) });
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("region", { name: "Settings", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "config agent", exact: true }).click();
+    await expect(page.locator(".sidebar-panel:not(.session-panel-preview)")).toContainText(
+      "Foom config",
+    );
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Terminal", exact: true }).click();
+    await expect(page.getByLabel("Terminal theme preview")).toHaveCSS("background-color", bg);
+    await expect(page.getByLabel("Terminal theme preview").locator("[title]")).toHaveCount(16);
+    await assertAccessible(page);
+    await page.screenshot({ path: evidencePath(`screenshots-878/terminal-${mode}.png`) });
+    await chooseTheme(page, "Dracula", "Colors");
+    await expect(page.getByLabel("Terminal theme preview")).toHaveCSS(
+      "background-color",
+      "rgb(40, 42, 54)",
+    );
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".xterm-scrollable-element")).toHaveCSS(
+      "background-color",
+      "rgb(40, 42, 54)",
+    );
+    await openSettingsScreen(page);
+    await page.getByRole("button", { name: "Terminal", exact: true }).click();
+    await chooseTheme(page, "Default", "Colors");
+    await page.getByRole("button", { name: "config agent", exact: true }).click();
+    await expect(page.locator(".sidebar-panel:not(.session-panel-preview)")).toContainText(
+      "Foom config",
+    );
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+  }
+});
+
+test("first-run rail shares the Theme menu and saves its live selection", async (context) => {
+  const app = await launchApp(context, { fixture: "first-run" });
+  const page = await boardPage(app);
+  await page.getByRole("button", { name: "Start preflight", exact: true }).waitFor();
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(1200, 900);
+  });
+  await chooseTheme(page, "Moonlight");
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceTheme),
+    )
+    .toBe("moonlight");
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
+  await chooseTheme(page, "Default");
+  for (const mode of ["light", "dark"]) {
+    await app.evaluate(({ nativeTheme }, mode) => {
+      nativeTheme.themeSource = mode;
+    }, mode);
+    await expect(page.locator("html")).toHaveCSS("color-scheme", mode);
+    await page.getByRole("button", { name: "Theme Default", exact: true }).click();
+    assert.deepEqual(await page.getByRole("menuitemradio").allTextContents(), [
+      "✓Default",
+      "Eclipse Light",
+      "Eclipse Dark",
+      "High Contrast",
+      "Deep Field",
+      "Moonlight",
+      "Graphite",
+      "Midnight Indigo",
+    ]);
+    await expect(page.getByRole("button", { name: "config agent", exact: true })).toHaveCount(0);
+    await page.screenshot({ path: evidencePath(`screenshots-878/first-run-${mode}.png`) });
+    await page.keyboard.press("Escape");
+  }
 });

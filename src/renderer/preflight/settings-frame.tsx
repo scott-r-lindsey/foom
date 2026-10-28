@@ -10,7 +10,6 @@ const SETTINGS_SECTIONS = [
   { step: 2, label: "Repositories" },
   { step: 5, label: "Appearance" },
   { step: 6, label: "Terminal" },
-  { step: 7, label: "Themes" },
   { step: 8, label: "Sound" },
   { step: 9, label: "Foom config" },
 ];

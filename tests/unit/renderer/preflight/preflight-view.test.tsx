@@ -410,7 +410,8 @@ test("errors from main are shown without the IPC wrapper", async () => {
   );
   render(<Preflight source={source} initial={setupState()} onLaunched={vi.fn()} />);
   await screen.findByText("Unable to load repositories.");
-  fireEvent.click(screen.getByLabelText("Dark"));
+  fireEvent.click(screen.getByRole("button", { name: /^Theme / }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Eclipse Dark" }));
   await waitFor(() => {
     expect(screen.getByRole("alert").textContent).toBe("Unable to update settings.");
   });
@@ -440,9 +441,10 @@ test("appearance applies at once, follows shortcuts from main, and stays within 
       onLaunched={vi.fn()}
     />,
   );
-  fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
-  expect(screen.getByRole("radio", { name: "Dark" })).toHaveProperty("checked", true);
-  expect(source.save).toHaveBeenCalledWith({ colorMode: "dark" });
+  fireEvent.click(screen.getByRole("button", { name: /^Theme / }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Eclipse Dark" }));
+  expect(screen.getByRole("button", { name: "Theme Eclipse Dark" })).toBeTruthy();
+  expect(source.save).toHaveBeenCalledWith({ interfaceTheme: "eclipse-dark" });
   fireEvent.click(button("Larger"));
   expect(source.save).toHaveBeenLastCalledWith({ interfaceScale: 300 });
   expect(screen.getByText("300%")).toBeTruthy();
@@ -622,9 +624,10 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   expect(screen.getByRole("heading", { name: "General" })).toBeTruthy();
   fireEvent.click(button("Appearance"));
   expect(screen.queryByRole("group", { name: "Interface themes" })).toBeNull();
-  fireEvent.click(screen.getByLabelText("Dark"));
+  fireEvent.click(screen.getByRole("button", { name: /^Theme / }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Eclipse Dark" }));
   await waitFor(() => {
-    expect(source.save).toHaveBeenCalledWith({ colorMode: "dark" });
+    expect(source.save).toHaveBeenCalledWith({ interfaceTheme: "eclipse-dark" });
   });
   fireEvent.click(button("Larger"));
   await waitFor(() => {
@@ -636,22 +639,13 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ terminalFontSize: 18 });
   });
-  fireEvent.click(button("Themes"));
   expect(screen.getByText(/Hack Nerd Font Mono ·/).style.fontSize).toBe("18px");
-  fireEvent.click(
-    within(
-      screen.getByRole("group", { name: "Interface themes" }).parentElement ?? document.body,
-    ).getByRole("button", { name: "Open themes folder" }),
-  );
-  expect(source.openThemesFolder).toHaveBeenCalledWith("theme");
-  fireEvent.click(
-    within(
-      screen.getByRole("group", { name: "Terminal colors" }).parentElement ?? document.body,
-    ).getByRole("button", { name: "Open themes folder" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Open themes folder" }));
   expect(source.openThemesFolder).toHaveBeenCalledWith("terminal-theme");
-  expect(screen.getByRole("group", { name: "Interface themes" })).toBeTruthy();
-  expect(screen.getByRole("group", { name: "Terminal colors" })).toBeTruthy();
+  fireEvent.click(button("Appearance"));
+  fireEvent.click(screen.getByRole("button", { name: "Open themes folder" }));
+  expect(source.openThemesFolder).toHaveBeenCalledWith("theme");
+  expect(screen.queryByRole("button", { name: "Themes" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Worktrees" })).toBeNull();
   fireEvent.click(button("General"));
   const children = screen.getByRole("checkbox", { name: "Show new children on the board" });
@@ -1053,7 +1047,8 @@ test("a Settings action failure dismisses inside the Settings frame without clos
   source.save.mockRejectedValueOnce(
     new Error("Error invoking remote method 'setup:save': Error: private details"),
   );
-  fireEvent.click(screen.getByLabelText("Dark"));
+  fireEvent.click(screen.getByRole("button", { name: /^Theme / }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Eclipse Dark" }));
   expect((await screen.findByRole("dialog", { name: "Action failed" })).textContent).toContain(
     "Unable to update settings.",
   );

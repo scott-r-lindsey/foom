@@ -1,8 +1,14 @@
+import { CustomThemeHint } from "./custom-theme-hint";
+import { ThemeMenu } from "./theme-menu";
 import type { ThemeCatalog } from "../../shared/theme-file";
 import { ThemeFilesStatus } from "./theme-files-status";
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { interfaceThemes, resolveInterfaceTheme } from "../../shared/interface-themes";
+import {
+  interfaceThemes,
+  resolveInterfaceTheme,
+  parseInterfaceTheme,
+} from "../../shared/interface-themes";
 import type { InterfaceThemeId } from "../../shared/interface-theme";
 import type { Settings, SettingsPatch } from "../../shared/setup";
 
@@ -32,7 +38,9 @@ export function InterfaceThemePicker({
   onChange,
   catalog,
   openFolder,
+  compact = false,
 }: {
+  compact?: boolean;
   catalog?: ThemeCatalog | undefined;
   openFolder?: (() => Promise<void>) | undefined;
   settings: Settings;
@@ -49,17 +57,8 @@ export function InterfaceThemePicker({
       media.removeEventListener("change", changed);
     };
   }, [media]);
-  const selected =
-    settings.interfaceTheme === "follow"
-      ? settings.colorMode === "system"
-        ? "system"
-        : `eclipse-${settings.colorMode}`
-      : settings.interfaceTheme;
-  const theme = resolveInterfaceTheme(
-    settings.interfaceTheme,
-    settings.colorMode === "system" ? systemDark : settings.colorMode === "dark",
-    catalog,
-  );
+  const selected = settings.interfaceTheme;
+  const theme = resolveInterfaceTheme(settings.interfaceTheme, systemDark, catalog);
   const previewColors = {
     ...theme.colors,
     highlight: theme.colors.highlight ?? theme.colors.accent,
@@ -72,82 +71,52 @@ export function InterfaceThemePicker({
   return (
     <div className="interface-theme-settings">
       <div className="interface-theme-picker-column">
-        <div className="interface-theme-choices" role="group" aria-label="Interface themes">
-          <button
-            type="button"
-            aria-pressed={selected === "system"}
-            onClick={() => {
-              onChange({ interfaceTheme: "follow", colorMode: "system" });
-            }}
-          >
-            System
-          </button>
-          {[
-            ...choices.map((id) => ({ id, theme: interfaceThemes[id] })),
-            ...(catalog?.interface ?? []),
-          ].map(({ id, theme: candidate }, index) => {
-            return (
-              <Fragment key={id}>
-                {index === choices.length && <hr className="theme-divider" />}
-                <button
-                  type="button"
-                  key={id}
-                  aria-pressed={selected === id}
-                  onClick={() => {
-                    onChange({ interfaceTheme: id });
-                  }}
-                >
-                  {candidate.name}
-                  <span className="interface-theme-swatches" aria-hidden="true">
-                    {(
-                      [
-                        "bg",
-                        "surface",
-                        "accent",
-                        "highlight",
-                        "attention",
-                        "done",
-                        "failed",
-                      ] as const
-                    ).map((key) => (
-                      <i
-                        key={key}
-                        style={{
-                          backgroundColor: candidate.colors[key] ?? candidate.colors.accent,
-                        }}
-                      />
-                    ))}
-                  </span>
-                </button>
-              </Fragment>
-            );
-          })}
-        </div>
-        <ThemeFilesStatus catalog={catalog} kind="theme" openFolder={openFolder} />
+        <ThemeMenu
+          label="Theme"
+          selected={typeof selected === "string" ? selected : ""}
+          choices={[
+            { id: "follow", name: "Default" },
+            ...choices.map((id) => ({ id, name: interfaceThemes[id].name })),
+            ...(catalog?.interface ?? []).map((entry) => ({
+              id: entry.id,
+              name: entry.theme.name,
+              custom: true,
+            })),
+          ]}
+          onChange={(id) => {
+            onChange({ interfaceTheme: parseInterfaceTheme(id) });
+          }}
+        />
+        {!compact && <ThemeFilesStatus catalog={catalog} kind="theme" openFolder={openFolder} />}
       </div>
-      <section
-        className="interface-theme-preview"
-        aria-label="Interface theme preview"
-        style={style}
-      >
-        <h3>
-          {typeof selected === "object" ? `${theme.name} · Custom theme` : `${theme.name} preview`}
-        </h3>
-        <div role="list" aria-label="Terminal status previews">
-          {states.map(({ state, label, reason, ink }) => (
-            <div
-              role="listitem"
-              key={state}
-              className="board-row theme-preview-row"
-              data-state={state}
-            >
-              <span className="board-light" aria-hidden="true" />
-              <span style={{ color: theme.colors[ink] }}>{label}</span>
-              <span className="theme-preview-reason">{reason}</span>
-            </div>
-          ))}
-        </div>
-      </section>
+      {!compact && (
+        <section
+          className="interface-theme-preview"
+          aria-label="Interface theme preview"
+          style={style}
+        >
+          <h3>
+            {typeof selected === "object"
+              ? `${theme.name} · Custom theme`
+              : `${theme.name} preview`}
+          </h3>
+          <div role="list" aria-label="Terminal status previews">
+            {states.map(({ state, label, reason, ink }) => (
+              <div
+                role="listitem"
+                key={state}
+                className="board-row theme-preview-row"
+                data-state={state}
+              >
+                <span className="board-light" aria-hidden="true" />
+                <span style={{ color: theme.colors[ink] }}>{label}</span>
+                <span className="theme-preview-reason">{reason}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      {!compact && <CustomThemeHint />}
     </div>
   );
 }

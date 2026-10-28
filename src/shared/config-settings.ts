@@ -9,7 +9,6 @@ import { ThemeValidationError, themeRecord } from "./theme-validation";
 /** Interface zoom steps in percent; above 150 they follow Chromium's zoom steps. */
 export const SCALES: readonly number[] = [80, 90, 100, 110, 120, 130, 140, 150, 175, 200, 250, 300];
 export const CONFIG_SETTINGS = [
-  "colorMode",
   "panelColor",
   "interfaceTheme",
   "interfaceScale",
@@ -83,9 +82,10 @@ export function parseConfigSettings(value: unknown): ConfigSettings {
         codex: agents["codex"] === true,
         agy: agents["agy"] === true,
       };
-    } else if (key === "colorMode" && (entry === "system" || entry === "light" || entry === "dark"))
-      result.colorMode = entry;
-    else if (key === "panelColor" && (entry === "vivid" || entry === "subtle" || entry === "plain"))
+    } else if (
+      key === "panelColor" &&
+      (entry === "vivid" || entry === "subtle" || entry === "plain")
+    )
       result.panelColor = entry;
     else if (key === "interfaceScale" && typeof entry === "number" && SCALES.includes(entry))
       result.interfaceScale = entry;
@@ -100,4 +100,19 @@ export function parseConfigSettings(value: unknown): ConfigSettings {
     else throw new Error("Invalid settings");
   }
   return result;
+}
+
+/** Disk-only migration. IPC and new settings patches reject the retired key. */
+export function migrateAppearanceSettings(value: unknown): Record<string, unknown> {
+  const data = { ...themeRecord(value, "$") };
+  if (!Object.hasOwn(data, "colorMode")) return data;
+  const mode = data["colorMode"];
+  if (mode !== "system" && mode !== "light" && mode !== "dark")
+    throw new ThemeValidationError("$.colorMode", "invalid-value");
+  const choice = data["interfaceTheme"];
+  if (choice !== undefined) parseInterfaceTheme(choice);
+  if (choice === undefined || choice === "follow")
+    data["interfaceTheme"] = mode === "system" ? "follow" : `eclipse-${mode}`;
+  delete data["colorMode"];
+  return data;
 }

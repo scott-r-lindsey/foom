@@ -387,7 +387,13 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
   await mkdir(evidencePath("screenshots-729"), { recursive: true });
   for (const colorMode of ["light", "dark"]) {
-    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), colorMode);
+    await page.evaluate(
+      (colorMode) =>
+        window.desktop.saveSetup({
+          interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+        }),
+      colorMode,
+    );
     await expect
       .poll(() => confirmation.evaluate(() => document.documentElement.style.colorScheme))
       .toBe(colorMode);

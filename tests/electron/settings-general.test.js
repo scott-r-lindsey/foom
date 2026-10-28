@@ -325,7 +325,13 @@ test("General update opt-out persists; update notices and restart counts remain 
     .toBe(false);
   const state = await page.evaluate(() => window.desktop.setupState());
   for (const mode of ["light", "dark"]) {
-    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+    await page.evaluate(
+      (colorMode) =>
+        window.desktop.saveSetup({
+          interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+        }),
+      mode,
+    );
     for (const status of ["available", "downloaded", "error"]) {
       // Fake local main facts exercise the real sandboxed bridge without any updater or HTTP call.
       await app.evaluate(
@@ -337,7 +343,7 @@ test("General update opt-out persists; update notices and restart counts remain 
         },
         {
           ...state,
-          settings: { ...state.settings, colorMode: mode, checkForUpdates: true },
+          settings: { ...state.settings, interfaceTheme: `eclipse-${mode}`, checkForUpdates: true },
           updates: { status, runningAgents: 3 },
         },
       );
@@ -395,7 +401,13 @@ test("General close finished agents defaults on and saves immediately", {
   if (process.env.FOOM_CAPTURE_745 === "1") {
     await mkdir(evidencePath("screenshots-745"), { recursive: true });
     for (const mode of ["light", "dark"]) {
-      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await page.evaluate(
+        (colorMode) =>
+          window.desktop.saveSetup({
+            interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+          }),
+        mode,
+      );
       await expect
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");

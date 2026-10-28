@@ -146,7 +146,13 @@ test("agent previews split a blank window into terminal-width columns", {
         .readUInt32LE(),
     );
     for (const mode of ["light", "dark"]) {
-      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await page.evaluate(
+        (colorMode) =>
+          window.desktop.saveSetup({
+            interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+          }),
+        mode,
+      );
       await page.waitForFunction(
         (mode) => document.documentElement.style.colorScheme === mode,
         mode,
@@ -174,7 +180,7 @@ test("agent previews split a blank window into terminal-width columns", {
         evidencePath(`screenshots-746/agent-preview-terminal-${mode}.png`),
       ]);
     }
-    await page.evaluate(() => window.desktop.saveSetup({ colorMode: "system" }));
+    await page.evaluate(() => window.desktop.saveSetup({ interfaceTheme: "follow" }));
   }
   await page.evaluate((id) => window.desktop.previews.close(id), blankPreview.previewId);
 });

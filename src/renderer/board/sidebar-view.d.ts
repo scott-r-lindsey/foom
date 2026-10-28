@@ -6,6 +6,7 @@ import type { SidebarPreferences } from "./sidebar.d";
 
 export interface SidebarProps {
   source: BoardSource;
+  configPanelRef?: RefObject<(() => void) | undefined>;
   collapsed?: boolean;
   width?: number | undefined;
   setWidth?: (width: number) => void;

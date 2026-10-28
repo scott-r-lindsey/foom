@@ -971,7 +971,7 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
     await expectDialogFits(interfaceScale / 100);
     // A settings change while open must update the existing trusted renderer, too.
     await board.evaluate(() =>
-      window.desktop.saveSetup({ interfaceScale: 100, colorMode: "dark" }),
+      window.desktop.saveSetup({ interfaceScale: 100, interfaceTheme: "eclipse-dark" }),
     );
     await expect
       .poll(() =>

@@ -313,13 +313,12 @@ export function resolveInterfaceTheme(
 }
 export function interfaceThemeSource(
   choice: InterfaceThemeChoice,
-  mode: "system" | "light" | "dark",
   catalog?: ThemeCatalog,
 ): "system" | "light" | "dark" {
   if (
     choice === "follow" ||
     (isUserThemeId(choice) && !catalog?.interface.some((entry) => entry.id === choice))
   )
-    return mode;
+    return "system";
   return resolveInterfaceTheme(choice, false, catalog).base;
 }

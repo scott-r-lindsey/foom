@@ -14,7 +14,6 @@ in the profile. Validation alone grants no approval.
 
 | Allowed key | Value |
 | --- | --- |
-| `colorMode` | `system`, `light`, `dark` |
 | `panelColor` | `vivid`, `subtle`, `plain` |
 | `interfaceTheme`, `terminalTheme` | `follow`, a corresponding built-in ID, or `user:<filename>.json`; no inline palette objects |
 | `interfaceScale` | 80–150 in steps of 10, then 175, 200, 250 and 300 |
@@ -50,15 +49,21 @@ is null, false or otherwise harmless in isolation.
 
 `src/main/setup/setup.ts` applies the settings to the running app at startup and on each save, and coordinates repository scanning. Legacy inference fields are discarded only when loading a profile; IPC patches still reject them.
 
-Appearance lives in Settings and the preflight rail through the same `AppearanceControls` component and applies at once. `colorMode` (system, light or dark) sets `nativeTheme.themeSource` for Eclipse; fixed interface themes supply their own base. Main applies the source before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and terminals using Follow interface all follow it; changing the resolved terminal palette resets colors a program set in the terminal; fixed terminal themes ignore interface changes. `interfaceScale` (80–150% in steps of 10, then 175, 200, 250 and 300%, matching Chromium's zoom steps; `SCALES` in `src/shared/config-settings.ts` is the one list) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/main/window/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. On first launch, the window uses 60% of the primary display’s usable width and height. After a successful quit, main saves every window's normal bounds, display and maximized state in `windows.json` in user data and restores them on connected displays, clamped to the current work area and minimum. The legacy `window-size.json` remains a fallback for the first window. Missing or invalid saved geometry uses the first-launch size. The minimum size (900 × 640 at 100%) scales too. The scaled minimum is capped to the work area, so a large size on a small or OS-scaled display can leave less CSS space than the 100% minimum; the layout compacts instead of refusing the zoom: the page never scrolls sideways, the compact sidebar wraps its tile layouts, Settings scrolls as a whole on a short window, and dialogs (the shortcut sheet, which is portaled so the compact sidebar cannot hide it, and the trusted confirmation, which measures its natural size in fractional pixels so a capped window settles) scroll within themselves. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+Shift+0 elsewhere, because plain Ctrl+− is readline's undo. All zoom controls save the shared scale and broadcast `setup:changed` to every window, so sidebar, Settings and preflight controls follow. Trusted dialogs and previews refresh immediately in every window. `terminalFontSize` is a separate validated integer setting (10–32 CSS pixels, default 14). Each mounted terminal controller reads it before its initial attachment, subscribes to `setup:changed`, and updates xterm options. Visible attachments refit and send an ID-scoped resize; hidden views use the new size on their next attachment. Disposal removes the subscription.
+Appearance lives in Settings and the preflight rail through the same `AppearanceControls` component and applies at once. Default (`interfaceTheme: "follow"`) sets `nativeTheme.themeSource` to system and follows OS appearance live; fixed themes supply their own base. Main applies the source before the window is created at startup, so the CSS (`prefers-color-scheme`), the window background and terminals using Default all follow it; changing the resolved terminal palette resets colors a program set in the terminal; fixed terminal themes ignore interface changes. `interfaceScale` (80–150% in steps of 10, then 175, 200, 250 and 300%, matching Chromium's zoom steps; `SCALES` in `src/shared/config-settings.ts` is the one list) is Chromium zoom: the window starts with it as `zoomFactor` and later changes use `setZoomFactor`. The window resizes with it in both directions (`src/main/window/window-scale.ts`): main remembers the window's size at 100% and sets the window to that size times the scale, capped to the display's usable area and moved back on screen if needed, so zooming in and back out restores the same size. A resize by the user sets a new size at 100%. On first launch, the window uses 60% of the primary display’s usable width and height. After a successful quit, main saves every window's normal bounds, display and maximized state in `windows.json` in user data and restores them on connected displays, clamped to the current work area and minimum. The legacy `window-size.json` remains a fallback for the first window. Missing or invalid saved geometry uses the first-launch size. The minimum size (900 × 640 at 100%) scales too. The scaled minimum is capped to the work area, so a large size on a small or OS-scaled display can leave less CSS space than the 100% minimum; the layout compacts instead of refusing the zoom: the page never scrolls sideways, the compact sidebar wraps its tile layouts, Settings scrolls as a whole on a short window, and dialogs (the shortcut sheet, which is portaled so the compact sidebar cannot hide it, and the trusted confirmation, which measures its natural size in fractional pixels so a capped window settles) scroll within themselves. Maximized and full-screen windows keep their size. Tiling window managers may ignore the resize; zoom still applies. Main handles the zoom keys before the terminal sees them: ⌘ =, − and 0 on macOS, and Ctrl+Shift+= / Ctrl+Shift+− and Ctrl+Shift+0 elsewhere, because plain Ctrl+− is readline's undo. All zoom controls save the shared scale and broadcast `setup:changed` to every window, so sidebar, Settings and preflight controls follow. Trusted dialogs and previews refresh immediately in every window. `terminalFontSize` is a separate validated integer setting (10–32 CSS pixels, default 14). Each mounted terminal controller reads it before its initial attachment, subscribes to `setup:changed`, and updates xterm options. Visible attachments refit and send an ID-scoped resize; hidden views use the new size on their next attachment. Disposal removes the subscription.
 
 Interface colors are independently stored as `interfaceTheme`: `follow` (default),
 a built-in ID, a `user:<filename>` ID, or a version 1 portable object with `name`, `base` and `colors`.
-Follow retains existing `colorMode` preferences and uses Eclipse Light/Dark; the
-Themes picker’s System choice sets both Follow and System. A `colorMode`-only save
-returns to Follow, while changing zoom or terminal settings retains the theme.
-Fixed themes override `colorMode` with their declared light/dark base for
-`nativeTheme.themeSource`. Main uses the palette's exact background both at startup
+Default uses Eclipse Light/Dark following the OS live. Fixed themes use their declared
+light/dark base for `nativeTheme.themeSource`. There is no separate color mode.
+
+Disk loading validates and migrates retired `colorMode`: `follow` (or a missing
+interface theme) plus `system` becomes Default; `light` / `dark` becomes
+`eclipse-light` / `eclipse-dark`. Fixed built-in, user and portable themes stay selected.
+Invalid legacy values reject the file; missing mode uses Default. `terminalTheme`
+keeps its `follow` ID, now displayed as Default; fixed terminal themes stay selected.
+Both version 1 profiles and config settings files load through this migration.
+IPC/new patches reject `colorMode`; new saves omit it. The offline config validator
+accepts valid legacy files with a warning explaining the replacement. Main uses the palette's exact background both at startup
 and after saves, including switches between themes with the same base.
 
 `shared/interface-themes.ts` validates exact keys, six-digit opaque hex colors,
@@ -73,7 +78,7 @@ for the numerical invariants. [Custom theme files](themes.md) use the same gate.
 `renderer/ui/interface-theme.ts` subscribes to the setup source and system media
 changes, sets color tokens on the root element and removes its listeners on unmount.
 It ignores stale initial reads after a newer save or disposal. CSS keeps the original
-Eclipse tokens as a startup/failure fallback. Settings → Themes uses token-scoped
+Eclipse tokens as a startup/failure fallback. Settings → Appearance uses token-scoped
 previews of every board status, including the halo, square failure light and labels.
 It neither renders terminal output nor subscribes to activity. The CSP and preload
 surface are unchanged.
@@ -105,8 +110,7 @@ Repositories and Appearance controls in both paths, with guided navigation only 
 preflight: Welcome → Agents (T-2) → Repositories (T-1) → Go / no-go (T-0). Worktree
 location controls live only in Settings → General. The existing `worktreeLocation` schema and
 root default are unchanged; completing or replaying setup never resets a saved choice.
-Settings adds Terminal font and size, Themes with both interface and terminal palettes (shipped choices followed by a divider and user choices), and
-Sound controls. Successful `setup:save` calls publish `setup:changed` to keep live
+Settings places the interface Theme picker on Appearance, terminal Colors, font, size and preview on Terminal, and sound controls on Sound. Both pickers list shipped choices followed by a divider and user choices. Successful `setup:save` calls publish `setup:changed` to keep live
 consumers synchronized. Repository selection changes save immediately in Settings,
 with controls disabled during the write and refused selections restored to the
 registered repositories. Scans in Settings start from existing registrations;

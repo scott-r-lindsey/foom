@@ -109,7 +109,13 @@ test("bundled brand fonts and both system themes render in Electron", {
     // and publishes setup:changed, so attachInterfaceTheme applies immediately.
     // CDP media emulation queues a separate frame-dependent change event and can
     // leave the media input and applied palette disagreeing on an idle display.
-    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+    await page.evaluate(
+      (colorMode) =>
+        window.desktop.saveSetup({
+          interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+        }),
+      mode,
+    );
     try {
       // A matching media query is input, not acknowledgement from either listener.
       // Observe both rendered backgrounds and the complete interface palette in one
@@ -157,7 +163,7 @@ test("bundled brand fonts and both system themes render in Electron", {
           const { settings } = await window.desktop.setupState();
           return {
             pendingStep:
-              settings.colorMode !== mode
+              settings.interfaceTheme !== `eclipse-${mode}`
                 ? "setup persistence"
                 : root.style.colorScheme !== mode
                   ? "attachInterfaceTheme setup:changed application"
@@ -172,7 +178,6 @@ test("bundled brand fonts and both system themes render in Electron", {
             terminalBackground: getComputedStyle(
               document.querySelector(".xterm-scrollable-element"),
             ).backgroundColor,
-            colorMode: settings.colorMode,
             interfaceTheme: settings.interfaceTheme,
             visibility: document.visibilityState,
             focused: document.hasFocus(),

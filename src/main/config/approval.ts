@@ -65,7 +65,6 @@ export function weakenings(before: EffectiveConfig, after: EffectiveConfig): Wea
 }
 
 const LABELS: Record<ConfigSetting, string> = {
-  colorMode: "Color mode",
   panelColor: "Panel color",
   interfaceTheme: "Interface theme",
   terminalTheme: "Terminal colors",

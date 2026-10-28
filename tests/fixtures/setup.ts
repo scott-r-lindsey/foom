@@ -30,7 +30,6 @@ export function setupState(
       agentBypassAcknowledged: { claude: false, codex: false, agy: false },
       worktreeLocation: "root",
       panelColor: "vivid",
-      colorMode: "system",
       interfaceTheme: "follow",
       interfaceScale: 100,
       terminalFontSize: 14,

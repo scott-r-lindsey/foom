@@ -43,7 +43,7 @@ They never echo parser exception messages or arbitrary unknown property names.
 
 Main keeps the last good palette for a rejected edit during the current session.
 A missing file disappears from the catalog. Invalid or missing selections after
-restart use Follow without overwriting the saved ID, and recover when a valid file
+restart use Default without overwriting the saved ID, and recover when a valid file
 returns. Built-ins precede custom themes; colliding names gain “(custom)”.
 `theme:list` and `theme:open-folder` validate the owning top frame and exact argument
 counts. Open accepts only the enumerated theme kind and chooses the folder in main.
@@ -95,3 +95,12 @@ file counts as approved only if its digest matches. Allow verifies the proposal
 digest and current bytes and records the new digest. Keep it on restores the
 approved version applied in this session; when there is none it switches
 `interfaceTheme` back to the default and leaves the file in place.
+
+## Theme menus (#878)
+
+Appearance owns the interface Theme menu and its folder/status/errors; Terminal
+owns Colors and its folder/status/errors and terminal preview. Built-ins precede
+user entries below a divider. The first-run rail shares the interface menu without
+folder controls, previews or the custom-theme hint. Default uses the existing
+`follow` ID: interface Default follows the OS live, terminal Default follows the
+resolved interface base live. See [migration](settings.md#settings-and-setup).

@@ -48,7 +48,7 @@ Badges and chips use the badge fills and stay neutral: no amber, magenta, or sta
 
 | Theme | Base | Palette |
 |---|---|---|
-| System | System | Eclipse Light/Dark follows the operating system |
+| Default | System | Eclipse Light/Dark follows the operating system |
 | Eclipse Light | Light | Original pale violet surfaces and dark violet accent |
 | Eclipse Dark | Dark | Original near-black violet surfaces and bright violet accent |
 | High Contrast | Dark | Black surfaces, brighter text and status inks, visible neutral borders |
@@ -93,10 +93,11 @@ brand hue, reserved-color, distance, base-luminance and hole rules produce warni
 Version 2 user files additionally support per-area colors, explicit state colors
 and bounded shape values; see the architecture theme format. Typography stays fixed.
 
-Choosing System, Light or Dark in Appearance or preflight returns to Eclipse.
-Changing interface size preserves the theme. Terminal schemes remain independent;
-Follow interface follows the base variant. Native controls follow the theme's base,
-and the native window background uses its exact `bg` token.
+The Theme menu on Appearance and first run is the only interface choice.
+Default follows OS appearance live; fixed themes keep their own base. Changing
+interface size preserves the theme. Terminal Colors remain independent; Default
+follows the interface base live. Native controls follow the resolved base, and
+the native window background uses its exact `bg` token.
 
 ## Type
 

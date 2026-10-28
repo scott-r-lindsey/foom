@@ -318,9 +318,11 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     )
     .toBe("adjacent");
   await section("Appearance");
-  await tabToControl(page.getByRole("radio", { name: "System", exact: true }));
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("ArrowRight");
+  await tabToControl(page.getByRole("button", { name: "Theme Default", exact: true }));
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
   await tabTo(page, "+", "Larger");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("status").filter({ hasText: "110%" })).toBeVisible();
@@ -338,14 +340,17 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await expect(page.locator(".xterm-rows")).toHaveCSS("font-size", "15px");
   await shortcut();
   await section("Appearance");
-  await expect(page.getByRole("radio", { name: "Dark", exact: true })).toBeChecked();
+  await expect(page.getByRole("button", { name: "Theme Eclipse Dark", exact: true })).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: "110%" })).toBeVisible();
-  await page.getByRole("radio", { name: "Light", exact: true }).check();
+  await page.getByRole("button", { name: /^Theme / }).click();
+  await page.getByRole("menuitemradio", { name: "Eclipse Light", exact: true }).click();
   await page.getByRole("button", { name: "Larger", exact: true }).click();
   await page.keyboard.press("Escape");
   await shortcut();
   await section("Appearance");
-  await expect(page.getByRole("radio", { name: "Light", exact: true })).toBeChecked();
+  await expect(
+    page.getByRole("button", { name: "Theme Eclipse Light", exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: "120%" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
@@ -443,15 +448,7 @@ test("every Settings section passes axe in light and dark, including the narrow 
   const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await openSettingsScreen(page);
-  for (const name of [
-    "General",
-    "Agents",
-    "Repositories",
-    "Appearance",
-    "Terminal",
-    "Themes",
-    "Sound",
-  ]) {
+  for (const name of ["General", "Agents", "Repositories", "Appearance", "Terminal", "Sound"]) {
     await page
       .getByRole("navigation", { name: "Settings sections" })
       .getByRole("button", { name, exact: true })

@@ -1,3 +1,5 @@
+import { CustomThemeHint } from "./custom-theme-hint";
+import { ThemeMenu } from "./theme-menu";
 import {
   DEFAULT_TERMINAL_FONT,
   isTerminalFont,
@@ -5,8 +7,9 @@ import {
 } from "../../shared/terminal-fonts";
 import type { ThemeCatalog } from "../../shared/theme-file";
 import { ThemeFilesStatus } from "./theme-files-status";
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  parseTerminalThemeChoice,
   ansiNames,
   resolveTerminalTheme,
   terminalThemeOptions,
@@ -39,33 +42,21 @@ export function TerminalThemePicker({
   return (
     <div className="terminal-theme-settings">
       <div className="terminal-theme-picker-column">
-        <div className="terminal-theme-choices" role="group" aria-label="Terminal colors">
-          {[...terminalThemeOptions, ...(catalog?.terminal ?? [])].map((option, index) => {
-            const palette = resolveTerminalTheme(option.id, dark, catalog);
-            return (
-              <Fragment key={option.id}>
-                {index === terminalThemeOptions.length && <hr className="theme-divider" />}
-                <button
-                  type="button"
-                  key={option.id}
-                  aria-pressed={settings.terminalTheme === option.id}
-                  onClick={() => {
-                    onChange({ terminalTheme: option.id });
-                  }}
-                >
-                  {option.name}
-                  <span className="terminal-theme-strip" aria-hidden="true">
-                    <i style={{ backgroundColor: palette.background }} />
-                    {ansiNames.slice(1, 8).map((name) => (
-                      <i key={name} style={{ backgroundColor: palette[name] }} />
-                    ))}
-                  </span>
-                </button>
-              </Fragment>
-            );
-          })}
-          {typeof settings.terminalTheme !== "string" && <p>Custom theme</p>}
-        </div>
+        <ThemeMenu
+          label="Colors"
+          selected={typeof settings.terminalTheme === "string" ? settings.terminalTheme : ""}
+          choices={[
+            ...terminalThemeOptions,
+            ...(catalog?.terminal ?? []).map((entry) => ({
+              id: entry.id,
+              name: entry.name,
+              custom: true,
+            })),
+          ]}
+          onChange={(id) => {
+            onChange({ terminalTheme: parseTerminalThemeChoice(id) });
+          }}
+        />
         <ThemeFilesStatus catalog={catalog} kind="terminal-theme" openFolder={openFolder} />
       </div>
       <pre
@@ -100,6 +91,7 @@ export function TerminalThemePicker({
         {"\n\n$ Ready when you are. "}
         <span style={{ backgroundColor: theme.cursor, color: theme.background }}> </span>
       </pre>
+      <CustomThemeHint />
     </div>
   );
 }

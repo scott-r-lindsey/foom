@@ -4,13 +4,15 @@ import {
   parseSettingsFile,
   validateConfigJson,
 } from "../../../src/shared/config-files";
-import { parseConfigSettings } from "../../../src/shared/config-settings";
+import {
+  parseConfigSettings,
+  migrateAppearanceSettings,
+} from "../../../src/shared/config-settings";
 import { DEFAULT_SOUND } from "../../../src/shared/sounds";
 import { interfaceThemes } from "../../../src/shared/interface-themes";
 import { ansiNames, terminalThemes } from "../../../src/shared/terminal-themes";
 import { parseSettingsPatch } from "../../../src/main/setup/settings";
 const allowed = {
-  colorMode: "dark",
   panelColor: "plain",
   interfaceTheme: "user:custom.json",
   interfaceScale: 120,
@@ -27,7 +29,7 @@ test("settings is an optional allowlisted patch with exactly main's value rules"
   expect(parseSettingsFile(JSON.stringify({ kind: "settings", ...allowed }))).toEqual(allowed);
   expect(parseSettingsPatch(allowed)).toEqual(allowed);
   for (const colorMode of ["system", "light", "dark"])
-    expect(parseConfigSettings({ colorMode })).toEqual({ colorMode });
+    expect(() => parseConfigSettings({ colorMode })).toThrow();
   for (const panelColor of ["vivid", "subtle", "plain"])
     expect(parseConfigSettings({ panelColor })).toEqual({ panelColor });
   for (const interfaceScale of [80, 90, 100, 110, 120, 130, 140, 150, 175, 200, 250, 300])
@@ -222,4 +224,67 @@ test.each([null, 0, 1, "false", {}, []])("child placement rejects non-booleans: 
   expect(() =>
     parseSettingsFile(JSON.stringify({ kind: "settings", showNewChildren: value })),
   ).toThrow();
+});
+
+test.each([
+  [{ interfaceTheme: "follow", colorMode: "system" }, "follow"],
+  [{ interfaceTheme: "follow", colorMode: "light" }, "eclipse-light"],
+  [{ interfaceTheme: "follow", colorMode: "dark" }, "eclipse-dark"],
+  [{ colorMode: "dark" }, "eclipse-dark"],
+  [{ interfaceTheme: "follow" }, "follow"],
+  [{ interfaceTheme: "moonlight", colorMode: "dark" }, "moonlight"],
+  [{ interfaceTheme: "user:night.json", colorMode: "light" }, "user:night.json"],
+])("migrates legacy appearance %j without changing the look", (legacy, expected) => {
+  const parsed = parseSettingsFile(JSON.stringify({ kind: "settings", ...legacy }));
+  expect(parsed).toEqual({ interfaceTheme: expected });
+  expect(parsed).not.toHaveProperty("colorMode");
+});
+
+test.each([
+  "follow",
+  "foom-light",
+  "foom-dark",
+  "solarized-light",
+  "solarized-dark",
+  "dracula",
+  "user:term.json",
+])("retains terminal choice %s (follow is now Default)", (terminalTheme) => {
+  expect(parseSettingsFile(JSON.stringify({ kind: "settings", terminalTheme }))).toEqual({
+    terminalTheme,
+  });
+});
+
+test.each([null, false, 1, {}, [], "auto"])(
+  "rejects invalid legacy color mode %j even with a fixed theme",
+  (colorMode) => {
+    for (const interfaceTheme of ["follow", "moonlight", "user:custom.json"])
+      expect(() =>
+        parseSettingsFile(JSON.stringify({ kind: "settings", colorMode, interfaceTheme })),
+      ).toThrow(expect.objectContaining({ path: "$.colorMode", reason: "invalid-value" }));
+  },
+);
+
+test("legacy validation reports a clear warning and invalid/missing themes retain strict validation", () => {
+  expect(validateConfigJson('{"kind":"settings","colorMode":"dark"}')).toEqual([
+    expect.objectContaining({
+      path: "$.colorMode",
+      severity: "warning",
+    }),
+  ]);
+  expect(validateConfigJson('{"kind":"settings","colorMode":"dark"}')[0]?.detail).toContain(
+    "colorMode is retired",
+  );
+  for (const interfaceTheme of [null, false, 1, {}, [], "unknown"])
+    expect(() =>
+      parseSettingsFile(JSON.stringify({ kind: "settings", interfaceTheme, colorMode: "dark" })),
+    ).toThrow();
+  expect(parseSettingsFile('{"kind":"settings"}')).toEqual({});
+});
+
+test("appearance migration validates an unknown boundary and explicit undefined values", () => {
+  for (const value of [null, false, [], 3, "settings", { colorMode: undefined }])
+    expect(() => migrateAppearanceSettings(value)).toThrow();
+  expect(migrateAppearanceSettings({ interfaceTheme: "follow" })).toEqual({
+    interfaceTheme: "follow",
+  });
 });

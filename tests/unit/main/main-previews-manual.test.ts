@@ -331,7 +331,7 @@ test.each([false, true])(
       first.registry.records.clear();
       secondSetup.apply(settings);
       await invokeWindow(1, "app-menu:view", { available: true, maximized: false, tiles: 0 });
-      settings = { ...settings, colorMode: "light" };
+      settings = { ...settings, interfaceTheme: "eclipse-light" };
       secondSetup.apply(settings);
       await invokeWindow(1, "app-menu:view", { available: true, maximized: false, tiles: 0 });
       expect(secondOpened).not.toHaveBeenCalled();

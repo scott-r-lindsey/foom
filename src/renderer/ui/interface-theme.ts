@@ -14,9 +14,8 @@ export function attachInterfaceTheme(
   target = document.documentElement,
   media = matchMedia("(prefers-color-scheme: dark)"),
 ) {
-  let settings: Pick<Settings, "interfaceTheme" | "colorMode" | "panelColor"> = {
+  let settings: Pick<Settings, "interfaceTheme" | "panelColor"> = {
     interfaceTheme: "follow",
-    colorMode: "system",
     panelColor: "vivid",
   };
   let catalog: ThemeCatalog | undefined;
@@ -29,7 +28,7 @@ export function attachInterfaceTheme(
     else target.style.setProperty(key, value);
   };
   const apply = () => {
-    const dark = settings.colorMode === "system" ? media.matches : settings.colorMode === "dark";
+    const dark = media.matches;
     const theme = resolveInterfaceTheme(settings.interfaceTheme, dark, catalog);
     for (const key of interfaceColorNames) target.style.setProperty(`--${key}`, theme.colors[key]);
     target.style.setProperty("--highlight", theme.colors.highlight ?? theme.colors.accent);

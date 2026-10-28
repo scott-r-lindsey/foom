@@ -37,9 +37,9 @@ test("applies complete token data, follows System, handles fixed/custom themes a
   m.matches = true;
   m.addEventListener.mock.calls[0]?.[1]();
   expect(root.style.colorScheme).toBe("dark");
-  changed?.(setupState({ colorMode: "light" }));
+  changed?.(setupState({ interfaceTheme: "eclipse-light" }));
   expect(root.style.colorScheme).toBe("light");
-  changed?.(setupState({ colorMode: "dark" }));
+  changed?.(setupState({ interfaceTheme: "eclipse-dark" }));
   expect(root.style.colorScheme).toBe("dark");
   changed?.(setupState({ interfaceTheme: "moonlight" }));
   m.matches = false;

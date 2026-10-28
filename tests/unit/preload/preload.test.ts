@@ -1171,7 +1171,6 @@ test("unknown enums and out-of-range settings never enter setup state", async ()
   for (const patch of [
     { worktreeLocation: "unknown" },
     { panelColor: "unknown" },
-    { colorMode: "unknown" },
     { interfaceTheme: "unknown" },
     { terminalTheme: "unknown" },
     ...[0, 17, 1.5].map((concurrentChildren) => ({ concurrentChildren })),
@@ -1361,4 +1360,13 @@ test("terminal selection copy exposes a write-only ID-scoped bridge", async () =
   mock.invoke.mockResolvedValue(undefined);
   await api.copyTerminalSelection("one", "selected");
   expect(mock.invoke).toHaveBeenCalledExactlyOnceWith("terminal:copy-selection", "one", "selected");
+});
+
+test("retired colorMode is not exposed in validated setup replies", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue({
+    settings: { ...DEFAULT_SETTINGS, colorMode: "dark" },
+    worktreeRoot: "/worktrees",
+  });
+  expect((await api.setupState()).settings).not.toHaveProperty("colorMode");
 });

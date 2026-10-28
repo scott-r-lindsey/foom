@@ -28,7 +28,7 @@ test("patches copy only known, well-formed fields", () => {
       hooks: false,
       worktreeLocation: "adjacent",
       agents: { claude: true, codex: false, agy: true },
-      colorMode: "dark",
+      interfaceTheme: "eclipse-dark",
       interfaceScale: 120,
       terminalFontSize: 18,
       codeFolder: "/home/me/code",
@@ -36,7 +36,7 @@ test("patches copy only known, well-formed fields", () => {
   ).toEqual({
     codeFolder: "/home/me/code",
     terminalFontSize: 18,
-    colorMode: "dark",
+    interfaceTheme: "eclipse-dark",
     interfaceScale: 120,
     setupComplete: true,
     hooks: false,
@@ -145,7 +145,7 @@ test("interface themes persist, preserve legacy modes and reject invalid portabl
     JSON.stringify({ version: 1, settings: { colorMode: "dark" } }),
   );
   const store = await SettingsStore.open(dir);
-  expect(store.get()).toMatchObject({ colorMode: "dark", interfaceTheme: "follow" });
+  expect(store.get()).toMatchObject({ interfaceTheme: "eclipse-dark" });
   await store.update(parseSettingsPatch({ interfaceTheme: "deep-field" }));
   expect((await SettingsStore.open(dir)).get().interfaceTheme).toBe("deep-field");
   const custom = { ...interfaceThemes.moonlight, name: "My Moonlight" };
@@ -302,7 +302,7 @@ test.each([null, [], "invalid", { codex: ["--model", "x"], agy: [42] }])(
       }),
     );
     const settings = (await SettingsStore.open(dir)).get();
-    expect(settings.colorMode).toBe("dark");
+    expect(settings.interfaceTheme).toBe("eclipse-dark");
     expect(settings.setupComplete).toBe(true);
     expect(settings.agentArguments.claude).toEqual([]);
     expect(settings.agentArguments.agy).toEqual([]);
@@ -905,3 +905,45 @@ test("copy on select default off, validate booleans and persist in the profile",
   await store.update(parseSettingsPatch({ copyOnSelect: false }));
   expect((await SettingsStore.open(dir)).get().copyOnSelect).toBe(false);
 });
+
+test.each([
+  [{ interfaceTheme: "follow", colorMode: "system" }, "follow"],
+  [{ interfaceTheme: "follow", colorMode: "light" }, "eclipse-light"],
+  [{ interfaceTheme: "follow", colorMode: "dark" }, "eclipse-dark"],
+  [{ colorMode: "light" }, "eclipse-light"],
+  [{}, "follow"],
+  [{ interfaceTheme: "follow" }, "follow"],
+  [{ interfaceTheme: "moonlight", colorMode: "dark" }, "moonlight"],
+  [{ interfaceTheme: "user:custom.json", colorMode: "light" }, "user:custom.json"],
+  [{ interfaceTheme: interfaceThemes.graphite, colorMode: "light" }, interfaceThemes.graphite],
+])(
+  "migrates profile appearance %j and never stores the retired mode",
+  async (settings, expected) => {
+    const dir = await directory();
+    await writeFile(
+      path.join(dir, "settings.json"),
+      JSON.stringify({ version: 1, settings: { ...settings, terminalTheme: "dracula" } }),
+    );
+    const store = await SettingsStore.open(dir);
+    expect(store.get().interfaceTheme).toEqual(expected);
+    expect(store.get().terminalTheme).toBe("dracula");
+    expect(store.get()).not.toHaveProperty("colorMode");
+    await store.update({});
+    expect((await SettingsStore.open(dir)).get().interfaceTheme).toEqual(expected);
+    expect(JSON.parse(await readFile(path.join(dir, "settings.json"), "utf8"))).not.toHaveProperty(
+      "settings.colorMode",
+    );
+  },
+);
+
+test.each([null, false, {}, [], 3, "auto"])(
+  "rejects invalid stored legacy mode %j",
+  async (colorMode) => {
+    const dir = await directory();
+    await writeFile(
+      path.join(dir, "settings.json"),
+      JSON.stringify({ version: 1, settings: { colorMode, setupComplete: true } }),
+    );
+    expect((await SettingsStore.open(dir)).get()).toEqual(DEFAULT_SETTINGS);
+  },
+);

@@ -20,7 +20,8 @@ test("previews all ANSI colors and text styles, saves a scheme, follows media an
   expect(preview.style.backgroundColor).toBe("rgb(243, 240, 250)");
   expect(preview.querySelectorAll("[title]")).toHaveLength(16);
   expect(preview.textContent).toContain("Bold text · Dim text");
-  fireEvent.click(screen.getByRole("button", { name: "Dracula" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Colors / }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Dracula" }));
   expect(onChange).toHaveBeenCalledWith({ terminalTheme: "dracula" });
   act(() => {
     media.matches = true;
@@ -33,7 +34,7 @@ test("previews all ANSI colors and text styles, saves a scheme, follows media an
       onChange={onChange}
     />,
   );
-  expect(screen.getByRole("button", { name: "Dracula" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: "Colors Dracula" })).toBeTruthy();
   expect(preview.style.backgroundColor).toBe("rgb(40, 42, 54)");
   rerender(
     <TerminalThemePicker
@@ -71,10 +72,10 @@ test("custom terminal palettes select by file ID and preview parsed colors", () 
       onChange={onChange}
     />,
   );
-  const custom = screen.getByRole("button", { name: "Terminal custom" });
-  expect(custom.getAttribute("aria-pressed")).toBe("true");
-  expect(custom.previousElementSibling?.tagName).toBe("HR");
-  expect(custom.previousElementSibling?.previousElementSibling?.tagName).toBe("BUTTON");
+  fireEvent.click(screen.getByRole("button", { name: /^Colors / }));
+  const custom = screen.getByRole("menuitemradio", { name: "Terminal custom" });
+  expect(custom.getAttribute("aria-checked")).toBe("true");
+  expect(custom.parentElement?.querySelector("hr")?.tagName).toBe("HR");
   fireEvent.click(custom);
   expect(onChange).toHaveBeenCalledWith({ terminalTheme: "user:term.json" });
   expect(screen.getByLabelText("Terminal theme preview").style.backgroundColor).toBe(
