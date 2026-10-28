@@ -132,3 +132,28 @@ test("watches requested directory symlinks as well as their targets", () => {
   expect(changed).toHaveBeenCalledOnce();
   watcher.close();
 });
+
+test("new generations cancel pending events and ignore retired handles, including errors", () => {
+  const { watcher, changed } = fixture();
+  watcher.record(path.join(root, "old.css"));
+  const old = watches[0];
+  old?.event("change", "old.css");
+  watcher.beginGeneration();
+  watcher.record(path.join(root, "new.css"));
+  old?.event("change", null);
+  old?.handle.emit("error", new Error("late error"));
+  vi.advanceTimersByTime(1000);
+  expect(changed).not.toHaveBeenCalled();
+  expect(watcher.count).toBe(1);
+  expect(old?.handle.close).toHaveBeenCalledOnce();
+  watches[1]?.event("change", "old.css");
+  vi.advanceTimersByTime(120);
+  expect(changed).not.toHaveBeenCalled();
+  watches[1]?.event("change", "new.css");
+  vi.advanceTimersByTime(120);
+  expect(changed).toHaveBeenCalledOnce();
+  watcher.close();
+  watcher.beginGeneration();
+  watcher.record(path.join(root, "closed.css"));
+  expect(watcher.count).toBe(0);
+});
