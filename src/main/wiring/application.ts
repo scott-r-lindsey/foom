@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { autoUpdater } from "electron";
+import { UpdateActivity } from "../update-activity";
 import { Updates } from "../updates";
 import { prepareLocalUpdate } from "../update-package";
 import { getUpdateRelease } from "../update-http";
@@ -290,7 +291,9 @@ export function runApplication() {
   const packageInfo: unknown = JSON.parse(
     readFileSync(path.join(app.getAppPath(), "package.json"), "utf8"),
   );
+  const activity = new UpdateActivity(app.getPath("userData"));
   const updates = new Updates({
+    activityFlags: () => activity.flags(),
     nightlyDate:
       typeof packageInfo === "object" && packageInfo !== null && "foomNightlyDate" in packageInfo
         ? packageInfo.foomNightlyDate

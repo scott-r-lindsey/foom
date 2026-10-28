@@ -18,6 +18,7 @@ export interface UpdateDependencies {
   nightlyDate?: unknown;
   updater: NativeUpdater;
   getRelease(url: string, signal: AbortSignal): Promise<unknown>;
+  activityFlags(): Promise<string>;
   prepareUpdate(update: UpdatePackage, signal: AbortSignal): Promise<LocalUpdate>;
   quit(): void;
   exit(): void;
@@ -145,14 +146,23 @@ export class Updates {
     try {
       const request = new AbortController();
       this.request = request;
-      const release = await this.deps.getRelease(
-        this.nightly
-          ? `https://foom-term.com/updates/nightly/${this.deps.platform}-${this.deps.arch}/${this.native ? "latest-mac.json" : "latest.json"}`
-          : this.native
-            ? `https://update.electronjs.org/scott-r-lindsey/foom/darwin-${this.deps.arch}/${this.deps.version}`
-            : `${API}latest`,
-        request.signal,
-      );
+      const fallback = this.nightly
+        ? `https://foom-term.com/updates/nightly/${this.deps.platform}-${this.deps.arch}/${this.native ? "latest-mac.json" : "latest.json"}`
+        : this.native
+          ? `https://update.electronjs.org/scott-r-lindsey/foom/darwin-${this.deps.arch}/${this.deps.version}`
+          : `${API}latest`;
+      const flags = await this.deps.activityFlags();
+      if (!this.current(generation)) return;
+      let release: unknown;
+      try {
+        release = await this.deps.getRelease(
+          `https://foom-term.com/u/v1/${this.nightly ? "nightly" : "stable"}/${this.deps.platform}/${this.deps.arch}/${encodeURIComponent(this.deps.version)}${flags}`,
+          request.signal,
+        );
+      } catch {
+        if (!this.current(generation)) return;
+        release = await this.deps.getRelease(fallback, request.signal);
+      }
       if (generation !== this.generation) return;
       if (release === null) {
         this.finish("idle");

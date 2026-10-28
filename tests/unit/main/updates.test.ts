@@ -28,6 +28,7 @@ function fixture(
     platform: "darwin",
     arch: "arm64",
     updater,
+    activityFlags: vi.fn(() => Promise.resolve("?d=1&w=1&m=1")),
     getRelease: vi
       .fn<UpdateDependencies["getRelease"]>()
       .mockResolvedValue({ draft: false, prerelease: false, tag_name: "v0.2.0" }),
@@ -159,7 +160,7 @@ test("Linux uses anonymous stable release metadata and never installs or restart
     expect(updates.state(0).status).toBe("available");
   });
   expect(deps.getRelease).toHaveBeenCalledWith(
-    "https://api.github.com/repos/scott-r-lindsey/foom/releases/latest",
+    "https://foom-term.com/u/v1/stable/linux/arm64/0.1.0?d=1&w=1&m=1",
     expect.any(AbortSignal),
   );
   await updates.check();
@@ -196,7 +197,7 @@ test.each(["linux", "win32"])(
       expect(updates.state(0).status).toBe("available");
     });
     expect(deps.getRelease).toHaveBeenCalledWith(
-      `https://foom-term.com/updates/nightly/${platform}-x64/latest.json`,
+      `https://foom-term.com/u/v1/nightly/${platform}/x64/0.1.0-nightly.20261022%2Bbbbbbbb?d=1&w=1&m=1`,
       expect.any(AbortSignal),
     );
     await updates.restartToUpdate();
@@ -215,7 +216,7 @@ test("macOS nightly stages an immutable archive and only restarts through the no
     expect(updater.checkForUpdates).toHaveBeenCalledOnce();
   });
   expect(deps.getRelease).toHaveBeenCalledWith(
-    "https://foom-term.com/updates/nightly/darwin-arm64/latest-mac.json",
+    "https://foom-term.com/u/v1/nightly/darwin/arm64/0.1.0-nightly.20261022%2Bbbbbbbb?d=1&w=1&m=1",
     expect.any(AbortSignal),
   );
   expect(deps.prepareUpdate).toHaveBeenCalledWith(
@@ -385,6 +386,7 @@ test.each(["0.1.0", "0.1.0-nightly.20261022+bbbbbbb"])(
         }),
     );
     updates.configure(true);
+    await Promise.resolve();
     const signal = deps.getRelease.mock.calls[0]?.[1];
     updates.configure(false);
     expect(signal?.aborted).toBe(true);
@@ -505,3 +507,113 @@ test.each(["0.2.0", "0.0.9-nightly.20261024+aaaaaaa", "0.1.0-nightly.20261021+aa
     expect(updater.setFeedURL).not.toHaveBeenCalled();
   },
 );
+
+test.each([
+  ["darwin", "0.1.0", "https://update.electronjs.org/scott-r-lindsey/foom/darwin-arm64/0.1.0"],
+  ["linux", "0.1.0", "https://api.github.com/repos/scott-r-lindsey/foom/releases/latest"],
+  [
+    "darwin",
+    "0.1.0-nightly.20261022+bbbbbbb",
+    "https://foom-term.com/updates/nightly/darwin-arm64/latest-mac.json",
+  ],
+  [
+    "linux",
+    "0.1.0-nightly.20261022+bbbbbbb",
+    "https://foom-term.com/updates/nightly/linux-arm64/latest.json",
+  ],
+  [
+    "win32",
+    "0.1.0-nightly.20261022+bbbbbbb",
+    "https://foom-term.com/updates/nightly/win32-arm64/latest.json",
+  ],
+])("%s %s falls back to the unchanged channel source", async (platform, version, fallback) => {
+  const { updates, deps } = fixture({ platform, version });
+  deps.getRelease.mockRejectedValueOnce(new Error("network failed")).mockResolvedValueOnce(null);
+  updates.configure(true);
+  await vi.waitFor(() => {
+    expect(deps.getRelease).toHaveBeenCalledTimes(2);
+  });
+  const channel = version.includes("nightly") ? "nightly" : "stable";
+  expect(deps.getRelease.mock.calls[0]?.[0]).toBe(
+    `https://foom-term.com/u/v1/${channel}/${platform}/arm64/${encodeURIComponent(version)}?d=1&w=1&m=1`,
+  );
+  expect(deps.getRelease.mock.calls[1]).toEqual([fallback, deps.getRelease.mock.calls[0]?.[1]]);
+  expect(updates.state(0).status).toBe("idle");
+  expect(deps.activityFlags).toHaveBeenCalledOnce();
+});
+
+test("opt-out during proxy failure prevents fallback, even after re-enable", async () => {
+  const { updates, deps } = fixture({ platform: "linux" });
+  let fail: (error: Error) => void = () => {};
+  deps.getRelease.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  updates.configure(true);
+  await Promise.resolve();
+  updates.configure(false);
+  updates.configure(true);
+  fail(new Error("timeout"));
+  await vi.waitFor(() => {
+    expect(updates.state(0).status).toBe("available");
+  });
+  expect(deps.getRelease).toHaveBeenCalledTimes(2);
+  expect(
+    deps.getRelease.mock.calls.every(([url]) => url.startsWith("https://foom-term.com/u/v1/")),
+  ).toBe(true);
+});
+
+test("opt-out during activity persistence prevents any request", async () => {
+  const { updates, deps } = fixture();
+  let finish: (flags: string) => void = () => {};
+  deps.activityFlags.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  updates.configure(true);
+  updates.configure(false);
+  finish("?d=1");
+  await Promise.resolve();
+  expect(deps.getRelease).not.toHaveBeenCalled();
+});
+
+test.each(["network failure", "timeout", "HTTP 404", "HTTP 503", "redirect"])(
+  "proxy %s falls back once and upstream failure uses fixed status",
+  async (failure) => {
+    const { updates, deps } = fixture({ platform: "linux" });
+    deps.getRelease.mockRejectedValue(new Error(failure));
+    updates.configure(true);
+    await vi.waitFor(() => {
+      expect(updates.state(0).status).toBe("error");
+    });
+    expect(deps.getRelease.mock.calls.map(([url]) => url)).toEqual([
+      "https://foom-term.com/u/v1/stable/linux/arm64/0.1.0?d=1&w=1&m=1",
+      "https://api.github.com/repos/scott-r-lindsey/foom/releases/latest",
+    ]);
+  },
+);
+
+test("opt-out aborts pending fallback and stops future checks", async () => {
+  const { updates, deps } = fixture({ platform: "linux" });
+  let finish: (value: unknown) => void = () => {};
+  deps.getRelease.mockRejectedValueOnce(new Error("offline")).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  updates.configure(true);
+  await vi.waitFor(() => {
+    expect(deps.getRelease).toHaveBeenCalledTimes(2);
+  });
+  updates.configure(false);
+  expect(deps.getRelease.mock.calls[1]?.[1].aborted).toBe(true);
+  finish({ draft: false, prerelease: false, tag_name: "v9.0.0" });
+  await updates.check();
+  expect(updates.state(0).status).toBe("idle");
+  expect(deps.getRelease).toHaveBeenCalledTimes(2);
+});

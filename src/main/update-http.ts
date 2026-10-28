@@ -7,7 +7,12 @@ export function getUpdateRelease(
   url: string,
   signal: AbortSignal,
 ): Promise<unknown> {
+  const proxy =
+    /^https:\/\/foom-term\.com\/u\/v1\/(?:stable\/(?:darwin|linux)\/(?:arm64|x64)\/\d+\.\d+\.\d+|nightly\/(?:darwin|linux|win32)\/(?:arm64|x64)\/\d+\.\d+\.\d+-nightly\.\d{8}%2B[a-f0-9]{7})(?:\?(?:d=1(?:&w=1)?(?:&m=1)?|w=1(?:&m=1)?|m=1))?$/.test(
+      url,
+    );
   if (
+    !proxy &&
     !/^https:\/\/api\.github\.com\/repos\/scott-r-lindsey\/foom\/releases\/latest$/.test(url) &&
     !/^https:\/\/foom-term\.com\/updates\/nightly\/(?:darwin-(?:arm64|x64)\/latest-mac|(?:linux|win32)-(?:arm64|x64)\/latest)\.json$/.test(
       url,
@@ -31,7 +36,7 @@ export function getUpdateRelease(
         response.on("error", () => {
           reject(new Error("Update check failed"));
         });
-        if (response.statusCode === 404 || response.statusCode === 204) {
+        if ((!proxy && response.statusCode === 404) || response.statusCode === 204) {
           response.resume();
           resolve(null);
           return;
