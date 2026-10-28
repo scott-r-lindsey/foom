@@ -48,6 +48,14 @@ current attachment. Within each controller, switching still serializes detach,
 drain, reset, fit and attach. Settings detaches views without destroying their
 controllers. Hidden terminals keep consuming output in the host.
 
+The live source discards execution, verdict, exit and activity evidence after a
+successful Close and when inventory removes a previously listed session. Events
+waiting for their first inventory are retained for at most 256 session IDs,
+evicting the oldest pending ID first. Unrelated or delayed inventories preserve
+that pending evidence; host-reset and launch-version ordering remain authoritative.
+Each controller retains exit and availability evidence only for its active,
+pending or suspended selection, pruning prior selections when it switches.
+
 Versioned `foom.tiles.v1.<window-id>` localStorage metadata stores the tree, ratios, leaf IDs,
 focus, optional landing-space ID and terminal assignments. Saves use version 2 content records; version 1 session records migrate on restore (see [Multiple windows](windows.md#multiple-windows)). Restore validates untrusted JSON with size, depth,
 node-count and uniqueness bounds; finite ratios strictly between zero and one
