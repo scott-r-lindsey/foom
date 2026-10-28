@@ -40,7 +40,7 @@ test("isolated visible and hidden streaming measurement", async (t) => {
   for (let i = 0; i < 3; i++) await rows.nth(i).click();
   const split = async (tile, count) => {
     await page.getByRole("button", { name: `Tile ${tile} menu`, exact: true }).click();
-    await page.getByRole("menuitem", { name: "Split down", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Split terminal up", exact: true }).click();
     await expect(page.locator(".terminal-tile")).toHaveCount(count);
   };
   await split(3, 4);

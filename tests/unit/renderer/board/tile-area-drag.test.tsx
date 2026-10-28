@@ -75,7 +75,7 @@ test("title drags and keyboard swaps keep controllers attached; Escape and outsi
   expect(focusCounts()).toEqual(beforeCancel);
   drag(row(2), b);
   expect(document.activeElement).toBe(b);
-  expect(views[1]?.open).toHaveBeenLastCalledWith("check");
+  expect(views[0]?.open).toHaveBeenLastCalledWith("check");
   drag(row(3), b, 10, 50);
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(3);
   expect(document.activeElement).toBe(

@@ -17,21 +17,30 @@ remounts surviving leaves. Maximize changes rectangles and opacity
 without changing attachments. Empty leaves render as aria-hidden spaces without
 chrome or DOM focus. Split preserves terminal focus and records the newest space's
 ID as the landing spot; terminal-only tree order supplies numbers and navigation.
-Split offers left, up, right and down, placing the new space first for left/up,
+Split offers left, up, right and down, moving the occupied tile toward the arrow
+and opening new space on the opposite side (space first for right/down),
 with the existing depth and leaf limits. Two pointed 28px D-pads labelled Split
 and Grow replace the four command rows. Their centers are noninteractive glyphs;
-arrow keys move within each pad without adding global shortcuts. Refused arrows
+arrow keys move within each pad without adding global shortcuts. Split accessible
+names and refusal reasons describe the terminal’s movement. Refused arrows
 remain focusable, dimmed with dashed outlines and a reason on hover/focus.
 Grow walks to the nearest split on its axis where the tile is opposite the chosen
 direction, skipping same-axis splits on the wrong side. It absorbs the split only
 if the far side has no occupied tiles, preserving the containing subtree. Otherwise
 it refuses with “Occupied tile to the left/right” or “Occupied tile above/below”.
 No matching split reports “At the left/right/top/bottom edge”.
-Right-clicking an empty space opens a pointer-positioned menu with only the Split
-pad, New shell here and Close space. New shell here uses the validated home-shell
+Right-clicking an empty space opens a pointer-positioned menu with two buttons:
+Split horizontal (side-by-side panes, vertical divider) and
+Split vertical (stacked panes, horizontal divider), followed by New shell here and
+Close space. Each button shows its divider above a centered two-line label, broken
+between Split and the axis. The same depth/leaf limits apply; refused buttons remain
+focusable, dimmed with dashed outlines and a reason on hover/focus.
+New shell here uses the validated home-shell
 command (main chooses the directory), then places the returned request-specific
 terminal ID in that leaf if still empty, falling back to ordinary placement if it
-filled or closed. Tab moves between the pad and commands; leaving the menu dismisses it. Close space removes the empty leaf and gives its area to its sibling, as a
+filled or closed. Tab visits horizontal, vertical, then the commands; leaving the
+menu dismisses it. Close space removes the empty leaf and gives its area to its
+sibling, as a
 collapsed gutter does. Escape and outside clicks dismiss the menu. Spaces remain
 unfocusable with no chrome.
 Gutters clamp occupied sides to 15–85%; empty sides can reach zero and collapse
