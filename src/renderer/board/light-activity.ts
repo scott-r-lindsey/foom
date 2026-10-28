@@ -1,3 +1,4 @@
+import { activityRows, subscribeActivity } from "./activity-index";
 import type { BoardSource } from "./board-source";
 import type { BoardRow } from "./board.d";
 
@@ -75,8 +76,9 @@ type Target = { row: BoardRow; element: HTMLElement; trace?: SVGPathElement | nu
 /** DOM-only activity, owned and disposed by the mounted sidebar or tile. */
 export function subscribeLights(
   source: BoardSource,
-  targets: () => Target[],
+  targets: (rows: ReadonlyMap<string, BoardRow>) => Target[],
   remountRoot?: Node,
+  sessionId?: string,
 ): () => void {
   const meters = new Map<string, { history: LightHistory; rate: number; version: number }>();
   const latest = new Map<string, { rate: number; version: number }>();
@@ -89,11 +91,12 @@ export function subscribeLights(
     const reduced =
       typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const retained = new Set<string>();
+    const rows = activityRows(source);
     for (const [id, rate] of latest) {
-      const row = source.getSnapshot().find((item) => item.id === id);
+      const row = rows.get(id);
       if (!row || row.exited || rate.version !== (row.launchVersion ?? 0)) latest.delete(id);
     }
-    for (const { row, element, trace } of targets()) {
+    for (const { row, element, trace } of targets(rows)) {
       if (!movingLight(row)) {
         if (trace && trace.getAttribute("d") !== "") trace.setAttribute("d", "");
         continue;
@@ -126,13 +129,18 @@ export function subscribeLights(
     last = performance.now();
     timer = window.setTimeout(tick, 50);
   };
-  const off = source.subscribeActivity((batch) => {
-    for (const { id, rate } of batch) {
-      const row = source.getSnapshot().find((item) => item.id === id);
-      if (row && !row.exited) latest.set(id, { rate, version: row.launchVersion ?? 0 });
-    }
-    wake();
-  });
+  const off = subscribeActivity(
+    source,
+    (batch) => {
+      const rows = activityRows(source);
+      for (const { id, rate } of batch) {
+        const row = rows.get(id);
+        if (row && !row.exited) latest.set(id, { rate, version: row.launchVersion ?? 0 });
+      }
+      wake();
+    },
+    sessionId,
+  );
   const offRows = source.subscribe(wake);
   // Filtering and rail/tile layout can remount lights without a source change.
   // Observe structure only; our style/path writes never wake this observer.
