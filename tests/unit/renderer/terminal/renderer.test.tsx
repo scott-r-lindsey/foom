@@ -1448,7 +1448,7 @@ test("persistent controllers bound exit and removal caches across 200 closed ses
         return cache instanceof Set && typeof key === "string" && key.startsWith("cache-session-");
       }),
     ]);
-    expect(Math.max(...[...caches].map((cache) => cache.size))).toBeLessThanOrEqual(2);
+    expect(Math.max(...[...caches].map((cache) => cache.size))).toBe(0);
   } finally {
     mapSpy.mockRestore();
     setSpy.mockRestore();
@@ -1471,5 +1471,29 @@ test("an initial shell launch preserves exit evidence for a queued selection", a
   expect(update).toHaveBeenLastCalledWith(
     expect.objectContaining({ state: "failed", status: "Terminal exited (4)" }),
   );
+  controller.dispose();
+});
+
+test("releasing an exited session discards evidence before an unselected host reset", async () => {
+  const update = vi.fn();
+  const controller = createShell(document.createElement("div"), update, false, undefined, false);
+  await controller.open("resumed");
+  mock.onExit.mock.calls[0]?.[0]("resumed", 4);
+  controller.release("resumed");
+  mock.onTerminalAvailability.mock.calls[0]?.[0]("resumed", true, true);
+  await controller.open("resumed");
+  expect(update).toHaveBeenLastCalledWith(
+    expect.objectContaining({ state: "quiet_ok", status: "Terminal" }),
+  );
+  mock.onInput.mock.calls[0]?.[0]("q");
+  expect(mock.input).toHaveBeenCalledWith("resumed", "q");
+  const pending = controller.open("queued");
+  controller.release("queued");
+  await pending;
+  expect(mock.attach).not.toHaveBeenCalledWith("queued");
+  mock.onTerminalAvailability.mock.calls[0]?.[0]("resumed", false);
+  controller.release("resumed");
+  mock.onTerminalAvailability.mock.calls[0]?.[0]("resumed", true);
+  await controller.open("resumed");
   controller.dispose();
 });

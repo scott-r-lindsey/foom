@@ -140,7 +140,7 @@ export function createShell(
     view.restartDisabled = busy || !exited || (activeId !== undefined && activeId !== shellId);
     publish();
   };
-  const release = (id: string) => {
+  const releaseSelection = (id: string) => {
     if (activeId !== id) return;
     ++request;
     activeId = undefined;
@@ -149,6 +149,16 @@ export function createShell(
     controls();
   };
   let suspended: { id: string; request: number } | undefined;
+  const release = (id: string) => {
+    exits.delete(id);
+    removed.delete(id);
+    if (pendingId === id) {
+      pendingId = undefined;
+      ++request;
+    }
+    if (suspended?.id === id) suspended = undefined;
+    releaseSelection(id);
+  };
   const relevant = (id: string) => id === activeId || id === pendingId || id === suspended?.id;
   const pruneEvents = () => {
     for (const id of exits.keys()) if (!relevant(id)) exits.delete(id);
@@ -166,7 +176,7 @@ export function createShell(
     } else {
       const selected = activeId === id;
       removed.add(id);
-      release(id);
+      releaseSelection(id);
       if (selected) suspended = { id, request };
     }
   });
