@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { readHandoffRequest } from "../../node-common/handoff";
+import { readHandoffRequest } from "../../shared/handoff-validation";
 import { isChildInput } from "../../shared/child-input";
 import { prepareTail } from "../evaluator/terminal-tail";
-import { ControlError, exact, identifier } from "../../node-common/control-validation";
+import { ControlError, exact, identifier } from "../../shared/control-validation";
 import type { Operations } from "./operations";
 import type { Principal } from "./types";
 import { OrchestrationMutations } from "./orchestration-mutations";

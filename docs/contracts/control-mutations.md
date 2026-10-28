@@ -151,3 +151,34 @@ replace this main-owned record through handoff text.
 
 See [manifest expansion and replacement](agent-launch.md#child-model-and-effort-853)
 and [CLI flags](console.md).
+
+
+### Launch failure reasons
+
+`whoami.launchReasons` publishes these fixed codes and descriptions, alongside
+`removalReasons`. Failed launch operations record one of the following; main logs
+one bounded code-only line. No remote text, host output or stderr is returned or
+logged. Ownership/grant refusals retain their existing control error semantics.
+
+| Code | Meaning |
+| --- | --- |
+| `agent_disabled` | Local agent disabled in Settings |
+| `agent_unavailable` | Local agent not installed or discoverable |
+| `remote_agent_unavailable` | Remote agent not installed or discoverable |
+| `remote_host_unreachable` | Remote host unreachable or BatchMode SSH authentication failed |
+| `remote_artifact_mismatch` | Remote platform, application or artifact mismatch |
+| `remote_worktree_unavailable` | Remote checkout missing, changed or not a repository member |
+| `remote_prepare_refused` | Remote host refused preparation |
+| `remote_start_refused` | Remote host refused start |
+| `launch_failed` | Other local launch failure |
+
+Successful `launch` results include `placement: {kind: "local"}` or
+`placement: {kind: "remote", host: SSH_ALIAS}`, also returned by `sessions` and
+`session_state`. The value describes the actual launch and is saved with the row;
+current developer mapping flags never relabel an existing session. Legacy remote
+rows without a recorded alias cannot claim successful remote cleanup.
+
+Closing a dormant remote row reconnects through the bounded agent cleanup protocol
+and removes the remote process and private assets before deleting the local row.
+A failed cleanup retains the row; the close operation and session reason report
+`remote_host_unreachable`. Remote authority and routing remain phase-2 restricted.

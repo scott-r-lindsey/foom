@@ -143,7 +143,7 @@ are refused. Linux requires gzip and standard coreutils; macOS uses shasum when 
 is unavailable.
 
 The wire format is a 4-byte unsigned big-endian byte count followed by UTF-8 JSON
-`{version:1,message:...}`. Frames are capped at 8 MiB before allocation; invalid
+`{version:2,message:...}`. Frames are capped at 8 MiB before allocation; invalid
 lengths, UTF-8, JSON, envelope versions, payloads and foreign IDs close the channel.
 Responses above 65,536 UTF-16 units are transmitted as ordered fragments, each
 with terminal ID, offset and total. The client permits one contiguous response
@@ -159,10 +159,20 @@ normal/alternate buffers, cursor and modes, omitting scrollback from that replay
 Blank visible cells retain their background colors in both buffers, including
 trailing blank rows omitted by the pinned serializer. The daemon's retained
 history is not erased and remains available to tail requests.
-Both peers negotiate the SHA-256 build identity before operations. The shell-only
-protocol permits open, attach/replay, input, resize, theme, acknowledgement, screen,
-tail, stop and close; it cannot create arbitrary commands, send hooks/MCP, or shut
-down the daemon. The daemon chooses its own HOME and environment, and starts an
+Both peers negotiate the SHA-256 build identity before operations. Shell sessions
+permit open, attach/replay, input, resize, theme, acknowledgement, screen,
+tail, stop and close; they cannot create arbitrary commands or shut down the
+daemon. Version 2 also supports the separately authorized [phase-2 agent launch](agent-launch.md#remote-agent-phase-2-755): prepare/start/activate, reduced hooks, typed control calls/replies and validated child input for agent sessions only. Review-enabled remote launches are not supported in phase 2 and fail with
+`remote_review_unsupported`: local HEAD/dirty snapshots and forge observations
+cannot establish what a different remote checkout reviewed. Host-aware review
+snapshots and forge evidence are future work under #756/#757. Every ordinary
+remote child launch captures its authenticated parent generation and launch
+operation, then synchronously rechecks both immediately before `agent-start`.
+Parent exit, revocation, replacement or a non-current operation aborts preparation
+and revokes the prepared endpoint/files. Human remote resume likewise retains
+only the exact live parent generation.
+
+The daemon chooses its own HOME and environment, and starts an
 interactive login shell (`-i -l`): its own `SHELL` if it is an absolute path to an
 existing executable regular file, otherwise the account shell from
 `os.userInfo().shell` under the same validation, finally `/bin/sh` if neither is
@@ -172,7 +182,8 @@ and rejects a backlog above 256 operations. Only the current connection can oper
 on its selected ID. An `open` with an existing ID transfers the session and
 disconnects its prior connection; its only protection is the 0600 socket plus an
 unguessable terminal ID, so IDs must never be exposed to remote processes through
-environment, arguments or files, and future remote agents (#755) must preserve this.
+environment, arguments or files. Phase-2 agents preserve this with separate
+per-launch hook/control credentials and sanitized child identities.
 
 The detached per-user daemon owns PTYs, headless screens and independent parser
 backpressure. It listens only on a 0600 Unix socket `~/.foom-host/host.sock` under
@@ -280,3 +291,22 @@ terminal ID, attachment to that sender and bounded nonempty string, then checks
 the current preference before writing the system clipboard. Foom never reads the
 clipboard through this capability. The middle-click buffer remains separate and
 never supplies clipboard writes. Selection text is never persisted.
+
+
+## Remote child cleanup after restart (#755)
+
+Explicit Close of a remote child uses its saved placement host alias, including
+for a dormant row after hub restart. A fresh bounded SSH connection negotiates
+the existing build identity and sends `agent-close {id, request}`. This operation
+accepts only an agent session, stops and disposes its PTY, revokes its independent
+credentials and removes its private launch directory before acknowledging success.
+It never attaches a view or creates a process. A missing ID succeeds idempotently;
+a shell ID or foreign operation is refused. The ID retains the existing private
+socket/unguessable-ID protection and never enters the agent's environment or argv.
+If connection or cleanup fails, Close retains the row and reports
+`remote_host_unreachable`; session state carries that reason until cleanup succeeds.
+The 24-hour detached reaper remains the unreachable-host backstop.
+
+Agent preparation/start failures return only validated `agent-failed {id, reason}`
+frames using the fixed [launch reason enum](../contracts/control-mutations.md#launch-failure-reasons).
+No host output or stderr enters the diagnostic channel.

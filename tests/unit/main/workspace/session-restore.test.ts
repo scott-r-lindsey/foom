@@ -25,6 +25,7 @@ test("plans only previously running shells and agents with conversations, includ
   delete withoutId.conversationId;
   const entries: StoredSession[] = [
     row,
+    { ...row, id: "remote", remote: true, placement: { kind: "remote", host: "saved-host" } },
     { ...row, id: "codex", agent: "codex" },
     { ...row, id: "agy", agent: "agy" },
     { ...row, id: "shell", agent: "shell", kind: "shell" },

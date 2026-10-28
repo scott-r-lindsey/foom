@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import type { FileHandle } from "node:fs/promises";
-import { ControlError, exact, identifier, object } from "./control-validation";
+import { ControlError, exact, identifier, object } from "../shared/control-validation";
 
 const execute = promisify(execFile);
 // Fixed .NET calls avoid PowerShell module autoloading (PSModulePath can come from pwsh 7).

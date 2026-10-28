@@ -5,7 +5,7 @@ import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { locationId } from "../../../../src/main/control/metadata";
 import { UncertainEffect } from "../../../../src/main/workspace/worktree-outcome";
 import type { Operation } from "../../../../src/main/control/types";
-import { ControlError } from "../../../../src/node-common/control-validation";
+import { ControlError } from "../../../../src/shared/control-validation";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import pluginFixture from "../../../fixtures/agent-plugin.json";
 
@@ -60,6 +60,7 @@ describe("worktrees and children", () => {
       "id-feature",
       "claude",
       undefined,
+      expect.anything(),
     );
     await expect(h.mutate("launch", { worktreeId, agent: "codex" })).rejects.toThrow("conflict");
     await expect(
@@ -78,6 +79,7 @@ describe("worktrees and children", () => {
       "id-prompted",
       "agy",
       "Fix it\nthen test",
+      expect.anything(),
     );
     for (const params of [
       { worktreeId, agent: "bash" },
@@ -160,6 +162,35 @@ describe("worktrees and children", () => {
     await expect(h.mutate("create_worktree", { branch: "d" })).rejects.toThrow("capacity");
   });
 
+  it("retains only the live owning parent for a main-authorized remote resume and enforces the child budget", async () => {
+    const h = harness();
+    const { id } = await h.child("remote");
+    expect(() => {
+      h.orchestration.relaunched(id, "parent");
+    }).toThrow("forbidden");
+    h.exit(id);
+    expect(() => {
+      h.orchestration.relaunched(id, "other-parent");
+    }).toThrow("forbidden");
+    h.orchestration.relaunched(id, "parent");
+    expect(h.orchestration.view(id)).toMatchObject({
+      role: "child",
+      parentId: "parent",
+      takenOver: false,
+    });
+    h.exit(id);
+    h.orchestration.takeOver(id);
+    expect(() => {
+      h.orchestration.relaunched(id, "parent");
+    }).toThrow("forbidden");
+    const next = await h.child("next");
+    h.exit(next.id);
+    h.exit("parent");
+    expect(() => {
+      h.orchestration.relaunched(next.id, "parent");
+    }).toThrow("forbidden");
+  });
+
   it("drops ownership when the human relaunches a child under the same ID", async () => {
     const h = harness();
     const { id } = await h.child("feature");
@@ -176,7 +207,7 @@ describe("worktrees and children", () => {
     h.host.launch.mockRejectedValueOnce(new Error("spawn failed"));
     expect(await h.mutate("launch", { worktreeId: tree.resultId, agent: "claude" })).toMatchObject({
       status: "failed",
-      reason: "error",
+      reason: "launch_failed",
     });
     h.host.launch.mockImplementationOnce(() => {
       h.orchestration.exited("early");
@@ -290,6 +321,7 @@ it("launches a validated manifest provider through the ordinary child authorizat
       expect.any(String),
       manifest.id,
       undefined,
+      expect.anything(),
     );
     replaceConfigProviders([]);
     await expect(

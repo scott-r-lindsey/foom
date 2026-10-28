@@ -1,8 +1,9 @@
+import { remoteHost } from "../../shared/remote-host-protocol";
 import { selectionInput } from "../../node-common/launch-selection";
-import { exact, object } from "../../node-common/control-validation";
+import { exact, object } from "../../shared/control-validation";
 import { formerConfigAgentIds } from "../agents/providers/bundled";
 import { isReviewState } from "../../shared/review-state";
-import { storedHandoffs } from "../../node-common/handoff";
+import { storedHandoffs } from "../../shared/handoff-validation";
 import { builtinAgent, validAgentId } from "../../shared/providers/catalog";
 import { knownAgentId as isAgentId } from "../agents/providers/registry";
 import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
@@ -12,6 +13,21 @@ import { WORKTREE_LIMIT } from "../control/orchestration-limits";
 import type { OwnedWorktree, StoredSession } from "./session-restore.d";
 import type { OrchestrationEntry } from "../../shared/workspace";
 
+function objectPlacement(
+  value: unknown,
+): value is { kind: "local" } | { kind: "remote"; host: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "kind" in value &&
+    (value.kind === "local"
+      ? Object.keys(value).length === 1
+      : value.kind === "remote" &&
+        Object.keys(value).length === 2 &&
+        "host" in value &&
+        remoteHost(value.host))
+  );
+}
 function path(value: unknown): value is string {
   return (
     typeof value === "string" && value.length <= 4096 && isAbsolute(value) && !value.includes("\0")
@@ -42,10 +58,15 @@ export function readSessions(value: unknown): StoredSession[] {
       orchestrator,
       parentId,
       providerOrigin,
+      remote,
+      placement,
       handoffs,
       review,
     } = data;
     if (
+      (placement !== undefined &&
+        (!objectPlacement(placement) || (placement.kind === "remote") !== (remote === true))) ||
+      (remote !== undefined && (remote !== true || agent === "shell" || config || home)) ||
       (providerOrigin !== undefined &&
         (providerOrigin === "bundled"
           ? typeof agent !== "string" || !builtinAgent(agent)
@@ -94,6 +115,8 @@ export function readSessions(value: unknown): StoredSession[] {
         : {}),
       ...(handoffs === undefined ? {} : { handoffs: storedHandoffs(handoffs) }),
       ...(providerOrigin === "config" || providerOrigin === "bundled" ? { providerOrigin } : {}),
+      ...(remote === true ? { remote: true } : {}),
+      ...(objectPlacement(placement) ? { placement } : {}),
       ...(running === undefined ? {} : { running }),
       ...(role === undefined ? {} : { orchestrator: role }),
       ...(parentId === undefined ? {} : { parentId }),
@@ -137,6 +160,8 @@ export class SessionStore {
           branch,
           conversationId,
           providerOrigin,
+          remote,
+          placement,
           home,
           config,
           handoffs,
@@ -161,6 +186,8 @@ export class SessionStore {
           branch,
           conversationId,
           ...(providerOrigin ? { providerOrigin } : {}),
+          ...(remote ? { remote: true } : {}),
+          ...(placement ? { placement } : {}),
         }),
       ),
     );

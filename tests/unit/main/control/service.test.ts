@@ -1,3 +1,4 @@
+import { launchReasons } from "../../../../src/shared/launch-failure";
 import { removalReasons } from "../../../../src/main/workspace/worktree-outcome";
 import { locationId, metadataName } from "../../../../src/main/control/metadata";
 import { basename, join } from "node:path";
@@ -5,7 +6,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import { ControlService } from "../../../../src/main/control/service";
 import { Operations } from "../../../../src/main/control/operations";
-import { ControlError, identifier, object } from "../../../../src/node-common/control-validation";
+import { ControlError, identifier, object } from "../../../../src/shared/control-validation";
 import type { StoredOperation } from "../../../../src/main/control/types";
 
 const repo = join(tmpdir(), "repo");
@@ -43,6 +44,7 @@ describe("control identity and capability checks", () => {
       worktree: locationId(actor.worktree),
       name: metadataName(basename(actor.worktree)),
       removalReasons,
+      launchReasons,
       tools: [
         { name: "whoami", cli: "foom whoami" },
         { name: "sessions", cli: "foom sessions" },

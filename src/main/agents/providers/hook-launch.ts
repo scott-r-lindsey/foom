@@ -1,6 +1,6 @@
 import { prepareV2Hooks } from "./v2-hook-launch";
 import type { ManifestChannel } from "../../../shared/agent-manifest-v2";
-import type { V2HookState } from "./v2-events";
+import type { V2HookState } from "../../../shared/agent-hook-events";
 import { agentProvider } from "./registry";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";

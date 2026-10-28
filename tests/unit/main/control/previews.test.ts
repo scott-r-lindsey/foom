@@ -20,7 +20,7 @@ import type {
   PreviewBackend,
 } from "../../../../src/main/control/previews";
 import type { Principal } from "../../../../src/main/control/types";
-import { ControlError, identifier, object } from "../../../../src/node-common/control-validation";
+import { ControlError, identifier, object } from "../../../../src/shared/control-validation";
 
 class Board implements PreviewBackend {
   landing: string | null = "t2";

@@ -1,3 +1,5 @@
+import { LaunchFailure } from "../../shared/launch-failure";
+import { remotePath } from "../../shared/remote-agent-protocol";
 import { ApplicationError } from "../../shared/application-errors";
 import type { RemoteTarget } from "../../shared/remote-host";
 import { constants } from "node:fs";
@@ -55,7 +57,7 @@ export async function hostArtifact(path: string, expectedSource?: string) {
     typeof value.sha256 !== "string" ||
     !/^[a-f0-9]{64}$/u.test(value.sha256) ||
     !("protocol" in value) ||
-    value.protocol !== 1 ||
+    value.protocol !== 2 ||
     !("size" in value) ||
     value.size !== bytes.length ||
     bytes.length === 0 ||
@@ -177,6 +179,10 @@ export function sshArguments(host: string): string[] {
     "-o",
     "ClearAllForwardings=yes",
     "-o",
+    "ForwardAgent=no",
+    "-o",
+    "ForwardX11=no",
+    "-o",
     "ConnectTimeout=10",
     "--",
     host,
@@ -250,7 +256,9 @@ export async function selectHostArtifact(
     "ssh",
     [...sshArguments(target.host), "uname -s; uname -m"],
     { env: sshEnvironment(), shell: false, timeout: 10000, maxBuffer: 256, encoding: "utf8" },
-  );
+  ).catch(() => {
+    throw new LaunchFailure("remote_host_unreachable");
+  });
   const remote = remotePlatform(stdout);
   const artifact = await hostArtifact(
     target.artifact ?? join(catalog, `${remote.platform}-${remote.arch}`, "foom-host.gz"),
@@ -263,4 +271,39 @@ export async function selectHostArtifact(
   )
     throw new Error("Host application version or platform mismatch");
   return artifact;
+}
+
+/** Explicit one-checkout developer mapping; no renderer/control host selection. */
+export function remoteAgentTarget(
+  argv: readonly string[],
+  checkout: string,
+): { target: RemoteTarget; repository: string; worktree: string } | undefined {
+  const names = [
+    "--remote-agent-spike=",
+    "--remote-agent-artifact=",
+    "--remote-agent-local-checkout=",
+    "--remote-agent-repository=",
+    "--remote-agent-worktree=",
+  ];
+  const values = names.map((name) => argv.filter((arg) => arg.startsWith(name)));
+  if (values.every((entries) => entries.length === 0)) return undefined;
+  if (values.some((entries) => entries.length !== 1))
+    throw new Error("Invalid remote agent mapping");
+  const [host, artifact, local, repository, worktree] = values.map((entries, index) =>
+    entries[0]?.slice(names[index]?.length),
+  );
+  if (
+    !remoteHost(host) ||
+    !artifact ||
+    !isAbsolute(artifact) ||
+    !local ||
+    !isAbsolute(local) ||
+    !repository ||
+    !remotePath(repository) ||
+    !worktree ||
+    !remotePath(worktree)
+  )
+    throw new Error("Invalid remote agent mapping");
+  if (checkout !== local) return undefined;
+  return { target: { host, artifact }, repository, worktree };
 }

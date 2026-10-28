@@ -1,13 +1,14 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import { selectionInput, validateSelection } from "../../node-common/launch-selection";
 import { ApplicationError } from "../../shared/application-errors";
 import { RemovalError } from "../workspace/worktree-outcome";
 import type { RemovalReason } from "../workspace/worktree-outcome";
-import { reviewOptions } from "../../node-common/review";
+import { reviewOptions } from "../../shared/review-validation";
 import { AUTHOR_REVIEW_BRIEF } from "./review-loops";
 import { agentProvider } from "../agents/providers/registry";
 import { createHash } from "node:crypto";
 import { knownAgentId } from "../agents/providers/registry";
-import { ControlError, exact, identifier } from "../../node-common/control-validation";
+import { ControlError, exact, identifier } from "../../shared/control-validation";
 import { locationId, metadataName } from "./metadata";
 import { OrchestrationAuthority } from "./orchestration-authority";
 import { WORKTREE_LIMIT } from "./orchestration-limits";
@@ -32,8 +33,18 @@ function text(value: unknown, bytes: number): string {
 }
 
 function publicOperation(operation: Operation): Operation {
-  const { operationId, action, targetId, resultId, status, createdAt, updatedAt, reason, detail } =
-    operation;
+  const {
+    operationId,
+    action,
+    targetId,
+    resultId,
+    status,
+    createdAt,
+    updatedAt,
+    reason,
+    detail,
+    placement,
+  } = operation;
   return {
     operationId,
     action,
@@ -44,6 +55,7 @@ function publicOperation(operation: Operation): Operation {
     updatedAt,
     reason,
     ...(detail ? { detail } : {}),
+    ...(placement ? { placement } : {}),
   };
 }
 
@@ -154,7 +166,14 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     )
       throw new ControlError("invalid_request");
     if (review) validateSelection(agentProvider(review.agent).model, review);
-    if (review && this.host.reviewAvailable && !(await this.host.reviewAvailable(review.agent)))
+    if (
+      review &&
+      this.host.reviewAvailable &&
+      !(await this.host.reviewAvailable(
+        review.agent,
+        this.parent(actor).worktrees.get(worktreeId)?.path,
+      ))
+    )
       throw new ControlError("invalid_request");
     const prompt =
       params["prompt"] === undefined
@@ -185,6 +204,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     parent.starting++;
     this.note(parent, this.entry(operation, label));
     try {
+      const parentCurrent = this.remoteParentGuard(actor.terminalId);
       const id = await this.host.launch(
         actor.terminalId,
         parent.repository,
@@ -192,18 +212,16 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         tree.identity,
         agent,
         review ? `${AUTHOR_REVIEW_BRIEF}\n\n${prompt ?? "Await your assigned task."}` : prompt,
-        ...(review || selection.model !== undefined || selection.effort !== undefined
-          ? [
-              {
-                selection,
-                ...(review ? { loop: review } : {}),
-                validate: () => {
-                  operations.lookup(actor, { operationId: operation.operationId });
-                  this.parent(actor);
-                },
-              },
-            ]
-          : []),
+        {
+          selection,
+          ...(review ? { loop: review } : {}),
+          validate: () => {
+            parentCurrent();
+            const current = operations.lookup(actor, { operationId: operation.operationId });
+            if (current.status !== "running") throw new ControlError("forbidden");
+            this.parent(actor);
+          },
+        },
       );
       tree.state = "used";
       parent.children.set(id, {
@@ -215,11 +233,32 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       if (review) this.startReview(id, review, actor, operations);
       this.changed();
       this.host.place?.(id, actor.terminalId);
-      return await this.finish(actor, parent, operations, operation, label, "succeeded", id);
+      const placement = this.host.terminals().find((row) => row.id === id)?.placement ?? {
+        kind: "local" as const,
+      };
+      const record = await operations.finish(
+        actor,
+        operation.operationId,
+        "succeeded",
+        "completed",
+        id,
+        placement,
+      );
+      this.note(parent, this.entry(record, label));
+      return record;
     } catch (error) {
-      if (error instanceof ControlError) throw error;
       tree.state = "unused";
-      return await this.finish(actor, parent, operations, operation, label, "failed");
+      const reason =
+        error instanceof LaunchFailure
+          ? error.reason
+          : error instanceof ApplicationError && error.code === "remote-host-unavailable"
+            ? "remote_artifact_mismatch"
+            : "launch_failed";
+      console.error(`Agent launch failed: ${reason}`);
+      if (error instanceof ControlError) throw error;
+      const record = await operations.finish(actor, operation.operationId, "failed", reason);
+      this.note(parent, this.entry(record, label));
+      return record;
     } finally {
       parent.starting--;
       this.childEvents.publish();
@@ -259,7 +298,18 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       );
       if (!closed)
         return await this.finish(actor, parent, operations, operation, label, "declined", id);
-    } catch {
+    } catch (error) {
+      if (error instanceof LaunchFailure) {
+        const record = await operations.finish(
+          actor,
+          operation.operationId,
+          "failed",
+          error.reason,
+          id,
+        );
+        this.note(parent, this.entry(record, label));
+        return record;
+      }
       return await this.finish(actor, parent, operations, operation, label, "failed", id);
     } finally {
       scope.release();

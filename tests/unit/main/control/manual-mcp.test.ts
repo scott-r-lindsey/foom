@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ManualMcp } from "../../../../src/main/control/manual-mcp";
 import { Manual } from "../../../../src/main/control/manual";
 import * as manual from "../../../../src/main/control/manual";
-import { mcpTools, manualTools } from "../../../../src/main/control/mcp-tools";
+import { mcpTools, manualTools } from "../../../../src/shared/control-tools";
 
 let mcp: ManualMcp;
 let session = "";

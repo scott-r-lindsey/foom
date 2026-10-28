@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { OrchestrationHost } from "../../../../src/main/control/orchestration.d";
 import type { ReviewLoops } from "../../../../src/main/control/review-loops";
 import { ReviewEffects } from "../../../../src/main/control/review-effects";
-import { ControlError } from "../../../../src/node-common/control-validation";
+import { ControlError } from "../../../../src/shared/control-validation";
 import { automationFixture } from "./automation-helpers";
 
 function fixture() {

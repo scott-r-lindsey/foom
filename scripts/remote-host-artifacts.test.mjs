@@ -38,7 +38,7 @@ test("catalog packaging validates all native manifests and both hashes before sh
     null,
     { version: "0.2.0" },
     { platform: "win32" },
-    { protocol: 2 },
+    { protocol: 1 },
     { source: "b".repeat(40) },
     { source: "invalid" },
     { source: "development" },

@@ -113,7 +113,7 @@ async function fixture(t, metadata = {}) {
         join(inputs, "manifest.json"),
         JSON.stringify({
           format: 1,
-          protocol: 1,
+          protocol: 2,
           platform,
           arch,
           source: "a".repeat(40),

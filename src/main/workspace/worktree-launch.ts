@@ -1,5 +1,6 @@
-import { remoteSpikeTarget } from "../terminals/remote-bootstrap";
-import { ControlError } from "../../node-common/control-validation";
+import { LaunchFailure } from "../../shared/launch-failure";
+import { remoteAgentTarget, remoteSpikeTarget } from "../terminals/remote-bootstrap";
+import { ControlError } from "../../shared/control-validation";
 import type { AgentId, AgentLaunch } from "../../shared/agents";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
 import type { ConfirmWorkspace, DialogContent } from "../../shared/confirmation";
@@ -80,10 +81,9 @@ export async function launchAgent(
   > = {},
 ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
   return this.withRepository(request.repository, async () => {
-    if (this.enabled[request.agent] === false)
-      throw new Error("This agent is turned off in preflight");
+    if (this.enabled[request.agent] === false) throw new LaunchFailure("agent_disabled");
     // Scan once so launches don't each probe the login shell.
-    await this.scanAgents(false);
+    if (!remoteAgentTarget(process.argv, request.worktree)) await this.scanAgents(false);
     // Look up the branch before spawning, so nothing can fail between spawn and tracking.
     const tree = (await this.deps.worktrees.listWorktrees(request.repository)).find(
       (entry) => entry.path === request.worktree,
@@ -97,6 +97,7 @@ export async function launchAgent(
     const result = await this.agents.launch({
       ...request,
       ...extra,
+      ...(replacement && !this.launched.get(replacement.id)?.remote ? { localOnly: true } : {}),
       defaultArguments,
       ...(replacement
         ? {
@@ -127,6 +128,8 @@ export async function launchAgent(
                 : { ...extra.loop, authorId: result.id, round: 0, phase: "building" as const },
           }
         : {}),
+      ...(result.remote ? { remote: true } : {}),
+      placement: result.placement ?? { kind: "local" },
       ...(result.providerOrigin ? { providerOrigin: result.providerOrigin } : {}),
       startedAt: this.now(),
       launchFlags: [...(result.launchFlags ?? defaultArguments)],
@@ -270,6 +273,8 @@ export async function resumeId(
   const pending = (async () => {
     if (previous) await previous.catch(() => undefined);
     this.known(checkout.repository);
+    if (remoteAgentTarget(process.argv, checkout.worktree))
+      throw new Error("Resume remote children through their local orchestrator");
     await this.deps.worktrees.launchIdentity(checkout.repository, checkout.worktree);
     const scan = await this.scanAgents(false);
     if (
@@ -320,6 +325,10 @@ export async function startExisting(
   authorityIdentity?: string,
   pastedId?: string,
 ): Promise<string | undefined> {
+  const remoteParentGuard =
+    remoteAgentTarget(process.argv, worktree) && control && "parentId" in control
+      ? this.orchestration.remoteParentGuard(control.parentId)
+      : undefined;
   return this.withRepository(repository, async () => {
     const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
     if (!tree) throw new Error("Worktree was removed. Choose another checkout.");
@@ -334,12 +343,18 @@ export async function startExisting(
       if (run !== "shell" && !restoring && !(await this.confirmAgentLaunch(worktree, confirm)))
         return;
       if (run !== "shell") {
-        await this.scanAgents(false);
+        if (!remoteAgentTarget(process.argv, worktree)) await this.scanAgents(false);
         if (replacement) {
-          if (!restoring) this.orchestration.relaunched(replacement.id);
           const old = this.launched.get(replacement.id);
+          if (old?.remote && !remoteAgentTarget(process.argv, worktree))
+            throw new Error("Remote mapping is required to resume this child");
           if (!old || this.executionOwner.view(old.id).exitCode === undefined)
             throw new Error("Session is no longer exited");
+          if (!restoring)
+            this.orchestration.relaunched(
+              replacement.id,
+              old.remote && control && "parentId" in control ? control.parentId : undefined,
+            );
           await this.queues.get(old.id);
           if (!old.dormant) await this.deps.terminals.kill(old.id);
           old.dormant = true;
@@ -361,6 +376,26 @@ export async function startExisting(
               identity,
               replacement,
               {
+                ...(remoteAgentTarget(process.argv, worktree) && control && "parentId" in control
+                  ? {
+                      beforeSpawn: () => {
+                        remoteParentGuard?.();
+                        const parent = this.orchestration.view(control.parentId);
+                        const child = replacement
+                          ? this.orchestration.view(replacement.id)
+                          : undefined;
+                        if (
+                          parent?.role !== "orchestrator" ||
+                          !parent.active ||
+                          (replacement &&
+                            (child?.role !== "child" ||
+                              child.parentId !== control.parentId ||
+                              child.takenOver))
+                        )
+                          throw new Error("Remote child ownership changed");
+                      },
+                    }
+                  : {}),
                 ...(pastedId === undefined
                   ? {}
                   : { conversationId: pastedId, pinConversation: true }),
@@ -374,7 +409,11 @@ export async function startExisting(
             )
           ).id;
         } catch (error) {
-          if (replacement) this.executionOwner.markExited(replacement.id, -1);
+          if (replacement) {
+            this.executionOwner.markExited(replacement.id, -1);
+            if (this.launched.get(replacement.id)?.remote)
+              this.orchestration.exited(replacement.id);
+          }
           this.deps.onChange?.();
           throw error;
         }

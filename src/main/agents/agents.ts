@@ -1,8 +1,12 @@
+import { LaunchFailure } from "../../shared/launch-failure";
+import { ControlError } from "../../shared/control-validation";
+import { remoteAgentTarget } from "../terminals/remote-bootstrap";
+import { launchRemoteChild, type RemoteHooks } from "./remote-launch";
 import { selectedArguments } from "../../node-common/launch-selection";
 import { agentCapabilities } from "../../shared/agent-capabilities";
 import type { DialogContent } from "../../shared/confirmation";
 import type { PreparedLaunch } from "./providers/provider";
-import { matchesArguments, bypassEnvironment } from "./providers/v2-values";
+import { matchesArguments, bypassEnvironment } from "../../shared/agent-launch-values";
 import {
   agentProvider,
   agentProviders,
@@ -12,7 +16,8 @@ import {
 import { AgyPlugin } from "./agy-plugin";
 import { ManualMcp } from "../control/manual-mcp";
 import type { ControlLaunch } from "../control/types";
-import { bypassConsentIdentity, parseAgentArguments } from "./default-arguments";
+import { hasBypassArgument, parseAgentArguments } from "./default-arguments";
+import { bypassConsentIdentity } from "./default-arguments";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -135,6 +140,7 @@ export class AgentService {
     ) => Promise<ControlLaunch>,
     private readonly agyPlugin = new AgyPlugin(),
     private readonly confirmLaunchBypass?: (content: DialogContent) => Promise<boolean>,
+    private readonly remoteHooks?: RemoteHooks,
   ) {}
 
   private ensureOpen(): void {
@@ -237,13 +243,68 @@ export class AgentService {
         ? (request.checkoutIdentity ??
           (await this.worktrees.launchIdentity(request.repository, request.worktree)))
         : undefined;
+    const remote = request.localOnly
+      ? undefined
+      : remoteAgentTarget(process.argv, request.worktree);
+    if (remote) {
+      if (request.loop) throw new ControlError("remote_review_unsupported");
+      if (provider.model.launch.extension || provider.id === "opencode")
+        throw new Error("remote_agent_unsupported");
+      if (hasBypassArgument(request.agent, defaults))
+        throw new Error("Unattended child bypass is unavailable");
+      if (!request.control || !("parentId" in request.control))
+        throw new Error("Remote phase 2 requires a local-orchestrator-owned child");
+      if (!request.beforeSpawn) throw new Error("Remote parent authority is unavailable");
+      const control = await this.prepareControl?.(
+        request.repository,
+        request.worktree,
+        undefined,
+        request.control,
+      );
+      if (!control) throw new Error("Remote control is unavailable");
+      let launched: Awaited<ReturnType<typeof launchRemoteChild>> | undefined;
+      try {
+        launched = await launchRemoteChild(
+          request,
+          remote,
+          defaults,
+          this.hooksEnabled && this.agentHooks[request.agent] !== false,
+          this.terminals,
+          control,
+          async () => {
+            this.ensureOpen();
+            await provider.validate?.();
+            if (
+              agentProvider(request.agent) !== provider ||
+              (await this.worktrees.launchIdentity(request.repository, request.worktree)) !==
+                checkoutIdentity
+            )
+              throw new Error("Worktree or provider changed");
+          },
+          this.remoteHooks,
+        );
+        if (this.earlyExits.has(launched.result.id)) {
+          launched.dispose();
+          if (![...this.launched.values()].includes(request.worktree))
+            this.occupied.delete(request.worktree);
+        } else {
+          this.ensureOpen();
+          this.launched.set(launched.result.id, request.worktree);
+          this.mcpBindings.set(launched.result.id, launched);
+        }
+        return launched.result;
+      } catch (error) {
+        launched?.dispose();
+        control.dispose();
+        throw error;
+      }
+    }
     const scan =
       this.scannedRevision === providerRevision() && this.scanResult
         ? this.scanResult
         : await this.scan();
     const agent = scan.agents.find((entry) => entry.id === request.agent);
-    if (!agent?.path)
-      throw new Error(`${request.agent} is not installed. Rescan after installing it.`);
+    if (!agent?.path) throw new LaunchFailure("agent_unavailable");
     const attach =
       this.hooksEnabled && this.agentHooks[agent.id] !== false && agent.hooks && this.prepareHooks;
     const suppliedBinding = attach ? await attach(agent.id) : undefined;
@@ -341,7 +402,11 @@ export class AgentService {
               ),
             )
           : environment.env;
-      const environmentMatches = bypassEnvironment(provider.model, finalEnvironment);
+      const environmentMatches = bypassEnvironment(
+        provider.model,
+        finalEnvironment,
+        process.platform === "win32",
+      );
       const argumentMatches = provider.model.bypassArguments
         .filter((matcher) => matchesArguments([matcher], args))
         .map((matcher) => JSON.stringify(matcher));

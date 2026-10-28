@@ -649,3 +649,13 @@ test.each([0, 7, -1])(
     expect(send).toHaveBeenCalledExactlyOnceWith("view", "last received screen");
   },
 );
+
+test("cleanup-only remote removal works without a restored client and disposes its connection", async () => {
+  const remote = remoteChild();
+  mock.remote.mockReturnValue(remote);
+  await client.kill("saved-child", "saved-host");
+  expect(mock.remote).toHaveBeenCalled();
+  expect(remote.kill).toHaveBeenCalled();
+  expect(exited).not.toHaveBeenCalled();
+  expect(client.runningCount).toBe(0);
+});

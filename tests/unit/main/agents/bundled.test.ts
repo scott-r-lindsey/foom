@@ -1,4 +1,4 @@
-import { mcpTools } from "../../../../src/main/control/mcp-tools";
+import { mcpTools } from "../../../../src/shared/control-tools";
 import { CONTROL_TOOL_CLASSES } from "../../../../src/shared/control-tool-classes";
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";

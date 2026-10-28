@@ -108,6 +108,19 @@ that cached tools before elevation can use `foom read-handoff` instead. Config-o
 role, not privileges inherited by orchestrators. #67 remote access is out of scope.
 A human CLI grant exposes only its approved operations through the same validators.
 
+The #755 phase-2 exception permits local-orchestrator-owned remote children with
+only handoff, manual and sanitized identity. Remote `launch` requests with
+`review` (or internal review `loop` metadata) fail with the fixed
+`remote_review_unsupported` code before reviewer discovery or remote preparation.
+Local HEAD/dirty snapshots and forge observations are not evidence about a
+mapped remote checkout. Host-aware review snapshots and forge evidence remain
+unsupported future work under #756/#757. Ordinary remote launch authority
+captures the authenticated parent principal/generation and launch operation;
+both must still be current immediately before the hub sends `agent-start`.
+Failure closes the prepared remote channel and revokes its launch files and
+credentials. Human remote resume also requires the exact live parent generation.
+
+
 Reserve the repository orchestrator slot and child slots atomically before async
 work. Count starting and stopping children until exit is confirmed; reject a launch above the configured limit, concurrent second orchestrator, and occupied worktrees. Bound unused
 orchestrator-created worktrees to four. Changing the child limit applies at the

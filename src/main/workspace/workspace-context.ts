@@ -224,7 +224,8 @@ export class WorkspaceContext {
         await deps.terminals.stop(id);
       },
       exited: (id, code) => this.exited(id, code),
-      kill: (id) => deps.terminals.kill(id),
+      kill: (id, host) =>
+        host === undefined ? deps.terminals.kill(id) : deps.terminals.kill(id, host),
       removed: (id) => {
         this.removed(id);
       },
@@ -294,6 +295,16 @@ export class WorkspaceContext {
           async (content) => {
             const approved = await deps.dialog?.(content, this.launchAbort.signal);
             return approved === true && !this.closed;
+          },
+          {
+            bind: (key, id, runtime) => {
+              this.hookKeys.set(key, id);
+              this.executionOwner.attachHooks(id, runtime);
+            },
+            signal: (signal) => this.hook(signal),
+            revoke: (key) => {
+              this.hookKeys.delete(key);
+            },
           },
         );
   }

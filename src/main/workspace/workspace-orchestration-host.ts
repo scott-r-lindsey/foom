@@ -1,4 +1,5 @@
-import { ControlError } from "../../node-common/control-validation";
+import { remoteAgentTarget } from "../terminals/remote-bootstrap";
+import { ControlError } from "../../shared/control-validation";
 import { hasBypassArgument } from "../agents/default-arguments";
 import type { OrchestrationHost } from "../control/orchestration.d";
 import type { OrchestrationHostContext } from "./workspace-capabilities";
@@ -53,10 +54,13 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       caps.launchChild(parentId, repository, worktree, identity, agent, prompt, step),
     reviewSnapshot: (repository, worktree, identity) =>
       reviewSnapshot(caps.deps.worktrees, repository, worktree, identity),
-    reviewAvailable: async (agent) =>
-      (await caps.scanAgents(false)).agents.some(
+    reviewAvailable: async (agent, worktree) => {
+      if (worktree && remoteAgentTarget(process.argv, worktree))
+        throw new ControlError("remote_review_unsupported");
+      return (await caps.scanAgents(false)).agents.some(
         (item) => item.id === agent && item.path !== null && item.resume === true,
-      ),
+      );
+    },
     bypassDefaults: (agent) => hasBypassArgument(agent, caps.defaultArguments[agent] ?? []),
     restoreWorktree: async (repository, path) => {
       if (path === repository) return undefined;

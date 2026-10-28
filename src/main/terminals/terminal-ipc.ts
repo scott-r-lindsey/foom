@@ -25,7 +25,7 @@ export interface TerminalControl
   runningSessions(): readonly { id: string; command: string; cwd: string }[];
   /** Main-only launch: the window may use the new terminal like one it created. */
   create(spec: TerminalSpec): Promise<string>;
-  kill(id: string): Promise<void>;
+  kill(id: string, remoteHost?: string): Promise<void>;
   tail(id: string, lines: number): Promise<string[]>;
   screen(id: string): Promise<{ lines: string[]; title: string; cols?: number; rows?: number }>;
   owns(id: string): boolean;
@@ -325,8 +325,9 @@ export function attachTerminal(
       broadcast("terminal:availability", [id], true, true);
       return id;
     },
-    async kill(id: string) {
-      await manager.kill(id);
+    async kill(id: string, remoteHost?: string) {
+      if (remoteHost === undefined) await manager.kill(id);
+      else await manager.kill(id, remoteHost);
       owned.delete(id);
       running.delete(id);
       attached.delete(id);

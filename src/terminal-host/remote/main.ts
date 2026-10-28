@@ -1,3 +1,6 @@
+import { record } from "../../shared/remote-agent-protocol";
+import { stageRemotePlugin } from "./agent-launch";
+import { observeRemote, remoteCli, remoteMcp } from "./agent-helper";
 import { isSea } from "node:sea";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -10,6 +13,35 @@ import { checkSocket, hostSocket } from "./private-path";
 // Hash the SEA itself: identical application versions with different builds cannot
 // silently attach to each other or replace a daemon with live sessions.
 export function runHost(argv: readonly string[] = process.argv): void {
+  if (argv[2] === "--stage-plugin" && argv.length === 4 && argv[3]) {
+    void stageRemotePlugin(argv[3], homedir())
+      .then((directory) => {
+        process.stdout.write(`${directory}\n`);
+      })
+      .catch(() => {
+        process.stderr.write("Remote plugin staging unavailable\n");
+        process.exitCode = 1;
+      });
+    return;
+  }
+  if (argv[2] === "--observe" || argv[2] === "--mcp" || argv[2] === "--cli") {
+    const mode = argv[2];
+    const work =
+      mode === "--observe"
+        ? observeRemote(argv.slice(3))
+        : mode === "--mcp"
+          ? remoteMcp()
+          : remoteCli(argv.slice(3)).then((value) => {
+              process.stdout.write(`${JSON.stringify(value)}\n`);
+              if (record(value) && typeof value["error"] === "string")
+                process.exitCode = value["error"] === "no_parent" ? 3 : 1;
+            });
+    void work.catch(() => {
+      process.stderr.write("Remote launch request unavailable\n");
+      process.exitCode = 1;
+    });
+    return;
+  }
   const build = createHash("sha256").update(readFileSync(process.execPath)).digest("hex");
   if (argv.length !== 3 || !["--daemon", "--connect"].includes(argv[2] ?? "")) {
     process.stderr.write("Usage: foom-host --daemon|--connect\n");

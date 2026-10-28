@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import { RemovalError } from "./worktree-outcome";
 import { basename } from "node:path";
 import { conversationId } from "../agents/conversation";
@@ -47,7 +48,7 @@ export interface CleanupOwnerDependencies {
   exitCode: (id: string) => number | undefined;
   stop: (id: string) => Promise<void>;
   exited: (id: string, code: number) => Promise<void>;
-  kill: (id: string) => Promise<void>;
+  kill: (id: string, remoteHost?: string) => Promise<void>;
   removed: (id: string) => void;
   prepareWorktreeRemoval?: (worktree: string) => Promise<() => void>;
   closed: () => boolean;
@@ -244,6 +245,19 @@ export class CleanupOwner {
     if (!automatic && (await readChanges()) !== changes) throw new RemovalError("changes_changed");
     const entries = this.deps.terminals().filter((item) => item.worktree === entry.worktree);
     for (const item of entries) {
+      if (item.remote) {
+        const host = item.placement?.kind === "remote" ? item.placement.host : undefined;
+        try {
+          if (!host) throw new LaunchFailure("remote_host_unreachable");
+          await this.deps.kill(item.id, host);
+        } catch {
+          item.remoteCleanup = "unreachable";
+          this.deps.refresh();
+          console.error("Remote child removal failed: remote_host_unreachable");
+          throw new LaunchFailure("remote_host_unreachable");
+        }
+        continue;
+      }
       if (item.dormant) continue;
       await this.deps.stop(item.id);
       await this.deps.exited(item.id, -1);
@@ -288,7 +302,7 @@ export class CleanupOwner {
       release?.();
     }
     for (const item of entries) {
-      if (!item.dormant) await this.deps.kill(item.id);
+      if (!item.remote && !item.dormant) await this.deps.kill(item.id);
       this.deps.removed(item.id);
     }
     return true;

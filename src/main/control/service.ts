@@ -1,3 +1,5 @@
+import { launchReasons } from "../../shared/launch-failure";
+import { remoteChildControl } from "./remote-control";
 import { removalReasons } from "../workspace/worktree-outcome";
 import { reserveRequest } from "./http-limits";
 import { bundledManual } from "./manual";
@@ -10,7 +12,7 @@ import { locationId, metadataName, SessionMetadata } from "./metadata";
 import { basename } from "node:path";
 import type { WorkspaceTerminal } from "../../shared/workspace";
 import { isAbsolute } from "node:path";
-import { ControlError, exact, identifier, object } from "../../node-common/control-validation";
+import { ControlError, exact, identifier, object } from "../../shared/control-validation";
 import type { ControlLaunch, Principal, Role } from "./types";
 import type { Operations } from "./operations";
 import { ORCHESTRATION_METHODS } from "./orchestration";
@@ -105,6 +107,10 @@ export class ControlService {
     const grant: Grant = { digest: digest(token), principal: null, calls: 0 };
     this.grants.set(generation, grant);
     return {
+      remoteCall: remoteChildControl(this, () => {
+        if (!grant.principal) throw new ControlError("unauthorized");
+        return grant.principal;
+      }),
       env: Object.freeze({
         FOOM_CONTROL_TOKEN: token,
         FOOM_CONTROL_INSTANCE: this.instanceId,
@@ -242,6 +248,7 @@ export class ControlService {
           worktree: locationId(actor.worktree),
           name: metadataName(basename(actor.worktree)),
           removalReasons,
+          launchReasons,
           capabilities: this.capabilities(actor),
           tools: this.capabilities(actor).map((name) => ({
             name,

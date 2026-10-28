@@ -1,7 +1,16 @@
+import { isLaunchReason } from "./launch-failure";
+import {
+  remoteAgentSpec,
+  remoteAgentReady,
+  remoteHook,
+  remoteControlResult,
+  record,
+  keys,
+} from "./remote-agent-protocol";
 import type { RemoteRequest, RemoteResponse } from "./remote-host";
 import { hostRequest, hostResponse } from "./terminal-host-protocol";
 
-export const REMOTE_PROTOCOL = 1;
+export const REMOTE_PROTOCOL = 2;
 export const REMOTE_GONE_EXIT_CODE = -1;
 export const MAX_REMOTE_FRAME = 8 * 1024 * 1024;
 // Fragment offsets and totals count UTF-16 units, bounding string storage to 64 MiB.
@@ -29,14 +38,34 @@ function hello(value: object): boolean {
   );
 }
 export function remoteRequest(value: unknown): value is RemoteRequest {
-  if (typeof value !== "object" || value === null) return false;
-  if (!("type" in value)) return false;
+  if (!record(value)) return false;
+  if (typeof value["type"] !== "string") return false;
   if (hello(value)) return true;
-  if (!("id" in value) || !remoteId(value.id)) return false;
-  if (value.type === "open")
+  if (!remoteId(value["id"])) return false;
+  if (value["type"] === "agent-close")
+    return keys(value, ["type", "id", "request"]) && hostRequest({ ...value, type: "kill" });
+  if (value["type"] === "agent-activate" || value["type"] === "agent-start")
+    return keys(value, ["type", "id"]);
+  if (value["type"] === "agent-reply")
+    return (
+      record(value) &&
+      keys(value, ["type", "id", "call", "result"]) &&
+      typeof value["call"] === "number" &&
+      Number.isSafeInteger(value["call"]) &&
+      value["call"] > 0 &&
+      remoteControlResult(value["result"])
+    );
+  if (value["type"] === "agent-open")
+    return (
+      record(value) &&
+      keys(value, ["type", "id", "request", "cols", "rows", "spec"]) &&
+      remoteAgentSpec(value["spec"]) &&
+      remoteRequest({ ...value, type: "open", reattach: false })
+    );
+  if (value["type"] === "open")
     return (
       "reattach" in value &&
-      typeof value.reattach === "boolean" &&
+      typeof value["reattach"] === "boolean" &&
       hostRequest({
         ...value,
         type: "create",
@@ -44,20 +73,39 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
           command: "/bin/sh",
           args: [],
           cwd: "/",
-          cols: "cols" in value ? value.cols : null,
-          rows: "rows" in value ? value.rows : null,
+          cols: "cols" in value ? value["cols"] : null,
+          rows: "rows" in value ? value["rows"] : null,
         },
       })
     );
-  return (
-    value.type !== "create" &&
-    value.type !== "shutdown" &&
-    value.type !== "child-input" &&
-    hostRequest(value)
-  );
+  return value["type"] !== "create" && value["type"] !== "shutdown" && hostRequest(value);
 }
 export function remoteResponse(value: unknown): value is RemoteResponse {
   if (typeof value !== "object" || value === null) return false;
+  if (record(value) && remoteId(value["id"])) {
+    if (value["type"] === "agent-failed")
+      return keys(value, ["type", "id", "reason"]) && isLaunchReason(value["reason"]);
+    if (value["type"] === "agent-prepared") return keys(value, ["type", "id"]);
+    if (value["type"] === "agent-ready")
+      return keys(value, ["type", "id", "ready"]) && remoteAgentReady(value["ready"]);
+    if (value["type"] === "agent-hook")
+      return (
+        keys(value, ["type", "id", "signal"]) &&
+        remoteHook(value["signal"]) &&
+        value["signal"].terminalId === value["id"]
+      );
+    if (value["type"] === "agent-call")
+      return (
+        keys(value, ["type", "id", "call", "method", "params"]) &&
+        typeof value["call"] === "number" &&
+        Number.isSafeInteger(value["call"]) &&
+        value["call"] > 0 &&
+        typeof value["method"] === "string" &&
+        value["method"].length <= 64 &&
+        record(value["params"]) &&
+        new TextEncoder().encode(JSON.stringify(value["params"])).length <= 65536
+      );
+  }
   if ("type" in value && value.type === "open-result")
     return (
       "id" in value &&

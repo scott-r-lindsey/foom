@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { lstat, readFile, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { delimiter, dirname, basename, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
-import { ControlError, exact, object } from "../node-common/control-validation";
+import { ControlError, exact, object } from "../shared/control-validation";
 
 const execute = promisify(execFile);
 const windowsPath = `

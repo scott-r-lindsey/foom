@@ -14,7 +14,7 @@ async function fixture(t, arch = "arm64") {
   await mkdir(inputs);
   const manifest = {
     format: 1,
-    protocol: 1,
+    protocol: 2,
     platform: "darwin",
     arch,
     source,
@@ -55,7 +55,7 @@ test("Darwin input validation rejects missing, corrupt, mismatched and unsafe in
   for (const patch of [
     null,
     { format: 2 },
-    { protocol: 2 },
+    { protocol: 1 },
     { platform: "linux" },
     { arch: "x64" },
     { source: "b".repeat(40) },

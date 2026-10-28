@@ -30,7 +30,7 @@ export async function writeDarwinInputs(directory, bundle, metadata) {
     JSON.stringify({
       ...metadata,
       format: 1,
-      protocol: 1,
+      protocol: 2,
       platform: "darwin",
       nodeVersion: process.version,
       files,
@@ -44,7 +44,7 @@ export async function verifyDarwinInputs(directory, target, version, source) {
   assert.match(source ?? "", /^[a-f0-9]{40}$/, "Invalid input source revision");
   const manifest = JSON.parse(await readFile(join(directory, "manifest.json"), "utf8"));
   assert.equal(manifest?.format, 1, "Unsupported Darwin input format");
-  assert.equal(manifest.protocol, 1, "Input protocol mismatch");
+  assert.equal(manifest.protocol, 2, "Input protocol mismatch");
   assert.equal(`${manifest.platform}-${manifest.arch}`, target, "Input target mismatch");
   assert.equal(manifest.version, version, "Input version mismatch");
   assert.equal(manifest.source, source, "Input source revision mismatch");

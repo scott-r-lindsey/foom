@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { ControlError } from "../../../src/node-common/control-validation";
+import { ControlError } from "../../../src/shared/control-validation";
 import type * as Client from "../../../src/cli/client";
 import type { ConsoleIo } from "../../../src/cli/types";
 vi.mock("../../../src/cli/client", async (importOriginal) => ({

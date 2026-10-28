@@ -1,23 +1,9 @@
 import type { LaunchSelection } from "../shared/agents";
 import type { AgentManifestV2 } from "../shared/agent-manifest-v2";
-import { ControlError } from "./control-validation";
+import { ControlError } from "../shared/control-validation";
 
-/** Transport input is data, never argv, a shell fragment or a config expression. */
-export function selectionInput(data: Record<string, unknown>): LaunchSelection {
-  const result: LaunchSelection = {};
-  for (const field of ["model", "effort"] as const) {
-    const value = data[field];
-    if (value === undefined) continue;
-    if (
-      typeof value !== "string" ||
-      value.trim() !== value ||
-      !/^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$/u.test(value)
-    )
-      throw new ControlError("invalid_request");
-    result[field] = value;
-  }
-  return result;
-}
+import { selectionInput } from "../shared/control-validation";
+export { selectionInput } from "../shared/control-validation";
 
 export function validateSelection(manifest: AgentManifestV2, selection: LaunchSelection): void {
   selectionInput({ ...selection });

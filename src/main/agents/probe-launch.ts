@@ -25,7 +25,7 @@ import type { TerminalSpec } from "../../shared/desktop";
 import { agentProvider } from "./providers/registry";
 import { v2Provider } from "./providers/v2";
 import { readOwnedFile } from "./providers/v2-files";
-import { bypassEnvironment, matchesArguments } from "./providers/v2-values";
+import { bypassEnvironment, matchesArguments } from "../../shared/agent-launch-values";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
 import type { ProbeRequest } from "../../node-common/agent-probe";
 import type { AgentProvider } from "./providers/provider";
@@ -129,7 +129,7 @@ export async function prepareProbe(
 ): Promise<PreparedProbe> {
   await provider.validate?.();
   const launchEnvironment = { ...env, ...TERMINAL_ENVIRONMENT };
-  if (bypassEnvironment(provider.model, launchEnvironment).length)
+  if (bypassEnvironment(provider.model, launchEnvironment, process.platform === "win32").length)
     throw Error("Probe bypass environment refused");
   const command = await executable(provider, launchEnvironment);
   const read = async (flag: string) => {
@@ -216,7 +216,7 @@ export async function prepareProbe(
         layers: [prepared.environment ?? []],
       }).env,
     );
-    if (bypassEnvironment(provider.model, launchEnvironment).length)
+    if (bypassEnvironment(provider.model, launchEnvironment, process.platform === "win32").length)
       throw Error("Probe bypass environment refused");
     if (matchesArguments(provider.model.bypassArguments, prepared.args))
       throw Error("Probe bypass arguments refused");

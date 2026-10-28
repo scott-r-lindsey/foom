@@ -1,3 +1,4 @@
+import type { RemoteTarget } from "../../../../src/shared/remote-host";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -644,6 +645,137 @@ test.each(["legacy", "foreign-request", "ended-first-open"])(
   },
 );
 
+async function remoteAgent() {
+  transport.kill();
+  child = new Child();
+  mock.spawn.mockReturnValue(child);
+  const agent = {
+    spec: {
+      agent: "claude",
+      repository: "/remote/repo",
+      worktree: "/remote/tree",
+      defaults: [],
+      hooks: true,
+    },
+    authorize: vi.fn(() => Promise.resolve()),
+    start: vi.fn(),
+    ready: vi.fn(),
+    hook: vi.fn(() => Promise.resolve()),
+    call: vi.fn(() =>
+      Promise.resolve({ type: "error" as const, error: "phase_2_restricted" as const }),
+    ),
+  };
+  const target: RemoteTarget = { host: "fixture", artifact: "/artifact", agent };
+  transport = new RemoteTransport(target, "0.1.0");
+  transport.on("message", (message) => events.push(message));
+  transport.postMessage(create);
+  await Promise.resolve();
+  child.greet();
+  return {
+    ...agent,
+    activate: () => {
+      target.agent?.activate?.();
+    },
+  };
+}
+async function remoteStarted() {
+  const agent = await remoteAgent();
+  child.message({ type: "agent-prepared", id: "one" });
+  await vi.advanceTimersByTimeAsync(0);
+  child.message({
+    type: "agent-ready",
+    id: "one",
+    ready: { hooks: true, mcp: true, channels: ["lifecycle"] },
+  });
+  child.message({ type: "open-result", id: "one", request: 1, state: "live" });
+  agent.activate();
+  return agent;
+}
+test("remote agent preparation requires fresh main authorization and relays typed calls, hooks, input and activity", async () => {
+  const agent = await remoteStarted();
+  expect(agent.authorize).toHaveBeenCalledOnce();
+  expect(child.messages).toContainEqual({ type: "agent-start", id: "one" });
+  expect(child.messages).toContainEqual(
+    expect.objectContaining({ type: "agent-open", spec: agent.spec }),
+  );
+  expect(JSON.stringify(child.messages)).not.toContain("NEVER SENT");
+  child.message({ type: "agent-call", id: "one", call: 1, method: "sessions", params: {} });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(agent.call).toHaveBeenCalledWith("sessions", {});
+  expect(child.messages).toContainEqual({
+    type: "agent-reply",
+    id: "one",
+    call: 1,
+    result: { type: "error", error: "phase_2_restricted" },
+  });
+  child.message({
+    type: "agent-hook",
+    id: "one",
+    signal: {
+      terminalId: "one",
+      action: "working",
+      signal: "plugin:claude:UserPromptSubmit",
+      channel: "lifecycle",
+      caseId: "UserPromptSubmit",
+      conversationId: "conversation",
+    },
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(agent.hook).toHaveBeenCalledOnce();
+  transport.postMessage({
+    type: "child-input",
+    id: "one",
+    request: 2,
+    input: { kind: "keys", keys: ["y"] },
+  });
+  expect(child.messages).toContainEqual(expect.objectContaining({ type: "child-input" }));
+  child.message({ type: "activity", entries: [{ id: "one", rate: 1 }] });
+  expect(events).toContainEqual({ type: "activity", entries: [{ id: "one", rate: 1 }] });
+  child.message({ type: "activity", entries: [{ id: "other", rate: 1 }] });
+  expect(child.kill).toHaveBeenCalled();
+});
+test("failed main authorization never sends agent-start, and duplicate preparation or ready metadata fails closed", async () => {
+  const agent = await remoteAgent();
+  agent.authorize.mockRejectedValueOnce(new Error("revoked"));
+  child.message({ type: "agent-prepared", id: "one" });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(child.messages).not.toContainEqual({ type: "agent-start", id: "one" });
+  expect(child.kill).toHaveBeenCalled();
+  await remoteAgent();
+  child.message({ type: "agent-prepared", id: "one" });
+  child.message({ type: "agent-prepared", id: "one" });
+  expect(child.kill).toHaveBeenCalled();
+  await remoteStarted();
+  child.message({ type: "agent-ready", id: "one", ready: { hooks: false, mcp: false } });
+  expect(child.kill).toHaveBeenCalled();
+});
+test("remote relay concurrency is bounded and duplicate pending call IDs close the channel", async () => {
+  const agent = await remoteStarted();
+  agent.call.mockImplementation(() => new Promise(() => {}));
+  child.message({ type: "agent-call", id: "one", call: 1, method: "manual", params: {} });
+  child.message({ type: "agent-call", id: "one", call: 1, method: "manual", params: {} });
+  expect(child.kill).toHaveBeenCalled();
+  const next = await remoteStarted();
+  next.call.mockImplementation(() => new Promise(() => {}));
+  for (let call = 1; call <= 5; call++)
+    child.message({ type: "agent-call", id: "one", call, method: "manual", params: {} });
+  expect(next.call).toHaveBeenCalledTimes(4);
+  expect(child.kill).toHaveBeenCalled();
+});
+
+test("final synchronous authority check can revoke a prepared launch before agent-start", async () => {
+  const agent = await remoteAgent();
+  agent.start.mockImplementationOnce(() => {
+    throw new Error("parent replaced");
+  });
+  child.message({ type: "agent-prepared", id: "one" });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(agent.authorize).toHaveBeenCalledOnce();
+  expect(agent.start).toHaveBeenCalledOnce();
+  expect(child.messages).not.toContainEqual({ type: "agent-start", id: "one" });
+  expect(child.kill).toHaveBeenCalled();
+});
+
 test("arbitrary artifact error text cannot select a trusted launch failure", async () => {
   transport.kill();
   mock.artifact.mockRejectedValue(new Error("foom-error:remote-host-unavailable"));
@@ -652,4 +784,34 @@ test("arbitrary artifact error text cannot select a trusted launch failure", asy
   await Promise.resolve();
   expect(bad.failureReason).toBeUndefined();
   expect(bad.kill()).toBe(false);
+});
+
+test("a cleanup-only connection sends bounded agent-close without attaching or creating a PTY", async () => {
+  transport.kill();
+  transport = new RemoteTransport({ host: "fixture", cleanup: true }, "0.1.0");
+  transport.on("message", (message) => events.push(message));
+  transport.postMessage(create);
+  await Promise.resolve();
+  child.greet();
+  expect(child.messages).toContainEqual({ type: "agent-close", id: "one", request: 1 });
+  child.message({ type: "result", id: "one", request: 1, lines: [] });
+  expect(events).toContainEqual({ type: "result", id: "one", request: 1, lines: [] });
+  expect(
+    child.messages.some(
+      (value) =>
+        typeof value === "object" && value !== null && "type" in value && value.type === "open",
+    ),
+  ).toBe(false);
+});
+
+test.each([
+  "remote_agent_unavailable",
+  "remote_worktree_unavailable",
+  "remote_prepare_refused",
+  "remote_start_refused",
+] as const)("preserves only the fixed host failure code %s", async (reason) => {
+  await remoteAgent();
+  child.message({ type: "agent-failed", id: "one", reason });
+  expect(transport.launchFailure?.reason).toBe(reason);
+  expect(events).toContainEqual({ type: "error", id: "one", request: 1 });
 });
