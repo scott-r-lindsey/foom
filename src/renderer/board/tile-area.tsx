@@ -1,3 +1,4 @@
+import type { TerminalFocusRestoration } from "../terminal/terminal-view-source.d";
 import { Tile, position } from "./terminal-tile";
 
 import type { PreviewSummary } from "../../shared/workspace";
@@ -119,7 +120,7 @@ export function TileArea({
   preferences,
   inactive,
   focusRequest,
-  restoreFocusRequest = 0,
+  restoreFocusRequest,
   action,
 }: {
   drag?: TileDrag | undefined;
@@ -135,7 +136,7 @@ export function TileArea({
   preferences: SidebarPreferences;
   inactive: boolean;
   focusRequest: number;
-  restoreFocusRequest?: number;
+  restoreFocusRequest?: TerminalFocusRestoration | undefined;
   action: (tile: string, action: TileAction) => void;
 }) {
   const [lastPreview, setLastPreview] = useState<{

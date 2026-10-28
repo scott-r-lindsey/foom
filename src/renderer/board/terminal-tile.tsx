@@ -24,7 +24,10 @@ import {
 } from "./sidebar-model";
 import { landingSpace } from "./tiles";
 
-import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
+import type {
+  TerminalViewSource,
+  TerminalFocusRestoration,
+} from "../terminal/terminal-view-source.d";
 
 /** Shared title-bar state mark; illustration callers supply no live subscriptions. */
 export function TileLight({
@@ -114,7 +117,7 @@ export function Tile({
   behind,
   inactive,
   focusRequest,
-  restoreFocusRequest = 0,
+  restoreFocusRequest,
   select,
   action,
   layout,
@@ -139,7 +142,7 @@ export function Tile({
   behind: boolean;
   inactive: boolean;
   focusRequest: number;
-  restoreFocusRequest?: number;
+  restoreFocusRequest?: TerminalFocusRestoration | undefined;
   select: () => void;
   action: (action: TileAction) => void;
 }) {
@@ -234,14 +237,15 @@ export function Tile({
     });
   };
   const lastFocusRef = useRef(0);
-  const lastRestoreFocusRef = useRef(0);
+  const lastRestoreFocusRef = useRef<TerminalFocusRestoration>(undefined);
   useEffect(() => {
     const explicit = focusRequest !== lastFocusRef.current;
     if (!explicit && restoreFocusRequest === lastRestoreFocusRef.current) return;
     lastFocusRef.current = focusRequest;
     lastRestoreFocusRef.current = restoreFocusRequest;
     if (focused && !inactive) {
-      if (view && row?.kind !== "sample" && row) view.focus({ restore: !explicit });
+      if (view && row?.kind !== "sample" && row)
+        view.focus(explicit ? undefined : restoreFocusRequest);
       else elementRef.current?.focus();
     }
   }, [focusRequest, restoreFocusRequest, focused, inactive, view, row]);

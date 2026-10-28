@@ -13,6 +13,7 @@ export function createTerminalView(
 ): TerminalViewSource {
   let controller: ReturnType<typeof createShell> | undefined;
   let cancelFocus: (() => void) | undefined;
+  let pendingRestoration: { from: Element | null } | undefined;
   let snapshot: ShellView = {
     status: "Terminal",
     state: "quiet_ok",
@@ -76,28 +77,41 @@ export function createTerminalView(
       // operation reaches the shared attachment queue.
       cancelFocus?.();
       return run(async () => {
+        const before = document.activeElement;
         await controller?.hide();
+        // An earlier queued hide can blur the opener after a later dismissal
+        // requested restoration. Preserve only that implicit body fallback.
+        if (
+          pendingRestoration &&
+          pendingRestoration.from === before &&
+          document.activeElement === document.body
+        )
+          pendingRestoration.from = document.body;
       });
     },
-    focus: ({ restore = false } = {}) => {
+    focus: (restoration) => {
       cancelFocus?.();
       const current = controller;
       const generation = ++focusGeneration;
-      const expected = document.activeElement;
+      const expected = restoration ? { from: restoration.from } : undefined;
+      pendingRestoration = expected;
       let cancelled = false;
       const cancel = () => {
         cancelled = true;
         document.removeEventListener("focusin", cancel, true);
-        if (cancelFocus === cancel) cancelFocus = undefined;
+        if (cancelFocus === cancel) {
+          cancelFocus = undefined;
+          pendingRestoration = undefined;
+        }
       };
       cancelFocus = cancel;
       // A newer focus choice wins even if focus later returns to the opener.
-      if (restore) document.addEventListener("focusin", cancel, true);
+      if (restoration) document.addEventListener("focusin", cancel, true);
       void run(() => {
         if (
           !cancelled &&
           generation === focusGeneration &&
-          (!restore || document.activeElement === expected)
+          (!expected || document.activeElement === expected.from)
         )
           current?.terminal.focus();
         return Promise.resolve();

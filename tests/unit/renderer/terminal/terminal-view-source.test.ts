@@ -142,7 +142,7 @@ test("a newer sidebar focus choice cancels focus queued behind attachment", asyn
   input.focus();
   const attaching = view.open("session");
   await Promise.resolve();
-  view.focus({ restore: true });
+  view.focus({ from: document.activeElement });
   sidebar.focus();
   release();
   await attaching;
@@ -183,7 +183,7 @@ test.each(["unchanged", "round trip", "blur", "hide", "unmount", "new request"])
     input.focus();
     void view.open("session");
     await Promise.resolve();
-    view.focus({ restore: true });
+    view.focus({ from: document.activeElement });
     if (choice === "round trip") {
       other.focus();
       input.focus();
@@ -225,7 +225,7 @@ test("a newer focus request in another tile wins before either queued focus runs
   const second = createTerminalView(schedule);
   first.mount(document.createElement("div"));
   second.mount(document.createElement("div"));
-  first.focus({ restore: true });
+  first.focus({ from: document.activeElement });
   second.focus();
   await queue;
   expect(firstFocus).not.toHaveBeenCalled();
@@ -257,3 +257,78 @@ test("explicit terminal focus completes after the browser's click focus action",
   expect(document.activeElement).toBe(input);
   expect(focus).toHaveBeenCalledOnce();
 });
+
+test("a focus choice before the restoration effect runs also revokes restoration", async () => {
+  const input = document.createElement("textarea");
+  const sidebar = document.createElement("button");
+  document.body.append(input, sidebar);
+  const focus = vi.fn(() => {
+    input.focus();
+  });
+  mock.create.mockReturnValue({ terminal: { focus } });
+  let queue = Promise.resolve();
+  const view = createTerminalView((operation) => {
+    queue = queue.then(operation);
+    return queue;
+  });
+  view.mount(document.createElement("div"));
+  input.focus();
+  const restoration = { from: document.activeElement };
+  sidebar.focus();
+  // React can deliver the tile's effect after the user has made a new choice.
+  view.focus(restoration);
+  await queue;
+  expect(focus).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(sidebar);
+});
+
+test.each([false, true])(
+  "queued modal hide respects a newer sidebar choice: %s",
+  async (newChoice) => {
+    const host = document.createElement("div");
+    const input = document.createElement("textarea");
+    host.append(input);
+    const sidebar = document.createElement("button");
+    document.body.append(host, sidebar);
+    const focus = vi.fn(() => {
+      input.focus();
+    });
+    let release = () => {};
+    const attachment = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const open = vi.fn(() => {
+      host.hidden = false;
+      return Promise.resolve();
+    });
+    open.mockImplementationOnce(() => attachment);
+    mock.create.mockReturnValue({
+      open,
+      hide: () => {
+        host.hidden = true;
+        input.blur();
+        return Promise.resolve();
+      },
+      terminal: { focus },
+    });
+    let queue = Promise.resolve();
+    const view = createTerminalView((operation) => {
+      queue = queue.then(operation);
+      return queue;
+    });
+    view.mount(host);
+    void view.open("session");
+    await Promise.resolve();
+    input.focus();
+    // Settings opens and closes while the initial attachment is still held.
+    void view.hide();
+    void view.open("session");
+    const restoration = { from: document.activeElement };
+    if (newChoice) sidebar.focus();
+    view.focus(restoration);
+    release();
+    await queue;
+    expect(document.activeElement).toBe(newChoice ? sidebar : input);
+    expect(focus).toHaveBeenCalledTimes(newChoice ? 0 : 1);
+  },
+);
