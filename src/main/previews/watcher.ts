@@ -15,6 +15,15 @@ export class PreviewWatcher {
   get count(): number {
     return this.directories.size;
   }
+  /** Drop the previous load's dependencies and pending notifications. */
+  beginGeneration(): void {
+    clearTimeout(this.trailing);
+    clearTimeout(this.maximum);
+    this.trailing = undefined;
+    this.maximum = undefined;
+    for (const { watch } of this.directories.values()) watch.close();
+    this.directories.clear();
+  }
   record(file: string): void {
     if (this.closed || !inside(this.root, file, path.sep)) return;
     let directory = path.dirname(file);
@@ -43,10 +52,12 @@ export class PreviewWatcher {
     try {
       const names = new Set([name]);
       const watch = fs.watch(real, { recursive: false }, (_event, filename) => {
+        if (this.directories.get(real)?.names !== names) return;
         if (filename === null || names.has(filename)) this.schedule();
       });
       this.directories.set(real, { names, watch });
       watch.on("error", () => {
+        if (this.directories.get(real)?.names !== names) return;
         watch.close();
         this.directories.delete(real);
         this.schedule();
@@ -70,10 +81,7 @@ export class PreviewWatcher {
   };
   close(): void {
     this.closed = true;
-    clearTimeout(this.trailing);
-    clearTimeout(this.maximum);
-    for (const { watch } of this.directories.values()) watch.close();
-    this.directories.clear();
+    this.beginGeneration();
   }
 }
 
