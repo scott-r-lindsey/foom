@@ -66,7 +66,10 @@ export function RowMenu({
   nested,
   bottomAligned = false,
   leading,
+  dismissOnAnchor = false,
 }: {
+  /** Context menus on unfocusable regions also dismiss when that region is clicked. */
+  dismissOnAnchor?: boolean;
   leading?: ReactNode;
   bottomAligned?: boolean;
   /** Reposition rather than close when the window resizes, as interface size steps do. */
@@ -180,7 +183,7 @@ export function RowMenu({
         event.target instanceof Node &&
         !ref.current?.contains(event.target) &&
         !inSubmenu(event.target) &&
-        !anchor.contains(event.target) &&
+        (dismissOnAnchor || !anchor.contains(event.target)) &&
         !(isPanel && anchor.closest(".tree-row, .board-row")?.contains(event.target))
       )
         close();
@@ -223,7 +226,7 @@ export function RowMenu({
       document.removeEventListener("scroll", scroll, true);
       window.removeEventListener("resize", close);
     };
-  }, [anchor, close, isPanel, keepOnResize, isNested, bottomAligned]);
+  }, [anchor, close, isPanel, keepOnResize, isNested, bottomAligned, dismissOnAnchor]);
   const openSub = (index: number, item: HTMLButtonElement, focus: boolean) => {
     setSub((current) =>
       current?.index === index && (current.focus || !focus)

@@ -367,6 +367,9 @@ test("empty-space menu splits, closes, dismisses and launches through the home-s
   fireEvent.pointerDown(document.body);
   expect(screen.queryByRole("menu", { name: "Empty space" })).toBeNull();
   open();
+  fireEvent.pointerDown(space());
+  expect(screen.queryByRole("menu", { name: "Empty space" })).toBeNull();
+  open();
   fireEvent.click(screen.getByRole("menuitem", { name: "Split up" }));
   expect(screen.container.querySelectorAll('[data-empty="true"]')).toHaveLength(2);
   open();

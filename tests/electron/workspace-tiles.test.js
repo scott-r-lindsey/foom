@@ -1017,6 +1017,9 @@ test("directional pads and empty-space menu split, grow, launch and close", {
     await expect(menu).toHaveCount(0);
   }
   await spaces.first().click({ button: "right" });
+  await spaces.first().click({ position: { x: 10, y: 10 } });
+  await expect(page.getByRole("menu", { name: "Empty space", exact: true })).toHaveCount(0);
+  await spaces.first().click({ button: "right" });
   await page.getByRole("menuitem", { name: "Split left", exact: true }).click();
   await expect(spaces).toHaveCount(2);
   await spaces.first().click({ button: "right" });
@@ -1033,4 +1036,27 @@ test("directional pads and empty-space menu split, grow, launch and close", {
   await expect(page.locator(".board-row")).toHaveCount(2);
   await page.getByRole("button", { name: "Tile 2 menu", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "Grow up", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .webContents.setZoomFactor(3);
+  });
+  await expect.poll(() => page.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(600);
+  await page.getByRole("button", { name: "Tile 2 menu", exact: true }).press("Enter");
+  const narrow = page.getByRole("dialog", { name: "Tile 2 menu", exact: true });
+  await expect
+    .poll(() =>
+      narrow.evaluate((panel) => {
+        const commands = panel.querySelector(".row-menu-items")?.getBoundingClientRect();
+        const facts = panel.querySelector(".panel-facts")?.getBoundingClientRect();
+        return Boolean(commands && facts && facts.top >= commands.bottom - 1);
+      }),
+    )
+    .toBe(true);
+  await expect(narrow.getByRole("menuitem", { name: "Split right", exact: true })).toHaveCSS(
+    "width",
+    "28px",
+  );
+  await narrow.press("Escape");
 });

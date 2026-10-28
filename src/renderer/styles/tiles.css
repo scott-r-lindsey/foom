@@ -508,6 +508,11 @@
 .pad-direction:focus-within .pad-reason {
   display: block;
 }
-.sidebar-panel:has(.tile-pads) .panel-body {
-  grid-template-columns: 254px minmax(0, 1fr);
+@media (min-width: 601px) {
+  .sidebar-panel:has(.tile-pads) .panel-body {
+    grid-template-columns: 254px minmax(0, 1fr);
+  }
+}
+.app-menu:has(> .row-menu-items > .tile-pads) {
+  min-width: min(250px, calc(100vw - 16px));
 }
