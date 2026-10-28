@@ -10,7 +10,7 @@ import {
 } from "../../../src/node-common/probe-captures";
 import blocked from "../../fixtures/agent-captures/blocked.json";
 import type { AgentRule } from "../../../src/main/evaluator/agent-rule-types";
-import { object } from "../../../src/node-common/control-validation";
+import { object } from "../../../src/shared/control-validation";
 import { validateConfig } from "../../../src/cli/config";
 import { OWNED_FILES } from "../../../src/main/config/layout";
 const roots: string[] = [];

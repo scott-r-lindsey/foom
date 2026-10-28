@@ -43,7 +43,7 @@ async function fixture() {
   const manifest = {
     version: "0.1.0",
     source: "a".repeat(40),
-    protocol: 1,
+    protocol: 2,
     platform: "linux",
     arch: "x64",
     size: bytes.length,
@@ -85,7 +85,7 @@ test("uses bounded SSH discovery and a fixed catalog path, validates version and
   );
   mock.failure = true;
   await expect(selectHostArtifact(target, "0.1.0", f.root, f.metadata)).rejects.toThrow(
-    "probe failed",
+    "unreachable",
   );
   await expect(
     selectHostArtifact({ host: "-oProxyCommand=id" }, "0.1.0", f.root, f.metadata),

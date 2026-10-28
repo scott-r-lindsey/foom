@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ControlError, exact, object } from "../../node-common/control-validation";
+import { ControlError, exact, object } from "../../shared/control-validation";
 
 /** UTF-16 code units; JSON escaping still leaves the complete response below 64 KiB. */
 export const MANUAL_PAGE_SIZE = 4096;

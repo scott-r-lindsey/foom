@@ -1,7 +1,7 @@
 import { StringDecoder } from "node:string_decoder";
 import { request } from "node:http";
 import { endpoint } from "./client";
-import { object } from "../node-common/control-validation";
+import { object } from "../shared/control-validation";
 import type { ConsoleIo } from "./types";
 
 /** No discovery or pairing: this transport is available only to a launching session. */

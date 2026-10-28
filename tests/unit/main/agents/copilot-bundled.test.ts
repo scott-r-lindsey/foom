@@ -12,8 +12,8 @@ import {
   hasBypassArgument,
   parseAgentArguments,
 } from "../../../../src/main/agents/default-arguments";
-import { bypassEnvironment } from "../../../../src/main/agents/providers/v2-values";
-import { reduceV2 } from "../../../../src/main/agents/providers/v2-events";
+import { bypassEnvironment } from "../../../../src/shared/agent-launch-values";
+import { reduceV2 } from "../../../../src/shared/agent-hook-events";
 import { prepareHookLaunch } from "../../../../src/main/agents/providers/hook-launch";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
 import { detectAgent } from "../../../../src/main/evaluator/agent-rules";

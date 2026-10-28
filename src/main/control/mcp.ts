@@ -1,11 +1,11 @@
 import { ManualSectionError } from "./manual";
-import { mcpTools } from "./mcp-tools";
+import { mcpTools } from "../../shared/control-tools";
 import { agentProviders } from "../agents/providers/registry";
 import { randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import type { ControlService } from "./service";
 import type { Principal } from "./types";
-import { ControlError, exact, object } from "../../node-common/control-validation";
+import { ControlError, exact, object } from "../../shared/control-validation";
 
 const versions = ["2025-03-26", "2025-06-18", "2025-11-25"];
 const REFUSED =

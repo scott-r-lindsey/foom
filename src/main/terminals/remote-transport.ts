@@ -1,3 +1,5 @@
+import { LaunchFailure } from "../../shared/launch-failure";
+import { remoteControlResult } from "../../shared/remote-agent-protocol";
 import { ApplicationError } from "../../shared/application-errors";
 import { EventEmitter } from "node:events";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -27,6 +29,7 @@ type Connection = {
 export class RemoteTransport extends EventEmitter {
   private connection: Connection | undefined;
   private artifactUnavailable = false;
+  launchFailure: LaunchFailure | undefined;
 
   /** Only a local sealed-metadata rejection may select this trusted reason. */
   get failureReason(): "remote-host-unavailable" | undefined {
@@ -54,6 +57,12 @@ export class RemoteTransport extends EventEmitter {
   ) {
     super();
     if (!remoteHost(target.host)) throw new Error("Invalid SSH host");
+    if (target.agent)
+      target.agent.activate = () => {
+        if (!this.session || !this.ready || this.closed)
+          throw new Error("Remote launch unavailable");
+        this.send({ type: "agent-activate", id: this.session.id });
+      };
     void selectHostArtifact(target, expectedVersion)
       .then((artifact) => {
         if (this.closed) return;
@@ -63,10 +72,34 @@ export class RemoteTransport extends EventEmitter {
         this.connect();
       })
       .catch((error: unknown) => {
+        this.launchFailure =
+          error instanceof LaunchFailure ? error : new LaunchFailure("remote_artifact_mismatch");
         this.artifactUnavailable =
           error instanceof ApplicationError && error.code === "remote-host-unavailable";
         this.kill();
       });
+  }
+  private openRequest(request: number, reattach: boolean): RemoteRequest {
+    const session = this.session;
+    if (!session) throw new Error("Remote session unavailable");
+    if (this.target.cleanup) return { type: "agent-close", id: session.id, request };
+    return this.target.agent && !reattach
+      ? {
+          type: "agent-open",
+          id: session.id,
+          request,
+          cols: session.spec.cols,
+          rows: session.spec.rows,
+          spec: this.target.agent.spec,
+        }
+      : {
+          type: "open",
+          id: session.id,
+          request,
+          cols: session.spec.cols,
+          rows: session.spec.rows,
+          reattach,
+        };
   }
   private send(message: RemoteRequest): void {
     const connection = this.connection;
@@ -112,10 +145,13 @@ export class RemoteTransport extends EventEmitter {
       }, 1000);
       if (!connection.exited) signal("SIGTERM");
     }
+    if (!this.opened && reason !== "dispose")
+      this.launchFailure ??= new LaunchFailure("remote_host_unreachable");
     for (const [request, id] of pending) this.emit("message", { type: "error", request, id });
     if (reason === "dispose" || this.closed) return;
     // Reserve one of five reconnect attempts exactly once, independently of close.
     if (!this.opened || this.retries >= 5) {
+      this.launchFailure ??= new LaunchFailure("remote_host_unreachable");
       this.kill();
       return;
     }
@@ -160,6 +196,10 @@ export class RemoteTransport extends EventEmitter {
     let uploading = false;
     const frames = new RemoteFrames();
     const responses = new RemoteMessages();
+    const agentCalls = new Set<number>();
+    let hookEvents = 0;
+    let agentReady = false;
+    let agentPrepared = false;
     const deadline = setTimeout(() => {
       this.retireConnection(connection, "failure");
     }, 120000);
@@ -210,24 +250,83 @@ export class RemoteTransport extends EventEmitter {
               if (this.opened) {
                 this.restoring = request;
               }
-              this.send({
-                type: "open",
-                id: session.id,
-                request,
-                cols: session.spec.cols,
-                rows: session.spec.rows,
-                reattach: this.opened,
-              });
+              this.send(this.openRequest(request, this.opened));
             }
             return;
           }
-          if (
-            value.type === "hello" ||
-            value.type === "activity" ||
-            !this.session ||
-            value.id !== this.session.id
-          )
+          if (value.type === "agent-failed") {
+            if (!this.target.agent || value.id !== this.session?.id || this.opened)
+              throw new Error("Unexpected failure");
+            this.launchFailure = new LaunchFailure(value.reason);
+            this.retireConnection(connection, "failure");
+            return;
+          }
+          if (value.type === "activity") {
+            if (!this.session || value.entries.some((entry) => entry.id !== this.session?.id))
+              throw new Error("Foreign activity");
+            this.emit("message", value);
+            return;
+          }
+          if (value.type === "hello" || !this.session || value.id !== this.session.id)
             throw new Error("Foreign remote response");
+          if (
+            value.type === "agent-prepared" ||
+            value.type === "agent-ready" ||
+            value.type === "agent-hook" ||
+            value.type === "agent-call"
+          ) {
+            const agent = this.target.agent;
+            if (!agent) throw new Error("Unexpected remote agent event");
+            if (value.type === "agent-prepared") {
+              if (this.opened || agentPrepared) throw new Error("Unexpected remote preparation");
+              agentPrepared = true;
+              void agent
+                .authorize()
+                .then(() => {
+                  if (!connection.dead && !this.closed && this.connection === connection) {
+                    agent.start();
+                    this.send({ type: "agent-start", id: value.id });
+                  }
+                })
+                .catch(() => {
+                  this.retireConnection(connection, "failure");
+                });
+            } else if (value.type === "agent-ready") {
+              if (!this.opened && !agentPrepared)
+                throw new Error("Remote spawn was not authorized");
+              if (agentReady) throw new Error("Repeated remote agent metadata");
+              agentReady = true;
+              agent.ready(value.ready);
+            } else if (value.type === "agent-hook") {
+              if (!agentReady || ++hookEvents > 256)
+                throw new Error("Remote hook backlog exceeded");
+              void Promise.resolve(agent.hook(value.signal))
+                .catch(() => {
+                  this.retireConnection(connection, "failure");
+                })
+                .finally(() => {
+                  hookEvents--;
+                });
+            } else {
+              if (!agentReady || agentCalls.size >= 4 || agentCalls.has(value.call))
+                throw new Error("Remote relay backlog exceeded");
+              agentCalls.add(value.call);
+              void agent
+                .call(value.method, value.params)
+                .then((result) => {
+                  if (connection.dead || this.closed || this.connection !== connection) return;
+                  if (!remoteControlResult(result)) throw new Error("Invalid relay result");
+                  this.send({ type: "agent-reply", id: value.id, call: value.call, result });
+                })
+                .catch(() => {
+                  this.retireConnection(connection, "failure");
+                })
+                .finally(() => {
+                  agentCalls.delete(value.call);
+                });
+            }
+            return;
+          }
           if (value.type === "open-result") {
             if (value.request === this.restoring) {
               if (value.state !== "live") {
@@ -278,7 +377,7 @@ export class RemoteTransport extends EventEmitter {
               }
               return;
             }
-            if (!this.opened && value.request === this.session.request)
+            if (!this.opened && value.request === this.session.request && !this.target.cleanup)
               throw new Error("Invalid initial open result");
             if (value.request >= this.internal) return;
             if (!this.pending.delete(value.request)) return;
@@ -335,7 +434,7 @@ export class RemoteTransport extends EventEmitter {
         ...(message.theme ? { theme: message.theme } : {}),
       };
     } else {
-      if (message.id !== this.session?.id || message.type === "child-input")
+      if (message.id !== this.session?.id || (message.type === "child-input" && !this.target.agent))
         throw new Error("Unsupported remote operation");
       if (message.type === "attach") this.attachment = message;
       if (message.type === "detach") this.attachment = undefined;
@@ -348,18 +447,7 @@ export class RemoteTransport extends EventEmitter {
     }
     this.pending.set(message.request, message.id);
     if (this.ready)
-      this.send(
-        message.type === "create"
-          ? {
-              type: "open",
-              id: message.id,
-              request: message.request,
-              cols: message.spec.cols,
-              rows: message.spec.rows,
-              reattach: false,
-            }
-          : message,
-      );
+      this.send(message.type === "create" ? this.openRequest(message.request, false) : message);
   }
   kill(): boolean {
     if (this.closed) return false;

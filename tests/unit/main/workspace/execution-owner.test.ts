@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 import piModelError from "../../../fixtures/agent-detection/pi-model-error.json";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
-import { reduceV2 } from "../../../../src/main/agents/providers/v2-events";
+import { reduceV2 } from "../../../../src/shared/agent-hook-events";
 import { V2ExecutionHooks, V2Health } from "../../../../src/main/agents/providers/v2-health";
 import { VerdictLog } from "../../../../src/main/evaluator/verdict-log";
 import { isReply } from "../../../../src/main/terminals/terminal-reports";

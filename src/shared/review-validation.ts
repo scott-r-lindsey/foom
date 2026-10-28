@@ -1,7 +1,6 @@
-import { selectionInput } from "./launch-selection";
-import type { ReviewOptions, ReviewVerdict } from "../shared/review";
-import { validAgentId } from "../shared/providers/catalog";
-import { ControlError, exact, object } from "./control-validation";
+import type { ReviewOptions, ReviewVerdict } from "./review";
+import { validAgentId } from "./providers/catalog";
+import { ControlError, exact, object, selectionInput } from "./control-validation";
 
 export function reviewOptions(value: unknown): ReviewOptions {
   const data = object(value);
@@ -38,7 +37,7 @@ function note(value: unknown, bytes: number): string {
   if (
     typeof value !== "string" ||
     !value.trim() ||
-    Buffer.byteLength(value) > bytes ||
+    new TextEncoder().encode(value).length > bytes ||
     /[\p{Cc}\p{Cf}]/u.test(value)
   )
     throw new ControlError("invalid_request");
@@ -55,7 +54,7 @@ export function reviewVerdict(value: unknown): ReviewVerdict {
     !Array.isArray(findings) ||
     findings.length < 1 ||
     findings.length > 10 ||
-    Buffer.byteLength(JSON.stringify(data)) > 8192
+    new TextEncoder().encode(JSON.stringify(data)).length > 8192
   )
     throw new ControlError("invalid_request");
   return {

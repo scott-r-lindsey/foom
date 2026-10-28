@@ -14,7 +14,7 @@ import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { v2Provider } from "../../../../src/main/agents/providers/v2";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import data from "../../../../src/shared/bundled-agents/pi.json";
-import { reduceV2 } from "../../../../src/main/agents/providers/v2-events";
+import { reduceV2 } from "../../../../src/shared/agent-hook-events";
 
 const conversationId = "12345678-1234-4567-8910-123456789abc";
 const env = {

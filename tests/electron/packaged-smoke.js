@@ -88,7 +88,7 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     const compressed = readFileSync(path.join(directory, "foom-host.gz"));
     assert.equal(manifest.version, require("../../package.json").version);
     assert.equal(`${manifest.platform}-${manifest.arch}`, target);
-    assert.equal(manifest.protocol, 1);
+    assert.equal(manifest.protocol, 2);
     assert.equal(manifest.source, metadata.source);
     assert.equal(compressed.length, manifest.gzipSize);
     assert.equal(createHash("sha256").update(compressed).digest("hex"), manifest.gzipSha256);

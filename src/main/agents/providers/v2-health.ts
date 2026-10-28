@@ -121,7 +121,7 @@ export class V2ExecutionHooks {
   constructor(
     readonly model: AgentManifestV2,
     readonly channels: ReadonlyMap<string, unknown>,
-    readonly health: V2Health,
+    readonly health: Pick<V2Health, "get" | "set" | "begin" | "flush">,
     private readonly launch = health.begin(),
   ) {}
   required(): boolean {

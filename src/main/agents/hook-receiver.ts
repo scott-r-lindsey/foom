@@ -1,6 +1,6 @@
 import { probeHookEvent, type ProbeHookObserver } from "./probe-events";
 import type { ManifestChannel } from "../../shared/agent-manifest-v2";
-import type { V2HookState } from "./providers/v2-events";
+import type { V2HookState } from "../../shared/agent-hook-events";
 import { agentProvider } from "./providers/registry";
 import { reduceEvent, identifier } from "./providers/hook-events";
 import type { HookSession as Session } from "./providers/hook-events";

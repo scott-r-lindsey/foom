@@ -2,6 +2,9 @@
 export function orderedObserverFiles(): Record<string, string> {
   return {
     "observer.sh": `#!/bin/sh
+if [ -n "$FOOM_REMOTE_HELPER" ] && [ -n "$FOOM_REMOTE_SOCKET" ]; then
+  exec "$FOOM_REMOTE_HELPER" --observe lifecycle stdin empty-json-first ordered "$@"
+fi
 printf '{}\\n'
 [ -n "$FOOM_HOOK_URL" ] && [ -n "$FOOM_SESSION" ] && [ -n "$FOOM_TOKEN" ] || exit 0
 case "$1" in PreInvocation|PostToolUse|Stop) ;; *) exit 0 ;; esac

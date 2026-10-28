@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import type { AgentId, AgentLaunched } from "../../shared/agents";
@@ -141,6 +142,9 @@ export async function sidebarCommand(
           ? { conversationId: entry.conversationId }
           : {}),
       };
+      const remoteRole = entry.remote ? this.orchestration.view(entry.id) : undefined;
+      if (entry.remote && (remoteRole?.role !== "child" || remoteRole.takenOver))
+        throw new Error("Remote phase 2 requires a local-orchestrator-owned child");
       if (entry.config) await this.startConfig(entry.agent, replacement);
       else
         await this.startExisting(
@@ -149,6 +153,7 @@ export async function sidebarCommand(
           entry.agent,
           confirm,
           replacement,
+          remoteRole?.role === "child" ? { parentId: remoteRole.parentId } : undefined,
         );
     } finally {
       this.busySessions.delete(entry.id);
@@ -181,7 +186,7 @@ export async function sidebarCommand(
       else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
     }
     const identity =
-      command.kind === "close" && entry
+      command.kind === "close" && entry && !entry.home && !entry.config
         ? this.deps.worktrees.reviewIdentity(entry.repository, entry.worktree)
         : undefined;
     if (entry && identity !== undefined) {
@@ -211,7 +216,18 @@ export async function sidebarCommand(
       );
       return;
     }
-    if (!entry?.dormant) await this.deps.terminals.kill(command.id);
+    if (entry?.remote) {
+      const host = entry.placement?.kind === "remote" ? entry.placement.host : undefined;
+      if (!host) throw new Error("Remote host placement is unavailable");
+      try {
+        await this.deps.terminals.kill(command.id, host);
+      } catch {
+        entry.remoteCleanup = "unreachable";
+        this.refresh();
+        console.error("Remote child close failed: remote_host_unreachable");
+        throw new LaunchFailure("remote_host_unreachable");
+      }
+    } else if (!entry?.dormant) await this.deps.terminals.kill(command.id);
     this.removed(command.id);
     return;
   }

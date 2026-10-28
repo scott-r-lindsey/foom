@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { Workspace } from "../../../../src/main/workspace/workspace";
-import { agents, deps, launched, repo, scan, start, tree } from "./workspace-fixture";
+import { agents, configDep, deps, launched, repo, scan, start, tree } from "./workspace-fixture";
 
 test("sidebar inventory includes empty trees and the actual shell; launches use registered location identities", async () => {
   const workspace = new Workspace(deps);
@@ -119,6 +119,45 @@ test("stop preserves a session and Close only removes exited sessions, never a w
   await expect(
     workspace.sidebarCommand({ kind: "restart", id: "foreign" }, confirm),
   ).rejects.toThrow("Unknown session");
+});
+
+test.each(["home", "config-shell", "config-agent"] as const)(
+  "%s closes without querying Git review ownership",
+  async (location) => {
+    deps.config = configDep();
+    const review = vi.mocked(deps.worktrees.reviewIdentity).mockImplementation(() => {
+      throw new Error("Repository has not been added");
+    });
+    const workspace = new Workspace(deps);
+    const confirm = vi.fn(() => Promise.resolve(true));
+    await workspace.sidebarCommand(
+      location === "home"
+        ? { kind: "home-shell" }
+        : { kind: "config-launch", run: location === "config-shell" ? "shell" : "claude" },
+      confirm,
+    );
+    await workspace.exited("t1", 0);
+    await workspace.sidebarCommand({ kind: "close", id: "t1" }, confirm);
+    expect(workspace.snapshot().terminals).toEqual([]);
+    expect(vi.spyOn(deps.terminals, "kill")).toHaveBeenCalledWith("t1");
+    expect(review).not.toHaveBeenCalled();
+    expect(deps.worktrees.removeWorktree).not.toHaveBeenCalled();
+    await workspace.dispose();
+  },
+);
+
+test("checkout close retains review ownership failures and the exited session", async () => {
+  const workspace = await launched();
+  await workspace.exited("t1", 0);
+  vi.mocked(deps.worktrees.reviewIdentity).mockImplementation(() => {
+    throw new Error("Review ownership unavailable");
+  });
+  await expect(
+    workspace.sidebarCommand({ kind: "close", id: "t1" }, () => Promise.resolve(true)),
+  ).rejects.toThrow("Review ownership unavailable");
+  expect(deps.worktrees.reviewIdentity).toHaveBeenCalledWith(repo.path, tree.path);
+  expect(workspace.snapshot().terminals.map((entry) => entry.id)).toEqual(["t1"]);
+  expect(vi.spyOn(deps.terminals, "kill")).not.toHaveBeenCalled();
 });
 
 test("an exited shell restarts in its original location and frees its old terminal", async () => {

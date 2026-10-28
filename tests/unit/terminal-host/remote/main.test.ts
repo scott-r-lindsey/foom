@@ -7,6 +7,18 @@ const mock = vi.hoisted(() => ({
   serve: vi.fn(),
   path: vi.fn(),
   check: vi.fn(),
+  observe: vi.fn(),
+  cli: vi.fn(),
+  mcp: vi.fn(),
+  stage: vi.fn(),
+}));
+vi.mock("../../../../src/terminal-host/remote/agent-helper", () => ({
+  observeRemote: mock.observe,
+  remoteCli: mock.cli,
+  remoteMcp: mock.mcp,
+}));
+vi.mock("../../../../src/terminal-host/remote/agent-launch", () => ({
+  stageRemotePlugin: mock.stage,
 }));
 vi.mock("node:sea", () => ({ isSea: () => false }));
 vi.mock("node:fs", () => ({ readFileSync: mock.read }));
@@ -34,6 +46,10 @@ let stdoutError: Set<unknown>;
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  mock.observe.mockResolvedValue(undefined);
+  mock.mcp.mockResolvedValue(undefined);
+  mock.cli.mockResolvedValue({ alias: "opaque" });
+  mock.stage.mockResolvedValue("/fixture/plugin-assets");
   socket = new Socket();
   server = new EventEmitter();
   mock.read.mockReturnValue(Buffer.from("artifact"));
@@ -164,4 +180,32 @@ test("unsafe sockets and failed detached starts fail closed", () => {
   socket.emit("error", { code: "ENOENT" });
   child.emit("error", new Error("spawn"));
   expect(process.exitCode).toBe(1);
+});
+
+test("remote helpers never connect to the terminal daemon and emit only fixed diagnostics on failure", async () => {
+  const output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+  const errors = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+  runHost(["host", "entry", "--observe", "lifecycle", "stdin", "silent", "unordered"]);
+  runHost(["host", "entry", "--mcp"]);
+  runHost(["host", "entry", "--cli", "whoami", "--json"]);
+  runHost(["host", "entry", "--stage-plugin", "agy"]);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(mock.observe).toHaveBeenCalledWith(["lifecycle", "stdin", "silent", "unordered"]);
+  expect(mock.mcp).toHaveBeenCalledOnce();
+  expect(mock.cli).toHaveBeenCalledWith(["whoami", "--json"]);
+  expect(mock.stage).toHaveBeenCalledWith("agy", "/fixture");
+  expect(mock.socket).not.toHaveBeenCalled();
+  expect(mock.read).not.toHaveBeenCalled();
+  expect(output).toHaveBeenCalledWith('{"alias":"opaque"}\n');
+  expect(output).toHaveBeenCalledWith("/fixture/plugin-assets\n");
+  mock.mcp.mockRejectedValueOnce(new Error("never print this"));
+  runHost(["host", "entry", "--mcp"]);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(errors).toHaveBeenCalledWith("Remote launch request unavailable\n");
+  expect(process.exitCode).toBe(1);
+  mock.stage.mockRejectedValueOnce(new Error("private path"));
+  runHost(["host", "entry", "--stage-plugin", "agy"]);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(errors).toHaveBeenCalledWith("Remote plugin staging unavailable\n");
+  output.mockRestore();
 });

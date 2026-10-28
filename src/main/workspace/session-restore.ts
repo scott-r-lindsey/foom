@@ -8,6 +8,7 @@ export function restorePlan(entries: readonly StoredSession[], enabled: boolean)
         (entry) =>
           !(entry.providerOrigin === "config" && builtinAgent(entry.agent)) &&
           entry.review === undefined &&
+          entry.remote !== true &&
           entry.running === true &&
           (entry.agent === "shell" || entry.conversationId !== undefined),
       )

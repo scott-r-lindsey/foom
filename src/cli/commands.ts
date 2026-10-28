@@ -1,9 +1,9 @@
 import { selectionInput } from "../node-common/launch-selection";
-import { reviewOptions } from "../node-common/review";
+import { reviewOptions } from "../shared/review-validation";
 import { isChildInput } from "../shared/child-input";
-import { readHandoffRequest } from "../node-common/handoff";
+import { readHandoffRequest } from "../shared/handoff-validation";
 import { validAgentId } from "../shared/providers/catalog";
-import { ControlError, identifier, object } from "../node-common/control-validation";
+import { ControlError, identifier, object } from "../shared/control-validation";
 import type { Command } from "./types";
 
 export function command(args: readonly string[]): Command {

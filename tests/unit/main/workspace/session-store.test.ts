@@ -302,3 +302,24 @@ test("persists requested selections as validated metadata", async () => {
   );
   expect(() => readSessions([{ ...record, selection: { args: [] } }])).toThrow("invalid_request");
 });
+
+test("persists actual placement independently of startup mappings and rejects malformed aliases", async () => {
+  const { store } = await setup();
+  const rows = readSessions([
+    { ...record, placement: { kind: "local" } },
+    { ...record, id: "remote", remote: true, placement: { kind: "remote", host: "fixture-alias" } },
+  ]);
+  await store.save(rows);
+  expect(await store.load()).toEqual(rows);
+  for (const placement of [
+    null,
+    { kind: "remote", host: "-oBAD" },
+    { kind: "remote", host: "host\nsecret" },
+    { kind: "local", host: "host" },
+    { kind: "unknown" },
+  ])
+    expect(() => readSessions([{ ...record, remote: true, placement }])).toThrow();
+  expect(() =>
+    readSessions([{ ...record, placement: { kind: "remote", host: "fixture" } }]),
+  ).toThrow();
+});

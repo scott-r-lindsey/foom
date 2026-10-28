@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
-import { exact, object } from "../../node-common/control-validation";
+import { exact, object } from "../../shared/control-validation";
 
 const versions = ["2025-03-26", "2025-06-18", "2025-11-25"];
 /** Deliberately independent of ControlService/ControlMcp: no path to repository tools. */

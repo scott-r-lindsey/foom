@@ -615,7 +615,22 @@ const validReviewState: Validator<ReviewState> = shape({
   parentWaitMinutes: either(absent, count),
 } satisfies Contract<ReviewState>);
 
+const validPlacement = either(
+  absent,
+  shape({ kind: literal("local") }),
+  shape({
+    kind: literal("remote"),
+    host: (value): value is string =>
+      typeof value === "string" &&
+      value.length <= 253 &&
+      /^(?:[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,63}@)?[a-zA-Z0-9][a-zA-Z0-9_.-]*$/u.test(value),
+  }),
+);
+
 const validWorkspaceTerminal: Validator<WorkspaceTerminal> = shape({
+  remote: either(absent, literal(true)),
+  remoteCleanup: either(absent, literal("unreachable")),
+  placement: validPlacement,
   foregroundProgram: either(absent, text),
   outputRevision: either(absent, count),
   inputRevision: either(absent, count),
@@ -905,6 +920,8 @@ const validBranchInventory: Validator<BranchInventory> = shape({
 } satisfies Contract<BranchInventory>);
 
 const validAgentLaunched: Validator<AgentLaunched> = shape({
+  remote: either(absent, literal(true)),
+  placement: validPlacement,
   launchFlags: either(absent, array(text)),
   conversationId: either(absent, text),
   bypass: either(absent, boolean),

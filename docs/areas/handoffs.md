@@ -7,7 +7,7 @@ Decided implementation and security rules for this area. Read the [file map](../
 **Child handoffs implemented in #514.** `control/handoffs.ts` holds serialized,
 bounded child reports and generation-scoped deduplication. The orchestration broker
 checks the live parent and child ownership before and after asynchronous audit work;
-the service also rechecks the exact launch principal. Shared Node validators serve
+the service also rechecks the exact launch principal. Shared browser-safe validators serve
 MCP/main and the console's bounded file/stdin reader. `read_handoff` uses existing
 owned-child checks; report sequence/status participate in session revisions and
 `wait_for`. Child input (#629) does not require a question revision or freshness

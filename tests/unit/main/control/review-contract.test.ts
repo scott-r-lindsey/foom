@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { reviewOptions, reviewVerdict } from "../../../../src/node-common/review";
-import { handoffRequest, storedHandoffs } from "../../../../src/node-common/handoff";
+import { reviewOptions, reviewVerdict } from "../../../../src/shared/review-validation";
+import { handoffRequest, storedHandoffs } from "../../../../src/shared/handoff-validation";
 import { handoffCommand } from "../../../../src/cli/handoff";
 
 const finding = {

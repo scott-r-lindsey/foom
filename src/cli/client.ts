@@ -2,7 +2,7 @@ import { request } from "node:http";
 import { join, isAbsolute } from "node:path";
 import { homedir } from "node:os";
 import { readDiscovery } from "../node-common/private-files";
-import { ControlError, exact, identifier, object } from "../node-common/control-validation";
+import { ControlError, exact, identifier, object } from "../shared/control-validation";
 import type { Connection, Command } from "./types";
 
 export function endpoint(value: string): string {
@@ -148,6 +148,7 @@ function serverError(value: unknown): ControlError {
     "unauthorized",
     "forbidden",
     "no_parent",
+    "remote_review_unsupported",
     "not_found",
     "conflict",
     "capacity",

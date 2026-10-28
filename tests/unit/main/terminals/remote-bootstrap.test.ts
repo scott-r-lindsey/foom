@@ -24,7 +24,7 @@ async function fixture() {
     source: "a".repeat(40),
     platform: "linux",
     arch: "x64",
-    protocol: 1,
+    protocol: 2,
     size: bytes.length,
     sha256: createHash("sha256").update(bytes).digest("hex"),
   };
@@ -53,7 +53,7 @@ test("checks pinned artifact bytes, bounded metadata and supported target", asyn
     { size: 0 },
     { platform: "win32" },
     { arch: "bad" },
-    { protocol: 2 },
+    { protocol: 1 },
   ]) {
     await writeFile(join(f.root, "manifest.json"), JSON.stringify({ ...f.manifest, ...patch }));
     await expect(hostArtifact(f.path)).rejects.toThrow("mismatch");
@@ -93,12 +93,16 @@ test("argv is explicit and option-injection attempts never reach ssh", () => {
     ).at(-1),
   ).toContain("0.1.0-nightly.20261025+abcdef0");
   const args = bootstrapArguments("user@cloud", "0.1.0-spike.1", hash, 123, 42, "linux", "x64");
-  expect(args.slice(0, 10)).toEqual([
+  expect(args.slice(0, 14)).toEqual([
     "-T",
     "-o",
     "BatchMode=yes",
     "-o",
     "ClearAllForwardings=yes",
+    "-o",
+    "ForwardAgent=no",
+    "-o",
+    "ForwardX11=no",
     "-o",
     "ConnectTimeout=10",
     "--",

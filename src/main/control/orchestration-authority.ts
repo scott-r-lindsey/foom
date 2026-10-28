@@ -17,7 +17,7 @@ import type {
 import { locationId, metadataName, SessionMetadata } from "./metadata";
 import type { Operations } from "./operations";
 import type { Operation, Principal } from "./types";
-import { ControlError } from "../../node-common/control-validation";
+import { ControlError } from "../../shared/control-validation";
 import type { Child, Parent, OrchestrationHost } from "./orchestration.d";
 import { WORKTREE_LIMIT } from "./orchestration-limits";
 
@@ -339,6 +339,17 @@ export class OrchestrationAuthority {
     return parent?.active && parent.terminalId !== null ? parent.terminalId : undefined;
   }
 
+  /** Human remote resume must retain the exact live parent, never a replacement. */
+  remoteParentGuard(id: string): () => void {
+    const parent = this.parents.get(id);
+    if (!parent?.active) throw new ControlError("forbidden");
+    const generation = parent.generation;
+    return () => {
+      if (this.parents.get(id) !== parent || !parent.active || parent.generation !== generation)
+        throw new ControlError("forbidden");
+    };
+  }
+
   /** The human revoked the role: authority ends as on exit, and the session keeps running. */
   revoke(id: string): void {
     const parent = this.parents.get(id);
@@ -380,8 +391,25 @@ export class OrchestrationAuthority {
     for (const entry of this.parents.values()) entry.children.delete(id);
   }
 
-  /** A human relaunch under the same ID (resume, new conversation) is never the orchestrator's. */
-  relaunched(id: string): void {
+  /** Local human relaunch drops ownership; phase-2 remote resume retains a main-validated parent. */
+  relaunched(id: string, remoteParentId?: string): void {
+    if (remoteParentId !== undefined) {
+      const parent = this.parents.get(remoteParentId);
+      const child = parent?.children.get(id);
+      if (
+        !parent?.active ||
+        !child ||
+        child.takenOver ||
+        !child.exited ||
+        this.running(parent) >= this.childLimit()
+      )
+        throw new ControlError("forbidden");
+      child.exited = false;
+      this.finishedChildren.resumed(id);
+      this.reviews.stop(id);
+      this.childEvents.publish();
+      return;
+    }
     this.finishedChildren.resumed(id);
     this.reviews.stop(id);
     this.childEvents.publish();
@@ -666,6 +694,7 @@ export class OrchestrationAuthority {
     label: string,
     code: ControlError["code"],
   ): Promise<never> {
+    if (operation.action === "launch") console.error("Agent launch failed: refused");
     const reason =
       operation.action === "remove_worktree"
         ? code === "not_found"

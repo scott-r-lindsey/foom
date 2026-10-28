@@ -6,7 +6,7 @@ import { formatAgentCapabilities } from "../shared/agent-capabilities";
 import { handoffCommand } from "./handoff";
 import { validateConfig } from "./config";
 import { dirname } from "node:path";
-import { object, exact, ControlError } from "../node-common/control-validation";
+import { object, exact, ControlError } from "../shared/control-validation";
 import { command } from "./commands";
 import { call, inherited, pair, profilePath, UnknownOutcome } from "./client";
 import { installCli } from "./install";

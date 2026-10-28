@@ -56,6 +56,8 @@ export interface LaunchSelection {
 }
 
 export interface AgentLaunch {
+  /** Main-only restoration preserves the original local placement. */
+  localOnly?: boolean;
   readonly selection?: LaunchSelection;
   /** Main-only automation authority recheck immediately before the PTY spawn. */
   readonly beforeSpawn?: () => void;
@@ -95,6 +97,8 @@ export interface AgentLaunch {
   readonly environment?: readonly (readonly EnvironmentVariable[])[];
 }
 export interface AgentLaunched {
+  readonly remote?: true;
+  readonly placement?: { kind: "local" } | { kind: "remote"; host: string };
   /** Effective default arguments when a child supplied a selection. */
   readonly launchFlags?: readonly string[];
   readonly conversationId?: string;

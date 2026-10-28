@@ -15,7 +15,7 @@ import type { AgentSetupState, AgentSetupStatus } from "../../shared/agent-setup
 import type { DialogContent, DialogSummaryLine } from "../../shared/confirmation";
 import { conversationId } from "../../shared/conversation";
 import { manifestJson } from "../../shared/agent-manifest-json";
-import { selected, type Facts } from "./providers/v2-values";
+import { selected, type Facts } from "../../shared/agent-launch-values";
 import { metadataIdentity, readSetupMetadata, record, select } from "./setup-metadata";
 
 const execute = promisify(execFile);

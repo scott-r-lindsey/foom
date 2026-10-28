@@ -246,7 +246,7 @@ it("isolated verification receives only ping, and renamed copies retain the same
 });
 
 it("maps form and execution identities on one ordered channel and rejects mixed sessions", async () => {
-  const { reduceV2 } = await import("../../../../src/main/agents/providers/v2-events");
+  const { reduceV2 } = await import("../../../../src/shared/agent-hook-events");
   const { probeHookEvent } = await import("../../../../src/main/agents/probe-events");
   const channel = provider.model.hooks?.channels[0];
   if (!channel) throw Error("Missing channel");

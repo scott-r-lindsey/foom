@@ -87,7 +87,20 @@ Claude pre-approval includes only `manual` on that server. No global agent
 configuration is written. Session exit (including early exit), failed launch
 and shutdown revoke the credential, close the listener and dispose launch files.
 The reader requires no repository/session authority; this attachment carries none.
+
 Main supplies a launch UUID and the packaged CLI directory for stdio plugin
 launchers, including with hooks disabled. These fields do not create a control
 grant: Antigravity's bridge reaches the same dedicated manual-only listener,
 whose tools list contains only `manual` and rejects `whoami` and other tools.
+
+## Remote per-launch stdio (#755)
+
+The host helper terminates MCP over the agent's private stdio child process.
+Its tools list is exactly `handoff`, `manual`, and sanitized `whoami`, using the
+same shared tool schemas as the local adapter. Initialization authenticates the
+remote launch; only typed bounded tool calls/results cross the SSH relay. MCP
+protocol sessions and raw HTTP traffic are never tunneled to hub control.
+Selected invocation-local HTTP attachment data is converted to stdio command
+and argv data; no hub endpoint/token, global MCP file, or unrelated user server
+is copied or rewritten. The remote Unix endpoint is activated only after main
+binds the child grant. See [restricted authority](control.md#restricted-remote-child-relay-755).

@@ -1,8 +1,8 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { boundedHttpServer, reserveRequest } from "./http-limits";
 import { bundledManual, ManualSectionError } from "./manual";
-import { manualTools } from "./mcp-tools";
-import { exact, object } from "../../node-common/control-validation";
+import { manualTools } from "../../shared/control-tools";
+import { exact, object } from "../../shared/control-validation";
 
 const versions = ["2025-03-26", "2025-06-18", "2025-11-25"];
 /** Deliberately independent of ControlService/ControlMcp: no path to repository tools. */

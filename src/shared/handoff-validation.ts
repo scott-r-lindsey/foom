@@ -1,5 +1,5 @@
-import type { Handoff } from "../shared/handoff";
-import { reviewVerdict } from "./review";
+import type { Handoff } from "./handoff";
+import { reviewVerdict } from "./review-validation";
 import { ControlError, exact, identifier, object } from "./control-validation";
 
 export function handoffContent(
@@ -12,14 +12,18 @@ export function handoffContent(
     (status !== "done" && status !== "blocked" && status !== "failed") ||
     typeof summary !== "string" ||
     !summary.length ||
-    Buffer.byteLength(summary) > 8192 ||
+    new TextEncoder().encode(summary).length > 8192 ||
     /[^\P{Cc}\n\t]/u.test(summary) ||
     !Array.isArray(links) ||
     links.length > 10
   )
     throw new ControlError("invalid_request");
   const urls = links.map((link: unknown) => {
-    if (typeof link !== "string" || Buffer.byteLength(link) > 2048 || /\p{Cc}/u.test(link))
+    if (
+      typeof link !== "string" ||
+      new TextEncoder().encode(link).length > 2048 ||
+      /\p{Cc}/u.test(link)
+    )
       throw new ControlError("invalid_request");
     try {
       if (new URL(link).protocol !== "https:") throw new Error();
