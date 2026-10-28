@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import type { AgentId, AgentLaunched } from "../../shared/agents";
@@ -215,7 +216,18 @@ export async function sidebarCommand(
       );
       return;
     }
-    if (!entry?.dormant) await this.deps.terminals.kill(command.id);
+    if (entry?.remote) {
+      const host = entry.placement?.kind === "remote" ? entry.placement.host : undefined;
+      if (!host) throw new Error("Remote host placement is unavailable");
+      try {
+        await this.deps.terminals.kill(command.id, host);
+      } catch {
+        entry.remoteCleanup = "unreachable";
+        this.refresh();
+        console.error("Remote child close failed: remote_host_unreachable");
+        throw new LaunchFailure("remote_host_unreachable");
+      }
+    } else if (!entry?.dormant) await this.deps.terminals.kill(command.id);
     this.removed(command.id);
     return;
   }

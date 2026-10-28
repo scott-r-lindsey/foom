@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import { remotePath } from "../../shared/remote-agent-protocol";
 import { ApplicationError } from "../../shared/application-errors";
 import type { RemoteTarget } from "../../shared/remote-host";
@@ -255,7 +256,9 @@ export async function selectHostArtifact(
     "ssh",
     [...sshArguments(target.host), "uname -s; uname -m"],
     { env: sshEnvironment(), shell: false, timeout: 10000, maxBuffer: 256, encoding: "utf8" },
-  );
+  ).catch(() => {
+    throw new LaunchFailure("remote_host_unreachable");
+  });
   const remote = remotePlatform(stdout);
   const artifact = await hostArtifact(
     target.artifact ?? join(catalog, `${remote.platform}-${remote.arch}`, "foom-host.gz"),

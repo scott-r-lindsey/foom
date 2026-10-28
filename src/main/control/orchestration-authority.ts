@@ -694,6 +694,7 @@ export class OrchestrationAuthority {
     label: string,
     code: ControlError["code"],
   ): Promise<never> {
+    if (operation.action === "launch") console.error("Agent launch failed: refused");
     const reason =
       operation.action === "remove_worktree"
         ? code === "not_found"

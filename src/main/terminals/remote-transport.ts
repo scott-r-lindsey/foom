@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import { remoteControlResult } from "../../shared/remote-agent-protocol";
 import { ApplicationError } from "../../shared/application-errors";
 import { EventEmitter } from "node:events";
@@ -28,6 +29,7 @@ type Connection = {
 export class RemoteTransport extends EventEmitter {
   private connection: Connection | undefined;
   private artifactUnavailable = false;
+  launchFailure: LaunchFailure | undefined;
 
   /** Only a local sealed-metadata rejection may select this trusted reason. */
   get failureReason(): "remote-host-unavailable" | undefined {
@@ -70,6 +72,8 @@ export class RemoteTransport extends EventEmitter {
         this.connect();
       })
       .catch((error: unknown) => {
+        this.launchFailure =
+          error instanceof LaunchFailure ? error : new LaunchFailure("remote_artifact_mismatch");
         this.artifactUnavailable =
           error instanceof ApplicationError && error.code === "remote-host-unavailable";
         this.kill();
@@ -78,6 +82,7 @@ export class RemoteTransport extends EventEmitter {
   private openRequest(request: number, reattach: boolean): RemoteRequest {
     const session = this.session;
     if (!session) throw new Error("Remote session unavailable");
+    if (this.target.cleanup) return { type: "agent-close", id: session.id, request };
     return this.target.agent && !reattach
       ? {
           type: "agent-open",
@@ -140,10 +145,13 @@ export class RemoteTransport extends EventEmitter {
       }, 1000);
       if (!connection.exited) signal("SIGTERM");
     }
+    if (!this.opened && reason !== "dispose")
+      this.launchFailure ??= new LaunchFailure("remote_host_unreachable");
     for (const [request, id] of pending) this.emit("message", { type: "error", request, id });
     if (reason === "dispose" || this.closed) return;
     // Reserve one of five reconnect attempts exactly once, independently of close.
     if (!this.opened || this.retries >= 5) {
+      this.launchFailure ??= new LaunchFailure("remote_host_unreachable");
       this.kill();
       return;
     }
@@ -244,6 +252,13 @@ export class RemoteTransport extends EventEmitter {
               }
               this.send(this.openRequest(request, this.opened));
             }
+            return;
+          }
+          if (value.type === "agent-failed") {
+            if (!this.target.agent || value.id !== this.session?.id || this.opened)
+              throw new Error("Unexpected failure");
+            this.launchFailure = new LaunchFailure(value.reason);
+            this.retireConnection(connection, "failure");
             return;
           }
           if (value.type === "activity") {
@@ -362,7 +377,7 @@ export class RemoteTransport extends EventEmitter {
               }
               return;
             }
-            if (!this.opened && value.request === this.session.request)
+            if (!this.opened && value.request === this.session.request && !this.target.cleanup)
               throw new Error("Invalid initial open result");
             if (value.request >= this.internal) return;
             if (!this.pending.delete(value.request)) return;

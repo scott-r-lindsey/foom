@@ -763,3 +763,43 @@ it.each([
     expect(deleted).not.toHaveBeenCalled();
   }
 });
+
+it("removes a dormant remote child's process before deleting its local worktree", async () => {
+  const f = fixture();
+  f.rows([
+    row("remote", {
+      agent: "claude",
+      kind: "agent",
+      remote: true,
+      dormant: true,
+      placement: { kind: "remote", host: "saved-host" },
+    }),
+  ]);
+  expect(await f.owner.removeIdleTree(repository, tree().path, "feature", accept)).toBe(true);
+  expect(f.deps.kill).toHaveBeenCalledWith("remote", "saved-host");
+  expect(f.events.indexOf("kill")).toBeLessThan(f.events.indexOf("remove"));
+});
+it.each([true, false])(
+  "retains a dormant remote row and its checkout when cleanup cannot be established (saved alias: %s)",
+  async (alias) => {
+    const f = fixture();
+    const remote = row("remote", {
+      agent: "claude",
+      kind: "agent",
+      remote: true,
+      dormant: true,
+      ...(alias ? { placement: { kind: "remote" as const, host: "saved-host" } } : {}),
+    });
+    f.rows([remote]);
+    f.deps.kill.mockRejectedValueOnce(new Error("private stderr"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(
+      f.owner.removeIdleTree(repository, tree().path, "feature", accept),
+    ).rejects.toMatchObject({ reason: "remote_host_unreachable" });
+    expect(remote.remoteCleanup).toBe("unreachable");
+    expect(f.events).not.toContain("remove");
+    expect(f.events).not.toContain("forget");
+    expect(log).toHaveBeenCalledWith("Remote child removal failed: remote_host_unreachable");
+    log.mockRestore();
+  },
+);

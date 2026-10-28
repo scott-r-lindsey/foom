@@ -38,6 +38,8 @@ export type McpConnection = "connecting" | "connected" | "not-connected";
 export interface WorkspaceTerminal {
   /** Phase-2 remote child; never silently relaunched as a local process. */
   remote?: true;
+  remoteCleanup?: "unreachable";
+  placement?: { kind: "local" } | { kind: "remote"; host: string };
   /** Host-observed foreground process name; never persisted. */
   foregroundProgram?: string;
   outputRevision?: number;

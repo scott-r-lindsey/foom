@@ -4,6 +4,7 @@ const { spawn, execFileSync } = require("node:child_process");
 const { once } = require("node:events");
 const {
   mkdir,
+  rename,
   mkdtemp,
   readFile,
   realpath,
@@ -18,6 +19,9 @@ const { launchTrustedParent } = require("./agent-fixture.js");
 const { deadline, expect } = require("./test-policy.js");
 const {
   FAKE_ORCHESTRATED_CLAUDE,
+  launchApp,
+  boardPage,
+  quitAndWait,
   confirmationPage,
   fixtureCleanup,
   removeAfterApps,
@@ -55,7 +59,17 @@ test("a local orchestrator launches and resumes a remote child with private hook
     ],
     { cwd: repo },
   );
-  await writeFile(path.join(bin, "claude"), FAKE_ORCHESTRATED_CLAUDE, { mode: 0o700 });
+  await writeFile(
+    path.join(bin, "claude"),
+    FAKE_ORCHESTRATED_CLAUDE +
+      `
+const conversation = "saved-" + path.basename(process.cwd());
+const req = require("node:http").request(process.env.FOOM_HOOK_URL, { method:"POST", headers:{Authorization:process.env.FOOM_TOKEN,"X-Foom-Session":process.env.FOOM_SESSION,"Content-Type":"application/json","X-Foom-Channel":process.env.FOOM_CHANNEL_lifecycle} }, res => res.resume());
+req.on("error",()=>process.exit(1));
+req.end(JSON.stringify({session_id:conversation,hook_event_name:"Stop"}));
+`,
+    { mode: 0o700 },
+  );
   await symlink(process.execPath, path.join(bin, "node"));
   for (const tool of [
     "sh",
@@ -193,7 +207,7 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
     })
     .toBe(true);
   const credentials = path.join(root, "credentials");
-  const { app, page, parent } = await launchTrustedParent(context, {
+  let { app, page, parent } = await launchTrustedParent(context, {
     repo,
     credentials,
     options: {
@@ -258,12 +272,62 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
       `--remote-agent-worktree=${remoteTree}`,
     ],
   );
+  // A real remote discovery miss must retain a fixed diagnostic, never host text.
+  await rename(path.join(remoteBin, "claude"), path.join(remoteBin, "claude-hidden"));
+  const missing = await call("launch", {
+    worktreeId: tree.resultId,
+    agent: "claude",
+    idempotencyKey: "remote-missing-agent",
+  });
+  assert.equal(missing.status, "failed");
+  assert.equal(missing.reason, "remote_agent_unavailable");
+  await rename(path.join(remoteBin, "claude-hidden"), path.join(remoteBin, "claude"));
+  const localTree = await settle("create_worktree", {
+    branch: "child-local",
+    idempotencyKey: "local-tree",
+  });
+  const unavailable = await call("launch", {
+    worktreeId: localTree.resultId,
+    agent: "codex",
+    idempotencyKey: "local-missing-agent",
+  });
+  assert.equal(unavailable.status, "failed");
+  assert.equal(unavailable.reason, "agent_unavailable");
+  await page.evaluate(async () => {
+    const { settings } = await window.desktop.setupState();
+    await window.desktop.saveSetup({ agents: { ...settings.agents, claude: false } });
+  });
+  const disabled = await call("launch", {
+    worktreeId: localTree.resultId,
+    agent: "claude",
+    idempotencyKey: "local-disabled-agent",
+  });
+  assert.equal(disabled.status, "failed");
+  assert.equal(disabled.reason, "agent_disabled");
+  await page.evaluate(async () => {
+    const { settings } = await window.desktop.setupState();
+    await window.desktop.saveSetup({ agents: { ...settings.agents, claude: true } });
+  });
+  const localChild = await settle("launch", {
+    worktreeId: localTree.resultId,
+    agent: "claude",
+    idempotencyKey: "local-child",
+  });
+  assert.deepEqual(localChild.placement, { kind: "local" });
+  const localRow = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+    (row) => row.id === localChild.resultId,
+  );
+  assert.deepEqual(localRow.placement, { kind: "local" });
+  await expect
+    .poll(async () => (await call("session_state", { id: localChild.resultId })).placement)
+    .toEqual({ kind: "local" });
   const child = await settle("launch", {
     worktreeId: tree.resultId,
     agent: "claude",
     prompt: "Work on the remote fixture",
     idempotencyKey: "remote-launch",
   });
+  assert.deepEqual(child.placement, { kind: "remote", host: "fixture-agents" });
   const id = child.resultId;
   const row = async () =>
     (await page.evaluate(() => window.desktop.workspace())).terminals.find(
@@ -271,6 +335,7 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
     );
   await expect.poll(async () => (await row())?.execution?.phase).toBe("working");
   assert.equal((await row()).remote, true);
+  assert.deepEqual((await call("session_state", { id })).placement, child.placement);
   const first = JSON.parse(await readFile(record, "utf8"));
   for (const secret of [id, parentId, parent.controlToken])
     assert.ok(!JSON.stringify(first).includes(secret));
@@ -314,7 +379,8 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
     .poll(async () => (await page.evaluate((id) => window.desktop.tail(id, 40), id)).join("\n"))
     .toContain("REMOTE_WORKING");
   await expect.poll(async () => (await row())?.execution?.phase).toBe("working");
-  const firstSsh = Number((await readFile(pids, "utf8")).trim().split("\n")[0]);
+  const connectedPids = (await readFile(pids, "utf8")).trim().split("\n");
+  const firstSsh = Number(connectedPids.at(-1));
   process.kill(firstSsh, "SIGTERM");
   await expect.poll(async () => (await readFile(pids, "utf8")).trim().split("\n").length).toBe(2);
   await expect
@@ -356,5 +422,81 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
   assert.ok(resumed.args.includes("--resume"));
   await expect.poll(async () => (await row())?.execution?.phase).toBe("working");
   assert.notEqual(JSON.parse(resumed.whoami).alias, JSON.parse(first.whoami).alias);
-  await settle("stop", { id, idempotencyKey: "remote-stop-resumed" });
+  const profile = await app.evaluate(({ app }) => app.getPath("userData"));
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.id === localChild.resultId,
+        )?.conversationId,
+    )
+    .toBeTruthy();
+  await quitAndWait(app, async () => {
+    await app.evaluate(({ app }) => app.quit());
+    const dialog = await confirmationPage(app);
+    await dialog.getByRole("button", { name: "Stop all and quit" }).click();
+  });
+  // Quit detaches the remote process. Restore deliberately maps the formerly local
+  // checkout: saved placement must survive without rerouting that local child.
+  process.kill(resumed.pid, 0);
+  app = await launchApp(context, {
+    fixture: "restored",
+    args: [
+      `--user-data-dir=${profile}`,
+      "--remote-agent-spike=fixture-agents",
+      `--remote-agent-artifact=${artifact}`,
+      `--remote-agent-local-checkout=${localRow.worktree}`,
+      `--remote-agent-repository=${remoteRepo}`,
+      `--remote-agent-worktree=${remoteTree}`,
+    ],
+    env: { HOME: home, PATH: bin, TEST_FAKE_CREDENTIALS: credentials },
+  });
+  page = await boardPage(app);
+  await expect.poll(async () => (await row())?.dormant).toBe(true);
+  assert.equal((await row()).remote, true);
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.id === localChild.resultId,
+        )?.dormant,
+    )
+    .not.toBe(true);
+  const restoredLocal = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+    (row) => row.id === localChild.resultId,
+  );
+  assert.equal(restoredLocal.remote, undefined);
+  assert.deepEqual(restoredLocal.placement, { kind: "local" });
+  await expect
+    .poll(async () => {
+      parent = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
+      try {
+        return (await call("whoami")).role;
+      } catch {
+        return "waiting";
+      }
+    })
+    .toBe("orchestrator");
+  await rename(path.join(bin, "ssh"), path.join(bin, "ssh-hidden"));
+  const unreachable = await call("close", { id, idempotencyKey: "unreachable-close" });
+  assert.equal(unreachable.status, "failed");
+  assert.equal(unreachable.reason, "remote_host_unreachable");
+  assert.equal((await call("session_state", { id })).reason, "remote_host_unreachable");
+  process.kill(resumed.pid, 0);
+  await rename(path.join(bin, "ssh-hidden"), path.join(bin, "ssh"));
+  await settle("close", { id, idempotencyKey: "close-after-restart" });
+  await expect
+    .poll(() => {
+      try {
+        process.kill(resumed.pid, 0);
+        return false;
+      } catch {
+        return true;
+      }
+    })
+    .toBe(true);
+  await assert.rejects(stat(path.dirname(resumed.env.FOOM_REMOTE_SOCKET)), { code: "ENOENT" });
+  assert.equal(await row(), undefined);
+  const saved = JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8"));
+  assert.equal(saved.find((row) => row.id === localChild.resultId).remote, undefined);
 });

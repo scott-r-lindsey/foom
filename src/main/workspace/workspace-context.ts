@@ -224,7 +224,8 @@ export class WorkspaceContext {
         await deps.terminals.stop(id);
       },
       exited: (id, code) => this.exited(id, code),
-      kill: (id) => deps.terminals.kill(id),
+      kill: (id, host) =>
+        host === undefined ? deps.terminals.kill(id) : deps.terminals.kill(id, host),
       removed: (id) => {
         this.removed(id);
       },

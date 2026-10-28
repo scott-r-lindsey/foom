@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import { matchesArguments } from "../../shared/agent-argument-matchers";
 import { hostSocket, privateDirectory } from "./private-path";
 import { randomUUID } from "node:crypto";
@@ -90,7 +91,11 @@ export async function prepareRemoteAgent(
   if (!model) throw new Error("Remote bundled agent is unavailable");
   if (model.launch.extension || model.id === "opencode")
     throw new Error("remote_agent_unsupported");
-  const identity = await remoteCheckout(request.repository, request.worktree, hostEnvironment());
+  const checkout = () =>
+    remoteCheckout(request.repository, request.worktree, hostEnvironment()).catch(() => {
+      throw new LaunchFailure("remote_worktree_unavailable");
+    });
+  const identity = await checkout();
   const found = await hostDiscovery(model, shell, home);
   if (bypassEnvironment(model, found.env, false).length)
     throw new Error("Remote child environment bypass is unavailable");
@@ -282,8 +287,7 @@ export async function prepareRemoteAgent(
       throw new Error("Remote child bypass is unavailable");
     for (const entry of model.launch.environment ?? [])
       if (selected(entry.when, facts)) env[entry.name] = expandV2(entry.value, values);
-    if ((await remoteCheckout(request.repository, request.worktree, found.env)) !== identity)
-      throw new Error("Remote checkout changed");
+    if ((await checkout()) !== identity) throw new LaunchFailure("remote_worktree_unavailable");
     const spec: Omit<TerminalSpec, "cols" | "rows"> = {
       command: found.command,
       args: boundedArguments(args),

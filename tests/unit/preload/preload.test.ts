@@ -1362,3 +1362,25 @@ test("terminal selection copy exposes a write-only ID-scoped bridge", async () =
   await api.copyTerminalSelection("one", "selected");
   expect(mock.invoke).toHaveBeenCalledExactlyOnceWith("terminal:copy-selection", "one", "selected");
 });
+
+test.each([{ kind: "local" }, { kind: "remote", host: "fixture-alias" }])(
+  "projects actual placement across the sandbox bridge: %j",
+  async (placement) => {
+    const api = await bridge();
+    const row = workspace.terminals[0];
+    if (!row) throw new Error("Missing fixture row");
+    const value = {
+      ...workspace,
+      terminals: [{ ...row, placement, remoteCleanup: "unreachable" }],
+    };
+    mock.invoke.mockResolvedValue(value);
+    await expect(api.workspace()).resolves.toEqual(value);
+    for (const bad of ["-oBad", "host\nprivate", "a".repeat(254), 1]) {
+      mock.invoke.mockResolvedValue({
+        ...workspace,
+        terminals: [{ ...row, placement: { kind: "remote", host: bad } }],
+      });
+      await expect(api.workspace()).rejects.toThrow("Invalid");
+    }
+  },
+);

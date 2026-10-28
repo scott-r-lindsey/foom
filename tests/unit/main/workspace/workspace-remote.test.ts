@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { Operations } from "../../../../src/main/control/operations";
 import { object } from "../../../../src/shared/control-validation";
 import {
@@ -139,4 +139,40 @@ test("remote review launch refuses before local reviewer discovery or spawning a
       operations,
     ),
   ).toMatchObject({ status: "succeeded", resultId: "ordinary" });
+});
+
+test("closing a dormant remote row uses its saved host, retains unreachable failures, and retries cleanup", async () => {
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  const stored = readSessions([
+    {
+      id: "remote",
+      agent: "claude",
+      repository: repo.path,
+      worktree: child.path,
+      branch: "feature",
+      remote: true,
+      placement: { kind: "remote", host: "original-host" },
+    },
+  ]);
+  const save = vi.fn(async () => {});
+  const kill = vi.fn<(id: string, host?: string) => Promise<void>>(() => Promise.resolve());
+  const workspace = createWorkspace({
+    ...deps,
+    terminals: { ...deps.terminals, kill },
+    sessions: { load: () => Promise.resolve(stored), save, flush: async () => {} },
+  });
+  await workspace.restore();
+  kill.mockRejectedValueOnce(new Error("private stderr"));
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  await expect(
+    workspace.sidebarCommand({ kind: "close", id: "remote" }, () => Promise.resolve(true)),
+  ).rejects.toMatchObject({ reason: "remote_host_unreachable" });
+  expect(workspace.snapshot().terminals.find((row) => row.id === "remote")).toMatchObject({
+    remote: true,
+    remoteCleanup: "unreachable",
+  });
+  expect(log).toHaveBeenCalledWith("Remote child close failed: remote_host_unreachable");
+  await workspace.sidebarCommand({ kind: "close", id: "remote" }, () => Promise.resolve(true));
+  expect(kill).toHaveBeenCalledWith("remote", "original-host");
+  expect(workspace.snapshot().terminals.find((row) => row.id === "remote")).toBeUndefined();
 });

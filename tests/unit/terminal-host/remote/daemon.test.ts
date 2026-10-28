@@ -1,3 +1,5 @@
+import { LaunchFailure } from "../../../../src/shared/launch-failure";
+import { hostDiscovery } from "../../../../src/terminal-host/remote/agent-discovery";
 import type { TerminalTelemetry } from "../../../../src/shared/desktop";
 import { endpointRequest } from "../../../../src/terminal-host/remote/agent-endpoint";
 import { record } from "../../../../src/shared/remote-agent-protocol";
@@ -869,5 +871,109 @@ test.skipIf(process.platform === "win32")(
       type: "activity",
       entries: [{ id: "telemetry", rate: 1 }],
     });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a fresh cleanup connection terminates a detached remote child and revokes its private assets",
+  async () => {
+    await start();
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "agent-open",
+      id: "detached",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      spec: {
+        agent: "claude",
+        repository: "/remote/repo",
+        worktree: "/remote/tree",
+        defaults: [],
+        hooks: true,
+      },
+    });
+    await c.wait(2);
+    c.send({ type: "agent-start", id: "detached" });
+    await c.wait(4);
+    const created: unknown = mock.create.mock.calls[0]?.[0];
+    if (!record(created) || !record(created["env"])) throw new Error("Missing environment");
+    const socket = created["env"]["FOOM_REMOTE_SOCKET"];
+    if (typeof socket !== "string") throw new Error("Missing endpoint");
+    c.socket.destroy();
+    await once(c.socket, "close");
+    const cleanup = await client();
+    cleanup.send({ type: "hello", build });
+    await cleanup.wait(1);
+    cleanup.send({ type: "agent-close", id: "detached", request: 2 });
+    await cleanup.wait(2);
+    expect(cleanup.messages[1]).toEqual({ type: "result", id: "detached", request: 2, lines: [] });
+    expect(mock.stop).toHaveBeenCalledWith("detached");
+    expect(mock.kill).toHaveBeenCalledWith("detached");
+    await expect(stat(socket)).rejects.toThrow();
+    expect(mock.create).toHaveBeenCalledOnce();
+    cleanup.send({ type: "agent-close", id: "detached", request: 3 });
+    await cleanup.wait(3);
+    expect(cleanup.messages[2]).toMatchObject({ type: "result", request: 3 });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "refuses cleanup of shell sessions without terminating them",
+  async () => {
+    await start();
+    const shell = await open("shell");
+    const cleanup = await client();
+    cleanup.send({ type: "hello", build });
+    await cleanup.wait(1);
+    const closed = once(cleanup.socket, "close");
+    cleanup.send({ type: "agent-close", id: "shell", request: 1 });
+    await closed;
+    expect(mock.kill).not.toHaveBeenCalled();
+    expect(shell.socket.destroyed).toBe(false);
+  },
+);
+
+test.skipIf(process.platform === "win32").each(["missing", "prepare", "start"])(
+  "returns fixed %s launch refusals without private host text",
+  async (stage) => {
+    await start();
+    if (stage === "missing")
+      vi.mocked(hostDiscovery).mockRejectedValueOnce(new LaunchFailure("remote_agent_unavailable"));
+    if (stage === "prepare")
+      vi.mocked(hostDiscovery).mockRejectedValueOnce(new Error("PRIVATE HOST STDERR"));
+    if (stage === "start")
+      mock.create.mockImplementationOnce(() => {
+        throw new Error("PRIVATE SPAWN STDERR");
+      });
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "agent-open",
+      id: "failed",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      spec: { agent: "claude", repository: "/repo", worktree: "/tree", defaults: [], hooks: false },
+    });
+    await c.wait(2);
+    if (stage === "start") {
+      c.send({ type: "agent-start", id: "failed" });
+      await c.wait(3);
+    }
+    expect(c.messages.at(-1)).toEqual({
+      type: "agent-failed",
+      id: "failed",
+      reason:
+        stage === "missing"
+          ? "remote_agent_unavailable"
+          : stage === "prepare"
+            ? "remote_prepare_refused"
+            : "remote_start_refused",
+    });
+    expect(JSON.stringify(c.messages)).not.toContain("PRIVATE");
   },
 );

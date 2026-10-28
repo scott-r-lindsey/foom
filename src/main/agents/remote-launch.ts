@@ -170,6 +170,7 @@ export async function launchRemoteChild(
       result: {
         id,
         remote: true,
+        placement: { kind: "remote", host: mapping.target.host },
         ...(request.selection ? { launchFlags: [...defaults] } : {}),
         providerOrigin: "bundled",
         attention: ready.hooks ? "hooks" : "evaluator",

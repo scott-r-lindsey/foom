@@ -1,3 +1,4 @@
+import { launchReasons } from "../../../../src/shared/launch-failure";
 import { removalReasons } from "../../../../src/main/workspace/worktree-outcome";
 import { locationId, metadataName } from "../../../../src/main/control/metadata";
 import { basename, join } from "node:path";
@@ -43,6 +44,7 @@ describe("control identity and capability checks", () => {
       worktree: locationId(actor.worktree),
       name: metadataName(basename(actor.worktree)),
       removalReasons,
+      launchReasons,
       tools: [
         { name: "whoami", cli: "foom whoami" },
         { name: "sessions", cli: "foom sessions" },

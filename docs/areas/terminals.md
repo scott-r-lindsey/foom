@@ -291,3 +291,22 @@ terminal ID, attachment to that sender and bounded nonempty string, then checks
 the current preference before writing the system clipboard. Foom never reads the
 clipboard through this capability. The middle-click buffer remains separate and
 never supplies clipboard writes. Selection text is never persisted.
+
+
+## Remote child cleanup after restart (#755)
+
+Explicit Close of a remote child uses its saved placement host alias, including
+for a dormant row after hub restart. A fresh bounded SSH connection negotiates
+the existing build identity and sends `agent-close {id, request}`. This operation
+accepts only an agent session, stops and disposes its PTY, revokes its independent
+credentials and removes its private launch directory before acknowledging success.
+It never attaches a view or creates a process. A missing ID succeeds idempotently;
+a shell ID or foreign operation is refused. The ID retains the existing private
+socket/unguessable-ID protection and never enters the agent's environment or argv.
+If connection or cleanup fails, Close retains the row and reports
+`remote_host_unreachable`; session state carries that reason until cleanup succeeds.
+The 24-hour detached reaper remains the unreachable-host backstop.
+
+Agent preparation/start failures return only validated `agent-failed {id, reason}`
+frames using the fixed [launch reason enum](../contracts/control-mutations.md#launch-failure-reasons).
+No host output or stderr enters the diagnostic channel.

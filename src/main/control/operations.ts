@@ -1,3 +1,4 @@
+import { launchReasons } from "../../shared/launch-failure";
 import { removalReasons } from "../workspace/worktree-outcome";
 import { createHash, randomUUID } from "node:crypto";
 import { ControlError, exact, identifier } from "../../shared/control-validation";
@@ -111,6 +112,7 @@ export class Operations {
     status: Exclude<Status, "pending_confirmation">,
     reason: Reason,
     resultId: string | null = null,
+    placement?: Operation["placement"],
   ): Promise<Operation> {
     this.check(actor);
     if (resultId !== null) identifier(resultId);
@@ -132,6 +134,7 @@ export class Operations {
         "uncertain",
         "error",
         ...Object.keys(removalReasons),
+        ...Object.keys(launchReasons),
       ].includes(reason)
     )
       throw new ControlError("conflict");
@@ -142,6 +145,7 @@ export class Operations {
         status,
         reason,
         ...removalDetail(reason),
+        ...(placement ? { placement } : {}),
         resultId,
         updatedAt: new Date().toISOString(),
       },

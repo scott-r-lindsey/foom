@@ -222,3 +222,16 @@ metadata. Pi extension and OpenCode context-event launches fail closed with
 transport. Remote Antigravity keeps Unix-socket hooks and CLI handoffs; its local
 loopback MCP bridge stays inactive, with prompt guidance retained. No hub endpoint,
 credential or identity is supplied to activate it.
+
+
+Phase-2 launches record their actual `placement` at spawn: `{kind: "local"}` or
+`{kind: "remote", host: SSH_ALIAS}`. Launch operation results and parent-facing
+session state expose this value; session storage retains it across startup mapping
+changes. A saved local session resumes locally even when its path now matches a
+remote mapping. Remote rows remain dormant after hub restart until #757; closing
+one still reconnects to clean up its remote process and launch assets.
+
+Launch diagnostics use the fixed `launchReasons` codes in
+[the control contract](../contracts/control-mutations.md#launch-failure-reasons).
+Main logs one bounded code-only failure line. Remote output, stderr, paths and
+provider text never select or enter a diagnostic message.

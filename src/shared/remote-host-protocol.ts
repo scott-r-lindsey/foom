@@ -1,3 +1,4 @@
+import { isLaunchReason } from "./launch-failure";
 import {
   remoteAgentSpec,
   remoteAgentReady,
@@ -41,6 +42,8 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
   if (typeof value["type"] !== "string") return false;
   if (hello(value)) return true;
   if (!remoteId(value["id"])) return false;
+  if (value["type"] === "agent-close")
+    return keys(value, ["type", "id", "request"]) && hostRequest({ ...value, type: "kill" });
   if (value["type"] === "agent-activate" || value["type"] === "agent-start")
     return keys(value, ["type", "id"]);
   if (value["type"] === "agent-reply")
@@ -80,6 +83,8 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
 export function remoteResponse(value: unknown): value is RemoteResponse {
   if (typeof value !== "object" || value === null) return false;
   if (record(value) && remoteId(value["id"])) {
+    if (value["type"] === "agent-failed")
+      return keys(value, ["type", "id", "reason"]) && isLaunchReason(value["reason"]);
     if (value["type"] === "agent-prepared") return keys(value, ["type", "id"]);
     if (value["type"] === "agent-ready")
       return keys(value, ["type", "id", "ready"]) && remoteAgentReady(value["ready"]);

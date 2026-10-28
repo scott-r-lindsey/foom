@@ -174,3 +174,11 @@ test.each(["pi", "opencode"])(
     expect(execFile).not.toHaveBeenCalled();
   },
 );
+
+test("a saved local launch remains local despite a new matching remote mapping", async () => {
+  const f = fixture();
+  const result = await f.service.launch({ ...request, localOnly: true });
+  expect(result.remote).toBeUndefined();
+  expect(f.create.mock.calls.at(-1)?.[0].remote).toBeUndefined();
+  expect(execFile).toHaveBeenCalled();
+});

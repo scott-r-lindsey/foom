@@ -1,3 +1,9 @@
+import {
+  LaunchFailure,
+  launchReasons,
+  isLaunchReason,
+} from "../../../../src/shared/launch-failure";
+import { vi } from "vitest";
 import { describe, expect, it } from "vitest";
 import { ControlService } from "../../../../src/main/control/service";
 
@@ -114,4 +120,59 @@ describe("orchestrator slots and authority", () => {
       h.orchestration.takeOver("parent");
     }).toThrow("no orchestrator");
   });
+});
+
+it.each(Object.keys(launchReasons))(
+  "records a bounded launch failure %s and permits retry with a fresh operation",
+  async (reason) => {
+    const h = harness();
+    const tree = await h.mutate("create_worktree", { branch: "failed" });
+    if (!isLaunchReason(reason)) throw new Error("Invalid fixture reason");
+    h.host.launch.mockRejectedValueOnce(new LaunchFailure(reason));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failed = await h.mutate("launch", { worktreeId: tree.resultId, agent: "claude" });
+    expect(failed).toMatchObject({ status: "failed", reason });
+    expect(log).toHaveBeenCalledWith(`Agent launch failed: ${reason}`);
+    expect(await h.call("operation_status", { operationId: failed.operationId })).toEqual(failed);
+    expect(await h.mutate("launch", { worktreeId: tree.resultId, agent: "claude" })).toMatchObject({
+      status: "succeeded",
+      placement: { kind: "local" },
+    });
+    log.mockRestore();
+  },
+);
+it("publishes actual remote placement in the operation, deduplication and session state", async () => {
+  const h = harness();
+  const launch = h.host.launch.getMockImplementation();
+  h.host.launch.mockImplementationOnce(async (...args) => {
+    if (!launch) throw new Error("Missing launch");
+    const id = await launch(...args);
+    const row = h.rows.get(id);
+    if (!row) throw new Error("Missing row");
+    row.placement = { kind: "remote", host: "fixture-alias" };
+    row.remote = true;
+    return id;
+  });
+  const tree = await h.mutate("create_worktree", { branch: "remote" });
+  const result = await h.mutate("launch", { worktreeId: tree.resultId, agent: "claude" });
+  expect(result.placement).toEqual({ kind: "remote", host: "fixture-alias" });
+  expect(await h.call("session_state", { id: result.resultId })).toMatchObject({
+    placement: result.placement,
+  });
+  expect(await h.call("operation_status", { operationId: result.operationId })).toMatchObject({
+    placement: result.placement,
+  });
+});
+
+it("keeps a remote child when close cannot reach the saved host", async () => {
+  const h = harness();
+  const { id } = await h.child("remote");
+  h.exit(id);
+  h.host.close.mockRejectedValueOnce(new LaunchFailure("remote_host_unreachable"));
+  expect(await h.mutate("close", { id })).toMatchObject({
+    status: "failed",
+    reason: "remote_host_unreachable",
+    resultId: id,
+  });
+  expect(h.rows.has(id)).toBe(true);
 });

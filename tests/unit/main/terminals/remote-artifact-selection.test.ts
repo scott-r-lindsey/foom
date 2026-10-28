@@ -85,7 +85,7 @@ test("uses bounded SSH discovery and a fixed catalog path, validates version and
   );
   mock.failure = true;
   await expect(selectHostArtifact(target, "0.1.0", f.root, f.metadata)).rejects.toThrow(
-    "probe failed",
+    "unreachable",
   );
   await expect(
     selectHostArtifact({ host: "-oProxyCommand=id" }, "0.1.0", f.root, f.metadata),

@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import { spawn } from "node:child_process";
 import { devNull } from "node:os";
 import { access, realpath, stat } from "node:fs/promises";
@@ -113,7 +114,7 @@ export async function hostDiscovery(
     }
     if (command) break;
   }
-  if (!command) throw new Error("Remote agent is unavailable");
+  if (!command) throw new LaunchFailure("remote_agent_unavailable");
   const fixed = async (args: string[]) => {
     try {
       return (await hostProbe(command, args, home, launchEnv)).trim();

@@ -60,7 +60,9 @@ test.skipIf(process.platform === "win32")(
     });
     expect(found.env).not.toHaveProperty("NODE_OPTIONS");
     await chmod(cli, 0o600);
-    await expect(hostDiscovery(model, shell, root)).rejects.toThrow("unavailable");
+    await expect(hostDiscovery(model, shell, root)).rejects.toMatchObject({
+      reason: "remote_agent_unavailable",
+    });
     await chmod(cli, 0o700);
     const failed = await script("failed-shell", "process.exit(1)");
     expect((await hostDiscovery(model, failed, root)).command).toBe(cli);

@@ -81,6 +81,7 @@ test("remote launch keeps hub identity and credentials out of process data and b
   expect(launched.result).toMatchObject({
     id: request.terminalId,
     remote: true,
+    placement: { kind: "remote", host: "fixture-host" },
     conversationId: "conversation",
     attention: "hooks",
   });

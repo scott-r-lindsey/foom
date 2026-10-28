@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import { remoteAgentTarget, remoteSpikeTarget } from "../terminals/remote-bootstrap";
 import { ControlError } from "../../shared/control-validation";
 import type { AgentId, AgentLaunch } from "../../shared/agents";
@@ -80,8 +81,7 @@ export async function launchAgent(
   > = {},
 ): Promise<{ id: string; attention: "hooks" | "evaluator" }> {
   return this.withRepository(request.repository, async () => {
-    if (this.enabled[request.agent] === false)
-      throw new Error("This agent is turned off in preflight");
+    if (this.enabled[request.agent] === false) throw new LaunchFailure("agent_disabled");
     // Scan once so launches don't each probe the login shell.
     if (!remoteAgentTarget(process.argv, request.worktree)) await this.scanAgents(false);
     // Look up the branch before spawning, so nothing can fail between spawn and tracking.
@@ -97,6 +97,7 @@ export async function launchAgent(
     const result = await this.agents.launch({
       ...request,
       ...extra,
+      ...(replacement && !this.launched.get(replacement.id)?.remote ? { localOnly: true } : {}),
       defaultArguments,
       ...(replacement
         ? {
@@ -128,6 +129,7 @@ export async function launchAgent(
           }
         : {}),
       ...(result.remote ? { remote: true } : {}),
+      placement: result.placement ?? { kind: "local" },
       ...(result.providerOrigin ? { providerOrigin: result.providerOrigin } : {}),
       startedAt: this.now(),
       launchFlags: [...(result.launchFlags ?? defaultArguments)],

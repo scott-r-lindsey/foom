@@ -207,7 +207,7 @@ describe("worktrees and children", () => {
     h.host.launch.mockRejectedValueOnce(new Error("spawn failed"));
     expect(await h.mutate("launch", { worktreeId: tree.resultId, agent: "claude" })).toMatchObject({
       status: "failed",
-      reason: "error",
+      reason: "launch_failed",
     });
     h.host.launch.mockImplementationOnce(() => {
       h.orchestration.exited("early");

@@ -1,3 +1,4 @@
+import { launchReasons } from "../../shared/launch-failure";
 import { remoteChildControl } from "./remote-control";
 import { removalReasons } from "../workspace/worktree-outcome";
 import { reserveRequest } from "./http-limits";
@@ -247,6 +248,7 @@ export class ControlService {
           worktree: locationId(actor.worktree),
           name: metadataName(basename(actor.worktree)),
           removalReasons,
+          launchReasons,
           capabilities: this.capabilities(actor),
           tools: this.capabilities(actor).map((name) => ({
             name,

@@ -102,21 +102,26 @@ export class SessionMetadata {
       ...(review ? { review } : {}),
       id: row.id,
       agent: row.agent,
+      placement: row.placement ?? (row.remote ? undefined : { kind: "local" }),
       ...(row.selection ? { selection: row.selection } : {}),
       repository: locationId(row.repository),
       worktree: locationId(row.worktree),
       name: metadataName(row.branch ?? basename(row.worktree)),
       state: reported,
       reason:
-        reported === "needs_input" && current && row.state?.attentionKind === "provider"
-          ? "provider_unavailable"
-          : reported,
+        row.remoteCleanup === "unreachable"
+          ? "remote_host_unreachable"
+          : reported === "needs_input" && current && row.state?.attentionKind === "provider"
+            ? "provider_unavailable"
+            : reported,
       revision: createHash("sha256")
         .update(
           JSON.stringify([
             pr ?? null,
             review ?? null,
             handoff ?? null,
+            row.placement ?? null,
+            row.remoteCleanup ?? null,
             row.launchVersion ?? 0,
             execution?.launch ?? 0,
             execution?.revision ?? 0,

@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import { ControlError } from "../../shared/control-validation";
 import { remoteAgentTarget } from "../terminals/remote-bootstrap";
 import { launchRemoteChild, type RemoteHooks } from "./remote-launch";
@@ -242,7 +243,9 @@ export class AgentService {
         ? (request.checkoutIdentity ??
           (await this.worktrees.launchIdentity(request.repository, request.worktree)))
         : undefined;
-    const remote = remoteAgentTarget(process.argv, request.worktree);
+    const remote = request.localOnly
+      ? undefined
+      : remoteAgentTarget(process.argv, request.worktree);
     if (remote) {
       if (request.loop) throw new ControlError("remote_review_unsupported");
       if (provider.model.launch.extension || provider.id === "opencode")
@@ -301,8 +304,7 @@ export class AgentService {
         ? this.scanResult
         : await this.scan();
     const agent = scan.agents.find((entry) => entry.id === request.agent);
-    if (!agent?.path)
-      throw new Error(`${request.agent} is not installed. Rescan after installing it.`);
+    if (!agent?.path) throw new LaunchFailure("agent_unavailable");
     const attach =
       this.hooksEnabled && this.agentHooks[agent.id] !== false && agent.hooks && this.prepareHooks;
     const suppliedBinding = attach ? await attach(agent.id) : undefined;

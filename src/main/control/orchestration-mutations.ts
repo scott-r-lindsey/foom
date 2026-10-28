@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import { selectionInput, validateSelection } from "../../node-common/launch-selection";
 import { ApplicationError } from "../../shared/application-errors";
 import { RemovalError } from "../workspace/worktree-outcome";
@@ -32,8 +33,18 @@ function text(value: unknown, bytes: number): string {
 }
 
 function publicOperation(operation: Operation): Operation {
-  const { operationId, action, targetId, resultId, status, createdAt, updatedAt, reason, detail } =
-    operation;
+  const {
+    operationId,
+    action,
+    targetId,
+    resultId,
+    status,
+    createdAt,
+    updatedAt,
+    reason,
+    detail,
+    placement,
+  } = operation;
   return {
     operationId,
     action,
@@ -44,6 +55,7 @@ function publicOperation(operation: Operation): Operation {
     updatedAt,
     reason,
     ...(detail ? { detail } : {}),
+    ...(placement ? { placement } : {}),
   };
 }
 
@@ -221,11 +233,32 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       if (review) this.startReview(id, review, actor, operations);
       this.changed();
       this.host.place?.(id, actor.terminalId);
-      return await this.finish(actor, parent, operations, operation, label, "succeeded", id);
+      const placement = this.host.terminals().find((row) => row.id === id)?.placement ?? {
+        kind: "local" as const,
+      };
+      const record = await operations.finish(
+        actor,
+        operation.operationId,
+        "succeeded",
+        "completed",
+        id,
+        placement,
+      );
+      this.note(parent, this.entry(record, label));
+      return record;
     } catch (error) {
       tree.state = "unused";
+      const reason =
+        error instanceof LaunchFailure
+          ? error.reason
+          : error instanceof ApplicationError && error.code === "remote-host-unavailable"
+            ? "remote_artifact_mismatch"
+            : "launch_failed";
+      console.error(`Agent launch failed: ${reason}`);
       if (error instanceof ControlError) throw error;
-      return await this.finish(actor, parent, operations, operation, label, "failed");
+      const record = await operations.finish(actor, operation.operationId, "failed", reason);
+      this.note(parent, this.entry(record, label));
+      return record;
     } finally {
       parent.starting--;
       this.childEvents.publish();
@@ -265,7 +298,18 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       );
       if (!closed)
         return await this.finish(actor, parent, operations, operation, label, "declined", id);
-    } catch {
+    } catch (error) {
+      if (error instanceof LaunchFailure) {
+        const record = await operations.finish(
+          actor,
+          operation.operationId,
+          "failed",
+          error.reason,
+          id,
+        );
+        this.note(parent, this.entry(record, label));
+        return record;
+      }
       return await this.finish(actor, parent, operations, operation, label, "failed", id);
     } finally {
       scope.release();

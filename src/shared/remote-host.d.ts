@@ -1,3 +1,4 @@
+import type { LaunchReason } from "./launch-failure";
 import type {
   RemoteAgentBinding,
   RemoteAgentSpec,
@@ -6,7 +7,12 @@ import type {
 } from "./remote-agent";
 import type { HookSignal } from "./hooks";
 import type { HostRequest, HostResponse } from "./terminal-host";
-export type RemoteTarget = { host: string; artifact?: string; agent?: RemoteAgentBinding };
+export type RemoteTarget = {
+  host: string;
+  artifact?: string;
+  agent?: RemoteAgentBinding;
+  cleanup?: true;
+};
 export type RemoteRequest =
   | { type: "hello"; build: string }
   | { type: "open"; request: number; id: string; cols: number; rows: number; reattach: boolean }
@@ -18,6 +24,7 @@ export type RemoteRequest =
       rows: number;
       spec: RemoteAgentSpec;
     }
+  | { type: "agent-close"; id: string; request: number }
   | { type: "agent-start"; id: string }
   | { type: "agent-activate"; id: string }
   | { type: "agent-reply"; id: string; call: number; result: RemoteControlResult }
@@ -34,6 +41,7 @@ export type RemoteOpenResult = { type: "open-result"; request: number; id: strin
   | { state: "exited"; code: number }
 );
 export type RemoteResponse =
+  | { type: "agent-failed"; id: string; reason: LaunchReason }
   | { type: "hello"; build: string }
   | HostResponse
   | RemoteFragment

@@ -100,7 +100,7 @@ export class TerminalHostClient {
           child,
           child.failureReason === "remote-host-unavailable"
             ? new ApplicationError("remote-host-unavailable")
-            : undefined,
+            : child.launchFailure,
         );
       });
       return child;
@@ -200,7 +200,14 @@ export class TerminalHostClient {
       if (!pending || pending.id !== message.id) return;
       this.pending.delete(message.request);
       clearTimeout(pending.timer);
-      if (message.type === "error") pending.reject(new Error("Terminal host operation failed"));
+      if (message.type === "error")
+        pending.reject(
+          child instanceof RemoteTransport
+            ? child.failureReason === "remote-host-unavailable"
+              ? new ApplicationError("remote-host-unavailable")
+              : (child.launchFailure ?? new Error("Terminal host operation failed"))
+            : new Error("Terminal host operation failed"),
+        );
       else pending.resolve(message);
     }
   }
@@ -209,7 +216,7 @@ export class TerminalHostClient {
     return `Terminal host stopped: ${JSON.stringify(diagnostics)}`;
   }
 
-  private fail(child: UtilityProcess | RemoteTransport, failure?: ApplicationError): void {
+  private fail(child: UtilityProcess | RemoteTransport, failure?: Error): void {
     if (this.child !== child) return;
     this.child = undefined;
     child.kill();
@@ -383,7 +390,25 @@ export class TerminalHostClient {
     if (result.signaled === undefined) throw new Error("Missing terminal stop result");
     return result.signaled;
   }
-  async kill(id: string): Promise<void> {
+  async kill(id: string, host?: string): Promise<void> {
+    if (host) {
+      const artifact = process.argv
+        .find((arg) => arg.startsWith("--remote-agent-artifact="))
+        ?.slice("--remote-agent-artifact=".length);
+      const client = new TerminalHostClient(
+        () => {},
+        {},
+        { host, cleanup: true, ...(artifact ? { artifact } : {}) },
+      );
+      try {
+        await client.create({ id, command: "/bin/sh", args: [], cwd: "/", cols: 80, rows: 24 });
+      } finally {
+        await client.dispose();
+      }
+      await this.remotes.get(id)?.dispose();
+      this.remotes.delete(id);
+      return;
+    }
     const remote = this.remotes.get(id);
     if (remote) {
       await remote.kill(id);

@@ -235,3 +235,23 @@ test("a reassembled open outcome is validated as a remote response", () => {
     new RemoteMessages().push({ type: "fragment", id: "one", offset: 0, total: data.length, data }),
   ).toEqual(outcome);
 });
+
+test("agent failures are a fixed enum and cleanup requests cannot carry commands or extra fields", () => {
+  expect(remoteRequest({ type: "agent-close", id: "child", request: 1 })).toBe(true);
+  for (const value of [
+    { type: "agent-close", id: "child", request: 1, command: "arbitrary" },
+    { type: "agent-close", id: "child", request: -1 },
+    { type: "agent-close", id: "../child", request: 1 },
+    { type: "agent-close", id: "child" },
+  ])
+    expect(remoteRequest(value)).toBe(false);
+  expect(
+    remoteResponse({ type: "agent-failed", id: "child", reason: "remote_agent_unavailable" }),
+  ).toBe(true);
+  for (const value of [
+    { type: "agent-failed", id: "child", reason: "private stderr" },
+    { type: "agent-failed", id: "child", reason: "remote_prepare_refused", stderr: "private" },
+    { type: "agent-failed", id: "child" },
+  ])
+    expect(remoteResponse(value)).toBe(false);
+});

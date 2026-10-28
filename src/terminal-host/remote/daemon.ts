@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import { record } from "../../shared/remote-agent-protocol";
 import { prepareRemoteAgent } from "./agent-launch";
 import type { RemoteControlResult } from "../../shared/remote-agent";
@@ -255,6 +256,14 @@ export function serveHost(
         return;
       }
       if (message.type === "hello") throw new Error("Repeated negotiation");
+      if (message.type === "agent-close") {
+        if (id !== undefined) throw new Error("Already open");
+        const session = sessions.get(message.id);
+        if (session && !session.agent) throw new Error("Not an agent");
+        if (session) await remove(message.id, session);
+        await send(socket, { type: "result", id: message.id, request: message.request, lines: [] });
+        return;
+      }
       if (message.type === "agent-start") {
         const pending = prepared;
         if (
@@ -487,7 +496,18 @@ export function serveHost(
           chain = chain.then(async () => {
             try {
               await dispatch(value);
-            } catch {
+            } catch (error) {
+              if (value.type === "agent-open" || value.type === "agent-start")
+                await send(socket, {
+                  type: "agent-failed",
+                  id: value.id,
+                  reason:
+                    error instanceof LaunchFailure
+                      ? error.reason
+                      : value.type === "agent-open"
+                        ? "remote_prepare_refused"
+                        : "remote_start_refused",
+                });
               socket.destroy();
             } finally {
               queued--;

@@ -1,3 +1,5 @@
+import type { LaunchReason } from "../../shared/launch-failure";
+import type { WorkspaceTerminal } from "../../shared/workspace";
 import type { RemoteControlResult } from "../../shared/remote-agent";
 import type { RemovalReason } from "../workspace/worktree-outcome";
 export type Role = "agent" | "orchestrator" | "cli";
@@ -48,7 +50,8 @@ export type Reason =
   | "revoked"
   | "uncertain"
   | "error"
-  | RemovalReason;
+  | RemovalReason
+  | LaunchReason;
 export interface Operation {
   readonly operationId: string;
   readonly action: Action;
@@ -58,6 +61,7 @@ export interface Operation {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly reason: Reason;
+  readonly placement?: WorkspaceTerminal["placement"];
   readonly detail?: string;
   readonly proposal?: string;
   readonly inputHash?: string;

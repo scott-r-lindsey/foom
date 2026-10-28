@@ -217,9 +217,13 @@ test.skipIf(process.platform === "win32")(
     await expect(
       prepareRemoteAgent({ ...spec, agent: "unknown" }, "/fixture/shell", home, () => {}, call),
     ).rejects.toThrow("unavailable");
+    vi.mocked(remoteCheckout).mockRejectedValueOnce(new Error("PRIVATE git output"));
+    await expect(
+      prepareRemoteAgent(spec, "/fixture/shell", home, () => {}, call),
+    ).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
     vi.mocked(remoteCheckout).mockResolvedValueOnce("before").mockResolvedValueOnce("after");
     await expect(prepareRemoteAgent(spec, "/fixture/shell", home, () => {}, call)).rejects.toThrow(
-      "changed",
+      "worktree",
     );
     vi.mocked(hostDiscovery).mockResolvedValueOnce({
       command: "/fixture/codex",

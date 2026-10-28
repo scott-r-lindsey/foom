@@ -785,3 +785,33 @@ test("arbitrary artifact error text cannot select a trusted launch failure", asy
   expect(bad.failureReason).toBeUndefined();
   expect(bad.kill()).toBe(false);
 });
+
+test("a cleanup-only connection sends bounded agent-close without attaching or creating a PTY", async () => {
+  transport.kill();
+  transport = new RemoteTransport({ host: "fixture", cleanup: true }, "0.1.0");
+  transport.on("message", (message) => events.push(message));
+  transport.postMessage(create);
+  await Promise.resolve();
+  child.greet();
+  expect(child.messages).toContainEqual({ type: "agent-close", id: "one", request: 1 });
+  child.message({ type: "result", id: "one", request: 1, lines: [] });
+  expect(events).toContainEqual({ type: "result", id: "one", request: 1, lines: [] });
+  expect(
+    child.messages.some(
+      (value) =>
+        typeof value === "object" && value !== null && "type" in value && value.type === "open",
+    ),
+  ).toBe(false);
+});
+
+test.each([
+  "remote_agent_unavailable",
+  "remote_worktree_unavailable",
+  "remote_prepare_refused",
+  "remote_start_refused",
+] as const)("preserves only the fixed host failure code %s", async (reason) => {
+  await remoteAgent();
+  child.message({ type: "agent-failed", id: "one", reason });
+  expect(transport.launchFailure?.reason).toBe(reason);
+  expect(events).toContainEqual({ type: "error", id: "one", request: 1 });
+});
