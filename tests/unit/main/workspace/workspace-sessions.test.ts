@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest";
+import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { Workspace } from "../../../../src/main/workspace/workspace";
 import type { Launched } from "./workspace-fixture";
 import {
@@ -83,9 +84,54 @@ test("restores metadata without PTYs, allows Resume and Close, and drains persis
   const restored = new Workspace(deps);
   await restored.restore();
   vi.mocked(deps.terminals).kill.mockClear();
+  vi.mocked(deps.worktrees.reviewIdentity).mockClear();
   await restored.sidebarCommand({ kind: "close", id: "t1" }, () => Promise.resolve(true));
+  expect(deps.worktrees.reviewIdentity).toHaveBeenCalledExactlyOnceWith(repo.path, tree.path);
   expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(0);
   await restored.dispose();
+});
+
+test("Close forgets a dormant restored session from an unregistered repository without Git", async () => {
+  const worktrees = new WorktreeService(tree.path);
+  const identity = vi.spyOn(worktrees, "reviewIdentity");
+  const removal = vi.spyOn(worktrees, "removeWorktree");
+  const save = vi.fn(() => Promise.resolve());
+  deps.sessions = {
+    load: () =>
+      Promise.resolve([
+        {
+          id: "missing-repo",
+          kind: "agent",
+          agent: "claude",
+          repository: repo.path,
+          worktree: tree.path,
+          branch: tree.branch,
+          attention: "evaluator",
+          state: null,
+          dormant: true,
+          exited: true,
+        },
+      ]),
+    save,
+    flush: () => Promise.resolve(),
+  };
+  const workspace = new Workspace({ ...deps, worktrees });
+  try {
+    await workspace.restore();
+    expect(workspace.snapshot().terminals).toMatchObject([{ id: "missing-repo", dormant: true }]);
+    await workspace.sidebarCommand({ kind: "close", id: "missing-repo" }, () =>
+      Promise.resolve(true),
+    );
+    expect(workspace.ownsSession("missing-repo")).toBe(false);
+    expect(workspace.snapshot().terminals).toEqual([]);
+    expect(save).toHaveBeenLastCalledWith([]);
+    expect(identity).not.toHaveBeenCalled();
+    expect(removal).not.toHaveBeenCalled();
+    expect(vi.mocked(deps.terminals, true).kill.mock.calls).toHaveLength(0);
+    expect(agents.launch).not.toHaveBeenCalled();
+  } finally {
+    await workspace.dispose();
+  }
 });
 
 test("captures only valid IDs, persists changes once, and keeps IDs out of evaluation", async () => {
