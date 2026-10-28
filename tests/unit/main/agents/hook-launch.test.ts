@@ -1,3 +1,5 @@
+import type * as ChildProcess from "node:child_process";
+import type * as Permissions from "../../../../src/node-common/private-file-permissions";
 import { replaceConfigProviders } from "../../../../src/main/agents/providers/registry";
 import type * as Fs from "node:fs/promises";
 import type * as HookPreparation from "../../../../src/main/agents/providers/v2-hook-launch";
@@ -19,6 +21,36 @@ vi.mock("../../../../src/main/agents/providers/v2-hook-launch", async (original)
   return { ...actual, prepareV2Hooks: vi.fn(actual.prepareV2Hooks) };
 });
 
+// A simulated launch must never reach a native permissions subprocess, even
+// when its requested interpreter platform differs from the host.
+const nativeExecute = vi.hoisted(() => vi.fn());
+vi.mock("node:child_process", async (original) => {
+  const actual = await original<typeof ChildProcess>();
+  const execute = vi.fn(actual.execFile);
+  Object.defineProperty(execute, Symbol.for("nodejs.util.promisify.custom"), {
+    value: nativeExecute,
+  });
+  return { ...actual, execFile: execute };
+});
+
+import { windowsAcl } from "../../../../src/node-common/private-file-permissions";
+import { verifyPrivate } from "../../../../src/node-common/private-files";
+vi.mock("../../../../src/node-common/private-file-permissions", () => ({
+  windowsAcl: vi.fn<typeof Permissions.windowsAcl>(),
+}));
+
+let native = false;
+async function useNativePermissions() {
+  native = true;
+  const actual = await vi.importActual<typeof Permissions>(
+    "../../../../src/node-common/private-file-permissions",
+  );
+  vi.mocked(windowsAcl).mockImplementation(actual.windowsAcl);
+  const childProcess = await vi.importActual<typeof ChildProcess>("node:child_process");
+  const { promisify } = await import("node:util");
+  nativeExecute.mockImplementation(promisify(childProcess.execFile));
+}
+
 let scratch: string;
 async function launchDirectories(): Promise<string[]> {
   return (await readdir(scratch)).filter((name) => !name.startsWith("foom-observers-"));
@@ -35,11 +67,18 @@ beforeEach(async () => {
   // An apostrophe in the path checks that the shell command quotes it as data.
   scratch = await mkdtemp(join(tmpdir(), "foom it's-"));
   vi.clearAllMocks();
+  native = false;
+  nativeExecute.mockRejectedValue(new Error("Unexpected native permissions subprocess"));
+  vi.mocked(windowsAcl).mockResolvedValue(undefined);
 });
 afterEach(async () => {
   vi.unstubAllEnvs();
   replaceConfigProviders([]);
   try {
+    if (!native) {
+      expect(execFile).not.toHaveBeenCalled();
+      expect(nativeExecute).not.toHaveBeenCalled();
+    }
     // No launch files may remain after disposal or failed preparation.
     await vi.waitFor(async () => {
       expect(await launchDirectories()).toEqual([]);
@@ -144,8 +183,7 @@ test("removes the directory and revokes credentials if registration fails", asyn
 });
 
 test("defaults to the system temporary directory", async () => {
-  // Path selection needs no native ACL/PowerShell subprocesses. Other cases in
-  // this file retain real private files and the Windows policy/transport checks.
+  // Path selection needs no native ACL/PowerShell subprocesses.
   const execute = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
   const hooks = {
     env: {},
@@ -176,6 +214,7 @@ test("defaults to the system temporary directory", async () => {
 test.skipIf(process.platform === "win32")(
   "the written adapter delivers a Claude hook to the real receiver",
   async () => {
+    await useNativePermissions();
     const signals: HookSignal[] = [];
     const real = await HookReceiver.listen((signal) => {
       signals.push(signal);
@@ -223,6 +262,7 @@ function runCommand(file: string, args: readonly string[], env: NodeJS.ProcessEn
 test.skipIf(process.platform !== "win32").each(["claude", "codex"] as const)(
   "generated %s invocation delivers under an inherited Restricted process policy",
   async (agent) => {
+    await useNativePermissions();
     vi.stubEnv("PSExecutionPolicyPreference", "Restricted");
     const signals: HookSignal[] = [];
     const real = await HookReceiver.listen((signal) => signals.push(signal));
@@ -236,6 +276,11 @@ test.skipIf(process.platform !== "win32").each(["claude", "codex"] as const)(
           hooks.v2?.values[agent === "claude" ? "observerArgv:lifecycle" : "observerArgv:notify"];
         const [file, ...args] = Array.isArray(argv) ? argv : hooks.observerArgv;
         if (!file) throw new Error("Missing hook executable");
+        const script = args.at(-1);
+        if (!script) throw new Error("Missing hook script");
+        expect(windowsAcl).toHaveBeenCalledWith(script, true);
+        await verifyPrivate(script, false);
+        expect(windowsAcl).toHaveBeenCalledWith(script, false);
         // Restricted can block Get-ExecutionPolicy's own module import. Prove
         // the inherited policy by executing this file without its override.
         const withoutOverride = args.filter(
@@ -306,4 +351,16 @@ test("Antigravity binds and revokes credentials with only a private ordering cou
   expect(revoke).toHaveBeenCalledOnce();
   expect(bind).toHaveBeenCalledTimes(2);
   expect(bind).toHaveBeenLastCalledWith(receiver.register.mock.calls[0]?.[0], undefined);
+});
+
+test("simulated hook preparation never starts native Windows ACL PowerShell", async () => {
+  vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+  nativeExecute.mockRejectedValue(new Error("Unexpected native permissions subprocess"));
+  const hooks = await prepareHookLaunch(receiver, "claude", vi.fn(), "linux", scratch);
+  try {
+    expect(nativeExecute).not.toHaveBeenCalled();
+    expect(hooks.v2?.values["observerArgv:lifecycle"]).toEqual(["sh", expect.any(String)]);
+  } finally {
+    hooks.dispose();
+  }
 });
