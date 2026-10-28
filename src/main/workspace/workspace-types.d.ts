@@ -1,3 +1,4 @@
+import type { SidebarCommandResult } from "../../shared/workspace";
 import type { AgentEvidence } from "../../shared/agent-detection";
 import type { AgentHooks, AgentId, AgentLaunch } from "../../shared/agents";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
@@ -78,7 +79,7 @@ export interface WorkspaceMethods {
     pathFirst?: string,
     configEnvironment?: Readonly<Record<string, string>>,
   ): Promise<string>;
-  startHomeShell(restoreId?: string): Promise<void>;
+  startHomeShell(restoreId?: string): Promise<string>;
   resumeId(
     command: Extract<SidebarCommand, { kind: "resume-id" }>,
     confirm: ConfirmWorkspace,
@@ -106,7 +107,7 @@ export interface WorkspaceMethods {
     confirm: ConfirmWorkspace,
     validateClose?: () => void,
     closeSignal?: AbortSignal,
-  ): Promise<void>;
+  ): Promise<SidebarCommandResult>;
   auditHuman(
     action: string,
     id: string,

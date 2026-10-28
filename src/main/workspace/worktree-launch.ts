@@ -253,8 +253,8 @@ export async function startShell(
 export async function startHomeShell(
   this: WorktreeLaunchContext,
   restoreId?: string,
-): Promise<void> {
-  await this.startShell(
+): Promise<string> {
+  return this.startShell(
     { home: true, repository: homeDirectory, worktree: homeDirectory, branch: null },
     restoreId,
   );

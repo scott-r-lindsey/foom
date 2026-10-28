@@ -1,3 +1,4 @@
+import type { SidebarCommandResult } from "../../shared/workspace";
 import type { PreviewOpenAction } from "../../shared/previews";
 import type { PreviewApi, PreviewBounds } from "../../shared/previews";
 import type { PreviewSummary } from "../../shared/workspace";
@@ -58,7 +59,7 @@ export interface BoardSource {
   connect?: () => () => void;
   createView?: () => TerminalViewSource;
   getSidebar?: () => SidebarRepository[] | readonly SidebarRepository[];
-  sidebarCommand?: (command: SidebarCommand) => Promise<void>;
+  sidebarCommand?: (command: SidebarCommand) => Promise<SidebarCommandResult> | Promise<void>;
   panelFacts?: (repository: string, worktree: string) => Promise<GitPanelFacts>;
   homeShell?: () => HomeShellFacts | undefined;
   shellName?: () => string;
