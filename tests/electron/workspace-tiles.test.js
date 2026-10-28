@@ -269,6 +269,8 @@ test("tile leader avoids AltGr chords and cancels unmatched keys", {
 }, async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
+  const terminalId = await page.locator(".terminal-tile").getAttribute("data-tile");
+  const terminal = page.locator(`[data-tile="${terminalId}"]`);
   const leader = async (keyCode) => {
     await boardCommand(app, "Space");
     await app.evaluate(({ BrowserWindow }, keyCode) => {
@@ -284,7 +286,7 @@ test("tile leader avoids AltGr chords and cancels unmatched keys", {
   await leader("R");
   await expect(tiles).toHaveCount(2);
   await leader("1");
-  await expect(tiles.first()).toHaveAttribute("data-focused", "true");
+  await expect(terminal).toHaveAttribute("data-focused", "true");
   await leader("Escape");
   await page.keyboard.press("r");
   await expect(tiles).toHaveCount(2);
@@ -296,6 +298,8 @@ test("tile leader avoids AltGr chords and cancels unmatched keys", {
 test("tile terminal viewport has no native overflow bars", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
+  const terminalId = await page.locator(".terminal-tile").getAttribute("data-tile");
+  const terminal = page.locator(`[data-tile="${terminalId}"]`);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Terminal", exact: true }).click();
@@ -311,18 +315,15 @@ test("tile terminal viewport has no native overflow bars", async (context) => {
   await expect(page.locator(".terminal-tile")).toHaveCount(2);
   await page.evaluate(() => window.desktop.appMenu.execute("split-down"));
   await expect(page.locator(".terminal-tile")).toHaveCount(3);
-  await expect(page.locator(".terminal-tile").first()).toHaveCSS(
-    "background-color",
-    "rgb(40, 42, 54)",
-  );
+  await expect(terminal).toHaveCSS("background-color", "rgb(40, 42, 54)");
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme });
-    const viewport = page.locator(".tile-terminal .xterm-viewport").first();
+    const viewport = terminal.locator(".xterm-viewport");
     await expect(viewport).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(viewport).toHaveCSS("overflow", "hidden");
     // The bottom strip below the last whole character row comes from the tile's
     // terminal theme, while xterm's current viewport still owns scrollback.
-    await expect(page.locator(".xterm-scrollable-element").first()).toBeVisible();
+    await expect(terminal.locator(".xterm-scrollable-element")).toBeVisible();
   }
   await page.screenshot({ path: evidencePath("foom-132-bars-fixed.png") });
 });
