@@ -294,8 +294,9 @@ test("tile terminal viewport has no native overflow bars", async (context) => {
   const page = await boardPage(app);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openSettingsScreen(page);
-  await page.getByRole("button", { name: "Themes", exact: true }).click();
-  await page.getByRole("button", { name: "Dracula", exact: true }).click();
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await page.getByRole("button", { name: /^Colors / }).click();
+  await page.getByRole("menuitemradio", { name: "Dracula", exact: true }).click();
   await expect
     .poll(() =>
       page.evaluate(async () => (await window.desktop.setupState()).settings.terminalTheme),
@@ -821,7 +822,8 @@ test("tile layouts restore v1 terminal content and v2 mixed content after invent
     ["light", 150],
   ]) {
     await page.evaluate(
-      ({ theme, scale }) => window.desktop.saveSetup({ colorMode: theme, interfaceScale: scale }),
+      ({ theme, scale }) =>
+        window.desktop.saveSetup({ interfaceTheme: `eclipse-${theme}`, interfaceScale: scale }),
       { theme, scale },
     );
     await assertAccessible(page);

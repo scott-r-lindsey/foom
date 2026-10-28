@@ -1,3 +1,4 @@
+import { CustomThemeHint } from "../../../../src/renderer/preflight/custom-theme-hint";
 import type { LaunchOptions } from "../../../../src/renderer/board/board-source.d";
 import type { BoardCommand } from "../../../../src/shared/board-command";
 // @vitest-environment jsdom
@@ -373,4 +374,13 @@ test("launch menus follow catalog publications and discard stale loads", async (
   expect(view.getByRole("menuitem", { name: /^Via FixtureCode$/ })).toBeTruthy();
   view.unmount();
   expect(off).toHaveBeenCalledOnce();
+});
+
+test("a Settings custom-theme hint opens the same config panel as the gear", async () => {
+  const { source } = fixture();
+  const view = render(<Board source={source} settingsView={<CustomThemeHint />} />);
+  await act(async () => {});
+  const hint = view.getByRole("button", { name: "config agent" });
+  fireEvent.click(hint);
+  expect(view.getByRole("dialog", { name: "Foom config details and commands" })).toBeTruthy();
 });

@@ -45,10 +45,8 @@ export interface Settings {
   agentBypassIdentities?: Readonly<Record<string, string>>;
   /** Default for new worktrees: Foom's folder, or next to the repository. */
   worktreeLocation: "root" | "adjacent";
-  /** Eclipse variant when interfaceTheme is Follow; fixed themes supply their own base. */
   panelColor: "vivid" | "subtle" | "plain";
-  colorMode: "system" | "light" | "dark";
-  /** A built-in or complete validated color palette; Follow preserves the legacy mode. */
+  /** Default (follow) tracks OS appearance live; fixed themes supply their own base. */
   interfaceTheme: InterfaceThemeChoice;
   /** Interface zoom in percent, 80–150 in steps of 10, then 175, 200, 250 and 300. Terminal font size is separate. */
   interfaceScale: number;

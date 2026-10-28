@@ -525,7 +525,13 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
       return board.getNativeWindowHandle().readUInt32LE();
     });
     for (const mode of ["light", "dark"]) {
-      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await page.evaluate(
+        (colorMode) =>
+          window.desktop.saveSetup({
+            interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+          }),
+        mode,
+      );
       await expect
         .poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors))
         .toBe(mode === "dark");
@@ -545,7 +551,7 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
         evidencePath(`screenshots-680/first-run-${mode}.png`),
       ]);
     }
-    await page.evaluate(() => window.desktop.saveSetup({ colorMode: "system" }));
+    await page.evaluate(() => window.desktop.saveSetup({ interfaceTheme: "follow" }));
   }
 
   await page.evaluate((id) => window.desktop.previews.close(id), firstManual.id);
@@ -604,7 +610,6 @@ test("first run goes from no agents to go, launches by keyboard, and can be repl
     agentArguments: { claude: [], codex: [], agy: [] },
     agentBypassAcknowledged: { claude: false, codex: false, agy: false },
     worktreeLocation: "root",
-    colorMode: "system",
     panelColor: "vivid",
     interfaceTheme: "follow",
     interfaceScale: 100,

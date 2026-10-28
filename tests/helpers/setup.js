@@ -14,3 +14,18 @@ if (typeof globalThis.HTMLDialogElement !== "undefined") {
     this.open = false;
   };
 }
+
+// jsdom lacks the HTML popover API; Electron covers top-layer dismissal and focus.
+if (typeof globalThis.HTMLElement !== "undefined") {
+  globalThis.HTMLElement.prototype.togglePopover = function () {
+    const open = !this.hasAttribute("data-test-popover-open");
+    this.toggleAttribute("data-test-popover-open", open);
+    this.style.display = open ? "block" : "none";
+    this.dispatchEvent(Object.assign(new Event("toggle"), { newState: open ? "open" : "closed" }));
+  };
+  globalThis.HTMLElement.prototype.hidePopover = function () {
+    this.removeAttribute("data-test-popover-open");
+    this.style.display = "none";
+    this.dispatchEvent(Object.assign(new Event("toggle"), { newState: "closed" }));
+  };
+}

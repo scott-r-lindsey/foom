@@ -43,7 +43,13 @@ test("blank-window manual and terminals share the leftmost column geometry", asy
         .readUInt32LE(),
     );
     for (const mode of ["light", "dark"]) {
-      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await page.evaluate(
+        (colorMode) =>
+          window.desktop.saveSetup({
+            interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+          }),
+        mode,
+      );
       await page.waitForFunction(
         (mode) => document.documentElement.style.colorScheme === mode,
         mode,
@@ -172,7 +178,13 @@ test("Help Manual opens a contained offline guide and focuses the existing tile"
   }
   await page.evaluate(() => window.desktop.appMenu.execute("maximize"));
   for (const mode of ["light", "dark"]) {
-    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+    await page.evaluate(
+      (colorMode) =>
+        window.desktop.saveSetup({
+          interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+        }),
+      mode,
+    );
     await expect.poll(async () => (await facts())?.dark).toBe(mode === "dark");
     if (process.env.FOOM_MANUAL_SCREENSHOTS === "1" && process.platform === "linux") {
       await mkdir(evidencePath("screenshots-680"), { recursive: true });
@@ -321,7 +333,13 @@ test("bundled manual search supports keyboard navigation and section jumps", asy
     await key("/");
     await type("worktree");
     for (const mode of ["light", "dark"]) {
-      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await page.evaluate(
+        (colorMode) =>
+          window.desktop.saveSetup({
+            interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+          }),
+        mode,
+      );
       await expect
         .poll(() => run("matchMedia('(prefers-color-scheme: dark)').matches"))
         .toBe(mode === "dark");

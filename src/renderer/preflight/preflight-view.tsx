@@ -337,7 +337,12 @@ function PreflightContents({
         </ol>
         <div className="preflight-rail-foot">
           <BackgroundErrorMark />
-          <AppearanceControls settings={state.settings} catalog={state.themes} onChange={save} />
+          <AppearanceControls
+            compact
+            settings={state.settings}
+            catalog={state.themes}
+            onChange={save}
+          />
           {onClose && (
             <button type="button" className="preflight-close" onClick={onClose}>
               Back to board · Esc

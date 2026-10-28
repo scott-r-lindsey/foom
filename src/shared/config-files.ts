@@ -2,7 +2,7 @@ import { AgentManifestError } from "./agent-manifest";
 import { parsePluginManifest } from "./plugin-parser";
 import { migrateSoundSettings } from "./sounds";
 import { AgentArgumentsError } from "./providers/arguments";
-import { parseConfigSettings, CONFIG_SETTINGS } from "./config-settings";
+import { parseConfigSettings, CONFIG_SETTINGS, migrateAppearanceSettings } from "./config-settings";
 import type { ConfigSettings } from "./config";
 import { parseThemeFile } from "./theme-files";
 import type { ThemeDiagnostic, ThemeKind } from "./theme-file";
@@ -19,7 +19,7 @@ export function configJson(text: string): Record<string, unknown> {
   return themeRecord(value, "$");
 }
 export function parseSettingsFile(text: string): ConfigSettings {
-  const value = configJson(text);
+  const value = migrateAppearanceSettings(configJson(text));
   // Known excluded fields receive a stable, useful path, without echoing arbitrary keys.
   for (const key of [
     "agentBypassAcknowledged",
@@ -82,8 +82,20 @@ export function validateConfigJson(
         );
       throw error;
     }
-  } else if (kind === "settings") parseSettingsFile(text);
-  else {
+  } else if (kind === "settings") {
+    parseSettingsFile(text);
+    if (Object.hasOwn(value, "colorMode"))
+      return [
+        {
+          file: "",
+          path: "$.colorMode",
+          reason: "invalid-value",
+          severity: "warning",
+          detail:
+            "colorMode is retired; use interfaceTheme: follow for Default, eclipse-light or eclipse-dark for a fixed base. Fixed themes stay selected.",
+        },
+      ];
+  } else {
     const parsed = parseThemeFile(text, kind);
     return parsed.kind === "theme" ? (parsed.warnings ?? []) : [];
   }

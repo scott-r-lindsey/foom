@@ -1,28 +1,26 @@
 import { PanelMark, CommandGlyph } from "../board/panel-glyphs";
 import type { ThemeCatalog } from "../../shared/theme-file";
-import { resolveInterfaceTheme } from "../../shared/interface-themes";
+import { InterfaceThemePicker } from "./interface-theme-picker";
 import { useWheelNotch } from "../wheel-notch";
-import type { Settings } from "../../shared/setup";
+import type { Settings, SettingsPatch } from "../../shared/setup";
 import { SCALES } from "../../shared/config-settings";
 
-const MODES = [
-  { id: "system", label: "System" },
-  { id: "light", label: "Light" },
-  { id: "dark", label: "Dark" },
-] as const;
 const shortcutHint = () =>
   navigator.platform.startsWith("Mac") ? "⌘ + / − / 0" : "Ctrl+Shift+= / − / 0";
 
-/** Light or dark, and the interface size. Both apply at once and are saved. */
+/** Theme, interface size and session decoration apply at once and are saved. */
 export function AppearanceControls({
   settings,
   onChange,
   catalog,
+  openFolder,
+  compact = false,
 }: {
   catalog?: ThemeCatalog | undefined;
-  settings: Pick<Settings, "colorMode" | "interfaceScale"> &
-    Partial<Pick<Settings, "interfaceTheme" | "panelColor">>;
-  onChange: (patch: Partial<Pick<Settings, "colorMode" | "interfaceScale" | "panelColor">>) => void;
+  openFolder?: (() => Promise<void>) | undefined;
+  compact?: boolean;
+  settings: Settings;
+  onChange: (patch: SettingsPatch) => void;
 }) {
   const scale = settings.interfaceScale;
   const smaller = SCALES.findLast((step) => step < scale);
@@ -39,25 +37,13 @@ export function AppearanceControls({
   return (
     <div className="appearance">
       <div className="appearance-group">
-        <fieldset className="appearance-mode">
-          <legend>Appearance</legend>
-          {MODES.map((mode) => (
-            <label key={mode.id}>
-              <input
-                type="radio"
-                name="color-mode"
-                checked={
-                  (settings.interfaceTheme === undefined || settings.interfaceTheme === "follow") &&
-                  settings.colorMode === mode.id
-                }
-                onChange={() => {
-                  onChange({ colorMode: mode.id });
-                }}
-              />
-              <span>{mode.label}</span>
-            </label>
-          ))}
-        </fieldset>
+        <InterfaceThemePicker
+          settings={settings}
+          onChange={onChange}
+          catalog={catalog}
+          compact={compact}
+          openFolder={openFolder}
+        />
         <div className="appearance-size" role="group" aria-label="Interface size">
           <span aria-hidden="true">Size</span>
           <button
@@ -89,11 +75,6 @@ export function AppearanceControls({
             +
           </button>
         </div>
-        {settings.interfaceTheme && settings.interfaceTheme !== "follow" && (
-          <p className="appearance-hint">
-            Theme: {resolveInterfaceTheme(settings.interfaceTheme, false, catalog).name}
-          </p>
-        )}
         <p className="appearance-hint">{shortcutHint()}</p>
       </div>
       <div className="appearance-panel-group">
@@ -104,7 +85,7 @@ export function AppearanceControls({
               <input
                 type="radio"
                 name="panel-color"
-                checked={(settings.panelColor ?? "vivid") === level}
+                checked={settings.panelColor === level}
                 onChange={() => {
                   onChange({ panelColor: level });
                 }}

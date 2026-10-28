@@ -1,4 +1,5 @@
 import {
+  useImperativeHandle,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -427,6 +428,7 @@ export function useSidebar(props: SidebarProps) {
   const configPanel = () => {
     if (configGearRef.current) togglePanel("config", configGearRef.current);
   };
+  useImperativeHandle(props.configPanelRef, () => configPanel);
   const parentOf = (row: BoardRow) => sidebarParent(row, rows);
   const related = (row: BoardRow) =>
     [hoveredSession, focusedSession, selected].some((id) => {

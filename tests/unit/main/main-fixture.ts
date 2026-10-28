@@ -580,7 +580,7 @@ const mock = vi.hoisted(() => {
       update: vi.fn(() => Promise.resolve()),
       get: (): Pick<
         Settings,
-        "colorMode" | "interfaceScale" | "interfaceTheme" | "forges" | "forgeHosts" | "copyOnSelect"
+        "interfaceScale" | "interfaceTheme" | "forges" | "forgeHosts" | "copyOnSelect"
       > &
         Partial<
           Pick<
@@ -592,7 +592,6 @@ const mock = vi.hoisted(() => {
         forgeHosts: { "github.com": "github" },
         showPullRequests: false,
         copyOnSelect: false,
-        colorMode: "dark",
         interfaceScale: 120,
         interfaceTheme: "follow",
         agentBypassAcknowledged: { claude: false, codex: false, agy: true },

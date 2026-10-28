@@ -1,3 +1,4 @@
+import { ConfigThemeLauncherContext } from "../preflight/custom-theme-hint";
 import { restoreBoardFocus } from "./focus-restore";
 import type { ComponentProps, ReactNode, SetStateAction } from "react";
 import {
@@ -93,6 +94,7 @@ function BoardContents({
   settingsView?: ReactNode;
   onCloseSettings?: () => void;
 }) {
+  const configPanelRef = useRef<(() => void) | undefined>(undefined);
   const storageKey = source.windows ? `${TILE_STORAGE}.${source.windows.id}` : TILE_STORAGE;
   const [drag, setDrag] = useState<TileDrag>();
   const { report: reportBackground, clear: clearBackground } = useBackgroundErrors();
@@ -542,6 +544,7 @@ function BoardContents({
       )}
       <div className="board-workspace">
         <Sidebar
+          configPanelRef={configPanelRef}
           width={layout.sidebarWidth}
           setWidth={(sidebarWidth) => {
             changeLayout({ ...layoutRef.current, sidebarWidth });
@@ -621,7 +624,15 @@ function BoardContents({
           options={options}
           footer={<SidebarControls source={soundSetup} />}
         />
-        {!logOpen && settingsView}
+        {!logOpen && (
+          <ConfigThemeLauncherContext
+            value={() => {
+              configPanelRef.current?.();
+            }}
+          >
+            {settingsView}
+          </ConfigThemeLauncherContext>
+        )}
         {logOpen && source.actionLog && (
           <ActionLog
             api={source.actionLog}

@@ -115,9 +115,9 @@ test("resolves fixed, custom and legacy System/Light/Dark choices", () => {
   expect(resolveInterfaceTheme("follow", false)).toBe(interfaceThemes["eclipse-light"]);
   expect(resolveInterfaceTheme("moonlight", true)).toBe(interfaceThemes.moonlight);
   expect(resolveInterfaceTheme(interfaceThemes.moonlight, true)).toBe(interfaceThemes.moonlight);
-  expect(interfaceThemeSource("follow", "system")).toBe("system");
-  expect(interfaceThemeSource("deep-field", "light")).toBe("dark");
-  expect(interfaceThemeSource(interfaceThemes.moonlight, "dark")).toBe("light");
+  expect(interfaceThemeSource("follow")).toBe("system");
+  expect(interfaceThemeSource("deep-field")).toBe("dark");
+  expect(interfaceThemeSource(interfaceThemes.moonlight)).toBe("light");
 });
 test("color math agrees with reference values and handles neutral colors", () => {
   expect(contrast("#ffffff", "#000000")).toBe(21);

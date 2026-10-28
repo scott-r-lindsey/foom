@@ -43,7 +43,7 @@ They never echo parser exception messages or arbitrary unknown property names.
 
 Main keeps the last good palette for a rejected edit during the current session.
 A missing file disappears from the catalog. Invalid or missing selections after
-restart use Follow without overwriting the saved ID, and recover when a valid file
+restart use Default without overwriting the saved ID, and recover when a valid file
 returns. Built-ins precede custom themes; colliding names gain “(custom)”.
 `theme:list` and `theme:open-folder` validate the owning top frame and exact argument
 counts. Open accepts only the enumerated theme kind and chooses the folder in main.
@@ -64,7 +64,7 @@ Areas override a subset of colors: sidebar on `.sidebar-shell`, tiles on
 `.tile-area` and `.terminal-tile` chrome (terminal content retains its independent
 palette), panels on `.row-menu.sidebar-panel` (including tile panels), dialogs on
 Settings, preflight and confirmation/dialog roots, menus on row menus/submenus and
-the wordmark menu. Portal roots get their own area variables. Raised colors derive
+the wordmark menu and the shared Theme/Colors menus. Portal roots get their own area variables. Raised colors derive
 at each root from its effective palette. State colors override selected, hover,
 focus and scrollbar colors; omitted values retain existing derivations. Shape
 supports radius 0–12 px, panel-radius 0–16 px, border 0–2 px and shadow 0–1.
@@ -95,3 +95,26 @@ file counts as approved only if its digest matches. Allow verifies the proposal
 digest and current bytes and records the new digest. Keep it on restores the
 approved version applied in this session; when there is none it switches
 `interfaceTheme` back to the default and leaves the file in place.
+
+## Theme menus (#878)
+
+Appearance owns the interface Theme menu and its folder/status/errors; Terminal
+owns Colors and its folder/status/errors and terminal preview. Built-ins precede
+user entries below a divider. The first-run rail shares the interface menu without
+folder controls, previews or the custom-theme hint. Default uses the existing
+`follow` ID: interface Default follows the OS live, terminal Default follows the
+resolved interface base live. See [migration](settings.md#settings-and-setup).
+
+While interface Default is selected, it displays its live resolved name in both
+the closed picker and menu row: `Default · Eclipse Light` / `Default · Eclipse Dark`
+(including first run). With a fixed interface theme selected, the row reads only
+`Default`: Chromium media follows the fixed base, and Electron 44 has no independent
+OS appearance API on every platform. Terminal Colors always shows
+`Default · Foom Light` / `Default · Foom Dark`, resolved from the current interface base.
+Terminal font and font size use the same labeled keyboard menu as Theme and Colors.
+All four menus support arrow keys, Home/End, Escape and returning focus to the picker.
+Printable keys open the menu and focus a case-insensitive prefix match, including
+numeric sizes. Repeated letters cycle matches; a 700 ms pause or reopening the menu
+starts a new prefix. Typing moves focus; Enter commits the choice.
+The custom-theme hint sits directly beneath its picker, before folder status.
+Terminal has no text-size helper line.

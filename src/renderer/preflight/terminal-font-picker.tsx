@@ -1,3 +1,4 @@
+import { ThemeMenu } from "./theme-menu";
 import { useEffect, useState } from "react";
 import {
   DEFAULT_TERMINAL_FONT,
@@ -45,23 +46,16 @@ export function TerminalFontPicker({
   const selected = isTerminalFont(value) ? value : DEFAULT_TERMINAL_FONT;
   const options = terminalFontFamilies([...families, selected]);
   return (
-    <label className="terminal-font-size">
-      Terminal font
-      <select
-        aria-label="Terminal font"
-        value={selected}
-        onChange={(event) => {
-          const family = event.target.value;
-          if (isTerminalFont(family)) onChange({ terminalFont: family });
-        }}
-      >
-        <option value={DEFAULT_TERMINAL_FONT}>Hack Nerd Font Mono (bundled)</option>
-        {options.map((family) => (
-          <option key={family} value={family}>
-            {family}
-          </option>
-        ))}
-      </select>
-    </label>
+    <ThemeMenu
+      label="Terminal font"
+      selected={selected}
+      choices={[
+        { id: DEFAULT_TERMINAL_FONT, name: "Hack Nerd Font Mono (bundled)" },
+        ...options.map((family) => ({ id: family, name: family })),
+      ]}
+      onChange={(family) => {
+        if (isTerminalFont(family)) onChange({ terminalFont: family });
+      }}
+    />
   );
 }

@@ -267,22 +267,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     }
     throw new Error("Settings control is not reachable with Tab");
   };
-  const nextSelectOption = async (control, value) => {
-    await tabToControl(control);
-    if (process.platform === "darwin") {
-      // macOS native select popups do not consume synthetic web keyboard events:
-      // https://github.com/electron/electron/issues/12513
-      // Still verify Tab reachability, DOM change handling, and persistence here;
-      // Linux and Windows exercise selection entirely through the keyboard.
-      await control.selectOption(value);
-    } else {
-      await page.keyboard.press("Space");
-      await page.keyboard.press("ArrowDown");
-      await page.keyboard.press("Enter");
-    }
-    await expect(control).toHaveValue(value);
-    await page.keyboard.press("Tab");
-  };
+
   const section = async (name) => {
     await tabTo(page, name);
     await page.keyboard.press("Enter");
@@ -318,15 +303,23 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     )
     .toBe("adjacent");
   await section("Appearance");
-  await tabToControl(page.getByRole("radio", { name: "System", exact: true }));
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("ArrowRight");
+  await tabToControl(page.getByRole("button", { name: /^Theme Default · Eclipse / }));
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
   await tabTo(page, "+", "Larger");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("status").filter({ hasText: "110%" })).toBeVisible();
   await section("Terminal");
-  const font = page.getByLabel("Terminal font size");
-  await nextSelectOption(font, "15");
+  const font = page.getByRole("button", { name: "Terminal font size 14 px", exact: true });
+  await tabToControl(font);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Terminal font size 15 px", exact: true }),
+  ).toBeFocused();
   await expect
     .poll(() =>
       page.evaluate(async () => (await window.desktop.setupState()).settings.terminalFontSize),
@@ -338,14 +331,17 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await expect(page.locator(".xterm-rows")).toHaveCSS("font-size", "15px");
   await shortcut();
   await section("Appearance");
-  await expect(page.getByRole("radio", { name: "Dark", exact: true })).toBeChecked();
+  await expect(page.getByRole("button", { name: "Theme Eclipse Dark", exact: true })).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: "110%" })).toBeVisible();
-  await page.getByRole("radio", { name: "Light", exact: true }).check();
+  await page.getByRole("button", { name: /^Theme / }).click();
+  await page.getByRole("menuitemradio", { name: "Eclipse Light", exact: true }).click();
   await page.getByRole("button", { name: "Larger", exact: true }).click();
   await page.keyboard.press("Escape");
   await shortcut();
   await section("Appearance");
-  await expect(page.getByRole("radio", { name: "Light", exact: true })).toBeChecked();
+  await expect(
+    page.getByRole("button", { name: "Theme Eclipse Light", exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: "120%" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
@@ -443,15 +439,7 @@ test("every Settings section passes axe in light and dark, including the narrow 
   const app = await launchApp(context, { fixture: "empty-board" });
   const page = await boardPage(app);
   await openSettingsScreen(page);
-  for (const name of [
-    "General",
-    "Agents",
-    "Repositories",
-    "Appearance",
-    "Terminal",
-    "Themes",
-    "Sound",
-  ]) {
+  for (const name of ["General", "Agents", "Repositories", "Appearance", "Terminal", "Sound"]) {
     await page
       .getByRole("navigation", { name: "Settings sections" })
       .getByRole("button", { name, exact: true })

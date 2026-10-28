@@ -147,7 +147,7 @@ Environment shows one hint above the rows: “Added to every shell and agent Foo
 starts. Agent-specific variables are under Agents. Running sessions keep theirs.”
 Agents opens the Agents tab.
 
-Settings → Appearance groups mode and interface size together, with a separate
+Settings → Appearance groups Theme and interface size together, with a separate
 **Session panel color: Vivid / Subtle / Plain** group and a miniature live session
 panel beside the control (below it in narrow layouts). The preview uses real panel
 styles and reflects contrast overrides.
@@ -156,35 +156,50 @@ glow decoration only. Status text and outlines retain color and words. High
 Contrast and `prefers-contrast: more` force Plain and full-strength chip outlines.
 Decoration uses highlight; Working continues to use accent.
 
-Appearance contains only non-theme settings and shares the preflight rail's System/Light/Dark and interface-size controls.
-Changing either view is reflected in the other without restarting.
+Appearance and the first-run rail share one **Theme** menu: Default, Eclipse Light,
+Eclipse Dark, High Contrast, Deep Field, Moonlight, Graphite, Midnight Indigo, then
+user themes below a divider. Default follows OS light/dark changes live using
+Eclipse Light/Dark. Fixed themes keep their own base. There is no separate mode
+control and no Themes page. Picking a theme saves and applies immediately;
+changing interface size preserves it. Interface size and Session panel color stay
+on Appearance.
 
-Terminal font lists the bundled Hack Nerd Font Mono first, followed by installed
+Terminal font and font size use the same small labels and keyboard picker as
+Appearance’s Theme. Terminal font lists the bundled Hack Nerd Font Mono first, followed by installed
 monospace families. The choice persists and applies immediately to every terminal
 view, including config shells and the Settings preview. Open terminals refit their
 columns and rows. Missing fonts fall back silently to Hack Nerd Font Mono, Geist
 Mono and `monospace`.
 
 Terminal font size applies to every terminal view: 10–32 pixels, 14 by default,
-independent of interface size. The Themes section previews text size, all 16 ANSI colors, bold, dim and selection.
-Terminal colors default to Follow interface, with Foom Light/Dark, Solarized Light/Dark
-and Dracula built in. Changes apply live to visible and detached terminals.
-Settings → Themes offers System, Eclipse Light, Eclipse Dark, High Contrast,
-Deep Field, Moonlight, Graphite and Midnight Indigo, with a live preview of all six terminal statuses.
-System follows the operating system's light/dark appearance. The other themes have
-a fixed light or dark base. Changes apply immediately and persist. The preflight
-and Appearance System/Light/Dark controls return to the corresponding Eclipse
-appearance; changing interface size keeps the selected theme. Terminal color
-schemes remain independent; Follow interface uses the light/dark base.
+with no helper line beneath the heading. Terminal includes the preview of text size, all 16
+ANSI colors, bold, dim and selection. Its **Colors** menu lists Default, Foom Light,
+Foom Dark, Solarized Light, Solarized Dark, Dracula, then user terminal themes below
+a divider. Default (formerly Follow interface) follows the current interface theme's
+base live. Interface Default shows its resolved name in the closed picker and menu
+row only while selected, updating live; otherwise its row reads **Default**. The
+first-run Theme picker does too. Terminal Colors Default always shows its resolved
+name, matching the current interface base.
+Fixed terminal themes remain independent. Changes apply live to visible
+and detached terminals.
 
-Themes holds both interface and terminal choices. Each picker lists shipped themes first,
+Each picker lists shipped themes first,
 then user themes below a divider, with file status and **Open themes folder**. Add interface JSON files to `~/.foom/config/themes/` and terminal
 JSON files to `~/.foom/config/terminal-themes/`. New files and valid edits apply live,
 without restarting. Rejected files appear below the picker with a filename, JSON
 path and reason in failure styling. An invalid edit retains that theme's last good
 colors for the current session. A missing or invalid saved choice at startup uses
-Follow while retaining the choice; fixing its file restores the selection. Custom
+Default while retaining the choice; fixing its file restores the selection. Custom
 names matching a built-in receive “(custom)”. See the [file formats and limits](../areas/themes.md#custom-theme-files-205).
+
+Under each Settings picker, one quiet line reads: “Want something else? Ask a
+config agent for any theme you can describe.” **config agent** opens the sidebar's
+Foom config launcher panel, like the gear. This line is absent from first run.
+
+Upgrades preserve the selected look: legacy Follow with System becomes Default;
+Follow with Light/Dark becomes Eclipse Light/Dark; fixed interface and terminal
+themes stay selected. The retired `colorMode` key is validated on disk migration
+and omitted by new saves. See [stored settings](../areas/settings.md).
 
 Every interface theme keeps amber for Needs you, magenta for Failed, and violet for activity.
 Needs you retains its halo, Failed its square light, and all states their labels.

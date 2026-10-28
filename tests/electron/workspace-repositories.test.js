@@ -165,7 +165,13 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
   await expect(page.locator(".board-confirmation-scrim")).toBeVisible();
   for (const colorMode of ["light", "dark"]) {
-    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), colorMode);
+    await page.evaluate(
+      (colorMode) =>
+        window.desktop.saveSetup({
+          interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+        }),
+      colorMode,
+    );
     await expect
       .poll(() => confirmation.evaluate(() => document.documentElement.style.colorScheme))
       .toBe(colorMode);
@@ -829,7 +835,13 @@ test("broken checkout shows Clean up directly and refuses uninspectable leftover
   }
   await mkdir(evidencePath("screenshots-729"), { recursive: true });
   for (const colorMode of ["light", "dark"]) {
-    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), colorMode);
+    await page.evaluate(
+      (colorMode) =>
+        window.desktop.saveSetup({
+          interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+        }),
+      colorMode,
+    );
     await expect
       .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
       .toBe(colorMode);

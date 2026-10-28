@@ -267,6 +267,7 @@
   --raised-hover: var(--state-hover, color-mix(in srgb, var(--highlight) 12%, var(--raised-top)));
 }
 
+:root[data-theme-ready] .theme-menu-options,
 :root[data-theme-ready] .row-menu:not(.sidebar-panel),
 :root[data-theme-ready] .wordmark-menu {
   --bg: var(--theme-menus-bg, var(--theme-bg));

@@ -65,9 +65,9 @@ test("commit subjects name the change", () => {
   expect(describe(base, effective(base, { sound: { ...base.sound, working: true } }))).toBe(
     "Sound",
   );
-  expect(describe(base, effective(base, { colorMode: "dark", panelColor: "plain" }))).toBe(
-    "Settings: color mode, panel color",
-  );
+  expect(
+    describe(base, effective(base, { interfaceTheme: "eclipse-dark", panelColor: "plain" })),
+  ).toBe("Settings: panel color, interface theme");
 });
 
 test("owned files refresh only when missing or matching an earlier Foom version", () => {
@@ -102,7 +102,6 @@ test("owned files refresh only when missing or matching an earlier Foom version"
   expect(Object.keys(schema.properties).sort()).toEqual(
     [
       "kind",
-      "colorMode",
       "panelColor",
       "interfaceTheme",
       "terminalTheme",

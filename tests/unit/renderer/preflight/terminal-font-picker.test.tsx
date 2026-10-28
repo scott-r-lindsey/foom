@@ -19,15 +19,13 @@ test("bundled default comes first, families are validated and selection saves", 
       onChange={onChange}
     />,
   );
-  await screen.findByRole("option", { name: "Alpha Mono" });
-  expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-    "Hack Nerd Font Mono (bundled)",
-    "Alpha Mono",
-    "Zed Mono",
-  ]);
-  fireEvent.change(screen.getByLabelText("Terminal font"), { target: { value: "Alpha Mono" } });
+  fireEvent.click(screen.getByRole("button", { name: /^Terminal font / }));
+  await screen.findByRole("menuitemradio", { name: "Alpha Mono" });
+  expect(
+    screen.getAllByRole("menuitemradio").map((option) => option.textContent.replace(/^✓/, "")),
+  ).toEqual(["Hack Nerd Font Mono (bundled)", "Alpha Mono", "Zed Mono"]);
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Alpha Mono" }));
   expect(onChange).toHaveBeenCalledWith({ terminalFont: "Alpha Mono" });
-  fireEvent.change(screen.getByLabelText("Terminal font"), { target: { value: 'bad"' } });
   expect(onChange).toHaveBeenCalledOnce();
 });
 test("missing families stay selected and failures retain the default", async () => {
@@ -41,11 +39,12 @@ test("missing families stay selected and failures retain the default", async () 
   await act(async () => {
     await Promise.resolve();
   });
-  expect(screen.getByRole<HTMLOptionElement>("option", { name: "Missing Mono" }).selected).toBe(
-    true,
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Terminal font Missing Mono" }));
+  expect(
+    screen.getByRole("menuitemradio", { name: "Missing Mono" }).getAttribute("aria-checked"),
+  ).toBe("true");
   rerender(<TerminalFontPicker source={source()} value={'unsafe"'} onChange={vi.fn()} />);
-  expect(screen.getAllByRole("option")).toHaveLength(1);
+  expect(screen.getAllByRole("menuitemradio")).toHaveLength(1);
 });
 test("late enumeration does not update an unmounted picker", async () => {
   let finish: (fonts: readonly string[]) => void = () => {};
@@ -66,7 +65,7 @@ test("late enumeration does not update an unmounted picker", async () => {
     finish(["Late Mono"]);
     await Promise.resolve();
   });
-  expect(screen.queryByRole("option")).toBeNull();
+  expect(screen.queryByRole("menuitemradio")).toBeNull();
 });
 
 test("cached families show before the background refresh adds a new family", async () => {
@@ -81,15 +80,16 @@ test("cached families show before the background refresh adds a new family", asy
   const { unmount } = render(
     <TerminalFontPicker source={source(list)} value="Saved Mono" onChange={vi.fn()} />,
   );
-  await screen.findByRole("option", { name: "Cached Mono" });
+  fireEvent.click(screen.getByRole("button", { name: /^Terminal font / }));
+  await screen.findByRole("menuitemradio", { name: "Cached Mono" });
   expect(list.mock.calls).toEqual([[], [true]]);
-  expect(screen.queryByRole("option", { name: "New Mono" })).toBeNull();
+  expect(screen.queryByRole("menuitemradio", { name: "New Mono" })).toBeNull();
   await act(async () => {
     finish(["Cached Mono", "New Mono", 'bad"']);
     await Promise.resolve();
   });
-  expect(screen.getByRole("option", { name: "New Mono" })).toBeTruthy();
-  expect(screen.getByRole<HTMLSelectElement>("combobox").value).toBe("Saved Mono");
+  expect(screen.getByRole("menuitemradio", { name: "New Mono" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Terminal font Saved Mono" })).toBeTruthy();
   expect(list).toHaveBeenCalledTimes(2);
   unmount();
 });
@@ -101,7 +101,8 @@ test("a failed refresh keeps cached families", async () => {
   render(
     <TerminalFontPicker source={source(list)} value={DEFAULT_TERMINAL_FONT} onChange={vi.fn()} />,
   );
-  await screen.findByRole("option", { name: "Cached Mono" });
+  fireEvent.click(screen.getByRole("button", { name: /^Terminal font / }));
+  await screen.findByRole("menuitemradio", { name: "Cached Mono" });
   expect(list).toHaveBeenCalledTimes(2);
 });
 
@@ -117,7 +118,8 @@ test("a late refresh cannot update a replacement picker", async () => {
   const { rerender } = render(
     <TerminalFontPicker source={source(list)} value={DEFAULT_TERMINAL_FONT} onChange={vi.fn()} />,
   );
-  await screen.findByRole("option", { name: "Cached Mono" });
+  fireEvent.click(screen.getByRole("button", { name: /^Terminal font / }));
+  await screen.findByRole("menuitemradio", { name: "Cached Mono" });
   rerender(
     <TerminalFontPicker
       source={source(() => Promise.resolve(["Replacement Mono"]))}
@@ -125,10 +127,28 @@ test("a late refresh cannot update a replacement picker", async () => {
       onChange={vi.fn()}
     />,
   );
-  await screen.findByRole("option", { name: "Replacement Mono" });
+  await screen.findByRole("menuitemradio", { name: "Replacement Mono" });
   await act(async () => {
     finish(["Late Mono"]);
     await Promise.resolve();
   });
-  expect(screen.queryByRole("option", { name: "Late Mono" })).toBeNull();
+  expect(screen.queryByRole("menuitemradio", { name: "Late Mono" })).toBeNull();
+});
+
+test("typing a family prefix navigates the terminal font picker without saving", async () => {
+  const onChange = vi.fn();
+  render(
+    <TerminalFontPicker
+      source={source(() => Promise.resolve(["Gamma Mono", "Geist Mono"]))}
+      value={DEFAULT_TERMINAL_FONT}
+      onChange={onChange}
+    />,
+  );
+  await screen.findByRole("menuitemradio", { name: "Geist Mono", hidden: true });
+  fireEvent.keyDown(screen.getByRole("button", { name: /^Terminal font / }), { key: "G" });
+  for (const key of "eist") fireEvent.keyDown(screen.getByRole("menu"), { key });
+  expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Geist Mono" }));
+  expect(onChange).not.toHaveBeenCalled();
+  fireEvent.click(document.activeElement ?? document.body);
+  expect(onChange).toHaveBeenCalledWith({ terminalFont: "Geist Mono" });
 });

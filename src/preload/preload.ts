@@ -405,7 +405,6 @@ const validSettings: Validator<Settings> = shape({
   agentBypassIdentities: either(absent, dictionary(text)),
   worktreeLocation: literal("root", "adjacent"),
   panelColor: literal("vivid", "subtle", "plain"),
-  colorMode: literal("light", "dark", "system"),
   interfaceTheme: validInterfaceThemeChoice,
   interfaceScale: literal(80, 90, 100, 110, 120, 130, 140, 150, 175, 200, 250, 300),
   terminalFontSize: range(10, 32, true),

@@ -111,7 +111,7 @@ export function runApplication() {
   }
   function applyThemeSettings(next: Settings = settings.get()) {
     const catalog = themes.snapshot();
-    nativeTheme.themeSource = interfaceThemeSource(next.interfaceTheme, next.colorMode, catalog);
+    nativeTheme.themeSource = interfaceThemeSource(next.interfaceTheme, catalog);
     if (initialized)
       terminals.setTheme(
         isUserThemeId(next.terminalTheme)
