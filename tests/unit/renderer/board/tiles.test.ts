@@ -16,6 +16,7 @@ import {
   leaves,
   splitTile,
   closeTile,
+  closeSpace,
   hideSession,
   clampRatio,
   resizeSplit,
@@ -286,25 +287,71 @@ test("split retains focus and placement chooses the newest space; empty drops fi
   expect(dropped.focused).toBe(space.id);
   expect(terminals(dropped.tree)).toHaveLength(3);
 });
-test("grow walks to the nearest matching split and never absorbs a terminal", () => {
+test.each(["left", "up", "right", "down"] as const)(
+  "split and grow %s preserve focus and content",
+  (direction) => {
+    const start = place(initialLayout(), "a");
+    const next = splitTile(start, direction);
+    expect(next.focused).toBe(start.focused);
+    expect(next.tree.kind).toBe("split");
+    if (next.tree.kind !== "split") throw new Error("Expected split");
+    const first = direction === "left" || direction === "up";
+    expect(next.tree.direction).toBe(
+      direction === "left" || direction === "right" ? "horizontal" : "vertical",
+    );
+    expect((first ? next.tree.first : next.tree.second).id).toBe(next.landing);
+    expect(growTile(next, direction).tree).toEqual(start.tree);
+    const occupied = place(next, "b");
+    const target = { ...occupied, focused: start.focused };
+    const reason = { left: "to the left", right: "to the right", up: "above", down: "below" };
+    expect(growTarget(target, direction)).toEqual({ reason: `Occupied tile ${reason[direction]}` });
+    expect(growTile(target, direction)).toBe(target);
+    const edge = { left: "left", right: "right", up: "top", down: "bottom" };
+    expect(growTarget(start, direction)).toEqual({ reason: `At the ${edge[direction]} edge` });
+    expect(growTile(start, direction)).toBe(start);
+    expect(growTarget({ ...start, focused: "stale" }, direction)).toEqual({
+      reason: `At the ${edge[direction]} edge`,
+    });
+  },
+);
+test.each(["left", "up", "right", "down"] as const)(
+  "grow %s skips the wrong side in mixed-axis trees",
+  (direction) => {
+    const opposite = { left: "right", right: "left", up: "down", down: "up" } as const;
+    const axis = direction === "left" || direction === "right" ? "down" : "right";
+    const start = place(initialLayout(), "a");
+    const outer = splitTile(start, direction);
+    const mixed = splitTile(outer, axis);
+    const inner = splitTile(mixed, opposite[direction]);
+    // Nearest same-axis split is occupied on the wrong side; the empty outer side is usable.
+    const filled = place(inner, "b");
+    const target = { ...filled, focused: start.focused };
+    const result = growTile(target, direction);
+    expect(leaves(result.tree)).toHaveLength(3);
+    expect(terminals(result.tree).map(sessionId)).toEqual(terminals(target.tree).map(sessionId));
+    expect(result.focused).toBe(start.focused);
+    const occupiedOuter = placeSession({ ...target, focused: outer.landing ?? "" }, "c", true);
+    if (!occupiedOuter) throw new Error("Expected placement");
+    expect(growTile({ ...occupiedOuter, focused: start.focused }, direction).tree).toEqual(
+      occupiedOuter.tree,
+    );
+  },
+);
+test("close space removes only empty leaves and preserves the focused terminal", () => {
   const start = place(initialLayout(), "a");
-  expect(growTarget(start, "horizontal")).toEqual({ reason: "Already full width" });
-  expect(growTarget(start, "vertical")).toEqual({ reason: "Already full height" });
-  expect(growTile(start, "horizontal")).toBe(start);
-  const split = splitTile(splitTile(start, "horizontal"), "vertical");
-  expect(leaves(growTile(split, "horizontal").tree)).toHaveLength(2);
-  expect(growTile(growTile(split, "vertical"), "horizontal").tree).toEqual(start.tree);
-  const occupied = place(split, "b");
-  expect(growTarget(occupied, "vertical")).toEqual({ reason: "Next to an occupied tile" });
-  expect(growTile(occupied, "vertical")).toBe(occupied);
-  const right = place(splitTile(initialLayout(), "horizontal"), "b");
-  expect(
-    terminals(growTile(right, "horizontal").tree).map((tile) => sessionId(tile) ?? null),
-  ).toEqual(["b"]);
-  expect(growTarget({ ...right, focused: "stale" }, "horizontal")).toEqual({
-    reason: "Already full width",
+  const next = splitTile(start, "left");
+  expect(closeSpace(next, next.landing ?? "")).toMatchObject({
+    tree: start.tree,
+    focused: start.focused,
   });
+  expect(closeSpace(next, start.focused)).toBe(next);
+  expect(closeSpace(next, "stale")).toBe(next);
+  const empty = initialLayout();
+  const closed = closeSpace(empty, empty.focused);
+  expect(leaves(closed.tree)).toHaveLength(1);
+  expect(terminals(closed.tree)).toHaveLength(0);
 });
+
 test("gutter preview and commit collapse only all-space sides and preserve occupied limits", () => {
   const left = splitTile(place(initialLayout(), "a"), "horizontal");
   const preview = resizeSplit(left, left.tree.id, 0.95);
@@ -597,7 +644,7 @@ test("mixed content keeps occupancy, numbering and identities across tile operat
   expect(tiles.map((tile) => contentId(tile.content))).toEqual(["s", "p"]);
   expect(sessionId(tiles[1])).toBeUndefined();
   expect(neighbor({ ...mixed, focused: tiles[0]?.id ?? "" }, "right")).toBe(tiles[1]?.id);
-  expect(growTarget(mixed, "horizontal")).toEqual({ reason: "Next to an occupied tile" });
+  expect(growTarget(mixed, "left")).toEqual({ reason: "Occupied tile to the left" });
   const swapped = swapTiles(mixed, tiles[0]?.id ?? "", tiles[1]?.id ?? "");
   expect(terminals(swapped.tree).map((tile) => contentId(tile.content))).toEqual(["p", "s"]);
   const dropped = dropTile(mixed, { kind: "tile", id: mixed.focused }, tiles[0]?.id ?? "", "down");

@@ -357,7 +357,7 @@ function BoardContents({
       });
     }
   }, [source, rows, open]);
-  const command = (value: SidebarCommand) => {
+  const command = (value: SidebarCommand, space?: string) => {
     actionOriginRef.current = captureErrorFocus();
     setRemoveError("");
     setPrune(undefined);
@@ -366,8 +366,9 @@ function BoardContents({
       value.kind === "restart"
         ? leaves(layoutRef.current.tree).find((tile) => sessionId(tile) === value.id)
         : undefined;
-    const destination =
-      original && sessionId(original)
+    const destination = space
+      ? { tile: space, session: "" }
+      : original && sessionId(original)
         ? { tile: original.id, session: sessionId(original) ?? "" }
         : undefined;
     return (source.sidebarCommand?.(value) ?? Promise.resolve())
@@ -683,6 +684,8 @@ function BoardContents({
                 void moving?.catch(() => {
                   setRemoveError("Unable to move tile to a new window.");
                 });
+              } else if (action === "new-shell") {
+                void command({ kind: "home-shell" }, tile);
               } else tileAction(tile, action);
             }}
           />

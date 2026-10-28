@@ -65,7 +65,9 @@ export function RowMenu({
   keepOnResize = false,
   nested,
   bottomAligned = false,
+  leading,
 }: {
+  leading?: ReactNode;
   bottomAligned?: boolean;
   /** Reposition rather than close when the window resizes, as interface size steps do. */
   keepOnResize?: boolean;
@@ -132,7 +134,7 @@ export function RowMenu({
       if (isPanel)
         menu.style.width = `${String(Math.min(720, Math.max(280, placement === "below" ? window.innerWidth - 16 : window.innerWidth - right - 18)))}px`;
       if (placement === "below")
-        menu.style.maxHeight = `${String(Math.max(80, window.innerHeight - button.bottom - 16))}px`;
+        menu.style.maxHeight = `${String(Math.max(80, window.innerHeight - (point ? 0 : button.bottom) - 16))}px`;
       // Opening animations transform the border box; placement needs its final
       // layout size or the expanded menu can extend beyond the window edge.
       const bounds = { width: menu.offsetWidth, height: menu.offsetHeight };
@@ -308,6 +310,7 @@ export function RowMenu({
           role={panel ? "menu" : undefined}
           aria-label={panel ? "Commands" : undefined}
         >
+          {leading}
           {actions.map((action, index) =>
             action?.stepper ? (
               <div

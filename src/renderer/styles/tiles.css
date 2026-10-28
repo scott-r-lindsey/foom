@@ -373,3 +373,140 @@
   outline: 2px solid var(--highlight);
   outline-offset: -2px;
 }
+
+.tile-pads {
+  display: flex;
+  gap: 10px;
+  padding: 4px 6px 6px;
+}
+.direction-pad {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  flex: 1;
+  padding: 6px 10px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border: 1px solid var(--line);
+}
+.pad-label {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pad-grid {
+  display: grid;
+  grid-template: repeat(3, 28px) / repeat(3, 28px);
+  gap: 2px;
+}
+.pad-direction {
+  position: relative;
+}
+.pad-direction[data-direction="up"] {
+  grid-area: 1 / 2;
+}
+.pad-direction[data-direction="left"] {
+  grid-area: 2 / 1;
+}
+.pad-direction[data-direction="right"] {
+  grid-area: 2 / 3;
+}
+.pad-direction[data-direction="down"] {
+  grid-area: 3 / 2;
+}
+.pad-center {
+  grid-area: 2 / 2;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.pad-center svg,
+.pad-arrow {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.row-menu .direction-pad button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  min-width: 0;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  position: relative;
+  animation: none;
+}
+.row-menu .direction-pad button::before {
+  display: none;
+}
+.pad-shape {
+  position: absolute;
+  inset: 0;
+  width: 28px;
+  height: 28px;
+  overflow: visible;
+}
+.pad-shape polygon {
+  fill: var(--raised-top);
+  stroke: var(--raised-line);
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+}
+.pad-arrow {
+  position: relative;
+}
+[data-direction="up"] .pad-arrow {
+  top: 1px;
+}
+[data-direction="down"] .pad-arrow {
+  top: -1px;
+}
+[data-direction="left"] .pad-arrow {
+  left: 1px;
+}
+[data-direction="right"] .pad-arrow {
+  left: -1px;
+}
+.direction-pad button[aria-disabled="true"] {
+  opacity: 0.35;
+  cursor: default;
+}
+.direction-pad button[aria-disabled="true"] polygon {
+  stroke-dasharray: 2 2;
+}
+.direction-pad button:hover:not([aria-disabled="true"]) polygon,
+.direction-pad button:focus-visible polygon {
+  fill: var(--raised-hover);
+  stroke: var(--highlight);
+}
+.pad-reason {
+  display: none;
+  position: absolute;
+  z-index: 2;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: var(--ink);
+  color: var(--bg);
+  font-size: 11px;
+  pointer-events: none;
+}
+.pad-direction:hover .pad-reason,
+.pad-direction:focus-within .pad-reason {
+  display: block;
+}
+.sidebar-panel:has(.tile-pads) .panel-body {
+  grid-template-columns: 254px minmax(0, 1fr);
+}

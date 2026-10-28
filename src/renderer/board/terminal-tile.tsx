@@ -3,7 +3,7 @@ import { ActionError, captureErrorFocus, useBackgroundErrors } from "./error-pre
 import { errorMessage } from "../../shared/application-errors";
 import { OrchestrationMark } from "./orchestration-mark";
 import type { PreviewSummary } from "../../shared/workspace";
-import { TileMenu } from "./tile-menu";
+import { SpaceMenu, TileMenu } from "./tile-menu";
 import { AgentBadge } from "./agent-badge";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties } from "react";
@@ -262,6 +262,11 @@ export function Tile({
       aria-hidden={!occupied || undefined}
       tabIndex={occupied ? (focused ? 0 : -1) : undefined}
       inert={behind || inactive}
+      onContextMenu={(event) => {
+        if (occupied) return;
+        event.preventDefault();
+        setMenu({ anchor: event.currentTarget, point: { x: event.clientX, y: event.clientY } });
+      }}
       onFocus={() => {
         acknowledgePreview();
         if (occupied) select();
@@ -411,6 +416,17 @@ export function Tile({
             </button>
           </div>
         </header>
+      )}
+      {!occupied && menu?.point && !inactive && !behind && (
+        <SpaceMenu
+          anchor={menu.anchor}
+          point={menu.point}
+          layout={{ ...layout, focused: tile.id }}
+          close={() => {
+            setMenu(undefined);
+          }}
+          action={action}
+        />
       )}
       {occupied && menu && !inactive && !behind && (
         <TileMenu

@@ -51,15 +51,18 @@ Review-loop reviewers use the lens variant named Reviewer; authors and other chi
 Double-clicking the title bar toggles maximize. Right-click opens the same tile
 panel at the pointer. The panel matches the sidebar panels: commands on the left,
 state and reason, live columns × rows, location and agent facts on the right.
-Commands are Split right/down, Grow sideways/vertically, Maximize/Restore, Move to
-new window when available, and Hide/Close. Grow absorbs the other side of the
-nearest split on its axis only if it contains no occupied tiles. Disabled reasons are
-"Next to an occupied tile" or "Already full width" / "Already full height". The first
-enabled command receives focus; arrow keys navigate enabled commands; Escape
-returns focus to the tile menu button.
+Commands begin with Split and Grow D-pads, each offering left, up, right and down.
+Split puts new space on the chosen side, retaining terminal focus and making that
+space the landing spot. Grow absorbs empty space at the nearest split on that axis
+where the tile is opposite the chosen direction. It skips splits on the wrong side.
+Refused arrows stay visible and focusable with dashed outlines and reasons on
+hover/focus: "At the left/right/top/bottom edge" or "Occupied tile to the left/right"
+and "Occupied tile above/below". Arrow keys move within each pad. The centers are
+noninteractive. Maximize/Restore, Move to new window when available, and Hide/Close
+follow the pads. Escape returns focus to the tile menu button.
 
 Empty space is a dashed outline with no title bar, number or focus, hidden from
-accessibility navigation. Empty spaces have no landing marking at rest. While a tile
+accessibility navigation. Empty spaces have no landing marking at rest. Right-click opens a menu with the Split pad, New shell here (using the existing home-shell directory) and Close space (giving its area to its sibling). Escape and outside clicks dismiss it. While a tile
 or sidebar row is dragged over the board, a dashed, labelled drop preview marks
 the target; leaving the board, ending the drag or cancelling clears it. Sidebar placement
 fills it and focuses the terminal; dropping onto any empty space fills that space.

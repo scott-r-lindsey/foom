@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Split and Grow Pads</title>
+<style>
+:root {
+  --bg: #f3f0fa; --surface: #e9e4f5; --line: #ddd6ee; --ink: #14101f; --muted: #625a7a;
+  --accent: #5b2bd9; --accent-deep: #3b1a99; --idle: #b9b0d3; --lift: #ffffff;
+  --shadow: rgba(40, 20, 90, .28);
+  --term-bg: #05040a; --term-line: #251d3f; --term-ink: #f4efff; --term-dim: #6a6188; --term-acc: #c08bff;
+  --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+    --accent: #9b6bff; --accent-deep: #7a3cff; --idle: #4a4263; --lift: #f4efff;
+    --shadow: rgba(0, 0, 0, .85); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #05040a; --surface: #0d0a17; --line: #251d3f; --ink: #f4efff; --muted: #9d93bd;
+  --accent: #9b6bff; --accent-deep: #7a3cff; --idle: #4a4263; --lift: #f4efff;
+  --shadow: rgba(0, 0, 0, .85); color-scheme: dark;
+}
+:root {
+  --highlight: var(--accent);
+  --raised-top: color-mix(in srgb, var(--surface) 92%, var(--lift));
+  --raised-line: color-mix(in srgb, var(--highlight) 25%, var(--line));
+  --raised-hover: color-mix(in srgb, var(--highlight) 14%, var(--raised-top));
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 28px; }
+header.top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between; }
+h1 { font-size: 15px; margin: 0; letter-spacing: .02em; }
+.note { color: var(--muted); font-size: 12px; max-width: 70ch; margin: 4px 0 0; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg button { font: inherit; font-size: 12px; padding: 5px 12px; border: 0; background: var(--surface); color: var(--ink); cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; font-size: 12px; color: var(--muted); }
+
+/* board */
+.scene { display: grid; grid-template-columns: 200px 1fr; height: 560px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; position: relative; }
+.side { background: var(--surface); border-right: 1px solid var(--line); padding: 12px; font-family: var(--mono); font-size: 12px; display: grid; align-content: start; gap: 6px; }
+.side .logo { font: 700 16px var(--sans); margin-bottom: 8px; }
+.side .r { display: flex; gap: 8px; align-items: center; }
+.light { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.light.shell { background: var(--idle); }
+.num { border: 1px solid var(--accent); color: var(--accent); border-radius: 3px; padding: 0 4px; font-size: 11px; }
+.board { position: relative; background: var(--bg); }
+.tile { position: absolute; background: var(--term-bg); border: 1px solid var(--term-line); border-radius: 6px; overflow: hidden; display: flex; flex-direction: column; }
+.tile.focused { border-color: var(--accent); }
+.tbar { display: flex; align-items: center; gap: 8px; padding: 5px 8px; background: color-mix(in srgb, var(--term-bg) 80%, #2a2050); color: var(--term-ink); font-size: 12px; }
+.tbar .menu { display: inline-flex; gap: 4px; align-items: center; border: 1px solid var(--term-line); border-radius: 4px; padding: 0 5px; font-family: var(--mono); }
+.tbar .grow { flex: 1; }
+.tbar .ic { color: var(--term-dim); font-size: 11px; }
+.screen { padding: 8px 10px; font: 12px/1.5 var(--mono); color: var(--term-ink); white-space: pre; overflow: hidden; }
+.screen .d { color: var(--term-dim); } .screen .a { color: var(--term-acc); }
+.space { position: absolute; border: 1px dashed color-mix(in srgb, var(--line) 70%, var(--muted)); border-radius: 6px; }
+.space.target { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.cursor { position: absolute; width: 14px; height: 20px; pointer-events: none; }
+
+/* panel */
+.panel { position: absolute; z-index: 5; padding: 6px; background: linear-gradient(180deg, var(--raised-top), var(--surface)); border: 1px solid var(--raised-line); border-radius: 10px; box-shadow: 0 22px 48px -12px var(--shadow), 0 8px 16px -8px var(--shadow); display: grid; grid-template-columns: auto 1fr; gap: 0 14px; }
+.panel.menuonly { grid-template-columns: auto; }
+.acts { display: grid; gap: 2px; align-content: start; min-width: 236px; }
+.ptitle { display: flex; gap: 8px; align-items: center; padding: 4px 8px 6px; font-weight: 600; }
+.ptitle .k { color: var(--muted); font-weight: 400; font-size: 12px; }
+.item { font: inherit; display: flex; justify-content: space-between; gap: 16px; text-align: left; padding: 5px 8px; border: 0; border-radius: 6px; background: none; color: var(--ink); cursor: pointer; }
+.item:hover, .item:focus-visible { background: var(--raised-hover); outline: none; }
+.item .hint { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+hr { height: 1px; border: 0; margin: 4px 6px; background: var(--line); }
+.facts { border-left: 1px solid var(--line); padding: 8px 6px 8px 14px; font-size: 12px; display: grid; grid-template-columns: auto auto; gap: 4px 12px; align-content: start; }
+.facts dt { color: var(--muted); } .facts dd { margin: 0; font-family: var(--mono); }
+
+/* pads */
+.pads { display: flex; gap: 10px; padding: 4px 6px 6px; }
+.pad { display: grid; justify-items: center; gap: 4px; flex: 1; padding: 6px 4px 4px; border-radius: 8px; background: color-mix(in srgb, var(--surface) 70%, transparent); border: 1px solid var(--line); }
+.pad .lbl { font-size: 11px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+.pad button { font: inherit; border: 1px solid var(--raised-line); background: var(--raised-top); color: var(--ink); border-radius: 5px; cursor: pointer; display: grid; place-items: center; padding: 0; }
+.pad button:hover:not([aria-disabled="true"]), .pad button:focus-visible { background: var(--raised-hover); border-color: var(--accent); outline: none; }
+.pad button[aria-disabled="true"] { opacity: .35; cursor: default; border-style: dashed; }
+.pad svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* style A: plus d-pad */
+.sA.pad, .sA .pad { padding: 6px 10px 10px; }
+.sA .g { display: grid; grid-template: repeat(3, 28px) / repeat(3, 28px); gap: 2px; }
+.sA .g button { width: 28px; height: 28px; border: 0; background: none; position: relative; }
+.sA .g button .shape { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.sA .g button .shape polygon { fill: var(--raised-top); stroke: var(--raised-line); stroke-width: 1.2; stroke-linejoin: round; }
+.sA .g button:hover:not([aria-disabled="true"]) .shape polygon, .sA .g button:focus-visible .shape polygon { fill: var(--raised-hover); stroke: var(--accent); }
+.sA .g button:hover:not([aria-disabled="true"]), .sA .g button:focus-visible { background: none; }
+.sA .g button[aria-disabled="true"] { border-style: none; }
+.sA .g button[aria-disabled="true"] .shape polygon { stroke-dasharray: 2 2; }
+.sA .g button > svg:not(.shape) { position: relative; }
+.sA .g [data-d="up"] > svg:not(.shape) { top: 1px; } .sA .g [data-d="down"] > svg:not(.shape) { top: -1px; }
+.sA .g [data-d="left"] > svg:not(.shape) { left: 1px; } .sA .g [data-d="right"] > svg:not(.shape) { left: -1px; }
+.sA .g .c { display: grid; place-items: center; color: var(--muted); }
+.sA .g [data-d="up"] { grid-area: 1 / 2; } .sA .g [data-d="left"] { grid-area: 2 / 1; }
+.sA .g .c { grid-area: 2 / 2; } .sA .g [data-d="right"] { grid-area: 2 / 3; } .sA .g [data-d="down"] { grid-area: 3 / 2; }
+.tip { position: absolute; z-index: 9; background: var(--ink); color: var(--bg); font-size: 11px; padding: 3px 7px; border-radius: 4px; white-space: nowrap; pointer-events: none; transform: translate(-50%, calc(-100% - 6px)); }
+.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.legend div { font-size: 12px; color: var(--muted); }
+.legend b { color: var(--ink); font-weight: 600; display: block; margin-bottom: 2px; }
+@media (max-width: 900px) { .scene { grid-template-columns: 1fr; height: auto; min-height: 640px; } .side { display: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Split and Grow pads</h1>
+      <p class="note">The tile panel replaces the four Split/Grow rows with two directional pads. Right-clicking empty space opens a short menu: the Split pad, New shell here, and Close space. Hover a dimmed arrow to see why it is refused.</p>
+    </div>
+    <div class="controls">
+      <span>Theme</span>
+      <span class="seg" id="theme"><button data-t="light" aria-pressed="false">Light</button><button data-t="dark" aria-pressed="false">Dark</button></span>
+      <span>Scene</span>
+      <span class="seg" id="scene"><button data-v="tile" aria-pressed="true">Tile panel</button><button data-v="space" aria-pressed="false">Empty space</button></span>
+    </div>
+  </header>
+
+  <div class="scene">
+    <aside class="side">
+      <div class="logo">foom</div>
+      <div class="r"><span class="light shell"></span><span class="num">1</span> bash ~</div>
+      <div class="r"><span class="light"></span><span class="num">2</span> claude · 878</div>
+    </aside>
+    <div class="board" id="board"></div>
+  </div>
+
+  <div class="legend">
+    <div><b>Split ← ↑ → ↓</b>Splits this tile and puts the new space on that side. Focus stays in the terminal; the new space becomes the landing spot. Split is refused only at the depth or tile limit.</div>
+    <div><b>Grow ← ↑ → ↓</b>Grows into empty space on that side: the nearest split on that axis where this tile sits on the opposite side and the far side is all empty. Refusals: "At the left edge", "Occupied tile above"…</div>
+    <div><b>Empty space</b>Right-click only (spaces stay unfocusable). Split carves the space; New shell here starts a shell in it; Close space gives its area to its neighbours, like dragging a gutter shut.</div>
+  </div>
+</div>
+
+<script>
+const arrows = {
+  up: '<path d="M7 11V3M3.5 6.5 7 3l3.5 3.5"/>',
+  down: '<path d="M7 3v8M3.5 7.5 7 11l3.5-3.5"/>',
+  left: '<path d="M11 7H3M6.5 3.5 3 7l3.5 3.5"/>',
+  right: '<path d="M3 7h8M7.5 3.5 11 7l-3.5 3.5"/>',
+};
+const glyph = {
+  split: '<path d="M2 2.5h10v9H2zM7 2.5v9"/>',
+  grow: '<path d="M2 2.5h10v9H2zM4.5 7h5M7.5 5l2 2-2 2"/>',
+};
+const svg = (p) => `<svg viewBox="0 0 14 14" aria-hidden="true">${p}</svg>`;
+const names = { up: "up", down: "down", left: "left", right: "right" };
+// Subtly pointed buttons (style A): the outer edge comes to a shallow point.
+const shapes = {
+  up: "14,1 27,7 27,27 1,27 1,7",
+  down: "1,1 27,1 27,21 14,27 1,21",
+  left: "1,14 7,1 27,1 27,27 7,27",
+  right: "1,1 21,1 27,14 21,27 1,27",
+};
+function pad(kind, refusals) {
+  const label = kind === "split" ? "Split" : "Grow";
+  const btn = (d) => {
+    const why = refusals[d];
+    const shape = `<svg class="shape" viewBox="0 0 28 28" aria-hidden="true"><polygon points="${shapes[d]}"/></svg>`;
+    return `<button data-d="${d}" aria-label="${label} ${names[d]}"${why ? ` aria-disabled="true" data-why="${why}"` : ""}>${shape}${svg(arrows[d])}</button>`;
+  };
+  return `<div class="pad" role="group" aria-label="${label}"><span class="lbl">${label}</span><div class="g">${btn("up")}${btn("left")}<span class="c">${svg(glyph[kind])}</span>${btn("right")}${btn("down")}</div></div>`;
+}
+const term1 = `<span class="d">~</span> $ ls
+docs  scripts  src  tests
+<span class="d">~</span> $ git status --short
+ M src/renderer/board/tiles.ts
+<span class="d">~</span> $ <span class="a">▍</span>`;
+const term2 = `<span class="a">●</span> Reading src/renderer/board/tile-menu.tsx
+<span class="a">●</span> Planning directional growTarget
+  <span class="d">nearest same-axis split where the</span>
+  <span class="d">far side is empty</span>
+<span class="a">●</span> Editing tiles.ts…`;
+function tile(n, name, body, rect, focused) {
+  return `<div class="tile${focused ? " focused" : ""}" style="${rect}"><div class="tbar"><span class="menu">${n} ⌄</span><span class="grow">${name}</span><span class="ic">⤢</span><span class="ic">—</span></div><div class="screen">${body}</div></div>`;
+}
+const board = document.getElementById("board");
+let view = "tile";
+function render() {
+  // Layout: tile 1 left column; right column = tile 2 (top) over [space A | space B]
+  let html = "";
+  html += tile(1, "bash ~", term1, "left:8px;top:8px;width:calc(46% - 12px);bottom:8px", false);
+  html += tile(2, "claude · 878", term2, "left:46%;top:8px;right:8px;height:calc(55% - 12px)", view === "tile");
+  html += `<div class="space${view === "space" ? " target" : ""}" style="left:46%;top:55%;width:calc(27% - 6px);bottom:8px"></div>`;
+  html += `<div class="space" style="left:calc(73% + 4px);top:55%;right:8px;bottom:8px"></div>`;
+  if (view === "tile") {
+    html += `<div class="panel sA" style="left:calc(46% + 8px);top:40px">
+      <div class="acts">
+        <div class="ptitle"><span class="num">2</span> claude · 878 <span class="k">Tile 2</span></div>
+        <div class="pads">${pad("split", {})}${pad("grow", { up: "At the top edge", right: "At the right edge", left: "Occupied tile to the left" })}</div>
+        <hr>
+        <button class="item">Maximize <span class="hint">Ctrl+Shift+Enter</span></button>
+        <button class="item">Move to new window</button>
+        <hr>
+        <button class="item">Hide</button>
+      </div>
+      <dl class="facts"><dt>Session</dt><dd>Working</dd><dt>Size</dt><dd>96 × 22</dd><dt>Worktree</dt><dd>878-theme-picker</dd></dl>
+    </div>`;
+  } else {
+    html += `<svg class="cursor" style="left:calc(46% + 70px);top:calc(55% + 40px)" viewBox="0 0 14 20"><path d="M1 1v15l4-4 3 7 2-1-3-7h6z" fill="var(--ink)" stroke="var(--bg)" stroke-width="1"/></svg>`;
+    html += `<div class="panel menuonly sA" style="left:calc(46% + 80px);top:calc(55% - 120px)">
+      <div class="acts">
+        <div class="pads">${pad("split", {})}</div>
+        <hr>
+        <button class="item">New shell here</button>
+        <button class="item">Close space</button>
+      </div>
+    </div>`;
+  }
+  board.innerHTML = html;
+}
+function seg(id, attr, fn) {
+  document.getElementById(id).addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    for (const x of e.currentTarget.children) x.setAttribute("aria-pressed", String(x === b));
+    fn(b.dataset[attr]);
+  });
+}
+seg("scene", "v", (v) => { view = v; render(); });
+seg("theme", "t", (t) => { document.documentElement.dataset.theme = t; });
+let tipEl;
+board.addEventListener("mouseover", (e) => {
+  const b = e.target.closest("[data-why]");
+  tipEl?.remove(); tipEl = undefined;
+  if (!b) return;
+  const r = b.getBoundingClientRect(), br = board.getBoundingClientRect();
+  tipEl = document.createElement("div");
+  tipEl.className = "tip"; tipEl.textContent = b.dataset.why;
+  tipEl.style.left = `${r.left - br.left + r.width / 2}px`; tipEl.style.top = `${r.top - br.top}px`;
+  board.appendChild(tipEl);
+});
+render();
+</script>
+</body>
+</html>
