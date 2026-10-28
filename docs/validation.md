@@ -343,8 +343,12 @@ Real notarization is verified by the user after merge with `publish_nightly`;
 PR tests use fixture Apple tools and no Release credentials.
 
 Nightly stamping also records `foomNightlyDate` in the disposable package manifest
-for same-day notice ordering against the rolling release's commit date. Existing
-nightlies without that field can detect a later UTC day, but do not guess the
+and retains its full semver through Packager's pre-ASAR version rewrite. Native
+macOS plist versions are set separately before signing. The stamped-nightly
+signing fixture exercises that rewrite and exact host verification; packaged
+smoke compares the sealed and runtime semver and both native plist versions.
+The commit date is used for same-day notice ordering against the rolling release's
+commit date. Existing nightlies without that field can detect a later UTC day, but do not guess the
 order of two different commits from the same day. Nightly macOS installation now uses the [static feed](#nightly-feed-provisioning-604).
 
 ## Nightly feed provisioning (#604)

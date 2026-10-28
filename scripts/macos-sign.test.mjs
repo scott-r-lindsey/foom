@@ -1,4 +1,7 @@
-import { createPackage } from "@electron/asar";
+import { createPackage, extractFile } from "@electron/asar";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+import { setMacBundleVersions } from "./macos-bundle-version.mjs";
 import {
   hostPlatforms,
   writeHostManifest,
@@ -36,6 +39,7 @@ import {
   signApp,
   signingArgs,
   signingOrder,
+  signBundledRemoteHosts,
 } from "./macos-sign.mjs";
 
 import { parseKeychains } from "./macos-credentials.mjs";
@@ -64,7 +68,7 @@ const hostFixtureOutput = (args, adhoc) =>
       ? hostEntitlements(adhoc)
       : "";
 
-async function fixture(t, metadata = {}) {
+async function fixture(t, metadata = {}, packageManifest = { version: "0.1.0" }) {
   const root = mkdtempSync(join(tmpdir(), "foom-sign-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const app = join(root, "Foom.app");
@@ -87,7 +91,35 @@ async function fixture(t, metadata = {}) {
     join(content, "build/build-metadata.json"),
     JSON.stringify({ source: "a".repeat(40), ...metadata }),
   );
-  writeFileSync(join(content, "package.json"), JSON.stringify({ version: "0.1.0" }));
+  writeFileSync(join(content, "package.json"), JSON.stringify(packageManifest));
+  // Exercise the pinned Packager's actual pre-ASAR version rewrite, including
+  // the darwin Forge config. A numeric appVersion here reproduces #883.
+  const require = createRequire(import.meta.url);
+  const configPath = require.resolve("../forge.config.js");
+  const manifestPath = require.resolve("../package.json");
+  require(manifestPath);
+  const originalManifest = require.cache[manifestPath].exports;
+  const originalConfig = require.cache[configPath];
+  const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
+  let packagerConfig;
+  try {
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    require.cache[manifestPath].exports = packageManifest;
+    delete require.cache[configPath];
+    ({ packagerConfig } = require(configPath));
+  } finally {
+    Object.defineProperty(process, "platform", originalPlatform);
+    require.cache[manifestPath].exports = originalManifest;
+    if (originalConfig) require.cache[configPath] = originalConfig;
+    else delete require.cache[configPath];
+  }
+  const { App } = await import(
+    pathToFileURL(join(dirname(require.resolve("@electron/packager")), "platform.js")).href
+  );
+  await App.prototype.writeAppVersion.call({
+    opts: { appVersion: packagerConfig.appVersion ?? packageManifest.version },
+    originalResourcesAppDir: content,
+  });
   await createPackage(content, join(app, "Contents/Resources/app.asar"));
   for (const target of hostPlatforms) {
     const directory = join(app, "Contents/Resources/app.asar.unpacked/build/remote-hosts", target);
@@ -95,7 +127,7 @@ async function fixture(t, metadata = {}) {
     writeFileSync(join(directory, "foom-host"), "fixture host");
     const [platform, arch] = target.split("-");
     await writeHostManifest(directory, {
-      version: "0.1.0",
+      version: packageManifest.version,
       platform,
       arch,
       source: "a".repeat(40),
@@ -117,7 +149,7 @@ async function fixture(t, metadata = {}) {
           platform,
           arch,
           source: "a".repeat(40),
-          version: "0.1.0",
+          version: packageManifest.version,
           nodeVersion: process.version,
           files,
         }),
@@ -131,6 +163,45 @@ async function fixture(t, metadata = {}) {
   );
   return { root, app, paths };
 }
+
+test("stamped nightly darwin packaging keeps sealed semver through native versioning and host signing", async (t) => {
+  const manifest = {
+    version: "0.1.0-nightly.20261028+aaaaaaa",
+    foomNightlyDate: "2026-10-28T02:57:46Z",
+  };
+  const { root, app } = await fixture(t, {}, manifest);
+  const archive = join(app, "Contents/Resources/app.asar");
+  const before = readFileSync(archive);
+  const helper = join(app, "Contents/Frameworks/Foom Helper (Plugin).app/Contents/Info.plist");
+  writeFileSync(helper, "fixture plist");
+  const calls = [];
+  setMacBundleVersions(app, (command, args) => calls.push([command, args]));
+  assert.deepEqual(
+    calls,
+    [join(app, "Contents/Info.plist"), helper].flatMap((plist) =>
+      ["CFBundleShortVersionString", "CFBundleVersion"].map((key) => [
+        "/usr/libexec/PlistBuddy",
+        ["-c", `Set :${key} 20261028.10666.0`, plist],
+      ]),
+    ),
+  );
+  const options = { identity: "-", remoteHostInputs: join(root, "inputs") };
+  await signBundledRemoteHosts(app, options, (_command, args) => hostFixtureOutput(args, true));
+  assert.deepEqual(readFileSync(archive), before, "native versioning/signing never rewrite ASAR");
+  assert.deepEqual(JSON.parse(extractFile(archive, "package.json")), manifest);
+  const catalog = join(app, "Contents/Resources/app.asar.unpacked/build/remote-hosts");
+  for (const target of hostPlatforms)
+    await verifyHostArtifact(join(catalog, target), target, manifest.version, "a".repeat(40));
+  const hostManifest = join(catalog, "darwin-arm64/manifest.json");
+  writeFileSync(
+    hostManifest,
+    JSON.stringify({ ...JSON.parse(readFileSync(hostManifest)), version: "20261028.10666.0" }),
+  );
+  await assert.rejects(
+    signBundledRemoteHosts(app, options, () => assert.fail("verify before signing")),
+    /Host version mismatch/,
+  );
+});
 
 test("signs every Mach-O inside out, ignores symlink aliases and grants only runtime entitlements", {
   skip: process.platform === "win32",

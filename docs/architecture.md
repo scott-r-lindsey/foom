@@ -305,7 +305,11 @@ Squirrel's pinned native downgrade guard accepts only three-part numeric
 `CFBundleShortVersionString` values. Nightly macOS packaging therefore uses
 `YYYYMMDD.<UTC-seconds-since-midnight>.0` for the bundle version; stable bundles
 keep `X.Y.Z`. The signed ASAR package retains the complete nightly version and
-commit date; Electron initializes `app.getVersion()` from that package, so channel
+commit date. Forge lets Packager infer the semver `appVersion` (which Packager
+also writes into package.json), then sets only the app/helper plist versions
+after packaging and before signing; a numeric `appVersion` would overwrite the
+sealed semver and break host verification and update channel selection.
+Electron initializes `app.getVersion()` from that package, so channel
 selection and About retain the nightly identity. Numeric bundle dates also avoid
 same-day commit hashes sorting in the wrong order. Existing notice-only nightlies
 with nonnumeric bundle versions need a manual upgrade to this implementation;

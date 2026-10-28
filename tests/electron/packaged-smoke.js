@@ -98,6 +98,18 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
   }
   const packagedVersion = JSON.parse(extractFile(archive, "package.json").toString()).version;
   assert.equal(packagedVersion, require("../../package.json").version);
+  if (process.platform === "darwin") {
+    const { macBundleVersion } = await import("../../scripts/nightly.mjs");
+    for (const key of ["CFBundleShortVersionString", "CFBundleVersion"])
+      assert.equal(
+        execFileSync(
+          "/usr/libexec/PlistBuddy",
+          ["-c", `Print :${key}`, path.join(root, "Foom.app/Contents/Info.plist")],
+          { encoding: "utf8" },
+        ).trim(),
+        macBundleVersion(require("../../package.json")),
+      );
+  }
   // Packaging installs the generated app icon, not Electron's default.
   const icons = path.join(__dirname, "../../build/icons");
   if (process.platform === "darwin") {
@@ -280,6 +292,11 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     // Packaged macOS can withhold animation frames during CDP attachment.
     await page.waitForFunction(() => window.desktop, undefined, { polling: 100 });
     assert.equal(await page.evaluate(() => window.desktop.isDevelopment), false);
+    assert.equal(
+      (await page.evaluate(() => window.desktop.appMenu.version())).app,
+      packagedVersion,
+      "Electron runtime and updater retain the full semver identity",
+    );
     await expect(page.locator(".dev-profile")).toHaveCount(0);
     await expect
       .poll(async () =>
