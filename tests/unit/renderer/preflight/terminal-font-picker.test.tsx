@@ -134,3 +134,21 @@ test("a late refresh cannot update a replacement picker", async () => {
   });
   expect(screen.queryByRole("menuitemradio", { name: "Late Mono" })).toBeNull();
 });
+
+test("typing a family prefix navigates the terminal font picker without saving", async () => {
+  const onChange = vi.fn();
+  render(
+    <TerminalFontPicker
+      source={source(() => Promise.resolve(["Gamma Mono", "Geist Mono"]))}
+      value={DEFAULT_TERMINAL_FONT}
+      onChange={onChange}
+    />,
+  );
+  await screen.findByRole("menuitemradio", { name: "Geist Mono", hidden: true });
+  fireEvent.keyDown(screen.getByRole("button", { name: /^Terminal font / }), { key: "G" });
+  for (const key of "eist") fireEvent.keyDown(screen.getByRole("menu"), { key });
+  expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Geist Mono" }));
+  expect(onChange).not.toHaveBeenCalled();
+  fireEvent.click(document.activeElement ?? document.body);
+  expect(onChange).toHaveBeenCalledWith({ terminalFont: "Geist Mono" });
+});

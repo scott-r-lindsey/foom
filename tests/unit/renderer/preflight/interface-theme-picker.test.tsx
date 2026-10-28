@@ -136,3 +136,31 @@ test("custom themes follow built-ins and selection keeps their file identity", (
     interfaceThemes.graphite.colors.bg,
   );
 });
+
+test("fixed themes never describe the override as the OS Default, including an open menu", () => {
+  const media = {
+    matches: true,
+    addEventListener: vi.fn<(type: string, cb: () => void) => void>(),
+    removeEventListener: vi.fn(),
+  };
+  vi.stubGlobal("matchMedia", () => media);
+  const onChange = vi.fn();
+  const view = render(
+    <InterfaceThemePicker
+      settings={setupState({ interfaceTheme: "eclipse-dark" }).settings}
+      onChange={onChange}
+    />,
+  );
+  fireEvent.keyDown(screen.getByRole("button", { name: "Theme Eclipse Dark" }), { key: "m" });
+  expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Moonlight" }));
+  expect(screen.getByRole("menuitemradio", { name: "Default" })).toBeTruthy();
+  act(() => {
+    media.matches = false;
+    media.addEventListener.mock.calls[0]?.[1]();
+  });
+  expect(screen.getByRole("menuitemradio", { name: "Default" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Default" }));
+  expect(onChange).toHaveBeenCalledWith({ interfaceTheme: "follow" });
+  view.rerender(<InterfaceThemePicker settings={setupState().settings} onChange={onChange} />);
+  expect(screen.getByRole("button", { name: "Theme Default · Eclipse Light" })).toBeTruthy();
+});

@@ -105,10 +105,16 @@ folder controls, previews or the custom-theme hint. Default uses the existing
 `follow` ID: interface Default follows the OS live, terminal Default follows the
 resolved interface base live. See [migration](settings.md#settings-and-setup).
 
-Default displays its live resolved name in both the closed picker and menu row:
-`Default · Eclipse Light` / `Default · Eclipse Dark` for the interface (including
-first run), and `Default · Foom Light` / `Default · Foom Dark` for terminal Colors.
+While interface Default is selected, it displays its live resolved name in both
+the closed picker and menu row: `Default · Eclipse Light` / `Default · Eclipse Dark`
+(including first run). With a fixed interface theme selected, the row reads only
+`Default`: Chromium media follows the fixed base, and Electron 44 has no independent
+OS appearance API on every platform. Terminal Colors always shows
+`Default · Foom Light` / `Default · Foom Dark`, resolved from the current interface base.
 Terminal font and font size use the same labeled keyboard menu as Theme and Colors.
 All four menus support arrow keys, Home/End, Escape and returning focus to the picker.
+Printable keys open the menu and focus a case-insensitive prefix match, including
+numeric sizes. Repeated letters cycle matches; a 700 ms pause or reopening the menu
+starts a new prefix. Typing moves focus; Enter commits the choice.
 The custom-theme hint sits directly beneath its picker, before folder status.
 Terminal has no text-size helper line.

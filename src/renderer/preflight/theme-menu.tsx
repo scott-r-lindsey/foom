@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { type KeyboardEvent, useId, useRef, useState } from "react";
 
 /** The same keyboard-accessible theme menu in Settings and the first-run rail. */
 export function ThemeMenu({
@@ -16,6 +16,40 @@ export function ThemeMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const searchRef = useRef({ text: "", time: 0 });
+  const typeahead = (event: KeyboardEvent) => {
+    if (
+      event.key.length !== 1 ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey ||
+      event.nativeEvent.isComposing
+    )
+      return;
+    const now = Date.now();
+    const previous = open && now - searchRef.current.time < 700 ? searchRef.current.text : "";
+    // Space still activates an option unless it continues a typed family name.
+    if (event.key === " " && !previous) return;
+    event.preventDefault();
+    if (!open) triggerRef.current?.click();
+    const text = (previous + event.key.toLocaleLowerCase()).slice(-256);
+    searchRef.current = { text, time: now };
+    const cycling = Array.from(text).every((character) => character === text[0]);
+    const prefix = cycling ? (text[0] ?? "") : text;
+    const buttons = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+    );
+    const current = buttons.findIndex((button) => button === document.activeElement);
+    // A longer prefix refines the current match; a single letter cycles forward.
+    const start = current + (cycling ? 1 : 0);
+    for (let offset = 0; offset < buttons.length; offset++) {
+      const index = (Math.max(0, start) + offset) % buttons.length;
+      if (choices[index]?.name.toLocaleLowerCase().startsWith(prefix)) {
+        buttons[index]?.focus();
+        break;
+      }
+    }
+  };
   return (
     <div className="theme-menu">
       <span id={`${id}-label`}>{label}</span>
@@ -30,6 +64,8 @@ export function ThemeMenu({
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
             event.currentTarget.click();
+          } else {
+            typeahead(event);
           }
         }}
         onClick={() => {
@@ -40,6 +76,7 @@ export function ThemeMenu({
             node.hidePopover();
             return;
           }
+          searchRef.current = { text: "", time: 0 };
           const rect = anchor.getBoundingClientRect();
           node.style.left = `${String(Math.max(8, Math.min(rect.left, window.innerWidth - 292)))}px`;
           node.togglePopover();
@@ -89,8 +126,11 @@ export function ThemeMenu({
                     ? buttons.length - 1
                     : undefined;
           if (next !== undefined) {
+            searchRef.current = { text: "", time: 0 };
             event.preventDefault();
             buttons[next]?.focus();
+          } else {
+            typeahead(event);
           }
           if (event.key === "Escape") {
             event.preventDefault();

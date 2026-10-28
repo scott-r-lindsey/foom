@@ -176,8 +176,10 @@ with no helper line beneath the heading. Terminal includes the preview of text s
 ANSI colors, bold, dim and selection. Its **Colors** menu lists Default, Foom Light,
 Foom Dark, Solarized Light, Solarized Dark, Dracula, then user terminal themes below
 a divider. Default (formerly Follow interface) follows the current interface theme's
-base live. Both Default entries show their resolved theme name as text in the
-closed picker and menu row, updating live. The first-run Theme picker does too.
+base live. Interface Default shows its resolved name in the closed picker and menu
+row only while selected, updating live; otherwise its row reads **Default**. The
+first-run Theme picker does too. Terminal Colors Default always shows its resolved
+name, matching the current interface base.
 Fixed terminal themes remain independent. Changes apply live to visible
 and detached terminals.
 

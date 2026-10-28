@@ -636,11 +636,14 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   fireEvent.click(button("Terminal"));
   expect(screen.queryByRole("group", { name: "Terminal colors" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /^Terminal font size / }));
-  fireEvent.click(screen.getByRole("menuitemradio", { name: "18 px" }));
+  fireEvent.keyDown(screen.getByRole("menu", { name: "Terminal font size" }), { key: "2" });
+  fireEvent.keyDown(screen.getByRole("menu", { name: "Terminal font size" }), { key: "4" });
+  expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "24 px" }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "24 px" }));
   await waitFor(() => {
-    expect(source.save).toHaveBeenCalledWith({ terminalFontSize: 18 });
+    expect(source.save).toHaveBeenCalledWith({ terminalFontSize: 24 });
   });
-  expect(screen.getByText(/Hack Nerd Font Mono ·/).style.fontSize).toBe("18px");
+  expect(screen.getByText(/Hack Nerd Font Mono ·/).style.fontSize).toBe("24px");
   fireEvent.click(screen.getByRole("button", { name: "Open themes folder" }));
   expect(source.openThemesFolder).toHaveBeenCalledWith("terminal-theme");
   fireEvent.click(button("Appearance"));

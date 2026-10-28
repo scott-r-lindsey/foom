@@ -77,3 +77,54 @@ test("custom-theme hint opens the board's config launcher", () => {
     "Want something else? Ask a config agent for any theme you can describe.",
   );
 });
+
+test("typeahead buffers prefixes, cycles repeated letters and resets after pauses and reopening", () => {
+  let now = 1000;
+  const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+  const onChange = vi.fn();
+  render(
+    <ThemeMenu
+      label="Theme"
+      selected="default"
+      choices={[
+        { id: "default", name: "Default" },
+        { id: "deep", name: "Deep Field" },
+        { id: "dark", name: "Dark" },
+        { id: "moon", name: "Moonlight", custom: true },
+      ]}
+      onChange={onChange}
+    />,
+  );
+  const trigger = screen.getByRole("button", { name: "Theme Default" });
+  const menu = screen.getByRole("menu", { hidden: true });
+  const focused = (name: string) => {
+    expect(screen.getByRole("menuitemradio", { name })).toBe(document.activeElement);
+  };
+  fireEvent.keyDown(trigger, { key: "D" });
+  focused("Deep Field");
+  fireEvent.keyDown(menu, { key: "d" });
+  focused("Dark");
+  fireEvent.keyDown(menu, { key: "d" });
+  focused("Default");
+  now += 701;
+  for (const key of "deEp f") fireEvent.keyDown(menu, { key });
+  focused("Deep Field");
+  fireEvent.keyDown(menu, { key: "z" });
+  focused("Deep Field");
+  now += 701;
+  fireEvent.keyDown(menu, { key: "m", ctrlKey: true });
+  fireEvent.keyDown(menu, { key: "m", metaKey: true });
+  fireEvent.keyDown(menu, { key: "m", altKey: true });
+  fireEvent.keyDown(menu, { key: "m", isComposing: true });
+  focused("Deep Field");
+  fireEvent.keyDown(menu, { key: "m" });
+  focused("Moonlight");
+  fireEvent.keyDown(menu, { key: "Escape" });
+  fireEvent.keyDown(trigger, { key: "d" });
+  focused("Deep Field");
+  fireEvent.keyDown(menu, { key: "Home" });
+  fireEvent.keyDown(menu, { key: "m" });
+  focused("Moonlight");
+  expect(onChange).not.toHaveBeenCalled();
+  clock.mockRestore();
+});

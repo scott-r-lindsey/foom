@@ -18,7 +18,10 @@ const {
 async function chooseTheme(page, name, label = "Theme") {
   await page.getByRole("button", { name: new RegExp(`^${label} `) }).click();
   await page
-    .getByRole("menuitemradio", { name: name === "Default" ? /^Default · / : name, exact: true })
+    .getByRole("menuitemradio", {
+      name: name === "Default" ? /^Default(?: · |$)/ : name,
+      exact: true,
+    })
     .click();
 }
 
@@ -548,8 +551,20 @@ test("terminal font picker updates open shells and config shells and refits thei
     .click();
   const picker = page.getByRole("button", { name: /^Terminal font (?!size)/ });
   const family = "Geist Mono";
-  await picker.click();
-  await page.getByRole("menuitemradio", { name: family, exact: true }).click();
+  await picker.focus();
+  await page.keyboard.type("Geist");
+  await expect(page.getByRole("menuitemradio", { name: family, exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  const sizePicker = page.getByRole("button", { name: /^Terminal font size / });
+  await sizePicker.focus();
+  await page.keyboard.type("24");
+  await expect(page.getByRole("menuitemradio", { name: "24 px", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.terminalFontSize),
+    )
+    .toBe(24);
   const stack = `"${family}", "Hack Nerd Font Mono", "Geist Mono", monospace`;
   await expect
     .poll(() =>
@@ -788,14 +803,29 @@ test("first-run rail shares the Theme menu and saves its live selection", async 
       page.locator(".preflight-rail").evaluate((rail) => rail.scrollWidth - rail.clientWidth),
     )
     .toBe(0);
-  await chooseTheme(page, "Moonlight");
+  const systemDark = await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors);
+  await page.getByRole("button", { name: /^Theme / }).focus();
+  await page.keyboard.type("Moon");
+  await expect(page.getByRole("menuitemradio", { name: "Moonlight", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect
     .poll(() =>
       page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceTheme),
     )
     .toBe("moonlight");
   await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
-  await chooseTheme(page, "Default");
+  // A fixed base controls Chromium media, not the OS appearance Default will use.
+  await page.getByRole("button", { name: "Theme Moonlight", exact: true }).click();
+  await expect(page.getByRole("menuitemradio", { name: "Default", exact: true })).toBeVisible();
+  await page.getByRole("menuitemradio", { name: "Default", exact: true }).click();
+  await expect(page.locator("html")).toHaveCSS("color-scheme", systemDark ? "dark" : "light");
+  assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), "system");
+  // Force the opposite base and verify that Default remains unqualified there too.
+  await chooseTheme(page, systemDark ? "Eclipse Light" : "Eclipse Dark");
+  await page.getByRole("button", { name: /^Theme Eclipse / }).click();
+  await expect(page.getByRole("menuitemradio", { name: "Default", exact: true })).toBeVisible();
+  await page.getByRole("menuitemradio", { name: "Default", exact: true }).click();
+  await expect(page.locator("html")).toHaveCSS("color-scheme", systemDark ? "dark" : "light");
   for (const mode of ["light", "dark"]) {
     await app.evaluate(({ nativeTheme }, mode) => {
       nativeTheme.themeSource = mode;

@@ -75,7 +75,13 @@ export function InterfaceThemePicker({
           label="Theme"
           selected={typeof selected === "string" ? selected : ""}
           choices={[
-            { id: "follow", name: `Default · Eclipse ${systemDark ? "Dark" : "Light"}` },
+            {
+              id: "follow",
+              name:
+                selected === "follow"
+                  ? `Default · Eclipse ${systemDark ? "Dark" : "Light"}`
+                  : "Default",
+            },
             ...choices.map((id) => ({ id, name: interfaceThemes[id].name })),
             ...(catalog?.interface ?? []).map((entry) => ({
               id: entry.id,
