@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
-import { expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type { createShell } from "../../../../src/renderer/terminal/shell-controller";
 import type { ShellView } from "../../../../src/renderer/terminal/shell.d";
 import { createTerminalView } from "../../../../src/renderer/terminal/terminal-view-source";
 const mock = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("../../../../src/renderer/terminal/shell-controller", () => ({ createShell: mock.create }));
+afterEach(() => {
+  document.body.replaceChildren();
+});
 test("one passive controller per mount, ordered transfer, focus, subscriptions and disposal", async () => {
   const events: string[] = [];
   let update: ((view: ShellView) => void) | undefined;
@@ -114,4 +117,143 @@ test("queued opens recheck inventory and failed operations report status without
   unmount();
   await queue.catch(() => {});
   expect(dispose).toHaveBeenCalledOnce();
+});
+
+test("a newer sidebar focus choice cancels focus queued behind attachment", async () => {
+  const host = document.createElement("div");
+  const input = document.createElement("textarea");
+  const sidebar = document.createElement("button");
+  host.append(input);
+  document.body.append(host, sidebar);
+  const focus = vi.fn(() => {
+    input.focus();
+  });
+  let release = () => {};
+  const attachment = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  mock.create.mockReturnValue({ open: () => attachment, terminal: { focus } });
+  let queue = Promise.resolve();
+  const view = createTerminalView((operation) => {
+    queue = queue.then(operation);
+    return queue;
+  });
+  view.mount(host);
+  input.focus();
+  const attaching = view.open("session");
+  await Promise.resolve();
+  view.focus({ restore: true });
+  sidebar.focus();
+  release();
+  await attaching;
+  await queue;
+  expect(document.activeElement).toBe(sidebar);
+  expect(focus).not.toHaveBeenCalled();
+});
+
+test.each(["unchanged", "round trip", "blur", "hide", "unmount", "new request"])(
+  "queued focus respects %s while attachment is held",
+  async (choice) => {
+    const host = document.createElement("div");
+    const input = document.createElement("textarea");
+    const other = document.createElement("button");
+    host.append(input);
+    document.body.append(host, other);
+    const focus = vi.fn(() => {
+      input.focus();
+    });
+    const hide = vi.fn(() => Promise.resolve());
+    const dispose = vi.fn();
+    let release = () => {};
+    mock.create.mockReturnValue({
+      open: () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+      hide,
+      dispose,
+      terminal: { focus },
+    });
+    let queue = Promise.resolve();
+    const view = createTerminalView((operation) => {
+      queue = queue.then(operation);
+      return queue;
+    });
+    const unmount = view.mount(host);
+    input.focus();
+    void view.open("session");
+    await Promise.resolve();
+    view.focus({ restore: true });
+    if (choice === "round trip") {
+      other.focus();
+      input.focus();
+    } else if (choice === "blur") {
+      input.blur();
+    } else if (choice === "hide") {
+      void view.hide();
+    } else if (choice === "unmount") {
+      unmount();
+    } else if (choice === "new request") {
+      view.focus();
+    }
+    release();
+    await queue;
+    expect(focus).toHaveBeenCalledTimes(choice === "unchanged" || choice === "new request" ? 1 : 0);
+    expect(document.activeElement).toBe(choice === "blur" ? document.body : input);
+  },
+);
+
+test("a newer focus request in another tile wins before either queued focus runs", async () => {
+  const firstInput = document.createElement("textarea");
+  const secondInput = document.createElement("textarea");
+  document.body.append(firstInput, secondInput);
+  const firstFocus = vi.fn(() => {
+    firstInput.focus();
+  });
+  const secondFocus = vi.fn(() => {
+    secondInput.focus();
+  });
+  mock.create
+    .mockReturnValueOnce({ terminal: { focus: firstFocus } })
+    .mockReturnValueOnce({ terminal: { focus: secondFocus } });
+  let queue = Promise.resolve();
+  const schedule = (operation: () => Promise<void>) => {
+    queue = queue.then(operation);
+    return queue;
+  };
+  const first = createTerminalView(schedule);
+  const second = createTerminalView(schedule);
+  first.mount(document.createElement("div"));
+  second.mount(document.createElement("div"));
+  first.focus({ restore: true });
+  second.focus();
+  await queue;
+  expect(firstFocus).not.toHaveBeenCalled();
+  expect(secondFocus).toHaveBeenCalledOnce();
+  expect(document.activeElement).toBe(secondInput);
+});
+
+test("explicit terminal focus completes after the browser's click focus action", async () => {
+  const tile = document.createElement("section");
+  tile.tabIndex = 0;
+  const input = document.createElement("textarea");
+  tile.append(input);
+  document.body.append(tile);
+  const focus = vi.fn(() => {
+    input.focus();
+  });
+  mock.create.mockReturnValue({ terminal: { focus } });
+  let queue = Promise.resolve();
+  const view = createTerminalView((operation) => {
+    queue = queue.then(operation);
+    return queue;
+  });
+  view.mount(tile);
+  view.focus();
+  // The tile pointer handler requests input focus before the browser's default
+  // pointer action puts focus on the section. This is still the same choice.
+  tile.focus();
+  await queue;
+  expect(document.activeElement).toBe(input);
+  expect(focus).toHaveBeenCalledOnce();
 });

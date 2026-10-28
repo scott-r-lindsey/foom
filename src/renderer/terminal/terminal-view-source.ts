@@ -1,6 +1,9 @@
 import { createShell } from "./shell-controller";
 import type { TerminalViewSource } from "./terminal-view-source.d";
 import type { ShellView } from "./shell.d";
+// Focus choices span every tile sharing the renderer document.
+let focusGeneration = 0;
+
 /** A view never creates or stops a process. Workspace lifecycle remains in main. */
 export function createTerminalView(
   schedule: (operation: () => Promise<void>) => Promise<void> = (operation) => operation(),
@@ -9,6 +12,7 @@ export function createTerminalView(
   hasExited: (id: string) => boolean = () => false,
 ): TerminalViewSource {
   let controller: ReturnType<typeof createShell> | undefined;
+  let cancelFocus: (() => void) | undefined;
   let snapshot: ShellView = {
     status: "Terminal",
     state: "quiet_ok",
@@ -44,6 +48,7 @@ export function createTerminalView(
         hasExited,
       );
       return () => {
+        cancelFocus?.();
         const previous = controller;
         controller = undefined;
         void run(async () => {
@@ -66,15 +71,37 @@ export function createTerminalView(
         await current.open(id);
         owners.set(id, current);
       }),
-    hide: () =>
-      run(async () => {
+    hide: () => {
+      // Reopening a modal revokes restoration immediately, before its hide
+      // operation reaches the shared attachment queue.
+      cancelFocus?.();
+      return run(async () => {
         await controller?.hide();
-      }),
-    focus: () => {
-      void run(() => {
-        controller?.terminal.focus();
-        return Promise.resolve();
       });
+    },
+    focus: ({ restore = false } = {}) => {
+      cancelFocus?.();
+      const current = controller;
+      const generation = ++focusGeneration;
+      const expected = document.activeElement;
+      let cancelled = false;
+      const cancel = () => {
+        cancelled = true;
+        document.removeEventListener("focusin", cancel, true);
+        if (cancelFocus === cancel) cancelFocus = undefined;
+      };
+      cancelFocus = cancel;
+      // A newer focus choice wins even if focus later returns to the opener.
+      if (restore) document.addEventListener("focusin", cancel, true);
+      void run(() => {
+        if (
+          !cancelled &&
+          generation === focusGeneration &&
+          (!restore || document.activeElement === expected)
+        )
+          current?.terminal.focus();
+        return Promise.resolve();
+      }).finally(cancel);
     },
     getSnapshot: () => snapshot,
     subscribe: (listener) => {

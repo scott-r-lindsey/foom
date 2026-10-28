@@ -114,6 +114,7 @@ export function Tile({
   behind,
   inactive,
   focusRequest,
+  restoreFocusRequest = 0,
   select,
   action,
   layout,
@@ -138,6 +139,7 @@ export function Tile({
   behind: boolean;
   inactive: boolean;
   focusRequest: number;
+  restoreFocusRequest?: number;
   select: () => void;
   action: (action: TileAction) => void;
 }) {
@@ -232,14 +234,17 @@ export function Tile({
     });
   };
   const lastFocusRef = useRef(0);
+  const lastRestoreFocusRef = useRef(0);
   useEffect(() => {
-    if (focusRequest === lastFocusRef.current) return;
+    const explicit = focusRequest !== lastFocusRef.current;
+    if (!explicit && restoreFocusRequest === lastRestoreFocusRef.current) return;
     lastFocusRef.current = focusRequest;
+    lastRestoreFocusRef.current = restoreFocusRequest;
     if (focused && !inactive) {
-      if (view && row?.kind !== "sample" && row) view.focus();
+      if (view && row?.kind !== "sample" && row) view.focus({ restore: !explicit });
       else elementRef.current?.focus();
     }
-  }, [focusRequest, focused, inactive, view, row]);
+  }, [focusRequest, restoreFocusRequest, focused, inactive, view, row]);
   return (
     <section
       ref={elementRef}

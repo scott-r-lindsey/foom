@@ -119,6 +119,7 @@ export function TileArea({
   preferences,
   inactive,
   focusRequest,
+  restoreFocusRequest = 0,
   action,
 }: {
   drag?: TileDrag | undefined;
@@ -134,6 +135,7 @@ export function TileArea({
   preferences: SidebarPreferences;
   inactive: boolean;
   focusRequest: number;
+  restoreFocusRequest?: number;
   action: (tile: string, action: TileAction) => void;
 }) {
   const [lastPreview, setLastPreview] = useState<{
@@ -275,6 +277,7 @@ export function TileArea({
           behind={layout.maximized !== null && layout.maximized !== tile.id}
           inactive={inactive}
           focusRequest={focusRequest}
+          restoreFocusRequest={restoreFocusRequest}
           select={() => {
             if (layout.focused !== tile.id) setLayout({ ...layout, focused: tile.id });
           }}
