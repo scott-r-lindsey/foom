@@ -878,3 +878,64 @@ test("background layout failures preserve terminal focus and typed input", async
   });
   await expect(page.getByRole("button", { name: "Show failure" })).toHaveCount(0);
 });
+
+for (const location of ["home", "config", "checkout"]) {
+  for (const surface of ["tile", "sidebar"]) {
+    test(`${location} shell closes from the ${surface} without a session error`, async (context) => {
+      const app = await launchApp(context, { fixture: "repository" });
+      const page = await boardPage(app);
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.evaluate(async (location) => {
+        const repository = (await window.desktop.workspace()).repositories[0].path;
+        await window.desktop.sidebarCommand(
+          location === "home"
+            ? { kind: "home-shell" }
+            : location === "config"
+              ? { kind: "config-launch", run: "shell" }
+              : { kind: "launch", repository, worktree: repository, run: "shell" },
+        );
+      }, location);
+      const row = page.locator(".board-row");
+      await expect(row).toHaveCount(1);
+      const session = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+      assert.ok(session);
+      await row.click();
+      await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+      if (surface === "tile") {
+        // A running tile offers Hide: closing its view must keep the shell alive.
+        await page.getByRole("button", { name: "Hide", exact: true }).click();
+        await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(0);
+        const running = (await page.evaluate(() => window.desktop.workspace())).terminals;
+        assert.equal(running.find((entry) => entry.id === session.id)?.exited, false);
+        await row.click();
+        await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+      }
+      await page.evaluate((id) => window.desktop.input(id, "exit\r"), session.id);
+      await expect
+        .poll(() =>
+          page.evaluate(
+            async (id) =>
+              (await window.desktop.workspace()).terminals.find((entry) => entry.id === id)?.exited,
+            session.id,
+          ),
+        )
+        .toBe(true);
+      if (surface === "tile") {
+        await page.getByRole("button", { name: "Close", exact: true }).click();
+      } else {
+        await page.getByRole("button", { name: /Actions for Shell in/ }).press("Enter");
+        await page.getByRole("menuitem", { name: "Close", exact: true }).press("Enter");
+      }
+      await expect
+        .poll(async () => ({
+          sessions: (await page.evaluate(() => window.desktop.workspace())).terminals.map(
+            (entry) => entry.id,
+          ),
+          errors: await page.getByText("Unable to close session.", { exact: true }).count(),
+        }))
+        .toEqual({ sessions: [], errors: 0 });
+      await expect(row).toHaveCount(0);
+      await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(0);
+    });
+  }
+}
