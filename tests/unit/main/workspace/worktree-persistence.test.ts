@@ -1,12 +1,17 @@
+import * as fs from "node:fs/promises";
 import { mkdir, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { evaluateRules } from "../../../../src/main/evaluator/evaluator";
 import { Workspace } from "../../../../src/main/workspace/workspace";
+import { Setup } from "../../../../src/main/setup/setup";
+import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 import { WorktreeService } from "../../../../src/main/workspace/worktrees";
 import { git as execute } from "../../../helpers/git.js";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
 import { createWorktreeFixture } from "./worktree-git-fixture";
+
+vi.mock("node:fs/promises", async (original) => ({ ...(await original<typeof fs>()) }));
 
 // Real Git startup and filesystem IO are slower on Windows (run 39076862694).
 vi.setConfig({ testTimeout: nativeDeadline(5000), hookTimeout: nativeDeadline(10_000) });
@@ -28,6 +33,7 @@ beforeEach(
   }),
 );
 afterEach(async () => {
+  vi.restoreAllMocks();
   await fixture.cleanup();
 });
 
@@ -194,6 +200,130 @@ describe("persistent ownership", () => {
     });
     expect((await restart()).listRepositories()).toHaveLength(2);
     expect((await saved()).managed).toEqual([]);
+  });
+  it.each([
+    ["add", "writeFile"],
+    ["add", "rename"],
+    ["remove", "writeFile"],
+    ["remove", "rename"],
+  ] as const)(
+    "keeps memory, disk and Settings unchanged after failed %s (%s)",
+    async (action, phase) => {
+      service = await restart();
+      await service.addRepository(repo);
+      const { path } = await service.createWorktree(repo, "retained-history");
+      const other = join(temporary, "other");
+      await mkdir(other);
+      await execute(["init", "-b", "main"], { cwd: other });
+      const original = await readFile(statePath(), "utf8");
+      const registered = service.listRepositories();
+      const failure = vi.spyOn(fs, phase).mockRejectedValueOnce(new Error("Disk full"));
+      await expect(
+        action === "add" ? service.addRepository(other) : service.removeRepository(repo),
+      ).rejects.toThrow("Disk full");
+      expect(service.listRepositories()).toEqual(registered);
+      expect(await readFile(statePath(), "utf8")).toBe(original);
+      expect(await service.listWorktrees(repo)).toContainEqual(
+        expect.objectContaining({ path, managed: true }),
+      );
+
+      const setup = new Setup({
+        store: { get: () => DEFAULT_SETTINGS, update: () => Promise.resolve(DEFAULT_SETTINGS) },
+        worktreeRoot: root,
+        apply: () => {},
+        code: {
+          worktrees: service,
+          home: temporary,
+          pickFolder: () => Promise.resolve(temporary),
+          scan: () =>
+            Promise.resolve({
+              folder: temporary,
+              folders: 2,
+              truncated: false,
+              repositories: [repo, other].map((path) => ({
+                path,
+                name: path,
+                relative: path,
+                branch: "main",
+                lastActive: null,
+              })),
+            }),
+        },
+      });
+      await setup.scanCode(null, () => {});
+      failure.mockRejectedValueOnce(new Error("Disk full"));
+      expect(await setup.applyRepositories(action === "add" ? [repo, other] : [])).toEqual({
+        repositories: registered,
+        failures: [{ path: action === "add" ? other : repo, message: "Disk full" }],
+      });
+      expect(await readFile(statePath(), "utf8")).toBe(original);
+      failure.mockRestore();
+      // An unrelated successful save must not make either failed change durable.
+      await service.addRepository(repo);
+      expect(await readFile(statePath(), "utf8")).toBe(original);
+      service = await restart();
+      expect(service.listRepositories()).toEqual(registered);
+      expect(await service.listWorktrees(repo)).toContainEqual(
+        expect.objectContaining({ path, managed: true }),
+      );
+    },
+  );
+  it.each([false, true])(
+    "serializes registration snapshots and commits (failure=%s)",
+    async (fail) => {
+      service = await restart();
+      await service.addRepository(repo);
+      const other = join(temporary, "other");
+      await mkdir(other);
+      await execute(["init", "-b", "main"], { cwd: other });
+      await service.addRepository(other);
+      const original = await readFile(statePath(), "utf8");
+      const registered = service.listRepositories();
+      const entered = Promise.withResolvers<undefined>();
+      const release = Promise.withResolvers<undefined>();
+      const actualRename = fs.rename;
+      vi.spyOn(fs, "rename").mockImplementationOnce(async (...args) => {
+        entered.resolve(undefined);
+        await release.promise;
+        if (fail) throw new Error("Disk full");
+        await actualRename(...args);
+      });
+      const first = service.removeRepository(repo);
+      const outcome = fail
+        ? expect(first).rejects.toThrow("Disk full")
+        : expect(first).resolves.toBeUndefined();
+      try {
+        await entered.promise;
+        expect(service.listRepositories()).toEqual(registered);
+        expect(await readFile(statePath(), "utf8")).toBe(original);
+        // Queue another change before the first save finishes.
+        const second = service.removeRepository(other);
+        expect(service.listRepositories()).toEqual(registered);
+        release.resolve(undefined);
+        await outcome;
+        await second;
+        const remaining = fail ? registered.filter((entry) => entry.path === repo) : [];
+        expect(service.listRepositories()).toEqual(remaining);
+        expect((await saved()).repositories).toEqual(remaining.map((entry) => entry.path));
+        expect((await restart()).listRepositories()).toEqual(remaining);
+      } finally {
+        release.resolve(undefined);
+        await first.catch(() => {});
+      }
+    },
+  );
+  it("revalidates queued removals after the preceding registration commit", async () => {
+    service = await restart();
+    await service.addRepository(repo);
+    const results = await Promise.allSettled([
+      service.removeRepository(repo),
+      service.removeRepository(repo),
+    ]);
+    expect(results[0].status).toBe("fulfilled");
+    expect(results[1].status).toBe("rejected");
+    if (results[1].status === "rejected") expect(results[1].reason).toBeInstanceOf(Error);
+    expect(service.listRepositories()).toEqual([]);
+    expect((await saved()).repositories).toEqual([]);
   });
   it("reports failed writes, preserves the previous snapshot and can retry", async () => {
     service = await restart();

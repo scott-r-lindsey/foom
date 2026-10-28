@@ -221,19 +221,47 @@ export class WorktreeService {
     const top = await realpath((await git(cwd, ["rev-parse", "--show-toplevel"])).slice(0, -1));
     this.refuseProtected(top);
     const repository = Object.freeze({ path: top, name: basename(top) });
-    this.repositories.set(top, repository);
-    await this.save();
+    await this.saveRegistration(top, repository);
     return repository;
   }
 
   /** Forget registration and creation history, leaving every checkout on disk. */
   async removeRepository(path: string): Promise<void> {
-    this.repository(path);
-    for (const [tree, entry] of this.managed) {
-      if (entry.repository === path) this.managed.delete(tree);
+    await this.saveRegistration(path);
+  }
+
+  private async saveRegistration(path: string, repository?: Repository): Promise<void> {
+    const commit = () => {
+      if (repository) this.repositories.set(path, repository);
+      else {
+        for (const [tree, entry] of this.managed) {
+          if (entry.repository === path) this.managed.delete(tree);
+        }
+        this.repositories.delete(path);
+      }
+    };
+    if (!this.store) {
+      if (!repository) this.repository(path);
+      commit();
+      return;
     }
-    this.repositories.delete(path);
-    await this.save();
+    await this.store.save(() => {
+      // Build against the last committed state inside the persistence queue.
+      // Failed writes never publish a speculative registration or lose history.
+      const repositories = new Map(this.repositories);
+      if (repository) repositories.set(path, repository);
+      else {
+        this.repository(path);
+        repositories.delete(path);
+      }
+      return {
+        version: 1,
+        repositories: [...repositories.keys()],
+        managed: [...this.managed]
+          .filter(([, entry]) => repository || entry.repository !== path)
+          .map(([path, ownership]) => ({ path, ...ownership })),
+      };
+    }, commit);
   }
 
   /** Where worktrees go when they don't sit next to their repository. */
