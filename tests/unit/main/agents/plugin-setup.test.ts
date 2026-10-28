@@ -10,6 +10,12 @@ import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import fixture from "../../../fixtures/agent-plugins-v2/agy.json";
 import type { AgentManifestV2 } from "../../../../src/shared/agent-manifest-v2";
 import type { DialogContent } from "../../../../src/shared/confirmation";
+// CLI/setup and staging orchestration use real fixture files. Native ACLs are
+// exercised by v2-native.test.ts and control/private-native.test.ts.
+vi.mock("../../../../src/node-common/private-file-permissions", () => ({
+  windowsAcl: vi.fn().mockResolvedValue(undefined),
+}));
+
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));

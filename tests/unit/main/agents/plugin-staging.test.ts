@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -17,6 +17,12 @@ import {
   observerInvocation,
 } from "../../../../src/main/agents/providers/v2-observers";
 import fixture from "../../../fixtures/agent-plugins-v2/agy.json";
+// CLI/setup and staging orchestration use real fixture files. Native ACLs are
+// exercised by v2-native.test.ts and control/private-native.test.ts.
+vi.mock("../../../../src/node-common/private-file-permissions", () => ({
+  windowsAcl: vi.fn().mockResolvedValue(undefined),
+}));
+
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));

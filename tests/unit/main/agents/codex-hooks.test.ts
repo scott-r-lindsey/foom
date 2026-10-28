@@ -1,10 +1,11 @@
+import type * as Permissions from "../../../../src/node-common/private-file-permissions";
 import { nativeDeadline } from "../../../helpers/native-test-policy";
 import { privateDirectory } from "../../../../src/node-common/private-files";
 import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname, basename } from "node:path";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   CODEX_EVENTS,
   codexHookArguments,
@@ -15,6 +16,13 @@ import { V2Health, flushV2Health } from "../../../../src/main/agents/providers/v
 import { observerAssets } from "../../../../src/main/agents/providers/v2-observers";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { manifestHooks } from "../../../helpers/manifest-hooks";
+import { windowsAcl } from "../../../../src/node-common/private-file-permissions";
+
+vi.mock("../../../../src/node-common/private-file-permissions", async (original) => {
+  const actual = await original<typeof Permissions>();
+  return { windowsAcl: vi.fn(actual.windowsAcl) };
+});
+
 const channel = agentProvider("codex").model.hooks?.channels[0];
 if (!channel) throw new Error("Missing lifecycle channel");
 function codexObserverSource(platform: "posix" | "win32") {
@@ -130,77 +138,85 @@ test("native observer delivers stdin without output or decisions, and tolerates 
   }
 });
 
-test("Foom health persists independently, invalidates changed commands, and serializes updates", async () => {
-  const file = join(await directory(), "test-health.json");
-  const status = createStatus(file, "observer-v1");
-  await status.load();
-  expect(status.get()).toBe("not-reviewed");
-  status.set("trusted");
-  status.set("declined");
-  status.set("trusted");
-  await status.flush();
-  const reopened = createStatus(file, "observer-v1");
-  await reopened.load();
-  expect(reopened.get()).toBe("trusted");
-  expect(await readFile(file, "utf8")).not.toMatch(/trusted_hash|token|command/u);
-  const update = createStatus(file, "observer-v2");
-  await update.load();
-  expect(update.get()).toBe("outdated");
-  update.set("outdated");
-  await update.flush();
-});
+describe("simulated health persistence", () => {
+  beforeEach(() => {
+    // Keep real storage/serialization, but leave native ACL startup to the
+    // unmocked control/private-native and hook lifecycle scenarios.
+    vi.mocked(windowsAcl).mockResolvedValue(undefined);
+  });
 
-test.each(["{", "null", "{}", '{"fingerprint":0}', '{"fingerprint":0,"state":"invented"}'])(
-  "health loading fails safely for %s",
-  async (data) => {
+  test("Foom health persists independently, invalidates changed commands, and serializes updates", async () => {
     const file = join(await directory(), "test-health.json");
-    await writeFile(file, data);
-    const status = createStatus(file);
+    const status = createStatus(file, "observer-v1");
     await status.load();
-    expect(status.get()).not.toBe("trusted");
-  },
-);
-
-test("health remains usable without persistence or when writes fail", async () => {
-  const memory = createStatus(join(await directory(), "memory-health.json"));
-  await memory.load();
-  memory.set("trusted");
-  memory.set("trusted");
-  await memory.flush();
-  expect(memory.get()).toBe("trusted");
-  const file = join(await directory(), "directory-health.json");
-  await mkdir(file);
-  const status = createStatus(file);
-  status.set("declined");
-  await status.flush();
-  expect(status.get()).toBe("declined");
-});
-
-test.each(["declined", "outdated", "not-reviewed"] as const)(
-  "restores %s health and rejects unknown states for the same definition",
-  async (state) => {
-    const file = join(await directory(), "test-health.json");
-    const status = createStatus(file);
+    expect(status.get()).toBe("not-reviewed");
     status.set("trusted");
-    status.set(state);
+    status.set("declined");
+    status.set("trusted");
     await status.flush();
-    const reopened = createStatus(file);
+    const reopened = createStatus(file, "observer-v1");
     await reopened.load();
-    expect(reopened.get()).toBe(state);
-    const raw = await readFile(file, "utf8");
-    await writeFile(file, raw.replace(state, "invented"));
-    const corrupt = createStatus(file);
-    await corrupt.load();
-    expect(corrupt.get()).toBe("not-reviewed");
-  },
-);
+    expect(reopened.get()).toBe("trusted");
+    expect(await readFile(file, "utf8")).not.toMatch(/trusted_hash|token|command/u);
+    const update = createStatus(file, "observer-v2");
+    await update.load();
+    expect(update.get()).toBe("outdated");
+    update.set("outdated");
+    await update.flush();
+  });
 
-test("an older terminal cannot overwrite health established by a later launch", async () => {
-  const health = createStatus(join(await directory(), "latest-health.json"));
-  const first = health.begin();
-  health.set("trusted", first);
-  const latest = health.begin();
-  health.set("declined", latest);
-  health.set("trusted", first);
-  expect(health.get()).toBe("declined");
+  test.each(["{", "null", "{}", '{"fingerprint":0}', '{"fingerprint":0,"state":"invented"}'])(
+    "health loading fails safely for %s",
+    async (data) => {
+      const file = join(await directory(), "test-health.json");
+      await writeFile(file, data);
+      const status = createStatus(file);
+      await status.load();
+      expect(status.get()).not.toBe("trusted");
+    },
+  );
+
+  test("health remains usable without persistence or when writes fail", async () => {
+    const memory = createStatus(join(await directory(), "memory-health.json"));
+    await memory.load();
+    memory.set("trusted");
+    memory.set("trusted");
+    await memory.flush();
+    expect(memory.get()).toBe("trusted");
+    const file = join(await directory(), "directory-health.json");
+    await mkdir(file);
+    const status = createStatus(file);
+    status.set("declined");
+    await status.flush();
+    expect(status.get()).toBe("declined");
+  });
+
+  test.each(["declined", "outdated", "not-reviewed"] as const)(
+    "restores %s health and rejects unknown states for the same definition",
+    async (state) => {
+      const file = join(await directory(), "test-health.json");
+      const status = createStatus(file);
+      status.set("trusted");
+      status.set(state);
+      await status.flush();
+      const reopened = createStatus(file);
+      await reopened.load();
+      expect(reopened.get()).toBe(state);
+      const raw = await readFile(file, "utf8");
+      await writeFile(file, raw.replace(state, "invented"));
+      const corrupt = createStatus(file);
+      await corrupt.load();
+      expect(corrupt.get()).toBe("not-reviewed");
+    },
+  );
+
+  test("an older terminal cannot overwrite health established by a later launch", async () => {
+    const health = createStatus(join(await directory(), "latest-health.json"));
+    const first = health.begin();
+    health.set("trusted", first);
+    const latest = health.begin();
+    health.set("declined", latest);
+    health.set("trusted", first);
+    expect(health.get()).toBe("declined");
+  });
 });
