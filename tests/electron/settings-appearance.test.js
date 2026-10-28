@@ -792,6 +792,16 @@ test("Default themes follow native appearance live and Settings theme menus shar
 test("first-run rail shares the Theme menu and saves its live selection", async (context) => {
   const app = await launchApp(context, { fixture: "first-run" });
   const page = await boardPage(app);
+  const savedTheme = async (id, nativeSource) => {
+    await expect
+      .poll(() =>
+        page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceTheme),
+      )
+      .toBe(id);
+    await expect
+      .poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.themeSource))
+      .toBe(nativeSource);
+  };
   await page.getByRole("button", { name: "Start preflight", exact: true }).waitFor();
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()
@@ -808,23 +818,24 @@ test("first-run rail shares the Theme menu and saves its live selection", async 
   await page.keyboard.type("Moon");
   await expect(page.getByRole("menuitemradio", { name: "Moonlight", exact: true })).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect
-    .poll(() =>
-      page.evaluate(async () => (await window.desktop.setupState()).settings.interfaceTheme),
-    )
-    .toBe("moonlight");
+  await savedTheme("moonlight", "light");
   await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
   // A fixed base controls Chromium media, not the OS appearance Default will use.
   await page.getByRole("button", { name: "Theme Moonlight", exact: true }).click();
   await expect(page.getByRole("menuitemradio", { name: "Default", exact: true })).toBeVisible();
   await page.getByRole("menuitemradio", { name: "Default", exact: true }).click();
+  await savedTheme("follow", "system");
   await expect(page.locator("html")).toHaveCSS("color-scheme", systemDark ? "dark" : "light");
-  assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), "system");
   // Force the opposite base and verify that Default remains unqualified there too.
   await chooseTheme(page, systemDark ? "Eclipse Light" : "Eclipse Dark");
+  const opposite = systemDark ? "light" : "dark";
+  await savedTheme(`eclipse-${opposite}`, opposite);
+  await expect(page.locator("html")).toHaveCSS("color-scheme", opposite);
   await page.getByRole("button", { name: /^Theme Eclipse / }).click();
   await expect(page.getByRole("menuitemradio", { name: "Default", exact: true })).toBeVisible();
   await page.getByRole("menuitemradio", { name: "Default", exact: true }).click();
+  // Finish the user save before the fixture starts driving native appearance.
+  await savedTheme("follow", "system");
   await expect(page.locator("html")).toHaveCSS("color-scheme", systemDark ? "dark" : "light");
   for (const mode of ["light", "dark"]) {
     await app.evaluate(({ nativeTheme }, mode) => {

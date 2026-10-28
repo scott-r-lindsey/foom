@@ -171,6 +171,7 @@ process.stdin.on('data', bytes => {
   await navigation.getByRole("button", { name: "Repositories", exact: true }).click();
   await expect(page.getByRole("columnheader", { name: "Local", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Clone here", exact: true })).toHaveCount(2);
+  await expect(page.getByText("Not checked out", { exact: true })).toHaveCount(2);
   await page.getByRole("button", { name: "Clone here", exact: true }).first().click();
   await expect(page.getByText("Could not clone from origin", { exact: true })).toBeVisible();
   await capture("repository-hosts");

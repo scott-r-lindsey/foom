@@ -137,6 +137,7 @@ test("repositories show Local and host paths, states, Clone here and fixed clone
   expect(screen.getByText("/local/project")).toBeTruthy();
   expect(screen.getByText("Changes")).toBeTruthy();
   expect(screen.getByText("Clean")).toBeTruthy();
+  expect(screen.getByText("Not checked out")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Clone here" }));
   await screen.findByText("Could not clone from origin");
   expect(api).toHaveBeenCalledWith({

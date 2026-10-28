@@ -1,4 +1,5 @@
 import type { HostManagement, HostResult, HostFailure } from "../../shared/registered-hosts.d";
+import { HOST_CLONE_TIMEOUT_MS } from "../../shared/registered-hosts";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { remoteControlResult } from "../../shared/remote-agent-protocol";
 import { ApplicationError } from "../../shared/application-errors";
@@ -211,9 +212,12 @@ export class RemoteTransport extends EventEmitter {
     let hookEvents = 0;
     let agentReady = false;
     let agentPrepared = false;
-    const deadline = setTimeout(() => {
-      this.retireConnection(connection, "failure");
-    }, 120000);
+    const deadline = setTimeout(
+      () => {
+        this.retireConnection(connection, "failure");
+      },
+      120000 + (this.management?.operation === "clone" ? HOST_CLONE_TIMEOUT_MS : 0),
+    );
     connection.deadline = deadline;
     const receive = (bytes: Buffer) => {
       if (connection.dead || this.connection !== connection || this.closed) return;

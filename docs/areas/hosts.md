@@ -48,11 +48,19 @@ The checkout directory is `repository-` plus 24 hex characters of the origin's
 SHA-256, directly beneath the approved folder. Existing destinations must be
 owned, non-writable by other users, canonical directories with matching origin
 and Git top level. State is Clean, Changes or absent (Clone here).
+Absent checkouts show an explicit “Not checked out” label. A checkout must have
+a valid HEAD commit; an initialized repository with an unborn HEAD is refused.
 
 Clone here runs Git with an argument array on the host, with the host's own login
 PATH and Git configuration/access. No local files, credentials, SSH keys or agent
 sockets are copied/forwarded. Clone failures use a fixed reason. The host cannot
 select a local executable or write location. Git output never reaches the UI.
+Cloning has a five-minute subprocess deadline; discovery and Git inspection
+probes retain their five-second deadlines. Clone management connections allow
+seven minutes for bootstrap, cloning and validation. Clones are prepared in a
+private temporary sibling inside the approved folder, validated, then published
+by rename. Failure removes the temporary directory and leaves the destination
+available for retry; an existing destination is never used as clone staging.
 
 Persistent sessions, hub-restart reattachment and daemon upgrade negotiation are
 PR 2 of #757 and are not implemented by this settings surface.

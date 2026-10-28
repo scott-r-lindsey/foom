@@ -1,9 +1,21 @@
 import type * as fsPromises from "node:fs/promises";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { mkdtemp, realpath, rm, mkdir, chmod, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  realpath,
+  rm,
+  mkdir,
+  chmod,
+  symlink,
+  writeFile,
+  readdir,
+  lstat,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LaunchFailure } from "../../../../src/shared/launch-failure";
+import { HOST_CLONE_TIMEOUT_MS } from "../../../../src/shared/registered-hosts";
+import { gitSync } from "../../../helpers/git.js";
 const mock = vi.hoisted(() => ({
   discovery: vi.fn(),
   probe: vi.fn(),
@@ -189,28 +201,35 @@ test.skipIf(process.platform === "win32")(
     expect(
       await manageHost({ ...request, operation: "clone" }, 0, "/fixture", "0.1.0", home),
     ).toEqual({ ok: false, reason: "clone-failed" });
-    mock.probe.mockImplementation(async (_cmd: string, args: string[]) => {
+    mock.probe.mockImplementation((_cmd: string, args: string[], cwd: string) => {
       if (args.includes("clone")) {
-        await mkdir(path, { mode: 0o700 });
-        return "";
+        return Promise.resolve("");
       }
-      if (args.includes("config")) return request.origin;
-      if (args.includes("rev-parse")) return path;
-      return "";
+      if (args.includes("config")) return Promise.resolve(request.origin);
+      if (args.includes("--show-toplevel")) return Promise.resolve(cwd);
+      return Promise.resolve("");
     });
     expect(
       await manageHost({ ...request, operation: "clone" }, 0, "/fixture", "0.1.0", home),
     ).toMatchObject({ ok: true, checkout: { path, state: "clean" } });
     expect(mock.probe).toHaveBeenCalledWith(
       "git",
-      ["--no-optional-locks", "clone", "--", request.origin, path],
+      [
+        "--no-optional-locks",
+        "clone",
+        "--",
+        request.origin,
+        expect.stringContaining(".foom-clone-"),
+      ],
       join(home, "code"),
       { PATH: "/fixture-login", GIT_TERMINAL_PROMPT: "0" },
       true,
+      HOST_CLONE_TIMEOUT_MS,
     );
     mock.probe
       .mockResolvedValueOnce(request.origin)
       .mockResolvedValueOnce(path)
+      .mockResolvedValueOnce("commit-id")
       .mockResolvedValueOnce(" M file\0");
     expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toMatchObject({
       ok: true,
@@ -252,5 +271,151 @@ test.skipIf(process.platform === "win32")(
     } finally {
       await chmod(parent, 0o700);
     }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "failed clones remove private staging directories and retries publish only validated checkouts",
+  async () => {
+    const request = {
+      type: "manage",
+      operation: "clone",
+      codeFolder: "~/code",
+      directory: "repo",
+      origin: "git@forge.test:me/repo.git",
+      agents: [],
+    } as const;
+    const folder = join(home, "code");
+    const destination = join(folder, "repo");
+    let fail = true;
+    mock.probe.mockImplementation(async (_command: string, args: string[], cwd: string) => {
+      if (!args.includes("clone")) return gitSync(args, { cwd }).toString();
+      const staging = args.at(-1);
+      if (!staging) throw new Error("Missing staging directory");
+      expect(staging).not.toBe(destination);
+      expect((await lstat(staging)).mode & 0o777).toBe(0o700);
+      expect(await readdir(folder)).toEqual([staging.slice(folder.length + 1)]);
+      gitSync(["init", "-q"], { cwd: staging });
+      gitSync(["remote", "add", "origin", request.origin], { cwd: staging });
+      await expect(lstat(destination)).rejects.toMatchObject({ code: "ENOENT" });
+      if (fail) throw new Error("clone interrupted after initialization");
+      gitSync(
+        [
+          "-c",
+          "user.name=Fixture",
+          "-c",
+          "user.email=fixture@example.test",
+          "commit",
+          "--allow-empty",
+          "-qm",
+          "initial",
+        ],
+        { cwd: staging },
+      );
+      return "";
+    });
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "clone-failed",
+    });
+    expect(await readdir(folder)).toEqual([]);
+    expect(
+      await manageHost({ ...request, operation: "repository" }, 0, "/fixture", "0.1.0", home),
+    ).toMatchObject({ ok: true, checkout: { state: "absent" } });
+    fail = false;
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toMatchObject({
+      ok: true,
+      checkout: { path: destination, state: "clean" },
+    });
+    expect(await readdir(folder)).toEqual(["repo"]);
+    expect(
+      gitSync(["rev-parse", "--verify", "HEAD^{commit}"], { cwd: destination }).toString().trim(),
+    ).toMatch(/^[a-f0-9]{40}$/u);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "an existing initialized repository with an unborn HEAD never reports a checkout",
+  async () => {
+    const path = join(home, "code/repo");
+    await mkdir(path, { recursive: true, mode: 0o700 });
+    const origin = "git@forge.test:me/repo.git";
+    gitSync(["init", "-q"], { cwd: path });
+    gitSync(["remote", "add", "origin", origin], { cwd: path });
+    mock.probe.mockImplementation((_command: string, args: string[], cwd: string) =>
+      Promise.resolve(gitSync(args, { cwd }).toString()),
+    );
+    for (const operation of ["repository", "clone"] as const)
+      expect(
+        await manageHost(
+          {
+            type: "manage",
+            operation,
+            codeFolder: "~/code",
+            directory: "repo",
+            origin,
+            agents: [],
+          },
+          0,
+          "/fixture",
+          "0.1.0",
+          home,
+        ),
+      ).toEqual({ ok: false, reason: "checkout-refused" });
+  },
+);
+
+test.skipIf(process.platform === "win32").each(["unborn", "destination-appeared"] as const)(
+  "a clone is not published when validation fails or its destination changes: %s",
+  async (scenario) => {
+    const folder = join(home, "code");
+    const path = join(folder, "repo");
+    const origin = "git@forge.test:me/repo.git";
+    mock.probe.mockImplementation(async (_command: string, args: string[], cwd: string) => {
+      if (!args.includes("clone")) return gitSync(args, { cwd }).toString();
+      const staging = args.at(-1);
+      if (!staging) throw new Error("Missing staging directory");
+      gitSync(["init", "-q"], { cwd: staging });
+      gitSync(["remote", "add", "origin", origin], { cwd: staging });
+      if (scenario === "destination-appeared") {
+        gitSync(
+          [
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.test",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "initial",
+          ],
+          { cwd: staging },
+        );
+        await mkdir(path, { mode: 0o700 });
+        await writeFile(join(path, "keep"), "existing directory");
+      }
+      return "";
+    });
+    expect(
+      await manageHost(
+        {
+          type: "manage",
+          operation: "clone",
+          codeFolder: "~/code",
+          directory: "repo",
+          origin,
+          agents: [],
+        },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toEqual({
+      ok: false,
+      reason: scenario === "unborn" ? "clone-failed" : "checkout-refused",
+    });
+    expect(await readdir(folder)).toEqual(scenario === "unborn" ? [] : ["repo"]);
+    if (scenario === "destination-appeared") expect(await readdir(path)).toEqual(["keep"]);
   },
 );

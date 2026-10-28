@@ -1,10 +1,10 @@
 import { cpus, loadavg, totalmem, homedir } from "node:os";
-import { lstat, mkdir, readFile, realpath } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
 import { parseAgentManifest } from "../../shared/agent-plugin-parser";
-import { hostManagement } from "../../shared/registered-hosts";
+import { HOST_CLONE_TIMEOUT_MS, hostManagement } from "../../shared/registered-hosts";
 import type { HostManagement, HostResult, HostFacts } from "../../shared/registered-hosts.d";
 import { hostDiscovery, hostProbe, hostLoginEnvironment } from "./agent-discovery";
 
@@ -109,39 +109,63 @@ export async function manageHost(
   const env = { ...(await hostLoginEnvironment(shell, home)), GIT_TERMINAL_PROMPT: "0" };
   const git = (args: string[], cwd: string) =>
     hostProbe("git", ["--no-optional-locks", ...args], cwd, env, true);
+  const checkout = async (directory: string) => {
+    const info = await lstat(directory);
+    if (
+      !info.isDirectory() ||
+      info.isSymbolicLink() ||
+      info.uid !== process.getuid?.() ||
+      (info.mode & 0o022) !== 0 ||
+      (await realpath(directory)) !== directory ||
+      (await git(["config", "--get", "remote.origin.url"], directory)).trim() !== request.origin ||
+      (await git(["rev-parse", "--show-toplevel"], directory)).trim() !== directory
+    )
+      throw new Error("Invalid checkout");
+    // An initialized repository left by an interrupted clone is not a checkout.
+    await git(["rev-parse", "--verify", "HEAD^{commit}"], directory);
+    return await git(["status", "--porcelain", "-z", "--untracked-files=normal"], directory);
+  };
   try {
     // Recheck the approved parent immediately before each filesystem mutation.
     await approvedCodeFolder(folder, home);
     let exists = true;
     try {
-      const info = await lstat(path);
-      if (
-        !info.isDirectory() ||
-        info.isSymbolicLink() ||
-        info.uid !== process.getuid?.() ||
-        (info.mode & 0o022) !== 0 ||
-        (await realpath(path)) !== path
-      )
-        return { ok: false, reason: "checkout-refused" };
+      await lstat(path);
     } catch (error) {
       if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
       exists = false;
     }
     if (!exists && request.operation === "repository")
       return { ok: true, facts, checkout: { path, state: "absent" } };
+    let status: string;
     if (!exists) {
+      const temporary = await mkdtemp(join(folder, ".foom-clone-"));
       try {
-        await git(["clone", "--", request.origin, path], folder);
+        await hostProbe(
+          "git",
+          ["--no-optional-locks", "clone", "--", request.origin, temporary],
+          folder,
+          env,
+          true,
+          HOST_CLONE_TIMEOUT_MS,
+        );
+        status = await checkout(temporary);
+        await approvedCodeFolder(folder, home);
+        // Do not replace a destination that appeared while cloning.
+        try {
+          await lstat(path);
+          return { ok: false, reason: "checkout-refused" };
+        } catch (error) {
+          if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT")
+            throw error;
+        }
+        await rename(temporary, path);
       } catch {
         return { ok: false, reason: "clone-failed" };
+      } finally {
+        await rm(temporary, { recursive: true, force: true });
       }
-    }
-    if (
-      (await git(["config", "--get", "remote.origin.url"], path)).trim() !== request.origin ||
-      (await git(["rev-parse", "--show-toplevel"], path)).trim() !== path
-    )
-      return { ok: false, reason: "checkout-refused" };
-    const status = await git(["status", "--porcelain", "-z", "--untracked-files=normal"], path);
+    } else status = await checkout(path);
     return { ok: true, facts, checkout: { path, state: status ? "changed" : "clean" } };
   } catch {
     return { ok: false, reason: "checkout-refused" };

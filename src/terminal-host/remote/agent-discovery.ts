@@ -19,6 +19,7 @@ export async function hostProbe(
   cwd: string,
   env = hostEnvironment(),
   hostGitConfig = false,
+  timeoutMs = 5000,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, [...args], {
@@ -47,7 +48,7 @@ export async function hostProbe(
     const timer = setTimeout(() => {
       failure = new Error("Remote probe timed out");
       kill();
-    }, 5000);
+    }, timeoutMs);
     child.stdout.on("data", (data: Buffer) => {
       stdout += data.length;
       if (stdout > 256 * 1024) {

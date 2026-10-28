@@ -318,15 +318,18 @@ export function RepositoryHosts({
                         <>
                           <code>{result.checkout.path}</code>
                           {result.checkout.state === "absent" ? (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                void clone(host.host, repo.path);
-                              }}
-                            >
-                              Clone here
-                            </button>
+                            <>
+                              <span>Not checked out</span>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                  void clone(host.host, repo.path);
+                                }}
+                              >
+                                Clone here
+                              </button>
+                            </>
                           ) : (
                             <span>{result.checkout.state === "clean" ? "Clean" : "Changes"}</span>
                           )}

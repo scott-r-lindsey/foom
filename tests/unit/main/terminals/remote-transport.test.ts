@@ -888,3 +888,25 @@ test("management shutdown cancels an in-flight SSH connection and unsupported pl
     ),
   ).resolves.toEqual({ ok: false, reason: "unreachable" });
 });
+
+test("clone management connections allow the clone deadline plus bootstrap and validation time", async () => {
+  transport.kill();
+  child = new Child();
+  mock.spawn.mockReturnValue(child);
+  const pending = remoteManagement({ host: "fixture" }, "0.1.0", {
+    type: "manage",
+    operation: "clone",
+    codeFolder: "~/foom",
+    origin: "git@forge.test:team/repo.git",
+    directory: "repo",
+  });
+  await Promise.resolve();
+  child.greet();
+  await vi.advanceTimersByTimeAsync(120000);
+  expect(child.kill).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(300000 - 1);
+  expect(child.kill).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  await expect(pending).resolves.toEqual({ ok: false, reason: "unreachable" });
+  expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+});

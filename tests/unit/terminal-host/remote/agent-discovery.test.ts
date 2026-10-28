@@ -11,6 +11,7 @@ import {
 } from "../../../../src/terminal-host/remote/agent-discovery";
 import { parseAgentManifest } from "../../../../src/shared/agent-plugin-parser";
 import claude from "../../../../src/shared/bundled-agents/claude.json";
+import { HOST_CLONE_TIMEOUT_MS } from "../../../../src/shared/registered-hosts";
 let root: string;
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), "ad-")));
@@ -26,6 +27,27 @@ async function script(name: string, source: string) {
   await writeFile(file, `#!${process.execPath}\n${source}`, { mode: 0o700 });
   return file;
 }
+test.skipIf(process.platform === "win32")(
+  "the clone deadline survives the short probe limit but still kills an overdue subprocess",
+  async () => {
+    vi.useFakeTimers();
+    const kill = vi.spyOn(process, "kill");
+    const pending = hostProbe(
+      process.execPath,
+      ["-e", "setTimeout(() => {}, 600000)"],
+      root,
+      {},
+      false,
+      HOST_CLONE_TIMEOUT_MS,
+    );
+    const rejected = expect(pending).rejects.toThrow("timed out");
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(kill).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(HOST_CLONE_TIMEOUT_MS - 5000);
+    await rejected;
+    expect(kill).toHaveBeenCalledWith(expect.any(Number), "SIGKILL");
+  },
+);
 test.skipIf(process.platform === "win32")(
   "discovery runs only fixed remote probes against executable absolute PATH entries and its fixture login shell",
   async () => {
