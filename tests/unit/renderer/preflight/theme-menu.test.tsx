@@ -60,6 +60,7 @@ test("opens the selected theme, navigates and dismisses without changing selecti
   vi.spyOn(menu, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 280, 1000));
   fireEvent.click(screen.getByRole("button", { name: "Theme Custom theme" }));
   expect(menu.style.top).toBe("8px");
+  expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Default" }));
 });
 
 test("custom-theme hint opens the board's config launcher", () => {

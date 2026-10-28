@@ -46,7 +46,10 @@ export function ThemeMenu({
           );
           node.style.top = `${String(top)}px`;
           node.style.maxHeight = `${String(window.innerHeight - top - 8)}px`;
-          node.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
+          const selectedOption =
+            node.querySelector<HTMLElement>('[aria-checked="true"]') ??
+            node.querySelector<HTMLElement>("button");
+          selectedOption?.focus();
         }}
       >
         <span id={`${id}-value`}>

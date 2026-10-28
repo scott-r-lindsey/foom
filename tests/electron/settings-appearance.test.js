@@ -475,6 +475,9 @@ test("version 2 themes scope portaled colors, shape and warnings and hold attent
   await boardCommand(app, ",", process.platform !== "darwin");
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
   await chooseTheme(page, "Personal v2");
+  await page.getByRole("button", { name: "Theme Personal v2", exact: true }).click();
+  await expect(page.locator(".theme-menu-options:popover-open")).toHaveCSS("--surface", "#161616");
+  await page.keyboard.press("Escape");
   await expect(page.locator(".sidebar-shell")).toHaveCSS("background-color", "rgb(1, 2, 3)");
   await page.getByRole("button", { name: "Close settings (Esc)", exact: true }).click();
   await expect(page.locator(".tile-title").first()).toHaveCSS("--surface", "#141414");

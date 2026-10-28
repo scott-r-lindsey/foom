@@ -473,7 +473,7 @@
 }
 .theme-menu-options button:hover,
 .theme-menu-options button:focus-visible {
-  background: var(--raised);
+  background: var(--raised-hover);
 }
 .theme-menu-options button[aria-checked="true"] {
   font-weight: 600;

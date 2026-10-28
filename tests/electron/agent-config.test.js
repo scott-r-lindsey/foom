@@ -102,8 +102,10 @@ process.stdin.on("data", (key) => {
   await expect(page.getByRole("heading", { name: "Recent changes" })).toHaveCount(0);
   const problems = page.getByRole("list", { name: "Rejected files" });
   await expect(problems).toHaveCount(0);
-  await sections.getByRole("button", { name: "Themes", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Agent", exact: true })).toBeVisible();
+  await sections.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("button", { name: /^Theme / }).click();
+  await expect(page.getByRole("menuitemradio", { name: "Agent", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
 
   // 3. An invalid theme is rejected and the last good colors stay.
   await page.evaluate((id) => window.desktop.input(id, "i"), id);

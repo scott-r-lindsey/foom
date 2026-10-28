@@ -64,7 +64,7 @@ Areas override a subset of colors: sidebar on `.sidebar-shell`, tiles on
 `.tile-area` and `.terminal-tile` chrome (terminal content retains its independent
 palette), panels on `.row-menu.sidebar-panel` (including tile panels), dialogs on
 Settings, preflight and confirmation/dialog roots, menus on row menus/submenus and
-the wordmark menu. Portal roots get their own area variables. Raised colors derive
+the wordmark menu and the shared Theme/Colors menus. Portal roots get their own area variables. Raised colors derive
 at each root from its effective palette. State colors override selected, hover,
 focus and scrollbar colors; omitted values retain existing derivations. Shape
 supports radius 0–12 px, panel-radius 0–16 px, border 0–2 px and shadow 0–1.
