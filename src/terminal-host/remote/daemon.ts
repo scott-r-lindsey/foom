@@ -82,8 +82,8 @@ export function serveHost(
       timer: ReturnType<typeof setTimeout>;
     }
   >();
-  const revoke = (id: string, session: Session) => {
-    worktrees.delete(session);
+  const revoke = (id: string, session: Session, stopping = false) => {
+    if (!stopping) worktrees.delete(session);
     session.agent?.endpoint.dispose();
     for (const [key, call] of calls)
       if (call.id === id) {
@@ -157,7 +157,8 @@ export function serveHost(
   };
   const remove = (id: string, session: Session, rememberExit = false): Promise<void> => {
     if (session.removing) return session.removing;
-    revoke(id, session);
+    // Revoke credentials immediately, but reserve the checkout until the PTY stops.
+    revoke(id, session, true);
     if (!rememberExit) cancelExpiry(session.expiry);
     session.removing = Promise.resolve().then(async () => {
       try {
@@ -165,6 +166,7 @@ export function serveHost(
       } finally {
         sessions.delete(id);
         manager.kill(id);
+        worktrees.delete(session);
         const code = session.exited;
         if (
           rememberExit &&

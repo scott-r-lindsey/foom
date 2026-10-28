@@ -1162,7 +1162,21 @@ test.skipIf(process.platform === "win32")(
     await m.wait(3);
     expect(m.messages[2]).toEqual(m.messages[1]);
     expect(mock.manage).not.toHaveBeenCalled();
-    mock.exited("owned", 0);
+    const stopped = Promise.withResolvers<boolean>();
+    mock.stop.mockReturnValueOnce(stopped.promise);
+    const closing = await client();
+    closing.send({ type: "hello", build });
+    await closing.wait(1);
+    closing.send({ type: "agent-close", id: "owned", request: 2 });
+    await vi.waitFor(() => {
+      expect(mock.stop).toHaveBeenCalledWith("owned");
+    });
+    m.send(request);
+    await m.wait(4);
+    expect(m.messages[3]).toEqual(m.messages[1]);
+    expect(mock.manage).not.toHaveBeenCalled();
+    stopped.resolve(true);
+    await closing.wait(2);
     const pending = Promise.withResolvers<HostResult>();
     mock.manage.mockReturnValueOnce(pending.promise);
     m.send(request);
@@ -1187,6 +1201,6 @@ test.skipIf(process.platform === "win32")(
     });
     expect(mock.create).toHaveBeenCalledOnce();
     pending.resolve({ ok: false, reason: "checkout-refused" });
-    await m.wait(4);
+    await m.wait(5);
   },
 );
