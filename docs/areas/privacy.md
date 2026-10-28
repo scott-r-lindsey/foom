@@ -47,7 +47,9 @@ first check in each UTC day, ISO week and UTC month. Only three last-sent calend
 dates are stored in `update-activity.json` in the profile, validated at load;
 invalid or missing dates mean never sent. Dates never move backwards, so turning
 the clock back does not resend flags. A sent attempt consumes its flags even
-when the endpoint fails. No install ID, counters or request-linking identifiers
+when the endpoint fails. If the dates cannot be saved, the check uses the
+channel's direct metadata source without activity flags; counting storage failures
+never prevent update checks. No install ID, counters or request-linking identifiers
 are stored or sent.
 
 The [counting endpoint contract](https://github.com/scott-r-lindsey/foom-site/issues/34)

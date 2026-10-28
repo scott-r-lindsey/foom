@@ -1,4 +1,8 @@
 import { EventEmitter } from "node:events";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { UpdateActivity } from "../../../src/main/update-activity";
 import { afterEach, expect, test, vi } from "vitest";
 import { newerStable, Updates } from "../../../src/main/updates";
 import type { UpdateDependencies } from "../../../src/main/updates";
@@ -616,4 +620,93 @@ test("opt-out aborts pending fallback and stops future checks", async () => {
   await updates.check();
   expect(updates.state(0).status).toBe("idle");
   expect(deps.getRelease).toHaveBeenCalledTimes(2);
+});
+
+test.each([
+  ["darwin", "0.1.0", "https://update.electronjs.org/scott-r-lindsey/foom/darwin-arm64/0.1.0"],
+  ["linux", "0.1.0", "https://api.github.com/repos/scott-r-lindsey/foom/releases/latest"],
+  [
+    "darwin",
+    "0.1.0-nightly.20261022+bbbbbbb",
+    "https://foom-term.com/updates/nightly/darwin-arm64/latest-mac.json",
+  ],
+  [
+    "linux",
+    "0.1.0-nightly.20261022+bbbbbbb",
+    "https://foom-term.com/updates/nightly/linux-arm64/latest.json",
+  ],
+  [
+    "win32",
+    "0.1.0-nightly.20261022+bbbbbbb",
+    "https://foom-term.com/updates/nightly/win32-arm64/latest.json",
+  ],
+])(
+  "%s %s checks its direct source without flags when reservation fails",
+  async (platform, version, fallback) => {
+    const { updates, deps } = fixture({ platform, version });
+    deps.activityFlags.mockRejectedValue(new Error("profile is unwritable"));
+    deps.getRelease.mockResolvedValue(null);
+    updates.configure(true);
+    await vi.waitFor(() => {
+      expect(updates.state(0).status).toBe("idle");
+    });
+    expect(deps.getRelease).toHaveBeenCalledExactlyOnceWith(fallback, expect.any(AbortSignal));
+  },
+);
+
+test("a blocked activity file preserves startup checks, retries and counting recovery", async ({
+  onTestFinished,
+}) => {
+  const directory = await mkdtemp(join(tmpdir(), "foom-update-blocked-"));
+  onTestFinished(() => rm(directory, { recursive: true, force: true }));
+  const file = join(directory, "update-activity.json");
+  await mkdir(file);
+  const activity = new UpdateActivity(directory);
+  const { updates, deps } = fixture({ platform: "linux" });
+  deps.activityFlags.mockImplementation(() => activity.flags(new Date("2026-10-28T00:00:00Z")));
+  deps.getRelease.mockResolvedValue(null);
+  updates.configure(true);
+  await vi.waitFor(() => {
+    expect(updates.state(0).status).toBe("idle");
+  });
+  await updates.check();
+  expect(deps.getRelease.mock.calls.map(([url]) => url)).toEqual([
+    "https://api.github.com/repos/scott-r-lindsey/foom/releases/latest",
+    "https://api.github.com/repos/scott-r-lindsey/foom/releases/latest",
+  ]);
+  await rm(file, { recursive: true });
+  await updates.check();
+  expect(deps.getRelease.mock.calls[2]?.[0]).toBe(
+    "https://foom-term.com/u/v1/stable/linux/arm64/0.1.0?d=1&w=1&m=1",
+  );
+});
+
+test("opting out before a failed reservation prevents the direct check", async () => {
+  const { updates, deps } = fixture({ platform: "linux" });
+  let fail: (error: Error) => void = () => {};
+  deps.activityFlags.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  updates.configure(true);
+  updates.configure(false);
+  fail(new Error("quota exceeded"));
+  await Promise.resolve();
+  expect(deps.getRelease).not.toHaveBeenCalled();
+  expect(updates.state(0).status).toBe("idle");
+});
+
+test("failed activity persistence still offers a newer Linux release", async () => {
+  const { updates, deps } = fixture({ platform: "linux" });
+  deps.activityFlags.mockRejectedValue(new Error("quota exceeded"));
+  updates.configure(true);
+  await vi.waitFor(() => {
+    expect(updates.state(0).status).toBe("available");
+  });
+  expect(deps.getRelease).toHaveBeenCalledExactlyOnceWith(
+    "https://api.github.com/repos/scott-r-lindsey/foom/releases/latest",
+    expect.any(AbortSignal),
+  );
 });

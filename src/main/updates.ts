@@ -151,10 +151,12 @@ export class Updates {
         : this.native
           ? `https://update.electronjs.org/scott-r-lindsey/foom/darwin-${this.deps.arch}/${this.deps.version}`
           : `${API}latest`;
-      const flags = await this.deps.activityFlags();
-      if (!this.current(generation)) return;
       let release: unknown;
       try {
+        // Counting is optional: failed durable reservation uses the direct
+        // source, without sending any unreserved activity flags.
+        const flags = await this.deps.activityFlags();
+        if (!this.current(generation)) return;
         release = await this.deps.getRelease(
           `https://foom-term.com/u/v1/${this.nightly ? "nightly" : "stable"}/${this.deps.platform}/${this.deps.arch}/${encodeURIComponent(this.deps.version)}${flags}`,
           request.signal,

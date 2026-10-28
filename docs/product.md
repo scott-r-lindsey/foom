@@ -120,6 +120,8 @@ requests first go to `foom-term.com/u/v1/<channel>/<os>/<arch>/<version>`, with
 optional first-check-of-day/week/month flags for anonymous active-install counts.
 No install ID or request-linking identifier is used. Network failures, timeouts
 and non-2xx responses fall back to the existing channel source described above.
+If the profile cannot save the activity dates, the check uses that direct source
+without activity flags.
 Requests never include terminal content, repository paths, agent identities or
 credentials. The counting endpoint excludes client IP from its logs; fallback
 servers see the IP and request metadata. See the [privacy disclosure](areas/privacy.md#update-requests-603).
