@@ -140,17 +140,40 @@ it("places a reused sidebar preview without creating a new identity", async () =
   expect(board.previews.size).toBe(1);
   expect(board.visible(first)).toBe(true);
 });
-it("keeps human-dismissed sidebar previews hidden when reused", async () => {
+it("reopens a human-closed preview visibly with a new identity", async () => {
   const first = id(await open("docs/plan.md"));
   broker.humanClose(first);
   await board.close(first);
-  const second = id(await open("docs/plan.md"));
+  const reopened = await open("docs/plan.md");
+  const second = id(reopened);
+  expect(second).not.toBe(first);
+  expect(reopened).toMatchObject({ placement: "landing", reused: false });
+  expect(board.visible(second)).toBe(true);
+  expect(await list()).toMatchObject({ previews: [{ previewId: second, visible: true }] });
   expect(await open("docs/plan.md")).toMatchObject({
     previewId: second,
     placement: "existing",
     reused: true,
   });
-  expect(board.visible(second)).toBe(false);
+  expect(board.focused).toBe("t1");
+});
+it("falls back to the sidebar after close only while the board has no room", async () => {
+  const first = id(await open("docs/plan.md"));
+  broker.humanClose(first);
+  await board.close(first);
+  board.landing = null;
+  board.empty = [];
+  const reopened = await open("docs/plan.md");
+  const second = id(reopened);
+  expect(reopened).toMatchObject({ placement: "sidebar", reused: false });
+  expect(await list()).toMatchObject({ previews: [{ previewId: second, visible: false }] });
+  board.empty = ["available"];
+  expect(await open("docs/plan.md")).toMatchObject({
+    previewId: second,
+    placement: "empty",
+    reused: true,
+  });
+  expect(board.visible(second)).toBe(true);
 });
 it("validates reuse after asynchronous placement and maps backend failures", async () => {
   board.landing = null;
@@ -295,12 +318,12 @@ it("enforces an instance cap even after ownership transfers", async () => {
   await expect(open("p0.md")).rejects.toMatchObject({ code: "capacity" });
   expect(board.previews.size).toBe(12);
 });
-it("makes human close sticky; agent close does not dismiss", async () => {
+it("places previews again after either human or agent close", async () => {
   const first = id(await open("mockup.html"));
   broker.humanClose(first);
   await board.close(first);
-  expect(await open("mockup.html")).toMatchObject({ placement: "sidebar" });
-  expect(board.landing).toBe("t2");
+  expect(await open("mockup.html")).toMatchObject({ placement: "landing" });
+  expect(board.landing).toBeNull();
   const second = id(await open("p0.md"));
   await broker.call(actor, "close_preview", { previewId: second });
   expect(await open("p0.md")).toMatchObject({ placement: "landing" });
