@@ -496,7 +496,15 @@
   text-decoration: underline;
 }
 .preflight-rail .interface-theme-settings {
+  display: block;
   width: 100%;
+}
+.preflight-rail :is(.appearance, .appearance-group, .appearance-panel-group) {
+  min-width: 0;
+}
+.preflight-rail .appearance-panel-group > .appearance-mode {
+  width: 100%;
+  min-width: 0;
 }
 
 .settings-controls .appearance-group {

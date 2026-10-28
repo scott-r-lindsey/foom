@@ -711,6 +711,11 @@ test("first-run rail shares the Theme menu and saves its live selection", async 
       .find((window) => window.webContents.getURL() === "app://bundle/index.html")
       .setSize(1200, 900);
   });
+  await expect
+    .poll(() =>
+      page.locator(".preflight-rail").evaluate((rail) => rail.scrollWidth - rail.clientWidth),
+    )
+    .toBe(0);
   await chooseTheme(page, "Moonlight");
   await expect
     .poll(() =>
