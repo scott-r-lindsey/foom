@@ -26,6 +26,12 @@ export function ThemeMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={id}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            event.currentTarget.click();
+          }
+        }}
         onClick={() => {
           const node = menuRef.current;
           const anchor = triggerRef.current;

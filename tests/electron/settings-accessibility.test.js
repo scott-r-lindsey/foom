@@ -267,22 +267,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     }
     throw new Error("Settings control is not reachable with Tab");
   };
-  const nextSelectOption = async (control, value) => {
-    await tabToControl(control);
-    if (process.platform === "darwin") {
-      // macOS native select popups do not consume synthetic web keyboard events:
-      // https://github.com/electron/electron/issues/12513
-      // Still verify Tab reachability, DOM change handling, and persistence here;
-      // Linux and Windows exercise selection entirely through the keyboard.
-      await control.selectOption(value);
-    } else {
-      await page.keyboard.press("Space");
-      await page.keyboard.press("ArrowDown");
-      await page.keyboard.press("Enter");
-    }
-    await expect(control).toHaveValue(value);
-    await page.keyboard.press("Tab");
-  };
+
   const section = async (name) => {
     await tabTo(page, name);
     await page.keyboard.press("Enter");
@@ -318,7 +303,7 @@ test("Settings shares live preflight values, sizes the terminal and restores key
     )
     .toBe("adjacent");
   await section("Appearance");
-  await tabToControl(page.getByRole("button", { name: "Theme Default", exact: true }));
+  await tabToControl(page.getByRole("button", { name: /^Theme Default · Eclipse / }));
   await page.keyboard.press("Enter");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
@@ -327,8 +312,14 @@ test("Settings shares live preflight values, sizes the terminal and restores key
   await page.keyboard.press("Enter");
   await expect(page.getByRole("status").filter({ hasText: "110%" })).toBeVisible();
   await section("Terminal");
-  const font = page.getByLabel("Terminal font size");
-  await nextSelectOption(font, "15");
+  const font = page.getByRole("button", { name: "Terminal font size 14 px", exact: true });
+  await tabToControl(font);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Terminal font size 15 px", exact: true }),
+  ).toBeFocused();
   await expect
     .poll(() =>
       page.evaluate(async () => (await window.desktop.setupState()).settings.terminalFontSize),

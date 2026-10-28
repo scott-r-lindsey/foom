@@ -23,11 +23,16 @@ test("selects System and each theme, previews every status, follows media and ac
   expect(screen.getAllByRole("listitem")).toHaveLength(5);
   expect(screen.getByText("Needs you")).toBeTruthy();
   expect(screen.getByText("Failed")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Theme Default · Eclipse Light" })).toBeTruthy();
   expect(preview.style.getPropertyValue("--bg")).toBe("#f3f0fa");
   act(() => {
     media.matches = true;
     media.addEventListener.mock.calls[0]?.[1]();
   });
+  expect(screen.getByRole("button", { name: "Theme Default · Eclipse Dark" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Theme Default · Eclipse Dark" }));
+  expect(screen.getByRole("menuitemradio", { name: "Default · Eclipse Dark" })).toBeTruthy();
+  fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
   expect(preview.style.getPropertyValue("--bg")).toBe("#05040a");
   for (const [id, theme] of Object.entries(interfaceThemes)) {
     fireEvent.click(screen.getByRole("button", { name: /^Theme / }));

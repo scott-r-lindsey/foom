@@ -1,3 +1,4 @@
+import { resolveInterfaceTheme } from "../../shared/interface-themes";
 import { CustomThemeHint } from "./custom-theme-hint";
 import { ThemeMenu } from "./theme-menu";
 import {
@@ -38,7 +39,9 @@ export function TerminalThemePicker({
       media.removeEventListener("change", changed);
     };
   }, [media]);
-  const theme = resolveTerminalTheme(settings.terminalTheme, dark, catalog);
+  const interfaceDark =
+    resolveInterfaceTheme(settings.interfaceTheme, dark, catalog).base === "dark";
+  const theme = resolveTerminalTheme(settings.terminalTheme, interfaceDark, catalog);
   return (
     <div className="terminal-theme-settings">
       <div className="terminal-theme-picker-column">
@@ -46,7 +49,11 @@ export function TerminalThemePicker({
           label="Colors"
           selected={typeof settings.terminalTheme === "string" ? settings.terminalTheme : ""}
           choices={[
-            ...terminalThemeOptions,
+            ...terminalThemeOptions.map((entry) =>
+              entry.id === "follow"
+                ? { ...entry, name: `Default · Foom ${interfaceDark ? "Dark" : "Light"}` }
+                : entry,
+            ),
             ...(catalog?.terminal ?? []).map((entry) => ({
               id: entry.id,
               name: entry.name,
@@ -57,6 +64,7 @@ export function TerminalThemePicker({
             onChange({ terminalTheme: parseTerminalThemeChoice(id) });
           }}
         />
+        <CustomThemeHint />
         <ThemeFilesStatus catalog={catalog} kind="terminal-theme" openFolder={openFolder} />
       </div>
       <pre
@@ -91,7 +99,6 @@ export function TerminalThemePicker({
         {"\n\n$ Ready when you are. "}
         <span style={{ backgroundColor: theme.cursor, color: theme.background }}> </span>
       </pre>
-      <CustomThemeHint />
     </div>
   );
 }

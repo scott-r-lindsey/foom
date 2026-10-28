@@ -1,3 +1,4 @@
+import { ThemeMenu } from "./theme-menu";
 import { ForgesSettings } from "./forges-settings";
 import { TerminalFontPicker } from "./terminal-font-picker";
 import { EnvironmentSettings } from "./environment-settings";
@@ -117,47 +118,42 @@ export function PreflightSections({
         <h2 ref={headingRef} tabIndex={-1}>
           Terminal
         </h2>
-        <p className="preflight-intro">
-          Text size applies to every terminal, independently of interface size.
-        </p>
-        <TerminalFontPicker source={source} value={state.settings.terminalFont} onChange={save} />
-        <label className="terminal-font-size">
-          Terminal font size
-          <select
-            value={state.settings.terminalFontSize}
-            onChange={(event) => {
-              save({ terminalFontSize: Number(event.target.value) });
+        <div className="terminal-controls">
+          <TerminalFontPicker source={source} value={state.settings.terminalFont} onChange={save} />
+          <ThemeMenu
+            label="Terminal font size"
+            selected={String(state.settings.terminalFontSize)}
+            choices={Array.from({ length: 23 }, (_, index) => ({
+              id: String(index + 10),
+              name: `${String(index + 10)} px`,
+            }))}
+            onChange={(size) => {
+              save({ terminalFontSize: Number(size) });
             }}
-          >
-            {Array.from({ length: 23 }, (_, index) => index + 10).map((size) => (
-              <option key={size} value={size}>
-                {size} px
-              </option>
-            ))}
-          </select>
-        </label>
-        {navigator.platform.startsWith("Mac") && (
+          />
+          {navigator.platform.startsWith("Mac") && (
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={state.settings.middleClickPaste}
+                onChange={(event) => {
+                  save({ middleClickPaste: event.target.checked });
+                }}
+              />
+              <span>Middle-click pastes selection</span>
+            </label>
+          )}
           <label className="check">
             <input
               type="checkbox"
-              checked={state.settings.middleClickPaste}
+              checked={state.settings.copyOnSelect}
               onChange={(event) => {
-                save({ middleClickPaste: event.target.checked });
+                save({ copyOnSelect: event.target.checked });
               }}
             />
-            <span>Middle-click pastes selection</span>
+            <span>Copy on select</span>
           </label>
-        )}
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={state.settings.copyOnSelect}
-            onChange={(event) => {
-              save({ copyOnSelect: event.target.checked });
-            }}
-          />
-          <span>Copy on select</span>
-        </label>
+        </div>
         <TerminalThemePicker
           settings={state.settings}
           catalog={state.themes}

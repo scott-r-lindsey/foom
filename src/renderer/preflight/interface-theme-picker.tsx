@@ -75,7 +75,7 @@ export function InterfaceThemePicker({
           label="Theme"
           selected={typeof selected === "string" ? selected : ""}
           choices={[
-            { id: "follow", name: "Default" },
+            { id: "follow", name: `Default · Eclipse ${systemDark ? "Dark" : "Light"}` },
             ...choices.map((id) => ({ id, name: interfaceThemes[id].name })),
             ...(catalog?.interface ?? []).map((entry) => ({
               id: entry.id,
@@ -87,6 +87,7 @@ export function InterfaceThemePicker({
             onChange({ interfaceTheme: parseInterfaceTheme(id) });
           }}
         />
+        {!compact && <CustomThemeHint />}
         {!compact && <ThemeFilesStatus catalog={catalog} kind="theme" openFolder={openFolder} />}
       </div>
       {!compact && (
@@ -116,7 +117,6 @@ export function InterfaceThemePicker({
           </div>
         </section>
       )}
-      {!compact && <CustomThemeHint />}
     </div>
   );
 }

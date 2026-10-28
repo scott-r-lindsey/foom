@@ -17,7 +17,9 @@ const {
 
 async function chooseTheme(page, name, label = "Theme") {
   await page.getByRole("button", { name: new RegExp(`^${label} `) }).click();
-  await page.getByRole("menuitemradio", { name, exact: true }).click();
+  await page
+    .getByRole("menuitemradio", { name: name === "Default" ? /^Default · / : name, exact: true })
+    .click();
 }
 
 test("appearance switches light and dark, and zoom shortcuts resize the interface", async (context) => {
@@ -544,10 +546,10 @@ test("terminal font picker updates open shells and config shells and refits thei
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Terminal", exact: true })
     .click();
-  const picker = page.getByLabel("Terminal font", { exact: true });
+  const picker = page.getByRole("button", { name: /^Terminal font (?!size)/ });
   const family = "Geist Mono";
-  await expect(picker.getByRole("option", { name: family, exact: true })).toHaveCount(1);
-  await picker.selectOption(family);
+  await picker.click();
+  await page.getByRole("menuitemradio", { name: family, exact: true }).click();
   const stack = `"${family}", "Hack Nerd Font Mono", "Geist Mono", monospace`;
   await expect
     .poll(() =>
@@ -579,8 +581,11 @@ test("terminal font picker updates open shells and config shells and refits thei
     .getByRole("navigation", { name: "Settings sections" })
     .getByRole("button", { name: "Terminal", exact: true })
     .click();
-  await expect(picker).toHaveValue(family);
-  await picker.selectOption("Hack Nerd Font Mono");
+  await expect(picker).toHaveText(`${family}⌄`);
+  await picker.click();
+  await page
+    .getByRole("menuitemradio", { name: "Hack Nerd Font Mono (bundled)", exact: true })
+    .click();
   await expect
     .poll(() =>
       page.evaluate(async () => (await window.desktop.setupState()).settings.terminalFont),
@@ -661,8 +666,14 @@ test("Default themes follow native appearance live and Settings theme menus shar
     await openSettingsScreen(page);
     await page.getByRole("button", { name: "Appearance", exact: true }).click();
     await expect(page.getByRole("button", { name: "Themes", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Theme Default", exact: true }).click();
-    await expect(page.getByRole("menuitemradio", { name: "Default", exact: true })).toHaveAttribute(
+    await expect(
+      page.getByRole("button", {
+        name: `Theme Default · Eclipse ${mode === "dark" ? "Dark" : "Light"}`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: /^Theme Default · Eclipse / }).click();
+    await expect(page.getByRole("menuitemradio", { name: /^Default · Eclipse / })).toHaveAttribute(
       "aria-checked",
       "true",
     );
@@ -670,6 +681,30 @@ test("Default themes follow native appearance live and Settings theme menus shar
     await page.screenshot({ path: evidencePath(`screenshots-878/appearance-${mode}.png`) });
     await page.keyboard.press("Escape");
     await expect(page.getByRole("region", { name: "Settings", exact: true })).toBeVisible();
+    await expect(page.locator(".interface-theme-picker-column > .custom-theme-hint")).toBeVisible();
+    await page.screenshot({ path: evidencePath(`screenshots-878/appearance-${mode}-closed.png`) });
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .setSize(900, 640);
+    });
+    const pickerBox = await page
+      .locator(".interface-theme-picker-column .theme-menu")
+      .boundingBox();
+    const hintBox = await page
+      .locator(".interface-theme-picker-column > .custom-theme-hint")
+      .boundingBox();
+    assert.ok(pickerBox && hintBox && hintBox.y >= pickerBox.y + pickerBox.height);
+    assert.ok(hintBox.y + hintBox.height <= (await page.evaluate(() => innerHeight)));
+    await page.screenshot({
+      path: evidencePath(`screenshots-878/appearance-${mode}-closed-default-size.png`),
+    });
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .setSize(1200, 900);
+    });
+
     await page.getByRole("button", { name: "config agent", exact: true }).click();
     await expect(page.locator(".sidebar-panel:not(.session-panel-preview)")).toContainText(
       "Foom config",
@@ -678,8 +713,26 @@ test("Default themes follow native appearance live and Settings theme menus shar
     await page.getByRole("button", { name: "Terminal", exact: true }).click();
     await expect(page.getByLabel("Terminal theme preview")).toHaveCSS("background-color", bg);
     await expect(page.getByLabel("Terminal theme preview").locator("[title]")).toHaveCount(16);
+    await expect(
+      page.getByRole("button", {
+        name: `Colors Default · Foom ${mode === "dark" ? "Dark" : "Light"}`,
+        exact: true,
+      }),
+    ).toBeVisible();
     await assertAccessible(page);
     await page.screenshot({ path: evidencePath(`screenshots-878/terminal-${mode}.png`) });
+    await page.getByRole("button", { name: /^Colors Default/ }).click();
+    await expect(
+      page.getByRole("menuitemradio", {
+        name: `Default · Foom ${mode === "dark" ? "Dark" : "Light"}`,
+        exact: true,
+      }),
+    ).toHaveAttribute("aria-checked", "true");
+    if (mode === "dark")
+      await page.screenshot({
+        path: evidencePath("screenshots-878/terminal-dark-colors-open.png"),
+      });
+    await page.keyboard.press("Escape");
     await chooseTheme(page, "Dracula", "Colors");
     await expect(page.getByLabel("Terminal theme preview")).toHaveCSS(
       "background-color",
@@ -700,6 +753,25 @@ test("Default themes follow native appearance live and Settings theme menus shar
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
   }
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await page.getByRole("button", { name: /^Colors Default/ }).click();
+  for (const base of ["light", "dark"]) {
+    await page.evaluate(
+      (base) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${base}` }),
+      base,
+    );
+    const name = `Default · Foom ${base === "dark" ? "Dark" : "Light"}`;
+    await expect(page.getByRole("button", { name: `Colors ${name}`, exact: true })).toBeVisible();
+    await expect(page.getByRole("menuitemradio", { name, exact: true })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+  }
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("button", { name: "Colors Default · Foom Dark", exact: true }),
+  ).toBeFocused();
 });
 
 test("first-run rail shares the Theme menu and saves its live selection", async (context) => {
@@ -729,9 +801,15 @@ test("first-run rail shares the Theme menu and saves its live selection", async 
       nativeTheme.themeSource = mode;
     }, mode);
     await expect(page.locator("html")).toHaveCSS("color-scheme", mode);
-    await page.getByRole("button", { name: "Theme Default", exact: true }).click();
+    await expect(
+      page.getByRole("button", {
+        name: `Theme Default · Eclipse ${mode === "dark" ? "Dark" : "Light"}`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: /^Theme Default · Eclipse / }).click();
     assert.deepEqual(await page.getByRole("menuitemradio").allTextContents(), [
-      "✓Default",
+      `✓Default · Eclipse ${mode === "dark" ? "Dark" : "Light"}`,
       "Eclipse Light",
       "Eclipse Dark",
       "High Contrast",

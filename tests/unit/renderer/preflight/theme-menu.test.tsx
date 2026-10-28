@@ -23,11 +23,12 @@ test("opens the selected theme, navigates and dismisses without changing selecti
     />,
   );
   const trigger = screen.getByRole("button", { name: "Theme Default" });
-  fireEvent.click(trigger);
+  fireEvent.keyDown(trigger, { key: "ArrowDown" });
   expect(trigger.getAttribute("aria-expanded")).toBe("true");
   fireEvent.click(trigger);
   expect(trigger.getAttribute("aria-expanded")).toBe("false");
-  fireEvent.click(trigger);
+  fireEvent.keyDown(trigger, { key: "ArrowUp" });
+  fireEvent.keyDown(trigger, { key: "a" });
   expect(screen.getByRole("menuitemradio", { name: "Default" })).toBe(document.activeElement);
   const menu = screen.getByRole("menu", { name: "Theme" });
   for (const [key, name] of [

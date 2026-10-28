@@ -164,18 +164,21 @@ control and no Themes page. Picking a theme saves and applies immediately;
 changing interface size preserves it. Interface size and Session panel color stay
 on Appearance.
 
-Terminal font lists the bundled Hack Nerd Font Mono first, followed by installed
+Terminal font and font size use the same small labels and keyboard picker as
+Appearance’s Theme. Terminal font lists the bundled Hack Nerd Font Mono first, followed by installed
 monospace families. The choice persists and applies immediately to every terminal
 view, including config shells and the Settings preview. Open terminals refit their
 columns and rows. Missing fonts fall back silently to Hack Nerd Font Mono, Geist
 Mono and `monospace`.
 
 Terminal font size applies to every terminal view: 10–32 pixels, 14 by default,
-independent of interface size. Terminal includes the preview of text size, all 16
+with no helper line beneath the heading. Terminal includes the preview of text size, all 16
 ANSI colors, bold, dim and selection. Its **Colors** menu lists Default, Foom Light,
 Foom Dark, Solarized Light, Solarized Dark, Dracula, then user terminal themes below
 a divider. Default (formerly Follow interface) follows the current interface theme's
-base live. Fixed terminal themes remain independent. Changes apply live to visible
+base live. Both Default entries show their resolved theme name as text in the
+closed picker and menu row, updating live. The first-run Theme picker does too.
+Fixed terminal themes remain independent. Changes apply live to visible
 and detached terminals.
 
 Each picker lists shipped themes first,

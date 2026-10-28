@@ -17,6 +17,7 @@ test("previews all ANSI colors and text styles, saves a scheme, follows media an
     <TerminalThemePicker settings={setupState().settings} onChange={onChange} />,
   );
   const preview = screen.getByLabelText("Terminal theme preview");
+  expect(screen.getByRole("button", { name: "Colors Default · Foom Light" })).toBeTruthy();
   expect(preview.style.backgroundColor).toBe("rgb(243, 240, 250)");
   expect(preview.querySelectorAll("[title]")).toHaveLength(16);
   expect(preview.textContent).toContain("Bold text · Dim text");
@@ -27,7 +28,19 @@ test("previews all ANSI colors and text styles, saves a scheme, follows media an
     media.matches = true;
     media.addEventListener.mock.calls[0]?.[1]();
   });
+  expect(screen.getByRole("button", { name: "Colors Default · Foom Dark" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Colors Default · Foom Dark" }));
+  expect(screen.getByRole("menuitemradio", { name: "Default · Foom Dark" })).toBeTruthy();
+  fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
   expect(preview.style.backgroundColor).toBe("rgb(5, 4, 10)");
+  rerender(
+    <TerminalThemePicker
+      settings={setupState({ interfaceTheme: "moonlight" }).settings}
+      onChange={onChange}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "Colors Default · Foom Light" })).toBeTruthy();
+  expect(preview.style.backgroundColor).toBe("rgb(243, 240, 250)");
   rerender(
     <TerminalThemePicker
       settings={setupState({ terminalTheme: "dracula" }).settings}

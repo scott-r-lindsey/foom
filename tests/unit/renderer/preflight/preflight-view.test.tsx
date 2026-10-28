@@ -635,7 +635,8 @@ test("Settings shares setup controls, saves immediately and exposes planned sect
   });
   fireEvent.click(button("Terminal"));
   expect(screen.queryByRole("group", { name: "Terminal colors" })).toBeNull();
-  fireEvent.change(screen.getByLabelText("Terminal font size"), { target: { value: "18" } });
+  fireEvent.click(screen.getByRole("button", { name: /^Terminal font size / }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "18 px" }));
   await waitFor(() => {
     expect(source.save).toHaveBeenCalledWith({ terminalFontSize: 18 });
   });
