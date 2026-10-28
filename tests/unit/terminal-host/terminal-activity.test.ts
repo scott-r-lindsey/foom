@@ -18,7 +18,7 @@ test("ten busy terminals share one batch per tick with UTF-8 byte rates and deca
     meter.start(String(i));
     for (let j = 0; j < 100; j++) {
       meter.output(String(i), "é");
-      meter.parsed(String(i), "progress");
+      meter.parsed(String(i));
     }
   }
   expect(onActivity).not.toHaveBeenCalled();
@@ -35,16 +35,16 @@ test("ten busy terminals share one batch per tick with UTF-8 byte rates and deca
   expect(onActivity.mock.lastCall?.[0].every(({ rate }) => rate === 0)).toBe(true);
   expect(vi.getTimerCount()).toBe(0);
   meter.output("0", "again");
-  meter.parsed("0", "again");
+  meter.parsed("0");
   vi.advanceTimersByTime(2000);
   expect(onQuiet).toHaveBeenCalledTimes(11);
 });
 test.each(["Continue?", "Proceed (y/n)", "Password:", "Press Enter."])(
   "quiet prompts use a short debounce: %s",
   (line) => {
-    meter.start("a");
+    meter.start("a", () => line);
     meter.output("a", line);
-    meter.parsed("a", line);
+    meter.parsed("a");
     vi.advanceTimersByTime(499);
     expect(onQuiet).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
@@ -56,26 +56,26 @@ test.each(["Continue?", "Proceed (y/n)", "Password:", "Press Enter."])(
 test("midstream waits longer, resets on new output, and never fires ahead of parsing", () => {
   meter.start("a");
   meter.output("a", "Installing...");
-  meter.parsed("a", "Installing...");
+  meter.parsed("a");
   vi.advanceTimersByTime(1900);
   expect(onQuiet).not.toHaveBeenCalled();
   meter.output("a", "more");
   vi.advanceTimersByTime(2100);
   expect(onQuiet).not.toHaveBeenCalled();
-  meter.parsed("a", "more");
+  meter.parsed("a");
   vi.advanceTimersByTime(100);
   expect(onQuiet).toHaveBeenCalledTimes(1);
 });
 test("removal, disposal, empty output and stale parser callbacks cannot emit events", () => {
   meter.output("empty", "");
-  meter.parsed("missing", "?");
+  meter.parsed("missing");
   expect(vi.getTimerCount()).toBe(0);
   meter.start("a");
   meter.output("a", "?");
   meter.start("b");
   meter.output("b", "x");
   meter.remove("a");
-  meter.parsed("a", "?");
+  meter.parsed("a");
   vi.advanceTimersByTime(100);
   expect(onActivity.mock.lastCall?.[0].map(({ id }) => id)).toEqual(["b"]);
   meter.remove("b");
@@ -88,7 +88,7 @@ test("telemetry consumers are optional", () => {
   meter = new TerminalActivityMeter({});
   meter.start("a");
   meter.output("a", "?");
-  meter.parsed("a", "?");
+  meter.parsed("a");
   vi.advanceTimersByTime(10000);
   expect(vi.getTimerCount()).toBe(0);
 });
@@ -101,4 +101,26 @@ test("a terminal silent from launch becomes quiet once", () => {
   expect(onQuiet).toHaveBeenCalledWith("silent");
   expect(onActivity).not.toHaveBeenCalled();
   expect(vi.getTimerCount()).toBe(0);
+});
+
+test("tail classification waits for parsing, caches ordinary output and resets on new output", () => {
+  const readLastLine = vi.fn(() => "working");
+  meter.start("a", readLastLine);
+  meter.output("a", "working");
+  vi.advanceTimersByTime(600);
+  expect(readLastLine).not.toHaveBeenCalled();
+  meter.parsed("a");
+  vi.advanceTimersByTime(100);
+  expect(readLastLine).toHaveBeenCalledTimes(1);
+  vi.advanceTimersByTime(1300);
+  expect(onQuiet).toHaveBeenCalledExactlyOnceWith("a");
+  expect(readLastLine).toHaveBeenCalledTimes(1);
+  readLastLine.mockReturnValue("Continue?");
+  meter.output("a", "Continue?");
+  meter.parsed("a");
+  vi.advanceTimersByTime(499);
+  expect(readLastLine).toHaveBeenCalledTimes(1);
+  vi.advanceTimersByTime(1);
+  expect(readLastLine).toHaveBeenCalledTimes(2);
+  expect(onQuiet).toHaveBeenCalledTimes(2);
 });

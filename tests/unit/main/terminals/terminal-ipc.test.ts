@@ -897,6 +897,44 @@ test("detached terminals emit activity, but navigation, foreign IDs and destroye
   }
 });
 
+test("blank scrollback is scanned only after output settles, not for each chunk", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "performance"] });
+  const writes = vi.spyOn(Terminal.prototype, "write");
+  const quiet = vi.fn();
+  manager.dispose();
+  manager = new TerminalManager(exited, { onQuiet: quiet });
+  try {
+    const id = manager.create(spec);
+    output("\r\n".repeat(10024));
+    await manager.screen(id);
+    const screen = writes.mock.contexts[0];
+    if (!(screen instanceof Terminal)) throw new Error("Missing headless screen");
+    expect(screen.buffer.active.length).toBe(10024);
+    const reads = vi.spyOn(screen.buffer.active, "getLine");
+    for (let chunk = 0; chunk < 5; chunk++) {
+      output("\r\n");
+      await new Promise<void>((resolve) => {
+        screen.write("", resolve);
+      });
+      vi.advanceTimersByTime(100);
+    }
+    expect(reads).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(399);
+    expect(reads).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(reads).toHaveBeenCalledTimes(10024);
+    expect(quiet).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1500);
+    expect(quiet).toHaveBeenCalledExactlyOnceWith(id);
+    expect(reads).toHaveBeenCalledTimes(10024);
+    reads.mockRestore();
+  } finally {
+    writes.mockRestore();
+    manager.dispose();
+    vi.useRealTimers();
+  }
+});
+
 test("quiet detection reads parsed headless tails and stops on exit without an attached view", async () => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "performance"] });
   const quiet = vi.fn();
