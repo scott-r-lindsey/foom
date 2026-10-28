@@ -34,6 +34,21 @@ animation-frame assertion and startup diagnostics. The sandbox, controlled login
 shell/PATH, agent guard, process audit and quit-before-directory-removal ordering
 are unchanged.
 
+## Remote host SEA fixture (#905)
+
+On Linux and macOS, the development Electron runner builds one native remote-host
+SEA after the app build and before starting test workers. It verifies the host's
+platform, architecture, app version, protocol, checkout revision, compressed and
+expanded hashes, and executable hash, then prepares the production gzip catalog.
+Both remote suites reuse that executable; each case still creates its own remote
+HOME, daemon, app profile and cleanup audit. Windows skips these remote cases and
+does not build a host. Packaged smoke uses its packaged catalog.
+
+The build receipt covers the host and catalog alongside the app. Explicit
+`--reuse-build` requires unchanged inputs and outputs and rechecks the host against
+the current checkout revision. A failed host build or verification stops before
+test bodies run. No case deadline includes SEA assembly.
+
 ## Shared scenario setup
 
 `tests/electron/agent-fixture.js` registers no tests. `codexFixture` creates an

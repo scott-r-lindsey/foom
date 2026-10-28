@@ -1,13 +1,12 @@
 const { evidencePath } = require("../helpers/evidence.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
-const { spawn, execFileSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const { once, EventEmitter } = require("node:events");
 const { createConnection } = require("node:net");
 const { createHash } = require("node:crypto");
 const {
   chmod,
-  copyFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -75,19 +74,9 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
       }
     }
   }
-  execFileSync(process.execPath, ["scripts/build-remote-host.mjs"], {
-    cwd: path.join(__dirname, "../.."),
-    stdio: "pipe",
-    timeout: deadline(20000),
-  });
   const artifact = path.resolve("build/remote-host/foom-host");
   const manifest = JSON.parse(await readFile("build/remote-host/manifest.json", "utf8"));
-  // Exercise the production catalog resolver and upload its precompressed bytes.
-  // Recompressing the raw developer override would duplicate the native build's work.
-  const catalog = path.resolve("build/remote-hosts", `${process.platform}-${process.arch}`);
-  await mkdir(catalog, { recursive: true });
-  for (const name of ["foom-host.gz", "manifest.json"])
-    await copyFile(path.resolve("build/remote-host", name), path.join(catalog, name));
+  // The runner prepares the verified precompressed production catalog before cases.
   const pidFile = path.join(root, "ssh-pids");
   const sshLog = path.resolve("test-results/remote-ssh-fixture.log");
   await writeFile(sshLog, "");

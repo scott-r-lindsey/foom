@@ -13,7 +13,12 @@ function fixture(context) {
   for (const dir of ["scripts", "tests/helpers", "tests/electron", "src", "node_modules"]) {
     mkdirSync(join(root, dir), { recursive: true });
   }
-  for (const name of ["electron-tests.mjs", "electron-summary.mjs", "validation-fingerprint.mjs"]) {
+  for (const name of [
+    "electron-tests.mjs",
+    "electron-summary.mjs",
+    "validation-fingerprint.mjs",
+    "remote-host-artifacts.mjs",
+  ]) {
     cpSync(new URL(name, import.meta.url), join(root, "scripts", name));
   }
   for (const name of ["test-shard.js", "test-suites.js", "shard-plan.json"]) {
@@ -23,7 +28,7 @@ function fixture(context) {
     );
   }
   for (const name of ["package.json", "pnpm-lock.yaml", ".npmrc", "tests/helpers/setup.js"]) {
-    writeFileSync(join(root, name), name === "package.json" ? "{}" : "");
+    writeFileSync(join(root, name), name === "package.json" ? '{"version":"0.1.0"}' : "");
   }
   for (const name of ["git.js", "worktree-writes.js"]) {
     cpSync(new URL(`../tests/helpers/${name}`, import.meta.url), join(root, "tests/helpers", name));
@@ -39,6 +44,30 @@ function fixture(context) {
     writeFileSync('build/app.js', 'built');
   `,
   );
+  writeFileSync(
+    join(root, "scripts/build-remote-host.mjs"),
+    `
+    import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+    import { checkoutRevision, writeHostManifest } from './remote-host-artifacts.mjs';
+    if (!existsSync('build/app.js')) throw Error('host built before app');
+    appendFileSync('test-results/host-builds', 'build\\n');
+    mkdirSync('build/remote-host', { recursive: true });
+    writeFileSync('build/remote-host/foom-host', 'fixture host');
+    if (process.env.TEST_HOST_FAILURE === 'build') process.exit(7);
+    const manifest = await writeHostManifest('build/remote-host', {
+      version: '0.1.0', platform: process.platform, arch: process.arch,
+      source: checkoutRevision(process.cwd()),
+    });
+    if (process.env.TEST_HOST_FAILURE === 'revision') {
+      manifest.source = 'a'.repeat(40);
+      writeFileSync('build/remote-host/manifest.json', JSON.stringify(manifest));
+    }
+    if (process.env.TEST_HOST_FAILURE === 'gzip')
+      writeFileSync('build/remote-host/foom-host.gz', 'corrupt');
+    if (process.env.TEST_HOST_FAILURE === 'executable')
+      writeFileSync('build/remote-host/foom-host', 'corrupt');
+  `,
+  );
   const suite = `const { test } = require('./test-shard.js');
     test('selected case', () => {
       require('node:assert/strict').ok(process.execArgv.includes('--test-concurrency=1'));
@@ -50,6 +79,10 @@ function fixture(context) {
   }
   gitSync(["init", "--quiet"], { cwd: root });
   gitSync(["add", "."], { cwd: root });
+  gitSync(
+    ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "fixture"],
+    { cwd: root },
+  );
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
   delete env.FOOM_ELECTRON_SHARD;
@@ -235,4 +268,69 @@ test("worktree guard permits a temporary directory inside the checkout", (t) => 
   );
   const result = run([], { TMPDIR: temporary, TMP: temporary, TEMP: temporary });
   assert.equal(result.status, 0, result.output);
+});
+
+test("runner builds and verifies one same-revision host before cases and reuses it", {
+  skip: process.platform === "win32",
+}, (context) => {
+  const { root, run } = fixture(context);
+  writeFileSync(
+    join(root, "tests/electron/one.test.js"),
+    `
+    const { test } = require('./test-shard.js');
+    const { readFileSync } = require('node:fs');
+    for (const name of ['first remote', 'second remote']) test(name, () => {
+      require('node:assert/strict').equal(
+        readFileSync('test-results/host-builds', 'utf8'), 'build\\n');
+      require('node:assert/strict').equal(
+        readFileSync('build/remote-host/foom-host', 'utf8'), 'fixture host');
+      require('node:assert/strict').equal(
+        readFileSync('build/remote-hosts/' + process.platform + '-' + process.arch + '/manifest.json', 'utf8'),
+        readFileSync('build/remote-host/manifest.json', 'utf8'));
+    });
+  `,
+  );
+  const fresh = run([]);
+  assert.equal(fresh.status, 0, fresh.output);
+  const reused = run(["--reuse-build"]);
+  assert.equal(reused.status, 0, reused.output);
+  assert.equal(readFileSync(join(root, "test-results/host-builds"), "utf8"), "build\n");
+});
+
+for (const failure of ["build", "revision", "gzip", "executable"]) {
+  test(`runner rejects remote host ${failure} failure before running cases`, {
+    skip: process.platform === "win32",
+  }, (context) => {
+    const { root, run } = fixture(context);
+    const result = run(["--test-name-pattern=^selected case$"], { TEST_HOST_FAILURE: failure });
+    assert.notEqual(result.status, 0, result.output);
+    assert.doesNotMatch(result.output, /SELECTED_BODY/);
+    assert.throws(() => readFileSync(join(root, "test-results/electron-build.json")), {
+      code: "ENOENT",
+    });
+  });
+}
+test("reused fixture rejects a new checkout revision even with unchanged build inputs", {
+  skip: process.platform === "win32",
+}, (context) => {
+  const { root, run } = fixture(context);
+  const filter = "--test-name-pattern=^selected case$";
+  assert.equal(run([filter]).status, 0);
+  gitSync(
+    [
+      "-c",
+      "user.name=Fixture",
+      "-c",
+      "user.email=fixture@example.com",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "next revision",
+    ],
+    { cwd: root },
+  );
+  const stale = run(["--reuse-build", filter]);
+  assert.notEqual(stale.status, 0, stale.output);
+  assert.match(stale.output, /Host source revision mismatch/);
+  assert.doesNotMatch(stale.output, /SELECTED_BODY/);
 });
