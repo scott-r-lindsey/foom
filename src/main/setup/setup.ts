@@ -1,3 +1,4 @@
+import type { Hosts } from "./hosts";
 import type { UpdateState } from "../../shared/updates";
 import type { ReadinessReport } from "../../shared/readiness";
 import type { ThemeCatalog } from "../../shared/theme-file";
@@ -18,6 +19,7 @@ import type {
 import type { WorktreeService } from "../workspace/worktrees";
 
 export interface SetupDependencies {
+  hosts?: Hosts;
   updates?: () => UpdateState;
   restartToUpdate?: () => Promise<void>;
   gitReadiness?: () => Promise<ReadinessReport>;
@@ -58,6 +60,11 @@ export class Setup {
     this.deps.apply(this.deps.store.get());
   }
 
+  hosts(input: unknown) {
+    if (!this.deps.hosts) throw new Error("Hosts unavailable");
+    return this.deps.hosts.action(input);
+  }
+
   readiness() {
     if (!this.deps.readiness) throw new Error("Readiness unavailable");
     return this.deps.readiness();
@@ -78,7 +85,11 @@ export class Setup {
 
   async save(value: unknown): Promise<SetupState> {
     const patch = parseSettingsPatch(value);
-    if (patch.agentBypassAcknowledged !== undefined || patch.agentBypassIdentities !== undefined)
+    if (
+      patch.registeredHosts !== undefined ||
+      patch.agentBypassAcknowledged !== undefined ||
+      patch.agentBypassIdentities !== undefined
+    )
       throw new Error("Bypass acknowledgement belongs to Foom's confirmation dialog.");
     const saving = this.saving.catch(() => undefined).then(() => this.savePatch(patch));
     this.saving = saving;

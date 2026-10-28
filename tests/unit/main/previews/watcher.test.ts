@@ -157,3 +157,19 @@ test("new generations cancel pending events and ignore retired handles, includin
   watcher.record(path.join(root, "closed.css"));
   expect(watcher.count).toBe(0);
 });
+
+test("resource recorders expire on generation replacement and close", () => {
+  const { watcher } = fixture();
+  const retired = watcher.recorder();
+  retired(path.join(root, "old.css"));
+  expect(watcher.count).toBe(1);
+  watcher.beginGeneration();
+  retired(path.join(root, "old.css"));
+  expect(watcher.count).toBe(0);
+  const current = watcher.recorder();
+  current(path.join(root, "new.css"));
+  expect(watcher.count).toBe(1);
+  watcher.close();
+  current(path.join(root, "late.css"));
+  expect(watcher.count).toBe(0);
+});

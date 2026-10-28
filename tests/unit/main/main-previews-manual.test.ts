@@ -238,6 +238,57 @@ test("closing a board retains its preview host until recovery can create a repla
   });
 });
 
+test("concurrent manual commands across boards share a pending open and placement", async () => {
+  await start();
+  await newWindow();
+  const { previewHosts } = await import("../../../src/main/wiring/application");
+  const { PreviewPlacement } = await import("../../../src/main/previews/placement");
+  const first = previewHosts.get(mock.instances[0]?.id ?? -1);
+  const second = previewHosts.get(mock.instances[1]?.id ?? -1);
+  if (!first || !second) throw new Error("Missing preview hosts");
+  const place = vi.spyOn(PreviewPlacement.prototype, "place").mockResolvedValue("empty");
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const original = first.openManual.bind(first);
+  const firstOpen = vi.spyOn(first, "openManual").mockImplementationOnce(async () => {
+    await gate;
+    return original();
+  });
+  const secondOpen = vi.spyOn(second, "openManual");
+  const opening = invokeWindow(0, "app-menu:execute", "manual");
+  await vi.waitFor(() => {
+    expect(firstOpen).toHaveBeenCalledOnce();
+  });
+  const concurrent = invokeWindow(1, "app-menu:execute", "manual");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  release();
+  await Promise.all([opening, concurrent]);
+  expect(secondOpen).not.toHaveBeenCalled();
+  expect(first.registry.records.size).toBe(1);
+  expect(second.registry.records.size).toBe(0);
+  expect(place).toHaveBeenCalledOnce();
+});
+
+test("a failed manual open releases the shared operation for another board", async () => {
+  await start();
+  await newWindow();
+  const { previewHosts } = await import("../../../src/main/wiring/application");
+  const { PreviewPlacement } = await import("../../../src/main/previews/placement");
+  const first = previewHosts.get(mock.instances[0]?.id ?? -1);
+  const second = previewHosts.get(mock.instances[1]?.id ?? -1);
+  if (!first || !second) throw new Error("Missing preview hosts");
+  vi.spyOn(PreviewPlacement.prototype, "place").mockResolvedValue("empty");
+  vi.spyOn(first, "openManual").mockRejectedValueOnce(new Error("Manual unavailable"));
+  await expect(invokeWindow(0, "app-menu:execute", "manual")).rejects.toThrow(
+    "foom-error:operation-failed",
+  );
+  await invokeWindow(1, "app-menu:execute", "manual");
+  expect(first.registry.records.size).toBe(0);
+  expect(second.registry.records.size).toBe(1);
+});
+
 test.each([false, true])(
   "setup completion waits for the board and menus reveal the owning manual (minimized: %s)",
   async (minimized) => {

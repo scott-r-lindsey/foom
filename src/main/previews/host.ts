@@ -6,7 +6,7 @@ import type { HostedPreview } from "./hosted-preview";
 import { shell } from "electron";
 import type { BrowserWindow, WebContents } from "electron";
 import type { PreviewBounds, PreviewRecord } from "../../shared/previews";
-import { canonicalRoot, readInside, type CanonicalRoot } from "./contained-files";
+import { canonicalRoot, openInside, type CanonicalRoot } from "./contained-files";
 import type { DialogContent } from "../../shared/confirmation";
 import { externalLink } from "./policy";
 import type { PreviewRegistry } from "./registry";
@@ -125,8 +125,10 @@ export class PreviewHost {
     if (this.closed()) throw new Error("Preview host closed");
     const root = canonicalRoot(worktree);
     const pathname = `/${relativePath.split("/").map(encodeURIComponent).join("/")}`;
-    const file = readInside(root, pathname);
+    const file = await openInside(root, pathname);
     if (file.status !== 200) throw new Error("Preview file unavailable");
+    await file.handle.close();
+    if (this.closed()) throw new Error("Preview host closed");
     const record = this.registry.add(worktree, relativePath, agent?.id);
     if (agent) {
       record.agentOpened = true;
@@ -147,14 +149,21 @@ export class PreviewHost {
     return record.id;
   }
   /** Fixed bundled capability. It cannot be selected by a file-path IPC request. */
-  openManual(): string {
+  async openManual(): Promise<string> {
     if (!this.bundledRoot || this.closed()) throw new Error("Manual unavailable");
     const existing = [...this.registry.records.values()].find(
       (record) => record.bundled === "manual",
     );
     if (existing) return existing.id;
     const root = canonicalRoot(this.bundledRoot);
-    if (readInside(root, "/manual.html").status !== 200) throw new Error("Manual unavailable");
+    const file = await openInside(root, "/manual.html");
+    if (file.status !== 200) throw new Error("Manual unavailable");
+    await file.handle.close();
+    if (this.closed()) throw new Error("Manual unavailable");
+    const concurrent = [...this.registry.records.values()].find(
+      (record) => record.bundled === "manual",
+    );
+    if (concurrent) return concurrent.id;
     const record = this.registry.add("foom:manual", "manual.html");
     record.bundled = "manual";
     this.lifecycle.create(record, root);

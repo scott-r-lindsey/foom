@@ -37,6 +37,7 @@ Theme IDs are checked syntactically, without opening any other file or profile.
 | --- | --- |
 | `agentBypassAcknowledged`, `agentBypassIdentities` | Records main-owned human consent and its provider/disclosure identity |
 | `setupComplete` | Records human setup progress |
+| `registeredHosts` | Main-owned Settings → Hosts authorizations; never agent-editable |
 | `codeFolder`, `worktreeLocation` | Select filesystem paths or placement |
 | `environment` | Variables reach every agent launch, like `agentArguments`, and may hold secrets; set only through Settings (#215) |
 
@@ -155,3 +156,8 @@ only when new or changed secret values
 need encryption, including imported URL credentials. Unchanged secret ciphertext
 is reused for plain edits, renames and removals. Status reads never repeat these
 checks, and a failed save can be retried without caching its failed availability.
+
+## Registered hosts (#757 PR 1)
+
+Settings → Hosts and Repositories locations follow the [host contract](hosts.md).
+Host registration is profile-only and requires a successful connection and code-folder check.

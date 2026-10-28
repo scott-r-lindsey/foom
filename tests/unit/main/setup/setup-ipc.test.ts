@@ -17,6 +17,7 @@ const contents = { mainFrame: frame, isDestroyed: vi.fn(() => false), send: vi.f
 const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame };
 const setup = {
+  hosts: vi.fn(() => "hosts"),
   restartToUpdate: vi.fn(() => Promise.resolve()),
   readiness: vi.fn(() => "readiness"),
   state: vi.fn(() => "state"),
@@ -47,6 +48,7 @@ test("every channel rejects untrusted senders", () => {
     "setup:terminal-fonts",
     "setup:readiness",
     "setup:state",
+    "setup:hosts",
     "setup:restart-update",
     "setup:save",
     "setup:code-suggestions",
@@ -162,4 +164,11 @@ test("update restart validates arguments before entering the normal quit path", 
   expect(() => invoke("setup:restart-update", [true])).toThrow("Invalid update request");
   await invoke("setup:restart-update");
   expect(setup.restartToUpdate).toHaveBeenCalledOnce();
+});
+
+test("host management requires one payload and the trusted setup sender", () => {
+  expect(invoke("setup:hosts", [{ action: "list" }])).toBe("hosts");
+  expect(setup.hosts).toHaveBeenCalledWith({ action: "list" });
+  expect(() => invoke("setup:hosts")).toThrow();
+  expect(() => invoke("setup:hosts", [{}, {}])).toThrow();
 });

@@ -20,9 +20,9 @@ test("served and missing files reload with isolated scroll, release watchers and
   const { id, view } = await f.open();
   const handler = partition.protocol.handle.mock.calls[0]?.[1];
   if (!handler) throw new Error("Missing protocol");
-  handler({ url: `foom-preview://${id}/a.html` });
+  await handler({ url: `foom-preview://${id}/a.html` });
   expect(f.host.watcherCount).toBe(1);
-  expect(await handler({ url: `foom-preview://${id}/missing.html` }).text()).toBe(
+  expect(await (await handler({ url: `foom-preview://${id}/missing.html` })).text()).toBe(
     "File not found. Waiting for it to appear.",
   );
   notify?.();
@@ -40,7 +40,7 @@ test("served and missing files reload with isolated scroll, release watchers and
   expect(replacement.webContents.executeJavaScriptInIsolatedWorld).toHaveBeenCalledWith(999, [
     { code: "window.scrollTo(0, 1200)" },
   ]);
-  handler({ url: `foom-preview://${id}/a.html` });
+  await handler({ url: `foom-preview://${id}/a.html` });
   replacement.webContents.executeJavaScriptInIsolatedWorld.mockRejectedValueOnce(
     new Error("read failed"),
   );
@@ -66,7 +66,7 @@ test("closing while isolated scroll capture is pending cannot resurrect a previe
   );
   const f = await fixture();
   const { id, view } = await f.open();
-  partition.protocol.handle.mock.calls[0]?.[1]({ url: `foom-preview://${id}/a.html` });
+  await partition.protocol.handle.mock.calls[0]?.[1]({ url: `foom-preview://${id}/a.html` });
   let resolve: ((value: unknown) => void) | undefined;
   view.webContents.executeJavaScriptInIsolatedWorld.mockReturnValueOnce(
     new Promise((done) => {
@@ -118,7 +118,9 @@ test("navigation beyond 64 historical directories watches only the current chapt
       isSameDocument: false,
     });
     await vi.advanceTimersByTimeAsync(250);
-    expect(handler({ url: `foom-preview://${id}/${String(i)}/chapter.md` }).status).toBe(200);
+    expect((await handler({ url: `foom-preview://${id}/${String(i)}/chapter.md` })).status).toBe(
+      200,
+    );
     expect(f.host.watcherCount).toBe(1);
     expect(
       watches
@@ -150,14 +152,14 @@ test("reload replaces hashed asset and missing dependency names in a shared dire
   const handler = partition.protocol.handle.mock.calls[0]?.[1];
   if (!handler) throw new Error("Missing protocol");
   await writeFile(path.join(f.root, "asset-old.css"), "body {}");
-  handler({ url: `foom-preview://${id}/asset-old.css` });
-  handler({ url: `foom-preview://${id}/missing-old.css` });
+  await handler({ url: `foom-preview://${id}/asset-old.css` });
+  await handler({ url: `foom-preview://${id}/missing-old.css` });
   await f.host.reload(id);
   await vi.advanceTimersByTimeAsync(250);
   await writeFile(path.join(f.root, "asset-new.css"), "body {}");
-  handler({ url: `foom-preview://${id}/a.html` });
-  handler({ url: `foom-preview://${id}/asset-new.css` });
-  handler({ url: `foom-preview://${id}/missing-new.css` });
+  await handler({ url: `foom-preview://${id}/a.html` });
+  await handler({ url: `foom-preview://${id}/asset-new.css` });
+  await handler({ url: `foom-preview://${id}/missing-new.css` });
   const current = fake.views.at(-1);
   for (const notify of listeners) {
     notify("asset-old.css");
@@ -169,4 +171,44 @@ test("reload replaces hashed asset and missing dependency names in a shared dire
   await vi.advanceTimersByTimeAsync(120);
   expect(current?.webContents.reload).toHaveBeenCalledOnce();
   await f.host.dispose(false);
+});
+
+test("a resource read finishing after reload cannot restore the retired load's dependencies", async () => {
+  vi.useFakeTimers();
+  vi.spyOn(fs, "watch").mockImplementation(() =>
+    Object.assign(new EventEmitter(), {
+      close: vi.fn(),
+      ref: vi.fn(),
+      unref: vi.fn(),
+    }),
+  );
+  const f = await fixture();
+  const { id } = await f.open();
+  const handler = partition.protocol.handle.mock.calls[0]?.[1];
+  if (!handler) throw new Error("Missing protocol");
+  await mkdir(path.join(f.root, "retired"));
+  await writeFile(path.join(f.root, "retired", "asset.css"), "body {}");
+  const realpath = fs.promises.realpath;
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  vi.spyOn(fs.promises, "realpath").mockImplementationOnce(async (file) => {
+    await gate;
+    return realpath(file);
+  });
+  const retired = handler({ url: `foom-preview://${id}/retired/asset.css` });
+  try {
+    await f.host.reload(id);
+    await vi.advanceTimersByTimeAsync(250);
+    await handler({ url: `foom-preview://${id}/a.html` });
+    expect(f.host.watcherCount).toBe(1);
+    release();
+    expect((await retired).status).toBe(200);
+    expect(f.host.watcherCount).toBe(1);
+  } finally {
+    release();
+    await retired;
+    await f.host.dispose(false);
+  }
 });

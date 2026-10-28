@@ -1,3 +1,4 @@
+import { UnsupportedRemotePlatform } from "../../../../src/main/terminals/remote-bootstrap";
 import type { RemoteTarget } from "../../../../src/shared/remote-host";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -11,11 +12,12 @@ import type { HostRequest } from "../../../../src/shared/terminal-host";
 const mock = vi.hoisted(() => ({ spawn: vi.fn(), artifact: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mock.spawn }));
 vi.mock("../../../../src/main/terminals/remote-bootstrap", () => ({
+  UnsupportedRemotePlatform: class extends Error {},
   selectHostArtifact: mock.artifact,
   sshEnvironment: () => ({ PATH: "/fixture" }),
   bootstrapArguments: (...args: unknown[]) => args,
 }));
-import { RemoteTransport } from "../../../../src/main/terminals/remote-transport";
+import { RemoteTransport, remoteManagement } from "../../../../src/main/terminals/remote-transport";
 class Child extends EventEmitter {
   stdin = new PassThrough();
   stdout = new PassThrough();
@@ -814,4 +816,97 @@ test.each([
   child.message({ type: "agent-failed", id: "one", reason });
   expect(transport.launchFailure?.reason).toBe(reason);
   expect(events).toContainEqual({ type: "error", id: "one", request: 1 });
+});
+
+test("management connections use no terminal ID or PTY and return fixed failures", async () => {
+  transport.kill();
+  const pending = remoteManagement({ host: "fixture" }, "0.1.0", {
+    type: "manage",
+    operation: "inspect",
+    codeFolder: "~/foom",
+  });
+  await Promise.resolve();
+  child.greet();
+  expect(child.messages).toContainEqual({
+    type: "manage",
+    operation: "inspect",
+    codeFolder: "~/foom",
+  });
+  expect(
+    child.messages.some((value) => typeof value === "object" && value !== null && "id" in value),
+  ).toBe(false);
+  child.message({ type: "managed", result: { ok: false, reason: "unsafe-folder" } });
+  await expect(pending).resolves.toEqual({ ok: false, reason: "unsafe-folder" });
+  child = new Child();
+  mock.spawn.mockReturnValue(child);
+  const failed = remoteManagement({ host: "fixture" }, "0.1.0", {
+    type: "manage",
+    operation: "inspect",
+    codeFolder: "~/foom",
+  });
+  await Promise.resolve();
+  child.greet();
+  child.message({ type: "exit", id: "foreign", code: 0 });
+  await expect(failed).resolves.toEqual({ ok: false, reason: "unreachable" });
+});
+test("ordinary sessions reject management responses", async () => {
+  await ready();
+  child.message({ type: "managed", result: { ok: false, reason: "unreachable" } });
+  expect(child.kill).toHaveBeenCalled();
+});
+
+test("management shutdown cancels an in-flight SSH connection and unsupported platforms stay fixed", async () => {
+  transport.kill();
+  const cancellation = new AbortController();
+  const pending = remoteManagement(
+    { host: "fixture" },
+    "0.1.0",
+    { type: "manage", operation: "inspect", codeFolder: "~/foom" },
+    cancellation.signal,
+  );
+  await Promise.resolve();
+  child.greet();
+  cancellation.abort();
+  await expect(pending).resolves.toEqual({ ok: false, reason: "unreachable" });
+  expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+  mock.artifact.mockRejectedValueOnce(new UnsupportedRemotePlatform("fixed"));
+  await expect(
+    remoteManagement({ host: "fixture" }, "0.1.0", {
+      type: "manage",
+      operation: "inspect",
+      codeFolder: "~/foom",
+    }),
+  ).resolves.toEqual({ ok: false, reason: "unsupported" });
+  const already = new AbortController();
+  already.abort();
+  await expect(
+    remoteManagement(
+      { host: "fixture" },
+      "0.1.0",
+      { type: "manage", operation: "inspect", codeFolder: "~/foom" },
+      already.signal,
+    ),
+  ).resolves.toEqual({ ok: false, reason: "unreachable" });
+});
+
+test("clone management connections allow the clone deadline plus bootstrap and validation time", async () => {
+  transport.kill();
+  child = new Child();
+  mock.spawn.mockReturnValue(child);
+  const pending = remoteManagement({ host: "fixture" }, "0.1.0", {
+    type: "manage",
+    operation: "clone",
+    codeFolder: "~/foom",
+    origin: "git@forge.test:team/repo.git",
+    directory: "repo",
+  });
+  await Promise.resolve();
+  child.greet();
+  await vi.advanceTimersByTimeAsync(120000);
+  expect(child.kill).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(300000 - 1);
+  expect(child.kill).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  await expect(pending).resolves.toEqual({ ok: false, reason: "unreachable" });
+  expect(child.kill).toHaveBeenCalledWith("SIGTERM");
 });

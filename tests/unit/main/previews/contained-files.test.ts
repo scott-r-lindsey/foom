@@ -13,11 +13,70 @@ import {
 } from "../../../../src/main/previews/contained-files";
 import { MAX_FILE_BYTES, MAX_MARKDOWN_BYTES } from "../../../../src/main/previews/policy";
 
+const handles = new Map<
+  number,
+  {
+    stat: () => Promise<fs.BigIntStats>;
+    read: (body: Buffer, offset: number, length: number, position: number) => Promise<number>;
+    close: () => Promise<void>;
+  }
+>();
+const io = {
+  fstat: (fd: number) => {
+    const handle = handles.get(fd);
+    if (!handle) throw new Error("Unknown descriptor");
+    return handle.stat();
+  },
+  read: (fd: number, body: Buffer, offset: number, length: number, position: number) => {
+    const handle = handles.get(fd);
+    if (!handle) throw new Error("Unknown descriptor");
+    return handle.read(body, offset, length, position);
+  },
+  close: (fd: number) => {
+    const handle = handles.get(fd);
+    if (!handle) throw new Error("Unknown descriptor");
+    return handle.close();
+  },
+};
+
 let base: string;
 let root: string;
 let captured: CanonicalRoot;
 let outside: string;
 beforeEach(() => {
+  const open = fs.promises.open;
+  vi.spyOn(fs.promises, "open").mockImplementation(async (...args) => {
+    const handle = await open(...args);
+    const fd = handle.fd;
+    const stat = handle.stat.bind(handle);
+    const read = handle.read.bind(handle);
+    const close = handle.close.bind(handle);
+    handles.set(fd, {
+      stat: () => stat({ bigint: true }),
+      read: async (...args) => (await read(...args)).bytesRead,
+      close,
+    });
+    vi.spyOn(handle, "stat").mockImplementation(() => io.fstat(fd));
+    vi.spyOn(handle, "read").mockImplementation(async (options) => {
+      if (!options || !Buffer.isBuffer(options.buffer))
+        throw new Error("Expected bounded buffer read");
+      const buffer = options.buffer;
+      const position = options.position ?? 0;
+      if (typeof position !== "number") throw new Error("Expected numeric position");
+      return {
+        bytesRead: await io.read(
+          fd,
+          buffer,
+          options.offset ?? 0,
+          options.length ?? buffer.length,
+          position,
+        ),
+        buffer,
+      };
+    });
+    handle.close = () => io.close(fd);
+    return handle;
+  });
   base = fs.mkdtempSync(path.join(os.tmpdir(), "foom-preview-"));
   root = path.join(base, "tree");
   outside = path.join(base, "outside");
@@ -37,54 +96,60 @@ beforeEach(() => {
   root = captured.path;
 });
 afterEach(() => {
+  handles.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   fs.rmSync(base, { recursive: true, force: true });
 });
 
-function body(pathname: string): string {
-  const result = readInside(captured, pathname);
+async function body(pathname: string): Promise<string> {
+  const result = await readInside(captured, pathname);
   if (result.status !== 200) throw new Error(result.reason);
   return result.body.toString();
 }
 
-test("serves pages, relative assets and directory indexes from owned handles", () => {
-  expect(body("/docs/page.html")).toBe("<p>page</p>");
-  expect(body(new URL("assets/a.css", "foom-preview://id/docs/page.html").pathname)).toBe("p{}");
-  expect(body("/docs/")).toBe("index");
-  expect(body("/docs")).toBe("index");
+test("serves pages, relative assets and directory indexes from owned handles", async () => {
+  expect(await body("/docs/page.html")).toBe("<p>page</p>");
+  expect(await body(new URL("assets/a.css", "foom-preview://id/docs/page.html").pathname)).toBe(
+    "p{}",
+  );
+  expect(await body("/docs/")).toBe("index");
+  expect(await body("/docs")).toBe("index");
   fs.writeFileSync(path.join(root, "index.html"), "root index");
-  expect(body("/")).toBe("root index");
-  const opened = openInside(captured, "/README.md");
+  expect(await body("/")).toBe("root index");
+  const opened = await openInside(captured, "/README.md");
   if (opened.status !== 200) throw new Error(opened.reason);
   try {
-    expect(fs.readFileSync(opened.fd, "utf8")).toBe("# readme");
+    expect(await opened.handle.readFile("utf8")).toBe("# readme");
     expect(opened.relative).toBe("README.md");
   } finally {
-    fs.closeSync(opened.fd);
+    await opened.handle.close();
   }
-  expect(readInside(captured, "/missing")).toEqual({ status: 404, reason: "missing" });
-  expect(readInside(captured, "/docs/assets/").status).toBe(404);
-  expect(readInside(captured, "/.env")).toEqual({ status: 400, reason: "hidden" });
+  expect(await readInside(captured, "/missing")).toEqual({ status: 404, reason: "missing" });
+  expect((await readInside(captured, "/docs/assets/")).status).toBe(404);
+  expect(await readInside(captured, "/.env")).toEqual({ status: 400, reason: "hidden" });
   expect(() => canonicalRoot(path.join(root, "README.md"))).toThrow("not a directory");
 });
 
-test("adapts hostile URLs and attaches headers to success and refusal", () => {
-  const good = readPreview(captured, "foom-preview://id/docs/page.html", "foom-preview://id");
+test("adapts hostile URLs and attaches headers to success and refusal", async () => {
+  const good = await readPreview(captured, "foom-preview://id/docs/page.html", "foom-preview://id");
   expect(good.status).toBe(200);
   expect(good.headers["x-content-type-options"]).toBe("nosniff");
   for (const url of [
     "foom-preview://id/../../../../etc/hostname",
     "foom-preview://id/%2e%2e/etc/hostname",
   ])
-    expect(readPreview(captured, url, "foom-preview://id").status).toBe(404);
+    expect((await readPreview(captured, url, "foom-preview://id")).status).toBe(404);
   expect(
-    readPreview(captured, "foom-preview://id/..%2f..%2fetc%2fhostname", "foom-preview://id").status,
+    (await readPreview(captured, "foom-preview://id/..%2f..%2fetc%2fhostname", "foom-preview://id"))
+      .status,
   ).toBe(400);
-  const bad = readPreview(captured, {}, "foom-preview://id");
+  const bad = await readPreview(captured, {}, "foom-preview://id");
   expect(bad.status).toBe(400);
   expect(bad.headers["cache-control"]).toBe("no-store");
-  expect(readPreview(captured, "foom-preview://other/a", "foom-preview://id").status).toBe(403);
+  expect((await readPreview(captured, "foom-preview://other/a", "foom-preview://id")).status).toBe(
+    403,
+  );
 });
 
 // File symlinks require Developer Mode or privileges on Windows. Junctions do not.
@@ -101,7 +166,7 @@ const links = (() => {
 })();
 test.skipIf(!links)(
   "refuses escaped, hidden and looping symlinks; allows contained targets",
-  () => {
+  async () => {
     fs.symlinkSync(outside, path.join(root, "escape-dir"), "dir");
     fs.symlinkSync(path.join(outside, "secret.txt"), path.join(root, "escape-file.txt"));
     fs.symlinkSync(`${root}-evil`, path.join(root, "prefix-sibling"), "dir");
@@ -117,95 +182,104 @@ test.skipIf(!links)(
       "/prefix-sibling/x.txt",
       "/slash",
     ])
-      expect(openInside(captured, pathname)).toEqual({ status: 403, reason: "escape" });
+      expect(await openInside(captured, pathname)).toEqual({ status: 403, reason: "escape" });
     for (const pathname of ["/env-link.txt", "/git-link/config"])
-      expect(openInside(captured, pathname)).toEqual({ status: 403, reason: "target-hidden" });
-    expect(openInside(captured, "/loop-a").status).toBe(404);
-    expect(body("/inside-link.md")).toBe("# readme");
+      expect(await openInside(captured, pathname)).toEqual({
+        status: 403,
+        reason: "target-hidden",
+      });
+    expect((await openInside(captured, "/loop-a")).status).toBe(404);
+    expect(await body("/inside-link.md")).toBe("# readme");
     fs.rmSync(path.join(root, "docs"), { recursive: true });
     fs.symlinkSync(outside, path.join(root, "docs"), "dir");
-    expect(openInside(captured, "/docs/secret.txt")).toEqual({ status: 403, reason: "escape" });
+    expect(await openInside(captured, "/docs/secret.txt")).toEqual({
+      status: 403,
+      reason: "escape",
+    });
   },
 );
 
 test.skipIf(process.platform !== "win32")(
   "refuses Windows junction escapes and hidden targets",
-  () => {
+  async () => {
     fs.symlinkSync(outside, path.join(root, "junction"), "junction");
-    expect(openInside(captured, "/junction/secret.txt")).toEqual({ status: 403, reason: "escape" });
+    expect(await openInside(captured, "/junction/secret.txt")).toEqual({
+      status: 403,
+      reason: "escape",
+    });
     fs.symlinkSync(path.join(root, ".git"), path.join(root, "hidden-junction"), "junction");
-    expect(openInside(captured, "/hidden-junction/config")).toEqual({
+    expect(await openInside(captured, "/hidden-junction/config")).toEqual({
       status: 403,
       reason: "target-hidden",
     });
   },
 );
 
-test.skipIf(!links)("checks a directory's index realpath for escapes", () => {
+test.skipIf(!links)("checks a directory's index realpath for escapes", async () => {
   fs.symlinkSync(path.join(outside, "secret.txt"), path.join(root, "index.html"));
-  expect(openInside(captured, "/")).toEqual({ status: 403, reason: "escape" });
+  expect(await openInside(captured, "/")).toEqual({ status: 403, reason: "escape" });
 });
 
-test("enforces limits at the descriptor and refuses non-files", () => {
+test("enforces limits at the descriptor and refuses non-files", async () => {
   for (const [name, size] of [
     ["big.bin", MAX_FILE_BYTES],
     ["big.md", MAX_MARKDOWN_BYTES],
   ] as const) {
     const file = path.join(root, name);
     fs.writeFileSync(file, Buffer.alloc(size));
-    expect(readInside(captured, `/${name}`).status).toBe(200);
+    expect((await readInside(captured, `/${name}`)).status).toBe(200);
     fs.appendFileSync(file, "x");
-    expect(openInside(captured, `/${name}`)).toEqual({ status: 413, reason: "too-large" });
+    expect(await openInside(captured, `/${name}`)).toEqual({ status: 413, reason: "too-large" });
   }
   if (process.platform !== "win32") {
     execFileSync("mkfifo", [path.join(root, "pipe")]);
-    expect(openInside(captured, "/pipe")).toEqual({ status: 403, reason: "not-file" });
+    expect(await openInside(captured, "/pipe")).toEqual({ status: 403, reason: "not-file" });
   }
   fs.writeFileSync(path.join(root, "data.xyz"), "x");
-  const unknown = readInside(captured, "/data.xyz");
+  const unknown = await readInside(captured, "/data.xyz");
   expect(unknown).toHaveProperty("type", "application/octet-stream");
 });
 
 test.each([1, 2 ** 60])(
   "closes handles on replacement, open/stat failures and bounded short reads (inode %s)",
-  (inode) => {
-    const namedStat = fs.statSync;
-    const fstat = fs.fstatSync;
-    vi.spyOn(fs, "statSync").mockImplementation((name) => {
-      const stat = namedStat(name, { bigint: true });
+  async (inode) => {
+    const namedStat = fs.promises.stat;
+    const fstat = io.fstat;
+    vi.spyOn(fs.promises, "stat").mockImplementation(async (name) => {
+      const stat = await namedStat(name, { bigint: true });
       if (name !== root) stat.ino = BigInt(inode);
       return stat;
     });
-    vi.spyOn(fs, "fstatSync").mockImplementation((fd) => {
-      const stat = fstat(fd, { bigint: true });
+    vi.spyOn(io, "fstat").mockImplementation(async (fd) => {
+      const stat = await fstat(fd);
       stat.ino = BigInt(inode);
       return stat;
     });
-    const close = vi.spyOn(fs, "closeSync");
-    vi.spyOn(fs, "fstatSync").mockImplementationOnce((fd) => {
-      const stat = fstat(fd, { bigint: true });
+    const close = vi.spyOn(io, "close");
+    vi.spyOn(io, "fstat").mockImplementationOnce(async (fd) => {
+      const stat = await fstat(fd);
       // A one-unit increment can round away for large Windows inode values.
       stat.ino = inode === 0 ? 1n : 0n;
       return stat;
     });
-    expect(openInside(captured, "/README.md")).toEqual({ status: 403, reason: "not-file" });
+    expect(await openInside(captured, "/README.md")).toEqual({ status: 403, reason: "not-file" });
     expect(close).toHaveBeenCalledTimes(1);
-    vi.spyOn(fs, "fstatSync").mockImplementationOnce(() => {
+    vi.spyOn(io, "fstat").mockImplementationOnce(() => {
       throw new Error("unreadable");
     });
-    expect(openInside(captured, "/README.md")).toEqual({ status: 404, reason: "unreadable" });
+    expect(await openInside(captured, "/README.md")).toEqual({ status: 404, reason: "unreadable" });
     expect(close).toHaveBeenCalledTimes(2);
-    vi.spyOn(fs, "openSync").mockImplementationOnce(() => {
+    vi.spyOn(fs.promises, "open").mockImplementationOnce(() => {
       throw new Error("denied");
     });
-    expect(openInside(captured, "/README.md").status).toBe(404);
-    vi.spyOn(fs, "readSync").mockReturnValueOnce(0);
-    expect(body("/README.md")).toBe("");
+    expect((await openInside(captured, "/README.md")).status).toBe(404);
+    vi.spyOn(io, "read").mockResolvedValueOnce(0);
+    expect(await body("/README.md")).toBe("");
     expect(close).toHaveBeenCalledTimes(3);
-    vi.spyOn(fs, "readSync").mockImplementationOnce(() => {
+    vi.spyOn(io, "read").mockImplementationOnce(() => {
       throw new Error("read failure");
     });
-    expect(() => body("/README.md")).toThrow("read failure");
+    await expect(body("/README.md")).rejects.toThrow("read failure");
     expect(close).toHaveBeenCalledTimes(4);
   },
 );
@@ -215,26 +289,26 @@ test("handles absent POSIX flags explicitly", () => {
   expect(openFlags({ O_RDONLY: 1, O_NOFOLLOW: 2, O_NONBLOCK: 4 })).toBe(7);
 });
 
-test("refuses a final file replaced between stat and open", () => {
-  const originalOpen = fs.openSync;
-  vi.spyOn(fs, "openSync").mockImplementationOnce((file, flags, mode) => {
+test("refuses a final file replaced between stat and open", async () => {
+  const originalOpen = fs.promises.open;
+  vi.spyOn(fs.promises, "open").mockImplementationOnce(async (file, flags, mode) => {
     fs.renameSync(path.join(root, "README.md"), path.join(root, "old.md"));
     fs.writeFileSync(path.join(root, "README.md"), "replacement");
     return originalOpen(file, flags, mode);
   });
-  expect(openInside(captured, "/README.md")).toEqual({ status: 403, reason: "not-file" });
+  expect(await openInside(captured, "/README.md")).toEqual({ status: 403, reason: "not-file" });
 });
 
 test.each(["ancestor", "root"] as const)(
   "refuses a %s replaced after resolution but before the later stat",
-  (replacement) => {
+  async (replacement) => {
     fs.mkdirSync(path.join(outside, "docs"));
     fs.writeFileSync(path.join(outside, "page.html"), "outside secret");
     fs.writeFileSync(path.join(outside, "docs", "page.html"), "outside secret");
-    const originalStat = fs.statSync;
+    const originalStat = fs.promises.stat;
     const file = path.join(root, "docs", "page.html");
     let stats = 0;
-    vi.spyOn(fs, "statSync").mockImplementation((name) => {
+    vi.spyOn(fs.promises, "stat").mockImplementation(async (name) => {
       if (name === file && ++stats === 2) {
         // The first stat handles directory-index selection. At the later stat,
         // the earlier realpath and containment checks have already succeeded.
@@ -244,8 +318,11 @@ test.each(["ancestor", "root"] as const)(
       }
       return originalStat(name, { bigint: true });
     });
-    const read = vi.spyOn(fs, "readSync");
-    expect(readInside(captured, "/docs/page.html")).toEqual({ status: 403, reason: "escape" });
+    const read = vi.spyOn(io, "read");
+    expect(await readInside(captured, "/docs/page.html")).toEqual({
+      status: 403,
+      reason: "escape",
+    });
     expect(stats).toBeGreaterThanOrEqual(2);
     expect(read).not.toHaveBeenCalled();
   },
@@ -257,65 +334,66 @@ const platforms = ["linux", "darwin", "win32"] as const;
 function verification(platform: NodeJS.Platform, resolve: () => string): void {
   vi.stubGlobal("process", { ...process, platform });
   if (platform === "linux") {
-    vi.spyOn(fs, "readlinkSync").mockImplementation(resolve);
+    vi.spyOn(fs.promises, "readlink").mockImplementation(() => Promise.resolve(resolve()));
   } else {
-    const realpath = fs.realpathSync.native;
-    vi.spyOn(fs.realpathSync, "native")
+    const realpath = fs.promises.realpath;
+    vi.spyOn(fs.promises, "realpath")
       .mockImplementationOnce((file) => realpath(file))
-      .mockImplementation(resolve);
+      .mockImplementation(() => Promise.resolve(resolve()));
   }
 }
 
-test.each(platforms)("%s serves a verified descriptor with the captured root", (platform) => {
+test.each(platforms)("%s serves a verified descriptor with the captured root", async (platform) => {
   verification(platform, () => path.join(root, "README.md"));
-  expect(body("/README.md")).toBe("# readme");
+  expect(await body("/README.md")).toBe("# readme");
 });
 
-test("refuses an ordinary replacement directory at the captured root's spelling", () => {
+test("refuses an ordinary replacement directory at the captured root's spelling", async () => {
   fs.renameSync(root, `${root}-old`);
   fs.mkdirSync(root);
   fs.writeFileSync(path.join(root, "README.md"), "replacement secret");
-  const read = vi.spyOn(fs, "readSync");
-  const close = vi.spyOn(fs, "closeSync");
-  expect(readInside(captured, "/README.md")).toEqual({ status: 403, reason: "escape" });
+  const read = vi.spyOn(io, "read");
+  const close = vi.spyOn(io, "close");
+  expect(await readInside(captured, "/README.md")).toEqual({ status: 403, reason: "escape" });
   expect(read).not.toHaveBeenCalled();
   expect(close).toHaveBeenCalledTimes(1);
 });
 
 test.each(["directory", "device"] as const)(
   "refuses descriptor %s mismatches before post-open verification",
-  (failure) => {
-    const originalFstat = fs.fstatSync;
-    vi.spyOn(fs, "fstatSync").mockImplementation((fd) => {
+  async (failure) => {
+    const originalFstat = io.fstat;
+    vi.spyOn(io, "fstat").mockImplementation(async (fd) => {
       const stat =
-        failure === "directory"
-          ? fs.statSync(root, { bigint: true })
-          : originalFstat(fd, { bigint: true });
+        failure === "directory" ? fs.statSync(root, { bigint: true }) : await originalFstat(fd);
       if (failure === "device") stat.dev += 1n;
       return stat;
     });
-    const read = vi.spyOn(fs, "readSync");
-    const close = vi.spyOn(fs, "closeSync");
-    expect(readInside(captured, "/README.md")).toEqual({ status: 403, reason: "not-file" });
+    const read = vi.spyOn(io, "read");
+    const close = vi.spyOn(io, "close");
+    expect(await readInside(captured, "/README.md")).toEqual({ status: 403, reason: "not-file" });
     expect(read).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledTimes(1);
   },
 );
 
-test.each(platforms)("%s closes without reading if post-open resolution fails", (platform) => {
-  verification(platform, () => {
-    throw new Error("unavailable (including missing procfs)");
-  });
-  const read = vi.spyOn(fs, "readSync");
-  const close = vi.spyOn(fs, "closeSync");
-  expect(readInside(captured, "/README.md")).toEqual({ status: 404, reason: "unreadable" });
-  expect(read).not.toHaveBeenCalled();
-  expect(close).toHaveBeenCalledTimes(1);
-});
+test.each(platforms)(
+  "%s closes without reading if post-open resolution fails",
+  async (platform) => {
+    verification(platform, () => {
+      throw new Error("unavailable (including missing procfs)");
+    });
+    const read = vi.spyOn(io, "read");
+    const close = vi.spyOn(io, "close");
+    expect(await readInside(captured, "/README.md")).toEqual({ status: 404, reason: "unreadable" });
+    expect(read).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledTimes(1);
+  },
+);
 
-test.each(platforms)("%s rechecks post-open containment and forbidden names", (platform) => {
-  const read = vi.spyOn(fs, "readSync");
-  const close = vi.spyOn(fs, "closeSync");
+test.each(platforms)("%s rechecks post-open containment and forbidden names", async (platform) => {
+  const read = vi.spyOn(io, "read");
+  const close = vi.spyOn(io, "close");
   let target = path.join(outside, "secret.txt");
   verification(platform, () => target);
   // Reset the initial realpath response for each fallback request as well.
@@ -328,27 +406,27 @@ test.each(platforms)("%s rechecks post-open containment and forbidden names", (p
   ] as const) {
     target = resolved;
     if (platform !== "linux")
-      vi.mocked(fs.realpathSync.native)
+      vi.mocked(fs.promises.realpath)
         .mockReset()
-        .mockReturnValueOnce(path.join(root, "README.md"))
-        .mockImplementation(() => target);
-    expect(readInside(captured, "/README.md")).toEqual({ status: 403, reason });
+        .mockResolvedValueOnce(path.join(root, "README.md"))
+        .mockImplementation(() => Promise.resolve(target));
+    expect(await readInside(captured, "/README.md")).toEqual({ status: 403, reason });
   }
   expect(read).not.toHaveBeenCalled();
   expect(close).toHaveBeenCalledTimes(5);
 });
 
-test.each(platforms)("%s refuses a changed or unavailable captured root", (platform) => {
+test.each(platforms)("%s refuses a changed or unavailable captured root", async (platform) => {
   vi.stubGlobal("process", { ...process, platform });
   if (platform === "linux")
-    vi.spyOn(fs, "readlinkSync").mockReturnValue(path.join(root, "README.md"));
-  const originalStat = fs.statSync;
-  const read = vi.spyOn(fs, "readSync");
-  const close = vi.spyOn(fs, "closeSync");
+    vi.spyOn(fs.promises, "readlink").mockResolvedValue(path.join(root, "README.md"));
+  const originalStat = fs.promises.stat;
+  const read = vi.spyOn(io, "read");
+  const close = vi.spyOn(io, "close");
   for (const failure of ["missing", "file", "device", "inode"] as const) {
-    vi.spyOn(fs, "statSync").mockImplementation((name) => {
+    vi.spyOn(fs.promises, "stat").mockImplementation(async (name) => {
       if (name === root && failure === "missing") throw new Error("root removed");
-      const stat = originalStat(
+      const stat = await originalStat(
         name === root && failure === "file" ? path.join(root, "README.md") : name,
         { bigint: true },
       );
@@ -356,7 +434,7 @@ test.each(platforms)("%s refuses a changed or unavailable captured root", (platf
       if (name === root && failure === "inode") stat.ino += 1n;
       return stat;
     });
-    expect(readInside(captured, "/README.md")).toEqual(
+    expect(await readInside(captured, "/README.md")).toEqual(
       failure === "missing"
         ? { status: 404, reason: "unreadable" }
         : { status: 403, reason: "escape" },
@@ -368,25 +446,25 @@ test.each(platforms)("%s refuses a changed or unavailable captured root", (platf
 
 test.each(["darwin", "win32"] as const)(
   "%s checks the re-resolved file identity exactly before reading",
-  (platform) => {
+  async (platform) => {
     vi.stubGlobal("process", { ...process, platform });
-    const originalStat = fs.statSync;
-    const originalFstat = fs.fstatSync;
-    const read = vi.spyOn(fs, "readSync");
-    const close = vi.spyOn(fs, "closeSync");
+    const originalStat = fs.promises.stat;
+    const originalFstat = io.fstat;
+    const read = vi.spyOn(io, "read");
+    const close = vi.spyOn(io, "close");
     const file = path.join(root, "README.md");
     const inode = 2n ** 60n;
-    vi.spyOn(fs, "fstatSync").mockImplementation((fd) => {
-      const stat = originalFstat(fd, { bigint: true });
+    vi.spyOn(io, "fstat").mockImplementation(async (fd) => {
+      const stat = await originalFstat(fd);
       stat.ino = inode;
       return stat;
     });
     for (const failure of ["missing", "file", "device", "inode"] as const) {
       let stats = 0;
-      vi.spyOn(fs, "statSync").mockImplementation((name) => {
+      vi.spyOn(fs.promises, "stat").mockImplementation(async (name) => {
         const verifying = name === file && ++stats === 3;
         if (verifying && failure === "missing") throw new Error("target removed");
-        const stat = originalStat(verifying && failure === "file" ? root : name, {
+        const stat = await originalStat(verifying && failure === "file" ? root : name, {
           bigint: true,
         });
         if (name === file) stat.ino = inode;
@@ -394,7 +472,7 @@ test.each(["darwin", "win32"] as const)(
         if (verifying && failure === "inode") stat.ino += 1n;
         return stat;
       });
-      expect(readInside(captured, "/README.md")).toEqual(
+      expect(await readInside(captured, "/README.md")).toEqual(
         failure === "missing"
           ? { status: 404, reason: "unreadable" }
           : { status: 403, reason: "not-file" },
@@ -407,45 +485,61 @@ test.each(["darwin", "win32"] as const)(
 
 test.skipIf(!links || openFlags({ O_RDONLY: 0, O_NOFOLLOW: fs.constants.O_NOFOLLOW }) === 0)(
   "does not follow a final symlink inserted after stat",
-  () => {
-    const originalOpen = fs.openSync;
-    vi.spyOn(fs, "openSync").mockImplementationOnce((file, flags, mode) => {
+  async () => {
+    const originalOpen = fs.promises.open;
+    vi.spyOn(fs.promises, "open").mockImplementationOnce(async (file, flags, mode) => {
       fs.unlinkSync(path.join(root, "README.md"));
       fs.symlinkSync(path.join(outside, "secret.txt"), path.join(root, "README.md"));
       return originalOpen(file, flags, mode);
     });
-    expect(openInside(captured, "/README.md")).toEqual({ status: 404, reason: "unreadable" });
+    expect(await openInside(captured, "/README.md")).toEqual({ status: 404, reason: "unreadable" });
   },
 );
 
-test.skipIf(!links)("keeps the canonical root captured before a root path swap", () => {
+test.skipIf(!links)("keeps the canonical root captured before a root path swap", async () => {
   fs.renameSync(root, `${root}-old`);
   fs.symlinkSync(outside, root, "dir");
-  expect(openInside(captured, "/secret.txt")).toEqual({ status: 403, reason: "escape" });
+  expect(await openInside(captured, "/secret.txt")).toEqual({ status: 403, reason: "escape" });
 });
 
 test.skipIf(process.platform === "win32" || !links)(
   "rechecks Windows alias targets even on POSIX",
-  () => {
+  async () => {
     fs.writeFileSync(path.join(root, "alias.txt."), "alias");
     fs.symlinkSync(path.join(root, "alias.txt."), path.join(root, "safe.txt"));
-    expect(openInside(captured, "/safe.txt")).toEqual({
+    expect(await openInside(captured, "/safe.txt")).toEqual({
       status: 403,
       reason: "target-windows-trailing",
     });
   },
 );
 
-test("records served targets, requested names and missing directory indexes, but not refused requests", () => {
+test("records served targets, requested names and missing directory indexes, but not refused requests", async () => {
   const record = vi.fn();
   const origin = "foom-preview://id";
-  readPreview(captured, origin + "/docs/page.html", origin, record);
+  await readPreview(captured, origin + "/docs/page.html", origin, record);
   expect(record).toHaveBeenCalledWith(path.join(root, "docs", "page.html"));
   record.mockClear();
-  readPreview(captured, origin + "/docs/assets/", origin, record);
+  await readPreview(captured, origin + "/docs/assets/", origin, record);
   expect(record).toHaveBeenCalledWith(path.join(root, "docs", "assets", "index.html"));
   record.mockClear();
-  readPreview(captured, origin + "/.env", origin, record);
-  readPreview(captured, "foom-preview://other/a", origin, record);
+  await readPreview(captured, origin + "/.env", origin, record);
+  await readPreview(captured, "foom-preview://other/a", origin, record);
   expect(record).not.toHaveBeenCalled();
+});
+
+test("continues partial reads but never reads beyond the checked size if a file grows", async () => {
+  const read = io.read;
+  let appended = false;
+  vi.spyOn(io, "read").mockImplementation(async (fd, buffer, offset, length, position) => {
+    if (!appended) {
+      appended = true;
+      await fs.promises.appendFile(path.join(root, "README.md"), "extra");
+    }
+    return read(fd, buffer, offset, Math.min(length, 2), position);
+  });
+  const close = vi.spyOn(io, "close");
+  expect(await body("/README.md")).toBe("# readme");
+  expect(io.read).toHaveBeenCalledTimes(4);
+  expect(close).toHaveBeenCalledOnce();
 });

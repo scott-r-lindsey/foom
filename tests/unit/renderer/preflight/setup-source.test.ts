@@ -5,6 +5,7 @@ import { createSetupSource } from "../../../../src/renderer/preflight/setup-sour
 test("preflight reaches main only through the setup bridge", async () => {
   const repository = { path: "/code/app", name: "app" };
   const desktop = {
+    hosts: vi.fn(() => Promise.resolve({ hosts: [], locations: [] })),
     checkReadiness: vi.fn(() => Promise.resolve("readiness")),
     listTerminalFonts: vi.fn(() => Promise.resolve(["Mono"])),
     openThemesFolder: vi.fn(async () => {}),
@@ -27,6 +28,7 @@ test("preflight reaches main only through the setup bridge", async () => {
   };
   Object.defineProperty(window, "desktop", { configurable: true, value: desktop });
   const source = createSetupSource();
+  await expect(source.hosts?.({ action: "list" })).resolves.toEqual({ hosts: [], locations: [] });
   await source.restartToUpdate?.();
   expect(desktop.restartToUpdate).toHaveBeenCalledOnce();
   await expect(source.checkReadiness?.()).resolves.toBe("readiness");

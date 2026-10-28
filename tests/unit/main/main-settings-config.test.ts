@@ -359,3 +359,18 @@ test("a failed settings notification does not prevent broadcasting to another wi
     expect(mock.window.webContents.send).toHaveBeenCalledWith("setup:changed", expect.anything());
   });
 });
+
+test("Settings host locations use the shared registered repository inventory", async () => {
+  const listRepositories = vi.fn(() => []);
+  mock.openWorktrees.mockResolvedValue({
+    worktreeRoot: "/worktrees",
+    managesPath: mock.managesPath,
+    listRepositories,
+  });
+  await start();
+  const hosts = mock.setup.deps?.hosts;
+  if (!hosts) throw new Error("Missing host registration owner");
+  const state = await hosts.action({ action: "locations" });
+  expect(state.locations).toEqual([]);
+  expect(listRepositories).toHaveBeenCalled();
+});

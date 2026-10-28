@@ -93,7 +93,7 @@ test("worktree removal closes its previews and watches while retaining other che
   const f = await fixture();
   const { id, view } = await f.open();
   const handler = partition.protocol.handle.mock.calls[0]?.[1];
-  handler?.({ url: `foom-preview://${id}/a.html` });
+  await handler?.({ url: `foom-preview://${id}/a.html` });
   expect(f.host.watcherCount).toBe(1);
   const other = f.registry.add("/another/checkout", "a.html");
   await f.host.closeWorktree("/unknown");
@@ -437,7 +437,7 @@ test("a moved bundled manual uses its fixed root for fallback and never gains ne
   const target = await fixture(undefined, true);
   await writeFile(join(source.root, "manual.html"), "Manual");
   await writeFile(join(target.root, "manual.html"), "Manual");
-  const id = source.host.openManual();
+  const id = await source.host.openManual();
   source.validate.mockRejectedValue(new Error("Not a worktree"));
   target.validate.mockRejectedValue(new Error("Not a worktree"));
   vi.useFakeTimers();
@@ -457,7 +457,7 @@ test("quit never persists a bundled manual even while its move has not been show
   const source = await fixture(undefined, true);
   const target = await fixture(undefined, true);
   await writeFile(join(source.root, "manual.html"), "Manual");
-  const id = source.host.openManual();
+  const id = await source.host.openManual();
   await source.host.moveTo(id, target.host);
   await target.host.dispose(true);
   expect(target.registry.records.has(id)).toBe(false);

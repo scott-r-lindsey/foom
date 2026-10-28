@@ -61,10 +61,10 @@ test("loads detached, denies capabilities, and attaches only loaded visible view
   expect(callback).toHaveBeenLastCalledWith({ cancel: false });
   const serve = partition.protocol.handle.mock.calls[0]?.[1];
   if (!serve) throw new Error("Missing protocol");
-  const response: Response = serve({ url: `foom-preview://${id}/a.html` });
+  const response: Response = await serve({ url: `foom-preview://${id}/a.html` });
   expect(response.status).toBe(200);
   expect(await response.text()).toBe("<input autofocus>");
-  expect(serve({ url: `foom-preview://${id}/missing` }).status).toBe(404);
+  expect((await serve({ url: `foom-preview://${id}/missing` })).status).toBe(404);
   f.host.bounds(id, { x: 10.5, y: 20, width: 300, height: 200, visible: true });
   expect(f.window.contentView.addChildView).not.toHaveBeenCalled();
   wc.emit("did-finish-load");
@@ -93,12 +93,12 @@ test("serves bundled assets and wraps Markdown with its restrictive CSP", async 
   const serve = partition.protocol.handle.mock.calls[0]?.[1];
   if (!serve) throw new Error("Missing protocol");
   await writeFile(join(f.root, "a.md"), "# Safe </script>");
-  const response = serve({ url: `foom-preview://${id}/a.md` });
+  const response = await serve({ url: `foom-preview://${id}/a.md` });
   expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
   expect(response.headers.get("content-security-policy")).toBe(MARKDOWN_CSP);
   expect(await response.text()).toContain('"# Safe \\u003c/script>"');
   const read = vi.spyOn(fs, "readFileSync").mockReturnValue(Buffer.from("bundled"));
-  const asset = serve({ url: `foom-preview://${id}/__foom__/markdown.js` });
+  const asset = await serve({ url: `foom-preview://${id}/__foom__/markdown.js` });
   read.mockRestore();
   expect(asset.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
   expect(await asset.text()).toBe("bundled");
@@ -110,14 +110,14 @@ test("protocol requests retain the root identity captured when the preview opene
   const serve = partition.protocol.handle.mock.calls[0]?.[1];
   if (!serve) throw new Error("Missing protocol");
   const root = fs.realpathSync.native(f.root);
-  const originalStat = fs.statSync;
-  vi.spyOn(fs, "statSync").mockImplementation((name) => {
-    const stat = originalStat(name, { bigint: true });
+  const originalStat = fs.promises.stat;
+  vi.spyOn(fs.promises, "stat").mockImplementation(async (name) => {
+    const stat = await originalStat(name, { bigint: true });
     if (name === root) stat.ino += 1n;
     return stat;
   });
   const read = vi.spyOn(fs, "readSync");
-  const response = serve({ url: `foom-preview://${id}/a.html` });
+  const response = await serve({ url: `foom-preview://${id}/a.html` });
   expect(response.status).toBe(403);
   expect(await response.text()).toBe("Preview file unavailable");
   expect(read).not.toHaveBeenCalled();
@@ -191,7 +191,7 @@ test("network needs disclosure, updates both policies, reloads and persists only
     request?.({ url }, callback);
     expect(callback).toHaveBeenCalledWith({ cancel });
   }
-  const response = partition.protocol.handle.mock.calls[0]?.[1]({
+  const response = await partition.protocol.handle.mock.calls[0]?.[1]({
     url: `foom-preview://${id}/a.html`,
   });
   expect(response?.headers.get("content-security-policy")).toContain(
@@ -216,18 +216,20 @@ test("failed or overlapping reviews grant no network capability", async () => {
 
 test("bundled manual has a fixed isolated root, is reusable and never persists or enables network", async () => {
   const f = await fixture(undefined, true);
-  expect(() => f.host.openManual()).toThrow("Manual unavailable");
+  await expect(f.host.openManual()).rejects.toThrow("Manual unavailable");
   await writeFile(join(f.root, "manual.html"), "<h1>Manual</h1>");
-  const id = f.host.openManual();
-  expect(f.host.openManual()).toBe(id);
+  const id = await f.host.openManual();
+  expect(await f.host.openManual()).toBe(id);
   expect(f.registry.records.size).toBe(1);
   expect(f.validate).not.toHaveBeenCalled();
   const view = fake.views.at(-1);
   if (!view) throw new Error("Missing manual view");
   const serve = partition.protocol.handle.mock.calls.at(-1)?.[1];
   if (!serve) throw new Error("Missing manual handler");
-  expect(await serve({ url: `foom-preview://${id}/manual.html` }).text()).toBe("<h1>Manual</h1>");
-  expect(serve({ url: `foom-preview://${id}/%2e%2e/secret` }).status).not.toBe(200);
+  expect(await (await serve({ url: `foom-preview://${id}/manual.html` })).text()).toBe(
+    "<h1>Manual</h1>",
+  );
+  expect((await serve({ url: `foom-preview://${id}/%2e%2e/secret` })).status).not.toBe(200);
   await expect(f.host.network(id, true)).rejects.toThrow("no network");
   f.host.focusManual("unknown");
   f.host.bounds(id, { x: 0, y: 0, width: 200, height: 200, visible: true });
@@ -251,9 +253,9 @@ test("bundled manual has a fixed isolated root, is reusable and never persists o
   await other.host.dispose(true);
   await f.host.dispose(true);
   expect(f.registry.records.size).toBe(0);
-  expect(() => f.host.openManual()).toThrow("Manual unavailable");
+  await expect(f.host.openManual()).rejects.toThrow("Manual unavailable");
   const plain = await fixture();
-  expect(() => plain.host.openManual()).toThrow("Manual unavailable");
+  await expect(plain.host.openManual()).rejects.toThrow("Manual unavailable");
 });
 
 test("manual reload validates ownership, preserves network and only routes focused native previews", async () => {
@@ -298,4 +300,107 @@ test("manual reload validates ownership, preserves network and only routes focus
   await f.host.dispose(true);
   expect(() => f.host.reload(id)).toThrow("Unknown preview ID");
   f.host.reloadFocused();
+});
+
+test("preview requests yield while filesystem resolution is pending", async () => {
+  const f = await fixture();
+  const { id } = await f.open();
+  const serve = partition.protocol.handle.mock.calls[0]?.[1];
+  if (!serve) throw new Error("Missing protocol");
+  const realpath = fs.promises.realpath;
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const resolve = vi.spyOn(fs.promises, "realpath").mockImplementationOnce(async (file) => {
+    await gate;
+    return realpath(file);
+  });
+  const response = serve({ url: `foom-preview://${id}/a.html` });
+  try {
+    expect(resolve).toHaveBeenCalled();
+    let completed = false;
+    void Promise.resolve(response).then(() => {
+      completed = true;
+    });
+    await new Promise<void>((done) => setImmediate(done));
+    expect(completed).toBe(false);
+    expect(f.host.visible(id)).toBe(false);
+  } finally {
+    release();
+    await response;
+    await f.host.dispose(false);
+  }
+});
+
+test("opening validates and closes the document without reading its body", async () => {
+  const f = await fixture();
+  const open = fs.promises.open;
+  const reads: ReturnType<typeof vi.spyOn>[] = [];
+  const closes: ReturnType<typeof vi.spyOn>[] = [];
+  vi.spyOn(fs.promises, "open").mockImplementation(async (...args) => {
+    const handle = await open(...args);
+    reads.push(vi.spyOn(handle, "read"), vi.spyOn(handle, "readFile"));
+    closes.push(vi.spyOn(handle, "close"));
+    return handle;
+  });
+  await f.open();
+  expect(closes).not.toHaveLength(0);
+  for (const read of reads) expect(read).not.toHaveBeenCalled();
+  for (const close of closes) expect(close).toHaveBeenCalledOnce();
+  await f.host.dispose(false);
+});
+
+test("pending document validation cannot create a preview after host disposal", async () => {
+  const f = await fixture();
+  const realpath = fs.promises.realpath;
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let started: () => void = () => {};
+  const entered = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  vi.spyOn(fs.promises, "realpath").mockImplementationOnce(async (file) => {
+    started();
+    await gate;
+    return realpath(file);
+  });
+  const opening = f.host.open(f.root, "a.html");
+  const refused = expect(opening).rejects.toThrow("Preview host closed");
+  await entered;
+  await f.host.dispose(false);
+  release();
+  await refused;
+  expect(f.registry.records.size).toBe(0);
+  expect(fake.views).toHaveLength(0);
+});
+
+test("concurrent manual opens reuse one record and disposal cancels pending opens", async () => {
+  const f = await fixture(undefined, true);
+  await writeFile(join(f.root, "manual.html"), "<h1>Manual</h1>");
+  const [first, second] = await Promise.all([f.host.openManual(), f.host.openManual()]);
+  expect(first).toBe(second);
+  expect(f.registry.records.size).toBe(1);
+  expect(fake.views).toHaveLength(1);
+  await f.host.dispose(false);
+
+  const pending = await fixture(undefined, true);
+  await writeFile(join(pending.root, "manual.html"), "<h1>Manual</h1>");
+  const realpath = fs.promises.realpath;
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  vi.spyOn(fs.promises, "realpath").mockImplementationOnce(async (file) => {
+    await gate;
+    return realpath(file);
+  });
+  const opening = pending.host.openManual();
+  const refused = expect(opening).rejects.toThrow("Manual unavailable");
+  await pending.host.dispose(false);
+  release();
+  await refused;
+  expect(pending.registry.records.size).toBe(0);
 });

@@ -1,3 +1,4 @@
+import { hostsForStore } from "../setup/hosts";
 import { checkReadiness } from "../setup/readiness";
 import { app, BrowserWindow, dialog, nativeTheme, screen, session } from "electron";
 import { randomUUID } from "node:crypto";
@@ -30,6 +31,9 @@ import { attachWindowViews } from "../window/window-views-ipc";
 import { attachWorkspace } from "../workspace/workspace-ipc";
 import type { ApplicationWiring } from "./application-wiring";
 import { initializeWorkspace } from "./workspace";
+
+const manualOpenings = new WeakMap<ApplicationWiring, Promise<void>>();
+
 export async function buildWindow(
   wiring: ApplicationWiring,
   savedSize?: Size,
@@ -137,11 +141,7 @@ export async function buildWindow(
       .createWindow()
       .then(async (created) => {
         if (about === "manual") {
-          const host = wiring.previewHosts.get(created.id);
-          if (!host) return;
-          const id = host.openManual();
-          await wiring.previewPlacements.get(created.id)?.place(id);
-          host.focusManual(id);
+          await openManual(created.id);
         } else if (about) created.webContents.send("board:command", "about");
       })
       .catch((error: unknown) => {
@@ -149,20 +149,29 @@ export async function buildWindow(
       });
   };
   let manualPending = false;
-  const openManual = async () => {
-    const existing = [...wiring.previewHosts.entries()].find(([, host]) =>
-      [...host.registry.records.values()].some((record) => record.bundled === "manual"),
-    );
-    const owner = existing?.[0] ?? window.id;
-    const host = existing?.[1] ?? previewHost;
-    const id = host.openManual();
-    const target = wiring.windows.get(owner)?.window;
-    if (target?.isMinimized()) target.restore();
-    target?.show();
-    target?.focus();
-    target?.webContents.send("board:command", "manual");
-    await wiring.previewPlacements.get(owner)?.place(id);
-    host.focusManual(id);
+  const openManual = (preferredOwner = window.id) => {
+    const pending = manualOpenings.get(wiring);
+    if (pending) return pending;
+    const opening = (async () => {
+      const existing = [...wiring.previewHosts.entries()].find(([, host]) =>
+        [...host.registry.records.values()].some((record) => record.bundled === "manual"),
+      );
+      const owner = existing?.[0] ?? preferredOwner;
+      const host = existing?.[1] ?? wiring.previewHosts.get(owner);
+      if (!host) return;
+      const id = await host.openManual();
+      const target = wiring.windows.get(owner)?.window;
+      if (target?.isMinimized()) target.restore();
+      target?.show();
+      target?.focus();
+      target?.webContents.send("board:command", "manual");
+      await wiring.previewPlacements.get(owner)?.place(id);
+      host.focusManual(id);
+    })().finally(() => {
+      manualOpenings.delete(wiring);
+    });
+    manualOpenings.set(wiring, opening);
+    return opening;
   };
   const appMenu = attachAppMenu(
     window,
@@ -254,6 +263,14 @@ export async function buildWindow(
     confirmations.refresh();
   };
   const setup = new Setup({
+    hosts: hostsForStore(
+      wiring.settings,
+      () => wiring.worktrees.listRepositories(),
+      app.getVersion(),
+      (dispose) => {
+        app.once("will-quit", dispose);
+      },
+    ),
     updates: () =>
       wiring.updates.state(
         wiring.workspace

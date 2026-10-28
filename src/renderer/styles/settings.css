@@ -526,3 +526,99 @@
   margin-bottom: 20px;
   font-size: 12px;
 }
+
+.hosts-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.hosts-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.hosts-heading h2,
+.hosts-heading h3 {
+  flex: 1;
+  margin: 0;
+}
+.host-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 0;
+}
+.host-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.host-card input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.host-card code,
+.repository-hosts code {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.host-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.host-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+.host-facts dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.host-facts dd {
+  font-family: var(--font-mono);
+  margin: 4px 0 0;
+}
+.host-agents {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.host-agents li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.host-card h4 {
+  margin: 0;
+}
+.hosts-failure {
+  color: var(--failed);
+}
+.host-table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.repository-hosts table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.repository-hosts th,
+.repository-hosts td {
+  text-align: left;
+  vertical-align: top;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  min-width: 150px;
+}
+.repository-hosts td > * {
+  display: block;
+  margin-bottom: 8px;
+}

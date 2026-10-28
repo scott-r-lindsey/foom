@@ -1,3 +1,5 @@
+import type { HostManagement, HostResult, HostFailure } from "../../shared/registered-hosts.d";
+import { HOST_CLONE_TIMEOUT_MS } from "../../shared/registered-hosts";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { remoteControlResult } from "../../shared/remote-agent-protocol";
 import { ApplicationError } from "../../shared/application-errors";
@@ -14,7 +16,12 @@ import {
   remoteResponse,
   REMOTE_GONE_EXIT_CODE,
 } from "../../shared/remote-host-protocol";
-import { bootstrapArguments, selectHostArtifact, sshEnvironment } from "./remote-bootstrap";
+import {
+  UnsupportedRemotePlatform,
+  bootstrapArguments,
+  selectHostArtifact,
+  sshEnvironment,
+} from "./remote-bootstrap";
 
 type Connection = {
   child: ChildProcess;
@@ -28,6 +35,8 @@ type Connection = {
 /** Utility-client-shaped adapter. It never exposes SSH/daemon text as diagnostics. */
 export class RemoteTransport extends EventEmitter {
   private connection: Connection | undefined;
+  private readonly cancellation = new AbortController();
+  managementFailure: HostFailure = "unreachable";
   private artifactUnavailable = false;
   launchFailure: LaunchFailure | undefined;
 
@@ -54,6 +63,7 @@ export class RemoteTransport extends EventEmitter {
   constructor(
     private readonly target: RemoteTarget,
     expectedVersion: string,
+    private readonly management?: HostManagement,
   ) {
     super();
     if (!remoteHost(target.host)) throw new Error("Invalid SSH host");
@@ -63,7 +73,7 @@ export class RemoteTransport extends EventEmitter {
           throw new Error("Remote launch unavailable");
         this.send({ type: "agent-activate", id: this.session.id });
       };
-    void selectHostArtifact(target, expectedVersion)
+    void selectHostArtifact(target, expectedVersion, undefined, undefined, this.cancellation.signal)
       .then((artifact) => {
         if (this.closed) return;
         if (artifact.version !== expectedVersion)
@@ -74,6 +84,8 @@ export class RemoteTransport extends EventEmitter {
       .catch((error: unknown) => {
         this.launchFailure =
           error instanceof LaunchFailure ? error : new LaunchFailure("remote_artifact_mismatch");
+        this.managementFailure =
+          error instanceof UnsupportedRemotePlatform ? "unsupported" : "unreachable";
         this.artifactUnavailable =
           error instanceof ApplicationError && error.code === "remote-host-unavailable";
         this.kill();
@@ -200,9 +212,12 @@ export class RemoteTransport extends EventEmitter {
     let hookEvents = 0;
     let agentReady = false;
     let agentPrepared = false;
-    const deadline = setTimeout(() => {
-      this.retireConnection(connection, "failure");
-    }, 120000);
+    const deadline = setTimeout(
+      () => {
+        this.retireConnection(connection, "failure");
+      },
+      120000 + (this.management?.operation === "clone" ? HOST_CLONE_TIMEOUT_MS : 0),
+    );
     connection.deadline = deadline;
     const receive = (bytes: Buffer) => {
       if (connection.dead || this.connection !== connection || this.closed) return;
@@ -242,8 +257,9 @@ export class RemoteTransport extends EventEmitter {
               throw new Error("Host version mismatch");
             // Reconnect's deadline covers open, state restoration and the entire
             // replay. Internal requests have no TerminalHostClient request timer.
-            if (!this.opened) clearTimeout(deadline);
+            if (!this.opened && !this.management) clearTimeout(deadline);
             this.ready = true;
+            if (this.management) this.send(this.management);
             const session = this.session;
             if (session) {
               const request = this.opened ? --this.internal : session.request;
@@ -254,6 +270,14 @@ export class RemoteTransport extends EventEmitter {
             }
             return;
           }
+          if (value.type === "managed") {
+            if (!this.management) throw new Error("Unexpected management result");
+            clearTimeout(deadline);
+            this.emit("managed", value.result);
+            this.kill();
+            return;
+          }
+          if (this.management) throw new Error("Unexpected management response");
           if (value.type === "agent-failed") {
             if (!this.target.agent || value.id !== this.session?.id || this.opened)
               throw new Error("Unexpected failure");
@@ -452,9 +476,38 @@ export class RemoteTransport extends EventEmitter {
   kill(): boolean {
     if (this.closed) return false;
     this.closed = true;
+    this.cancellation.abort();
     clearTimeout(this.timer);
     if (this.connection) this.retireConnection(this.connection, "dispose");
     queueMicrotask(() => this.emit("exit", 0));
     return true;
   }
+}
+
+/** One bounded management connection, with no PTY or terminal ID. */
+export function remoteManagement(
+  target: RemoteTarget,
+  version: string,
+  request: HostManagement,
+  signal?: AbortSignal,
+): Promise<HostResult> {
+  return new Promise((resolve) => {
+    const transport = new RemoteTransport(target, version, request);
+    const cancel = () => {
+      transport.kill();
+    };
+    const finish = (result: HostResult) => {
+      signal?.removeEventListener("abort", cancel);
+      resolve(result);
+    };
+    transport.once("managed", finish);
+    transport.once("exit", () => {
+      finish({
+        ok: false,
+        reason: transport.failureReason ? "artifact-unavailable" : transport.managementFailure,
+      });
+    });
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted) cancel();
+  });
 }

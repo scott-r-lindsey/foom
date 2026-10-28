@@ -514,3 +514,11 @@ test("Setup projects update facts and delegates restart only to the main-owned q
   expect(restart).toHaveBeenCalledOnce();
   await new Setup(deps).restartToUpdate();
 });
+
+test("host authorizations cannot be written through general settings", async () => {
+  const setup = new Setup(deps);
+  await expect(
+    setup.save({ registeredHosts: [{ host: "worker", codeFolder: "/code" }] }),
+  ).rejects.toThrow();
+  expect(() => setup.hosts({ action: "list" })).toThrow("Hosts unavailable");
+});
