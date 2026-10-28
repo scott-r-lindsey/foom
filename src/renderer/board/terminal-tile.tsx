@@ -156,10 +156,19 @@ export function Tile({
   const name = row ? sessionName(row, preferences) : (preview?.relativePath ?? "");
   useEffect(
     () =>
-      subscribeLights(source, () => {
-        const current = source.getSnapshot().find((item) => item.id === rowId);
-        return current && lightRef.current ? [{ row: current, element: lightRef.current }] : [];
-      }),
+      rowId === undefined
+        ? undefined
+        : subscribeLights(
+            source,
+            (index) => {
+              const current = index.get(rowId);
+              return current && lightRef.current
+                ? [{ row: current, element: lightRef.current }]
+                : [];
+            },
+            undefined,
+            rowId,
+          ),
     [source, rowId],
   );
   const previewRef = useRef<HTMLDivElement>(null);
