@@ -1,3 +1,19 @@
+import type { TerminalFocusRestoration } from "../terminal/terminal-view-source.d";
+
+let terminalFocusGeneration = 0;
+
+export function captureTerminalFocusRestoration(): TerminalFocusRestoration {
+  return { from: document.activeElement, generation: terminalFocusGeneration };
+}
+
+export function nextTerminalFocusGeneration(): number {
+  return ++terminalFocusGeneration;
+}
+
+export function isCurrentTerminalFocusGeneration(generation: number): boolean {
+  return generation === terminalFocusGeneration;
+}
+
 /** Restore DOM input focus without activating the native window. */
 export function restoreBoardFocus(previous: Element | null): void {
   const focus = (target: Element | null) => {

@@ -2,6 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import type { createShell } from "../../../../src/renderer/terminal/shell-controller";
 import type { ShellView } from "../../../../src/renderer/terminal/shell.d";
+import { captureTerminalFocusRestoration } from "../../../../src/renderer/board/focus-restore";
 import { createTerminalView } from "../../../../src/renderer/terminal/terminal-view-source";
 const mock = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("../../../../src/renderer/terminal/shell-controller", () => ({ createShell: mock.create }));
@@ -142,7 +143,7 @@ test("a newer sidebar focus choice cancels focus queued behind attachment", asyn
   input.focus();
   const attaching = view.open("session");
   await Promise.resolve();
-  view.focus({ from: document.activeElement });
+  view.focus(captureTerminalFocusRestoration());
   sidebar.focus();
   release();
   await attaching;
@@ -183,7 +184,7 @@ test.each(["unchanged", "round trip", "blur", "hide", "unmount", "new request"])
     input.focus();
     void view.open("session");
     await Promise.resolve();
-    view.focus({ from: document.activeElement });
+    view.focus(captureTerminalFocusRestoration());
     if (choice === "round trip") {
       other.focus();
       input.focus();
@@ -225,7 +226,7 @@ test("a newer focus request in another tile wins before either queued focus runs
   const second = createTerminalView(schedule);
   first.mount(document.createElement("div"));
   second.mount(document.createElement("div"));
-  first.focus({ from: document.activeElement });
+  first.focus(captureTerminalFocusRestoration());
   second.focus();
   await queue;
   expect(firstFocus).not.toHaveBeenCalled();
@@ -273,7 +274,7 @@ test("a focus choice before the restoration effect runs also revokes restoration
   });
   view.mount(document.createElement("div"));
   input.focus();
-  const restoration = { from: document.activeElement };
+  const restoration = captureTerminalFocusRestoration();
   sidebar.focus();
   // React can deliver the tile's effect after the user has made a new choice.
   view.focus(restoration);
@@ -323,12 +324,54 @@ test.each([false, true])(
     // Settings opens and closes while the initial attachment is still held.
     void view.hide();
     void view.open("session");
-    const restoration = { from: document.activeElement };
+    const restoration = captureTerminalFocusRestoration();
     if (newChoice) sidebar.focus();
     view.focus(restoration);
     release();
     await queue;
     expect(document.activeElement).toBe(newChoice ? sidebar : input);
     expect(focus).toHaveBeenCalledTimes(newChoice ? 0 : 1);
+  },
+);
+
+test.each([false, true])(
+  "a stale restoration cannot revoke a newer explicit request in the same tile: %s",
+  async (sameTile) => {
+    const firstTile = document.createElement("section");
+    const secondTile = document.createElement("section");
+    firstTile.tabIndex = 0;
+    secondTile.tabIndex = 0;
+    const firstInput = document.createElement("textarea");
+    const secondInput = document.createElement("textarea");
+    firstTile.append(firstInput);
+    secondTile.append(secondInput);
+    document.body.append(firstTile, secondTile);
+    const firstFocus = vi.fn(() => {
+      firstInput.focus();
+    });
+    const secondFocus = vi.fn(() => {
+      secondInput.focus();
+    });
+    mock.create
+      .mockReturnValueOnce({ terminal: { focus: firstFocus } })
+      .mockReturnValueOnce({ terminal: { focus: secondFocus } });
+    let queue = Promise.resolve();
+    const schedule = (operation: () => Promise<void>) => {
+      queue = queue.then(operation);
+      return queue;
+    };
+    const first = createTerminalView(schedule);
+    const second = createTerminalView(schedule);
+    first.mount(firstTile);
+    second.mount(secondTile);
+    firstInput.focus();
+    const stale = captureTerminalFocusRestoration();
+    (sameTile ? first : second).focus();
+    (sameTile ? firstTile : secondTile).focus();
+    // A delayed dismissal effect must leave the newer explicit request intact.
+    first.focus(stale);
+    await queue;
+    expect(document.activeElement).toBe(sameTile ? firstInput : secondInput);
+    expect(sameTile ? firstFocus : secondFocus).toHaveBeenCalledOnce();
   },
 );

@@ -1,8 +1,10 @@
 import { createShell } from "./shell-controller";
 import type { TerminalViewSource } from "./terminal-view-source.d";
 import type { ShellView } from "./shell.d";
-// Focus choices span every tile sharing the renderer document.
-let focusGeneration = 0;
+import {
+  nextTerminalFocusGeneration,
+  isCurrentTerminalFocusGeneration,
+} from "../board/focus-restore";
 
 /** A view never creates or stops a process. Workspace lifecycle remains in main. */
 export function createTerminalView(
@@ -90,9 +92,10 @@ export function createTerminalView(
       });
     },
     focus: (restoration) => {
+      if (restoration && !isCurrentTerminalFocusGeneration(restoration.generation)) return;
       cancelFocus?.();
       const current = controller;
-      const generation = ++focusGeneration;
+      const generation = nextTerminalFocusGeneration();
       const expected = restoration ? { from: restoration.from } : undefined;
       pendingRestoration = expected;
       let cancelled = false;
@@ -110,7 +113,7 @@ export function createTerminalView(
       void run(() => {
         if (
           !cancelled &&
-          generation === focusGeneration &&
+          isCurrentTerminalFocusGeneration(generation) &&
           (!expected || document.activeElement === expected.from)
         )
           current?.terminal.focus();

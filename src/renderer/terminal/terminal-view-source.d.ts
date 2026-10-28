@@ -1,6 +1,7 @@
 import type { ShellView } from "./shell.d";
 export interface TerminalFocusRestoration {
   readonly from: Element | null;
+  readonly generation: number;
 }
 export interface TerminalViewSource {
   mount(element: HTMLElement): () => void;

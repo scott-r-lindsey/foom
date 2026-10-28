@@ -1,6 +1,6 @@
 import { ConfigThemeLauncherContext } from "../preflight/custom-theme-hint";
 import type { TerminalFocusRestoration } from "../terminal/terminal-view-source.d";
-import { restoreBoardFocus } from "./focus-restore";
+import { restoreBoardFocus, captureTerminalFocusRestoration } from "./focus-restore";
 import type { ComponentProps, ReactNode, SetStateAction } from "react";
 import {
   useCallback,
@@ -249,7 +249,7 @@ function BoardContents({
         // The interim tile fallback must not replace the original xterm if
         // Settings reopens before queued attachment/focus has completed.
         boardFocusRef.current = previous;
-        setRestoreFocusRequest({ from: document.activeElement });
+        setRestoreFocusRequest(captureTerminalFocusRestoration());
       }
     }
     wasInactiveRef.current = paneInactive;
