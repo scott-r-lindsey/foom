@@ -473,6 +473,7 @@ test("agent reopen is visible with free space and reports sidebar only at protec
       visible: true,
     },
   ]);
+  await assertAccessible(page);
   if (process.env.FOOM_REOPEN_SCREENSHOTS === "1" && process.platform === "linux") {
     const handle = await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()

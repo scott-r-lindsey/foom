@@ -287,6 +287,10 @@
 }
 .terminal-tile[data-arrived="true"] .tile-title {
   background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  color: var(--ink);
+}
+.terminal-tile[data-arrived="true"] .preview-opener {
+  color: var(--ink);
 }
 @keyframes preview-arrival {
   50% {
