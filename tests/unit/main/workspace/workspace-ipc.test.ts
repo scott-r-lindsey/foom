@@ -628,6 +628,97 @@ test("sidebar inventory reports previews only for worktrees it lists", async () 
   });
 });
 
+test("unavailable membership preserves open preview IDs but not closed or confirmed removed previews", async () => {
+  const preview = {
+    id: "a".repeat(32),
+    worktree: "/tree",
+    relativePath: "saved.md",
+    network: false,
+  };
+  let records = [preview];
+  const inventory = vi.fn<Workspace["sidebarInventory"]>();
+  Object.assign(workspace, { sidebarInventory: inventory });
+  mock.handle.mockClear();
+  attachWorkspace(
+    window,
+    workspace as unknown as Workspace,
+    owns,
+    requestDialog,
+    undefined,
+    () => records,
+  );
+  inventory.mockResolvedValue({
+    shell: "bash",
+    repositories: [
+      {
+        path: "/repo",
+        name: "repo",
+        worktrees: [
+          {
+            path: "/tree",
+            head: "abc",
+            branch: "main",
+            bare: false,
+            locked: false,
+            prunable: false,
+            managed: false,
+          },
+        ],
+      },
+    ],
+  });
+  const expected = { ...preview, repository: "/repo", kind: "markdown" };
+  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({ previews: [expected] });
+  inventory.mockResolvedValue({
+    shell: "bash",
+    repositories: [{ path: "/repo", name: "repo", unavailable: true, worktrees: [] }],
+  });
+  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({ previews: [expected] });
+  inventory.mockResolvedValue({
+    shell: "bash",
+    repositories: [
+      { path: "/repo", name: "repo", worktrees: [] },
+      { path: "/other", name: "other", unavailable: true, worktrees: [] },
+    ],
+  });
+  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({ previews: [] });
+  inventory.mockResolvedValue({
+    shell: "bash",
+    repositories: [{ path: "/repo", name: "repo", unavailable: true, worktrees: [] }],
+  });
+  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({ previews: [expected] });
+  records = [];
+  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({ previews: [] });
+  records = [preview];
+  inventory.mockResolvedValue({
+    shell: "bash",
+    repositories: [{ path: "/repo", name: "repo", worktrees: [] }],
+  });
+  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({ previews: [] });
+});
+
+test("a first partial inventory cannot claim an owned preview is removed", async () => {
+  const inventory = vi.fn<Workspace["sidebarInventory"]>().mockResolvedValue({
+    shell: "bash",
+    repositories: [{ path: "/repo", name: "repo", unavailable: true, worktrees: [] }],
+  });
+  Object.assign(workspace, { sidebarInventory: inventory });
+  mock.handle.mockClear();
+  attachWorkspace(window, workspace as unknown as Workspace, owns, requestDialog, undefined, () => [
+    {
+      id: "b".repeat(32),
+      worktree: "/linked-outside-repo",
+      relativePath: "saved.md",
+      network: false,
+    },
+  ]);
+  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({
+    previews: [{ id: "b".repeat(32), repository: "", worktree: "/linked-outside-repo" }],
+  });
+  inventory.mockResolvedValue({ shell: "bash", repositories: [] });
+  await expect(invoke("workspace:sidebar")).resolves.toMatchObject({ previews: [] });
+});
+
 test.each(["install", "update", "enable", "remove"])(
   "legacy plugin %s forwards model-owned disclosure and closes on navigation",
   async (action) => {

@@ -45,6 +45,11 @@ Clicking or pressing Enter on a repository, main-checkout or worktree name opens
 and leaves the terminal tiles unchanged; again closes it. Chevrons expand or collapse.
 There is no separate launcher page.
 
+An unavailable repository shows **Unavailable** and a background failure mark.
+Its sessions and previously displayed locations stay visible while other
+repositories keep updating. Recovery clears that inventory mark without changing
+focus. Unavailable membership does not label a session's checkout as removed.
+
 External Git worktree and branch changes refresh the sidebar automatically and when
 the window gains focus. Sessions in a removed checkout stay alive and show a neutral
 **⊘ Worktree removed** label. New launches and restarts there are unavailable; Stop

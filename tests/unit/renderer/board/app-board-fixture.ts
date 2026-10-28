@@ -6,7 +6,11 @@ import type { BoardCommand } from "../../../../src/shared/board-command";
 import type { TerminalActivity } from "../../../../src/shared/desktop";
 import type { ConfigStatus } from "../../../../src/shared/foom-config";
 import type { SetupState } from "../../../../src/shared/setup";
-import type { TerminalState, WorkspaceSnapshot } from "../../../../src/shared/workspace";
+import type {
+  SidebarInventory,
+  TerminalState,
+  WorkspaceSnapshot,
+} from "../../../../src/shared/workspace";
 import { installation, report, setupState } from "../../../fixtures/setup";
 const mock = vi.hoisted(() => ({
   configStatus: vi.fn(() =>
@@ -38,7 +42,9 @@ const mock = vi.hoisted(() => ({
     Promise.resolve({ head: "main", local: [], remote: null, remoteBranches: [] }),
   ),
   createWorktree: vi.fn(() => Promise.resolve({ path: "/r/feature", outcome: "new" })),
-  sidebarInventory: vi.fn(() => Promise.resolve({ repositories: [], shell: "bash" })),
+  sidebarInventory: vi.fn<() => Promise<SidebarInventory>>(() =>
+    Promise.resolve({ repositories: [], shell: "bash" }),
+  ),
   removeWorktree: vi.fn(),
   addRepository: vi.fn(),
   sidebarCommand: vi.fn(),

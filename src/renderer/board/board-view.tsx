@@ -120,7 +120,10 @@ function BoardContents({
       return next;
     });
   };
-  useEffect(() => source.connect?.(), [source]);
+  useEffect(
+    () => source.connect?.({ report: reportBackground, clear: clearBackground }),
+    [source, reportBackground, clearBackground],
+  );
   const toggleSidebarRef = useRef<(() => void) | undefined>(undefined);
   const [sidebarCompact, setSidebarCompact] = useState(false);
   const {

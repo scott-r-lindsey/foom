@@ -8,7 +8,6 @@ import type { BoardRow } from "./board.d";
 import {
   closeTile,
   closeSpace,
-  contentId,
   growTile,
   hideSession,
   leaves,
@@ -81,6 +80,17 @@ export function useBoardTiles({
     };
   }, [soundSetup]);
   const layoutRef = useRef(layout);
+  const previewIds = useCallback(
+    (current: TileLayout) =>
+      new Set(
+        source.previews?.isReady?.() === false
+          ? leaves(current.tree).flatMap((tile) =>
+              tile.content?.kind === "preview" ? [tile.content.preview] : [],
+            )
+          : (source.previews?.getSnapshot() ?? []).map((preview) => preview.id),
+      ),
+    [source],
+  );
   const [focusRequest, setFocusRequest] = useState(0);
   const changeLayout = useCallback(
     (next: TileLayout, background = false) => {
@@ -178,6 +188,7 @@ export function useBoardTiles({
   useEffect(() => {
     if (source.isReady && !source.isReady()) return;
     const current = layoutRef.current;
+    const knownPreviews = previewIds(current);
     // Remove a failed restore's saved assignment once. The warning may remain
     // on the row when the human later reveals or resumes that session.
     const failedRoles = new Set(
@@ -194,13 +205,13 @@ export function useBoardTiles({
     if (
       leaves(current.tree).some((tile) =>
         tile.content?.kind === "preview"
-          ? !previews.some((preview) => preview.id === contentId(tile.content))
+          ? !knownPreviews.has(tile.content.preview)
           : sessionId(tile) && !sessions.has(sessionId(tile) ?? ""),
       )
     ) {
       const next = pruneContent(current, {
         sessions,
-        previews: new Set(previews.map((preview) => preview.id)),
+        previews: previewIds(current),
       });
       layoutRef.current = next;
       setLayout(next);
@@ -211,7 +222,7 @@ export function useBoardTiles({
         report("tile-layout", "Unable to save tile layout.");
       }
     }
-  }, [source, rows, previews, storageKey, clear, report]);
+  }, [source, rows, previews, previewIds, storageKey, clear, report]);
   useEffect(() => {
     const api = source.windows;
     if (!api) return;
@@ -232,7 +243,7 @@ export function useBoardTiles({
       changeLayout(
         pruneContent(layoutRef.current, {
           sessions: ids,
-          previews: new Set(previews.map((preview) => preview.id)),
+          previews: previewIds(layoutRef.current),
         }),
         true,
       );
@@ -246,7 +257,7 @@ export function useBoardTiles({
       off();
       removed();
     };
-  }, [source, changeLayout, previews]);
+  }, [source, changeLayout, previews, previewIds]);
   const reservationRef = useRef<
     { source: BoardSource; layout: TileLayout; ids: string } | undefined
   >(undefined);
@@ -273,7 +284,7 @@ export function useBoardTiles({
           changeLayout(
             pruneContent(current, {
               sessions: new Set(accepted),
-              previews: new Set(previews.map((preview) => preview.id)),
+              previews: previewIds(current),
             }),
             true,
           );
@@ -284,7 +295,7 @@ export function useBoardTiles({
           report("terminal-views", "Unable to reserve terminal views.");
         }
       });
-  }, [source, rows, previews, layout, changeLayout, clear, report]);
+  }, [source, rows, previews, previewIds, layout, changeLayout, clear, report]);
   const tileAction = useCallback(
     (tile: string, action: Exclude<TileAction, "popout" | "new-shell">) => {
       setFocusRequest((value) => value + 1);

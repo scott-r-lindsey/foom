@@ -207,6 +207,9 @@ export function attachWorkspace(
   dispose(): void;
 } {
   const contents = window.webContents;
+  // Display associations only. Preview opens and worktree actions still validate
+  // fresh membership; a failed Git read cannot prove an owned preview was removed.
+  const previewRepositories = new Map<string, string>();
   const trusted = (event: IpcMainInvokeEvent) =>
     event.sender === contents &&
     event.senderFrame !== null &&
@@ -337,14 +340,25 @@ export function attachWorkspace(
       "workspace:sidebar",
       async () => {
         const inventory = await workspace.sidebarInventory();
+        const records = previews();
+        const open = new Set(records.map((record) => record.id));
+        for (const id of previewRepositories.keys())
+          if (!open.has(id)) previewRepositories.delete(id);
+        const partial = inventory.repositories.some((entry) => entry.unavailable);
         return {
           ...inventory,
           previewActions: previewActions(),
-          previews: previews().flatMap((record) => {
-            const repository = inventory.repositories.find((entry) =>
-              entry.worktrees.some((tree) => tree.path === record.worktree),
-            );
-            return repository || record.bundled === "manual"
+          previews: records.flatMap((record) => {
+            const previous = previewRepositories.get(record.id);
+            const repository =
+              inventory.repositories.find((entry) =>
+                entry.worktrees.some((tree) => tree.path === record.worktree),
+              ) ??
+              inventory.repositories.find((entry) => entry.unavailable && entry.path === previous);
+            if (repository) previewRepositories.set(record.id, repository.path);
+            // A new window may not yet know which unavailable repository owns a
+            // restored preview. Keep its ID without guessing a repository path.
+            return repository || record.bundled === "manual" || (partial && previous === undefined)
               ? [
                   {
                     ...(record.openedBy ? { openedBy: record.openedBy } : {}),

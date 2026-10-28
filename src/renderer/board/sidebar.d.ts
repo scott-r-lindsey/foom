@@ -9,8 +9,10 @@ export interface SidebarPreferences {
 }
 export interface SidebarWorktree extends Worktree {
   removed?: boolean;
+  unavailable?: boolean;
 }
 export interface SidebarRepository extends Repository {
+  unavailable?: boolean;
   cleanup?: CleanupProgress | undefined;
   canDeleteMerged?: boolean;
   mergedCount?: number;

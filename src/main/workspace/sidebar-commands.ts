@@ -23,7 +23,14 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
     home: await (this.homeFacts ??= homeShellFacts()),
     repositories: await Promise.all(
       this.deps.worktrees.listRepositories().map(async (repository) => {
-        const worktrees = await this.worktrees(repository.path);
+        // Display failure is distinct from a successful, empty membership read.
+        // Authorization continues to use the rejecting worktrees capability.
+        let worktrees: readonly Worktree[];
+        try {
+          worktrees = await this.worktrees(repository.path);
+        } catch {
+          return { ...repository, unavailable: true, worktrees: [] };
+        }
         if (this.deps.forge?.boardEnabled) {
           const tracked = await Promise.all(
             worktrees

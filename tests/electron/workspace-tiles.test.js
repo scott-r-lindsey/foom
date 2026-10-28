@@ -747,6 +747,17 @@ test("tile layouts restore v1 terminal content and v2 mixed content after invent
       "data-empty",
       "true",
     );
+    // An unresolved preview also looks empty. Wait for its independent inventory
+    // to confirm removal and persist that result before inspecting the layout.
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)).tree
+              .second.content,
+        ),
+      )
+      .toBeNull();
     const saved = await page.evaluate(() =>
       JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)),
     );

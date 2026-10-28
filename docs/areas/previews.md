@@ -126,7 +126,13 @@ blur cancellation cannot leave a panel covering the loaded preview. It shows the
 picker rooted there and derives the relative document path;
 the renderer never chooses or sends a document path.
 IDs grant access only within their owning window. Sidebar inventory reports those
-IDs and display facts. The board places human previews with `placeContent`, preserving
+IDs and display facts. An unavailable repository retains the window's previously
+known preview associations while its records remain open. A first partial inventory
+keeps unassociated owned preview IDs with an empty display repository until membership
+is known, so restored tile assignments survive without guessing a checkout's owner.
+Closed records disappear immediately; a healthy membership read still excludes
+previews whose checkout is absent. These display associations grant no file access
+or worktree authorization. The board places human previews with `placeContent`, preserving
 focus, and measures each preview body to report bounds through the source interface.
 `preview:popout` validates the owning board and preview ID, opens a board window,
 then destroys the source contents and releases its watch, protocol and partition

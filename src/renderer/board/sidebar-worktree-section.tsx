@@ -132,6 +132,7 @@ export function SidebarWorktreeSection({
             </span>
           </span>
         </button>
+        {worktree.unavailable && <span className="worktree-removed">Unavailable</span>}
         {worktree.prunable && <span className="worktree-removed">Broken checkout</span>}
         {worktree.pullRequest && (
           <PullRequestMark pr={worktree.pullRequest} open={openPullRequest} />

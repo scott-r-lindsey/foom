@@ -6,7 +6,8 @@ import type { ExecutionSnapshot } from "../../shared/execution";
 import { createTerminalView } from "../terminal/terminal-view-source";
 import type { SidebarRepository } from "./sidebar.d";
 import type { createShell } from "../terminal/shell-controller";
-import type { BoardSource } from "./board-source.d";
+import { repositoryKey } from "./sidebar-model";
+import type { BackgroundErrorReporter, BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
 import type { TerminalActivity } from "../../shared/desktop";
 import type { TerminalState, WorkspaceSnapshot } from "../../shared/workspace";
@@ -35,6 +36,32 @@ export function createAppSource(): BoardSource {
     return viewQueue;
   };
   let loaded = false;
+  let inventoryLoaded = false;
+  let workspaceSnapshot: WorkspaceSnapshot | undefined;
+  let errors: BackgroundErrorReporter | undefined;
+  const inventoryFailures = new Set<string>();
+  const acceptInventory = (
+    inventory: Awaited<ReturnType<typeof window.desktop.sidebarInventory>>,
+  ) => {
+    inventoryLoaded = true;
+    const previous = new Map(sidebar.map((repo) => [repo.path, repo]));
+    const failed = new Set<string>();
+    sidebar = inventory.repositories.map((repo) => {
+      if (!repo.unavailable) return repo;
+      const operation = `sidebar-inventory:${repo.path}`;
+      failed.add(operation);
+      if (!inventoryFailures.has(operation))
+        errors?.report(operation, "Repository unavailable.", repositoryKey(repo.path));
+      return { ...repo, worktrees: previous.get(repo.path)?.worktrees ?? repo.worktrees };
+    });
+    for (const operation of inventoryFailures) if (!failed.has(operation)) errors?.clear(operation);
+    inventoryFailures.clear();
+    for (const operation of failed) inventoryFailures.add(operation);
+    previews = inventory.previews ?? [];
+    previewActions = inventory.previewActions ?? [];
+    shellName = inventory.shell;
+    home = inventory.home;
+  };
   let rows: readonly BoardRow[] = [];
   let repositories: readonly string[] = [];
   let sidebar: readonly SidebarRepository[] = [];
@@ -192,6 +219,7 @@ export function createAppSource(): BoardSource {
       : { ...row, rate: rates.get(row.id) ?? row.rate };
   };
   const snapshot = (next: WorkspaceSnapshot, settledReplacement?: string) => {
+    workspaceSnapshot = next;
     loaded = true;
     repositories = next.repositories.map((repo) => repo.name);
     const known = new Map(rows.map((row) => [row.id, row]));
@@ -266,7 +294,12 @@ export function createAppSource(): BoardSource {
         review: entry.review,
         roleNotRestored: entry.roleNotRestored,
         mcpConnection: entry.mcpConnection,
-        worktreeRemoved: !entry.home && !entry.config && (!checkout || checkout.prunable),
+        worktreeRemoved:
+          inventoryLoaded &&
+          !entry.home &&
+          !entry.config &&
+          !sidebar.find((repo) => repo.path === entry.repository)?.unavailable &&
+          (!checkout || checkout.prunable),
         exited: entry.exited ?? exits.has(entry.id),
         bypass: entry.bypass === true,
         conversationId: entry.conversationId,
@@ -332,27 +365,40 @@ export function createAppSource(): BoardSource {
       starting = false;
     }
   };
-  const connect = () => {
+  const connect: NonNullable<BoardSource["connect"]> = (reporter) => {
+    errors = reporter;
     let disposed = false;
     let revision = 0;
     const refresh = async () => {
       const current = ++revision;
-      try {
-        const [next, inventory] = await Promise.all([
-          window.desktop.workspace(),
-          window.desktop.sidebarInventory(),
-        ]);
-        if (!disposed && current === revision) {
-          sidebar = inventory.repositories;
-          previews = inventory.previews ?? [];
-          previewActions = inventory.previewActions ?? [];
-          shellName = inventory.shell;
-          home = inventory.home;
-          snapshot(next);
-        }
-      } catch (error) {
-        if (!disposed) console.error("Unable to load terminals:", error);
-      }
+      const active = () => !disposed && current === revision;
+      await Promise.all([
+        (async () => {
+          try {
+            const next = await window.desktop.workspace();
+            if (!active()) return;
+            errors?.clear("workspace-refresh");
+            snapshot(next);
+          } catch {
+            if (active()) errors?.report("workspace-refresh", "Unable to load terminals.");
+          }
+        })(),
+        (async () => {
+          try {
+            const inventory = await window.desktop.sidebarInventory();
+            if (!active()) return;
+            errors?.clear("sidebar-refresh");
+            acceptInventory(inventory);
+            if (workspaceSnapshot) snapshot(workspaceSnapshot);
+            else {
+              rows = [...rows];
+              publish();
+            }
+          } catch {
+            if (active()) errors?.report("sidebar-refresh", "Unable to load sidebar inventory.");
+          }
+        })(),
+      ]);
     };
     const offWorkspace = window.desktop.onWorkspaceChange(() => void refresh());
     // Main publishes reset after revoking the old host and before forwarding
@@ -421,6 +467,11 @@ export function createAppSource(): BoardSource {
     void refresh();
     return () => {
       disposed = true;
+      for (const operation of inventoryFailures) errors?.clear(operation);
+      errors?.clear("workspace-refresh");
+      errors?.clear("sidebar-refresh");
+      errors = undefined;
+      inventoryFailures.clear();
       offWorkspace();
       offAvailability();
       offState();
@@ -433,6 +484,7 @@ export function createAppSource(): BoardSource {
     ...(window.desktop.windows ? { windows: window.desktop.windows } : {}),
     isDevelopment: window.desktop.isDevelopment,
     previews: {
+      isReady: () => inventoryLoaded,
       getSnapshot: () => previews,
       getHistory: () => previewActions,
       popout: (id) =>
@@ -444,7 +496,18 @@ export function createAppSource(): BoardSource {
       network: (id, enabled) =>
         window.desktop.previews?.network(id, enabled) ??
         Promise.reject(new Error("Preview host unavailable")),
-      pick: (worktree) => window.desktop.previews?.pick(worktree) ?? Promise.resolve(null),
+      pick: async (worktree) => {
+        const id = (await window.desktop.previews?.pick(worktree)) ?? null;
+        if (id) {
+          acceptInventory(await window.desktop.sidebarInventory());
+          if (workspaceSnapshot) snapshot(workspaceSnapshot);
+          else {
+            rows = [...rows];
+            publish();
+          }
+        }
+        return id;
+      },
       bounds: (id, bounds) => window.desktop.previews?.bounds(id, bounds) ?? Promise.resolve(),
       close: (id) => window.desktop.previews?.close(id) ?? Promise.resolve(),
       ...(window.desktop.previews?.onPlace
@@ -452,8 +515,8 @@ export function createAppSource(): BoardSource {
             onPlace: (callback) =>
               window.desktop.previews?.onPlace?.(async (id, expiresAt) => {
                 const inventory = await window.desktop.sidebarInventory();
-                previews = inventory.previews ?? [];
-                previewActions = inventory.previewActions ?? [];
+                acceptInventory(inventory);
+                rows = [...rows];
                 publish();
                 return callback(id, expiresAt);
               }) ?? (() => {}),
@@ -537,11 +600,7 @@ export function createAppSource(): BoardSource {
         if (command.id === shellId) shellId = pendingShell;
       }
       const inventory = await window.desktop.sidebarInventory();
-      sidebar = inventory.repositories;
-      previews = inventory.previews ?? [];
-      previewActions = inventory.previewActions ?? [];
-      shellName = inventory.shell;
-      home = inventory.home;
+      acceptInventory(inventory);
       snapshot(await window.desktop.workspace());
       return result;
     },
@@ -568,11 +627,7 @@ export function createAppSource(): BoardSource {
       create: async (repository, branch) => {
         const created = await window.desktop.createWorktree(repository, branch);
         const inventory = await window.desktop.sidebarInventory();
-        sidebar = inventory.repositories;
-        previews = inventory.previews ?? [];
-        previewActions = inventory.previewActions ?? [];
-        shellName = inventory.shell;
-        home = inventory.home;
+        acceptInventory(inventory);
         snapshot(await window.desktop.workspace());
         return created;
       },

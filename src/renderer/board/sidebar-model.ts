@@ -122,7 +122,12 @@ export function sidebarRepositories(
       });
     } else result.set(path, repo);
   }
-  return [...result.values()];
+  return [...result.values()].map((repo) => ({
+    ...repo,
+    worktrees: repo.worktrees.map((tree) =>
+      repo.unavailable ? { ...tree, unavailable: true, removed: false } : tree,
+    ),
+  }));
 }
 export function buildSidebar(
   rows: readonly BoardRow[],

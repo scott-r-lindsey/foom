@@ -76,6 +76,7 @@ export function SidebarRepositorySection({
             </span>
             {repo.pinned && <span aria-label="Pinned">⌖</span>}
           </button>
+          {repo.repository.unavailable && <span className="worktree-removed">Unavailable</span>}
           {deleting && (
             <span className="cleanup-tag">
               deleting {cleanup.done}/{cleanup.total}

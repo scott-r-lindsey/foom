@@ -190,6 +190,8 @@ export interface SidebarInventory {
   previewActions?: readonly PreviewOpenAction[];
   previews?: readonly PreviewSummary[];
   repositories: readonly (Repository & {
+    /** Display only: membership is unknown; never authorizes launch or removal. */
+    unavailable?: boolean;
     worktrees: readonly Worktree[];
     cleanup?: CleanupProgress | undefined;
     canDeleteMerged?: boolean;
