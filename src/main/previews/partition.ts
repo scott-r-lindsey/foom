@@ -36,19 +36,11 @@ export function createPartition(
   partition.webRequest.onBeforeRequest((details, callback) => {
     callback({ cancel: !requestAllowed(details.url, origin, record.network) });
   });
-  partition.protocol.handle("foom-preview", (request) => {
+  partition.protocol.handle("foom-preview", async (request) => {
     const asset = markdownAsset(request.url, origin);
     if (asset)
       return new Response(new Uint8Array(asset.body), { headers: responseHeaders(asset.type) });
-    const result = readPreview(
-      root,
-      request.url,
-      origin,
-      (file) => {
-        watcher.record(file);
-      },
-      record.network,
-    );
+    const result = await readPreview(root, request.url, origin, watcher.recorder(), record.network);
     if (result.status === 200 && result.type.startsWith("text/markdown")) {
       return new Response(markdownPage(result.body.toString("utf8")), {
         headers: {

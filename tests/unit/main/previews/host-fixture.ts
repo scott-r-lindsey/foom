@@ -13,7 +13,8 @@ const fake = vi.hoisted(() => ({
 }));
 export class FakeSession extends EventEmitter {
   protocol = {
-    handle: vi.fn<(scheme: string, handler: (request: { url: string }) => Response) => void>(),
+    handle:
+      vi.fn<(scheme: string, handler: (request: { url: string }) => Promise<Response>) => void>(),
     unhandle: vi.fn(),
   };
   webRequest = {

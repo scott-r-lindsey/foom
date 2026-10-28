@@ -8,6 +8,7 @@ export class PreviewWatcher {
   private trailing: ReturnType<typeof setTimeout> | undefined;
   private maximum: ReturnType<typeof setTimeout> | undefined;
   private closed = false;
+  private generation = 0;
   constructor(
     private readonly root: string,
     private readonly changed: () => void,
@@ -17,12 +18,20 @@ export class PreviewWatcher {
   }
   /** Drop the previous load's dependencies and pending notifications. */
   beginGeneration(): void {
+    this.generation++;
     clearTimeout(this.trailing);
     clearTimeout(this.maximum);
     this.trailing = undefined;
     this.maximum = undefined;
     for (const { watch } of this.directories.values()) watch.close();
     this.directories.clear();
+  }
+  /** Bind asynchronous resource observations to the load that requested them. */
+  recorder(): (file: string) => void {
+    const generation = this.generation;
+    return (file) => {
+      if (this.generation === generation) this.record(file);
+    };
   }
   record(file: string): void {
     if (this.closed || !inside(this.root, file, path.sep)) return;
