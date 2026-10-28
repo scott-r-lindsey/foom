@@ -43,6 +43,8 @@ export interface BackgroundErrorReporter {
 export interface BoardSource {
   onFocusWorktree?: (callback: (path: string) => void) => () => void;
   previews?: {
+    /** False until the first successful inventory; unknown previews must not be pruned. */
+    isReady?(): boolean;
     getSnapshot(): readonly PreviewSummary[];
     getHistory?(): readonly PreviewOpenAction[];
     popout?(id: string): Promise<void>;

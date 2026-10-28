@@ -298,7 +298,9 @@ Sidebar reads isolate checkout-list failures per registered repository. An
 `unavailable` repository has unknown membership, retains its session locations
 and the board's last displayed checkout rows, and shows a fixed unavailable
 status. The live source publishes workspace/session snapshots independently of
-sidebar reads. Operation-scoped background failure marks never request focus and
+sidebar reads. Preview tile cleanup waits for its own first successful inventory,
+so an early workspace snapshot cannot discard saved preview assignments.
+Operation-scoped background failure marks never request focus and
 clear on recovery (or repository removal). Display fallbacks never feed launch,
 removal or cleanup authorization: those capabilities still reread Git and reject
 unavailable membership rather than treating it as an empty successful list.

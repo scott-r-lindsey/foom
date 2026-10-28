@@ -387,3 +387,59 @@ test("a fresh unavailable inventory publishes before a pending workspace and kee
   off?.();
   expect(errors.clear).toHaveBeenCalledWith("sidebar-inventory:/missing");
 });
+
+test("a workspace snapshot cannot prune saved previews while their inventory is unknown", async () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
+  const key = "foom.tiles.v1";
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      version: 2,
+      focused: "saved",
+      tree: {
+        kind: "split",
+        id: "split",
+        direction: "horizontal",
+        ratio: 0.5,
+        first: { kind: "tile", id: "gone", content: { kind: "terminal", session: "gone" } },
+        second: {
+          kind: "tile",
+          id: "saved",
+          content: { kind: "preview", preview: "saved-preview" },
+        },
+      },
+    }),
+  );
+  const pending =
+    Promise.withResolvers<Awaited<ReturnType<typeof window.desktop.sidebarInventory>>>();
+  mock.sidebarInventory.mockReturnValueOnce(pending.promise);
+  const source = createAppSource();
+  const view = render(<Board source={source} />);
+  await settle();
+  expect(source.isReady?.()).toBe(true);
+  expect(localStorage.getItem(key)).toContain("saved-preview");
+  pending.resolve({
+    repositories: [],
+    shell: "bash",
+    previews: [
+      {
+        id: "saved-preview",
+        repository: "/r",
+        worktree: "/r",
+        relativePath: "saved.md",
+        kind: "markdown",
+        network: false,
+      },
+    ],
+  });
+  await settle();
+  expect(view.getByRole("region", { name: "Tile 1: saved.md" })).toBeTruthy();
+  view.unmount();
+  vi.unstubAllGlobals();
+});

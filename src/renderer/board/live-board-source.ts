@@ -450,6 +450,7 @@ export function createAppSource(): BoardSource {
     ...(window.desktop.windows ? { windows: window.desktop.windows } : {}),
     isDevelopment: window.desktop.isDevelopment,
     previews: {
+      isReady: () => inventoryLoaded,
       getSnapshot: () => previews,
       getHistory: () => previewActions,
       popout: (id) =>
@@ -469,8 +470,8 @@ export function createAppSource(): BoardSource {
             onPlace: (callback) =>
               window.desktop.previews?.onPlace?.(async (id, expiresAt) => {
                 const inventory = await window.desktop.sidebarInventory();
-                previews = inventory.previews ?? [];
-                previewActions = inventory.previewActions ?? [];
+                acceptInventory(inventory);
+                rows = [...rows];
                 publish();
                 return callback(id, expiresAt);
               }) ?? (() => {}),
