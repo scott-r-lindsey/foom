@@ -129,6 +129,24 @@ test("the previous settings schema remains refreshable after adding close finish
   const previous = themeRecord(JSON.parse(current), "$");
   const properties = themeRecord(previous["properties"], "$.properties");
   delete properties["closeFinishedAgents"];
+  properties["colorMode"] = { enum: ["system", "light", "dark"] };
+  // The shipped schema placed colorMode immediately after kind and used the old palette order.
+  previous["properties"] = {
+    kind: properties["kind"],
+    colorMode: properties["colorMode"],
+    ...properties,
+  };
+  const terminal = themeRecord(properties["terminalTheme"], "$.terminalTheme");
+  const variants = terminal["anyOf"];
+  if (!Array.isArray(variants)) throw new Error("Expected choices");
+  themeRecord(variants[0], "$")["enum"] = [
+    "follow",
+    "foom-dark",
+    "foom-light",
+    "solarized-dark",
+    "solarized-light",
+    "dracula",
+  ];
   expect(
     refreshable(
       "schemas/settings.schema.json",

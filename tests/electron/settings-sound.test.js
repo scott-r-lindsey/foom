@@ -289,7 +289,13 @@ test("sidebar footer zoom and master volume stay synchronized and presets are ab
   await page.keyboard.press("Escape");
   await footer.getByRole("button", { name: "Unmute", exact: true }).click();
   for (const colorMode of ["dark", "light"]) {
-    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), colorMode);
+    await page.evaluate(
+      (colorMode) =>
+        window.desktop.saveSetup({
+          interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+        }),
+      colorMode,
+    );
     await expect
       .poll(() =>
         page

@@ -8,6 +8,7 @@ import { devNull } from "node:os";
 import { hostsAction, gitOrigin, hostResult } from "../../shared/registered-hosts";
 import type {
   HostManagement,
+  HostFacts,
   HostResult,
   HostsState,
   RepositoryLocation,
@@ -133,20 +134,36 @@ export class Hosts {
   }
   private async run(host: string, request: HostManagement): Promise<HostResult> {
     try {
-      for (const provider of agentProviders())
-        if (this.store.get().agents[provider.id] !== false) await provider.validate?.();
+      const providers = agentProviders().filter(
+        (provider) => this.store.get().agents[provider.id] !== false,
+      );
+      for (const provider of providers) await provider.validate?.();
+      const probes = providers.map((provider) => ({
+        id: provider.id,
+        executables: provider.executableNames,
+      }));
       const result: unknown = await this.execute(host, {
         ...request,
-        agents: agentProviders()
-          .filter((provider) => this.store.get().agents[provider.id] !== false)
-          .map((provider) => ({ id: provider.id, executables: provider.executableNames })),
+        agents: probes,
       });
-      return hostResult(result) &&
-        (!result.ok ||
-          !request.codeFolder.startsWith("/") ||
-          result.facts.codeFolder === request.codeFolder)
-        ? result
-        : { ok: false, reason: "unreachable" };
+      if (
+        !hostResult(result) ||
+        (result.ok &&
+          request.codeFolder.startsWith("/") &&
+          result.facts.codeFolder !== request.codeFolder)
+      )
+        return { ok: false, reason: "unreachable" };
+      if (!result.ok) return result;
+      return {
+        ...result,
+        facts: {
+          ...result.facts,
+          agents: probes.map<HostFacts["agents"][number]>((probe) => ({
+            id: probe.id,
+            state: result.facts.agents.find((agent) => agent.id === probe.id)?.state ?? "unable",
+          })),
+        },
+      };
     } catch {
       return { ok: false, reason: "unreachable" };
     }

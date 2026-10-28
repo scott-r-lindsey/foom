@@ -111,7 +111,13 @@ process.stdin.on('data', bytes => {
   gitSync(["remote", "add", "origin", "git@forge.test:team/project.git"], { cwd: repository });
   const capture = async (name) => {
     for (const mode of ["light", "dark"]) {
-      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await page.evaluate(
+        (mode) =>
+          window.desktop.saveSetup({
+            interfaceTheme: mode === "light" ? "eclipse-light" : "eclipse-dark",
+          }),
+        mode,
+      );
       await expect
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
@@ -151,7 +157,7 @@ process.stdin.on('data', bytes => {
   const card = page.getByRole("region", { name: "fixture-cloud", exact: true });
   await expect(card.getByText("CPU cores", { exact: true })).toBeVisible();
   await expect(card.getByText("Not found", { exact: true })).toBeVisible();
-  await expect(card.getByText("Unable to check", { exact: true })).toBeVisible();
+  await expect(card.getByText("Unable to check", { exact: true }).first()).toBeVisible();
   await card.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(card.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
   await capture("host-facts-agents");

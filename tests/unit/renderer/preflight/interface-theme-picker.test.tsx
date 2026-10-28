@@ -23,14 +23,20 @@ test("selects System and each theme, previews every status, follows media and ac
   expect(screen.getAllByRole("listitem")).toHaveLength(5);
   expect(screen.getByText("Needs you")).toBeTruthy();
   expect(screen.getByText("Failed")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Theme Default · Eclipse Light" })).toBeTruthy();
   expect(preview.style.getPropertyValue("--bg")).toBe("#f3f0fa");
   act(() => {
     media.matches = true;
     media.addEventListener.mock.calls[0]?.[1]();
   });
+  expect(screen.getByRole("button", { name: "Theme Default · Eclipse Dark" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Theme Default · Eclipse Dark" }));
+  expect(screen.getByRole("menuitemradio", { name: "Default · Eclipse Dark" })).toBeTruthy();
+  fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
   expect(preview.style.getPropertyValue("--bg")).toBe("#05040a");
   for (const [id, theme] of Object.entries(interfaceThemes)) {
-    fireEvent.click(screen.getByRole("button", { name: theme.name }));
+    fireEvent.click(screen.getByRole("button", { name: /^Theme / }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: theme.name }));
     expect(onChange).toHaveBeenLastCalledWith({ interfaceTheme: id });
     view.rerender(
       <InterfaceThemePicker
@@ -44,40 +50,43 @@ test("selects System and each theme, previews every status, follows media and ac
     expect(preview.style.getPropertyValue("--highlight-deep")).toBe(
       theme.colors["highlight-deep"] ?? theme.colors["accent-deep"],
     );
-    const swatches = screen.getByRole("button", { name: theme.name }).querySelectorAll("i");
-    const expected = document.createElement("i");
-    expected.style.backgroundColor = theme.colors.highlight ?? theme.colors.accent;
-    expect(swatches[3]?.style.backgroundColor).toBe(expected.style.backgroundColor);
   }
-  fireEvent.click(screen.getByRole("button", { name: /^System/ }));
-  expect(onChange).toHaveBeenLastCalledWith({ interfaceTheme: "follow", colorMode: "system" });
+  fireEvent.click(screen.getByRole("button", { name: /^Theme / }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: /^Default/ }));
+  expect(onChange).toHaveBeenLastCalledWith({ interfaceTheme: "follow" });
   view.rerender(
     <InterfaceThemePicker
-      settings={setupState({ colorMode: "dark" }).settings}
+      settings={setupState({ interfaceTheme: "eclipse-dark" }).settings}
       onChange={onChange}
     />,
   );
-  expect(screen.getByRole("button", { name: "Eclipse Dark" }).getAttribute("aria-pressed")).toBe(
-    "true",
-  );
+  expect(
+    document
+      .querySelector('[role="menuitemradio"][aria-checked="true"]')
+      ?.getAttribute("aria-checked"),
+  ).toBe("true");
   view.rerender(
     <InterfaceThemePicker
-      settings={setupState({ colorMode: "light" }).settings}
+      settings={setupState({ interfaceTheme: "eclipse-light" }).settings}
       onChange={onChange}
     />,
   );
-  expect(screen.getByRole("button", { name: "Eclipse Light" }).getAttribute("aria-pressed")).toBe(
-    "true",
-  );
+  expect(
+    document
+      .querySelector('[role="menuitemradio"][aria-checked="true"]')
+      ?.getAttribute("aria-checked"),
+  ).toBe("true");
   view.rerender(
     <InterfaceThemePicker
       settings={setupState({ interfaceTheme: "moonlight" }).settings}
       onChange={onChange}
     />,
   );
-  expect(screen.getByRole("button", { name: "Moonlight" }).getAttribute("aria-pressed")).toBe(
-    "true",
-  );
+  expect(
+    document
+      .querySelector('[role="menuitemradio"][aria-checked="true"]')
+      ?.getAttribute("aria-checked"),
+  ).toBe("true");
   view.rerender(
     <InterfaceThemePicker
       settings={setupState({ interfaceTheme: interfaceThemes["deep-field"] }).settings}
@@ -117,13 +126,41 @@ test("custom themes follow built-ins and selection keeps their file identity", (
       onChange={onChange}
     />,
   );
-  const custom = screen.getByRole("button", { name: "Graphite (custom)" });
-  expect(custom.getAttribute("aria-pressed")).toBe("true");
-  expect(custom.previousElementSibling?.tagName).toBe("HR");
-  expect(custom.previousElementSibling?.previousElementSibling?.tagName).toBe("BUTTON");
+  fireEvent.click(screen.getByRole("button", { name: /^Theme / }));
+  const custom = screen.getByRole("menuitemradio", { name: "Graphite (custom)" });
+  expect(custom.getAttribute("aria-checked")).toBe("true");
+  expect(custom.parentElement?.querySelector("hr")?.tagName).toBe("HR");
   fireEvent.click(custom);
   expect(onChange).toHaveBeenCalledWith({ interfaceTheme: "user:custom.json" });
   expect(screen.getByLabelText("Interface theme preview").style.getPropertyValue("--bg")).toBe(
     interfaceThemes.graphite.colors.bg,
   );
+});
+
+test("fixed themes never describe the override as the OS Default, including an open menu", () => {
+  const media = {
+    matches: true,
+    addEventListener: vi.fn<(type: string, cb: () => void) => void>(),
+    removeEventListener: vi.fn(),
+  };
+  vi.stubGlobal("matchMedia", () => media);
+  const onChange = vi.fn();
+  const view = render(
+    <InterfaceThemePicker
+      settings={setupState({ interfaceTheme: "eclipse-dark" }).settings}
+      onChange={onChange}
+    />,
+  );
+  fireEvent.keyDown(screen.getByRole("button", { name: "Theme Eclipse Dark" }), { key: "m" });
+  expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Moonlight" }));
+  expect(screen.getByRole("menuitemradio", { name: "Default" })).toBeTruthy();
+  act(() => {
+    media.matches = false;
+    media.addEventListener.mock.calls[0]?.[1]();
+  });
+  expect(screen.getByRole("menuitemradio", { name: "Default" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("menuitemradio", { name: "Default" }));
+  expect(onChange).toHaveBeenCalledWith({ interfaceTheme: "follow" });
+  view.rerender(<InterfaceThemePicker settings={setupState().settings} onChange={onChange} />);
+  expect(screen.getByRole("button", { name: "Theme Default · Eclipse Light" })).toBeTruthy();
 });

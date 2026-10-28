@@ -109,11 +109,11 @@ export const terminalThemes: Readonly<Record<Exclude<TerminalThemeId, "follow">,
   },
 };
 export const terminalThemeOptions: readonly { id: TerminalThemeId; name: string }[] = [
-  { id: "follow", name: "Follow interface" },
-  { id: "foom-dark", name: "Foom Dark" },
+  { id: "follow", name: "Default" },
   { id: "foom-light", name: "Foom Light" },
-  { id: "solarized-dark", name: "Solarized Dark" },
+  { id: "foom-dark", name: "Foom Dark" },
   { id: "solarized-light", name: "Solarized Light" },
+  { id: "solarized-dark", name: "Solarized Dark" },
   { id: "dracula", name: "Dracula" },
 ];
 const keys = ["foreground", "background", "cursor", "selectionBackground", ...ansiNames] as const;

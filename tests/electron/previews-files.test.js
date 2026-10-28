@@ -208,7 +208,13 @@ test("Markdown previews render hostile documents safely, follow native theme and
     ["dark", "rgb(5, 4, 10)"],
     ["light", "rgb(243, 240, 250)"],
   ]) {
-    await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+    await page.evaluate(
+      (colorMode) =>
+        window.desktop.saveSetup({
+          interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+        }),
+      mode,
+    );
     await expect
       .poll(() => read("getComputedStyle(document.documentElement).backgroundColor"))
       .toBe(background);

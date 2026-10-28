@@ -47,7 +47,7 @@ for (const kind of ["html", "markdown"]) {
   test(`user ${kind} preview moves to a fresh window, resets network and keeps live reload`, async (context) => {
     const app = await launchApp(context, { fixture: "repository" });
     const page = await boardPage(app);
-    await page.evaluate(() => window.desktop.saveSetup({ colorMode: "dark" }));
+    await page.evaluate(() => window.desktop.saveSetup({ interfaceTheme: "eclipse-dark" }));
     const root = (await page.evaluate(() => window.desktop.workspace())).repositories[0].path;
     const file = kind === "html" ? "move.html" : "move.md";
     const document = (text) =>

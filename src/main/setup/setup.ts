@@ -97,9 +97,6 @@ export class Setup {
   }
 
   private async savePatch(patch: SettingsPatch): Promise<SetupState> {
-    // Choosing System/Light/Dark explicitly returns to Eclipse. Size-only edits keep the theme.
-    if (patch.colorMode !== undefined && patch.interfaceTheme === undefined)
-      patch.interfaceTheme = "follow";
     const before = this.deps.store.get();
     if (
       patch.setupComplete === true &&

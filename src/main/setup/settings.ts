@@ -8,6 +8,7 @@ import {
   parseAgentArguments,
 } from "../agents/default-arguments";
 import {
+  migrateAppearanceSettings,
   CONFIG_SETTINGS,
   isConfigSetting,
   parseConfigSettings,
@@ -46,7 +47,6 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   agentArguments: EMPTY_AGENT_ARGUMENTS,
   agentBypassAcknowledged: Object.freeze({ claude: false, codex: false, agy: false }),
   worktreeLocation: "root",
-  colorMode: "system",
   panelColor: "vivid",
   interfaceTheme: "follow",
   interfaceScale: 100,
@@ -200,7 +200,7 @@ export class SettingsStore {
       const state: unknown = JSON.parse(await readFile(store.file, "utf8"));
       const version = record(state) ? state["version"] : undefined;
       if (record(state) && (version === 1 || version === 2) && record(state["settings"])) {
-        const { agentArguments, sound, ...rest } = state["settings"];
+        const { agentArguments, sound, ...rest } = migrateAppearanceSettings(state["settings"]);
         const legacy = "inference" in rest || "inferenceTimeoutMs" in rest;
         delete rest["codexNotifierAcknowledged"];
         delete rest["inference"];

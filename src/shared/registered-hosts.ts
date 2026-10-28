@@ -49,6 +49,11 @@ export function gitOrigin(value: unknown): value is string {
       ))
   );
 }
+function agentId(value: unknown): value is string {
+  return (
+    typeof value === "string" && !/\p{Cc}/u.test(value) && /^[a-z][a-z0-9-]{0,63}$/u.test(value)
+  );
+}
 export function hostManagement(value: unknown): value is HostManagement {
   if (!record(value) || value["type"] !== "manage" || !codeFolder(value["codeFolder"]))
     return false;
@@ -60,14 +65,15 @@ export function hostManagement(value: unknown): value is HostManagement {
         (agent: unknown) =>
           record(agent) &&
           keys(agent, ["id", "executables"]) &&
-          typeof agent["id"] === "string" &&
-          /^[a-z][a-z0-9-]{0,63}$/u.test(agent["id"]) &&
+          agentId(agent["id"]) &&
           Array.isArray(agent["executables"]) &&
           agent["executables"].length >= 1 &&
           agent["executables"].length <= 8 &&
           agent["executables"].every(
             (name: unknown) =>
-              typeof name === "string" && /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/u.test(name),
+              typeof name === "string" &&
+              !/\p{Cc}/u.test(name) &&
+              /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/u.test(name),
           ),
       ))
   )
@@ -90,6 +96,7 @@ export function hostResult(value: unknown): value is HostResult {
   if (value["ok"] === false)
     return (
       keys(value, ["ok", "reason"]) &&
+      typeof value["reason"] === "string" &&
       [
         "unreachable",
         "unsupported",
@@ -99,7 +106,7 @@ export function hostResult(value: unknown): value is HostResult {
         "origin-unavailable",
         "clone-failed",
         "checkout-refused",
-      ].includes(String(value["reason"]))
+      ].includes(value["reason"])
     );
   const facts = value["facts"];
   const checkout = value["checkout"];
@@ -131,7 +138,9 @@ export function hostResult(value: unknown): value is HostResult {
     facts["load"].length === 3 &&
     facts["load"].every(number) &&
     number(facts["memoryTotal"]) &&
+    Number.isSafeInteger(facts["memoryTotal"]) &&
     number(facts["memoryAvailable"]) &&
+    Number.isSafeInteger(facts["memoryAvailable"]) &&
     Number(facts["memoryAvailable"]) <= Number(facts["memoryTotal"]) &&
     Array.isArray(facts["agents"]) &&
     facts["agents"].length <= 100 &&
@@ -139,15 +148,16 @@ export function hostResult(value: unknown): value is HostResult {
       (agent: unknown) =>
         record(agent) &&
         keys(agent, ["id", "state"]) &&
-        typeof agent["id"] === "string" &&
-        /^[a-z][a-z0-9-]{0,63}$/u.test(agent["id"]) &&
-        ["ready", "missing", "unable"].includes(String(agent["state"])),
+        agentId(agent["id"]) &&
+        typeof agent["state"] === "string" &&
+        ["ready", "missing", "unable"].includes(agent["state"]),
     ) &&
     (checkout === undefined ||
       (record(checkout) &&
         keys(checkout, ["path", "state"]) &&
         remotePath(checkout["path"]) &&
-        ["clean", "changed", "absent"].includes(String(checkout["state"]))))
+        typeof checkout["state"] === "string" &&
+        ["clean", "changed", "absent"].includes(checkout["state"])))
   );
 }
 export function hostsAction(value: unknown): value is HostsAction {

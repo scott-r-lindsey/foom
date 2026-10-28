@@ -113,6 +113,8 @@ test("origin and management boundaries accept only closed operations and credent
       [{ id: "custom", executables: [] }],
       [{ id: "custom", executables: Array(9).fill("cli") }],
       [{ id: "custom", executables: ["../cli"] }],
+      [{ id: "custom", executables: ["cli\n"] }],
+      [{ id: "custom\n", executables: ["cli"] }],
       [{ id: "custom", executables: [null] }],
       [{ id: "custom", executables: ["cli"], args: ["bad"] }],
     ].map((agents) => ({ ...inspect, agents })),
@@ -122,6 +124,18 @@ test("origin and management boundaries accept only closed operations and credent
 test("typed results expose bounded facts and fixed states only", () => {
   const valid = { ok: true, facts };
   expect(hostResult(valid)).toBe(true);
+  expect(
+    hostResult({ ...valid, facts: { ...facts, agents: [{ id: "claude\n", state: "ready" }] } }),
+  ).toBe(false);
+  expect(hostResult({ ok: false, reason: ["unreachable"] })).toBe(false);
+  expect(
+    hostResult({ ...valid, facts: { ...facts, agents: [{ id: "claude", state: ["ready"] }] } }),
+  ).toBe(false);
+  expect(hostResult({ ...valid, checkout: { path: "/repo", state: ["clean"] } })).toBe(false);
+  expect(
+    hostResult({ ...valid, facts: { ...facts, memoryTotal: Number.MAX_SAFE_INTEGER + 1 } }),
+  ).toBe(false);
+  expect(hostResult({ ...valid, facts: { ...facts, memoryAvailable: 0.5 } })).toBe(false);
   expect(
     hostResult({ ...valid, facts: { ...facts, version: "0.1.0-nightly.20261028+abcdef0" } }),
   ).toBe(true);

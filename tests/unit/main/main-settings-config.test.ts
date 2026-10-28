@@ -33,8 +33,8 @@ test("setup owns the settings, applies them to the workspace, and uses the local
   expect(deps.worktreeRoot).toBe("/home/.foom/worktrees");
   // The saved mode and scale apply before the window exists.
   expect(mock.construct.mock.calls[0]?.[0].webPreferences?.zoomFactor).toBe(1.2);
-  expect(mock.theme.themeSource).toBe("dark");
-  const next = { hooks: false, colorMode: "light", interfaceScale: 90, interfaceTheme: "follow" };
+  expect(mock.theme.themeSource).toBe("system");
+  const next = { hooks: false, interfaceTheme: "eclipse-light", interfaceScale: 90 };
   deps.apply(next);
   expect(mock.workspace.configure).toHaveBeenCalledWith(next);
   expect(mock.theme.themeSource).toBe("light");
@@ -147,15 +147,13 @@ test("Foom config migrates profile values, applies file changes live and broadca
   const settings = vi.spyOn(mock.settingsStore, "get");
   settings.mockReturnValueOnce({
     ...DEFAULT_SETTINGS,
-    colorMode: "dark",
+    interfaceTheme: "eclipse-dark",
     interfaceScale: 120,
-    interfaceTheme: "follow",
   });
   settings.mockReturnValue({
     ...DEFAULT_SETTINGS,
-    colorMode: "dark",
+    interfaceTheme: "eclipse-dark",
     interfaceScale: 140,
-    interfaceTheme: "follow",
   });
   deps.apply({ interfaceScale: 140 });
   settings.mockRestore();

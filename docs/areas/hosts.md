@@ -39,7 +39,7 @@ idle resource polling timers.
 Ready means installed and probeable, using only the existing `--version` and
 `--help` probes over the account's login PATH. Missing executables show Not found;
 failed probes show Unable to check. No sign-in probes or credential reads are
-added. Manifest probe output stays on the host and is reduced to fixed states.
+added. Manifest probe output stays on the host and is reduced to fixed states. Main projects the inventory onto its selected manifest IDs: unexpected host IDs are discarded and omitted entries become Unable to check.
 
 Settings → Repositories shows Local and each registered host. Main reads only
 the registered repository's own origin. Only credential-free HTTPS and SSH Git

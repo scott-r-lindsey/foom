@@ -39,7 +39,7 @@ export type InterfaceThemeId =
   | "moonlight"
   | "graphite"
   | "midnight-indigo";
-/** Follow preserves the preflight System/Light/Dark preference and existing profiles. */
+/** The stored follow ID is shown as Default and follows OS appearance live. */
 export type InterfaceThemeChoice = "follow" | InterfaceThemeId | UserThemeId | InterfaceTheme;
 
 export type InterfaceArea = "sidebar" | "tiles" | "panels" | "dialogs" | "menus";

@@ -200,3 +200,32 @@ test("one shared host owner registers quit cancellation once", async () => {
   const signal: unknown = mock.remote.mock.calls.at(-1)?.[3];
   expect(signal instanceof AbortSignal && signal.aborted).toBe(true);
 });
+
+test("host inventory is projected onto Foom-selected enabled manifests, with missing replies unable to check", async () => {
+  settings = {
+    ...settings,
+    agents: { claude: true, codex: true, agy: false, copilot: false, opencode: false, pi: false },
+  };
+  run.mockResolvedValueOnce({
+    ok: true,
+    facts: {
+      ...facts,
+      agents: [
+        { id: "claude", state: "ready" },
+        { id: "host-invented", state: "ready" },
+      ],
+    },
+  });
+  const state = await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  expect(state.result).toMatchObject({
+    ok: true,
+    facts: {
+      agents: [
+        { id: "claude", state: "ready" },
+        { id: "codex", state: "unable" },
+      ],
+    },
+  });
+  expect(JSON.stringify(state)).not.toContain("host-invented");
+  expect(JSON.stringify(run.mock.calls[0]?.[1].agents)).not.toContain("agy");
+});

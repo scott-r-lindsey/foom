@@ -44,7 +44,6 @@ const settingsSchema = schema("foom:settings", {
   required: ["kind"],
   properties: {
     kind: { const: "settings" },
-    colorMode: { enum: ["system", "light", "dark"] },
     panelColor: { enum: ["vivid", "subtle", "plain"] },
     interfaceTheme: {
       anyOf: [
@@ -271,9 +270,14 @@ valid changes live. It is plain files: Foom keeps no history of it.
 ## Files
 
 - \`settings.json\`: \`{ "kind": "settings", ... }\` with any of the allowed keys:
-  \`colorMode\`, \`panelColor\`, \`interfaceTheme\`, \`terminalTheme\`, \`interfaceScale\`,
+  \`panelColor\`, \`interfaceTheme\`, \`terminalTheme\`, \`interfaceScale\`,
   \`terminalFontSize\`, \`terminalFont\` (a family name, default Hack Nerd Font Mono), \`sound\`, \`agents\`, \`agentArguments\`, \`hooks\`, \`restoreSessions\`, \`showNewChildren\` (boolean, default true; new children appear on the board), \`closeFinishedAgents\` (boolean, default true; close finished children) and \`concurrentChildren\` (integer 1–16, default 4), and \`recentRepositoryDays\` (integer 1–365, default 30). Any other key rejects the file.
   Consent records, paths and secrets are not configurable here.
+  \`interfaceTheme: "follow"\` means Default, following the OS live. A fixed theme keeps its base.
+  \`terminalTheme: "follow"\` means Default, following the current interface base live.
+  \`colorMode\` is retired. Older files migrate: follow + system becomes Default,
+  follow + light/dark becomes eclipse-light/eclipse-dark; fixed themes stay selected.
+  Omit colorMode in new edits; the validator reports a legacy-key warning.
   \`agentArguments\` requires the three legacy profile keys and accepts other provider IDs: \`{ "claude": [], "codex": [], "agy": [] }\`.
   Each list is literal argv, one string per argument, with no shell parsing.
   Every change to these lists waits for the user's Allow, including removal or harmless flags.
@@ -503,6 +507,7 @@ export const OWNED_FILES: Readonly<Record<string, string>> = {
  * is unedited and is replaced on upgrade; anything else belongs to the user.
  */
 const GUIDE_HISTORY = [
+  "8c2d280e0ed7cb2833228f7ed823e2a5351abe545088c7cc7ad748556495401d",
   "6797d94d8c809145e4acc62f584e64c5a21af3db0cfd98fd451d45ab1f89c58c",
   "cea4ad5f9d38f5b2850be969118d7d68299d737217312ed2a6d1ccd8bf04935e",
   "3556a1106ac9fe85e2ae85fe60846e344bae0d605c51ee409532ee19a0b25ba1",
@@ -548,6 +553,7 @@ export const OWNED_HISTORY: Readonly<Record<string, readonly string[]>> = {
   ],
   "schemas/theme.schema.json": ["831094a9c9c8c13c87ab7ff227b70803dcd3a9f9f59b6f1cc352f67b43a8e1cc"],
   "schemas/settings.schema.json": [
+    "3a5858992c8b78a52bb2012dbfe6b5f118f4c7c216979368ba2fbc61f9e2f550",
     "656cd40c0b6cb73470be903f01d1e0d9b81e7d0b50fcf99129ff256173c7adba",
     "f805581f622ba59315ae792ba35b809981f859c151bc0710b55c91a7a1e5d817",
     "7adeb4afdb505fdaeaf83ef3056e662f30ed502021c49adae30eb60e7bc17cca",

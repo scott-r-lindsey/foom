@@ -142,7 +142,7 @@ test("saved user choices resolve through catalogs and fall back without replacin
     );
     expect(resolveTerminalTheme("user:custom.json", dark, catalog)).toEqual(terminalThemes.dracula);
   }
-  expect(interfaceThemeSource("user:custom.json", "dark", catalog)).toBe("light");
-  expect(interfaceThemeSource("user:missing.json", "system", catalog)).toBe("system");
-  expect(interfaceThemeSource("user:missing.json", "dark")).toBe("dark");
+  expect(interfaceThemeSource("user:custom.json", catalog)).toBe("light");
+  expect(interfaceThemeSource("user:missing.json", catalog)).toBe("system");
+  expect(interfaceThemeSource("user:missing.json")).toBe("system");
 });

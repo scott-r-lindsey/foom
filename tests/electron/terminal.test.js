@@ -828,8 +828,9 @@ test("host answers color queries once through real view transitions and system t
   for (const theme of ["light", "dark", "dracula"]) {
     if (theme === "dracula") {
       await openSettingsScreen(page);
-      await page.getByRole("button", { name: "Themes", exact: true }).click();
-      await page.getByRole("button", { name: "Dracula", exact: true }).click();
+      await page.getByRole("button", { name: "Terminal", exact: true }).click();
+      await page.getByRole("button", { name: /^Colors / }).click();
+      await page.getByRole("menuitemradio", { name: "Dracula", exact: true }).click();
       await expect
         .poll(() =>
           page.evaluate(async () => (await window.desktop.setupState()).settings.terminalTheme),
@@ -1494,7 +1495,13 @@ test("macOS private selection pastes from terminal A to B through bracketed past
     .toBe(true);
   if (process.env.FOOM_CAPTURE_856 === "1") {
     for (const mode of ["light", "dark"]) {
-      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await page.evaluate(
+        (colorMode) =>
+          window.desktop.saveSetup({
+            interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+          }),
+        mode,
+      );
       await expect
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
@@ -1587,7 +1594,13 @@ test("copy on select writes only completed terminal selections when enabled", {
   ).toHaveCount(capture || process.platform === "darwin" ? 1 : 0);
   if (capture) {
     for (const mode of ["light", "dark"]) {
-      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await page.evaluate(
+        (colorMode) =>
+          window.desktop.saveSetup({
+            interfaceTheme: colorMode === "system" ? "follow" : `eclipse-${colorMode}`,
+          }),
+        mode,
+      );
       await expect
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
