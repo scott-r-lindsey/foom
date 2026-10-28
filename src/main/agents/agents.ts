@@ -19,14 +19,12 @@ import type { ControlLaunch } from "../control/types";
 import { hasBypassArgument, parseAgentArguments } from "./default-arguments";
 import { bypassConsentIdentity } from "./default-arguments";
 import { buildLaunchEnvironment, inheritedEnvironment } from "../setup/environment";
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readLoginShell } from "../login-shell";
 import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
-import { promisify } from "node:util";
 import type {
   AgentHooks,
   AgentId,
@@ -38,7 +36,6 @@ import type {
 import type { TerminalSpec } from "../../shared/desktop";
 import type { WorktreeService } from "../workspace/worktrees";
 
-const execute = promisify(execFile);
 const probeOptions = { encoding: "utf8", timeout: 5000, maxBuffer: 256 * 1024 } as const;
 
 /** Fixed shell program only: no executable paths, arguments, or agent output interpolated. */
@@ -99,7 +96,7 @@ async function detect(id: AgentId, path: string, probeEnabled = true): Promise<A
     await provider.validate?.();
     if (agentProvider(id) !== provider) throw new Error("Agent plugins changed. Scan again.");
     try {
-      return (await execute(executable, [flag], options)).stdout;
+      return (await readLoginShell(executable, [flag], options)).stdout;
     } catch {
       return "";
     }

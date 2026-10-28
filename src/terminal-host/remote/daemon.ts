@@ -21,6 +21,8 @@ import { hostSocket } from "./private-path";
 
 export const MAX_EXIT_TOMBSTONES = 64;
 export const DETACHED_SESSION_GRACE_MS = 24 * 60 * 60 * 1000;
+const MAX_SESSIONS = 32;
+const MAX_PENDING_CONNECTIONS = 4;
 
 /** Only remote account facts can choose the executable; never protocol input. */
 export function remoteShell(shell = process.env["SHELL"], accountShell = () => userInfo().shell) {
@@ -84,6 +86,7 @@ export function serveHost(
       }
   };
   const sockets = new Set<Socket>();
+  const pendingConnections = new Set<Socket>();
   const outgoing = new WeakMap<Socket, { chain: Promise<void>; queued: number }>();
   const send = (
     socket: Socket,
@@ -212,11 +215,15 @@ export function serveHost(
     },
   );
   const server = createServer((socket) => {
-    if (sockets.size >= 32) {
+    if (
+      sockets.size >= MAX_SESSIONS + MAX_PENDING_CONNECTIONS ||
+      pendingConnections.size >= MAX_PENDING_CONNECTIONS
+    ) {
       socket.destroy();
       return;
     }
     sockets.add(socket);
+    pendingConnections.add(socket);
     const frames = new RemoteFrames();
     let negotiated = false;
     let id: string | undefined;
@@ -235,6 +242,8 @@ export function serveHost(
         session.connection.destroy();
       }
       session.connection = socket;
+      pendingConnections.delete(socket);
+      clearTimeout(deadline);
       if (session.agent)
         await send(socket, { type: "agent-ready", id, ready: session.agent.ready });
       await send(socket, { type: "open-result", id, request, state: "live" });
@@ -251,7 +260,6 @@ export function serveHost(
         if (message.type !== "hello" || message.build !== build)
           throw new Error("Host version mismatch");
         negotiated = true;
-        clearTimeout(deadline);
         await send(socket, { type: "hello", build });
         return;
       }
@@ -271,7 +279,7 @@ export function serveHost(
           !id ||
           message.id !== id ||
           sessions.has(id) ||
-          sessions.size >= 32 ||
+          sessions.size >= MAX_SESSIONS ||
           shuttingDown
         )
           throw new Error("Invalid agent start");
@@ -309,7 +317,7 @@ export function serveHost(
           return;
         }
         if (!session) {
-          if (sessions.size >= 32) throw new Error("Host session limit");
+          if (sessions.size >= MAX_SESSIONS) throw new Error("Host session limit");
           const sessionId = id;
           session = {};
           const owned = session;
@@ -527,6 +535,7 @@ export function serveHost(
         prepared = undefined;
       }
       sockets.delete(socket);
+      pendingConnections.delete(socket);
       const sessionId = id;
       if (sessionId && sessions.get(sessionId)?.connection === socket) {
         const session = sessions.get(sessionId);

@@ -1,4 +1,6 @@
 import fs from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { EventEmitter } from "node:events";
 import { expect, test, vi } from "vitest";
 import { fake, partition, fixture } from "./host-fixture";
@@ -38,6 +40,7 @@ test("served and missing files reload with isolated scroll, release watchers and
   expect(replacement.webContents.executeJavaScriptInIsolatedWorld).toHaveBeenCalledWith(999, [
     { code: "window.scrollTo(0, 1200)" },
   ]);
+  handler({ url: `foom-preview://${id}/a.html` });
   replacement.webContents.executeJavaScriptInIsolatedWorld.mockRejectedValueOnce(
     new Error("read failed"),
   );
@@ -79,5 +82,91 @@ test("closing while isolated scroll capture is pending cannot resurrect a previe
   resolve?.([0, 100]);
   await Promise.resolve();
   expect(view.webContents.reload).not.toHaveBeenCalled();
+  await f.host.dispose(false);
+});
+
+test("navigation beyond 64 historical directories watches only the current chapter", async () => {
+  vi.useFakeTimers();
+  const watches: {
+    directory: string;
+    notify: (name: string) => void;
+    close: ReturnType<typeof vi.fn>;
+  }[] = [];
+  vi.spyOn(fs, "watch").mockImplementation(
+    (directory: fs.PathLike, _options: unknown, listener?: fs.WatchListener<string>) => {
+      const close = vi.fn();
+      watches.push({
+        directory: String(directory),
+        notify: (name) => listener?.("change", name),
+        close,
+      });
+      return Object.assign(new EventEmitter(), { close, ref: vi.fn(), unref: vi.fn() });
+    },
+  );
+  const f = await fixture();
+  const { id } = await f.open();
+  const handler = partition.protocol.handle.mock.calls[0]?.[1];
+  if (!handler) throw new Error("Missing protocol");
+  for (let i = 0; i < 70; i++) {
+    const directory = path.join(f.root, String(i));
+    await mkdir(directory);
+    await writeFile(path.join(directory, "chapter.md"), "# Chapter");
+    const previous = fake.views.at(-1);
+    previous?.webContents.emit("did-start-navigation", {
+      url: `foom-preview://${id}/${String(i)}/chapter.md`,
+      isMainFrame: true,
+      isSameDocument: false,
+    });
+    await vi.advanceTimersByTimeAsync(250);
+    expect(handler({ url: `foom-preview://${id}/${String(i)}/chapter.md` }).status).toBe(200);
+    expect(f.host.watcherCount).toBe(1);
+    expect(
+      watches
+        .filter((watch) => watch.close.mock.calls.length === 0)
+        .map((watch) => watch.directory),
+    ).toEqual([fs.realpathSync.native(directory)]);
+  }
+  const current = fake.views.at(-1);
+  watches[0]?.notify("chapter.md");
+  await vi.advanceTimersByTimeAsync(120);
+  expect(current?.webContents.reload).not.toHaveBeenCalled();
+  watches.at(-1)?.notify("chapter.md");
+  await vi.advanceTimersByTimeAsync(120);
+  expect(current?.webContents.reload).toHaveBeenCalledOnce();
+  await f.host.dispose(false);
+});
+
+test("reload replaces hashed asset and missing dependency names in a shared directory", async () => {
+  vi.useFakeTimers();
+  const listeners: ((name: string) => void)[] = [];
+  vi.spyOn(fs, "watch").mockImplementation(
+    (_directory: fs.PathLike, _options: unknown, listener?: fs.WatchListener<string>) => {
+      listeners.push((name) => listener?.("change", name));
+      return Object.assign(new EventEmitter(), { close: vi.fn(), ref: vi.fn(), unref: vi.fn() });
+    },
+  );
+  const f = await fixture();
+  const { id } = await f.open();
+  const handler = partition.protocol.handle.mock.calls[0]?.[1];
+  if (!handler) throw new Error("Missing protocol");
+  await writeFile(path.join(f.root, "asset-old.css"), "body {}");
+  handler({ url: `foom-preview://${id}/asset-old.css` });
+  handler({ url: `foom-preview://${id}/missing-old.css` });
+  await f.host.reload(id);
+  await vi.advanceTimersByTimeAsync(250);
+  await writeFile(path.join(f.root, "asset-new.css"), "body {}");
+  handler({ url: `foom-preview://${id}/a.html` });
+  handler({ url: `foom-preview://${id}/asset-new.css` });
+  handler({ url: `foom-preview://${id}/missing-new.css` });
+  const current = fake.views.at(-1);
+  for (const notify of listeners) {
+    notify("asset-old.css");
+    notify("missing-old.css");
+  }
+  await vi.advanceTimersByTimeAsync(120);
+  expect(current?.webContents.reload).not.toHaveBeenCalled();
+  listeners.at(-1)?.("asset-new.css");
+  await vi.advanceTimersByTimeAsync(120);
+  expect(current?.webContents.reload).toHaveBeenCalledOnce();
   await f.host.dispose(false);
 });

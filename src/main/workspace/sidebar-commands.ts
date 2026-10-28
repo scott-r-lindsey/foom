@@ -1,3 +1,4 @@
+import type { SidebarCommandResult } from "../../shared/workspace";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
@@ -83,12 +84,18 @@ export async function sidebarCommand(
   confirm: ConfirmWorkspace,
   validateClose?: () => void,
   closeSignal?: AbortSignal,
-): Promise<void> {
+): Promise<SidebarCommandResult> {
   validateClose?.();
   if (this.closed) throw new Error("Workspace is closed");
-  if (command.kind === "resume-id") return this.resumeId(command, confirm);
-  if (command.kind === "home-shell") return this.startHomeShell();
-  if (command.kind === "config-launch") return this.startConfig(command.run);
+  if (command.kind === "resume-id") {
+    await this.resumeId(command, confirm);
+    return;
+  }
+  if (command.kind === "home-shell") return { terminalId: await this.startHomeShell() };
+  if (command.kind === "config-launch") {
+    await this.startConfig(command.run);
+    return;
+  }
   if (command.kind === "copy-config-path") {
     if (!this.deps.config) throw new Error("Foom config is unavailable");
     await this.deps.copyText?.(this.deps.config.root);
@@ -123,8 +130,14 @@ export async function sidebarCommand(
     await this.auditHuman("take_over", command.id, command.id, "succeeded", operationId);
     return;
   }
-  if (command.kind === "make-orchestrator") return this.makeOrchestrator(command.id, confirm);
-  if (command.kind === "revoke-orchestrator") return this.revokeOrchestrator(command.id);
+  if (command.kind === "make-orchestrator") {
+    await this.makeOrchestrator(command.id, confirm);
+    return;
+  }
+  if (command.kind === "revoke-orchestrator") {
+    await this.revokeOrchestrator(command.id);
+    return;
+  }
   if ("id" in command && this.busySessions.has(command.id)) throw new Error("Session is busy");
   if (
     command.kind === "resume" ||
@@ -193,7 +206,12 @@ export async function sidebarCommand(
       else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
     }
     const identity =
-      command.kind === "close" && entry && !entry.home && !entry.config
+      command.kind === "close" &&
+      entry &&
+      !entry.home &&
+      !entry.config &&
+      (!entry.dormant ||
+        this.deps.worktrees.listRepositories().some((repo) => repo.path === entry.repository))
         ? this.deps.worktrees.reviewIdentity(entry.repository, entry.worktree)
         : undefined;
     if (entry && identity !== undefined) {
@@ -260,10 +278,13 @@ export async function sidebarCommand(
     });
     return;
   }
-  if (command.kind === "delete-merged-worktrees")
-    return this.cleanup.deleteMerged(command.repository, confirm);
+  if (command.kind === "delete-merged-worktrees") {
+    await this.cleanup.deleteMerged(command.repository, confirm);
+    return;
+  }
   if (command.kind === "remove-repository") {
-    return this.removeRepository(command.repository, () => confirm({ kind: "remove" }));
+    await this.removeRepository(command.repository, () => confirm({ kind: "remove" }));
+    return;
   }
   if (command.kind === "launch") {
     await this.startExisting(command.repository, command.worktree, command.run, confirm);

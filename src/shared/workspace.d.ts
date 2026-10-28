@@ -155,7 +155,7 @@ export interface WorkspaceApi {
   confirmations: ConfirmationClient;
   panelFacts(repository: string, worktree: string): Promise<GitPanelFacts>;
   sidebarInventory(): Promise<SidebarInventory>;
-  sidebarCommand(command: SidebarCommand): Promise<void>;
+  sidebarCommand(command: SidebarCommand): Promise<SidebarCommandResult>;
   /** Null means the user cancelled the shared-agent confirmation. */
   startWorktree(request: StartWorktreeRequest): Promise<string | null>;
   /** Main confirms removal, including any uncommitted changes. */
@@ -241,3 +241,6 @@ export interface PreviewSummary {
   relativePath: string;
   kind: "markdown" | "html";
 }
+
+/** Home-shell launches return their request-specific terminal identity. */
+export type SidebarCommandResult = { terminalId: string } | undefined;

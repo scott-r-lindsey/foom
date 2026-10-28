@@ -1,4 +1,5 @@
 import type { PreviewOpenAction } from "../../shared/previews";
+import type { SidebarCommandResult } from "../../shared/workspace";
 import type { PreviewSummary } from "../../shared/workspace";
 import type { HomeShellFacts } from "../../shared/panel";
 import type { ExecutionSnapshot } from "../../shared/execution";
@@ -87,6 +88,31 @@ export function createAppSource(): BoardSource {
   const snapshotStates = new Map<string, TerminalState>();
   const exits = new Map<string, number>();
   const rates = new Map<string, number>();
+  // Events may precede their first inventory. Bound that exception independently
+  // of the number of sessions the user has opened during this window's lifetime.
+  const pendingEvents = new Set<string>();
+  const forget = (id: string) => {
+    executions.delete(id);
+    states.delete(id);
+    snapshotStates.delete(id);
+    exits.delete(id);
+    rates.delete(id);
+    pendingEvents.delete(id);
+  };
+  const retainEvent = (id: string) => {
+    if (rows.some((row) => row.id === id)) return;
+    pendingEvents.add(id);
+    if (pendingEvents.size > 256) {
+      const oldest = pendingEvents.values().next().value;
+      if (oldest !== undefined) forget(oldest);
+    }
+  };
+  const reconcileCaches = () => {
+    const ids = new Set(rows.map((row) => row.id));
+    for (const id of ids) pendingEvents.delete(id);
+    for (const cache of [executions, states, snapshotStates, exits, rates])
+      for (const id of cache.keys()) if (!ids.has(id) && !pendingEvents.has(id)) forget(id);
+  };
   const publish = () => {
     for (const listener of listeners) listener();
   };
@@ -291,6 +317,7 @@ export function createAppSource(): BoardSource {
         return nextRow ? [nextRow] : [];
       })
       .concat([...incoming.values()]);
+    reconcileCaches();
     for (const [id, owner] of owners) {
       if (!rows.some((row) => row.id === id && !row.dormant)) {
         owner.release(id);
@@ -311,6 +338,7 @@ export function createAppSource(): BoardSource {
         owners.delete(previous);
         await window.desktop.kill(previous);
         rows = rows.filter((row) => row.id !== previous);
+        forget(previous);
         shellId = pendingShell;
       }
       const created = await window.desktop.create(80, 24);
@@ -401,6 +429,7 @@ export function createAppSource(): BoardSource {
       publish();
     });
     const offExecution = window.desktop.onExecution((event) => {
+      retainEvent(event.terminalId);
       acceptExecution(event);
       rows = rows.map((row) => (row.id === event.terminalId ? latest(row) : row));
       publish();
@@ -417,17 +446,22 @@ export function createAppSource(): BoardSource {
           return;
         acceptExecution(state.execution);
       }
+      retainEvent(state.id);
       states.set(state.id, state);
       rows = rows.map((row) => (row.id === state.id ? latest(row) : row));
       publish();
     });
     const offExit = window.desktop.onExit((id, code) => {
+      retainEvent(id);
       exits.set(id, code);
       rows = rows.map((row) => (row.id === id ? latest(row) : row));
       publish();
     });
     const offActivity = window.desktop.onActivity((batch) => {
-      for (const { id, rate } of batch) rates.set(id, rate);
+      for (const { id, rate } of batch) {
+        retainEvent(id);
+        rates.set(id, rate);
+      }
       for (const listener of activityListeners) listener(batch);
     });
     void refresh();
@@ -553,19 +587,22 @@ export function createAppSource(): BoardSource {
             : row,
         );
       }
+      let result: SidebarCommandResult;
       try {
-        await window.desktop.sidebarCommand(command);
+        result = await window.desktop.sidebarCommand(command);
       } finally {
         if (command.kind === "resume" || command.kind === "new-conversation")
           snapshot(await window.desktop.workspace(), command.id);
       }
       if (command.kind === "close") {
+        forget(command.id);
         rows = rows.filter((row) => row.id !== command.id);
         if (command.id === shellId) shellId = pendingShell;
       }
       const inventory = await window.desktop.sidebarInventory();
       acceptInventory(inventory);
       snapshot(await window.desktop.workspace());
+      return result;
     },
     worktrees: {
       subscribe: (listener) => window.desktop.onSetupChange(listener),

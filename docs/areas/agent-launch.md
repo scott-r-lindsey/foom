@@ -21,6 +21,13 @@ Both PATH discovery and environment import retain their five-second deadline and
 Unix process group, including background descendants holding output pipes open.
 Windows readers continue to use the inherited environment without a login shell.
 
+Normal agent `--version` and `--help` discovery uses this same bounded reader
+(#898): ignored stdin, a detached Unix session, five seconds per call and 256 KiB
+per output stream. Deadline, overflow and executable exit kill the Unix process
+group with SIGKILL, including descendants that ignore SIGTERM or hold pipes open.
+Failed reads retain the existing discovery fallback and do not strand the scan
+of other providers.
+
 ### Launch environment (#215)
 
 `src/main/setup/environment.ts` owns Environment settings. `environment.json` in user

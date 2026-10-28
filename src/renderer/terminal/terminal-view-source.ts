@@ -1,6 +1,11 @@
 import { createShell } from "./shell-controller";
 import type { TerminalViewSource } from "./terminal-view-source.d";
 import type { ShellView } from "./shell.d";
+import {
+  nextTerminalFocusGeneration,
+  isCurrentTerminalFocusGeneration,
+} from "../board/focus-restore";
+
 /** A view never creates or stops a process. Workspace lifecycle remains in main. */
 export function createTerminalView(
   schedule: (operation: () => Promise<void>) => Promise<void> = (operation) => operation(),
@@ -9,6 +14,8 @@ export function createTerminalView(
   hasExited: (id: string) => boolean = () => false,
 ): TerminalViewSource {
   let controller: ReturnType<typeof createShell> | undefined;
+  let cancelFocus: (() => void) | undefined;
+  let pendingRestoration: { from: Element | null } | undefined;
   let snapshot: ShellView = {
     status: "Terminal",
     state: "quiet_ok",
@@ -44,6 +51,7 @@ export function createTerminalView(
         hasExited,
       );
       return () => {
+        cancelFocus?.();
         const previous = controller;
         controller = undefined;
         void run(async () => {
@@ -66,15 +74,51 @@ export function createTerminalView(
         await current.open(id);
         owners.set(id, current);
       }),
-    hide: () =>
-      run(async () => {
+    hide: () => {
+      // Reopening a modal revokes restoration immediately, before its hide
+      // operation reaches the shared attachment queue.
+      cancelFocus?.();
+      return run(async () => {
+        const before = document.activeElement;
         await controller?.hide();
-      }),
-    focus: () => {
-      void run(() => {
-        controller?.terminal.focus();
-        return Promise.resolve();
+        // An earlier queued hide can blur the opener after a later dismissal
+        // requested restoration. Preserve only that implicit body fallback.
+        if (
+          pendingRestoration &&
+          pendingRestoration.from === before &&
+          document.activeElement === document.body
+        )
+          pendingRestoration.from = document.body;
       });
+    },
+    focus: (restoration) => {
+      if (restoration && !isCurrentTerminalFocusGeneration(restoration.generation)) return;
+      cancelFocus?.();
+      const current = controller;
+      const generation = nextTerminalFocusGeneration();
+      const expected = restoration ? { from: restoration.from } : undefined;
+      pendingRestoration = expected;
+      let cancelled = false;
+      const cancel = () => {
+        cancelled = true;
+        document.removeEventListener("focusin", cancel, true);
+        if (cancelFocus === cancel) {
+          cancelFocus = undefined;
+          pendingRestoration = undefined;
+        }
+      };
+      cancelFocus = cancel;
+      // A newer focus choice wins even if focus later returns to the opener.
+      if (restoration) document.addEventListener("focusin", cancel, true);
+      void run(() => {
+        if (
+          !cancelled &&
+          isCurrentTerminalFocusGeneration(generation) &&
+          (!expected || document.activeElement === expected.from)
+        )
+          current?.terminal.focus();
+        return Promise.resolve();
+      }).finally(cancel);
     },
     getSnapshot: () => snapshot,
     subscribe: (listener) => {

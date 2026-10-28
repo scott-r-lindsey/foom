@@ -205,7 +205,11 @@ Closing destroys contents, unregisters its protocol/request handler, clears stor
 and cache, and removes the registry entry. Quit preserves validated registry
 metadata while releasing views and partitions. The session protocol handler records served and missing contained files. Each
 preview watches their parent directory entries with non-recursive `fs.watch`,
-filtered by name, capped at 64 directories. Requested symlink names and parent
+filtered by name, capped at 64 directories per load generation. Each detached
+replacement on navigation or reload releases the preceding generation's handles,
+filename sets and pending notifications before recording the new load's served and
+missing dependencies. Historical chapters and asset names do not consume the cap
+or trigger reloads. Requested symlink names and parent
 symlinks/junctions are watched as well as resolved targets. Missing nested parents
 use their nearest existing contained ancestor until a reload can subscribe closer.
 A 120 ms trailing debounce with a one-second maximum wait triggers the existing

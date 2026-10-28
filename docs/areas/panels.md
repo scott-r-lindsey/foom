@@ -26,7 +26,7 @@ cleanup service. Default-branch and last-fetch facts also read the local remote 
 Fact-copy actions use validated sidebar commands and main’s clipboard capability: home paths are main-owned, checkout paths require a registered checkout identity, and conversation IDs come from the selected session. Browser clipboard permissions remain denied.
 
 `home-shell` is a path-free sidebar command. Main chooses the home directory and
-shell, starts a normal sandboxed-host PTY and records `home: true` alongside
+shell, starts a normal sandboxed-host PTY and returns its created terminal ID for request-specific tile placement, recording `home: true` alongside
 ordinary session metadata. Restore accepts home records only for shells with
 matching home paths; previously running home shells restart when restore is enabled. Restart uses the same
 main-owned launch path. Home sessions remain outside the Git repository tree

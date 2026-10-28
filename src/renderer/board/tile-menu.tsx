@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 import type { BoardRow } from "./board.d";
 import type { TileAction, TileLayout } from "./tiles.d";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
-import { growTarget } from "./tiles";
+import { DirectionPad } from "./direction-pad";
 import { light } from "./board";
 import { RowMenu } from "./row-menu";
 import type { RowAction } from "./row-menu";
@@ -43,17 +43,14 @@ export function TileMenu({
     view?.subscribe ?? noSubscribe,
     view?.getSnapshot ?? noSnapshot,
   );
-  const item = (key: TileAction, label: string, reason?: string): RowAction => ({
+  const item = (key: "maximize" | "popout" | "hide" | "close", label: string): RowAction => ({
     label,
     glyph: key,
-    ...(reason ? { reason, disabled: true } : {}),
     run: () => {
       close();
       action(key);
     },
   });
-  const gx = growTarget(layout, "horizontal"),
-    gy = growTarget(layout, "vertical");
   return (
     <RowMenu
       anchor={anchor}
@@ -61,11 +58,27 @@ export function TileMenu({
       placement="below"
       label={`Tile ${String(number)} menu`}
       close={close}
+      leading={
+        <div className="tile-pads">
+          <DirectionPad
+            kind="Split"
+            layout={layout}
+            run={(value) => {
+              close();
+              action(value);
+            }}
+          />
+          <DirectionPad
+            kind="Grow"
+            layout={layout}
+            run={(value) => {
+              close();
+              action(value);
+            }}
+          />
+        </div>
+      }
       actions={[
-        item("right", "Split right"),
-        item("down", "Split down"),
-        item("growx", "Grow sideways", "reason" in gx ? gx.reason : undefined),
-        item("growy", "Grow vertically", "reason" in gy ? gy.reason : undefined),
         null,
         {
           ...item("maximize", layout.maximized ? "Restore" : "Maximize"),
@@ -156,6 +169,59 @@ export function TileMenu({
             )}
           </dl>
         ),
+      }}
+    />
+  );
+}
+
+export function SpaceMenu({
+  anchor,
+  point,
+  layout,
+  close,
+  action,
+}: {
+  anchor: HTMLElement;
+  point: { x: number; y: number };
+  layout: TileLayout;
+  close: () => void;
+  action: (value: TileAction) => void;
+}) {
+  const run = (value: TileAction) => {
+    close();
+    action(value);
+  };
+  return (
+    <RowMenu
+      anchor={anchor}
+      dismissOnAnchor
+      tabWithin
+      point={point}
+      placement="below"
+      label="Empty space"
+      close={close}
+      leading={
+        <div className="tile-pads">
+          <DirectionPad kind="Split" layout={layout} run={run} />
+        </div>
+      }
+      actions={[
+        null,
+        {
+          label: "New shell here",
+          run: () => {
+            run("new-shell");
+          },
+        },
+        {
+          label: "Close space",
+          run: () => {
+            run("close-space");
+          },
+        },
+      ]}
+      onAction={(selected) => {
+        void selected.run();
       }}
     />
   );

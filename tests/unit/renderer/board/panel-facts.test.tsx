@@ -398,7 +398,7 @@ test("reports a failed handoff link action without unhandled rejection", async (
         },
         tile: undefined,
       }}
-      source={{ ...source, sidebarCommand: () => Promise.reject(new Error("gone")) }}
+      source={{ ...source, sidebarCommand: () => Promise.reject<undefined>(new Error("gone")) }}
       options={undefined}
     />,
   );
