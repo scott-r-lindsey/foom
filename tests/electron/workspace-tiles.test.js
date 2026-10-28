@@ -1010,6 +1010,7 @@ test("directional pads and empty-space menu split, grow, launch and close", {
     await spaces.first().click({ button: "right" });
     const menu = page.getByRole("menu", { name: "Empty space", exact: true });
     await expect(menu).toBeVisible();
+    await expect(menu).toHaveCSS("width", "250px");
     await expect(menu.getByRole("group", { name: "Grow", exact: true })).toHaveCount(0);
     await assertAccessible(page);
     await page.screenshot({ path: evidencePath(`screenshots-889/empty-space-${colorScheme}.png`) });

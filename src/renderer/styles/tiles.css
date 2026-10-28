@@ -513,6 +513,6 @@
     grid-template-columns: 254px minmax(0, 1fr);
   }
 }
-.app-menu:has(> .row-menu-items > .tile-pads) {
+.app-menu:not(.sidebar-panel):has(.tile-pads) {
   min-width: min(250px, calc(100vw - 16px));
 }
