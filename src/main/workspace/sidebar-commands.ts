@@ -181,7 +181,7 @@ export async function sidebarCommand(
       else await this.startExisting(entry.repository, entry.worktree, "shell", confirm);
     }
     const identity =
-      command.kind === "close" && entry
+      command.kind === "close" && entry && !entry.home && !entry.config
         ? this.deps.worktrees.reviewIdentity(entry.repository, entry.worktree)
         : undefined;
     if (entry && identity !== undefined) {
