@@ -16,6 +16,7 @@ export function ThemeMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const openRef = useRef(false);
   const searchRef = useRef({ text: "", time: 0 });
   const typeahead = (event: KeyboardEvent) => {
     if (
@@ -27,11 +28,12 @@ export function ThemeMenu({
     )
       return;
     const now = Date.now();
-    const previous = open && now - searchRef.current.time < 700 ? searchRef.current.text : "";
+    const previous =
+      openRef.current && now - searchRef.current.time < 700 ? searchRef.current.text : "";
     // Space still activates an option unless it continues a typed family name.
     if (event.key === " " && !previous) return;
     event.preventDefault();
-    if (!open) triggerRef.current?.click();
+    if (!openRef.current) triggerRef.current?.click();
     const text = (previous + event.key.toLocaleLowerCase()).slice(-256);
     searchRef.current = { text, time: now };
     const cycling = Array.from(text).every((character) => character === text[0]);
@@ -72,7 +74,7 @@ export function ThemeMenu({
           const node = menuRef.current;
           const anchor = triggerRef.current;
           if (!node || !anchor) return;
-          if (open) {
+          if (openRef.current) {
             node.hidePopover();
             return;
           }
@@ -107,7 +109,12 @@ export function ThemeMenu({
         role="menu"
         aria-label={label}
         className="theme-menu-options"
+        onBeforeToggle={(event) => {
+          // Native toggle is queued; rapid typing needs visibility synchronously.
+          openRef.current = event.newState === "open";
+        }}
         onToggle={(event) => {
+          openRef.current = event.newState === "open";
           setOpen(event.newState === "open");
         }}
         onKeyDown={(event) => {

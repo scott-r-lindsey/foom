@@ -128,3 +128,32 @@ test("typeahead buffers prefixes, cycles repeated letters and resets after pause
   expect(onChange).not.toHaveBeenCalled();
   clock.mockRestore();
 });
+
+test("rapid typing keeps the popover open before its queued toggle notification", () => {
+  render(
+    <ThemeMenu
+      label="Theme"
+      selected="default"
+      choices={[
+        { id: "default", name: "Default" },
+        { id: "moon", name: "Moonlight" },
+      ]}
+      onChange={vi.fn()}
+    />,
+  );
+  const menu = screen.getByRole("menu", { hidden: true });
+  const toggle = vi.spyOn(menu, "togglePopover").mockImplementation(() => {
+    fireEvent(menu, Object.assign(new Event("beforetoggle"), { newState: "open" }));
+    menu.style.display = "block";
+    return true;
+  });
+  fireEvent.keyDown(screen.getByRole("button", { name: "Theme Default" }), { key: "M" });
+  for (const key of "oon") fireEvent.keyDown(menu, { key });
+  expect(document.activeElement).toBe(screen.getByRole("menuitemradio", { name: "Moonlight" }));
+  expect(toggle).toHaveBeenCalledOnce();
+  expect(menu.style.display).toBe("block");
+  fireEvent(menu, Object.assign(new Event("toggle"), { newState: "open" }));
+  expect(screen.getByRole("button", { name: "Theme Default" }).getAttribute("aria-expanded")).toBe(
+    "true",
+  );
+});
