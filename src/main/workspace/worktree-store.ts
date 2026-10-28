@@ -56,7 +56,8 @@ export class WorktreeStore {
         }),
     };
   }
-  async save(snapshot: () => WorktreeStoredState): Promise<void> {
+  /** Commit live state before the next queued snapshot can observe it. */
+  async save(snapshot: () => WorktreeStoredState, commit?: () => void): Promise<void> {
     const stateFile = this.stateFile;
     const save = this.pendingSave
       .catch(() => undefined)
@@ -70,6 +71,7 @@ export class WorktreeStore {
         } finally {
           await rm(temporary, { force: true });
         }
+        commit?.();
       });
     this.pendingSave = save;
     await save;

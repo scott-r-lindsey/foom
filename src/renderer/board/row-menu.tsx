@@ -65,7 +65,15 @@ export function RowMenu({
   keepOnResize = false,
   nested,
   bottomAligned = false,
+  leading,
+  dismissOnAnchor = false,
+  tabWithin = false,
 }: {
+  /** Context menus on unfocusable regions also dismiss when that region is clicked. */
+  dismissOnAnchor?: boolean;
+  /** Keep native Tab navigation between controls inside a composite context menu. */
+  tabWithin?: boolean;
+  leading?: ReactNode;
   bottomAligned?: boolean;
   /** Reposition rather than close when the window resizes, as interface size steps do. */
   keepOnResize?: boolean;
@@ -132,7 +140,7 @@ export function RowMenu({
       if (isPanel)
         menu.style.width = `${String(Math.min(720, Math.max(280, placement === "below" ? window.innerWidth - 16 : window.innerWidth - right - 18)))}px`;
       if (placement === "below")
-        menu.style.maxHeight = `${String(Math.max(80, window.innerHeight - button.bottom - 16))}px`;
+        menu.style.maxHeight = `${String(Math.max(80, window.innerHeight - (point ? 0 : button.bottom) - 16))}px`;
       // Opening animations transform the border box; placement needs its final
       // layout size or the expanded menu can extend beyond the window edge.
       const bounds = { width: menu.offsetWidth, height: menu.offsetHeight };
@@ -178,7 +186,7 @@ export function RowMenu({
         event.target instanceof Node &&
         !ref.current?.contains(event.target) &&
         !inSubmenu(event.target) &&
-        !anchor.contains(event.target) &&
+        (dismissOnAnchor || !anchor.contains(event.target)) &&
         !(isPanel && anchor.closest(".tree-row, .board-row")?.contains(event.target))
       )
         close();
@@ -221,7 +229,7 @@ export function RowMenu({
       document.removeEventListener("scroll", scroll, true);
       window.removeEventListener("resize", close);
     };
-  }, [anchor, close, isPanel, keepOnResize, isNested, bottomAligned]);
+  }, [anchor, close, isPanel, keepOnResize, isNested, bottomAligned, dismissOnAnchor]);
   const openSub = (index: number, item: HTMLButtonElement, focus: boolean) => {
     setSub((current) =>
       current?.index === index && (current.focus || !focus)
@@ -264,6 +272,12 @@ export function RowMenu({
         } else if (nested && event.key === "Tab") {
           event.stopPropagation();
           nested.dismiss();
+        } else if (
+          event.key === "Tab" &&
+          tabWithin &&
+          items[items.findIndex((item) => item === active) + (event.shiftKey ? -1 : 1)]
+        ) {
+          event.stopPropagation();
         } else if (event.key === "Escape" || (event.key === "Tab" && !panel)) {
           if (event.key === "Escape") event.preventDefault();
           event.stopPropagation();
@@ -308,6 +322,7 @@ export function RowMenu({
           role={panel ? "menu" : undefined}
           aria-label={panel ? "Commands" : undefined}
         >
+          {leading}
           {actions.map((action, index) =>
             action?.stepper ? (
               <div

@@ -81,6 +81,7 @@ export function createShell(
   const isDisposed = () => disposed;
   let activeId: string | undefined;
   let shellId: string | undefined;
+  let pendingId: string | undefined;
   const exits = new Map<string, number>();
   const removed = new Set<string>();
   const isAvailable = (id: string) => available(id) && !removed.has(id);
@@ -139,7 +140,7 @@ export function createShell(
     view.restartDisabled = busy || !exited || (activeId !== undefined && activeId !== shellId);
     publish();
   };
-  const release = (id: string) => {
+  const releaseSelection = (id: string) => {
     if (activeId !== id) return;
     ++request;
     activeId = undefined;
@@ -148,7 +149,23 @@ export function createShell(
     controls();
   };
   let suspended: { id: string; request: number } | undefined;
+  const release = (id: string) => {
+    exits.delete(id);
+    removed.delete(id);
+    if (pendingId === id) {
+      pendingId = undefined;
+      ++request;
+    }
+    if (suspended?.id === id) suspended = undefined;
+    releaseSelection(id);
+  };
+  const relevant = (id: string) => id === activeId || id === pendingId || id === suspended?.id;
+  const pruneEvents = () => {
+    for (const id of exits.keys()) if (!relevant(id)) exits.delete(id);
+    for (const id of removed) if (!relevant(id)) removed.delete(id);
+  };
   const offRemoved = window.desktop.onTerminalAvailability((id, available, reset) => {
+    if (!relevant(id)) return;
     if (reset) exits.delete(id);
     if (available) {
       removed.delete(id);
@@ -159,7 +176,7 @@ export function createShell(
     } else {
       const selected = activeId === id;
       removed.add(id);
-      release(id);
+      releaseSelection(id);
       if (selected) suspended = { id, request };
     }
   });
@@ -173,6 +190,7 @@ export function createShell(
     });
   });
   const offExit = window.desktop.onExit((id, code) => {
+    if (!relevant(id)) return;
     exits.set(id, code);
     if (id !== activeId) return;
     hostFailed = code === -1;
@@ -367,6 +385,7 @@ export function createShell(
         return;
       }
       activeId = created.id;
+      pruneEvents();
       shellId = created.id;
       onCreated?.(created.id, created.title);
       exited = false;
@@ -418,6 +437,9 @@ export function createShell(
   });
   let ready = autoStart ? initialReady.then(start) : initialReady;
   const select = (id: string) => {
+    pendingId = id;
+    suspended = undefined;
+    pruneEvents();
     const current = ++request;
     visibleRequested = false;
     selection = selection.then(async () => {
@@ -441,6 +463,8 @@ export function createShell(
           await window.desktop.detach(previous).catch(() => {});
         if (isDisposed() || current !== request || !isAvailable(id)) return;
         activeId = id;
+        pendingId = undefined;
+        pruneEvents();
         const code = exits.get(id);
         exited = code !== undefined || hasExited(id);
         hostFailed = code === -1;

@@ -205,7 +205,7 @@ export async function prepareRemoteAgent(
     let defaults = [...request.defaults];
     const guidance = model.launch.guidance && selected(model.launch.guidance.when, facts);
     if (guidance && model.launch.guidance?.merge) {
-      const collected = collectMerge(defaults, model.launch.guidance.merge, false);
+      const collected = collectMerge(defaults, model.launch.guidance.merge, model.launch, false);
       defaults = collected.args;
       prompts.unshift(...collected.values);
     }

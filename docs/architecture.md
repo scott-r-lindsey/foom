@@ -276,8 +276,11 @@ for DMG notarization and tag publication. See [stable update rules](areas/applic
 ## Nightly update feed (#604)
 
 The build selects the channel: a CI-stamped `X.Y.Z-nightly.YYYYMMDD+abcdef0`
-uses `https://foom-term.com/updates/nightly/`. Stable macOS keeps
-update.electronjs.org; stable Linux keeps its GitHub release notice. Windows
+uses the static metadata under `https://foom-term.com/updates/nightly/`.
+Checks first request the [anonymous counting proxy](areas/privacy.md#update-requests-603)
+and fall back to that static feed on network failure, timeout or non-2xx.
+Stable checks use the same proxy with update.electronjs.org (macOS) or GitHub
+latest-release metadata (Linux) as fallback. Windows
 remains notice-only and nightly-only. Channels never switch automatically.
 
 macOS reads `darwin-<arch>/latest-mac.json`; Linux and Windows read

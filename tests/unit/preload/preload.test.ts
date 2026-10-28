@@ -1442,3 +1442,26 @@ test("host bridge validates every nested fact and strips undeclared host data", 
     await expect(api.hosts({ action: "list" })).rejects.toThrow();
   }
 });
+
+test("home-shell returns only its validated request-specific terminal ID", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue({ terminalId: "home-one", extra: "private" });
+  await expect(api.sidebarCommand({ kind: "home-shell" })).resolves.toEqual({
+    terminalId: "home-one",
+  });
+  for (const value of [
+    undefined,
+    null,
+    {},
+    { terminalId: "" },
+    { terminalId: 1 },
+    { terminalId: "x".repeat(201) },
+  ]) {
+    mock.invoke.mockResolvedValue(value);
+    await expect(api.sidebarCommand({ kind: "home-shell" })).rejects.toThrow(
+      "Invalid workspace:sidebar-command response",
+    );
+  }
+  mock.invoke.mockResolvedValue({ terminalId: "private" });
+  await expect(api.sidebarCommand({ kind: "stop", id: "one" })).resolves.toBeUndefined();
+});

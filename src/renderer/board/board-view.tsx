@@ -1,5 +1,6 @@
 import { ConfigThemeLauncherContext } from "../preflight/custom-theme-hint";
-import { restoreBoardFocus } from "./focus-restore";
+import type { TerminalFocusRestoration } from "../terminal/terminal-view-source.d";
+import { restoreBoardFocus, captureTerminalFocusRestoration } from "./focus-restore";
 import type { ComponentProps, ReactNode, SetStateAction } from "react";
 import {
   useCallback,
@@ -225,6 +226,7 @@ function BoardContents({
   }, [source, soundSetup, audioEnabled]);
   const sidebarRef = useRef<HTMLElement>(null);
   useBoardActivity(source, buttonsRef);
+  const [restoreFocusRequest, setRestoreFocusRequest] = useState<TerminalFocusRestoration>();
   const wasInactiveRef = useRef(paneInactive);
   const boardFocusRef = useRef<Element | null>(null);
   const focusedInitialRowRef = useRef(false);
@@ -247,11 +249,11 @@ function BoardContents({
         // The interim tile fallback must not replace the original xterm if
         // Settings reopens before queued attachment/focus has completed.
         boardFocusRef.current = previous;
-        setFocusRequest((value) => value + 1);
+        setRestoreFocusRequest(captureTerminalFocusRestoration());
       }
     }
     wasInactiveRef.current = paneInactive;
-  }, [paneInactive, selected, setFocusRequest]);
+  }, [paneInactive, selected]);
   const pickPreview = async (worktree: string) => {
     setRemoveError("");
     try {
@@ -357,7 +359,7 @@ function BoardContents({
       });
     }
   }, [source, rows, open]);
-  const command = (value: SidebarCommand) => {
+  const command = (value: SidebarCommand, space?: string) => {
     actionOriginRef.current = captureErrorFocus();
     setRemoveError("");
     setPrune(undefined);
@@ -366,12 +368,13 @@ function BoardContents({
       value.kind === "restart"
         ? leaves(layoutRef.current.tree).find((tile) => sessionId(tile) === value.id)
         : undefined;
-    const destination =
-      original && sessionId(original)
+    const destination = space
+      ? { tile: space, session: "" }
+      : original && sessionId(original)
         ? { tile: original.id, session: sessionId(original) ?? "" }
         : undefined;
     return (source.sidebarCommand?.(value) ?? Promise.resolve())
-      .then(() => {
+      .then((result) => {
         if (value.kind === "resume" || value.kind === "new-conversation") {
           const resumed = source.getSnapshot().find((row) => row.id === value.id && !row.exited);
           if (resumed) open(resumed, true);
@@ -385,7 +388,11 @@ function BoardContents({
         ) {
           const created = source
             .getSnapshot()
-            .find((row) => !before.has(row.id) && (value.kind !== "config-launch" || row.config));
+            .find((row) =>
+              value.kind === "home-shell"
+                ? row.id === result?.terminalId
+                : !before.has(row.id) && (value.kind !== "config-launch" || row.config),
+            );
           if (created) {
             open(created, false, destination);
             const name = value.kind === "restart" ? preferences.names[value.id] : undefined;
@@ -662,6 +669,7 @@ function BoardContents({
             source={source}
             layout={layout}
             focusRequest={focusRequest}
+            restoreFocusRequest={restoreFocusRequest}
             setLayout={changeLayout}
             rows={rows}
             previews={previews}
@@ -683,6 +691,8 @@ function BoardContents({
                 void moving?.catch(() => {
                   setRemoveError("Unable to move tile to a new window.");
                 });
+              } else if (action === "new-shell") {
+                void command({ kind: "home-shell" }, tile);
               } else tileAction(tile, action);
             }}
           />

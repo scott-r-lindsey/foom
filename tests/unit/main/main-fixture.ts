@@ -26,6 +26,14 @@ vi.mock("../../../src/main/update-package", async (original) => ({
   prepareLocalUpdate: updateMock.prepareUpdate,
 }));
 
+vi.mock("../../../src/main/update-activity", () => ({
+  UpdateActivity: class {
+    flags() {
+      return Promise.resolve("?d=1&w=1&m=1");
+    }
+  },
+}));
+
 vi.mock("../../../src/main/update-http", () => ({ getUpdateRelease: updateMock.getRelease }));
 
 const forgeHostStatus = vi.hoisted(() => vi.fn(() => Promise.resolve("ready" as const)));

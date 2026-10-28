@@ -342,7 +342,11 @@ test("Settings queues terminal input focus after reattaching its original xterm"
   mock.focus.mockClear();
   fireEvent.keyDown(screen.getByRole("region", { name: "Settings" }), { key: "Escape" });
   await settle();
-  expect(mock.focus).toHaveBeenCalledOnce();
+  expect(mock.focus).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      from: screen.container.querySelector('.terminal-tile[data-focused="true"]'),
+    }),
+  );
   // Reopen while the asynchronous view would still be hidden, then finish it.
   act(() => mock.command?.("settings"));
   await settle();

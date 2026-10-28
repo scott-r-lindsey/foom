@@ -29,14 +29,15 @@ export interface TileRect {
   width: number;
   height: number;
 }
+export type TileDirection = "left" | "up" | "right" | "down";
 export type DropZone = "center" | "left" | "right" | "up" | "down";
 export type TileDrag = { kind: "tile" | "session"; id: string };
 
 export type TileAction =
-  | "right"
-  | "down"
-  | "growx"
-  | "growy"
+  | TileDirection
+  | `grow-${TileDirection}`
+  | "close-space"
+  | "new-shell"
   | "maximize"
   | "hide"
   | "close"

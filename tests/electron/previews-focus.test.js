@@ -1,7 +1,7 @@
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { writeFile } = require("node:fs/promises");
+const { readFile, writeFile } = require("node:fs/promises");
 const { expect } = require("./test-policy.js");
 const { boardPage, launchApp } = require("./harness.js");
 const {
@@ -11,6 +11,42 @@ const {
   typeIntoFocusedContents,
   composedPreview,
 } = require("./preview-fixture.js");
+
+// Record what the PTY actually receives, independently of terminal width/reflow.
+async function recordTerminalInput(page, root) {
+  const marker = path.join(root, "preview-input-bytes");
+  await writeFile(marker, "");
+  await page.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type(
+    `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`,
+  );
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".xterm-rows")).toContainText("INPUT_READY");
+  return async () => Buffer.from((await readFile(marker, "utf8")).replaceAll("\n", ""), "hex");
+}
+
+async function clickTerminal(app, page) {
+  const terminalBounds = await page.locator(".xterm-screen").boundingBox();
+  assert.ok(terminalBounds);
+  await app.evaluate(({ BrowserWindow }, bounds) => {
+    const contents = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    ).webContents;
+    contents.focus();
+    const mouse = {
+      x: Math.round(bounds.x + 10),
+      y: Math.round(bounds.y + bounds.height - 10),
+      button: "left",
+      clickCount: 1,
+    };
+    contents.sendInputEvent({ type: "mouseDown", ...mouse });
+    contents.sendInputEvent({ type: "mouseUp", ...mouse });
+  }, terminalBounds);
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await expect
+    .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
+    .toBe("app://bundle/index.html");
+}
 
 test("preview host loads and reloads detached, never steals terminal keystrokes, and focuses on a click", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
@@ -160,6 +196,7 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
   const page = await boardPage(app);
   const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
   const root = terminal.worktree;
+  const input = await recordTerminalInput(page, root);
   await writeFile(
     path.join(root, "links.html"),
     '<a href="destination.md" style="display:block;width:200px;height:100px">Continue</a>',
@@ -193,10 +230,6 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
   );
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
   const oldContentsId = (await previewViewState(app, id)).contentsId;
-  await expect
-    .poll(() => page.locator(".xterm-rows").innerText())
-    .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
-  const terminalBefore = await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id);
   // Click the actual link with native mouse input, rather than invoking page script.
   await app.evaluate(({ webContents }, id) => {
     const contents = webContents
@@ -237,10 +270,7 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
   );
   await typeIntoFocusedContents(app, "preview");
   await expect.poll(() => previewContents(app, id, "window.received")).toBe("preview");
-  assert.deepEqual(
-    await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id),
-    terminalBefore,
-  );
+  assert.deepEqual(await input(), Buffer.alloc(0));
   // A deliberate terminal click during another handoff restores ordinary input.
   await app.evaluate(({ webContents }, id) => {
     globalThis.previewLinkRequested = false;
@@ -250,32 +280,12 @@ test("preview host keeps keyboard focus after a user-clicked link navigation", a
       .reload();
   }, id);
   await expect.poll(() => app.evaluate(() => globalThis.previewLinkRequested)).toBe(true);
-  const terminalBounds = await page.locator(".xterm-screen").boundingBox();
-  assert.ok(terminalBounds);
-  await app.evaluate(({ BrowserWindow }, bounds) => {
-    const contents = BrowserWindow.getAllWindows().find(
-      (window) => window.webContents.getURL() === "app://bundle/index.html",
-    ).webContents;
-    contents.focus();
-    const mouse = {
-      x: Math.round(bounds.x + 10),
-      y: Math.round(bounds.y + bounds.height - 10),
-      button: "left",
-      clickCount: 1,
-    };
-    contents.sendInputEvent({ type: "mouseDown", ...mouse });
-    contents.sendInputEvent({ type: "mouseUp", ...mouse });
-  }, terminalBounds);
-  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
-  await expect
-    .poll(() => app.evaluate(({ webContents }) => webContents.getFocusedWebContents()?.getURL()))
-    .toBe("app://bundle/index.html");
-  await typeIntoFocusedContents(app, "cancelled");
-  await expect
-    .poll(async () =>
-      (await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id)).join(""),
-    )
-    .toContain("cancelled");
+  await clickTerminal(app, page);
+  await typeIntoFocusedContents(app, "cancelledb");
+  // The probe records synchronously before emitting this output barrier. Exact
+  // bytes also catch delayed forbidden input from the preceding handoff.
+  await expect(page.locator(".xterm-rows")).toContainText("INPUT_BARRIER");
+  assert.deepEqual(await input(), Buffer.from("cancelledb"));
   await app.evaluate(() => globalThis.releasePreviewLink());
   await expect.poll(async () => (await previewViewState(app, id)).attached).toBe(true);
   assert.equal((await previewViewState(app, id)).focused, false);
@@ -287,6 +297,7 @@ async function stuckPreviewHandoff(context, cancellation) {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   const terminal = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  const input = await recordTerminalInput(page, terminal.worktree);
   await writeFile(
     path.join(terminal.worktree, "stuck.html"),
     '<a href="never.md" style="display:block;width:200px;height:100px">Continue</a>',
@@ -303,11 +314,7 @@ async function stuckPreviewHandoff(context, cancellation) {
         });
     });
   });
-  await expect
-    .poll(() => page.locator(".xterm-rows").innerText())
-    .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
   await page.locator(".xterm-helper-textarea").focus();
-  const before = await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id);
   const id = await pickPreviewFile(app, page, terminal.worktree, "stuck.html");
   await page.evaluate(
     (id) =>
@@ -366,7 +373,13 @@ async function stuckPreviewHandoff(context, cancellation) {
         .evaluate((element) => element.getAttribute("data-compact") === "true"),
     )
     .toBe(!collapsed);
-  assert.deepEqual(await page.evaluate((id) => window.desktop.tail(id, 20), terminal.id), before);
+  assert.deepEqual(await input(), Buffer.alloc(0));
+  // A deliberate native terminal click restores input after cancellation, and
+  // the barrier proves that the recorder is live and prior input has drained.
+  await clickTerminal(app, page);
+  await typeIntoFocusedContents(app, "resumedb");
+  await expect(page.locator(".xterm-rows")).toContainText("INPUT_BARRIER");
+  assert.deepEqual(await input(), Buffer.from("resumedb"));
   await page.evaluate((id) => window.desktop.previews.close(id), id);
 }
 

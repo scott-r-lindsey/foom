@@ -17,7 +17,23 @@ remounts surviving leaves. Maximize changes rectangles and opacity
 without changing attachments. Empty leaves render as aria-hidden spaces without
 chrome or DOM focus. Split preserves terminal focus and records the newest space's
 ID as the landing spot; terminal-only tree order supplies numbers and navigation.
-Grow walks to the nearest split on its axis and rejects any occupied sibling.
+Split offers left, up, right and down, placing the new space first for left/up,
+with the existing depth and leaf limits. Two pointed 28px D-pads labelled Split
+and Grow replace the four command rows. Their centers are noninteractive glyphs;
+arrow keys move within each pad without adding global shortcuts. Refused arrows
+remain focusable, dimmed with dashed outlines and a reason on hover/focus.
+Grow walks to the nearest split on its axis where the tile is opposite the chosen
+direction, skipping same-axis splits on the wrong side. It absorbs the split only
+if the far side has no occupied tiles, preserving the containing subtree. Otherwise
+it refuses with “Occupied tile to the left/right” or “Occupied tile above/below”.
+No matching split reports “At the left/right/top/bottom edge”.
+Right-clicking an empty space opens a pointer-positioned menu with only the Split
+pad, New shell here and Close space. New shell here uses the validated home-shell
+command (main chooses the directory), then places the returned request-specific
+terminal ID in that leaf if still empty, falling back to ordinary placement if it
+filled or closed. Tab moves between the pad and commands; leaving the menu dismisses it. Close space removes the empty leaf and gives its area to its sibling, as a
+collapsed gutter does. Escape and outside clicks dismiss the menu. Spaces remain
+unfocusable with no chrome.
 Gutters clamp occupied sides to 15–85%; empty sides can reach zero and collapse
 on pointer release or keyboard commit past 8%/92%. Each attached terminal retains
 its own PTY size. The controller publishes fitted columns/rows with its view
@@ -47,6 +63,14 @@ new one opens it. Disposing a detached controller cannot detach another tile's
 current attachment. Within each controller, switching still serializes detach,
 drain, reset, fit and attach. Settings detaches views without destroying their
 controllers. Hidden terminals keep consuming output in the host.
+
+The live source discards execution, verdict, exit and activity evidence after a
+successful Close and when inventory removes a previously listed session. Events
+waiting for their first inventory are retained for at most 256 session IDs,
+evicting the oldest pending ID first. Unrelated or delayed inventories preserve
+that pending evidence; host-reset and launch-version ordering remain authoritative.
+Each controller retains exit and availability evidence only for its active,
+pending or suspended selection, pruning prior selections when it switches.
 
 Versioned `foom.tiles.v1.<window-id>` localStorage metadata stores the tree, ratios, leaf IDs,
 focus, optional landing-space ID and terminal assignments. Saves use version 2 content records; version 1 session records migrate on restore (see [Multiple windows](windows.md#multiple-windows)). Restore validates untrusted JSON with size, depth,

@@ -1,3 +1,4 @@
+import type { SidebarCommandResult } from "../../shared/workspace";
 import type { ActionLogPage } from "../../shared/action-log";
 import type { AgentEvidence } from "../../shared/agent-detection";
 import type { AgyPluginAction } from "../../shared/agy-plugin";
@@ -148,7 +149,7 @@ export class Workspace {
   async sidebarCommand(
     command: Exclude<SidebarCommand, { kind: "open-handoff-link" }>,
     confirm: ConfirmWorkspace,
-  ): Promise<void> {
+  ): Promise<SidebarCommandResult> {
     return this.owner.sidebarCommand(command, confirm);
   }
   subscribeExecution(listener: (event: ExecutionTransition) => void): () => void {

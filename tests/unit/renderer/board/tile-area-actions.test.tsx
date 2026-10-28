@@ -129,14 +129,14 @@ test("tile panel exposes facts, keyboard navigation, blocked reasons and grow co
   fireEvent.click(button);
   let menu = screen.getByRole("dialog", { name: "Tile 1 menu" });
   expect(within(menu).getByRole("menuitem", { name: "Split right" })).toBe(document.activeElement);
-  expect(menu.textContent).toContain("Already full width");
-  expect(menu.textContent).toContain("Already full height");
+  expect(menu.textContent).toContain("At the left edge");
+  expect(menu.textContent).toContain("At the top edge");
   expect(menu.textContent).toContain("80 × 24");
   expect(menu.textContent).toContain("columns × rows");
-  fireEvent.keyDown(menu, { key: "ArrowDown" });
-  expect(document.activeElement?.textContent).toContain("Split down");
-  fireEvent.keyDown(menu, { key: "ArrowDown" });
-  expect(document.activeElement?.textContent).toContain("Maximize");
+  fireEvent.keyDown(document.activeElement ?? menu, { key: "ArrowDown" });
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Split down");
+  fireEvent.keyDown(document.activeElement ?? menu, { key: "ArrowLeft" });
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Split left");
   fireEvent.keyDown(menu, { key: "Escape" });
   expect(document.activeElement).toBe(button);
   expect(screen.queryByRole("dialog", { name: "Tile 1 menu" })).toBeNull();
@@ -155,12 +155,12 @@ test("tile panel exposes facts, keyboard navigation, blocked reasons and grow co
       ?.getAttribute("data-empty"),
   ).toBe("false");
   fireEvent.click(button);
-  fireEvent.click(screen.getByRole("menuitem", { name: "Grow sideways" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Grow right" }));
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
   fireEvent.click(button);
   fireEvent.click(screen.getByRole("menuitem", { name: "Split down" }));
   fireEvent.click(button);
-  fireEvent.click(screen.getByRole("menuitem", { name: "Grow vertically" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Grow down" }));
   fireEvent.doubleClick(screen.container.querySelector(".tile-title") ?? button);
   fireEvent.click(button);
   fireEvent.click(screen.getByRole("menuitem", { name: /Restore/ }));
@@ -169,9 +169,12 @@ test("tile panel exposes facts, keyboard navigation, blocked reasons and grow co
   send("split-right");
   click(1);
   fireEvent.click(screen.getByRole("button", { name: "Tile 2 menu" }));
-  expect(screen.getByRole("menuitem", { name: /Grow sideways/ }).textContent).toContain(
-    "Next to an occupied tile",
+  expect(screen.getByRole("menuitem", { name: "Grow left" }).getAttribute("aria-disabled")).toBe(
+    "true",
   );
+  expect(
+    screen.getByRole("menuitem", { name: "Grow left" }).getAttribute("aria-describedby"),
+  ).toBeTruthy();
   fireEvent.keyDown(screen.getByRole("dialog", { name: "Tile 2 menu" }), { key: "Escape" });
   source.sidebarCommand = vi.fn(async () => {});
   fireEvent.click(screen.getAllByRole("button", { name: "Hide" })[0] ?? button);
@@ -347,3 +350,138 @@ test.each(["empty", "reassigned", "removed"] as const)(
     }
   },
 );
+
+test("empty-space menu splits, closes, dismisses and launches through the home-shell path", async () => {
+  const { screen, click, send, source, data, views } = setup();
+  click(0);
+  send("split-right");
+  const space = () =>
+    screen.container.querySelector<HTMLElement>('[data-empty="true"]') ?? document.body;
+  const open = () => fireEvent.contextMenu(space(), { clientX: 100, clientY: 120 });
+  open();
+  expect(screen.getByRole("menu", { name: "Empty space" })).toBeTruthy();
+  expect(screen.queryByRole("group", { name: "Grow" })).toBeNull();
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+  expect(screen.queryByRole("menu", { name: "Empty space" })).toBeNull();
+  open();
+  fireEvent.pointerDown(document.body);
+  expect(screen.queryByRole("menu", { name: "Empty space" })).toBeNull();
+  open();
+  fireEvent.pointerDown(space());
+  expect(screen.queryByRole("menu", { name: "Empty space" })).toBeNull();
+  open();
+  fireEvent.click(screen.getByRole("menuitem", { name: "Split up" }));
+  expect(screen.container.querySelectorAll('[data-empty="true"]')).toHaveLength(2);
+  open();
+  fireEvent.click(screen.getByRole("menuitem", { name: "Close space" }));
+  expect(screen.container.querySelectorAll('[data-empty="true"]')).toHaveLength(1);
+  const target = space();
+  source.sidebarCommand = vi.fn(async () => {
+    data.update("permission", { id: "home-created", kind: "shell", home: true });
+    await Promise.resolve();
+    return { terminalId: "home-created" };
+  });
+  open();
+  fireEvent.click(screen.getByRole("menuitem", { name: "New shell here" }));
+  await act(async () => {});
+  expect(source.sidebarCommand).toHaveBeenCalledWith({ kind: "home-shell" });
+  expect(target.getAttribute("data-empty")).toBe("false");
+  expect(views.some((view) => view.open.mock.calls.some(([id]) => id === "home-created"))).toBe(
+    true,
+  );
+});
+
+test.each(["left", "up", "right", "down"] as const)(
+  "tile panel splits and grows %s without replacing its controller",
+  async (direction) => {
+    const { screen, click, views } = setup();
+    click(0);
+    await act(async () => {});
+    const tile = screen.container.querySelector('[data-empty="false"]');
+    const button = screen.getByRole("button", { name: "Tile 1 menu" });
+    fireEvent.click(button);
+    fireEvent.click(screen.getByRole("menuitem", { name: `Split ${direction}` }));
+    expect(screen.container.querySelectorAll('[data-empty="true"]')).toHaveLength(1);
+    expect(screen.container.querySelector('.terminal-tile[data-focused="true"]')).toBe(tile);
+    fireEvent.click(button);
+    fireEvent.click(screen.getByRole("menuitem", { name: `Grow ${direction}` }));
+    await act(async () => {});
+    expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
+    expect(screen.container.querySelector(".terminal-tile")).toBe(tile);
+    expect(views[0]?.dispose).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(tile);
+  },
+);
+
+test.each(["filled", "removed"] as const)(
+  "new shell keeps a %s destination safe while launching",
+  async (mode) => {
+    const { screen, click, send, source, data, views } = setup();
+    click(0);
+    send("split-right");
+    vi.spyOn(
+      screen.getByRole("group", { name: "Terminal tiles" }),
+      "getBoundingClientRect",
+    ).mockReturnValue(new DOMRect(0, 0, 2400, 900));
+    let finish: (() => void) | undefined;
+    source.sidebarCommand = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      data.update("check", { id: "home-created", kind: "shell", home: true });
+      return { terminalId: "home-created" };
+    });
+    const space = screen.container.querySelector('[data-empty="true"]') ?? document.body;
+    fireEvent.contextMenu(space, { clientX: 50, clientY: 50 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "New shell here" }));
+    if (mode === "filled") click(1);
+    else send("tidy-tiles");
+    await act(async () => {
+      finish?.();
+      await Promise.resolve();
+    });
+    expect(views.some((view) => view.open.mock.calls.some(([id]) => id === "home-created"))).toBe(
+      true,
+    );
+    if (mode === "filled") expect(views[1]?.open).toHaveBeenLastCalledWith("build");
+    expect(screen.queryByRole("alert")).toBeNull();
+  },
+);
+
+test("concurrent new shells use each request's identity and destination", async () => {
+  const { screen, click, send, source, data, views } = setup();
+  click(0);
+  send("split-right");
+  const first = screen.container.querySelector('[data-empty="true"]') ?? document.body;
+  fireEvent.contextMenu(first);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Split down" }));
+  const spaces = Array.from(screen.container.querySelectorAll('[data-empty="true"]'));
+  const finish: ((value: { terminalId: string }) => void)[] = [];
+  source.sidebarCommand = vi.fn(
+    () =>
+      new Promise<{ terminalId: string }>((resolve) => {
+        finish.push(resolve);
+      }),
+  );
+  for (const space of spaces) {
+    fireEvent.contextMenu(space);
+    fireEvent.click(screen.getByRole("menuitem", { name: "New shell here" }));
+  }
+  expect(finish).toHaveLength(2);
+  await act(async () => {
+    data.update("check", { id: "home-one", kind: "shell", home: true });
+    data.update("build", { id: "home-two", kind: "shell", home: true });
+    finish[1]?.({ terminalId: "home-two" });
+    await Promise.resolve();
+    finish[0]?.({ terminalId: "home-one" });
+  });
+  expect(spaces.every((space) => space.getAttribute("data-empty") === "false")).toBe(true);
+  for (const [index, id] of ["home-one", "home-two"].entries()) {
+    const view = views.find((view) =>
+      view.mount.mock.calls.some(
+        ([element]: unknown[]) => element instanceof Node && spaces[index]?.contains(element),
+      ),
+    );
+    expect(view?.open).toHaveBeenLastCalledWith(id);
+  }
+});

@@ -149,8 +149,9 @@ export function PanelFacts({
 }) {
   const [now] = useState(Date.now);
   const [handoffError, setHandoffError] = useState("");
-  const copy = (command: SidebarCommand) =>
-    source.sidebarCommand?.(command) ?? Promise.reject(new Error("Copy unavailable"));
+  const copy = async (command: SidebarCommand) => {
+    await (source.sidebarCommand?.(command) ?? Promise.reject(new Error("Copy unavailable")));
+  };
   const repository =
     subject.kind === "repository" || subject.kind === "worktree"
       ? subject.repository.path

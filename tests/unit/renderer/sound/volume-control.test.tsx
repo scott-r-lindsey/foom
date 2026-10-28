@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { VolumeControl } from "../../../../src/renderer/sound/volume-control";
-import { DEFAULT_SOUND } from "../../../../src/shared/sounds";
+import { DEFAULT_SOUND, soundVolume } from "../../../../src/shared/sounds";
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -27,7 +27,7 @@ test("speaker shapes, mute, retained level and slider release samples", () => {
   fireEvent.change(slider, { target: { value: "25" } });
   expect(change).toHaveBeenLastCalledWith({ ...muted, volume: 0.25, muted: false });
   fireEvent.pointerUp(slider);
-  expect(sample).toHaveBeenLastCalledWith(muted);
+  expect(sample).toHaveBeenLastCalledWith({ ...muted, volume: 0.25, muted: false });
   fireEvent.keyUp(slider, { key: "ArrowRight" });
   expect(sample).toHaveBeenCalledTimes(3);
   fireEvent.keyUp(slider, { key: "Tab" });
@@ -49,6 +49,33 @@ test("speaker shapes, mute, retained level and slider release samples", () => {
   );
   expect(view.container.querySelector("path:last-child")?.getAttribute("d")).toContain("l3 3");
 });
+
+test.each(["pointer", "keyboard"])(
+  "%s release samples the pending unmuted volume before the parent rerenders",
+  (release) => {
+    const muted = { ...DEFAULT_SOUND, muted: true, volume: 0.4 };
+    const change = vi.fn();
+    const sample = vi.fn<(settings: typeof muted) => void>();
+    const view = render(<VolumeControl settings={muted} onChange={change} onSample={sample} />);
+    const slider = view.getByRole("slider");
+    fireEvent.change(slider, { target: { value: "25" } });
+    fireEvent.change(slider, { target: { value: "30" } });
+    const next = { ...muted, volume: 0.3, muted: false };
+    expect(change).toHaveBeenLastCalledWith(next);
+    expect(slider.getAttribute("aria-valuetext")).toBe("Muted");
+    if (release === "pointer") fireEvent.pointerUp(slider);
+    else fireEvent.keyUp(slider, { key: "ArrowRight" });
+    expect(sample).toHaveBeenCalledExactlyOnceWith(next);
+    expect(soundVolume(sample.mock.calls[0]?.[0] ?? muted, "alert")).toBeGreaterThan(0);
+
+    view.rerender(<VolumeControl settings={next} onChange={change} onSample={sample} />);
+    expect(slider.getAttribute("aria-valuetext")).toBe("30%");
+    const external = { ...next, volume: 0.6, muted: true };
+    view.rerender(<VolumeControl settings={external} onChange={change} onSample={sample} />);
+    fireEvent.pointerUp(slider);
+    expect(sample).toHaveBeenLastCalledWith(external);
+  },
+);
 
 test("wheel over speaker and slider accumulates, unmutes, clamps and samples once after settling", () => {
   vi.useFakeTimers();

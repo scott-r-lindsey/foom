@@ -108,6 +108,9 @@ see [the verification contract](../contracts/agent-report.md#probe-hook-and-mcp-
 Accepted hook actions contribute to `state`; rejected or foreign sessions do not.
 A per-probe MCP listener implements initialization, listing and a single `ping`
 tool without importing or delegating to ControlService or the orchestration MCP
-server. Its fresh credential shares only the probe launch lifetime. Even explicitly
-named control/orchestration tools are refused. Metadata stays in memory until
+server. Its fresh credential shares only the probe launch lifetime. Environment-only
+plugin launchers receive that listener’s URL and token, the probe hook binding’s
+session identity, and the app-owned CLI directory; these inputs confer no
+ControlService grant. Even explicitly named control/orchestration tools are
+refused. Metadata stays in memory until
 cleanup, never in session persistence or the renderer.

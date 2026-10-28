@@ -5,7 +5,8 @@ type Meter = {
   bytes: number;
   lastOutput: number;
   pending: number;
-  prompt: boolean;
+  prompt: boolean | undefined;
+  readLastLine: () => string;
   quiet: boolean;
 };
 
@@ -17,13 +18,14 @@ export class TerminalActivityMeter {
 
   constructor(private readonly events: TerminalTelemetry) {}
 
-  start(id: string): void {
+  start(id: string, readLastLine: () => string = () => ""): void {
     this.meters.set(id, {
       rate: 0,
       bytes: 0,
       lastOutput: performance.now(),
       pending: 0,
       prompt: false,
+      readLastLine,
       quiet: false,
     });
     this.schedule();
@@ -45,14 +47,14 @@ export class TerminalActivityMeter {
     meter.lastOutput = performance.now();
     meter.pending++;
     meter.quiet = false;
+    meter.prompt = undefined;
     this.schedule();
   }
 
-  parsed(id: string, lastLine: string): void {
+  parsed(id: string): void {
     const meter = this.meters.get(id);
     if (!meter) return;
     meter.pending--;
-    meter.prompt = /(?:\?|\([yn]\/[yn]\)|password:|press enter[.:]?)\s*$/i.test(lastLine);
   }
 
   remove(id: string): void {
@@ -78,6 +80,12 @@ export class TerminalActivityMeter {
       meter.bytes = 0;
       if (meter.rate < 0.1) meter.rate = 0;
       if (meter.rate !== previous) batch.push({ id, rate: meter.rate });
+      // Read the parsed tail once per settled burst, never on the delivery path.
+      if (!meter.quiet && meter.pending === 0 && now - meter.lastOutput >= 500) {
+        meter.prompt ??= /(?:\?|\([yn]\/[yn]\)|password:|press enter[.:]?)\s*$/i.test(
+          meter.readLastLine(),
+        );
+      }
       if (
         !meter.quiet &&
         meter.pending === 0 &&

@@ -1,4 +1,7 @@
-import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import assert from "node:assert/strict";
+import { join } from "node:path";
+import { checkoutRevision, digest, verifyHostArtifact } from "./remote-host-artifacts.mjs";
+import { cpSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { buildFingerprint, fingerprint } from "./validation-fingerprint.mjs";
 import { suiteFiles } from "../tests/electron/test-suites.js";
@@ -53,6 +56,40 @@ if (!packaged) {
     const build = spawnSync(process.execPath, ["scripts/build.mjs"], { stdio: "inherit" });
     if (build.error) throw build.error;
     if (build.status !== 0) process.exit(build.status ?? 1);
+  }
+  if (process.platform !== "win32") {
+    if (!reuse) {
+      const env = { ...process.env };
+      delete env.FOOM_REMOTE_HOST_OUTPUT;
+      delete env.FOOM_REMOTE_HOST_INPUTS_OUTPUT;
+      const host = spawnSync(process.execPath, ["scripts/build-remote-host.mjs"], {
+        stdio: "inherit",
+        env,
+      });
+      if (host.error) throw host.error;
+      if (host.status !== 0) process.exit(host.status ?? 1);
+    }
+    const { version } = JSON.parse(readFileSync("package.json", "utf8"));
+    const target = `${process.platform}-${process.arch}`;
+    const { manifest } = await verifyHostArtifact(
+      "build/remote-host",
+      target,
+      version,
+      checkoutRevision(process.cwd()),
+    );
+    assert.equal(
+      digest(readFileSync("build/remote-host/foom-host")),
+      manifest.sha256,
+      "Remote fixture executable hash mismatch",
+    );
+    if (!reuse) {
+      const catalog = join("build/remote-hosts", target);
+      mkdirSync(catalog, { recursive: true });
+      for (const name of ["foom-host.gz", "manifest.json"])
+        cpSync(join("build/remote-host", name), join(catalog, name));
+    }
+  }
+  if (!reuse) {
     if (buildFingerprint() !== inputs)
       throw new Error("Build inputs changed during build; run again.");
     writeFileSync(receipt, JSON.stringify({ inputs, output: fingerprint(["build"]) }));

@@ -7,6 +7,7 @@ import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
 import {
   closeTile,
+  closeSpace,
   contentId,
   growTile,
   hideSession,
@@ -19,7 +20,7 @@ import {
   sessionId,
   splitTile,
 } from "./tiles";
-import type { TileLayout } from "./tiles.d";
+import type { TileAction, TileLayout } from "./tiles.d";
 
 import type { Dispatch, SetStateAction } from "react";
 export function useBoardTiles({
@@ -285,10 +286,7 @@ export function useBoardTiles({
       });
   }, [source, rows, previews, layout, changeLayout, clear, report]);
   const tileAction = useCallback(
-    (
-      tile: string,
-      action: "right" | "down" | "growx" | "growy" | "maximize" | "hide" | "close",
-    ) => {
+    (tile: string, action: Exclude<TileAction, "popout" | "new-shell">) => {
       setFocusRequest((value) => value + 1);
       const current = { ...layoutRef.current, focused: tile };
       const session = sessionId(leaves(current.tree).find((item) => item.id === tile));
@@ -318,15 +316,29 @@ export function useBoardTiles({
         return;
       }
       changeLayout(
-        action === "growx" || action === "growy"
-          ? growTile(current, action === "growx" ? "horizontal" : "vertical")
-          : action === "right" || action === "down"
-            ? splitTile(current, action === "right" ? "horizontal" : "vertical")
-            : action === "close"
-              ? closeTile(current)
-              : action === "hide"
-                ? hideSession(current)
-                : { ...current, maximized: current.maximized === tile ? null : tile },
+        action === "grow-left" ||
+          action === "grow-right" ||
+          action === "grow-up" ||
+          action === "grow-down"
+          ? growTile(
+              current,
+              action === "grow-left"
+                ? "left"
+                : action === "grow-right"
+                  ? "right"
+                  : action === "grow-up"
+                    ? "up"
+                    : "down",
+            )
+          : action === "right" || action === "down" || action === "left" || action === "up"
+            ? { ...splitTile(current, action), focused: layoutRef.current.focused }
+            : action === "close-space"
+              ? closeSpace(layoutRef.current, tile)
+              : action === "close"
+                ? closeTile(current)
+                : action === "hide"
+                  ? hideSession(current)
+                  : { ...current, maximized: current.maximized === tile ? null : tile },
       );
     },
     [changeLayout, source],

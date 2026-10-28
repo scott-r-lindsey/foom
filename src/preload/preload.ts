@@ -1622,7 +1622,16 @@ const desktop: DesktopApi = {
     };
   },
   sidebarInventory: () => reply("workspace:sidebar", validSidebarInventory),
-  sidebarCommand: (command) => invokeVoid("workspace:sidebar-command", command),
+  sidebarCommand: async (command) => {
+    if (command.kind === "home-shell") {
+      return reply(
+        "workspace:sidebar-command",
+        shape({ terminalId: (value): value is string => nonempty(value) && value.length <= 200 }),
+        command,
+      );
+    }
+    await invokeVoid("workspace:sidebar-command", command);
+  },
   workspace: () => reply("workspace:snapshot", validWorkspaceSnapshot),
   addRepository: () => reply("workspace:add-repository", either(nil, validRepository)),
   worktrees: (repository) => reply("workspace:worktrees", array(validWorktree), repository),

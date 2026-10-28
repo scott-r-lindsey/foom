@@ -22,6 +22,22 @@ files no test imports; only declarations are excluded. Thresholds are defined in
 
 PR checks enforce the contributor changed-line coverage threshold and fail if a changed application file is missing from LCOV. The scripts under `scripts/` adapt the reporting tools from the Crab Attack II reference, with stricter enforcement and regression tests.
 
+Simulated hook argv, registration/cleanup, plugin setup/staging and health tests replace only
+`node-common/private-file-permissions.ts`'s Windows ACL capability. They retain
+real temporary files and storage behavior without starting ACL PowerShell.
+Native hook lifecycle cases explicitly restore that capability; plugin staging
+in `v2-native.test.ts` and ACL security tests in `private-native.test.ts` use it
+unmocked. No production permission checks or test deadlines are disabled.
+
+Windows observer unit tests run under a test-only job supervisor. Successful runs
+publish the same parent result without diagnostic output. On failure, the
+supervisor emits buffered UTC phases (parent start/exit/result and drain), the
+parent's PID and available exit code/time, and a bounded snapshot of the owned
+job's active/total/limit-terminated counts and member PIDs with exit metadata.
+Query failures and exit races report numeric errors; no command lines,
+environment, paths or observer payloads are collected. These diagnostics do not
+change the observer measurement, wait deadlines or kill-on-close cleanup.
+
 ## Test evidence and worktree cleanliness (#822)
 
 Electron and packaged tests write evidence images through
@@ -364,7 +380,12 @@ successful Quality and macOS signing jobs, main, and schedule/opt-in publication
 It downloads only this run's tested Linux/Windows packages and Developer ID signed,
 notarized and stapled macOS package; no rebuild or ad-hoc fallback is allowed.
 `scripts/nightly-feed.test.mjs` tests generation, conditional writes, failure and
-retry behavior through a fake AWS boundary. App update tests use fake HTTP/updaters.
+retry behavior through a fake AWS boundary. App update tests use fake HTTP/updaters,
+including the `/u/v1/` counting proxy and per-channel fallback. The proxy does not
+change publication paths or archive validation. Its infrastructure is tracked in
+foom-site#34 and is not yet live; manual dev-endpoint verification depends on
+that deployment. Client fixture tests cover unavailable endpoints without
+contacting production update services.
 
 Upload uses short-lived GitHub OIDC credentials, with `id-token: write` only on
 the existing nightly publisher. It uses no AWS access-key secrets and no additional

@@ -1,4 +1,5 @@
 import type {
+  TileDirection,
   TileContent,
   TilePlacement,
   TileDrag,
@@ -34,7 +35,7 @@ function split(
 ): TileSplit {
   return { kind: "split", id: id(), direction, ratio, first, second };
 }
-export function splitTile(layout: TileLayout, direction: TileSplit["direction"]): TileLayout {
+export function splitReason(layout: TileLayout): string | undefined {
   const depth = (node: TileNode, level = 0): number =>
     node.id === layout.focused
       ? level
@@ -43,12 +44,29 @@ export function splitTile(layout: TileLayout, direction: TileSplit["direction"])
         : Math.max(depth(node.first, level + 1), depth(node.second, level + 1));
   const targetDepth = depth(layout.tree);
   // Keep every constructible tree within the persisted format's resource bounds.
-  if (targetDepth < 0 || targetDepth >= 64 || leaves(layout.tree).length >= 256) return layout;
+  if (targetDepth < 0) return "Space no longer available";
+  if (targetDepth >= 64) return "Split depth limit reached";
+  if (leaves(layout.tree).length >= 256) return "Tile limit reached";
+  return undefined;
+}
+export function splitTile(
+  layout: TileLayout,
+  direction: TileDirection | TileSplit["direction"],
+): TileLayout {
+  if (splitReason(layout)) return layout;
   const next = newTile();
   return {
     ...layout,
     maximized: null,
-    tree: update(layout.tree, layout.focused, (node) => split(node, next, direction)),
+    tree: update(layout.tree, layout.focused, (node) =>
+      split(
+        direction === "left" || direction === "up" ? next : node,
+        direction === "left" || direction === "up" ? node : next,
+        direction === "left" || direction === "right" || direction === "horizontal"
+          ? "horizontal"
+          : "vertical",
+      ),
+    ),
     landing: next.id,
   };
 }
@@ -72,6 +90,7 @@ function removeTile(layout: TileLayout): TileLayout {
     focused: remaining
       ? (terminals(tree).find((tile) => tile.id === focused)?.id ??
         terminals(tree)[0]?.id ??
+        leaves(tree)[0]?.id ??
         tree.id)
       : tree.id,
     maximized: null,
@@ -121,7 +140,7 @@ export const landingSpace = (layout: TileLayout): TileLeaf | undefined =>
   leaves(layout.tree).find((tile) => tile.content === null);
 export function growTarget(
   layout: TileLayout,
-  direction: TileSplit["direction"],
+  direction: TileDirection,
 ): { split: TileSplit; side: TileNode } | { reason: string } {
   const walk = (node: TileNode): TileSplit[] | undefined => {
     if (node.id === layout.focused) return [];
@@ -129,20 +148,38 @@ export function growTarget(
     const path = walk(node.first) ?? walk(node.second);
     return path ? [...path, node] : undefined;
   };
-  const ancestor = walk(layout.tree)?.find((node) => node.direction === direction);
-  if (!ancestor)
-    return { reason: direction === "horizontal" ? "Already full width" : "Already full height" };
-  const inFirst = leaves(ancestor.first).some((tile) => tile.id === layout.focused);
-  const other = inFirst ? ancestor.second : ancestor.first;
+  const axis = direction === "left" || direction === "right" ? "horizontal" : "vertical";
+  const towardFirst = direction === "left" || direction === "up";
+  const ancestor = walk(layout.tree)?.find(
+    (node) =>
+      node.direction === axis &&
+      leaves(towardFirst ? node.second : node.first).some((tile) => tile.id === layout.focused),
+  );
+  const edge = { left: "left", right: "right", up: "top", down: "bottom" };
+  const occupied = { left: "to the left", right: "to the right", up: "above", down: "below" };
+  if (!ancestor) return { reason: `At the ${edge[direction]} edge` };
+  const other = towardFirst ? ancestor.first : ancestor.second;
   return terminals(other).length
-    ? { reason: "Next to an occupied tile" }
-    : { split: ancestor, side: inFirst ? ancestor.first : ancestor.second };
+    ? { reason: `Occupied tile ${occupied[direction]}` }
+    : { split: ancestor, side: towardFirst ? ancestor.second : ancestor.first };
 }
-export function growTile(layout: TileLayout, direction: TileSplit["direction"]): TileLayout {
+export function growTile(layout: TileLayout, direction: TileDirection): TileLayout {
   const target = growTarget(layout, direction);
   return "reason" in target
     ? layout
     : { ...layout, maximized: null, tree: update(layout.tree, target.split.id, () => target.side) };
+}
+/** Removing an empty leaf gives its area to its sibling; occupied targets are inert. */
+export function closeSpace(layout: TileLayout, target: string): TileLayout {
+  if (!leaves(layout.tree).some((tile) => tile.id === target && tile.content === null))
+    return layout;
+  const next = removeTile({ ...layout, focused: target });
+  return {
+    ...next,
+    focused: leaves(next.tree).some((tile) => tile.id === layout.focused)
+      ? layout.focused
+      : next.focused,
+  };
 }
 export function ratioLimits(node: TileSplit): [number, number] {
   return [terminals(node.first).length ? 0.15 : 0, terminals(node.second).length ? 0.85 : 1];

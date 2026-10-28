@@ -49,7 +49,7 @@ test("host UTF-8 rates reach an eight-second trace and decay after a recorded re
     for (let now = 0; now <= 12000; now += 50) {
       if (now < 2000 && now % 100 === 0) {
         meter.output("fixture", data);
-        meter.parsed("fixture", "working");
+        meter.parsed("fixture");
       }
       vi.advanceTimersByTime(50);
       const sample = history.step(rate, now, 50, false, "agent");

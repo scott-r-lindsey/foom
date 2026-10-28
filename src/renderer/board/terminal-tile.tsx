@@ -3,7 +3,7 @@ import { ActionError, captureErrorFocus, useBackgroundErrors } from "./error-pre
 import { errorMessage } from "../../shared/application-errors";
 import { OrchestrationMark } from "./orchestration-mark";
 import type { PreviewSummary } from "../../shared/workspace";
-import { TileMenu } from "./tile-menu";
+import { SpaceMenu, TileMenu } from "./tile-menu";
 import { AgentBadge } from "./agent-badge";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties } from "react";
@@ -24,7 +24,10 @@ import {
 } from "./sidebar-model";
 import { landingSpace } from "./tiles";
 
-import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
+import type {
+  TerminalViewSource,
+  TerminalFocusRestoration,
+} from "../terminal/terminal-view-source.d";
 
 /** Shared title-bar state mark; illustration callers supply no live subscriptions. */
 export function TileLight({
@@ -114,6 +117,7 @@ export function Tile({
   behind,
   inactive,
   focusRequest,
+  restoreFocusRequest,
   select,
   action,
   layout,
@@ -138,6 +142,7 @@ export function Tile({
   behind: boolean;
   inactive: boolean;
   focusRequest: number;
+  restoreFocusRequest?: TerminalFocusRestoration | undefined;
   select: () => void;
   action: (action: TileAction) => void;
 }) {
@@ -156,10 +161,19 @@ export function Tile({
   const name = row ? sessionName(row, preferences) : (preview?.relativePath ?? "");
   useEffect(
     () =>
-      subscribeLights(source, () => {
-        const current = source.getSnapshot().find((item) => item.id === rowId);
-        return current && lightRef.current ? [{ row: current, element: lightRef.current }] : [];
-      }),
+      rowId === undefined
+        ? undefined
+        : subscribeLights(
+            source,
+            (index) => {
+              const current = index.get(rowId);
+              return current && lightRef.current
+                ? [{ row: current, element: lightRef.current }]
+                : [];
+            },
+            undefined,
+            rowId,
+          ),
     [source, rowId],
   );
   const previewRef = useRef<HTMLDivElement>(null);
@@ -232,14 +246,18 @@ export function Tile({
     });
   };
   const lastFocusRef = useRef(0);
+  const lastRestoreFocusRef = useRef<TerminalFocusRestoration>(undefined);
   useEffect(() => {
-    if (focusRequest === lastFocusRef.current) return;
+    const explicit = focusRequest !== lastFocusRef.current;
+    if (!explicit && restoreFocusRequest === lastRestoreFocusRef.current) return;
     lastFocusRef.current = focusRequest;
+    lastRestoreFocusRef.current = restoreFocusRequest;
     if (focused && !inactive) {
-      if (view && row?.kind !== "sample" && row) view.focus();
+      if (view && row?.kind !== "sample" && row)
+        view.focus(explicit ? undefined : restoreFocusRequest);
       else elementRef.current?.focus();
     }
-  }, [focusRequest, focused, inactive, view, row]);
+  }, [focusRequest, restoreFocusRequest, focused, inactive, view, row]);
   return (
     <section
       ref={elementRef}
@@ -262,6 +280,11 @@ export function Tile({
       aria-hidden={!occupied || undefined}
       tabIndex={occupied ? (focused ? 0 : -1) : undefined}
       inert={behind || inactive}
+      onContextMenu={(event) => {
+        if (occupied) return;
+        event.preventDefault();
+        setMenu({ anchor: event.currentTarget, point: { x: event.clientX, y: event.clientY } });
+      }}
       onFocus={() => {
         acknowledgePreview();
         if (occupied) select();
@@ -411,6 +434,17 @@ export function Tile({
             </button>
           </div>
         </header>
+      )}
+      {!occupied && menu?.point && !inactive && !behind && (
+        <SpaceMenu
+          anchor={menu.anchor}
+          point={menu.point}
+          layout={{ ...layout, focused: tile.id }}
+          close={() => {
+            setMenu(undefined);
+          }}
+          action={action}
+        />
       )}
       {occupied && menu && !inactive && !behind && (
         <TileMenu

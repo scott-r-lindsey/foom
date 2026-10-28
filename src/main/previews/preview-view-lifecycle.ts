@@ -112,6 +112,7 @@ export class PreviewViewLifecycle {
     scroll?: [number, number],
   ): HostedPreview {
     const origin = `foom-preview://${record.id}`;
+    this.watchers.get(record.id)?.beginGeneration();
     const view = createPreviewView(partition);
     const entry: HostedPreview = {
       id: record.id,

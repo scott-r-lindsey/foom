@@ -1,6 +1,6 @@
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
-const { spawn, execFileSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const { once } = require("node:events");
 const {
   mkdir,
@@ -176,11 +176,6 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
 `,
     { mode: 0o700 },
   );
-  execFileSync(process.execPath, ["scripts/build-remote-host.mjs"], {
-    cwd: path.join(__dirname, "../.."),
-    stdio: "pipe",
-    timeout: deadline(20000),
-  });
   const artifact = path.resolve("build/remote-host/foom-host");
   const cleanup = fixtureCleanup(context);
   cleanup.audit ??= await auditProcesses(context);

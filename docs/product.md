@@ -100,8 +100,7 @@ finish and stage an update (or fail). Such a staged update, including one staged
 before opt-out, can still install on quit.
 Development launches never check.
 
-Stable macOS builds use Electron `autoUpdater` with update.electronjs.org for
-stable GitHub Releases. Downloaded updates install on the next normal quit.
+Stable macOS builds use Electron `autoUpdater` for stable GitHub Releases. Downloaded updates install on the next normal quit.
 Foom never automatically restarts or stops agents for an update. **Restart to
 update** shows the running-agent count and uses the ordinary quit confirmation,
 session save and terminal shutdown; cancelling or failing quit leaves work running.
@@ -117,10 +116,16 @@ rules as stable. Linux and Windows show notices only; Windows releases remain
 nightly-only. The build selects the channel and never crosses to the other channel.
 
 Update checks are Foom's only app-owned outbound network feature. Metadata
-requests go to update.electronjs.org, api.github.com and (for nightlies) foom-term.com and contain only the app
-version and platform (including architecture for the macOS feed), never terminal
-content, repository paths, agent identities or credentials. Those servers see the
-client IP address and app version. Failures stay quiet apart from **Could not
+requests first go to `foom-term.com/u/v1/<channel>/<os>/<arch>/<version>`, with
+optional first-check-of-day/week/month flags for anonymous active-install counts.
+No install ID or request-linking identifier is used. Network failures, timeouts
+and non-2xx responses fall back to the existing channel source described above.
+If the profile cannot save the activity dates, the check uses that direct source
+without activity flags.
+Requests never include terminal content, repository paths, agent identities or
+credentials. The counting endpoint excludes client IP from its logs; fallback
+servers see the IP and request metadata. See the [privacy disclosure](areas/privacy.md#update-requests-603).
+Failures stay quiet apart from **Could not
 check for updates.** in Settings. Tests use fake updater and HTTP services.
 
 On stable macOS, Foom fetches metadata itself and accepts only an HTTPS ZIP URL
