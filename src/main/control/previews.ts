@@ -184,7 +184,8 @@ export class PreviewBroker {
     this.take(actor);
     const target = await this.resolve(actor, params["path"]);
     this.active(actor);
-    const existing = this.owned(actor).find((p) => p.real === target.real);
+    const currentOwned = this.owned(actor);
+    const existing = currentOwned.find((p) => p.real === target.real);
     if (existing) {
       await this.record(actor, method, existing, "existing");
       this.assertOwned(actor, existing);
@@ -202,7 +203,7 @@ export class PreviewBroker {
       }
       return this.view(existing, "existing", true);
     }
-    if (owned.length >= this.limits.perAgent || this.previews.size >= this.limits.total)
+    if (currentOwned.length >= this.limits.perAgent || this.previews.size >= this.limits.total)
       throw new ControlError("capacity");
     const preview: AgentPreview = {
       previewId: randomBytes(16).toString("hex"),

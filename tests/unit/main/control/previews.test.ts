@@ -252,6 +252,40 @@ it("refuses count and rate limits, counting reuse and preserving every preview",
   for (let i = 0; i < 6; i++) await open("p0.md");
   await expect(open("p0.md")).rejects.toMatchObject({ code: "capacity" });
 });
+it("uses live ownership for capacity after filesystem resolution", async () => {
+  const first = id(await open("p0.md"));
+  for (let i = 1; i < PREVIEW_LIMITS.perAgent; i++) await open(`p${String(i)}.md`);
+  let started = () => {};
+  const entered = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const realpath = fs.promises.realpath;
+  vi.spyOn(fs.promises, "realpath").mockImplementationOnce(async (file) => {
+    started();
+    await gate;
+    return realpath(file);
+  });
+  const opening = open("p5.md");
+  const result = expect(opening).resolves.toMatchObject({ path: "p5.md", reused: false });
+  try {
+    await entered;
+    broker.humanClose(first);
+    await board.close(first);
+    expect(board.previews.size).toBe(PREVIEW_LIMITS.perAgent - 1);
+  } finally {
+    release();
+    await result;
+  }
+  expect(board.previews.size).toBe(PREVIEW_LIMITS.perAgent);
+  expect(await list()).toMatchObject({
+    previews: [{ path: "p1.md" }, { path: "p2.md" }, { path: "p3.md" }, { path: "p5.md" }],
+  });
+  await expect(open("p6.md")).rejects.toMatchObject({ code: "capacity" });
+});
 it("enforces an instance cap even after ownership transfers", async () => {
   for (let generation = 0; generation < 3; generation++) {
     const who = { ...actor, generation: String(generation) };
