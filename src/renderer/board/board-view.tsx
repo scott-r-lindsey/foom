@@ -1,5 +1,6 @@
 import { ConfigThemeLauncherContext } from "../preflight/custom-theme-hint";
-import { restoreBoardFocus } from "./focus-restore";
+import type { TerminalFocusRestoration } from "../terminal/terminal-view-source.d";
+import { restoreBoardFocus, captureTerminalFocusRestoration } from "./focus-restore";
 import type { ComponentProps, ReactNode, SetStateAction } from "react";
 import {
   useCallback,
@@ -225,6 +226,7 @@ function BoardContents({
   }, [source, soundSetup, audioEnabled]);
   const sidebarRef = useRef<HTMLElement>(null);
   useBoardActivity(source, buttonsRef);
+  const [restoreFocusRequest, setRestoreFocusRequest] = useState<TerminalFocusRestoration>();
   const wasInactiveRef = useRef(paneInactive);
   const boardFocusRef = useRef<Element | null>(null);
   const focusedInitialRowRef = useRef(false);
@@ -247,11 +249,11 @@ function BoardContents({
         // The interim tile fallback must not replace the original xterm if
         // Settings reopens before queued attachment/focus has completed.
         boardFocusRef.current = previous;
-        setFocusRequest((value) => value + 1);
+        setRestoreFocusRequest(captureTerminalFocusRestoration());
       }
     }
     wasInactiveRef.current = paneInactive;
-  }, [paneInactive, selected, setFocusRequest]);
+  }, [paneInactive, selected]);
   const pickPreview = async (worktree: string) => {
     setRemoveError("");
     try {
@@ -662,6 +664,7 @@ function BoardContents({
             source={source}
             layout={layout}
             focusRequest={focusRequest}
+            restoreFocusRequest={restoreFocusRequest}
             setLayout={changeLayout}
             rows={rows}
             previews={previews}

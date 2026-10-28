@@ -115,6 +115,12 @@ Settings and Action Log retain the last focused board element while covered.
 Closing them restores that element, including an xterm textarea, rather than
 always selecting a sidebar row. Interim tile focus while reattaching does not
 replace the saved xterm target, including during rapid Settings reopening.
+Restoration captures its expected DOM target and request generation at dismissal, before React queues the
+view focus effect. Queued terminal focus restoration is cancelled by a newer DOM focus choice, another focus
+request, hiding the view for a new modal, or unmounting it (#903). Explicit tile
+focus still completes after the browser's own click focus action. An earlier queued
+modal hide may blur the opener to the document body; that implicit fallback does
+not revoke a later dismissal's restoration request.
 Trusted scrims, About, legal views, action errors
 and menu dismissal share `board/focus-restore.ts` for detached or unfocusable
 opener fallback. A coalesced prepare/dismiss pair still commits its dismissal effect, even when
