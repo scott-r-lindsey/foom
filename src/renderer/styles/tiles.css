@@ -439,6 +439,7 @@
   height: 28px;
   min-height: 28px;
   padding: 0;
+  outline: none;
   border: 0;
   background: none;
   color: var(--ink);

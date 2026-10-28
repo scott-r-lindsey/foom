@@ -969,7 +969,9 @@ test("directional pads and empty-space menu split, grow, launch and close", {
     ).toBeDisabled();
     await split.getByRole("menuitem", { name: `Split ${direction}`, exact: true }).click();
     await expect(spaces).toHaveCount(1);
-    await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
+    await expect(
+      page.locator('.terminal-tile[data-empty="false"] .xterm-helper-textarea').first(),
+    ).toBeFocused();
     await menuButton.click();
     await expect(
       grow.getByRole("menuitem", { name: `Grow ${direction}`, exact: true }),
@@ -980,22 +982,31 @@ test("directional pads and empty-space menu split, grow, launch and close", {
   await menuButton.click();
   await page.getByRole("menuitem", { name: "Split down", exact: true }).click();
   for (const colorScheme of ["light", "dark"]) {
+    await page.evaluate(
+      (base) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${base}` }),
+      colorScheme,
+    );
     await page.emulateMedia({ colorScheme });
+    await expect(page.locator("html")).toHaveCSS(
+      "--bg",
+      colorScheme === "light" ? "#f3f0fa" : "#05040a",
+    );
     await expect(page.locator("html")).toHaveCSS("color-scheme", colorScheme);
     await menuButton.click();
     const panel = page.getByRole("dialog", { name: "Tile 1 menu", exact: true });
     const refused = panel.getByRole("menuitem", { name: "Grow up", exact: true });
     await refused.focus();
     await expect(refused).toBeFocused();
-    await expect(
-      panel.getByRole("tooltip", { name: "At the top edge", exact: true }),
-    ).toBeVisible();
+    await expect(refused).toHaveAccessibleDescription("At the top edge");
+    await expect(panel.getByText("At the top edge", { exact: true })).toBeVisible();
     const arrow = panel.getByRole("menuitem", { name: "Split up", exact: true });
     await expect(arrow).toHaveCSS("width", "28px");
     await expect(arrow).toHaveCSS("height", "28px");
+    await arrow.focus();
+    await expect(panel.getByText("At the top edge", { exact: true })).toBeHidden();
     await assertAccessible(page);
     await page.screenshot({ path: evidencePath(`screenshots-889/tile-panel-${colorScheme}.png`) });
-    await refused.press("Escape");
+    await arrow.press("Escape");
     await spaces.first().click({ button: "right" });
     const menu = page.getByRole("menu", { name: "Empty space", exact: true });
     await expect(menu).toBeVisible();

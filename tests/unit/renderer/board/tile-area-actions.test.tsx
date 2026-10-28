@@ -386,3 +386,59 @@ test("empty-space menu splits, closes, dismisses and launches through the home-s
     true,
   );
 });
+
+test.each(["left", "up", "right", "down"] as const)(
+  "tile panel splits and grows %s without replacing its controller",
+  async (direction) => {
+    const { screen, click, views } = setup();
+    click(0);
+    await act(async () => {});
+    const tile = screen.container.querySelector('[data-empty="false"]');
+    const button = screen.getByRole("button", { name: "Tile 1 menu" });
+    fireEvent.click(button);
+    fireEvent.click(screen.getByRole("menuitem", { name: `Split ${direction}` }));
+    expect(screen.container.querySelectorAll('[data-empty="true"]')).toHaveLength(1);
+    expect(screen.container.querySelector('.terminal-tile[data-focused="true"]')).toBe(tile);
+    fireEvent.click(button);
+    fireEvent.click(screen.getByRole("menuitem", { name: `Grow ${direction}` }));
+    await act(async () => {});
+    expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
+    expect(screen.container.querySelector(".terminal-tile")).toBe(tile);
+    expect(views[0]?.dispose).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(tile);
+  },
+);
+
+test.each(["filled", "removed"] as const)(
+  "new shell keeps a %s destination safe while launching",
+  async (mode) => {
+    const { screen, click, send, source, data, views } = setup();
+    click(0);
+    send("split-right");
+    vi.spyOn(
+      screen.getByRole("group", { name: "Terminal tiles" }),
+      "getBoundingClientRect",
+    ).mockReturnValue(new DOMRect(0, 0, 2400, 900));
+    let finish: (() => void) | undefined;
+    source.sidebarCommand = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      data.update("check", { id: "home-created", kind: "shell", home: true });
+    });
+    const space = screen.container.querySelector('[data-empty="true"]') ?? document.body;
+    fireEvent.contextMenu(space, { clientX: 50, clientY: 50 });
+    fireEvent.click(screen.getByRole("menuitem", { name: "New shell here" }));
+    if (mode === "filled") click(1);
+    else send("tidy-tiles");
+    await act(async () => {
+      finish?.();
+      await Promise.resolve();
+    });
+    expect(views.some((view) => view.open.mock.calls.some(([id]) => id === "home-created"))).toBe(
+      true,
+    );
+    if (mode === "filled") expect(views[1]?.open).toHaveBeenLastCalledWith("build");
+    expect(screen.queryByRole("alert")).toBeNull();
+  },
+);

@@ -56,7 +56,9 @@ test("split refusal is described and inert at the resource limit", () => {
   );
   const arrow = screen.getByRole("menuitem", { name: "Split left" });
   expect(arrow.getAttribute("aria-disabled")).toBe("true");
-  expect(screen.getAllByRole("tooltip")[0]?.textContent).toBe("Split depth limit reached");
+  expect(screen.container.querySelector(".pad-reason")?.textContent).toBe(
+    "Split depth limit reached",
+  );
   fireEvent.click(arrow);
   expect(run).not.toHaveBeenCalled();
 });

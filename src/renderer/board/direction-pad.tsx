@@ -45,7 +45,9 @@ export function DirectionPad({
           ?.focus();
       }}
     >
-      <span className="pad-label">{kind}</span>
+      <span className="pad-label" aria-hidden="true">
+        {kind}
+      </span>
       <div className="pad-grid">
         {(["right", "up", "left", "down"] as const).map((direction) => {
           const target = kind === "Grow" ? growTarget(layout, direction) : undefined;
@@ -75,7 +77,7 @@ export function DirectionPad({
                 </svg>
               </button>
               {reason && (
-                <span className="pad-reason" role="tooltip" id={`${id}-${direction}`}>
+                <span className="pad-reason" aria-hidden="true" id={`${id}-${direction}`}>
                   {reason}
                 </span>
               )}

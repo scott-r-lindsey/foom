@@ -897,3 +897,17 @@ test.each(["terminal", "child", "preview", "manual", "sidebar"] as const)(
     expect(leaves(replaced.tree).at(-1)?.content).toEqual(leaves(full.tree).at(-1)?.content);
   },
 );
+
+test.each(["left", "up", "right", "down"] as const)(
+  "grow %s absorbs a subdivided all-empty far side",
+  (direction) => {
+    const start = place(initialLayout(), "a");
+    const outer = splitTile(start, direction);
+    const divided = splitTile(
+      { ...outer, focused: outer.landing ?? "" },
+      direction === "left" || direction === "right" ? "down" : "right",
+    );
+    expect(leaves(divided.tree)).toHaveLength(3);
+    expect(growTile({ ...divided, focused: start.focused }, direction).tree).toEqual(start.tree);
+  },
+);
