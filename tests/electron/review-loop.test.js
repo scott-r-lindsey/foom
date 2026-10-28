@@ -288,14 +288,35 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
             ).length,
         )
         .toBe(3);
+      const previousToken = parent.controlToken;
+      // The fixture records credentials before terminal creation finishes and
+      // control.bind authenticates the grant. Readiness needs both a fresh
+      // record and a successful request, before measuring responsiveness.
       await expect
-        .poll(
-          async () =>
-            JSON.parse(await readFile(`${credentials}.app`, "utf8")).controlToken !==
-            parent.controlToken,
-        )
+        .poll(async () => {
+          const candidate = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
+          if (candidate.controlToken === previousToken) return false;
+          const response = await fetch(candidate.controlUrl, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${candidate.controlToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              version: 1,
+              instanceId: candidate.instanceId,
+              method: "whoami",
+              params: {},
+            }),
+            signal: context.signal,
+          });
+          const body = await response.json();
+          if (response.status !== 200) return false;
+          assert.equal(body.result.role, "orchestrator");
+          parent = candidate;
+          return true;
+        })
         .toBe(true);
-      parent = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
       await roundTrips();
       // Two new active loops beside the three restored/escalated loops must
       // also settle without resurrecting dormant automation.
