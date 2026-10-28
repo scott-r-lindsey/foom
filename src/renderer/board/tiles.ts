@@ -90,6 +90,7 @@ function removeTile(layout: TileLayout): TileLayout {
     focused: remaining
       ? (terminals(tree).find((tile) => tile.id === focused)?.id ??
         terminals(tree)[0]?.id ??
+        leaves(tree)[0]?.id ??
         tree.id)
       : tree.id,
     maximized: null,

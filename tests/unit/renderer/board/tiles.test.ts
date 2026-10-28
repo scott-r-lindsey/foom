@@ -352,6 +352,29 @@ test("close space removes only empty leaves and preserves the focused terminal",
   expect(terminals(closed.tree)).toHaveLength(0);
 });
 
+test("closing focused space beside an empty split retains leaf focus and restorable split bounds", () => {
+  const start = initialLayout();
+  const pair = splitTile(start, "right");
+  const right = leaves(pair.tree)[1];
+  if (!right) throw new Error("Missing right space");
+  const divided = splitTile({ ...pair, focused: right.id }, "down");
+  let layout = closeSpace({ ...divided, focused: start.focused }, start.focused);
+  expect(leaves(layout.tree).map((tile) => tile.id)).toContain(layout.focused);
+  expect(leaves(layout.tree)).toHaveLength(2);
+  const remainingRoot = layout.tree.id;
+  for (let index = 0; index < 64; index++) layout = splitTile(layout, "down");
+  const depth = (node: TileNode): number =>
+    node.kind === "tile" ? 0 : 1 + Math.max(depth(node.first), depth(node.second));
+  expect(layout.tree.id).toBe(remainingRoot);
+  expect(depth(layout.tree)).toBe(64);
+  expect(leaves(layout.tree)).toHaveLength(65);
+  expect(splitTile(layout, "down")).toBe(layout);
+  layout = place(layout, "retained-shell");
+  const restored = restoreLayout(JSON.stringify({ version: 2, ...layout }));
+  expect(restored).toEqual(layout);
+  expect(terminals(restored.tree).map(sessionId)).toEqual(["retained-shell"]);
+});
+
 test("gutter preview and commit collapse only all-space sides and preserve occupied limits", () => {
   const left = splitTile(place(initialLayout(), "a"), "horizontal");
   const preview = resizeSplit(left, left.tree.id, 0.95);
