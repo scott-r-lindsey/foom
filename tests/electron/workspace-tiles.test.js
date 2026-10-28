@@ -1063,7 +1063,10 @@ test("directional pads and empty-space menu split, grow, launch and close", {
   await expect(spaces).toHaveCount(1);
   const target = await spaces.first().getAttribute("data-tile");
   await spaces.first().click({ button: "right" });
-  await page.locator(".tile-title").first().click();
+  await page
+    .locator(".tile-title")
+    .first()
+    .click({ position: { x: 10, y: 10 } });
   await expect(page.getByRole("menu", { name: "Empty space", exact: true })).toHaveCount(0);
   await spaces.first().click({ button: "right" });
   await page.keyboard.press("Tab");
