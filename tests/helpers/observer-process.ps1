@@ -7,6 +7,8 @@ Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
+using System.Text;
 using System.Runtime.InteropServices;
 public sealed class ObserverJob : IDisposable {
   [StructLayout(LayoutKind.Sequential)]
@@ -38,6 +40,8 @@ public sealed class ObserverJob : IDisposable {
   static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
   [DllImport("kernel32.dll", SetLastError=true)]
   static extern bool GetQueuedCompletionStatus(IntPtr port, out uint message, out IntPtr key, out IntPtr data, uint timeout);
+  [DllImport("kernel32.dll", SetLastError=true)]
+  static extern bool QueryInformationJobObject(IntPtr job, int kind, IntPtr data, int size, out int length);
   [DllImport("kernel32.dll")]
   static extern bool CloseHandle(IntPtr handle);
   IntPtr job, port;
@@ -68,6 +72,55 @@ public sealed class ObserverJob : IDisposable {
     }
     throw new TimeoutException("Observer descendants did not exit");
   }
+  // Fixed metadata only: never inspect command lines, environment or output.
+  public static string ProcessMetadata(Process process) {
+    string metadata = "pid=" + process.Id;
+    try {
+      bool exited = process.HasExited;
+      metadata += " exited=" + (exited ? "true" : "false");
+      if (exited) metadata += " exitCode=" + process.ExitCode + " exitTime=" +
+        process.ExitTime.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture);
+    } catch (Exception error) { metadata += " unavailable=" + error.HResult; }
+    return metadata;
+  }
+  public string Diagnostics() {
+    StringBuilder result = new StringBuilder();
+    // Accounting is four LARGE_INTEGERs followed by four DWORDs.
+    IntPtr accounting = Marshal.AllocHGlobal(48);
+    try {
+      int length;
+      if (QueryInformationJobObject(job, 1, accounting, 48, out length)) {
+        result.AppendLine("observer-job active=" + Marshal.ReadInt32(accounting, 40) +
+          " total=" + Marshal.ReadInt32(accounting, 36) +
+          " terminated=" + Marshal.ReadInt32(accounting, 44));
+      } else result.AppendLine("observer-job queryError=" + Marshal.GetLastWin32Error());
+    } finally { Marshal.FreeHGlobal(accounting); }
+    // Bounded snapshot of this job only. Report partial lists if it grows past
+    // capacity (ERROR_MORE_DATA); diagnostics never retry or delay cleanup.
+    const int capacity = 4096;
+    int size = 8 + capacity * IntPtr.Size;
+    IntPtr members = Marshal.AllocHGlobal(size);
+    try {
+      Marshal.WriteInt32(members, 0, 0); Marshal.WriteInt32(members, 4, 0);
+      int length;
+      bool ok = QueryInformationJobObject(job, 3, members, size, out length);
+      int error = ok ? 0 : Marshal.GetLastWin32Error();
+      if (!ok) result.AppendLine("observer-members queryError=" + error);
+      if (ok || error == 234) {
+        int count = Math.Min(capacity, Math.Max(0, Marshal.ReadInt32(members, 4)));
+        for (int index = 0; index < count; index++) {
+          long pid = Marshal.ReadIntPtr(members, 8 + index * IntPtr.Size).ToInt64();
+          try {
+            using (Process process = Process.GetProcessById(checked((int)pid)))
+              result.AppendLine("observer-member " + ProcessMetadata(process));
+          } catch (Exception unavailable) {
+            result.AppendLine("observer-member pid=" + pid + " unavailable=" + unavailable.HResult);
+          }
+        }
+      }
+    } finally { Marshal.FreeHGlobal(members); }
+    return result.ToString();
+  }
   public void Dispose() {
     if (job != IntPtr.Zero) { CloseHandle(job); job = IntPtr.Zero; }
     if (port != IntPtr.Zero) { CloseHandle(port); port = IntPtr.Zero; }
@@ -77,6 +130,10 @@ public sealed class ObserverJob : IDisposable {
 $job = $null
 $child = $null
 $gate = $null
+$phases = New-Object 'System.Collections.Generic.List[string]'
+function Record-Phase([string]$phase) {
+  $phases.Add('observer-phase timestamp=' + [DateTime]::UtcNow.ToString('o') + ' phase=' + $phase)
+}
 try {
   $request = [Console]::In.ReadLine() | ConvertFrom-Json
   $gateName = 'Local\foom-observer-test-' + [Guid]::NewGuid().ToString('N')
@@ -96,6 +153,7 @@ try {
   $start.EnvironmentVariables['FOOM_TEST_EVENT'] = $request.event
   $timer = [System.Diagnostics.Stopwatch]::StartNew()
   $child = [System.Diagnostics.Process]::Start($start)
+  Record-Phase 'parent-start'
   try { $job.Assign($child) } catch { $child.Kill(); $child.WaitForExit(); throw }
   $null = $gate.Set()
   $output = $child.StandardOutput.ReadToEndAsync()
@@ -106,6 +164,7 @@ try {
     $child.StandardInput.Close()
   }
   if (!$child.WaitForExit($request.deadline)) { throw 'Observer parent did not exit' }
+  Record-Phase 'parent-exit'
   # Test-only delay proves that a late supervisor observation cannot extend the
   # product measurement. The OS timestamps include cold shell startup and the
   # startup gate, but exclude Process.Start overhead and supervisor scheduling
@@ -117,8 +176,25 @@ try {
   # Publish the parent's result immediately, before waiting for descendants.
   [Console]::Out.WriteLine((@{ stdout = $output.GetAwaiter().GetResult(); stderr = $errors.GetAwaiter().GetResult(); elapsed = $elapsed; observedElapsed = $observedElapsed } | ConvertTo-Json -Compress))
   [Console]::Out.Flush()
-  $job.Wait($request.deadline)
-} catch { [Console]::Error.WriteLine($_); exit 1 }
+  Record-Phase 'parent-result'
+  Record-Phase 'drain-start'
+  try { $job.Wait($request.deadline) } catch { Record-Phase 'drain-failed'; throw }
+  Record-Phase 'drain-complete'
+} catch {
+  # Preserve the original failure even if a process exits during the snapshot.
+  $failure = $_
+  foreach ($phase in $phases) { [Console]::Error.WriteLine($phase) }
+  if ($child) {
+    try { [Console]::Error.WriteLine('observer-parent ' + [ObserverJob]::ProcessMetadata($child)) }
+    catch { [Console]::Error.WriteLine('observer-parent unavailable') }
+  }
+  if ($job) {
+    try { [Console]::Error.Write($job.Diagnostics()) }
+    catch { [Console]::Error.WriteLine('observer-job unavailable') }
+  }
+  [Console]::Error.WriteLine($failure)
+  exit 1
+}
 finally {
   if ($job) { $job.Dispose() }
   if ($child) { $child.Dispose() }
