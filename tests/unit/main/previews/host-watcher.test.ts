@@ -124,7 +124,7 @@ test("navigation beyond 64 historical directories watches only the current chapt
       watches
         .filter((watch) => watch.close.mock.calls.length === 0)
         .map((watch) => watch.directory),
-    ).toEqual([directory]);
+    ).toEqual([fs.realpathSync.native(directory)]);
   }
   const current = fake.views.at(-1);
   watches[0]?.notify("chapter.md");
