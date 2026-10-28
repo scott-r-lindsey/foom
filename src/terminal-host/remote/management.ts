@@ -108,7 +108,13 @@ export async function manageHost(
   }
   if (request.operation === "inspect") return { ok: true, facts };
   const path = join(folder, request.directory);
-  const env = { ...(await hostLoginEnvironment(shell, home)), GIT_TERMINAL_PROMPT: "0" };
+  const env = {
+    ...(await hostLoginEnvironment(shell, home)),
+    GIT_TERMINAL_PROMPT: "0",
+    // Management safety decisions must use stored history, never local overlays.
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_GRAFT_FILE: "/dev/null",
+  };
   const git = (args: string[], cwd: string) =>
     hostProbe("git", ["--no-optional-locks", ...args], cwd, env, true);
   const checkout = async (directory: string) => {
@@ -251,6 +257,8 @@ export async function manageHost(
             !(
               await git(
                 [
+                  "-c",
+                  "core.commitGraph=false",
                   "for-each-ref",
                   "--format=%(refname)",
                   `--contains=${head}`,

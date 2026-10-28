@@ -97,3 +97,8 @@ CPU/memory observations, including Local. Paths, raw probe output and credential
 are omitted. Linux available memory uses MemAvailable; macOS uses the same
 free + inactive + speculative page definition locally and remotely. No polling,
 busy warning or Foom-enforced heavy-validation lock is added.
+
+Remote management Git reads disable replacement refs and legacy grafts, including
+checkout validation and identity rechecks. Detached worktree removal requires HEAD
+to be reachable from a retained branch, remote-tracking ref or tag using stored
+commit history with commit-graph reads disabled, matching the local removal guard.
