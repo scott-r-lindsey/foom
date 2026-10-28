@@ -126,6 +126,7 @@ export async function prepareProbe(
   request: Extract<ProbeRequest, { action: "start" }>,
   cwd: string,
   env: Record<string, string>,
+  cliDirectory = join(__dirname, "../../console").replace("app.asar", "app.asar.unpacked"),
 ): Promise<PreparedProbe> {
   await provider.validate?.();
   const launchEnvironment = { ...env, ...TERMINAL_ENVIRONMENT };
@@ -232,7 +233,14 @@ export async function prepareProbe(
         cwd,
         cols: 80,
         rows: 24,
-        env: { ...launchEnvironment, ...binding.env, FOOM_CONTROL_TOKEN: mcp.token },
+        // Installed stdio launchers need the same probe-only endpoint as argv attachments.
+        env: {
+          ...launchEnvironment,
+          ...binding.env,
+          FOOM_CONTROL_URL: mcp.url,
+          FOOM_CONTROL_TOKEN: mcp.token,
+          FOOM_CLI_DIRECTORY: cliDirectory,
+        },
         replaceEnvironment: true,
       },
       ...(prepared.conversationId === undefined ? {} : { conversationId: prepared.conversationId }),
