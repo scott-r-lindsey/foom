@@ -357,3 +357,18 @@ test("windowless About opens a board and dispatches the in-board dialog command"
     expect(mock.window.webContents.send).toHaveBeenCalledWith("board:command", "about");
   });
 });
+
+test("terminal clipboard permission reads the current copy-on-select preference", async () => {
+  const settings = mock.settingsStore.get();
+  let enabled = false;
+  vi.spyOn(mock.settingsStore, "get").mockImplementation(() => ({
+    ...settings,
+    copyOnSelect: enabled,
+  }));
+  await start();
+  expect(mock.copyOnSelect()).toBe(false);
+  enabled = true;
+  expect(mock.copyOnSelect()).toBe(true);
+  enabled = false;
+  expect(mock.copyOnSelect()).toBe(false);
+});

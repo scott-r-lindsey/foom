@@ -1,3 +1,4 @@
+import { copyOnSelect } from "./copy-on-select";
 import { terminalFontStack, TERMINAL_FONT_FALLBACK } from "../../shared/terminal-fonts";
 import { isUserThemeId } from "../../shared/theme-validation";
 import type { SetupState } from "../../shared/setup";
@@ -86,6 +87,10 @@ export function createShell(
   let selection = Promise.resolve();
   let request = 0;
   let attached = false;
+  let selectionCopyEnabled = false;
+  const offSelectionCopy = copyOnSelect(container, terminal, () =>
+    selectionCopyEnabled && attached && !busy ? activeId : undefined,
+  );
   const offSelectionPaste = emulateMiddleClickPaste(
     container,
     terminal,
@@ -250,12 +255,14 @@ export function createShell(
       : state.settings.terminalTheme;
   const offSetup = window.desktop.onSetupChange((state) => {
     settingsChanged = true;
+    selectionCopyEnabled = state.settings.copyOnSelect;
     applyFont(state.settings.terminalFontSize, state.settings.terminalFont);
     applyTheme(selectedTheme(state));
   });
   const initialSettings = window.desktop.setupState().then(
     (state) => {
       if (!settingsChanged) {
+        selectionCopyEnabled = state.settings.copyOnSelect;
         applyFont(state.settings.terminalFontSize, state.settings.terminalFont);
         applyTheme(selectedTheme(state));
       }
@@ -394,6 +401,7 @@ export function createShell(
     offSetup();
     offMiddleClick();
     offSelectionPaste();
+    offSelectionCopy();
     if (activeId && attached && isAvailable(activeId))
       void window.desktop.detach(activeId).catch(() => {});
     renderer.dispose();

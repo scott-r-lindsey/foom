@@ -39,7 +39,8 @@ Main owns update checks, timers and fixed status facts in `updates.ts`; the HTTP
 adapter uses anonymous, bounded HTTPS metadata GETs. Settings stores the opt-out
 in the profile. Only packaged builds check, once at startup and every six hours.
 The [approved channel policy](../product.md#updates-603) distinguishes stable
-macOS installation from notice-only Linux, Windows and all nightly builds.
+macOS installation from notice-only Linux and Windows. CI-stamped macOS nightlies
+use the [nightly feed](../architecture.md#nightly-update-feed-604) with the same installation rules.
 
 Squirrel.Mac applies downloaded updates on ordinary exit. Receipt of an update
 never quits, relaunches or kills a PTY. Explicit restart enters `requestQuit` and
@@ -50,7 +51,9 @@ through that explicit path. No Windows native updater is configured.
 Foom fetches macOS metadata before invoking the updater, checks the version from
 its repository-bound ZIP path, and downloads the ZIP through the constrained
 adapter in `update-package.ts`. Only the exact GitHub repository download path
-and repository-ID-scoped release CDN redirects are accepted. Non-final responses
+and repository-ID-scoped release CDN redirects are accepted for stable builds.
+Nightlies accept only the exact foom-term.com immutable commit/architecture ZIP
+path and verify the advertised SHA-256; nightly downloads reject all redirects. Non-final responses
 (including redirects and errors) are destroyed immediately without consuming
 their bodies. Every hop shares one abort signal, byte budget and total deadline;
 completion and failure abort that scope too. Preparation waits for all tracked

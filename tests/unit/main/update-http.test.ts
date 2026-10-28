@@ -157,3 +157,29 @@ test.each([
   );
   expect(mock.get).not.toHaveBeenCalled();
 });
+
+test.each([
+  "darwin-arm64/latest-mac.json",
+  "darwin-x64/latest-mac.json",
+  "linux-x64/latest.json",
+  "win32-x64/latest.json",
+])("allows only fixed nightly endpoint %s", async (path) => {
+  const result = getUpdateRelease(
+    "0.1.0-nightly.20261023+aaaaaaa",
+    "darwin",
+    `https://foom-term.com/updates/nightly/${path}`,
+    signal(),
+  );
+  respond(200, '{"version":"nightly"}');
+  await expect(result).resolves.toEqual({ version: "nightly" });
+});
+test.each([
+  "https://foom-term.com/updates/nightly/darwin-arm64/latest-mac.json?evil=1",
+  "https://foom-term.com.evil/updates/nightly/darwin-arm64/latest-mac.json",
+  "https://foom-term.com/updates/nightly/darwin-arm64/../latest-mac.json",
+  "https://foom-term.com/updates/nightly/win32-x64/RELEASES",
+  "https://api.github.com/repos/scott-r-lindsey/foom/releases/tags/nightly",
+])("refuses alternate nightly endpoint %s", async (endpoint) => {
+  await expect(getUpdateRelease("0.1.0", "darwin", endpoint, signal())).rejects.toThrow();
+  expect(mock.get).not.toHaveBeenCalled();
+});

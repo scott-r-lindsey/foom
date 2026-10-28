@@ -893,3 +893,15 @@ test("middle-click paste default off, validate booleans and persist in the profi
   await store.update(parseSettingsPatch({ middleClickPaste: false }));
   expect((await SettingsStore.open(dir)).get().middleClickPaste).toBe(false);
 });
+
+test("copy on select default off, validate booleans and persist in the profile", async () => {
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  expect(store.get().copyOnSelect).toBe(false);
+  for (const value of [null, "true", 1, {}])
+    expect(() => parseSettingsPatch({ copyOnSelect: value })).toThrow("Invalid settings");
+  await store.update(parseSettingsPatch({ copyOnSelect: true }));
+  expect((await SettingsStore.open(dir)).get().copyOnSelect).toBe(true);
+  await store.update(parseSettingsPatch({ copyOnSelect: false }));
+  expect((await SettingsStore.open(dir)).get().copyOnSelect).toBe(false);
+});

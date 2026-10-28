@@ -1355,3 +1355,10 @@ test("validates requested child selections in session replies", async () => {
   });
   await expect(api.workspace()).rejects.toThrow();
 });
+
+test("terminal selection copy exposes a write-only ID-scoped bridge", async () => {
+  const api = await bridge();
+  mock.invoke.mockResolvedValue(undefined);
+  await api.copyTerminalSelection("one", "selected");
+  expect(mock.invoke).toHaveBeenCalledExactlyOnceWith("terminal:copy-selection", "one", "selected");
+});

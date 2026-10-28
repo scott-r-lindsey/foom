@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { get } from "node:https";
@@ -10,6 +11,9 @@ import { pathToFileURL } from "node:url";
 export interface UpdatePackage {
   version: string;
   url: string;
+  sha256?: string;
+  commitDate?: string;
+  bundleVersion?: string;
 }
 export interface LocalUpdate {
   url: string;
@@ -31,6 +35,48 @@ export function macUpdatePackage(metadata: unknown, arch: string): UpdatePackage
   return { version: match[1], url };
 }
 
+/** Bind nightly metadata to an immutable archive, channel, architecture and commit. */
+export function nightlyUpdatePackage(
+  metadata: unknown,
+  platform: string,
+  arch: string,
+): UpdatePackage {
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    !("version" in metadata) ||
+    !("url" in metadata) ||
+    !("commit" in metadata) ||
+    !("commitDate" in metadata) ||
+    !("sha256" in metadata)
+  )
+    throw new Error("Invalid nightly metadata");
+  const { version, url, commit, commitDate, sha256 } = metadata;
+  if (
+    typeof version !== "string" ||
+    typeof commit !== "string" ||
+    typeof commitDate !== "string" ||
+    typeof sha256 !== "string"
+  )
+    throw new Error("Invalid nightly metadata");
+  const match = /^(\d+\.\d+\.\d+)-nightly\.(\d{8})\+([a-f0-9]{7})$/.exec(version);
+  if (
+    !match ||
+    !/^[a-f0-9]{40}$/.test(commit) ||
+    commit.slice(0, 7) !== match[3] ||
+    !/^\d{4}-\d{2}-\d{2}T/.test(commitDate) ||
+    !Number.isFinite(Date.parse(commitDate)) ||
+    new Date(commitDate).toISOString().slice(0, 10).replaceAll("-", "") !== match[2] ||
+    !/^[a-f0-9]{64}$/.test(sha256) ||
+    url !==
+      `https://foom-term.com/updates/nightly/artifacts/${commit}/Foom-nightly-${match[2]}-${match[3]}-${platform}-${arch}.zip`
+  )
+    throw new Error("Invalid nightly archive");
+  const date = new Date(commitDate);
+  const seconds = date.getUTCHours() * 3600 + date.getUTCMinutes() * 60 + date.getUTCSeconds();
+  return { version, url, sha256, commitDate, bundleVersion: `${match[2]}.${String(seconds)}.0` };
+}
+
 /** Only GitHub's release-asset CDN, scoped to Foom's immutable repository ID. */
 function assetRedirect(url: string): boolean {
   const parsed = new URL(url);
@@ -49,6 +95,7 @@ interface DownloadScope {
   signal: AbortSignal;
   size: number;
   finished: Promise<void>[];
+  hash: ReturnType<typeof createHash>;
   track(stream: ClientRequest | IncomingMessage): void;
 }
 
@@ -83,7 +130,12 @@ async function download(
         response.destroy();
         const location = response.headers.location;
         try {
-          if (!location || redirects >= 3 || !assetRedirect(location))
+          if (
+            url.startsWith("https://foom-term.com/") ||
+            !location ||
+            redirects >= 3 ||
+            !assetRedirect(location)
+          )
             throw new Error("Invalid update redirect");
           void download(location, target, scope, redirects + 1).then(resolve, reject);
         } catch {
@@ -100,6 +152,7 @@ async function download(
       const limit = new Transform({
         transform(chunk: Buffer, _encoding, callback) {
           scope.size += chunk.length;
+          scope.hash.update(chunk);
           callback(
             scope.size > 1024 * 1024 * 1024 ? new Error("Update archive too large") : null,
             chunk,
@@ -141,6 +194,7 @@ export async function prepareLocalUpdate(
     signal: controller.signal,
     size: 0,
     finished,
+    hash: createHash("sha256"),
     track(stream) {
       streams.add(stream);
       finished.push(
@@ -173,12 +227,15 @@ export async function prepareLocalUpdate(
     const archive = join(directory, "update.zip");
     await download(update.url, archive, scope);
     signal.throwIfAborted();
+    if (update.sha256 !== undefined && scope.hash.digest("hex") !== update.sha256)
+      throw new Error("Update checksum mismatch");
     const feed = join(directory, "feed.json");
+    const version = update.bundleVersion ?? update.version;
     await writeFile(
       feed,
       JSON.stringify({
-        currentRelease: update.version,
-        releases: [{ version: update.version, updateTo: { url: pathToFileURL(archive).href } }],
+        currentRelease: version,
+        releases: [{ version, updateTo: { url: pathToFileURL(archive).href } }],
       }),
       { mode: 0o600, flag: "wx" },
     );

@@ -1,6 +1,7 @@
 import { isChildInput, type ChildInput } from "../../shared/child-input";
 import type { AgentEvidence } from "../../shared/agent-detection";
-import { app, ipcMain } from "electron";
+import { isTerminalSelection } from "../../shared/terminal-selection";
+import { app, clipboard, ipcMain } from "electron";
 import type { BrowserWindow, WebContents, IpcMainEvent, IpcMainInvokeEvent, Event } from "electron";
 import { homedir } from "node:os";
 import { TerminalHostClient } from "./terminal-host-client";
@@ -39,6 +40,7 @@ export function attachTerminal(
   allowView: (contents: WebContents, id: string) => boolean = () => true,
   /** Environment settings for shells: the All sessions layer. */
   shellEnvironment: () => Record<string, string> = () => ({}),
+  copyOnSelect: () => boolean = () => false,
 ) {
   const windows = new Map<
     WebContents,
@@ -157,6 +159,13 @@ export function attachTerminal(
       }
     });
   }
+  handlers.set("terminal:copy-selection", async (event, id, text) => {
+    if (!trusted(event)) throw new Error("Untrusted IPC sender");
+    if (!validId(id) || attached.get(id) !== event.sender)
+      throw new Error("Unknown or unattached terminal ID");
+    if (!isTerminalSelection(text)) throw new Error("Invalid terminal selection");
+    if (copyOnSelect()) await clipboard.writeText(text);
+  });
   handlers.set("terminal:tail", async (event, id, lines) => {
     if (!trusted(event)) throw new Error("Untrusted IPC sender");
     if (!validId(id)) throw new Error("Unknown or foreign terminal ID");

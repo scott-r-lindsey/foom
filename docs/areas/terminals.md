@@ -4,6 +4,13 @@ Decided implementation and security rules for this area. Read the [file map](../
 
 ## Terminals
 
+On macOS, the board window sets `acceptFirstMouse: true`: the activating click
+reaches the page and focuses the clicked terminal. It is ordinary mouse input,
+including delivery to terminal applications with mouse reporting enabled; there
+is no focus-only mouse-report guard. The trusted-dialog child accepts activating
+clicks too, subject to the existing [confirmation guards](confirmations.md).
+Linux and Windows behavior is unchanged.
+
 [Remote hosts #753](https://github.com/scott-r-lindsey/foom/issues/753) decides
 SSH-only transport and persistent remote PTYs. The older [#518 research](../research/remote-machines.md)
 is historical; the opt-in phase-1 spike is described below. There is no Hosts setting yet.
@@ -262,3 +269,25 @@ never enter this buffer. The buffer stays in renderer memory and is never copied
 disk, or synchronized across windows. Pasting sends ordinary terminal input
 through the existing terminal-ID-scoped bridge. Paste is accepted only by a live,
 visible, attached terminal that is ready for input.
+
+## Copy on select (#872)
+
+The profile-only `copyOnSelect` boolean is off by default on every platform.
+Settings → Terminal places **Copy on select** directly below the macOS-only
+middle-click checkbox, without helper copy. xterm's public `onSelectionChange`
+reports completed mouse selections rather than intermediate drag paints. A terminal-only
+mouse-up fallback handles repeated selections whose coordinates xterm considers
+unchanged, including a release outside the tile. Intermediate drags never copy; keyboard
+and programmatic selection changes settle for 100 ms before copying. Empty and
+oversized selections (over the shared 65,536 UTF-16 code-unit bound) never write,
+and oversized selections are rejected whole. Deselection never clears the clipboard.
+Only attached terminal controllers participate; Settings previews, dialogs and
+other apps do not. Mouse-reporting applications produce no xterm selection unless
+Shift forces selection. Linux primary selection behavior remains unchanged.
+
+The renderer calls only the narrow write-only `copyTerminalSelection(id, text)`
+preload capability. Main validates the registered board main-frame sender, owned
+terminal ID, attachment to that sender and bounded nonempty string, then checks
+the current preference before writing the system clipboard. Foom never reads the
+clipboard through this capability. The middle-click buffer remains separate and
+never supplies clipboard writes. Selection text is never persisted.

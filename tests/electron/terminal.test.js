@@ -411,6 +411,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "attach",
           "detach",
           "kill",
+          "copyTerminalSelection",
           "input",
           "resize",
           "acknowledge",
@@ -1547,5 +1548,130 @@ test("macOS private selection pastes from terminal A to B through bracketed past
     "hex",
   ).toString();
   assert.equal(input, "\x1b[200~INPUT_READY\x1b[201~b");
+  await page.keyboard.type("q");
+});
+
+test("copy on select writes only completed terminal selections when enabled", {
+  timeout: deadline(45000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-copy-select-"));
+  removeAfterApps(context, root);
+  const marker = path.join(root, "input");
+  await writeFile(marker, "");
+  const app = await launchApp(context, { fixture: "running-shell" });
+  let page = await boardPage(app);
+  const capture = process.env.FOOM_CAPTURE_872 === "1";
+  if (capture) {
+    // Show both neighboring options in review captures on Linux.
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "platform", { get: () => "MacIntel" });
+    });
+    await page.reload();
+    page = await boardPage(app);
+  }
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(1200, 900);
+  });
+  // Wait for reattachment before Settings claims focus, especially on Windows.
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  const toggle = page.getByRole("checkbox", { name: "Copy on select", exact: true });
+  await expect(toggle).not.toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Middle-click pastes selection", exact: true }),
+  ).toHaveCount(capture || process.platform === "darwin" ? 1 : 0);
+  if (capture) {
+    for (const mode of ["light", "dark"]) {
+      await page.evaluate((colorMode) => window.desktop.saveSetup({ colorMode }), mode);
+      await expect
+        .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
+        .toBe(mode === "dark");
+      await toggle.scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: evidencePath(`screenshots-872/settings-terminal-${mode}.png`),
+        animations: "disabled",
+      });
+    }
+  }
+  await assertAccessible(page);
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`;
+  await page.keyboard.type(command);
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".xterm-rows")).toContainText("INPUT_READY");
+  const screen = page.locator(".xterm-screen");
+  await app.evaluate(({ clipboard }) => clipboard.writeText("COPY_SENTINEL"));
+  await screen.dblclick({ position: { x: 20, y: 8 } });
+  await expect(page.locator(".xterm-selection div:visible").first()).toBeVisible();
+  // Wait beyond the selection debounce to prove the disabled path stays unchanged.
+  await page.waitForTimeout(150);
+  assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), "COPY_SENTINEL");
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await toggle.check();
+  await expect
+    .poll(() =>
+      page.evaluate(async () => (await window.desktop.setupState()).settings.copyOnSelect),
+    )
+    .toBe(true);
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await expect(page.locator(".xterm-rows")).toContainText("INPUT_READY");
+  // xterm replaces row spans during selection/focus paints. Resolving a span
+  // handle and measuring it in a later browser call can read a detached node's
+  // zero rectangle. Query and measure the marker in one turn from the stable screen.
+  await screen.hover({ position: { x: 1, y: 8 } });
+  const markerBounds = () =>
+    screen.evaluate((element) => {
+      const row = element.querySelector(".xterm-rows > div");
+      if (row?.textContent !== "INPUT_READY") return null;
+      const range = document.createRange();
+      range.selectNodeContents(row);
+      const { x, y, width, height } = range.getBoundingClientRect();
+      return width > 0 && height > 0 ? { x, y, width, height } : null;
+    });
+  let bounds;
+  await expect
+    .poll(async () => {
+      bounds = await markerBounds();
+      return bounds;
+    })
+    .not.toBeNull();
+  assert.ok(bounds);
+  await page.mouse.move(bounds.x + 1, bounds.y + bounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width, bounds.y + bounds.height / 2, { steps: 4 });
+  // Prove the held drag selected the marker before checking completion/copy.
+  const selection = page.locator(".xterm-selection div:visible").first();
+  await expect(selection).toBeVisible();
+  await expect
+    .poll(async () => (await selection.boundingBox())?.width)
+    .toBeCloseTo(bounds.width, 0);
+  await page.waitForTimeout(150);
+  assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), "COPY_SENTINEL");
+  await page.mouse.up();
+  await expect
+    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe("INPUT_READY");
+  // The same bounds may omit xterm's onSelectionChange; mouse-up still copies.
+  await app.evaluate(({ clipboard }) => clipboard.writeText("COPY_REPEAT_SENTINEL"));
+  await page.mouse.move(bounds.x + 1, bounds.y + bounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width, bounds.y + bounds.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await expect
+    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe("INPUT_READY");
+  await openSettingsScreen(page);
+  await page.getByRole("button", { name: "Terminal", exact: true }).click();
+  await toggle.uncheck();
+  // The fixture cleanup owns confirmation and quit ordering.
+  await page.locator(".board-row[data-kind='shell']").click();
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.type("q");
 });

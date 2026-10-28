@@ -59,6 +59,7 @@ export async function initializeWorkspace(
           layers: wiring.environment.layers("shell"),
           base: inheritedEnvironment(),
         }).env,
+      () => wiring.settings.get().copyOnSelect,
     );
   else wiring.terminals.addWindow(window);
   if (!wiring.initialized) {

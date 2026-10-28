@@ -29,6 +29,22 @@ export function identity(sha, date, version) {
   };
 }
 
+/** Squirrel's downgrade guard requires a three-part numeric macOS bundle version. */
+export function macBundleVersion(manifest) {
+  if (!manifest.version.includes("-nightly.")) return manifest.version;
+  const match = /^(\d+\.\d+\.\d+)-nightly\.(\d{8})\+([a-f0-9]{7})$/.exec(manifest.version);
+  if (!match || typeof manifest.foomNightlyDate !== "string")
+    throw new Error("Invalid nightly bundle identity");
+  const date = new Date(manifest.foomNightlyDate);
+  if (
+    !Number.isFinite(date.getTime()) ||
+    date.toISOString().slice(0, 10).replaceAll("-", "") !== match[2]
+  )
+    throw new Error("Invalid nightly bundle date");
+  const seconds = date.getUTCHours() * 3600 + date.getUTCMinutes() * 60 + date.getUTCSeconds();
+  return `${match[2]}.${seconds}.0`;
+}
+
 export function buildIdentity() {
   const git = (args) => execFileSync("git", args, { encoding: "utf8" }).trim();
   return identity(

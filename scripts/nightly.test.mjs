@@ -339,3 +339,31 @@ test("nightly installers have immutable commit names and RELEASES references the
   rmSync("nightly-packages/foom.rpm");
   assert.throws(() => assets("nightly-packages", info), /nightly installer/);
 });
+
+test("macOS nightly bundle versions are numeric and increase across same-day commits and days", async () => {
+  const { macBundleVersion } = await import("./nightly.mjs");
+  const first = {
+    version: "0.1.0-nightly.20261023+aaaaaaa",
+    foomNightlyDate: "2026-10-23T01:00:00Z",
+  };
+  assert.equal(macBundleVersion({ version: "0.1.0" }), "0.1.0");
+  assert.equal(macBundleVersion(first), "20261023.3600.0");
+  assert.equal(
+    macBundleVersion({ ...first, foomNightlyDate: "2026-10-23T01:00:01Z" }),
+    "20261023.3601.0",
+  );
+  assert.equal(
+    macBundleVersion({
+      version: "0.1.0-nightly.20261024+bbbbbbb",
+      foomNightlyDate: "2026-10-24T00:00:00Z",
+    }),
+    "20261024.0.0",
+  );
+  for (const manifest of [
+    { version: first.version },
+    { ...first, foomNightlyDate: "bad" },
+    { ...first, foomNightlyDate: "2026-10-24T00:00:00Z" },
+    { version: "bad-nightly.string", foomNightlyDate: first.foomNightlyDate },
+  ])
+    assert.throws(() => macBundleVersion(manifest));
+});

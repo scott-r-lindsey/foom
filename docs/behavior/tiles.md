@@ -31,7 +31,11 @@ previews close. If no eligible replacement exists, add the column despite the
 minimum width. Tree resource limits still apply. Full tiles produce no refusal
 shake or sound.
 
-Clicking a visible session focuses its tile. Human terminal launches and sidebar
+Clicking a visible session focuses its tile. On macOS, one click on a terminal in
+an inactive Foom window activates the window and focuses that terminal. The click
+also reaches terminal applications with mouse reporting enabled, as on Linux.
+[Trusted dialogs](confirmations.md) also receive their activating click.
+Human terminal launches and sidebar
 preview selections take focus; background children and agent-opened previews
 preserve focus. The manual takes focus, including when already open. Existing
 content is reused rather than duplicated.

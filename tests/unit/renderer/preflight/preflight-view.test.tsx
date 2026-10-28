@@ -1232,6 +1232,13 @@ test.each(["MacIntel", "Linux x86_64", "Win32"])(
     render(<Preflight source={source} initial={initial} settingsMode onLaunched={vi.fn()} />);
     expect(screen.queryByRole("checkbox", { name: "Middle-click pastes selection" })).toBeNull();
     fireEvent.click(button("Terminal"));
+    const copy = screen.getByRole("checkbox", { name: "Copy on select" });
+    expect(copy).toHaveProperty("checked", false);
+    fireEvent.click(copy);
+    await waitFor(() => {
+      expect(source.save).toHaveBeenCalledWith({ copyOnSelect: true });
+    });
+    expect(copy).toHaveProperty("checked", true);
     const toggle = screen.queryByRole("checkbox", { name: "Middle-click pastes selection" });
     if (platform === "MacIntel") {
       expect(toggle).toHaveProperty("checked", false);

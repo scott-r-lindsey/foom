@@ -18,6 +18,7 @@ export function setupState(
       closeFinishedAgents: true,
       showNestedRepositoryNames: false,
       middleClickPaste: false,
+      copyOnSelect: false,
       concurrentChildren: 4,
       recentRepositoryDays: 30,
       unreadChildMinutes: 5,

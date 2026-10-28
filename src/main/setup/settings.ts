@@ -34,6 +34,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze({
   closeFinishedAgents: true,
   showNestedRepositoryNames: false,
   middleClickPaste: false,
+  copyOnSelect: false,
   concurrentChildren: 4,
   recentRepositoryDays: 30,
   unreadChildMinutes: 5,
@@ -74,7 +75,8 @@ export function parseSettingsPatch(value: unknown): SettingsPatch {
         key === "autoRemoveMergedWorktrees" ||
         key === "showPullRequests" ||
         key === "showNestedRepositoryNames" ||
-        key === "middleClickPaste") &&
+        key === "middleClickPaste" ||
+        key === "copyOnSelect") &&
       typeof entry === "boolean"
     )
       patch[key] = entry;

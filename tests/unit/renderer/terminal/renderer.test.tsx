@@ -203,6 +203,7 @@ beforeEach(() => {
   mock.create.mockResolvedValue({ id: "one", title: "bash — /project" });
   mock.onData.mockReturnValue(mock.offData);
   mock.onRender.mockReturnValue({ dispose: mock.offRender });
+  mock.onSelectionChange.mockReturnValue({ dispose: vi.fn() });
   mock.onTerminalAvailability.mockReturnValue(() => {});
   mock.onExit.mockReturnValue(mock.offExit);
 });
@@ -1383,7 +1384,7 @@ test("macOS controllers paste only while ready and dispose selection listeners",
   const controller = createShell(container, vi.fn(), false, undefined, false);
   await controller.open("a");
   terminalSelectionBuffer.setEnabled(true);
-  mock.onSelectionChange.mock.calls[0]?.[0]();
+  mock.onSelectionChange.mock.calls[1]?.[0]();
   expect(terminalSelectionBuffer.read()).toBe("LAST_SELECTION");
   container.dispatchEvent(new MouseEvent("auxclick", { button: 1 }));
   expect(mock.paste).toHaveBeenCalledWith("LAST_SELECTION");
@@ -1392,7 +1393,30 @@ test("macOS controllers paste only while ready and dispose selection listeners",
   container.dispatchEvent(new MouseEvent("auxclick", { button: 1 }));
   expect(mock.paste).not.toHaveBeenCalled();
   controller.dispose();
-  expect(offSelection).toHaveBeenCalledOnce();
+  expect(offSelection).toHaveBeenCalledTimes(2);
   terminalSelectionBuffer.setEnabled(false);
   platform.mockRestore();
+});
+
+test("copy preference updates reach attached terminal selections and stop while hidden", async () => {
+  const copy = vi.fn(() => Promise.resolve());
+  Object.assign(mock, { copyTerminalSelection: copy });
+  mock.getSelection.mockReturnValue("SELECTED");
+  const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  await controller.open("a");
+  const change = mock.onSelectionChange.mock.calls[0]?.[0];
+  change?.();
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  expect(copy).not.toHaveBeenCalled();
+  mock.onSetupChange.mock.calls[0]?.[0](setupState({ copyOnSelect: true }));
+  change?.();
+  await waitFor(() => {
+    expect(copy).toHaveBeenCalledWith("a", "SELECTED");
+  });
+  await controller.hide();
+  copy.mockClear();
+  change?.();
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  expect(copy).not.toHaveBeenCalled();
+  controller.dispose();
 });

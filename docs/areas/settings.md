@@ -85,6 +85,11 @@ The renderer shows preflight until setup is complete; subsequent configuration l
 The profile-only `middleClickPaste` boolean defaults to false. Settings → Terminal
 shows its single checkbox on macOS only; see [terminal selection paste](terminals.md#middle-click-selection-paste-856). Only the preference persists, never selection text.
 
+The profile-only `copyOnSelect` boolean defaults to false. Settings → Terminal
+shows **Copy on select** directly below the macOS middle-click checkbox, on every
+platform, without helper text. Only the preference persists; see
+[copy on select](terminals.md#copy-on-select-872).
+
 Settings opens on General by default; explicitly targeted sections still open directly.
 The profile-only `showNestedRepositoryNames` boolean defaults to false and displays
 repository names relative to `codeFolder` when enabled. Repositories outside that
