@@ -40,3 +40,9 @@ No view attachment changes are implied by highlighting.
 Expose the action log and takeover affordance through the board source. Minimal
 action visibility and takeover must ship with mutations; the final UI issue adds
 the full hierarchy and searchable log. No silent orchestration period is acceptable.
+
+Host-aware orchestration (#756) returns registered host aliases, fixed agent
+availability and CPU/memory observations to the local orchestrator. Remote
+filesystem paths and raw management/probe output do not enter session metadata.
+Remote processes still receive no hub terminal IDs or hub control credentials;
+their tool authority remains handoff, manual and sanitized identity.

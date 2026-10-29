@@ -1,7 +1,7 @@
 import { LaunchFailure } from "../../shared/launch-failure";
 import { matchesArguments } from "../../shared/agent-argument-matchers";
 import { hostSocket, privateDirectory } from "./private-path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { open, writeFile, mkdtemp } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join, dirname } from "node:path";
@@ -96,6 +96,11 @@ export async function prepareRemoteAgent(
       throw new LaunchFailure("remote_worktree_unavailable");
     });
   const identity = await checkout();
+  if (
+    request.checkoutIdentity !== undefined &&
+    createHash("sha256").update(identity).digest("hex") !== request.checkoutIdentity
+  )
+    throw new LaunchFailure("remote_worktree_unavailable");
   const found = await hostDiscovery(model, shell, home);
   if (bypassEnvironment(model, found.env, false).length)
     throw new Error("Remote child environment bypass is unavailable");
@@ -211,7 +216,7 @@ export async function prepareRemoteAgent(
     }
     if (guidance)
       prompts.push(
-        "Use foom whoami --json for your launch alias and capabilities. Remote phase 2 exposes handoff, manual and identity only; filesystem preview and fleet/repository tools require #756.",
+        "Use foom whoami --json for your launch alias and capabilities. Remote phase 2 exposes handoff, manual and identity only; filesystem preview and fleet/repository tools are unavailable to remote children.",
       );
     if (prompts.length) {
       if (
@@ -296,6 +301,9 @@ export async function prepareRemoteAgent(
       replaceEnvironment: true,
     };
     return {
+      validate: async () => {
+        if ((await checkout()) !== identity) throw new LaunchFailure("remote_worktree_unavailable");
+      },
       spec,
       endpoint,
       ready: {

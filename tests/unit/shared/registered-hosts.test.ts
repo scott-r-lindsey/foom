@@ -208,3 +208,59 @@ test("renderer actions contain only registered selectors, never remote commands 
   ])
     expect(hostsAction(action)).toBe(false);
 });
+
+test("worktree management is closed, bounded and cannot select arbitrary commands or paths", () => {
+  const request = {
+    type: "manage",
+    operation: "create-worktree",
+    codeFolder: "/code",
+    directory: "repo",
+    origin: "git@fixture.test:team/repo.git",
+    branch: "feature",
+  };
+  expect(hostManagement(request)).toBe(true);
+  expect(remoteRequest(request)).toBe(true);
+  for (const patch of [
+    { branch: "-evil" },
+    { branch: "@{-1}" },
+    { branch: "a b" },
+    { branch: "a\n" },
+    { branch: "a\u202e" },
+    { branch: "" },
+    { branch: "a".repeat(201) },
+    { directory: "../outside" },
+    { command: "evil" },
+  ])
+    expect(hostManagement({ ...request, ...patch })).toBe(false);
+  const common = {
+    type: request.type,
+    operation: request.operation,
+    codeFolder: request.codeFolder,
+    directory: request.directory,
+    origin: request.origin,
+  };
+  const removal = {
+    ...common,
+    operation: "remove-worktree",
+    path: "/code/.foom-worktree-fixture",
+    identity: "a".repeat(64),
+    changes: "?? file\n",
+  };
+  expect(hostManagement(removal)).toBe(true);
+  for (const patch of [
+    { path: "../outside" },
+    { identity: "invalid" },
+    { changes: "x".repeat(65537) },
+    { force: true },
+  ])
+    expect(hostManagement({ ...removal, ...patch })).toBe(false);
+  const worktree = {
+    path: removal.path,
+    branch: "feature",
+    identity: removal.identity,
+    changes: "",
+  };
+  expect(hostResult({ ok: true, facts, worktree })).toBe(true);
+  for (const patch of [{ branch: "" }, { identity: "x" }, { changes: 1 }, { extra: true }])
+    expect(hostResult({ ok: true, facts, worktree: { ...worktree, ...patch } })).toBe(false);
+});

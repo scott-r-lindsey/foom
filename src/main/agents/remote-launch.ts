@@ -88,6 +88,9 @@ export async function launchRemoteChild(
             worktree: mapping.worktree,
             defaults: [...defaults],
             hooks,
+            ...(request.remoteCheckout
+              ? { checkoutIdentity: request.remoteCheckout.identity }
+              : {}),
             ...(request.prompt === undefined ? {} : { prompt: request.prompt }),
             ...(request.conversationId === undefined
               ? {}

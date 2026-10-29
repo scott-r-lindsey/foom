@@ -356,3 +356,16 @@ it.each(["unavailable", "unchanged"])(
     expect(await service.listWorktrees(repo)).toEqual(original);
   },
 );
+
+it("resolves a host adoption branch without creating or fetching a local worktree", async () => {
+  expect(await service.adoptionBranch(repo, 340)).toBe("child-one");
+  expect(await service.listWorktrees(repo)).toHaveLength(1);
+  for (const [state, reason] of [
+    [{ state: "CLOSED" }, "pr_not_open"],
+    [{ isCrossRepository: true }, "pr_from_fork"],
+    [{ headRefName: "--evil" }, "invalid_branch"],
+  ] as const) {
+    await writeFile(fixture, JSON.stringify({ pr: state }));
+    await expect(service.adoptionBranch(repo, 340)).rejects.toThrow(reason);
+  }
+});

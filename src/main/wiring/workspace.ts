@@ -1,3 +1,4 @@
+import { hostsForStore } from "../setup/hosts";
 import type { BrowserWindow } from "electron";
 import { app, clipboard, Notification, powerMonitor, shell } from "electron";
 import * as path from "node:path";
@@ -158,6 +159,14 @@ export async function initializeWorkspace(
       openExternal: (url) => shell.openExternal(url),
       pluginStagingRoot: app.getPath("userData"),
       ...(forge === undefined ? {} : { forge }),
+      hosts: hostsForStore(
+        wiring.settings,
+        wiring.worktrees.listRepositories.bind(wiring.worktrees),
+        app.getVersion(),
+        (dispose) => {
+          app.once("will-quit", dispose);
+        },
+      ),
       worktrees: wiring.worktrees,
       watcher: new InventoryWatch(
         (repository) => wiring.worktrees.watchPaths(repository),

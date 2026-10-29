@@ -1,3 +1,4 @@
+import { hostAlias, hostBranch } from "../../shared/registered-hosts";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { selectionInput, validateSelection } from "../../node-common/launch-selection";
 import { ApplicationError } from "../../shared/application-errors";
@@ -66,7 +67,9 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     params: Record<string, unknown>,
     operations: Operations,
   ): Promise<Operation> {
-    exact(params, ["idempotencyKey", "branch", "pullRequest", "review"]);
+    exact(params, ["idempotencyKey", "branch", "pullRequest", "review", "host"]);
+    const host = params["host"];
+    if (host !== undefined && !hostAlias(host)) throw new ControlError("invalid_request");
     const review = params["review"];
     if (
       review !== undefined &&
@@ -84,12 +87,13 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     )
       throw new ControlError("invalid_request");
     const branch = number === undefined ? text(params["branch"], 200) : `PR #${String(number)}`;
-    if (number === undefined && /\s/u.test(branch)) throw new ControlError("invalid_request");
+    if (number === undefined && (/\s/u.test(branch) || (host !== undefined && !hostBranch(branch))))
+      throw new ControlError("invalid_request");
     const operation = await operations.begin(
       actor,
       "create_worktree",
       key,
-      JSON.stringify([branch, number ?? null, review ?? false]),
+      JSON.stringify([branch, number ?? null, review ?? false, host ?? null]),
     );
     if (!operation.created) return publicOperation(operation);
     const parent = this.parent(actor);
@@ -102,7 +106,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       const unused = [...parent.worktrees.values()].filter((tree) => tree.state === "unused");
       const tree =
         number === undefined
-          ? await this.host.createWorktree(parent.repository, branch)
+          ? await this.host.createWorktree(parent.repository, branch, host)
           : await (this.host.adoptWorktree?.(
               parent.repository,
               number,
@@ -121,9 +125,12 @@ export class OrchestrationMutations extends OrchestrationAuthority {
                   throw new ControlError("branch_in_use");
               },
               review === true,
+              host,
             ) ?? Promise.reject(new ControlError("forge_unavailable")));
-      if (number === undefined) this.host.forge?.track({ repository: parent.repository, ...tree });
-      else this.host.forge?.track({ repository: parent.repository, ...tree }, number);
+      if (host === undefined && number === undefined)
+        this.host.forge?.track({ repository: parent.repository, ...tree });
+      else if (host === undefined)
+        this.host.forge?.track({ repository: parent.repository, ...tree }, number);
       const id = locationId(tree.path);
       parent.worktrees.set(id, {
         path: tree.path,
@@ -150,9 +157,20 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     params: Record<string, unknown>,
     operations: Operations,
   ): Promise<Operation> {
-    exact(params, ["idempotencyKey", "worktreeId", "agent", "prompt", "review", "model", "effort"]);
+    exact(params, [
+      "idempotencyKey",
+      "worktreeId",
+      "agent",
+      "prompt",
+      "review",
+      "model",
+      "effort",
+      "host",
+    ]);
     const key = identifier(params["idempotencyKey"]);
     const worktreeId = identifier(params["worktreeId"]);
+    const host = params["host"];
+    if (host !== undefined && !hostAlias(host)) throw new ControlError("invalid_request");
     const agent = params["agent"];
     if (!knownAgentId(agent)) throw new ControlError("invalid_request");
     const selection = selectionInput(params);
@@ -183,7 +201,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       actor,
       "launch",
       key,
-      JSON.stringify([worktreeId, agent, prompt ?? null, review ?? null, selection]),
+      JSON.stringify([worktreeId, agent, prompt ?? null, review ?? null, selection, host ?? null]),
       worktreeId,
     );
     if (!operation.created) return publicOperation(operation);
@@ -191,6 +209,8 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     const tree = parent.worktrees.get(worktreeId);
     const label = metadataName(tree?.branch ?? worktreeId);
     if (!tree) return this.refuse(actor, parent, operations, operation, label, "not_found");
+    if (host !== undefined && this.host.worktreeHost?.(tree.path) !== host)
+      return this.refuse(actor, parent, operations, operation, label, "not_found");
     // Each child gets a fresh parent-created worktree, used exactly once.
     if (tree.state !== "unused")
       return this.refuse(actor, parent, operations, operation, label, "conflict");
@@ -255,7 +275,11 @@ export class OrchestrationMutations extends OrchestrationAuthority {
             ? "remote_artifact_mismatch"
             : "launch_failed";
       console.error(`Agent launch failed: ${reason}`);
-      if (error instanceof ControlError) throw error;
+      if (error instanceof ControlError) {
+        if (operations.lookup(actor, { operationId: operation.operationId }).status === "running")
+          return await this.refuse(actor, parent, operations, operation, label, error.code);
+        throw error;
+      }
       const record = await operations.finish(actor, operation.operationId, "failed", reason);
       this.note(parent, this.entry(record, label));
       return record;
@@ -421,7 +445,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
                   item: {
                     id: operation.operationId,
                     branch: metadataName(branch),
-                    path: tree.path,
+                    path: this.host.worktreeLabel?.(tree.path) ?? tree.path,
                     changes,
                     ...(pr ? { pullRequest: { number: pr.number, state: pr.state } } : {}),
                   },
@@ -450,21 +474,28 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         const reason: RemovalReason =
           error instanceof RemovalError
             ? error.reason
-            : error instanceof ApplicationError
-              ? (
-                  {
-                    "worktree-locked": "locked",
-                    "worktree-missing": "not_found",
-                    "worktree-main": "main_checkout",
-                    "worktree-prunable": "prunable",
-                    "operation-failed": "git_failed",
-                    "remote-host-unavailable": "git_failed",
-                    "prune-unsafe": "git_failed",
-                  } as const
-                )[error.code]
-              : "git_failed";
+            : error instanceof ControlError && error.code === "conflict"
+              ? "busy"
+              : error instanceof ApplicationError
+                ? (
+                    {
+                      "worktree-locked": "locked",
+                      "worktree-missing": "not_found",
+                      "worktree-main": "main_checkout",
+                      "worktree-prunable": "prunable",
+                      "operation-failed": "git_failed",
+                      "remote-host-unavailable": "git_failed",
+                      "prune-unsafe": "git_failed",
+                    } as const
+                  )[error.code]
+                : "git_failed";
         const record = await operations
-          .finish(actor, operation.operationId, "failed", reason)
+          .finish(
+            actor,
+            operation.operationId,
+            error instanceof UncertainEffect ? "indeterminate" : "failed",
+            reason,
+          )
           .then((record) => {
             this.note(parent, this.entry(record, label));
             return record;

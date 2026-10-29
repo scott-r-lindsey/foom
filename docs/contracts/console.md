@@ -10,8 +10,8 @@ The build bundles only console and shared Node utilities, injects the SEA on the
 build platform, disables runtime argument extension (including `NODE_OPTIONS`),
 and ad-hoc signs the macOS helper. Electron's fuses remain unchanged.
 
-Online commands are `whoami`, `sessions [--limit N] [--cursor ID]`,
-`session-state ID`, and `operation-status --operation-id ID` (or
+Online commands are `whoami`, `sessions [--limit N] [--cursor ID] [--host HOST]`,
+`session-state ID [--host HOST]`, and `operation-status --operation-id ID` (or
 `--idempotency-key KEY`). Orchestrators also have the commands below; each maps
 to the same control API used by MCP. Main's existing API decides authorization; ordinary
 agents and human CLI grants cannot query orchestration operations. Responses use
@@ -37,9 +37,9 @@ to 4 KiB.
 Orchestrator commands (all support `--json`):
 
 ```text
-foom create-worktree BRANCH --idempotency-key KEY
-foom create-worktree --pull-request N [--review] --idempotency-key KEY
-foom launch WORKTREE_ID --agent PROVIDER [--model MODEL] [--effort EFFORT] [--prompt TEXT] [--review-model MODEL] [--review-effort EFFORT] --idempotency-key KEY
+foom create-worktree BRANCH [--host HOST] --idempotency-key KEY
+foom create-worktree --pull-request N [--review] [--host HOST] --idempotency-key KEY
+foom launch WORKTREE_ID --agent PROVIDER [--host HOST] [--model MODEL] [--effort EFFORT] [--prompt TEXT] [--review-model MODEL] [--review-effort EFFORT] --idempotency-key KEY
 foom stop ID --idempotency-key KEY
 foom close ID --idempotency-key KEY
 foom remove-worktree WORKTREE_ID --idempotency-key KEY
@@ -52,6 +52,11 @@ foom wait-for [ID...] --until-event [--after '{"ID":"EVENT"}'] [--timeout SECOND
 Every mutation requires an idempotency key. After losing a response, query
 `operation-status --idempotency-key KEY`; reusing a key with different input is
 refused. Removal follows the [trusted confirmation and narrow automatic-removal policies](control-mutations.md#orchestrators-and-children-155).
+`--host` names a Settings-registered SSH host with an approved repository checkout.
+Creation never clones; launch keeps the created checkout's host and refuses an
+explicit mismatch. Orchestrator session reads include host agent inventories and
+CPU/memory observations. Remote review remains unsupported. See
+[host-aware placement](control-mutations.md#host-aware-placement-756).
 The optional `--review` flag is valid only with `--pull-request`; it creates a
 detached review checkout without a branch, including while the author branch is
 in use. `tail` retains secret

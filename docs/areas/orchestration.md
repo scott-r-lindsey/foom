@@ -183,3 +183,30 @@ PR-based closure uses only a successful observation after the exit-triggered
 recheck has settled. A response from an older in-flight read cannot qualify. The
 existing forge completion invalidation wakes closure even for unchanged PR metadata;
 the settled read is checked synchronously again immediately before close.
+
+## Registered-host placement (#756)
+
+`create_worktree` accepts an optional registered SSH `host`. Omission keeps local
+creation; specifying one creates in that host's already approved repository
+checkout, branching from its fetched default (or its validated PR branch). The
+returned worktree ID is host-bound and opaque, even when two hosts use identical
+paths. `launch.host`, when supplied, must match that worktree. Omission retains the
+created worktree's host; it never moves work or chooses a host. Remote inventory is
+checked before launch preparation, using [the shared host service](hosts.md).
+
+The hub owns child grants, limits, operation IDs and launch reservations across
+hosts. Remote children retain exactly handoff, manual and sanitized whoami.
+A captured remote checkout identity is checked through management and in agent
+preparation; the daemon checks it again immediately before PTY creation. The host
+also refuses removal during prepared/running launches. Main holds its operation
+reservation through launch/removal and rechecks parent authority before spawning.
+
+Remote removal retains trusted confirmation and compares the exact identity and
+changes again on the host before deletion, keeping the branch. Unavailable remote
+merged-clean proof falls back to review; local auto-removal policy is unchanged.
+A lost removal result is indeterminate. Sidebar checkout labels include the SSH
+host in text. Session metadata retains actual placement and adds `host` (null for
+Local); orchestrator reads also include host resource/agent observations. Host
+filters affect rows, not authority. Remote ownership/reattachment after hub restart
+remains #757 PR 2. Detached remote review and automated review loops retain
+`remote_review_unsupported`; remote forge/snapshot attestation is not widened.

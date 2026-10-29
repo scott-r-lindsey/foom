@@ -1,3 +1,5 @@
+import { createHash, randomUUID } from "node:crypto";
+import { remoteCheckout } from "./agent-discovery";
 import { cpus, loadavg, totalmem, homedir } from "node:os";
 import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -106,7 +108,13 @@ export async function manageHost(
   }
   if (request.operation === "inspect") return { ok: true, facts };
   const path = join(folder, request.directory);
-  const env = { ...(await hostLoginEnvironment(shell, home)), GIT_TERMINAL_PROMPT: "0" };
+  const env = {
+    ...(await hostLoginEnvironment(shell, home)),
+    GIT_TERMINAL_PROMPT: "0",
+    // Management safety decisions must use stored history, never local overlays.
+    GIT_NO_REPLACE_OBJECTS: "1",
+    GIT_GRAFT_FILE: "/dev/null",
+  };
   const git = (args: string[], cwd: string) =>
     hostProbe("git", ["--no-optional-locks", ...args], cwd, env, true);
   const checkout = async (directory: string) => {
@@ -135,7 +143,7 @@ export async function manageHost(
       if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
       exists = false;
     }
-    if (!exists && request.operation === "repository")
+    if (!exists && request.operation !== "clone")
       return { ok: true, facts, checkout: { path, state: "absent" } };
     let status: string;
     if (!exists) {
@@ -166,6 +174,110 @@ export async function manageHost(
         await rm(temporary, { recursive: true, force: true });
       }
     } else status = await checkout(path);
+    if (request.operation === "create-worktree") {
+      await git(["check-ref-format", "--branch", request.branch], path);
+      const refs = await git(
+        ["for-each-ref", "--format=%(refname)", `refs/heads/${request.branch}`],
+        path,
+      );
+      if (refs.trim()) throw new Error("Branch exists");
+      const remote = await git(["ls-remote", "--symref", "origin", "HEAD"], path);
+      const base = /^ref: refs\/heads\/(\S+)\s+HEAD$/mu.exec(remote)?.[1];
+      if (!base || base.startsWith("-")) throw new Error("Default unavailable");
+      await git(["check-ref-format", "--branch", base], path);
+      if (request.fromOrigin && request.branch === base) throw new Error("Default branch");
+      const source = request.fromOrigin ? request.branch : base;
+      await git(
+        ["fetch", "--no-tags", "origin", `+refs/heads/${source}:refs/remotes/origin/${source}`],
+        path,
+      );
+      const destination = join(folder, `.foom-worktree-${randomUUID()}`);
+      await approvedCodeFolder(folder, home);
+      await git(
+        [
+          "worktree",
+          "add",
+          request.fromOrigin ? "--track" : "--no-track",
+          "-b",
+          request.branch,
+          "--",
+          destination,
+          `refs/remotes/origin/${source}`,
+        ],
+        path,
+      );
+      if (request.fromOrigin)
+        await git(["config", `branch.${request.branch}.pushRemote`, "origin"], path);
+      const identity = createHash("sha256")
+        .update(await remoteCheckout(path, destination, env))
+        .digest("hex");
+      return {
+        ok: true,
+        facts,
+        worktree: { path: destination, branch: request.branch, identity, changes: "" },
+      };
+    }
+    if (request.operation === "inspect-worktree" || request.operation === "remove-worktree") {
+      if (
+        request.path === path ||
+        !request.path.startsWith(`${folder}/.foom-worktree-`) ||
+        request.path.slice(folder.length + 1).includes("/")
+      )
+        throw new Error("Outside approved folder");
+      const identity = createHash("sha256")
+        .update(await remoteCheckout(path, request.path, env))
+        .digest("hex");
+      if (identity !== request.identity) throw new Error("Identity changed");
+      const branch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], request.path)
+        .then((value) => value.trim())
+        .catch(async () => {
+          if (
+            (await git(["rev-parse", "--symbolic-full-name", "HEAD"], request.path)).trim() !==
+            "HEAD"
+          )
+            throw new Error("Branch unavailable");
+          return "HEAD";
+        });
+      if (branch !== "HEAD") await git(["check-ref-format", "--branch", branch], path);
+      const changes = await git(["status", "--porcelain", "--untracked-files=all"], request.path);
+      if (changes.length > 65536) throw new Error("Changes too large");
+      if (request.operation === "remove-worktree") {
+        if (request.changes !== changes) throw new Error("Changes changed");
+        await approvedCodeFolder(folder, home);
+        if (
+          createHash("sha256")
+            .update(await remoteCheckout(path, request.path, env))
+            .digest("hex") !== identity
+        )
+          throw new Error("Identity changed");
+        if (branch === "HEAD") {
+          const head = (await git(["rev-parse", "--verify", "HEAD^{commit}"], request.path)).trim();
+          if (
+            !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(head) ||
+            !(
+              await git(
+                [
+                  "-c",
+                  "core.commitGraph=false",
+                  "for-each-ref",
+                  "--format=%(refname)",
+                  `--contains=${head}`,
+                  "refs/heads",
+                  "refs/remotes",
+                  "refs/tags",
+                ],
+                request.path,
+              )
+            ).trim()
+          )
+            throw new Error("Unreachable detached HEAD");
+          if ((await git(["rev-parse", "--verify", "HEAD^{commit}"], request.path)).trim() !== head)
+            throw new Error("HEAD changed");
+        }
+        await git(["worktree", "remove", "--force", "--", request.path], path);
+      }
+      return { ok: true, facts, worktree: { path: request.path, branch, identity, changes } };
+    }
     return { ok: true, facts, checkout: { path, state: status ? "changed" : "clean" } };
   } catch {
     return { ok: false, reason: "checkout-refused" };

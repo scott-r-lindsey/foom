@@ -1,4 +1,14 @@
-import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  readFile,
+  rename,
+  chmod,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -148,6 +158,17 @@ test.skipIf(process.platform === "win32")(
     const env = { PATH: dirname("/usr/bin/git") };
     const identity = await remoteCheckout(repo, tree, env);
     expect(await remoteCheckout(repo, tree, env)).toBe(identity);
+    const marker = join(tree, ".git");
+    const previous = join(root, "previous-git-marker");
+    const bytes = await readFile(marker);
+    await rename(marker, previous);
+    await writeFile(marker, bytes);
+    expect(await remoteCheckout(repo, tree, env)).not.toBe(identity);
+    await rm(marker);
+    await symlink(previous, marker);
+    await expect(remoteCheckout(repo, tree, env)).rejects.toThrow("Invalid remote checkout");
+    await rm(marker);
+    await rename(previous, marker);
     const linked = join(root, "linked");
     await symlink(tree, linked);
     await expect(remoteCheckout(repo, linked, env)).rejects.toThrow("changed");

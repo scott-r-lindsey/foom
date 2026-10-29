@@ -55,6 +55,7 @@ type Session = {
   exited?: number;
   expiry?: Expiry;
   removing?: Promise<void>;
+  worktree?: string;
   agent?: Awaited<ReturnType<typeof prepareRemoteAgent>>;
   hooks?: HookSignal[];
 };
@@ -66,8 +67,11 @@ export function serveHost(
 ) {
   const path = hostSocket(home);
   const sessions = new Map<string, Session>();
+  const worktrees = new Set<Session>();
+  const removingWorktrees = new Set<string>();
   const tombstones = new Map<string, Tombstone>();
   let shuttingDown = false;
+  const isShuttingDown = () => shuttingDown;
   let sequence = 0;
   const calls = new Map<
     number,
@@ -78,7 +82,8 @@ export function serveHost(
       timer: ReturnType<typeof setTimeout>;
     }
   >();
-  const revoke = (id: string, session: Session) => {
+  const revoke = (id: string, session: Session, stopping = false) => {
+    if (!stopping) worktrees.delete(session);
     session.agent?.endpoint.dispose();
     for (const [key, call] of calls)
       if (call.id === id) {
@@ -152,7 +157,8 @@ export function serveHost(
   };
   const remove = (id: string, session: Session, rememberExit = false): Promise<void> => {
     if (session.removing) return session.removing;
-    revoke(id, session);
+    // Revoke credentials immediately, but reserve the checkout until the PTY stops.
+    revoke(id, session, true);
     if (!rememberExit) cancelExpiry(session.expiry);
     session.removing = Promise.resolve().then(async () => {
       try {
@@ -160,6 +166,7 @@ export function serveHost(
       } finally {
         sessions.delete(id);
         manager.kill(id);
+        worktrees.delete(session);
         const code = session.exited;
         if (
           rememberExit &&
@@ -268,17 +275,35 @@ export function serveHost(
       if (message.type === "hello") throw new Error("Repeated negotiation");
       if (message.type === "manage") {
         if (id !== undefined) throw new Error("Session already open");
-        await send(socket, {
-          type: "managed",
-          result: await manageHost(
-            message,
-            [...sessions.values()].filter((entry) => entry.exited === undefined && !entry.removing)
-              .length,
-            remoteShell(),
-            version,
-            home,
-          ),
-        });
+        const removing = message.operation === "remove-worktree" ? message.path : undefined;
+        if (
+          removing !== undefined &&
+          (removingWorktrees.has(removing) ||
+            [...worktrees].some((entry) => entry.worktree === removing))
+        ) {
+          await send(socket, {
+            type: "managed",
+            result: { ok: false, reason: "checkout-refused" },
+          });
+          return;
+        }
+        if (removing !== undefined) removingWorktrees.add(removing);
+        try {
+          await send(socket, {
+            type: "managed",
+            result: await manageHost(
+              message,
+              [...sessions.values()].filter(
+                (entry) => entry.exited === undefined && !entry.removing,
+              ).length,
+              remoteShell(),
+              version,
+              home,
+            ),
+          });
+        } finally {
+          if (removing !== undefined) removingWorktrees.delete(removing);
+        }
         return;
       }
       if (message.type === "agent-close") {
@@ -302,6 +327,9 @@ export function serveHost(
           throw new Error("Invalid agent start");
         const agent = pending.session.agent;
         if (!agent) throw new Error("Missing agent preparation");
+        await agent.validate();
+        if (disconnected() || prepared !== pending || isShuttingDown())
+          throw new Error("Launch cancelled");
         manager.create({ ...agent.spec, cols: pending.open.cols, rows: pending.open.rows }, id);
         clearTimeout(pending.timer);
         prepared = undefined;
@@ -339,53 +367,62 @@ export function serveHost(
           session = {};
           const owned = session;
           if (message.type === "agent-open") {
+            if (removingWorktrees.has(message.spec.worktree))
+              throw new Error("Worktree is being removed");
+            owned.worktree = message.spec.worktree;
+            worktrees.add(owned);
             owned.hooks = [];
-            owned.agent = await prepareRemoteAgent(
-              message.spec,
-              remoteShell(),
-              home,
-              (signal) => {
-                const reduced = { ...signal, terminalId: sessionId };
-                if (owned.exited !== undefined || owned.removing) return;
-                if (owned.connection)
-                  void send(owned.connection, {
-                    type: "agent-hook",
-                    id: sessionId,
-                    signal: reduced,
-                  });
-                else {
-                  owned.hooks?.push(reduced);
-                  if ((owned.hooks?.length ?? 0) > 64) owned.hooks?.shift();
-                }
-              },
-              (method, params) =>
-                new Promise<RemoteControlResult>((resolve) => {
-                  const connection = owned.connection;
-                  if (
-                    !connection ||
-                    connection.destroyed ||
-                    !record(params) ||
-                    owned.exited !== undefined ||
-                    owned.removing
-                  ) {
-                    resolve({ type: "error", error: "unavailable" });
-                    return;
+            try {
+              owned.agent = await prepareRemoteAgent(
+                message.spec,
+                remoteShell(),
+                home,
+                (signal) => {
+                  const reduced = { ...signal, terminalId: sessionId };
+                  if (owned.exited !== undefined || owned.removing) return;
+                  if (owned.connection)
+                    void send(owned.connection, {
+                      type: "agent-hook",
+                      id: sessionId,
+                      signal: reduced,
+                    });
+                  else {
+                    owned.hooks?.push(reduced);
+                    if ((owned.hooks?.length ?? 0) > 64) owned.hooks?.shift();
                   }
-                  const call = ++sequence;
-                  const timer = setTimeout(() => {
-                    calls.delete(call);
-                    resolve({ type: "error", error: "unavailable" });
-                  }, 10000);
-                  calls.set(call, { id: sessionId, socket: connection, resolve, timer });
-                  void send(connection, {
-                    type: "agent-call",
-                    id: sessionId,
-                    call,
-                    method,
-                    params,
-                  });
-                }),
-            );
+                },
+                (method, params) =>
+                  new Promise<RemoteControlResult>((resolve) => {
+                    const connection = owned.connection;
+                    if (
+                      !connection ||
+                      connection.destroyed ||
+                      !record(params) ||
+                      owned.exited !== undefined ||
+                      owned.removing
+                    ) {
+                      resolve({ type: "error", error: "unavailable" });
+                      return;
+                    }
+                    const call = ++sequence;
+                    const timer = setTimeout(() => {
+                      calls.delete(call);
+                      resolve({ type: "error", error: "unavailable" });
+                    }, 10000);
+                    calls.set(call, { id: sessionId, socket: connection, resolve, timer });
+                    void send(connection, {
+                      type: "agent-call",
+                      id: sessionId,
+                      call,
+                      method,
+                      params,
+                    });
+                  }),
+              );
+            } catch (error) {
+              revoke(id, owned);
+              throw error;
+            }
             if (disconnected()) {
               revoke(id, owned);
               return;

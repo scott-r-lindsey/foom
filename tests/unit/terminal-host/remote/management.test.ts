@@ -17,6 +17,7 @@ import { LaunchFailure } from "../../../../src/shared/launch-failure";
 import { HOST_CLONE_TIMEOUT_MS } from "../../../../src/shared/registered-hosts";
 import { gitSync } from "../../../helpers/git.js";
 const mock = vi.hoisted(() => ({
+  checkout: vi.fn(),
   discovery: vi.fn(),
   probe: vi.fn(),
   read: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("node:fs/promises", async (original) => {
   return { ...fs, readFile: mock.read, lstat: mock.lstat };
 });
 vi.mock("../../../../src/terminal-host/remote/agent-discovery", () => ({
+  remoteCheckout: mock.checkout,
   hostDiscovery: mock.discovery,
   hostProbe: mock.probe,
   hostLoginEnvironment: () => Promise.resolve({ PATH: "/fixture-login" }),
@@ -41,6 +43,7 @@ import {
 let home: string;
 beforeEach(async () => {
   home = await realpath(await mkdtemp(join(tmpdir(), "management-")));
+  mock.checkout.mockReset().mockResolvedValue("identity");
   mock.discovery.mockReset().mockResolvedValue({ version: "1.0", help: "--help" });
   mock.probe.mockReset().mockResolvedValue("");
   mock.read.mockResolvedValue("MemAvailable: 1234 kB\n");
@@ -222,7 +225,12 @@ test.skipIf(process.platform === "win32")(
         expect.stringContaining(".foom-clone-"),
       ],
       join(home, "code"),
-      { PATH: "/fixture-login", GIT_TERMINAL_PROMPT: "0" },
+      {
+        PATH: "/fixture-login",
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_NO_REPLACE_OBJECTS: "1",
+        GIT_GRAFT_FILE: "/dev/null",
+      },
       true,
       HOST_CLONE_TIMEOUT_MS,
     );
@@ -417,5 +425,347 @@ test.skipIf(process.platform === "win32").each(["unborn", "destination-appeared"
     });
     expect(await readdir(folder)).toEqual(scenario === "unborn" ? [] : ["repo"]);
     if (scenario === "destination-appeared") expect(await readdir(path)).toEqual(["keep"]);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "branch worktrees are fetched from the default, remain inside the approved folder, and removal binds identity and displayed changes",
+  async () => {
+    const folder = await approvedCodeFolder("~/code", home);
+    const repository = join(folder, "repo");
+    await mkdir(repository, { mode: 0o700 });
+    const base = {
+      type: "manage",
+      codeFolder: folder,
+      directory: "repo",
+      origin: "git@fixture.test:team/repo.git",
+      agents: [],
+    } as const;
+    let changes = "";
+    let refs = "";
+    let advertised = "ref: refs/heads/main\tHEAD\n";
+    mock.probe.mockImplementation((_command: string, args: string[], cwd: string) => {
+      if (args.includes("config")) return Promise.resolve(base.origin);
+      if (args.includes("--show-toplevel")) return Promise.resolve(cwd);
+      if (args.includes("for-each-ref")) return Promise.resolve(refs);
+      if (args.includes("ls-remote")) return Promise.resolve(advertised);
+      if (args.includes("symbolic-ref")) return Promise.resolve("feature\n");
+      if (args.includes("status") && cwd !== repository) return Promise.resolve(changes);
+      return Promise.resolve("");
+    });
+    const created = await manageHost(
+      { ...base, operation: "create-worktree", branch: "feature" },
+      0,
+      "/fixture",
+      "0.1.0",
+      home,
+    );
+    if (!created.ok || !created.worktree) throw new Error("Missing worktree");
+    const tree = created.worktree;
+    expect(tree.path).toMatch(new RegExp(`^${folder}/\\.foom-worktree-[a-f0-9-]+$`, "u"));
+    expect(mock.probe).toHaveBeenCalledWith(
+      "git",
+      [
+        "--no-optional-locks",
+        "fetch",
+        "--no-tags",
+        "origin",
+        "+refs/heads/main:refs/remotes/origin/main",
+      ],
+      repository,
+      expect.anything(),
+      true,
+    );
+    expect(mock.probe).toHaveBeenCalledWith(
+      "git",
+      [
+        "--no-optional-locks",
+        "worktree",
+        "add",
+        "--no-track",
+        "-b",
+        "feature",
+        "--",
+        tree.path,
+        "refs/remotes/origin/main",
+      ],
+      repository,
+      expect.anything(),
+      true,
+    );
+    mock.probe.mockClear();
+    expect(
+      await manageHost(
+        { ...base, operation: "create-worktree", branch: "pr-branch", fromOrigin: true },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toMatchObject({ ok: true, worktree: { branch: "pr-branch" } });
+    expect(mock.probe).toHaveBeenCalledWith(
+      "git",
+      [
+        "--no-optional-locks",
+        "fetch",
+        "--no-tags",
+        "origin",
+        "+refs/heads/pr-branch:refs/remotes/origin/pr-branch",
+      ],
+      repository,
+      expect.anything(),
+      true,
+    );
+    expect(mock.probe).toHaveBeenCalledWith(
+      "git",
+      ["--no-optional-locks", "config", "branch.pr-branch.pushRemote", "origin"],
+      repository,
+      expect.anything(),
+      true,
+    );
+    expect(
+      await manageHost(
+        { ...base, operation: "create-worktree", branch: "main", fromOrigin: true },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toEqual({ ok: false, reason: "checkout-refused" });
+    const request = {
+      ...base,
+      operation: "inspect-worktree",
+      path: tree.path,
+      identity: tree.identity,
+    } as const;
+    changes = "?? new-file\n";
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toMatchObject({
+      ok: true,
+      worktree: { changes },
+    });
+    for (const invalid of [
+      { ...request, path: repository },
+      { ...request, path: "/outside" },
+      { ...request, path: `${tree.path}/nested` },
+      { ...request, identity: "b".repeat(64) },
+    ])
+      expect(await manageHost(invalid, 0, "/fixture", "0.1.0", home)).toEqual({
+        ok: false,
+        reason: "checkout-refused",
+      });
+    const removal = { ...request, operation: "remove-worktree", changes: "" } as const;
+    expect(await manageHost(removal, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    expect(
+      mock.probe.mock.calls.some(([, args]) => Array.isArray(args) && args.includes("remove")),
+    ).toBe(false);
+    expect(await manageHost({ ...removal, changes }, 0, "/fixture", "0.1.0", home)).toMatchObject({
+      ok: true,
+    });
+    expect(mock.probe).toHaveBeenCalledWith(
+      "git",
+      ["--no-optional-locks", "worktree", "remove", "--force", "--", tree.path],
+      repository,
+      expect.anything(),
+      true,
+    );
+    mock.checkout.mockResolvedValueOnce("identity").mockResolvedValueOnce("replaced");
+    expect(await manageHost({ ...removal, changes }, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    changes = "x".repeat(65537);
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    refs = "refs/heads/feature\n";
+    expect(
+      await manageHost(
+        { ...base, operation: "create-worktree", branch: "feature" },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toEqual({ ok: false, reason: "checkout-refused" });
+    refs = "";
+    for (const value of ["", "ref: refs/heads/-evil\tHEAD\n"]) {
+      advertised = value;
+      expect(
+        await manageHost(
+          { ...base, operation: "create-worktree", branch: "feature" },
+          0,
+          "/fixture",
+          "0.1.0",
+          home,
+        ),
+      ).toEqual({ ok: false, reason: "checkout-refused" });
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "detached remote removal requires HEAD reachability from a retained public ref and refuses changing evidence",
+  async () => {
+    const folder = await approvedCodeFolder("~/code", home);
+    const repository = join(folder, "repo");
+    const path = join(folder, ".foom-worktree-detached");
+    await mkdir(repository, { mode: 0o700 });
+    await mkdir(path, { mode: 0o700 });
+    const { createHash } = await import("node:crypto");
+    const identity = createHash("sha256").update("identity").digest("hex");
+    const request = {
+      type: "manage",
+      operation: "remove-worktree",
+      codeFolder: folder,
+      directory: "repo",
+      origin: "git@fixture.test:team/repo.git",
+      agents: [],
+      path,
+      identity,
+      changes: "",
+    } as const;
+    let symbolic = "HEAD";
+    let refs = "refs/heads/preserved\n";
+    let head = "a".repeat(40);
+    let changed = false;
+    let reads = 0;
+    mock.probe.mockImplementation((_command: string, args: string[], cwd: string) => {
+      if (args.includes("config")) return Promise.resolve(request.origin);
+      if (args.includes("--show-toplevel")) return Promise.resolve(cwd);
+      if (args.includes("symbolic-ref")) return Promise.reject(new Error("Detached HEAD"));
+      if (args.includes("--symbolic-full-name")) return Promise.resolve(symbolic);
+      if (args.includes("HEAD^{commit}"))
+        return Promise.resolve(changed && cwd === path && reads++ > 0 ? "b".repeat(40) : head);
+      if (args.includes("for-each-ref")) return Promise.resolve(refs);
+      return Promise.resolve("");
+    });
+    expect(
+      await manageHost({ ...request, operation: "inspect-worktree" }, 0, "/fixture", "0.1.0", home),
+    ).toMatchObject({ ok: true, worktree: { branch: "HEAD" } });
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toMatchObject({ ok: true });
+    expect(mock.probe).toHaveBeenCalledWith(
+      "git",
+      [
+        "--no-optional-locks",
+        "-c",
+        "core.commitGraph=false",
+        "for-each-ref",
+        "--format=%(refname)",
+        `--contains=${head}`,
+        "refs/heads",
+        "refs/remotes",
+        "refs/tags",
+      ],
+      path,
+      expect.objectContaining({ GIT_NO_REPLACE_OBJECTS: "1", GIT_GRAFT_FILE: "/dev/null" }),
+      true,
+    );
+    refs = "";
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    refs = "refs/heads/preserved\n";
+    head = "malformed";
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    head = "a".repeat(40);
+    changed = true;
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    symbolic = "refs/heads/other";
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+  },
+);
+
+test.skipIf(process.platform === "win32").each(["replacement", "graft"] as const)(
+  "detached remote removal ignores %s history overlays",
+  async (overlay) => {
+    const folder = await approvedCodeFolder("~/code", home);
+    const repository = join(folder, "repo");
+    const path = join(folder, ".foom-worktree-detached");
+    await mkdir(repository, { mode: 0o700 });
+    const git = (...args: string[]) => gitSync(args, { cwd: repository }).toString().trim();
+    git("init", "-q", "-b", "main");
+    git("config", "user.name", "Fixture");
+    git("config", "user.email", "fixture@example.test");
+    git("commit", "--allow-empty", "-qm", "base");
+    const base = git("rev-parse", "HEAD");
+    git("worktree", "add", "--detach", path, base);
+    gitSync(["commit", "--allow-empty", "-qm", "detached work"], { cwd: path });
+    const head = gitSync(["rev-parse", "HEAD"], { cwd: path }).toString().trim();
+    git("commit", "--allow-empty", "-qm", "retained branch");
+    const retained = git("rev-parse", "HEAD");
+    if (overlay === "replacement") git("replace", "--graft", retained, head);
+    else await writeFile(join(repository, ".git/info/grafts"), `${retained} ${head}\n`);
+    expect(
+      git(
+        "-c",
+        "core.commitGraph=false",
+        "for-each-ref",
+        `--contains=${head}`,
+        "--format=%(refname)",
+        "refs/heads/",
+      ),
+    ).toBe("refs/heads/main");
+    git("remote", "add", "origin", "git@fixture.test:team/repo.git");
+
+    // gitSync strips inherited GIT_* selectors. This fixture adapter restores only
+    // the two history controls supplied by management, after that isolation step.
+    const bin = join(home, "bin");
+    await mkdir(bin);
+    await writeFile(
+      join(bin, "git"),
+      `#!/bin/sh
+if [ -n "$FIXTURE_NO_REPLACE" ]; then export GIT_NO_REPLACE_OBJECTS="$FIXTURE_NO_REPLACE"; fi
+if [ -n "$FIXTURE_GRAFT_FILE" ]; then export GIT_GRAFT_FILE="$FIXTURE_GRAFT_FILE"; fi
+exec /usr/bin/git "$@"
+`,
+      { mode: 0o700 },
+    );
+    mock.probe.mockImplementation(
+      async (_command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv) =>
+        Promise.resolve(
+          gitSync(args, {
+            cwd,
+            env: {
+              PATH: `${bin}:/usr/bin:/bin`,
+              FIXTURE_NO_REPLACE: env["GIT_NO_REPLACE_OBJECTS"],
+              FIXTURE_GRAFT_FILE: env["GIT_GRAFT_FILE"],
+            },
+          }).toString(),
+        ),
+    );
+    const { createHash } = await import("node:crypto");
+    const request = {
+      type: "manage",
+      operation: "remove-worktree",
+      codeFolder: folder,
+      directory: "repo",
+      origin: "git@fixture.test:team/repo.git",
+      agents: [],
+      path,
+      identity: createHash("sha256").update("identity").digest("hex"),
+      changes: "",
+    } as const;
+    const result = await manageHost(request, 0, "/fixture", "0.1.0", home);
+    expect(result).toEqual({ ok: false, reason: "checkout-refused" });
+    expect(await realpath(path)).toBe(path);
+    expect(gitSync(["rev-parse", "HEAD"], { cwd: path }).toString().trim()).toBe(head);
+    // A real retained ref still permits removal while the overlay remains present.
+    git("update-ref", "refs/tags/saved-detached-work", head);
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toMatchObject({ ok: true });
+    await expect(realpath(path)).rejects.toThrow();
   },
 );

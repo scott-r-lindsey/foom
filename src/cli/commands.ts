@@ -1,3 +1,4 @@
+import { hostAlias } from "../shared/registered-hosts";
 import { selectionInput } from "../node-common/launch-selection";
 import { reviewOptions } from "../shared/review-validation";
 import { isChildInput } from "../shared/child-input";
@@ -31,8 +32,14 @@ export function command(args: readonly string[]): Command {
   if (name === "close-preview" && words.length === 1)
     return { method: "close_preview", params: { previewId: identifier(words[0]) } };
   if (name === "whoami" && words.length === 0) return { method: "whoami", params: {} };
-  if (name === "session-state" && words.length === 1)
-    return { method: "session_state", params: { id: identifier(words[0]) } };
+  if (name === "session-state") {
+    if (words.length !== 1 && !(words.length === 3 && words[1] === "--host" && hostAlias(words[2])))
+      throw new ControlError("invalid_request");
+    return {
+      method: "session_state",
+      params: { id: identifier(words[0]), ...(words.length === 3 ? { host: words[2] } : {}) },
+    };
+  }
   if (
     name === "operation-status" &&
     words.length === 2 &&
@@ -48,7 +55,9 @@ export function command(args: readonly string[]): Command {
     const params: Record<string, unknown> = {};
     for (let i = 0; i < words.length; i += 2) {
       const flag = words[i];
-      if (flag === "--cursor" && params["cursor"] === undefined)
+      if (flag === "--host" && params["host"] === undefined && hostAlias(words[i + 1]))
+        params["host"] = words[i + 1];
+      else if (flag === "--cursor" && params["cursor"] === undefined)
         params["cursor"] = identifier(words[i + 1]);
       else if (
         flag === "--limit" &&
@@ -132,6 +141,13 @@ function orchestration(name: string | undefined, words: string[]): Command {
     ].includes(name ?? "")
   )
     params["idempotencyKey"] = identifier(take("--idempotency-key"));
+  if (name === "create-worktree" || name === "launch") {
+    const host = take("--host");
+    if (host !== undefined) {
+      if (!hostAlias(host)) throw new ControlError("invalid_request");
+      params["host"] = host;
+    }
+  }
   switch (name) {
     case "create-worktree": {
       const number = take("--pull-request");
