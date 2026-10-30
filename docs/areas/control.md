@@ -107,5 +107,6 @@ results. The adapter validates exact finite result shapes and refuses results
 containing either protected hub identity; local identity responses are unchanged.
 Every other method gets the fixed `phase_2_restricted` code and a fixed reason
 naming #756. Revocation is checked before and after asynchronous service work.
-Parent-facing operations continue to use hub terminal IDs. This limitation is
-lifted by the host-aware control work in #756, not by a flag or remote payload.
+Parent-facing operations continue to use hub terminal IDs. Host-aware placement
+(#756) retains this restriction; a host selector, flag or remote payload never
+widens a remote child's authority.

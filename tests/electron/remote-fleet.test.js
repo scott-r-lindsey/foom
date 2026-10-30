@@ -26,10 +26,7 @@ const {
 } = require("./harness.js");
 const { auditProcesses } = require("./process-audit.js");
 
-test("registered-host orchestration launches Codex, Copilot and Antigravity using host inventory and restricted child tools", {
-  skip: process.platform === "win32",
-  timeout: deadline(90000),
-}, async (context) => {
+async function remoteFleet(context, agents) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "rfl-")));
   removeAfterApps(context, root);
   const remoteHome = await mkdtemp(path.join(await realpath("/tmp"), "rfh-"));
@@ -121,7 +118,7 @@ else process.exit(2);
 `,
     { mode: 0o700 },
   );
-  for (const agent of ["codex", "copilot", "agy", "pi", "opencode"]) {
+  for (const agent of agents) {
     await writeFile(
       path.join(remoteBin, agent),
       `#!${process.execPath}
@@ -257,32 +254,35 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
   const worker = sessions.hosts.find((host) => host.host === "fleet-worker");
   assert.ok(worker.resources.cores > 0);
   assert.ok(worker.resources.memoryTotal >= worker.resources.memoryAvailable);
-  for (const agent of ["codex", "copilot", "agy", "pi", "opencode"])
+  for (const agent of agents)
     assert.equal(worker.agents.find((entry) => entry.id === agent).state, "ready");
   assert.ok(sessions.hosts.some((host) => host.host === null));
-  const tree = await call("create_worktree", {
-    host: "fleet-worker",
-    branch: "missing-agent",
-    idempotencyKey: "missing-tree",
-  });
-  assert.equal(tree.status, "succeeded", JSON.stringify(tree));
-  await rename(path.join(remoteBin, "codex"), path.join(remoteBin, "codex-hidden"));
-  await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
-  const before = await readFile(sshCalls, "utf8");
-  const missing = await call("launch", {
-    host: "fleet-worker",
-    worktreeId: tree.resultId,
-    agent: "codex",
-    idempotencyKey: "missing-agent",
-  });
-  assert.equal(missing.status, "failed");
-  assert.equal(missing.reason, "remote_agent_unavailable");
-  assert.equal(await readFile(sshCalls, "utf8"), before);
-  await rename(path.join(remoteBin, "codex-hidden"), path.join(remoteBin, "codex"));
-  await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
-  for (const agent of ["codex", "copilot", "agy", "pi", "opencode"]) {
+  let tree;
+  if (agents.includes("codex")) {
+    tree = await call("create_worktree", {
+      host: "fleet-worker",
+      branch: "missing-agent",
+      idempotencyKey: "missing-tree",
+    });
+    assert.equal(tree.status, "succeeded", JSON.stringify(tree));
+    await rename(path.join(remoteBin, "codex"), path.join(remoteBin, "codex-hidden"));
+    await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
+    const before = await readFile(sshCalls, "utf8");
+    const missing = await call("launch", {
+      host: "fleet-worker",
+      worktreeId: tree.resultId,
+      agent: "codex",
+      idempotencyKey: "missing-agent",
+    });
+    assert.equal(missing.status, "failed");
+    assert.equal(missing.reason, "remote_agent_unavailable");
+    assert.equal(await readFile(sshCalls, "utf8"), before);
+    await rename(path.join(remoteBin, "codex-hidden"), path.join(remoteBin, "codex"));
+    await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
+  }
+  for (const agent of agents) {
     const checkout =
-      agent === "codex"
+      agent === "codex" && tree
         ? tree
         : await call("create_worktree", {
             host: "fleet-worker",
@@ -427,4 +427,23 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
       assert.ok(!Object.hasOwn(JSON.parse(await readFile(gitState, "utf8")), record.cwd));
     }
   }
-});
+  context.diagnostic(`Remote fixture completed ${agents.join(", ")}`);
+}
+
+test(
+  "registered-host orchestration launches Codex, Copilot and Antigravity using host inventory and restricted child tools",
+  {
+    skip: process.platform === "win32",
+    timeout: deadline(90000),
+  },
+  (context) => remoteFleet(context, ["codex", "copilot", "agy"]),
+);
+
+test(
+  "registered-host Pi and OpenCode consume private extensions, context, MCP and resume attachments",
+  {
+    skip: process.platform === "win32",
+    timeout: deadline(90000),
+  },
+  (context) => remoteFleet(context, ["pi", "opencode"]),
+);

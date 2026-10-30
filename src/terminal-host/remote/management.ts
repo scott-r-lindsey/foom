@@ -108,7 +108,11 @@ export async function manageHost(
             found.version &&
             found.help &&
             bundled &&
-            (!attachment || (facts && selected(attachment.when, facts)))
+            (!attachment ||
+              (facts &&
+                selected(attachment.when, facts) &&
+                (!bundled.launch.prompt?.requires ||
+                  facts[bundled.launch.prompt.requires] === true)))
               ? "ready"
               : "unable",
         });

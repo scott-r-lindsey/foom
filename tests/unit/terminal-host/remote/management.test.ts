@@ -771,7 +771,8 @@ exec /usr/bin/git "$@"
 );
 
 test.skipIf(process.platform === "win32").each([
-  ["pi", "1.4.0", "--extension", "ready"],
+  ["pi", "1.4.0", "--extension --session-id --session", "ready"],
+  ["pi", "1.4.0", "--extension", "unable"],
   ["pi", "1.3.0", "--extension", "unable"],
   ["pi", "1.4.0", "--help", "unable"],
   ["opencode", "opencode v2.0.32", "--standalone --session --prompt", "ready"],

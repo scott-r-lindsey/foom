@@ -262,8 +262,13 @@ loopback receiver with a one-second absolute delivery deadline, and bypasses
 proxy variables through Node's direct HTTP client. It reports no permission
 decision. A failed or revoked receiver is silent; cleanup aborts subscription and
 in-flight requests. Credentials stay environment-only. The main receiver still
-validates mapping conditions and pins conversation identity. ABI behavior changes
-require a version revision; config copies use exactly the same generator.
+validates mapping conditions and pins conversation identity. Bundled remote launches
+(#939) select a fixed Unix-socket transport instead of the local loopback receiver:
+`/hook` receives the channel and reduced payload, authenticated only with the
+remote hook credential. No hub session/terminal ID or control endpoint enters the
+module. The same field reduction, deadline and abort cleanup apply. Manifests
+cannot select a socket, transport program or additional authority. ABI behavior
+changes require a version revision; config copies use exactly the same generator.
 
 `launch.environment` also accepts a whole `{fileContent:NAME}` reference to a
 selected, launch-scope JSON/TOML data file. It copies that validated generated
