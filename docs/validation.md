@@ -445,7 +445,12 @@ only names the configuration:
    required. Never store long-lived AWS keys for this flow.
 
 The serialized publisher preflights existing immutable object checksums/lengths
-and every feed/download-manifest commit date before any writes. It refuses older
+and every feed/download-manifest commit date before any writes. Each mutable PUT
+records `commit` and `commitdate` in S3 object metadata alongside `sha256`. HEADs
+validate the identity of every existing fixed download and checksum (missing or
+invalid identities fail closed), so an interrupted newer publish blocks older
+queued commits even before its JSON pointers advance. Existing JSON feeds retain
+their body-based identity check for compatibility. It refuses older
 or equal-time different commits, including same-day earlier commits. All immutable
 artifacts are uploaded first using S3 conditional creates, followed by the seven
 fixed downloads, `download/SHA256SUMS`, `download/latest.json`, then the app update
@@ -458,7 +463,7 @@ and per-file fixed name, SHA-256 and immutable URL (see the
 Failure before metadata publication leaves previous JSON pointers intact.
 Failure between mutable writes can leave downloads or architectures on different
 nightlies; each published JSON pointer references complete immutable artifacts.
-Retry repairs the set. These are individual atomic object replacements, not a
+A same-commit retry repairs the set, including files already written by that commit. These are individual atomic object replacements, not a
 cross-object transaction. A conflicting conditional upload fails closed and may
 be retried without replacing bytes.
 Existing immutable objects are trusted only within this dedicated writer's prefix.

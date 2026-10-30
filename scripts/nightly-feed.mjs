@@ -113,7 +113,14 @@ export function generateFeed(packages, info) {
       )}\n`,
     ),
   );
-  return [...immutable, ...downloads, sums, manifest, ...feeds];
+  return [
+    ...immutable,
+    ...[...downloads, sums, manifest, ...feeds].map((object) => ({
+      ...object,
+      commit: info.sha,
+      commitDate: info.date,
+    })),
+  ];
 }
 
 /** Argument arrays only; tests inject the entire AWS boundary and never contact AWS. */
@@ -159,16 +166,24 @@ export function uploadFeed(objects, { bucket, distribution, region }, aws = runA
           throw new Error(`Immutable nightly artifact differs: ${object.key}`);
         continue;
       }
-      if (head && !object.immutable && object.key.endsWith(".json")) {
-        const file = join(directory, "previous.json");
-        call(["s3api", "get-object", "--bucket", bucket, "--key", object.key, file]);
-        const previous = JSON.parse(readFileSync(file, "utf8"));
-        const next = JSON.parse(object.data);
-        if (!Number.isFinite(Date.parse(previous.commitDate)))
-          throw new Error("Invalid existing feed date");
+      if (head && !object.immutable) {
+        // Fixed bytes may already belong to a newer, interrupted publication
+        // whose JSON pointers still describe the previous night. HEAD metadata
+        // protects every overwritten download/checksum before any writes occur.
+        let previous = { commit: head.Metadata?.commit, commitDate: head.Metadata?.commitdate };
+        if (object.key.endsWith(".json")) {
+          const file = join(directory, "previous.json");
+          call(["s3api", "get-object", "--bucket", bucket, "--key", object.key, file]);
+          previous = JSON.parse(readFileSync(file, "utf8"));
+        }
         if (
-          previous.commit !== next.commit &&
-          Date.parse(previous.commitDate) >= Date.parse(next.commitDate)
+          !/^[a-f0-9]{40}$/.test(previous.commit ?? "") ||
+          !Number.isFinite(Date.parse(previous.commitDate))
+        )
+          throw new Error("Invalid existing nightly publication identity");
+        if (
+          previous.commit !== object.commit &&
+          Date.parse(previous.commitDate) >= Date.parse(object.commitDate)
         )
           throw new Error("Refusing to move nightly feed backwards");
       }
@@ -189,7 +204,10 @@ export function uploadFeed(objects, { bucket, distribution, region }, aws = runA
         "--body",
         file,
         "--metadata",
-        `sha256=${object.sha256}`,
+        JSON.stringify({
+          sha256: object.sha256,
+          ...(!object.immutable ? { commit: object.commit, commitdate: object.commitDate } : {}),
+        }),
         "--checksum-algorithm",
         "SHA256",
         "--checksum-sha256",

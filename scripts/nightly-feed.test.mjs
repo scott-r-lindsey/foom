@@ -92,7 +92,7 @@ test("generator rejects missing, duplicate, invalid or path-escaping artifacts a
     assert.throws(() => generateFeed(input, info));
   assert.throws(() => generateFeed(packages, { ...info, version: "0.2.0" }));
 });
-function fakeAws({ existing = new Map(), failPut, failHead } = {}) {
+function fakeAws({ existing = new Map(), failPut, failHead, expected = objects() } = {}) {
   const calls = [];
   const aws = (args) => {
     calls.push(args);
@@ -107,7 +107,11 @@ function fakeAws({ existing = new Map(), failPut, failHead } = {}) {
       if (failHead) throw new Error("Access denied");
       if (!value) throw Object.assign(new Error("missing"), { stderr: "(404)" });
       return JSON.stringify({
-        Metadata: { sha256: value.sha256 },
+        Metadata: value.metadata ?? {
+          sha256: value.sha256,
+          commit: value.commit,
+          commitdate: value.commitDate,
+        },
         ContentLength: value.data.length,
       });
     }
@@ -117,14 +121,15 @@ function fakeAws({ existing = new Map(), failPut, failHead } = {}) {
     }
     if (args[1] === "put-object") {
       if (key === failPut) throw new Error("upload failed");
-      assert.deepEqual(
-        readFileSync(args[args.indexOf("--body") + 1]),
-        objects().find((o) => o.key === key).data,
-      );
-      existing.set(
-        key,
-        objects().find((o) => o.key === key),
-      );
+      const data = readFileSync(args[args.indexOf("--body") + 1]);
+      const object = expected.find((o) => o.key === key);
+      assert.deepEqual(data, object.data);
+      const metadata = JSON.parse(args[args.indexOf("--metadata") + 1]);
+      assert.deepEqual(metadata, {
+        sha256: object.sha256,
+        ...(!object.immutable ? { commit: object.commit, commitdate: object.commitDate } : {}),
+      });
+      existing.set(key, { ...object, data, metadata });
     }
     return "{}";
   };
@@ -318,4 +323,99 @@ test("all JSON pointers refuse older, equal-time and same-day-earlier commits be
       assert.ok(!fixture.calls.some((a) => a[1] === "put-object"));
     }
   }
+});
+
+function publication(commit, date) {
+  const next = identity(commit.repeat(40), date, "0.1.0");
+  return generateFeed(
+    packages.map(({ name, data }) => ({
+      name: name.replace(`${info.day}-${info.short}`, `${next.day}-${next.short}`),
+      data: Buffer.concat([data, Buffer.from(commit)]),
+    })),
+    next,
+  );
+}
+
+test("interrupted newer downloads refuse a queued older commit before any write; same-commit retry repairs", () => {
+  const baseline = publication("c", "2026-10-23T00:00:00Z");
+  const older = publication("a", "2026-10-23T01:00:00Z");
+  const newer = publication("b", "2026-10-23T02:00:00Z");
+  const manifestKey = "updates/nightly/download/latest.json";
+  const existing = new Map();
+  uploadFeed(baseline, config, fakeAws({ existing, expected: baseline }).aws);
+  const interrupted = fakeAws({ existing, expected: newer, failPut: manifestKey });
+  assert.throws(() => uploadFeed(newer, config, interrupted.aws), /upload failed/);
+  // Every JSON pointer still describes P, while every fixed file describes B.
+  for (const object of baseline.filter((o) => !o.immutable && o.key.endsWith(".json"))) {
+    assert.deepEqual(existing.get(object.key).data, object.data);
+  }
+  const fixed = newer.filter((o) => !o.immutable && !o.key.endsWith(".json"));
+  assert.equal(fixed.length, 8);
+  for (const object of fixed) {
+    assert.deepEqual(existing.get(object.key).data, object.data);
+    assert.equal(existing.get(object.key).metadata.commit, "b".repeat(40));
+    assert.equal(existing.get(object.key).metadata.commitdate, "2026-10-23T02:00:00Z");
+  }
+  const before = new Map(existing);
+  const queued = fakeAws({ existing, expected: older });
+  assert.throws(() => uploadFeed(older, config, queued.aws), /backwards/);
+  assert.ok(!queued.calls.some((a) => ["put-object", "create-invalidation"].includes(a[1])));
+  assert.deepEqual(existing, before);
+  const retry = fakeAws({ existing, expected: newer });
+  uploadFeed(newer, config, retry.aws);
+  assert.equal(retry.calls.filter((a) => a[1] === "put-object").length, 12);
+  assert.equal(retry.calls.filter((a) => a[1] === "create-invalidation").length, 1);
+  for (const object of newer) assert.deepEqual(existing.get(object.key).data, object.data);
+});
+
+test("each fixed object's HEAD identity independently blocks older/equal-time commits and invalid metadata", () => {
+  for (const object of objects().filter((o) => !o.immutable && !o.key.endsWith(".json"))) {
+    for (const commitdate of [info.date, "2026-10-23T01:00:01Z", "2026-10-24T00:00:00Z"]) {
+      const fixture = fakeAws({
+        existing: new Map([
+          [
+            object.key,
+            {
+              ...object,
+              metadata: { sha256: object.sha256, commit: "b".repeat(40), commitdate },
+            },
+          ],
+        ]),
+      });
+      assert.throws(() => uploadFeed(objects(), config, fixture.aws), /backwards/);
+      assert.ok(!fixture.calls.some((a) => a[1] === "put-object"));
+    }
+    for (const metadata of [
+      {},
+      { commit: info.sha, commitdate: "invalid" },
+      { commit: "bad", commitdate: info.date },
+    ]) {
+      const fixture = fakeAws({ existing: new Map([[object.key, { ...object, metadata }]]) });
+      assert.throws(() => uploadFeed(objects(), config, fixture.aws), /Invalid existing/);
+      assert.ok(!fixture.calls.some((a) => a[1] === "put-object"));
+    }
+  }
+});
+
+test("same-commit retry repairs fixed files split between the baseline and an interrupted newer commit", () => {
+  const baseline = publication("c", "2026-10-23T00:00:00Z");
+  const newer = publication("b", "2026-10-23T02:00:00Z");
+  const existing = new Map();
+  uploadFeed(baseline, config, fakeAws({ existing, expected: baseline }).aws);
+  const interrupted = fakeAws({
+    existing,
+    expected: newer,
+    failPut: "updates/nightly/download/Foom-nightly-linux-x64.rpm",
+  });
+  assert.throws(() => uploadFeed(newer, config, interrupted.aws), /upload failed/);
+  const fixed = newer.filter((o) => !o.immutable && !o.key.endsWith(".json"));
+  assert.deepEqual(
+    new Set(fixed.map((o) => existing.get(o.key).metadata.commit)),
+    new Set(["b".repeat(40), "c".repeat(40)]),
+  );
+  const retry = fakeAws({ existing, expected: newer });
+  uploadFeed(newer, config, retry.aws);
+  for (const object of newer) assert.deepEqual(existing.get(object.key).data, object.data);
+  assert.equal(retry.calls.filter((a) => a[1] === "put-object").length, 12);
+  assert.equal(retry.calls.filter((a) => a[1] === "create-invalidation").length, 1);
 });

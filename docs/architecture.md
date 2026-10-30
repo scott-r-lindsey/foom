@@ -313,11 +313,16 @@ the versioned artifact names. `SHA256SUMS` hashes the seven fixed filenames;
 `name` (fixed filename), `sha256` and `url` (immutable artifact URL). It is a
 manual-download manifest, separate from the existing app update feeds, whose
 bytes and immutable URLs remain unchanged. All fixed objects require cache
-revalidation. Publication preflights every JSON pointer's commit date, uploads
+revalidation. Each mutable object's S3 metadata records its owning `commit` and
+`commitdate`. Publication preflights every fixed download/checksum's HEAD identity
+and every JSON pointer's commit date before writing anything, then uploads
 immutable artifacts, then downloads and checksums, then the download manifest,
 then update feeds, followed by one invalidation of the exact mutable paths.
 A partial failure can leave fixed downloads from different nights; metadata
 always references complete immutable artifacts, and a retry repairs the set.
+A newer interrupted publication therefore blocks queued older commits even when
+all JSON pointers still describe the previous night. Same-commit retries can
+repair a partial set; missing or invalid fixed-object identities fail closed.
 There is no cross-object transaction. Unchanged or failing CI nights do not
 publish; older or same-time different commits are refused before any writes.
 
