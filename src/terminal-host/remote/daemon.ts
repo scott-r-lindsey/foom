@@ -1,6 +1,11 @@
 import { legacyDaemon, endLegacyDaemon } from "./legacy";
 import type { LegacyDaemon } from "./legacy";
 import { randomBytes } from "node:crypto";
+import {
+  HOST_HANDSHAKE_TIMEOUT_MS,
+  HOST_MANAGEMENT_TIMEOUT_MS,
+  HOST_PREPARATION_TIMEOUT_MS,
+} from "../../shared/registered-hosts";
 import { manageHost } from "./management";
 import { version } from "../../../package.json";
 import { LaunchFailure } from "../../shared/launch-failure";
@@ -79,6 +84,10 @@ export function serveHost(
   const removingWorktrees = new Set<string>();
   const tombstones = new Map<string, Tombstone>();
   let legacy: { id: string; generation: string; daemon: LegacyDaemon } | undefined;
+  // Reservations outlive sockets: disconnected callers cannot accumulate work
+  // or overlap a retry with a subprocess/cleanup that has not settled yet.
+  const operations = new Map<AbortController, Promise<unknown>>();
+  let mutating = false;
   let shuttingDown = false;
   const isShuttingDown = () => shuttingDown;
   let sequence = 0;
@@ -251,7 +260,6 @@ export function serveHost(
     sockets.add(socket);
     pendingConnections.add(socket);
     const frames = new RemoteFrames();
-    const cancellation = new AbortController();
     let negotiated = false;
     let id: string | undefined;
     let prepared:
@@ -279,7 +287,15 @@ export function serveHost(
     };
     let queued = 0;
     let chain = Promise.resolve();
-    const deadline = setTimeout(() => socket.destroy(), 10000);
+    const cancellation = new AbortController();
+    let deadline = setTimeout(() => socket.destroy(), HOST_HANDSHAKE_TIMEOUT_MS);
+    const budget = (milliseconds: number) => {
+      clearTimeout(deadline);
+      deadline = setTimeout(() => {
+        cancellation.abort();
+        socket.destroy();
+      }, milliseconds);
+    };
     const disconnected = () => socket.destroyed || shuttingDown;
     const dispatch = async (message: RemoteRequest) => {
       if (disconnected()) return;
@@ -290,6 +306,7 @@ export function serveHost(
           sessions.size === 0 &&
           tombstones.size === 0 &&
           worktrees.size === 0 &&
+          operations.size === 0 &&
           sockets.size === 1
         ) {
           // Set the shutdown gate synchronously: no connection can create a PTY
@@ -306,74 +323,103 @@ export function serveHost(
       if (message.type === "hello") throw new Error("Repeated negotiation");
       if (message.type === "inventory" || message.type === "end-sessions") {
         if (id !== undefined) throw new Error("Session already open");
-        if (message.type === "inventory" && message.codeFolder) {
-          const observed = await legacyDaemon(home, message.codeFolder, cancellation.signal);
-          if (observed) {
+        const mutation = message.type === "end-sessions";
+        if (operations.size >= MAX_PENDING_CONNECTIONS || (mutation && mutating))
+          throw new Error("Management reserve unavailable");
+        budget(HOST_MANAGEMENT_TIMEOUT_MS);
+        if (mutation) mutating = true;
+        const operation = (async () => {
+          cancellation.signal.throwIfAborted();
+          if (message.type === "inventory" && message.codeFolder) {
+            const observed = await legacyDaemon(home, message.codeFolder, cancellation.signal);
+            cancellation.signal.throwIfAborted();
+            if (observed) {
+              if (
+                !legacy ||
+                legacy.daemon.pid !== observed.pid ||
+                legacy.daemon.started !== observed.started
+              )
+                legacy = {
+                  id: `legacy-${randomBytes(16).toString("hex")}`,
+                  generation: randomBytes(16).toString("hex"),
+                  daemon: observed,
+                };
+              else legacy.daemon = observed;
+            } else legacy = undefined;
+          }
+          if (message.type === "end-sessions") {
+            // The confirmed IDs are a snapshot. Never end this profile's sessions,
+            // or newly arrived sessions not present in the confirmation.
             if (
-              !legacy ||
-              legacy.daemon.pid !== observed.pid ||
-              legacy.daemon.started !== observed.started
+              message.ids.some(({ id, generation }) => {
+                if (id === legacy?.id) return generation !== legacy.generation;
+                const session = sessions.get(id);
+                if (!session && id.startsWith("legacy-")) return true;
+                return (
+                  session &&
+                  (session.profile === message.profile || session.generation !== generation)
+                );
+              })
             )
-              legacy = {
-                id: `legacy-${randomBytes(16).toString("hex")}`,
-                generation: randomBytes(16).toString("hex"),
-                daemon: observed,
-              };
-            else legacy.daemon = observed;
-          } else legacy = undefined;
-        }
-        if (message.type === "end-sessions") {
-          // The confirmed IDs are a snapshot. Never end this profile's sessions,
-          // or newly arrived sessions not present in the confirmation.
-          if (
-            message.ids.some(({ id, generation }) => {
-              if (id === legacy?.id) return generation !== legacy.generation;
-              const session = sessions.get(id);
-              if (!session && id.startsWith("legacy-")) return true;
-              return (
-                session &&
-                (session.profile === message.profile || session.generation !== generation)
-              );
-            })
-          )
-            throw new Error("Foreign cleanup refused");
-          await Promise.all(
-            message.ids.map(async ({ id }) => {
+              throw new Error("Foreign cleanup refused");
+            for (const { id } of message.ids) {
+              cancellation.signal.throwIfAborted();
               if (id === legacy?.id) {
                 await endLegacyDaemon(legacy.daemon, cancellation.signal);
                 legacy = undefined;
-                return;
+                continue;
               }
               const session = sessions.get(id);
               if (session) await remove(id, session);
-            }),
+            }
+          }
+          const live = [...sessions].filter(
+            ([, session]) => session.exited === undefined && !session.removing,
           );
+          cancellation.signal.throwIfAborted();
+          const result: Extract<RemoteResponse, { type: "inventory-result" }> = {
+            type: "inventory-result",
+            own: live
+              .filter(([, session]) => session.profile === message.profile)
+              .map(([id, session]) => ({
+                id,
+                ...(session.context ? { context: session.context } : {}),
+                ...(session.checkout ? { checkout: session.checkout } : {}),
+              })),
+            foreign: [
+              ...live
+                .filter(([, session]) => session.profile !== message.profile)
+                .map(([id, session]) => ({ id, generation: session.generation })),
+              ...(legacy
+                ? [{ id: legacy.id, generation: legacy.generation, count: legacy.daemon.count }]
+                : []),
+            ],
+          };
+          return result;
+        })();
+        operations.set(cancellation, operation);
+        try {
+          await send(socket, await operation);
+        } finally {
+          operations.delete(cancellation);
+          if (mutation) mutating = false;
+          if (!disconnected()) budget(HOST_HANDSHAKE_TIMEOUT_MS);
         }
-        const live = [...sessions].filter(
-          ([, session]) => session.exited === undefined && !session.removing,
-        );
-        await send(socket, {
-          type: "inventory-result",
-          own: live
-            .filter(([, session]) => session.profile === message.profile)
-            .map(([id, session]) => ({
-              id,
-              ...(session.context ? { context: session.context } : {}),
-              ...(session.checkout ? { checkout: session.checkout } : {}),
-            })),
-          foreign: [
-            ...live
-              .filter(([, session]) => session.profile !== message.profile)
-              .map(([id, session]) => ({ id, generation: session.generation })),
-            ...(legacy
-              ? [{ id: legacy.id, generation: legacy.generation, count: legacy.daemon.count }]
-              : []),
-          ],
-        });
         return;
       }
       if (message.type === "manage") {
         if (id !== undefined) throw new Error("Session already open");
+        if (
+          operations.size >= MAX_PENDING_CONNECTIONS ||
+          (message.operation !== "inspect" && message.operation !== "repository" && mutating)
+        ) {
+          await send(socket, {
+            type: "managed",
+            result: { ok: false, reason: "checkout-refused" },
+          });
+          return;
+        }
+        const mutation = message.operation !== "inspect" && message.operation !== "repository";
         const removing = message.operation === "remove-worktree" ? message.path : undefined;
         if (
           removing !== undefined &&
@@ -387,21 +433,25 @@ export function serveHost(
           return;
         }
         if (removing !== undefined) removingWorktrees.add(removing);
+        budget(HOST_MANAGEMENT_TIMEOUT_MS);
+        if (mutation) mutating = true;
         try {
-          await send(socket, {
-            type: "managed",
-            result: await manageHost(
-              message,
-              [...sessions.values()].filter(
-                (entry) => entry.exited === undefined && !entry.removing,
-              ).length,
-              remoteShell(),
-              version,
-              home,
-            ),
-          });
+          const operation = manageHost(
+            message,
+            [...sessions.values()].filter((entry) => entry.exited === undefined && !entry.removing)
+              .length,
+            remoteShell(),
+            version,
+            home,
+            cancellation.signal,
+          );
+          operations.set(cancellation, operation);
+          await send(socket, { type: "managed", result: await operation });
         } finally {
           if (removing !== undefined) removingWorktrees.delete(removing);
+          operations.delete(cancellation);
+          if (mutation) mutating = false;
+          if (!disconnected()) budget(HOST_HANDSHAKE_TIMEOUT_MS);
         }
         return;
       }
@@ -484,6 +534,8 @@ export function serveHost(
           if (message.type === "agent-open") {
             if (removingWorktrees.has(message.spec.worktree))
               throw new Error("Worktree is being removed");
+            if (operations.size >= MAX_PENDING_CONNECTIONS) throw new Error("Preparation limit");
+            budget(HOST_PREPARATION_TIMEOUT_MS);
             owned.worktree = message.spec.worktree;
             if (message.spec.checkoutIdentity)
               owned.checkout = {
@@ -494,7 +546,7 @@ export function serveHost(
             worktrees.add(owned);
             owned.hooks = [];
             try {
-              owned.agent = await prepareRemoteAgent(
+              const preparation = prepareRemoteAgent(
                 message.spec,
                 remoteShell(),
                 home,
@@ -541,10 +593,15 @@ export function serveHost(
                       params,
                     });
                   }),
+                cancellation.signal,
               );
+              operations.set(cancellation, preparation);
+              owned.agent = await preparation;
             } catch (error) {
               revoke(id, owned);
               throw error;
+            } finally {
+              operations.delete(cancellation);
             }
             if (disconnected()) {
               revoke(id, owned);
@@ -553,7 +610,7 @@ export function serveHost(
             prepared = {
               session: owned,
               open: message,
-              timer: setTimeout(() => socket.destroy(), 10000),
+              timer: setTimeout(() => socket.destroy(), HOST_PREPARATION_TIMEOUT_MS),
             };
             await send(socket, { type: "agent-prepared", id });
             return;
@@ -755,7 +812,9 @@ export function serveHost(
         delete session.connection;
         manager.detach(id);
       }
+      for (const operation of operations.keys()) operation.abort();
       for (const socket of sockets) socket.destroy();
+      await Promise.allSettled([...operations.values()]);
       await Promise.allSettled(
         [...sessions.values()].flatMap((session) => (session.removing ? [session.removing] : [])),
       );

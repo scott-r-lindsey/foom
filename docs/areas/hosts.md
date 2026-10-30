@@ -57,10 +57,31 @@ Clone here runs Git with an argument array on the host, with the host's own logi
 PATH and Git configuration/access. No local files, credentials, SSH keys or agent
 sockets are copied/forwarded. Clone failures use a fixed reason. The host cannot
 select a local executable or write location. Git output never reaches the UI.
-Cloning has a five-minute subprocess deadline; discovery and Git inspection
-probes retain their five-second deadlines. Clone management connections allow
-seven minutes for bootstrap, cloning and validation. Clones are prepared in a
-private temporary sibling inside the approved folder, validated, then published
+Clone, fetch and default-branch network queries each have an explicit five-minute
+subprocess deadline; discovery and Git inspection probes retain five seconds.
+The daemon's ten-second deadline covers negotiation and idle clients only.
+Each management request, including session inventory and confirmed End, gets a
+separate seven-minute budget after negotiation;
+SSH bootstrap has its own two-minute hub budget. Agent preparation and final
+spawn authorization share a separate two-minute daemon budget.
+
+Disconnect, operation expiry and daemon shutdown cancel the operation's subprocess
+group, including descendants. Later Git commands and clone publication check
+cancellation first; an already-issued rename/mutation can still finish and must
+be reconciled by reading state.
+The daemon retains at most four in-flight management/preparation operations even
+when their clients disconnect, until their subprocesses and cleanup settle.
+Repository mutations and confirmed End run one at a time per daemon; overlapping mutations refuse
+with the fixed checkout-refused reason, including retries during cancellation.
+Cancelled End stops no later session after an already-issued stop settles.
+Once cancellation settles, a clone retry inspects an existing published checkout
+instead of cloning again. Worktree creation remains charged/indeterminate if its
+reply is lost, and an existing branch refuses a duplicate creation as before.
+Settings automatically refreshes repository locations after an unreachable clone
+reply and offers **Refresh locations** for later reconciliation, including a clone
+published before its reply was lost. Refresh reads state and never retries a mutation.
+Clones are prepared in a private temporary sibling inside the approved folder,
+validated, then published
 by rename. Failure removes the temporary directory and leaves the destination
 available for retry; an existing destination is never used as clone staging.
 
@@ -92,8 +113,8 @@ stdio ignored. SSH stderr is drained, never retained or logged.
 
 The protocol-2 negotiation advertises compatibility independently of build identity.
 A newer hub can use a compatible old daemon while it has sessions, without killing
-or replacing it. An idle daemon with no sessions, preparations or other connected
-clients closes its listener under a synchronous shutdown gate; the new hub retries
+or replacing it. An idle daemon with no sessions, outstanding operations (including
+cancelled work still settling), or other connected clients closes its listener under a synchronous shutdown gate; the new hub retries
 bootstrap and starts its own verified build. Upgrade retries are bounded. Protocol-2 sessions use `host-v2.sock`, leaving a pre-feature daemon's `host.sock`
 and PTYs untouched. On-demand legacy inspection tries at most 32 owner-checked
 cached build identities against the old management API; it creates no PTY and

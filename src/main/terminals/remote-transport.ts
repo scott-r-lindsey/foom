@@ -1,5 +1,8 @@
 import type { HostManagement, HostResult, HostFailure } from "../../shared/registered-hosts.d";
-import { HOST_CLONE_TIMEOUT_MS } from "../../shared/registered-hosts";
+import {
+  HOST_MANAGEMENT_TIMEOUT_MS,
+  HOST_PREPARATION_TIMEOUT_MS,
+} from "../../shared/registered-hosts";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { remoteControlResult } from "../../shared/remote-agent-protocol";
 import { ApplicationError } from "../../shared/application-errors";
@@ -228,15 +231,9 @@ export class RemoteTransport extends EventEmitter {
     let hookEvents = 0;
     let agentReady = false;
     let agentPrepared = false;
-    const deadline = setTimeout(
-      () => {
-        this.retireConnection(connection, "failure");
-      },
-      120000 +
-        (this.management?.type === "manage" && this.management.operation === "clone"
-          ? HOST_CLONE_TIMEOUT_MS
-          : 0),
-    );
+    let deadline = setTimeout(() => {
+      this.retireConnection(connection, "failure");
+    }, 120000);
     connection.deadline = deadline;
     const receive = (bytes: Buffer) => {
       if (connection.dead || this.connection !== connection || this.closed) return;
@@ -286,7 +283,18 @@ export class RemoteTransport extends EventEmitter {
               throw new Error("Host version mismatch");
             // Reconnect's deadline covers open, state restoration and the entire
             // replay. Internal requests have no TerminalHostClient request timer.
-            if (!this.opened && !this.management) clearTimeout(deadline);
+            if (!this.opened) {
+              clearTimeout(deadline);
+              if (this.management || this.target.agent) {
+                deadline = setTimeout(
+                  () => {
+                    this.retireConnection(connection, "failure");
+                  },
+                  this.management ? HOST_MANAGEMENT_TIMEOUT_MS : HOST_PREPARATION_TIMEOUT_MS,
+                );
+                connection.deadline = deadline;
+              }
+            }
             this.ready = true;
             if (this.management) this.send(this.management);
             const session = this.session;
@@ -431,6 +439,7 @@ export class RemoteTransport extends EventEmitter {
               value.state !== "live"
             )
               throw new Error("Unexpected open result");
+            clearTimeout(deadline);
             this.opened = true;
             if (this.theme) this.send({ ...this.theme, request: --this.internal });
             this.emit("message", {

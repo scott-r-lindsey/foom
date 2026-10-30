@@ -155,7 +155,9 @@ private temporary file, checked against the expanded size and SHA-256, then
 atomically installed. Failed/truncated uploads are removed. Cached bytes are
 hash-checked too.
 First-time upload/negotiation has a 120-second transport deadline and a 125-second
-create deadline; normal terminal requests retain their 10-second deadline.
+shell-create deadline; remote agent creation adds its separate 120-second
+preparation/authorization budget to the outer create deadline. Normal terminal
+requests retain their 10-second deadline.
 No remote text is interpolated into commands. Existing symlinks/unsafe directories
 are refused. Linux requires gzip and standard coreutils; macOS uses shasum when sha256sum
 is unavailable.
@@ -198,9 +200,12 @@ existing executable regular file, otherwise the account shell from
 valid (including unavailable account lookup). Neither hub nor protocol selects it.
 It supports at most 32 full sessions plus a separate reserve of four pending
 connections for negotiation, cleanup and takeover, with at most 36 sockets total.
-Pending connections have a ten-second deadline from acceptance, including after
-`hello`; only acquiring a live session releases the reserve slot and cancels
-that deadline. Cleanup and missing/exited-session queries retain the deadline.
+Negotiation and idle connections have a ten-second deadline. Management requests,
+including inventory and confirmed End, switch to a seven-minute budget; agent
+preparation has a separate two-minute budget. Acquiring a live session releases
+the connection reserve slot and cancels its deadline. Cleanup and missing/exited
+session queries retain the ten-second deadline. Outstanding cancelled operations
+retain a separate bounded reserve until settled; see [Hosts](hosts.md).
 The reserve cannot create a 33rd session. Operations are serialized per connection,
 and a backlog above 256 operations is rejected. Only the current connection can operate
 on its selected ID. An `open` with an existing ID transfers the session and
@@ -216,7 +221,8 @@ group/world writable. Socket paths above 100 bytes are refused. No TCP listener
 exists. A pre-existing socket is never unlinked during startup. Protocol-2 peers
 advertise build identity and explicit compatibility. A busy compatible daemon stays
 in place for newer hubs. A sole client negotiating a different build may retire an
-idle daemon only with no sessions or agent preparations. Shutdown gates further
+idle daemon only with no sessions or outstanding operations, including cancelled
+work still settling. Shutdown gates further
 requests before listener disposal; the hub retries verified bootstrap at most twice.
 Legacy coexistence and explicitly confirmed cleanup follow [Hosts](hosts.md#persistent-remote-sessions-757-pr-2). Unnegotiable peers refuse. A stale socket after SIGKILL still requires manual removal
 after confirming the daemon is gone. SIGTERM/SIGINT stop PTYs and remove the socket.

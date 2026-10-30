@@ -1403,6 +1403,119 @@ test.skipIf(process.platform === "win32")(
 );
 
 test.skipIf(process.platform === "win32")(
+  "management budgets expire, abort, and retain reservations through disconnected cleanup",
+  async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await start();
+    const pending = Promise.withResolvers<HostResult>();
+    let signal: AbortSignal | undefined;
+    mock.manage.mockImplementationOnce(
+      (
+        _request: unknown,
+        _sessions: number,
+        _shell: string,
+        _version: string,
+        _home: string,
+        cancellation: AbortSignal,
+      ) => {
+        signal = cancellation;
+        return pending.promise;
+      },
+    );
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    const request = {
+      type: "manage",
+      operation: "clone",
+      codeFolder: "/code",
+      directory: "repo",
+      origin: "git@fixture.test:team/repo.git",
+    } as const;
+    c.send(request);
+    await vi.waitFor(() => {
+      expect(mock.manage).toHaveBeenCalledOnce();
+    });
+    await vi.advanceTimersByTimeAsync(11000);
+    expect(signal?.aborted).toBe(false);
+    const closed = once(c.socket, "close");
+    await vi.advanceTimersByTimeAsync(7 * 60 * 1000 - 11000);
+    await closed;
+    expect(signal?.aborted).toBe(true);
+    const retry = await client();
+    retry.send({ type: "hello", build });
+    await retry.wait(1);
+    retry.send(request);
+    await retry.wait(2);
+    expect(retry.messages[1]).toMatchObject({
+      type: "managed",
+      result: { ok: false, reason: "checkout-refused" },
+    });
+    expect(mock.manage).toHaveBeenCalledOnce();
+    pending.resolve({ ok: false, reason: "clone-failed" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    mock.manage.mockResolvedValue({ ok: false, reason: "clone-failed" });
+    retry.send(request);
+    await retry.wait(3);
+    expect(mock.manage).toHaveBeenCalledTimes(2);
+  },
+);
+
+test.skipIf(process.platform === "win32").each([false, true])(
+  "preparation has its own budget past the handshake (expire: %s)",
+  async (expire) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await start();
+    const discovery = Promise.withResolvers<Awaited<ReturnType<typeof hostDiscovery>>>();
+    vi.mocked(hostDiscovery).mockReturnValueOnce(discovery.promise);
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "agent-open",
+      profile: "f".repeat(32),
+      id: "slow",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      spec: {
+        agent: "claude",
+        repository: "/remote/repo",
+        worktree: "/remote/tree",
+        defaults: [],
+        hooks: false,
+      },
+    });
+    await vi.waitFor(() => {
+      expect(hostDiscovery).toHaveBeenCalled();
+    });
+    await vi.advanceTimersByTimeAsync(11000);
+    expect(c.socket.destroyed).toBe(false);
+    if (expire) {
+      const closed = once(c.socket, "close");
+      await vi.advanceTimersByTimeAsync(120000 - 11000);
+      await closed;
+    }
+    discovery.resolve({
+      command: "/fixture/claude",
+      env: { PATH: "/fixture" },
+      version: "2.1.296 (Claude Code)",
+      help: "--settings --mcp-config",
+    });
+    if (!expire) {
+      await c.wait(2);
+      expect(c.messages[1]).toEqual({ type: "agent-prepared", id: "slow" });
+      c.send({ type: "agent-start", id: "slow" });
+      await c.wait(4);
+      expect(mock.create).toHaveBeenCalledOnce();
+    } else {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(mock.create).not.toHaveBeenCalled();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
   "new sessions require an owning profile before any PTY is created",
   async () => {
     await start();
@@ -1413,5 +1526,221 @@ test.skipIf(process.platform === "win32")(
     c.send({ type: "open", id: "untagged", request: 1, reattach: false, cols: 80, rows: 24 });
     await closed;
     expect(mock.create).not.toHaveBeenCalled();
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "disconnected management work still consumes the bounded operation reserve",
+  async () => {
+    await start();
+    const pending = Promise.withResolvers<HostResult>();
+    mock.manage.mockReturnValue(pending.promise);
+    for (let index = 0; index < 4; index++) {
+      const c = await client();
+      c.send({ type: "hello", build });
+      await c.wait(1);
+      c.send({ type: "manage", operation: "inspect", codeFolder: "/code" });
+      await vi.waitFor(() => {
+        expect(mock.manage).toHaveBeenCalledTimes(index + 1);
+      });
+      const closed = once(c.serverSocket, "close");
+      c.socket.destroy();
+      await closed;
+    }
+    const excess = await client();
+    excess.send({ type: "hello", build });
+    await excess.wait(1);
+    excess.send({ type: "manage", operation: "inspect", codeFolder: "/code" });
+    await excess.wait(2);
+    expect(excess.messages[1]).toMatchObject({
+      type: "managed",
+      result: { ok: false, reason: "checkout-refused" },
+    });
+    expect(mock.manage).toHaveBeenCalledTimes(4);
+    pending.resolve({ ok: false, reason: "unreachable" });
+  },
+);
+
+test.skipIf(process.platform === "win32").each(["inventory", "end-sessions"] as const)(
+  "%s gets seven minutes, propagates abort and retains its reservation until settlement",
+  async (type) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await start();
+    const pending = Promise.withResolvers<undefined>();
+    let signal: AbortSignal | undefined;
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    try {
+      if (type === "inventory") {
+        mock.legacy.mockImplementationOnce(
+          (_home: string, _folder: string, cancellation: AbortSignal) => {
+            signal = cancellation;
+            return pending.promise;
+          },
+        );
+        c.send({ type, profile: "a".repeat(32), codeFolder: "/code" });
+      } else {
+        mock.legacy.mockResolvedValueOnce({
+          executable: "/cache/foom-host",
+          pid: 100,
+          started: "fixture",
+          count: 1,
+        });
+        c.send({ type: "inventory", profile: "a".repeat(32), codeFolder: "/code" });
+        await c.wait(2);
+        const inventory = c.messages[1];
+        if (!remoteResponse(inventory) || inventory.type !== "inventory-result")
+          throw new Error("Missing inventory");
+        mock.endLegacy.mockImplementationOnce((_daemon: unknown, cancellation: AbortSignal) => {
+          signal = cancellation;
+          return pending.promise;
+        });
+        c.send({ type, profile: "a".repeat(32), ids: inventory.foreign });
+      }
+      await vi.waitFor(() => {
+        expect(signal).toBeDefined();
+      });
+      await vi.advanceTimersByTimeAsync(11000);
+      expect(signal?.aborted).toBe(false);
+      expect(c.socket.destroyed).toBe(false);
+      const closed = once(c.socket, "close");
+      await vi.advanceTimersByTimeAsync(7 * 60 * 1000 - 11000);
+      await closed;
+      expect(signal?.aborted).toBe(true);
+      // End is serialized with repository mutations even after its client expires.
+      if (type === "end-sessions") {
+        const retry = await client();
+        retry.send({ type: "hello", build });
+        await retry.wait(1);
+        retry.send({
+          type: "manage",
+          operation: "clone",
+          codeFolder: "/code",
+          directory: "repo",
+          origin: "git@fixture.test:repo.git",
+        });
+        await retry.wait(2);
+        expect(retry.messages[1]).toMatchObject({
+          type: "managed",
+          result: { ok: false, reason: "checkout-refused" },
+        });
+        expect(mock.manage).not.toHaveBeenCalled();
+      }
+    } finally {
+      pending.resolve(undefined);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "cancelled inventory stays reserved and prevents idle daemon retirement until its work settles",
+  async () => {
+    await start();
+    const pending = Promise.withResolvers<undefined>();
+    let signal: AbortSignal | undefined;
+    mock.legacy.mockImplementationOnce(
+      (_home: string, _folder: string, cancellation: AbortSignal) => {
+        signal = cancellation;
+        return pending.promise;
+      },
+    );
+    try {
+      const c = await client();
+      c.send({ type: "hello", build });
+      await c.wait(1);
+      c.send({ type: "inventory", profile: "a".repeat(32), codeFolder: "/code" });
+      await vi.waitFor(() => {
+        expect(signal).toBeDefined();
+      });
+      const closed = once(c.serverSocket, "close");
+      c.socket.destroy();
+      await closed;
+      expect(signal?.aborted).toBe(true);
+      const newer = await client();
+      newer.send({ type: "hello", build: "b".repeat(64) });
+      await newer.wait(1);
+      expect(newer.messages[0]).toEqual({ type: "hello", build, compatible: 2 });
+      expect(host.server.listening).toBe(true);
+    } finally {
+      pending.resolve(undefined);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "disconnected inventories share the bounded operation reserve with management",
+  async () => {
+    await start();
+    const pending = Promise.withResolvers<undefined>();
+    mock.legacy.mockReturnValue(pending.promise);
+    try {
+      for (let index = 0; index < 4; index++) {
+        const c = await client();
+        c.send({ type: "hello", build });
+        await c.wait(1);
+        c.send({ type: "inventory", profile: "a".repeat(32), codeFolder: "/code" });
+        await vi.waitFor(() => {
+          expect(mock.legacy).toHaveBeenCalledTimes(index + 1);
+        });
+        const closed = once(c.serverSocket, "close");
+        c.socket.destroy();
+        await closed;
+      }
+      const excess = await client();
+      excess.send({ type: "hello", build });
+      await excess.wait(1);
+      excess.send({ type: "manage", operation: "inspect", codeFolder: "/code" });
+      await excess.wait(2);
+      expect(excess.messages[1]).toMatchObject({
+        type: "managed",
+        result: { ok: false, reason: "checkout-refused" },
+      });
+      expect(mock.manage).not.toHaveBeenCalled();
+    } finally {
+      pending.resolve(undefined);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "aborted End does not start stopping later confirmed sessions",
+  async () => {
+    await start();
+    await disconnect(await open("first"));
+    await disconnect(await open("second"));
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({ type: "inventory", profile: "a".repeat(32) });
+    await c.wait(2);
+    const inventory = c.messages[1];
+    if (!remoteResponse(inventory) || inventory.type !== "inventory-result")
+      throw new Error("Missing inventory");
+    const pending = Promise.withResolvers<boolean>();
+    mock.stop.mockReturnValueOnce(pending.promise);
+    try {
+      c.send({ type: "end-sessions", profile: "a".repeat(32), ids: inventory.foreign });
+      await vi.waitFor(() => {
+        expect(mock.stop).toHaveBeenCalledExactlyOnceWith("first");
+      });
+      const closed = once(c.serverSocket, "close");
+      c.socket.destroy();
+      await closed;
+    } finally {
+      pending.resolve(true);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    expect(mock.stop).toHaveBeenCalledOnce();
+    expect(mock.kill).not.toHaveBeenCalledWith("second");
+    const query = await client();
+    query.send({ type: "hello", build });
+    await query.wait(1);
+    query.send({ type: "inventory", profile: "f".repeat(32) });
+    await query.wait(2);
+    expect(query.messages[1]).toMatchObject({ type: "inventory-result", own: [{ id: "second" }] });
   },
 );

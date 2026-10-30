@@ -93,6 +93,7 @@ export async function prepareRemoteAgent(
   home: string,
   signal: (signal: HookSignal) => void,
   call: (method: string, params: unknown) => Promise<RemoteControlResult>,
+  cancellation?: AbortSignal,
 ) {
   // Build inputs are immutable application bytes; peer-supplied manifests are not accepted.
   const model = bundledAgentData
@@ -100,16 +101,18 @@ export async function prepareRemoteAgent(
     .find((model) => model.id === request.agent);
   if (!model) throw new LaunchFailure("remote_agent_unsupported");
   const checkout = () =>
-    remoteCheckout(request.repository, request.worktree, hostEnvironment()).catch(() => {
-      throw new LaunchFailure("remote_worktree_unavailable");
-    });
+    remoteCheckout(request.repository, request.worktree, hostEnvironment(), cancellation).catch(
+      () => {
+        throw new LaunchFailure("remote_worktree_unavailable");
+      },
+    );
   const identity = await checkout();
   if (
     request.checkoutIdentity !== undefined &&
     createHash("sha256").update(identity).digest("hex") !== request.checkoutIdentity
   )
     throw new LaunchFailure("remote_worktree_unavailable");
-  const found = await hostDiscovery(model, shell, home);
+  const found = await hostDiscovery(model, shell, home, cancellation);
   if (bypassEnvironment(model, found.env, false).length)
     throw new Error("Remote child environment bypass is unavailable");
   const endpoint = new AgentEndpoint(model.id, signal, call, true);
@@ -119,7 +122,15 @@ export async function prepareRemoteAgent(
     if (model.setup) {
       // Read-only remote CLI-owned metadata. Installation remains an explicit user action.
       try {
-        await hostProbe(found.command, ["plugin", "list", "--json"], home, found.env);
+        await hostProbe(
+          found.command,
+          ["plugin", "list", "--json"],
+          home,
+          found.env,
+          false,
+          5000,
+          cancellation,
+        );
         const metadata = await remoteJson(join(home, ".gemini/config/plugins/foom/plugin.json"));
         const config = await remoteJson(join(home, ".gemini/config/config.json")).catch(
           () => undefined,
@@ -346,6 +357,7 @@ export async function prepareRemoteAgent(
     for (const entry of model.launch.environment ?? [])
       if (selected(entry.when, facts)) env[entry.name] = expandV2(entry.value, values);
     if ((await checkout()) !== identity) throw new LaunchFailure("remote_worktree_unavailable");
+    cancellation?.throwIfAborted();
     const spec: Omit<TerminalSpec, "cols" | "rows"> = {
       command: found.command,
       args: boundedArguments(args),

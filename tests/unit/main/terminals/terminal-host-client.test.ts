@@ -659,3 +659,35 @@ test("cleanup-only remote removal works without a restored client and disposes i
   expect(exited).not.toHaveBeenCalled();
   expect(client.runningCount).toBe(0);
 });
+
+test("remote agent create allows bootstrap plus preparation and still expires", async () => {
+  const remote = remoteChild();
+  remote.postMessage.mockReset();
+  mock.remote.mockReturnValue(remote);
+  const pending = client.create({
+    ...spec,
+    remote: {
+      host: "fixture",
+      agent: {
+        spec: {
+          agent: "claude",
+          repository: "/repo",
+          worktree: "/tree",
+          defaults: [],
+          hooks: false,
+        },
+        authorize: () => Promise.resolve(),
+        start: () => {},
+        ready: () => {},
+        hook: () => {},
+        call: () => Promise.resolve({ type: "error", error: "unavailable" }),
+      },
+    },
+  });
+  const rejected = expect(pending).rejects.toThrow("stopped");
+  await vi.advanceTimersByTimeAsync(125000);
+  expect(remote.kill).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(120000);
+  await rejected;
+  expect(remote.kill).toHaveBeenCalled();
+});
