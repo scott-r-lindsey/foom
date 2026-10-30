@@ -526,12 +526,16 @@ test("agent reopen is visible with free space and reports sidebar only at protec
       ),
     )
     .toBe(false);
-  // Supply bounded session metadata at the IPC boundary: no 256 PTYs or real agents.
-  // All leaves need the human, so neither growth nor replacement is allowed.
+  // Reach the real split-depth limit with 65 occupied leaves instead of the
+  // 256-leaf limit. Even dormant sessions mount xterms; their synchronous DOM
+  // width measurements can starve the renderer during a 256-view reload.
+  // Keep the existing snapshot/reservation hooks: no PTYs or real agents.
+  // Every leaf needs the human, blocking replacement as well as column growth.
+  const protectedCount = 65;
   const snapshot = await page.evaluate(() => window.desktop.workspace());
   const template = snapshot.terminals.find((terminal) => terminal.id === shell.id);
   assert.ok(template);
-  snapshot.terminals = Array.from({ length: 256 }, (_, index) => ({
+  snapshot.terminals = Array.from({ length: protectedCount }, (_, index) => ({
     ...template,
     id: `protected-${index}`,
     dormant: true,
@@ -552,7 +556,7 @@ test("agent reopen is visible with free space and reports sidebar only at protec
     ipcMain.removeHandler("windows:sync");
     ipcMain.handle("windows:sync", (_event, ids) => ids);
   }, snapshot);
-  await page.evaluate(() => {
+  await page.evaluate((count) => {
     const tree = (start, count) =>
       count === 1
         ? {
@@ -564,22 +568,22 @@ test("agent reopen is visible with free space and reports sidebar only at protec
             kind: "split",
             id: `split-${start}-${count}`,
             direction: "horizontal",
-            ratio: 0.5,
-            first: tree(start, count / 2),
-            second: tree(start + count / 2, count / 2),
+            ratio: 1 / count,
+            first: tree(start, 1),
+            second: tree(start + 1, count - 1),
           };
     localStorage.setItem(
       `foom.tiles.v1.${window.desktop.windows.id}`,
       JSON.stringify({
         version: 2,
-        tree: tree(0, 256),
+        tree: tree(0, count),
         focused: "tile-0",
         maximized: null,
       }),
     );
-  });
+  }, protectedCount);
   await page.reload();
-  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(256);
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(protectedCount);
   await app.evaluate(({ BrowserWindow }, snapshot) => {
     const board = BrowserWindow.getAllWindows().find(
       (window) => window.webContents.getURL() === "app://bundle/index.html",
@@ -587,7 +591,14 @@ test("agent reopen is visible with free space and reports sidebar only at protec
     for (const terminal of snapshot.terminals)
       board.webContents.send("terminal:state", terminal.state);
   }, snapshot);
-  await expect(page.locator('.board-row[data-state="needs_input"]')).toHaveCount(256);
+  await expect(page.locator('.board-row[data-state="needs_input"]')).toHaveCount(protectedCount);
+  const protectedTree = await page.evaluate(() => {
+    const layout = JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`));
+    const depth = (node) =>
+      node.kind === "tile" ? 0 : 1 + Math.max(depth(node.first), depth(node.second));
+    return { tree: layout.tree, depth: depth(layout.tree) };
+  });
+  assert.equal(protectedTree.depth, 64);
   const full = await requestPreview("full-reopen", "notes.md");
   assert.equal(full.placement, "sidebar");
   assert.equal(full.reused, false);
@@ -606,6 +617,15 @@ test("agent reopen is visible with free space and reports sidebar only at protec
     },
   ]);
   assert.equal((await previewViewState(app, full.previewId)).attached, false);
+  await expect(page.locator('.terminal-tile[data-state="needs_input"]')).toHaveCount(
+    protectedCount,
+  );
+  assert.deepEqual(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem(`foom.tiles.v1.${window.desktop.windows.id}`)).tree,
+    ),
+    protectedTree.tree,
+  );
   // A later explicit open retries ordinary placement when room becomes available.
   await page.evaluate(() =>
     localStorage.setItem(
