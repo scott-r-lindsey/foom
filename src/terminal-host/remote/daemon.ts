@@ -195,12 +195,7 @@ export function serveHost(
         // Release the stopped PTY immediately; keep the daemon session reserved
         // until pending publication and private-file cleanup have settled.
         manager.kill(id);
-        await session.imageUpload?.catch(() => {});
-        await images.close(id).catch(() => {
-          console.error("Image paste cleanup failed");
-        });
-        sessions.delete(id);
-        worktrees.delete(session);
+        // Reconnects must observe the known exit even while files are closing.
         const code = session.exited;
         if (
           rememberExit &&
@@ -217,6 +212,12 @@ export function serveHost(
             tombstones.delete(oldId);
           }
         } else cancelExpiry(session.expiry);
+        await session.imageUpload?.catch(() => {});
+        await images.close(id).catch(() => {
+          console.error("Image paste cleanup failed");
+        });
+        sessions.delete(id);
+        worktrees.delete(session);
       }
     });
     return session.removing;
@@ -472,7 +473,7 @@ export function serveHost(
         if (message.type === "agent-open" && (session || tombstone))
           throw new Error("Agent launch ID already exists");
         if (
-          session?.removing ||
+          (session?.removing && !tombstone) ||
           (!session && !tombstone && message.type === "open" && message.reattach)
         ) {
           await send(socket, { type: "open-result", id, request: message.request, state: "gone" });

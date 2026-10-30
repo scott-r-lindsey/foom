@@ -99,7 +99,6 @@ export class RemoteImages {
     }
   }
   async close(id: string): Promise<void> {
-    await this.ready;
     const session = this.sessions.get(id);
     if (!session) return;
     session.closing ??= imageCleanup(() => this.remove(session.directory))

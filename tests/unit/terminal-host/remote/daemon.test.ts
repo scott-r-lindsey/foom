@@ -1620,3 +1620,34 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "reconnect observes an exited PTY while image cleanup still reserves its session",
+  async () => {
+    const { RemoteImages } = await import("../../../../src/terminal-host/remote/image-files");
+    await start();
+    const c = await open("cleanup-exit");
+    const cleanup = Promise.withResolvers<undefined>();
+    const spy = vi.spyOn(RemoteImages.prototype, "close").mockReturnValue(cleanup.promise);
+    try {
+      mock.exited("cleanup-exit", 7);
+      await c.wait(3);
+      await disconnect(c);
+      await vi.waitFor(() => {
+        expect(mock.kill).toHaveBeenCalledWith("cleanup-exit");
+      });
+      const restored = await open("cleanup-exit", true);
+      expect(restored.messages.at(-1)).toEqual({
+        type: "open-result",
+        id: "cleanup-exit",
+        request: 1,
+        state: "exited",
+        code: 7,
+      });
+      expect(mock.create).toHaveBeenCalledOnce();
+    } finally {
+      cleanup.resolve(undefined);
+      spy.mockRestore();
+    }
+  },
+);

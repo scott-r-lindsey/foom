@@ -91,3 +91,31 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "closing a session with no image files does not wait for the startup sweep",
+  async () => {
+    const home = await mkdtemp(join(tmpdir(), "image-startup-"));
+    const initialize = Promise.withResolvers<undefined>();
+    try {
+      await mkdir(join(home, ".foom-host"), { mode: 0o700 });
+      const images = new RemoteImages(home, initialize.promise);
+      let closed = false;
+      const closing = images.close("shell").then(() => {
+        closed = true;
+      });
+      try {
+        await vi.waitFor(() => {
+          expect(closed).toBe(true);
+        });
+      } finally {
+        initialize.resolve(undefined);
+        await images.ready;
+        await closing;
+      }
+    } finally {
+      initialize.resolve(undefined);
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+);
