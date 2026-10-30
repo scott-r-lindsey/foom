@@ -292,17 +292,17 @@ export function serveHost(
       if (message.type === "hello") throw new Error("Repeated negotiation");
       if (message.type === "manage") {
         if (id !== undefined) throw new Error("Session already open");
-        if (
-          operations.size >= MAX_PENDING_CONNECTIONS ||
-          (message.operation !== "inspect" && message.operation !== "repository" && mutating)
-        ) {
+        const mutation =
+          message.operation === "clone" ||
+          message.operation === "create-worktree" ||
+          message.operation === "remove-worktree";
+        if (operations.size >= MAX_PENDING_CONNECTIONS || (mutation && mutating)) {
           await send(socket, {
             type: "managed",
             result: { ok: false, reason: "checkout-refused" },
           });
           return;
         }
-        const mutation = message.operation !== "inspect" && message.operation !== "repository";
         const removing = message.operation === "remove-worktree" ? message.path : undefined;
         if (
           removing !== undefined &&

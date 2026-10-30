@@ -1206,6 +1206,72 @@ test.skipIf(process.platform === "win32")(
 );
 
 test.skipIf(process.platform === "win32")(
+  "read-only worktree inspections overlap without releasing or taking the mutation reserve",
+  async () => {
+    await start();
+    const cloning = Promise.withResolvers<HostResult>();
+    const inspecting = Promise.withResolvers<HostResult>();
+    mock.manage
+      .mockReturnValueOnce(cloning.promise)
+      .mockReturnValueOnce(inspecting.promise)
+      .mockResolvedValue({ ok: false, reason: "checkout-refused" });
+    try {
+      const connections = [];
+      for (let index = 0; index < 4; index++) {
+        const c = await client();
+        c.send({ type: "hello", build });
+        await c.wait(1);
+        connections.push(c);
+      }
+      const [clone, first, second, retry] = connections;
+      if (!clone || !first || !second || !retry) throw new Error("Missing fixture connection");
+      const request = {
+        type: "manage",
+        operation: "clone",
+        codeFolder: "/code",
+        directory: "repo",
+        origin: "git@fixture.test:team/repo.git",
+      } as const;
+      clone.send(request);
+      await vi.waitFor(() => {
+        expect(mock.manage).toHaveBeenCalledOnce();
+      });
+      const inspection = {
+        ...request,
+        operation: "inspect-worktree",
+        path: "/code/.foom-worktree-fixture",
+        identity: "a".repeat(64),
+      } as const;
+      first.send(inspection);
+      await vi.waitFor(() => {
+        expect(mock.manage).toHaveBeenCalledTimes(2);
+      });
+      second.send(inspection);
+      await second.wait(2);
+      expect(mock.manage).toHaveBeenCalledTimes(3);
+      inspecting.resolve({ ok: false, reason: "checkout-refused" });
+      await first.wait(2);
+      // Neither a concurrent inspection nor its completion may unlock the clone.
+      retry.send(request);
+      await retry.wait(2);
+      expect(mock.manage).toHaveBeenCalledTimes(3);
+      expect(retry.messages[1]).toMatchObject({
+        type: "managed",
+        result: { ok: false, reason: "checkout-refused" },
+      });
+      cloning.resolve({ ok: false, reason: "clone-failed" });
+      await clone.wait(2);
+      retry.send(request);
+      await retry.wait(3);
+      expect(mock.manage).toHaveBeenCalledTimes(4);
+    } finally {
+      cloning.resolve({ ok: false, reason: "clone-failed" });
+      inspecting.resolve({ ok: false, reason: "checkout-refused" });
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
   "management budgets expire, abort, and retain reservations through disconnected cleanup",
   async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });

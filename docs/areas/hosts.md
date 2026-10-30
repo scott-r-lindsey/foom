@@ -70,7 +70,8 @@ cancellation first; an already-issued rename/mutation can still finish and must
 be reconciled by reading state.
 The daemon retains at most four in-flight management/preparation operations even
 when their clients disconnect, until their subprocesses and cleanup settle.
-Repository mutations run one at a time per daemon; overlapping mutations refuse
+Read-only worktree inspections share this bounded reserve without taking the mutation
+slot, so PR polling can overlap launch inspections. Repository mutations run one at a time per daemon; overlapping mutations refuse
 with the fixed checkout-refused reason, including retries during cancellation.
 Once cancellation settles, a clone retry inspects an existing published checkout
 instead of cloning again. Worktree creation remains charged/indeterminate if its
