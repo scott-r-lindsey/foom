@@ -1,4 +1,4 @@
-import { eventModule } from "./v2-event-module";
+import { eventModule } from "../../../shared/agent-event-module";
 import { observerHealth, installedObserverPath } from "./installed-observers";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";

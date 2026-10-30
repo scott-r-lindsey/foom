@@ -267,12 +267,34 @@ export function RepositoryHosts({
       active = false;
     };
   }, [api, repositories]);
+  const refresh = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const next = await api?.({ action: "locations" });
+      if (next) setState(next);
+    } catch {
+      setError("Unable to check locations");
+    } finally {
+      setBusy(false);
+    }
+  };
   const clone = async (host: string, repository: string) => {
     setBusy(true);
     setError("");
     try {
       const next = await api?.({ action: "clone", host, repository });
       if (next) setState(next);
+      if (
+        next?.locations.some(
+          (entry) =>
+            entry.host === host &&
+            entry.repository === repository &&
+            !entry.result.ok &&
+            entry.result.reason === "unreachable",
+        )
+      )
+        await refresh();
     } catch {
       setError("Unable to clone repository");
     } finally {
@@ -282,6 +304,15 @@ export function RepositoryHosts({
   return (
     <section className="repository-hosts" aria-label="Repository locations">
       <h3>Locations</h3>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => {
+          void refresh();
+        }}
+      >
+        Refresh locations
+      </button>
       {error && (
         <p role="alert" className="hosts-failure">
           {error}

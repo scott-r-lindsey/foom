@@ -128,15 +128,17 @@ test("tile panel exposes facts, keyboard navigation, blocked reasons and grow co
   const button = screen.getByRole("button", { name: "Tile 1 menu" });
   fireEvent.click(button);
   let menu = screen.getByRole("dialog", { name: "Tile 1 menu" });
-  expect(within(menu).getByRole("menuitem", { name: "Split right" })).toBe(document.activeElement);
+  expect(within(menu).getByRole("menuitem", { name: "Split terminal right" })).toBe(
+    document.activeElement,
+  );
   expect(menu.textContent).toContain("At the left edge");
   expect(menu.textContent).toContain("At the top edge");
   expect(menu.textContent).toContain("80 × 24");
   expect(menu.textContent).toContain("columns × rows");
   fireEvent.keyDown(document.activeElement ?? menu, { key: "ArrowDown" });
-  expect(document.activeElement?.getAttribute("aria-label")).toBe("Split down");
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Split terminal down");
   fireEvent.keyDown(document.activeElement ?? menu, { key: "ArrowLeft" });
-  expect(document.activeElement?.getAttribute("aria-label")).toBe("Split left");
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("Split terminal left");
   fireEvent.keyDown(menu, { key: "Escape" });
   expect(document.activeElement).toBe(button);
   expect(screen.queryByRole("dialog", { name: "Tile 1 menu" })).toBeNull();
@@ -145,7 +147,7 @@ test("tile panel exposes facts, keyboard navigation, blocked reasons and grow co
     clientY: 60,
   });
   menu = screen.getByRole("dialog", { name: "Tile 1 menu" });
-  fireEvent.click(within(menu).getByRole("menuitem", { name: "Split right" }));
+  fireEvent.click(within(menu).getByRole("menuitem", { name: "Split terminal right" }));
   expect(screen.container.querySelector('[data-empty="true"]')?.getAttribute("data-landing")).toBe(
     "true",
   );
@@ -155,12 +157,12 @@ test("tile panel exposes facts, keyboard navigation, blocked reasons and grow co
       ?.getAttribute("data-empty"),
   ).toBe("false");
   fireEvent.click(button);
-  fireEvent.click(screen.getByRole("menuitem", { name: "Grow right" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Grow left" }));
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
   fireEvent.click(button);
-  fireEvent.click(screen.getByRole("menuitem", { name: "Split down" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Split terminal down" }));
   fireEvent.click(button);
-  fireEvent.click(screen.getByRole("menuitem", { name: "Grow down" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Grow up" }));
   fireEvent.doubleClick(screen.container.querySelector(".tile-title") ?? button);
   fireEvent.click(button);
   fireEvent.click(screen.getByRole("menuitem", { name: /Restore/ }));
@@ -370,7 +372,7 @@ test("empty-space menu splits, closes, dismisses and launches through the home-s
   fireEvent.pointerDown(space());
   expect(screen.queryByRole("menu", { name: "Empty space" })).toBeNull();
   open();
-  fireEvent.click(screen.getByRole("menuitem", { name: "Split up" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Split vertical" }));
   expect(screen.container.querySelectorAll('[data-empty="true"]')).toHaveLength(2);
   open();
   fireEvent.click(screen.getByRole("menuitem", { name: "Close space" }));
@@ -400,11 +402,15 @@ test.each(["left", "up", "right", "down"] as const)(
     const tile = screen.container.querySelector('[data-empty="false"]');
     const button = screen.getByRole("button", { name: "Tile 1 menu" });
     fireEvent.click(button);
-    fireEvent.click(screen.getByRole("menuitem", { name: `Split ${direction}` }));
+    fireEvent.click(screen.getByRole("menuitem", { name: `Split terminal ${direction}` }));
     expect(screen.container.querySelectorAll('[data-empty="true"]')).toHaveLength(1);
     expect(screen.container.querySelector('.terminal-tile[data-focused="true"]')).toBe(tile);
     fireEvent.click(button);
-    fireEvent.click(screen.getByRole("menuitem", { name: `Grow ${direction}` }));
+    fireEvent.click(
+      screen.getByRole("menuitem", {
+        name: `Grow ${({ left: "right", right: "left", up: "down", down: "up" } as const)[direction]}`,
+      }),
+    );
     await act(async () => {});
     expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
     expect(screen.container.querySelector(".terminal-tile")).toBe(tile);
@@ -454,7 +460,7 @@ test("concurrent new shells use each request's identity and destination", async 
   send("split-right");
   const first = screen.container.querySelector('[data-empty="true"]') ?? document.body;
   fireEvent.contextMenu(first);
-  fireEvent.click(screen.getByRole("menuitem", { name: "Split down" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Split vertical" }));
   const spaces = Array.from(screen.container.querySelectorAll('[data-empty="true"]'));
   const finish: ((value: { terminalId: string }) => void)[] = [];
   source.sidebarCommand = vi.fn(
@@ -485,3 +491,29 @@ test("concurrent new shells use each request's identity and destination", async 
     expect(view?.open).toHaveBeenLastCalledWith(id);
   }
 });
+
+test.each(["horizontal", "vertical"] as const)(
+  "empty-space Split %s divides only that space and preserves terminal focus",
+  (axis) => {
+    const { screen, click, send } = setup();
+    click(0);
+    send("split-right");
+    const terminal = screen.container.querySelector<HTMLElement>('[data-empty="false"]');
+    const space = screen.container.querySelector<HTMLElement>('[data-empty="true"]');
+    if (!terminal || !space) throw new Error("Missing tiles");
+    const terminalBounds = terminal.style.cssText;
+    const width = parseFloat(space.style.width);
+    const height = parseFloat(space.style.height);
+    fireEvent.contextMenu(space);
+    fireEvent.click(screen.getByRole("menuitem", { name: `Split ${axis}` }));
+    const spaces = [...screen.container.querySelectorAll<HTMLElement>('[data-empty="true"]')];
+    expect(spaces).toHaveLength(2);
+    for (const half of spaces) {
+      expect(parseFloat(half.style.width)).toBe(axis === "horizontal" ? width / 2 : width);
+      expect(parseFloat(half.style.height)).toBe(axis === "vertical" ? height / 2 : height);
+    }
+    expect(terminal.style.cssText).toBe(terminalBounds);
+    expect(terminal.dataset["focused"]).toBe("true");
+    expect(screen.queryByRole("menu", { name: "Empty space" })).toBeNull();
+  },
+);

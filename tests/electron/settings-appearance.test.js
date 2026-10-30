@@ -525,7 +525,7 @@ test("terminal font picker updates open shells and config shells and refits thei
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
   await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Split right", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
   await page.evaluate(() => window.desktop.sidebarCommand({ kind: "config-launch", run: "shell" }));
   await page.locator(".config-dock .board-row").press("Enter");
   await expect(page.locator(".xterm-rows:visible")).toHaveCount(2);

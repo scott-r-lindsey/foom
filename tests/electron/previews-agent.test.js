@@ -76,21 +76,21 @@ async function agentPreviewFixture(context) {
   await expect
     .poll(async () => (await page.evaluate((id) => window.desktop.tail(id, 20), agent.id)).join(""))
     .toContain("FOOM_AGENT_READY");
-  const requestPreview = async (requestId, file) => {
+  const requestAgent = async (requestId, args) => {
     await page.evaluate(
-      ({ id, requestId, file }) =>
-        window.desktop.input(
-          id,
-          JSON.stringify({ id: requestId, args: ["open-preview", file, "--json"] }) + "\n",
-        ),
-      { id: agent.id, requestId, file },
+      ({ id, requestId, args }) =>
+        window.desktop.input(id, JSON.stringify({ id: requestId, args }) + "\n"),
+      { id: agent.id, requestId, args },
     );
     await expect.poll(() => existsSync(`${credentials}.response-${requestId}`)).toBe(true);
     const response = JSON.parse(await readFile(`${credentials}.response-${requestId}`, "utf8"));
     assert.equal(response.code, 0, response.stderr);
     return JSON.parse(response.stdout).result;
   };
-  return { app, page, repo, agent, shell, credentials, requestPreview };
+  const requestPreview = (requestId, file) =>
+    requestAgent(requestId, ["open-preview", file, "--json"]);
+  const listPreviews = (requestId) => requestAgent(requestId, ["previews", "--json"]);
+  return { app, page, repo, agent, shell, credentials, requestPreview, listPreviews };
 }
 
 test("agent previews split a blank window into terminal-width columns", {
@@ -374,16 +374,14 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
     )
     .toBe(false);
   const reopened = await requestPreview("reopen", "grabby.html");
-  assert.equal(reopened.placement, "sidebar");
-  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(1);
-  const reopenedRow = page.getByRole("treeitem", {
-    name: "HTML preview: grabby.html, opened by Claude Code, not shown",
-  });
-  await expect(reopenedRow).toBeVisible();
-  await expect(page.locator('[data-tile="landing"]')).toHaveAttribute("data-empty", "true");
-  await reopenedRow.getByRole("button").click();
+  assert.equal(reopened.placement, "landing");
+  assert.notEqual(reopened.previewId, result.previewId);
+  assert.equal(reopened.reused, false);
+  await expect(page.locator('.terminal-tile[data-kind="preview"]')).toHaveCount(2);
   await expect(page.locator('[data-tile="landing"]')).toHaveAttribute("data-kind", "preview");
-  await expect(page.locator('[data-tile="landing"]')).toHaveAttribute("data-arrived", "false");
+  await expect
+    .poll(async () => (await previewViewState(app, reopened.previewId)).attached)
+    .toBe(true);
   await page.locator('[data-tile="terminal"] .xterm-helper-textarea').focus();
   // At minimum width, use terminal replacement fallback and protect the focused shell.
   await app.evaluate(({ BrowserWindow }) => {
@@ -441,4 +439,191 @@ test("an agent fixture opens full-board previews in columns, retains focus and r
     assert.equal((await call("close_preview", { previewId: reopened.previewId })).closed, true);
     await expect(target.locator(`[data-preview-id="${reopened.previewId}"]`)).toHaveCount(0);
   });
+});
+
+test("agent reopen is visible with free space and reports sidebar only at protected board capacity", {
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  const { app, page, shell, requestPreview, listPreviews } = await agentPreviewFixture(context);
+  const first = await requestPreview("first", "notes.md");
+  await page
+    .locator(`[data-preview-id="${first.previewId}"]`)
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await expect(page.locator(`[data-preview-id="${first.previewId}"]`)).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.sidebarInventory())).previews.some(
+        (preview) => preview.id === first.previewId,
+      ),
+    )
+    .toBe(false);
+  const reopened = await requestPreview("visible-reopen", "notes.md");
+  assert.notEqual(reopened.previewId, first.previewId);
+  assert.notEqual(reopened.placement, "sidebar");
+  assert.equal(reopened.reused, false);
+  await expect
+    .poll(async () => (await previewViewState(app, reopened.previewId)).attached)
+    .toBe(true);
+  assert.deepEqual((await listPreviews("visible-list")).previews, [
+    {
+      previewId: reopened.previewId,
+      path: "notes.md",
+      kind: "markdown",
+      visible: true,
+    },
+  ]);
+  await assertAccessible(page);
+  if (process.env.FOOM_REOPEN_SCREENSHOTS === "1" && process.platform === "linux") {
+    const handle = await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+        .getNativeWindowHandle()
+        .readUInt32LE(),
+    );
+    for (const mode of ["dark", "light"]) {
+      await page.evaluate(
+        (mode) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${mode}` }),
+        mode,
+      );
+      await page.waitForFunction(
+        (mode) => document.documentElement.style.colorScheme === mode,
+        mode,
+      );
+      await expect
+        .poll(() =>
+          previewContents(
+            app,
+            reopened.previewId,
+            "getComputedStyle(document.documentElement).backgroundColor",
+          ),
+        )
+        .toBe(mode === "dark" ? "rgb(5, 4, 10)" : "rgb(243, 240, 250)");
+      await previewContents(
+        app,
+        reopened.previewId,
+        "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+      );
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
+      require("node:child_process").execFileSync("import", [
+        "-window",
+        String(handle),
+        evidencePath(`screenshots-931/reopened-${mode}.png`),
+      ]);
+    }
+  }
+  await page
+    .locator(`[data-preview-id="${reopened.previewId}"]`)
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await expect(page.locator(`[data-preview-id="${reopened.previewId}"]`)).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      (await page.evaluate(() => window.desktop.sidebarInventory())).previews.some(
+        (preview) => preview.id === reopened.previewId,
+      ),
+    )
+    .toBe(false);
+  // Supply bounded session metadata at the IPC boundary: no 256 PTYs or real agents.
+  // All leaves need the human, so neither growth nor replacement is allowed.
+  const snapshot = await page.evaluate(() => window.desktop.workspace());
+  const template = snapshot.terminals.find((terminal) => terminal.id === shell.id);
+  assert.ok(template);
+  snapshot.terminals = Array.from({ length: 256 }, (_, index) => ({
+    ...template,
+    id: `protected-${index}`,
+    dormant: true,
+    exited: false,
+    state: {
+      id: `protected-${index}`,
+      verdictId: null,
+      state: "needs_input",
+      reason: "Password",
+      signal: "fixture:prompt",
+      confidence: 1,
+      timestamp: Date.now(),
+    },
+  }));
+  await app.evaluate(({ ipcMain }, snapshot) => {
+    ipcMain.removeHandler("workspace:snapshot");
+    ipcMain.handle("workspace:snapshot", () => snapshot);
+    ipcMain.removeHandler("windows:sync");
+    ipcMain.handle("windows:sync", (_event, ids) => ids);
+  }, snapshot);
+  await page.evaluate(() => {
+    const tree = (start, count) =>
+      count === 1
+        ? {
+            kind: "tile",
+            id: `tile-${start}`,
+            content: { kind: "terminal", session: `protected-${start}` },
+          }
+        : {
+            kind: "split",
+            id: `split-${start}-${count}`,
+            direction: "horizontal",
+            ratio: 0.5,
+            first: tree(start, count / 2),
+            second: tree(start + count / 2, count / 2),
+          };
+    localStorage.setItem(
+      `foom.tiles.v1.${window.desktop.windows.id}`,
+      JSON.stringify({
+        version: 2,
+        tree: tree(0, 256),
+        focused: "tile-0",
+        maximized: null,
+      }),
+    );
+  });
+  await page.reload();
+  await expect(page.locator('.terminal-tile[data-empty="false"]')).toHaveCount(256);
+  await app.evaluate(({ BrowserWindow }, snapshot) => {
+    const board = BrowserWindow.getAllWindows().find(
+      (window) => window.webContents.getURL() === "app://bundle/index.html",
+    );
+    for (const terminal of snapshot.terminals)
+      board.webContents.send("terminal:state", terminal.state);
+  }, snapshot);
+  await expect(page.locator('.board-row[data-state="needs_input"]')).toHaveCount(256);
+  const full = await requestPreview("full-reopen", "notes.md");
+  assert.equal(full.placement, "sidebar");
+  assert.equal(full.reused, false);
+  assert.notEqual(full.previewId, reopened.previewId);
+  await expect(
+    page.getByRole("treeitem", {
+      name: "Markdown preview: notes.md, opened by Claude Code, not shown",
+    }),
+  ).toBeVisible();
+  assert.deepEqual((await listPreviews("hidden-list")).previews, [
+    {
+      previewId: full.previewId,
+      path: "notes.md",
+      kind: "markdown",
+      visible: false,
+    },
+  ]);
+  assert.equal((await previewViewState(app, full.previewId)).attached, false);
+  // A later explicit open retries ordinary placement when room becomes available.
+  await page.evaluate(() =>
+    localStorage.setItem(
+      `foom.tiles.v1.${window.desktop.windows.id}`,
+      JSON.stringify({
+        version: 2,
+        tree: { kind: "tile", id: "available", content: null },
+        focused: "available",
+        maximized: null,
+      }),
+    ),
+  );
+  await page.reload();
+  await expect(page.locator('.terminal-tile[data-empty="true"]')).toHaveCount(1);
+  const retry = await requestPreview("retry", "notes.md");
+  assert.equal(retry.previewId, full.previewId);
+  assert.equal(retry.reused, true);
+  assert.equal(retry.placement, "empty");
+  await expect.poll(async () => (await previewViewState(app, retry.previewId)).attached).toBe(true);
+  assert.equal((await listPreviews("retry-list")).previews[0].visible, true);
 });

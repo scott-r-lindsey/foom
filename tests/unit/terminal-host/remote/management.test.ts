@@ -14,7 +14,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LaunchFailure } from "../../../../src/shared/launch-failure";
-import { HOST_CLONE_TIMEOUT_MS } from "../../../../src/shared/registered-hosts";
+import {
+  HOST_CLONE_TIMEOUT_MS,
+  HOST_NETWORK_GIT_TIMEOUT_MS,
+} from "../../../../src/shared/registered-hosts";
 import { gitSync } from "../../../helpers/git.js";
 const mock = vi.hoisted(() => ({
   checkout: vi.fn(),
@@ -116,8 +119,8 @@ test.skipIf(process.platform === "win32")(
           { id: "codex", state: "missing" },
           { id: "agy", state: "unable" },
           { id: "copilot", state: "unable" },
-          { id: "opencode", state: "ready" },
-          { id: "pi", state: "ready" },
+          { id: "opencode", state: "unable" },
+          { id: "pi", state: "unable" },
         ],
       },
     });
@@ -181,7 +184,7 @@ test.skipIf(process.platform === "win32")(
         "0.1.0",
         home,
       ),
-    ).toMatchObject({ ok: true, facts: { agents: [{ id: "custom", state: "ready" }] } });
+    ).toMatchObject({ ok: true, facts: { agents: [{ id: "custom", state: "unable" }] } });
   },
 );
 test.skipIf(process.platform === "win32")(
@@ -233,6 +236,7 @@ test.skipIf(process.platform === "win32")(
       },
       true,
       HOST_CLONE_TIMEOUT_MS,
+      undefined,
     );
     mock.probe
       .mockResolvedValueOnce(request.origin)
@@ -469,6 +473,15 @@ test.skipIf(process.platform === "win32")(
     expect(tree.path).toMatch(new RegExp(`^${folder}/\\.foom-worktree-[a-f0-9-]+$`, "u"));
     expect(mock.probe).toHaveBeenCalledWith(
       "git",
+      ["--no-optional-locks", "ls-remote", "--symref", "origin", "HEAD"],
+      repository,
+      expect.anything(),
+      true,
+      HOST_NETWORK_GIT_TIMEOUT_MS,
+      undefined,
+    );
+    expect(mock.probe).toHaveBeenCalledWith(
+      "git",
       [
         "--no-optional-locks",
         "fetch",
@@ -479,6 +492,8 @@ test.skipIf(process.platform === "win32")(
       repository,
       expect.anything(),
       true,
+      HOST_CLONE_TIMEOUT_MS,
+      undefined,
     );
     expect(mock.probe).toHaveBeenCalledWith(
       "git",
@@ -496,6 +511,8 @@ test.skipIf(process.platform === "win32")(
       repository,
       expect.anything(),
       true,
+      5000,
+      undefined,
     );
     mock.probe.mockClear();
     expect(
@@ -519,6 +536,8 @@ test.skipIf(process.platform === "win32")(
       repository,
       expect.anything(),
       true,
+      HOST_CLONE_TIMEOUT_MS,
+      undefined,
     );
     expect(mock.probe).toHaveBeenCalledWith(
       "git",
@@ -526,6 +545,8 @@ test.skipIf(process.platform === "win32")(
       repository,
       expect.anything(),
       true,
+      5000,
+      undefined,
     );
     expect(
       await manageHost(
@@ -586,6 +607,8 @@ test.skipIf(process.platform === "win32")(
       repository,
       expect.anything(),
       true,
+      5000,
+      undefined,
     );
     mock.checkout.mockResolvedValueOnce("identity").mockResolvedValueOnce("replaced");
     expect(await manageHost({ ...removal, changes }, 0, "/fixture", "0.1.0", home)).toEqual({
@@ -679,6 +702,8 @@ test.skipIf(process.platform === "win32")(
       path,
       expect.objectContaining({ GIT_NO_REPLACE_OBJECTS: "1", GIT_GRAFT_FILE: "/dev/null" }),
       true,
+      5000,
+      undefined,
     );
     refs = "";
     expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
@@ -783,5 +808,34 @@ exec /usr/bin/git "$@"
     git("update-ref", "refs/tags/saved-detached-work", head);
     expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toMatchObject({ ok: true });
     await expect(realpath(path)).rejects.toThrow();
+  },
+);
+
+test.skipIf(process.platform === "win32").each([
+  ["pi", "1.4.0", "--extension --session-id --session", "ready"],
+  ["pi", "1.4.0", "--extension", "unable"],
+  ["pi", "1.3.0", "--extension", "unable"],
+  ["pi", "1.4.0", "--help", "unable"],
+  ["opencode", "opencode v2.0.32", "--standalone --session --prompt", "ready"],
+  ["opencode", "opencode v2.0.31", "--standalone --session --prompt", "unable"],
+  ["opencode", "opencode v2.0.32", "--session --prompt", "unable"],
+])(
+  "remote %s inventory requires measured attachment support (%s %s)",
+  async (id, version, help, state) => {
+    mock.discovery.mockResolvedValueOnce({ version, help });
+    expect(
+      await manageHost(
+        {
+          type: "manage",
+          operation: "inspect",
+          codeFolder: "~/code",
+          agents: [{ id, executables: [id] }],
+        },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toMatchObject({ ok: true, facts: { agents: [{ id, state }] } });
   },
 );

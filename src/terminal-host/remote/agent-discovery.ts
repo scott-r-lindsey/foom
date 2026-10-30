@@ -20,7 +20,9 @@ export async function hostProbe(
   env = hostEnvironment(),
   hostGitConfig = false,
   timeoutMs = 5000,
+  signal?: AbortSignal,
 ): Promise<string> {
+  signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     const child = spawn(command, [...args], {
       cwd,
@@ -45,6 +47,12 @@ export async function hostProbe(
         }
       }
     };
+    const cancel = () => {
+      failure = new Error("Remote probe cancelled");
+      kill();
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted) cancel();
     const timer = setTimeout(() => {
       failure = new Error("Remote probe timed out");
       kill();
@@ -69,6 +77,7 @@ export async function hostProbe(
     child.once("exit", kill);
     child.once("close", (code) => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", cancel);
       if (failure) reject(failure);
       else if (code !== 0) reject(new Error("Remote probe failed"));
       else {
@@ -84,6 +93,7 @@ export async function hostProbe(
 export async function hostLoginEnvironment(
   shell: string,
   home: string,
+  signal?: AbortSignal,
 ): Promise<NodeJS.ProcessEnv> {
   const env = hostEnvironment();
   let path = env["PATH"] ?? "";
@@ -93,19 +103,24 @@ export async function hostLoginEnvironment(
       ["-ilc", 'printf "\\000FOOM_PATH\\000%s\\000" "$PATH"'],
       home,
       env,
+      false,
+      5000,
+      signal,
     );
     path = output.split("\0FOOM_PATH\0")[1]?.split("\0")[0] || path;
   } catch {
     /* Inherited remote PATH is the conservative discovery fallback. */
   }
+  signal?.throwIfAborted();
   return { ...env, PATH: path.split(":").filter(isAbsolute).join(":") };
 }
 export async function hostDiscovery(
   model: { executables: readonly string[] },
   shell: string,
   home: string,
+  signal?: AbortSignal,
 ): Promise<{ command: string; env: NodeJS.ProcessEnv; version: string; help: string }> {
-  const launchEnv = await hostLoginEnvironment(shell, home);
+  const launchEnv = await hostLoginEnvironment(shell, home, signal);
   const path = launchEnv["PATH"] ?? "";
   let command: string | undefined;
   for (const name of model.executables) {
@@ -127,13 +142,14 @@ export async function hostDiscovery(
   if (!command) throw new LaunchFailure("remote_agent_unavailable");
   const fixed = async (args: string[]) => {
     try {
-      return (await hostProbe(command, args, home, launchEnv)).trim();
+      return (await hostProbe(command, args, home, launchEnv, false, 5000, signal)).trim();
     } catch {
       return "";
     }
   };
   const version = await fixed(["--version"]);
   const help = await fixed(["--help"]);
+  signal?.throwIfAborted();
   return { command, env: launchEnv, version, help };
 }
 /** Canonical paths and live Git membership are rechecked immediately before PTY creation. */
@@ -141,6 +157,7 @@ export async function remoteCheckout(
   repository: string,
   worktree: string,
   env: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
 ): Promise<string> {
   if ((await realpath(repository)) !== repository || (await realpath(worktree)) !== worktree)
     throw new Error("Remote checkout changed");
@@ -149,6 +166,9 @@ export async function remoteCheckout(
     ["--no-optional-locks", "worktree", "list", "--porcelain", "-z"],
     repository,
     env,
+    false,
+    5000,
+    signal,
   );
   if (
     !list.split("\0\0").some((entry) => {
@@ -164,7 +184,15 @@ export async function remoteCheckout(
     resolve(
       cwd,
       (
-        await hostProbe("git", ["--no-optional-locks", "rev-parse", "--git-common-dir"], cwd, env)
+        await hostProbe(
+          "git",
+          ["--no-optional-locks", "rev-parse", "--git-common-dir"],
+          cwd,
+          env,
+          false,
+          5000,
+          signal,
+        )
       ).trim(),
     );
   const repositoryCommon = await common(repository);
@@ -175,6 +203,9 @@ export async function remoteCheckout(
       ["--no-optional-locks", "rev-parse", "--absolute-git-dir"],
       worktree,
       env,
+      false,
+      5000,
+      signal,
     )
   ).trim();
   if (

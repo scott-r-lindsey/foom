@@ -128,7 +128,7 @@ test("multiple windows share sessions, keep views exclusive and retain terminals
     "rejected",
   );
   await first.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
-  await first.getByRole("menuitem", { name: "Split right", exact: true }).click();
+  await first.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
   await first
     .getByRole("button", { name: "Actions for Main checkout", exact: true })
     .press("Enter");

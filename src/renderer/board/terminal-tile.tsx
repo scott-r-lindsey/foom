@@ -3,6 +3,8 @@ import { ActionError, captureErrorFocus, useBackgroundErrors } from "./error-pre
 import { errorMessage } from "../../shared/application-errors";
 import { OrchestrationMark } from "./orchestration-mark";
 import type { PreviewSummary } from "../../shared/workspace";
+import { TerminalMenu } from "../terminal/terminal-menu";
+import type { TerminalContextMenu } from "../terminal/terminal-view-source.d";
 import { SpaceMenu, TileMenu } from "./tile-menu";
 import { AgentBadge } from "./agent-badge";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -151,6 +153,11 @@ export function Tile({
   const [error, setError] = useState("");
   const errorOriginRef = useRef<Element | null>(null);
   const [menu, setMenu] = useState<{ anchor: HTMLElement; point?: { x: number; y: number } }>();
+  const [terminalMenu, setTerminalMenu] = useState<TerminalContextMenu>();
+  useEffect(() => view?.onContextMenu?.(setTerminalMenu), [view]);
+  if (terminalMenu && (terminalMenu.id !== row?.id || inactive || behind)) {
+    setTerminalMenu(undefined);
+  }
   const menuRef = useRef<HTMLButtonElement>(null);
   const lightRef = useRef<HTMLSpanElement>(null);
   const elementRef = useRef<HTMLElement>(null);
@@ -442,6 +449,16 @@ export function Tile({
           layout={{ ...layout, focused: tile.id }}
           close={() => {
             setMenu(undefined);
+          }}
+          action={action}
+        />
+      )}
+      {row && terminalMenu && !inactive && !behind && (
+        <TerminalMenu
+          menu={terminalMenu}
+          layout={{ ...layout, focused: tile.id }}
+          close={() => {
+            setTerminalMenu(undefined);
           }}
           action={action}
         />

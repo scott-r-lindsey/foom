@@ -106,6 +106,13 @@ at the server for in-flight calls. Config/manual and isolated probe attachments
 use their fixed minimal tool sets without control-plane discovery. MCP registers through Pi's
 normal client with the independent control credential, without writing Pi config.
 
+Remote Pi uses the fixed `pi-remote-v1.mjs` ABI (#939), with no hub identity or
+loopback URL. It reports the same bounded lifecycle facts to `/hook` on the
+per-launch Unix socket and registers only the restricted host stdio helper after
+sanitized identity discovery. Files contain nonsecret channel/server names;
+credentials remain in the host launch environment. Revocation withdraws MCP and
+receiver loss leaves permission decisions with Pi.
+
 ## OpenCode context events (#824)
 
 OpenCode v2.0.32+ uses invocation-only generated context-event plugins under a

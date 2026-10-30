@@ -38,8 +38,10 @@ idle resource polling timers.
 
 Ready means installed and probeable, using only the existing `--version` and
 `--help` probes over the account's login PATH. Missing executables show Not found;
-failed probes show Unable to check. No sign-in probes or credential reads are
-added. Manifest probe output stays on the host and is reduced to fixed states. Main projects the inventory onto its selected manifest IDs: unexpected host IDs are discarded and omitted entries become Unable to check.
+failed probes show Unable to check. Pi and OpenCode also require their measured per-launch attachment gates to pass;
+otherwise they show Unable to check. Config providers show Unable to check and
+refuse remote launch with `remote_agent_unsupported` before launch SSH work.
+No sign-in probes or credential reads are added. Manifest probe output stays on the host and is reduced to fixed states. Main projects the inventory onto its selected manifest IDs: unexpected host IDs are discarded and omitted entries become Unable to check.
 
 Settings → Repositories shows Local and each registered host. Main reads only
 the registered repository's own origin. Only credential-free HTTPS and SSH Git
@@ -55,10 +57,29 @@ Clone here runs Git with an argument array on the host, with the host's own logi
 PATH and Git configuration/access. No local files, credentials, SSH keys or agent
 sockets are copied/forwarded. Clone failures use a fixed reason. The host cannot
 select a local executable or write location. Git output never reaches the UI.
-Cloning has a five-minute subprocess deadline; discovery and Git inspection
-probes retain their five-second deadlines. Clone management connections allow
-seven minutes for bootstrap, cloning and validation. Clones are prepared in a
-private temporary sibling inside the approved folder, validated, then published
+Clone, fetch and default-branch network queries each have an explicit five-minute
+subprocess deadline; discovery and Git inspection probes retain five seconds.
+The daemon's ten-second deadline covers negotiation and idle clients only.
+Each management request gets a separate seven-minute budget after negotiation;
+SSH bootstrap has its own two-minute hub budget. Agent preparation and final
+spawn authorization share a separate two-minute daemon budget.
+
+Disconnect, operation expiry and daemon shutdown cancel the operation's subprocess
+group, including descendants. Later Git commands and clone publication check
+cancellation first; an already-issued rename/mutation can still finish and must
+be reconciled by reading state.
+The daemon retains at most four in-flight management/preparation operations even
+when their clients disconnect, until their subprocesses and cleanup settle.
+Repository mutations run one at a time per daemon; overlapping mutations refuse
+with the fixed checkout-refused reason, including retries during cancellation.
+Once cancellation settles, a clone retry inspects an existing published checkout
+instead of cloning again. Worktree creation remains charged/indeterminate if its
+reply is lost, and an existing branch refuses a duplicate creation as before.
+Settings automatically refreshes repository locations after an unreachable clone
+reply and offers **Refresh locations** for later reconciliation, including a clone
+published before its reply was lost. Refresh reads state and never retries a mutation.
+Clones are prepared in a private temporary sibling inside the approved folder,
+validated, then published
 by rename. Failure removes the temporary directory and leaves the destination
 available for retry; an existing destination is never used as clone staging.
 
