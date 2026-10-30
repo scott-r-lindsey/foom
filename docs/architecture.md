@@ -298,6 +298,29 @@ base versions or nightly dates cannot update a newer build. Same-day different
 commits require a strictly later commit timestamp; older builds without a stored
 timestamp wait for a later day. Stable metadata cannot enter the nightly path.
 
+The same publisher provides stable manual download URLs (#951) under
+`https://foom-term.com/updates/nightly/download/`:
+
+- `Foom-nightly-darwin-arm64.dmg` and `Foom-nightly-darwin-arm64.zip`
+- `Foom-nightly-linux-x64.deb`, `Foom-nightly-linux-x64.rpm` and `Foom-nightly-linux-x64.zip`
+- `Foom-nightly-win32-x64-setup.exe` and `Foom-nightly-win32-x64.zip`
+- `SHA256SUMS` and `latest.json`
+
+These mutable downloads copy the tested packages byte-for-byte, including the
+notarized, stapled macOS artifacts. Their Content-Disposition filenames retain
+the versioned artifact names. `SHA256SUMS` hashes the seven fixed filenames;
+`latest.json` carries `version`, `commit`, `commitDate` and a `files` array of
+`name` (fixed filename), `sha256` and `url` (immutable artifact URL). It is a
+manual-download manifest, separate from the existing app update feeds, whose
+bytes and immutable URLs remain unchanged. All fixed objects require cache
+revalidation. Publication preflights every JSON pointer's commit date, uploads
+immutable artifacts, then downloads and checksums, then the download manifest,
+then update feeds, followed by one invalidation of the exact mutable paths.
+A partial failure can leave fixed downloads from different nights; metadata
+always references complete immutable artifacts, and a retry repairs the set.
+There is no cross-object transaction. Unchanged or failing CI nights do not
+publish; older or same-time different commits are refused before any writes.
+
 Nightly macOS uses the same never-restart, ordinary quit installation, explicit
 restart barrier and opt-out behavior as [stable updates](areas/application.md#updates-603).
 Linux and Windows never stage or invoke a native updater. Check failures retain
