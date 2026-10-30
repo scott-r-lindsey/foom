@@ -64,3 +64,20 @@ test("preview sidebar drops move their existing assignment and reuse edge geomet
   const edge = dropTile(occupied, { kind: "preview", id: "p" }, other.id, "left");
   expect(leaves(edge.tree).filter((tile) => tile.content)).toHaveLength(2);
 });
+
+test.each(["terminal", "preview"] as const)(
+  "committing a %s clears a stale assignment without duplicating its identity",
+  (kind) => {
+    const content =
+      kind === "terminal" ? { kind, session: "same-id" } : { kind, preview: "same-id" };
+    const base = placeContent(initialLayout(), content);
+    if (!base) throw new Error("placement");
+    const staged = prepareMove(base, null, { columns: 300 });
+    if (!staged) throw new Error("placement");
+    const committed = finishMove(staged, { kind, id: "same-id" });
+    expect(leaves(committed.tree)).toHaveLength(2);
+    expect(leaves(committed.tree).filter((tile) => tile.content)).toHaveLength(1);
+    expect(leaves(committed.tree).find((tile) => tile.content)?.content).toEqual(content);
+    expect(leaves(base.tree)[0]?.content).toEqual(content);
+  },
+);

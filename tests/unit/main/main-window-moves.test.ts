@@ -1,4 +1,4 @@
-import { mock, start, invokeWindow, newWindow } from "./main-fixture";
+import { mock, start, invokeWindow, newWindow, forgeUi } from "./main-fixture";
 import { expect, test, vi } from "vitest";
 import type { MoveContent } from "../../../src/shared/windows";
 
@@ -66,6 +66,14 @@ test("preview moves reuse the pop-out transfer and reject a vanished destination
   const transfer = vi.spyOn(source, "moveTo");
   const moving = invokeWindow(0, "windows:move", content, 2);
   await accept(1);
+  let placement: unknown;
+  await vi.waitFor(() => {
+    placement = mock.instances[1]?.webContents.send.mock.calls.findLast(
+      ([channel]) => channel === "preview:place",
+    )?.[1];
+    expect(typeof placement).toBe("string");
+  });
+  await invokeWindow(1, "preview:placed", placement, id, "sidebar");
   await moving;
   expect(transfer).toHaveBeenCalledWith(id, target);
   previewHosts.delete(2);
@@ -98,4 +106,32 @@ test("a destroyed target and a racing reservation refusal abort before destinati
   await invokeWindow(1, "windows:end-drag", token);
   mock.window.isDestroyed.mockReturnValue(false);
   mock.window.webContents.isDestroyed.mockReturnValue(false);
+});
+
+test("archived sessions without a host screen cannot register a drag or move", async () => {
+  forgeUi.rows = [
+    {
+      id: "t1",
+      kind: "agent",
+      agent: "claude",
+      repository: "/repo",
+      worktree: "/tree",
+      branch: "feature",
+      attention: "hooks",
+      state: null,
+      dormant: true,
+      exited: true,
+    },
+  ];
+  await start();
+  await newWindow();
+  const content: MoveContent = { kind: "terminal", id: "t1" };
+  await expect(invokeWindow(0, "windows:begin-drag", content)).rejects.toThrow();
+  await expect(invokeWindow(0, "windows:move", content, 2)).rejects.toThrow();
+  const row = forgeUi.rows[0];
+  if (!row) throw new Error("Missing session");
+  row.dormant = false;
+  const token = await invokeWindow(0, "windows:begin-drag", content);
+  expect(typeof token).toBe("string");
+  await invokeWindow(0, "windows:end-drag", token);
 });

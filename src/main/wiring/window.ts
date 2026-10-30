@@ -378,6 +378,9 @@ export async function buildWindow(
       content.kind === "preview"
         ? previewHost.registry.records.has(content.id)
         : (wiring.terminals.owns(content.id) || wiring.workspace.ownsSession(content.id)) &&
+          !wiring.workspace
+            .snapshot()
+            .terminals.some((row) => row.id === content.id && row.dormant && row.exited) &&
           (wiring.views.owner(content.id) === undefined ||
             wiring.views.owner(content.id) === window.id),
     send: (channel, ...args) => {
@@ -391,6 +394,9 @@ export async function buildWindow(
         const host = wiring.previewHosts.get(target);
         if (!host) throw new Error("Preview window unavailable");
         await previewHost.moveTo(content.id, host);
+        // Reuse the pop-out inventory/placement round trip. The reserved board
+        // keeps geometry staged while its source refreshes preview display facts.
+        await wiring.previewPlacements.get(target)?.place(content.id, true);
       } else {
         if (
           !wiring.views.transfer(content.id, window.id, target, () => {

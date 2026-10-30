@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { act, fireEvent } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
+import type { PreviewApi } from "../../../../src/shared/previews";
 import type { WindowsApi, MoveContent, MovePlacement } from "../../../../src/shared/windows";
 import { registerTileAreaFixture, setup } from "./tile-area-fixture";
 registerTileAreaFixture();
 
 function fixture(withPreview = false) {
+  let place: Parameters<NonNullable<PreviewApi["onPlace"]>>[0] | undefined;
   let drag: ((token: string | null) => void) | undefined;
   let prepare: ((request: string, at: MovePlacement) => void) | undefined;
   let finish: ((request: string, content: MoveContent | null) => void) | undefined;
@@ -69,6 +71,12 @@ function fixture(withPreview = false) {
         ? {
             previews: {
               getSnapshot: () => previewRows,
+              onPlace: (callback) => {
+                place = callback;
+                return () => {
+                  place = undefined;
+                };
+              },
               pick: () => Promise.resolve(null),
               close: () => Promise.resolve(),
               bounds: () => Promise.resolve(),
@@ -96,6 +104,7 @@ function fixture(withPreview = false) {
   vi.stubGlobal("DragEvent", MouseEvent);
   return {
     ...f,
+    place: (id: string) => place?.(id, Number.MAX_SAFE_INTEGER) ?? Promise.resolve("sidebar"),
     moves,
     tile,
     drag: (token: string | null) => {
@@ -236,4 +245,20 @@ test("a menu move failure reports the operation through the tile's action error"
   fireEvent.click(f.screen.getByRole("menuitem", { name: "Window 2" }));
   await act(async () => {});
   expect(f.screen.getByRole("alert").textContent).toBe("Unable to move tile to window.");
+});
+
+test("inventory closes remain reflected during a reservation and agent arrivals wait in the sidebar", async () => {
+  const f = fixture(true);
+  f.click(0);
+  await act(async () => {});
+  f.prepare("request", null);
+  await expect(f.place("p")).resolves.toBe("sidebar");
+  act(() => {
+    f.data.update("permission", { dormant: true, exited: true });
+  });
+  expect(f.screen.container.querySelectorAll('[data-empty="false"]')).toHaveLength(0);
+  f.finish("request", { kind: "terminal", id: "check" });
+  const saved = localStorage.getItem("foom.tiles.v1.test") ?? "";
+  expect(saved).not.toContain('"session":"permission"');
+  expect(saved).toContain('"session":"check"');
 });

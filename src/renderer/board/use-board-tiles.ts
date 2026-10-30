@@ -188,7 +188,19 @@ export function useBoardTiles({
       movePendingRef.current = undefined;
       boardRef.current?.removeAttribute("inert");
       if (content) {
-        changeLayout(finishMove(pending.next, content));
+        const next = finishMove(pending.next, content);
+        const sessions = new Set(
+          source.isReady?.() === false
+            ? leaves(next.tree).flatMap((tile) => (sessionId(tile) ? [sessionId(tile) ?? ""] : []))
+            : source
+                .getSnapshot()
+                .filter((row) => !(row.dormant && row.exited))
+                .map((row) => row.id),
+        );
+        const knownPreviews = previewIds(next);
+        if (content.kind === "terminal") sessions.add(content.id);
+        else knownPreviews.add(content.id);
+        changeLayout(pruneContent(next, { sessions, previews: knownPreviews }));
         setFocusRequest((value) => value + 1);
       }
     });
@@ -198,11 +210,12 @@ export function useBoardTiles({
       movePendingRef.current = undefined;
       boardRef.current?.removeAttribute("inert");
     };
-  }, [source, changeLayout, placementOptions]);
+  }, [source, changeLayout, placementOptions, previewIds]);
   useEffect(
     () =>
       source.previews?.onPlace?.((id, expiresAt) => {
         if (
+          movePendingRef.current ||
           Date.now() >= expiresAt ||
           !source.previews?.getSnapshot().some((preview) => preview.id === id)
         )
@@ -226,7 +239,7 @@ export function useBoardTiles({
     [source, changeLayout, placementOptions],
   );
   useEffect(() => {
-    if (movePendingRef.current || (source.isReady && !source.isReady())) return;
+    if (source.isReady && !source.isReady()) return;
     const current = layoutRef.current;
     const knownPreviews = previewIds(current);
     // Remove a failed restore's saved assignment once. The warning may remain
