@@ -2,6 +2,7 @@
 export const launchReasons = {
   agent_disabled: "This agent is turned off in preflight.",
   agent_unavailable: "The local agent is not installed or discoverable.",
+  remote_agent_unsupported: "This agent does not support remote launch attachments.",
   remote_agent_unavailable: "The remote agent is unavailable (not installed or discoverable).",
   remote_host_unreachable: "The remote host is unreachable or SSH authentication failed.",
   remote_artifact_mismatch: "The remote host platform or artifact does not match.",

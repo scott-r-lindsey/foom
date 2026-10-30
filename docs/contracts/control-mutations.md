@@ -164,6 +164,7 @@ logged. Ownership/grant refusals retain their existing control error semantics.
 | --- | --- |
 | `agent_disabled` | Local agent disabled in Settings |
 | `agent_unavailable` | Local agent not installed or discoverable |
+| `remote_agent_unsupported` | Agent has no supported remote launch attachments |
 | `remote_agent_unavailable` | Remote agent not installed or discoverable |
 | `remote_host_unreachable` | Remote host unreachable or BatchMode SSH authentication failed |
 | `remote_artifact_mismatch` | Remote platform, application or artifact mismatch |

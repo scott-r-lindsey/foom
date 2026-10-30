@@ -245,8 +245,7 @@ export class AgentService {
       : (request.remoteCheckout ?? remoteAgentTarget(process.argv, request.worktree));
     if (remote) {
       if (request.loop) throw new ControlError("remote_review_unsupported");
-      if (provider.model.launch.extension || provider.id === "opencode")
-        throw new Error("remote_agent_unsupported");
+      if (provider.origin !== "bundled") throw new LaunchFailure("remote_agent_unsupported");
       if (hasBypassArgument(request.agent, defaults))
         throw new Error("Unattended child bypass is unavailable");
       if (!request.control || !("parentId" in request.control))
