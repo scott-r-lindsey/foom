@@ -68,7 +68,10 @@ export function RowMenu({
   leading,
   dismissOnAnchor = false,
   tabWithin = false,
+  dismissOnScroll = true,
 }: {
+  /** Terminal menus remain anchored while xterm scrolls during focus changes or output. */
+  dismissOnScroll?: boolean;
   /** Context menus on unfocusable regions also dismiss when that region is clicked. */
   dismissOnAnchor?: boolean;
   /** Keep native Tab navigation between controls inside a composite context menu. */
@@ -192,6 +195,7 @@ export function RowMenu({
         close();
     };
     const scroll = (event: Event) => {
+      if (!dismissOnScroll) return;
       if (
         !(event.target instanceof Node) ||
         (!ref.current?.contains(event.target) && !inSubmenu(event.target))
@@ -229,7 +233,16 @@ export function RowMenu({
       document.removeEventListener("scroll", scroll, true);
       window.removeEventListener("resize", close);
     };
-  }, [anchor, close, isPanel, keepOnResize, isNested, bottomAligned, dismissOnAnchor]);
+  }, [
+    anchor,
+    close,
+    isPanel,
+    keepOnResize,
+    isNested,
+    bottomAligned,
+    dismissOnAnchor,
+    dismissOnScroll,
+  ]);
   const openSub = (index: number, item: HTMLButtonElement, focus: boolean) => {
     setSub((current) =>
       current?.index === index && (current.focus || !focus)

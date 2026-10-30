@@ -3,6 +3,7 @@ import { afterEach, beforeEach, vi } from "vitest";
 import type { BoardSource } from "../../../../src/renderer/board/board-source.d";
 import { Board } from "../../../../src/renderer/board/board-view";
 import { createSampleSource } from "../../../../src/renderer/board/sample-board-source";
+import type { TerminalContextMenu } from "../../../../src/renderer/terminal/terminal-view-source.d";
 import type { ShellView } from "../../../../src/renderer/terminal/shell";
 import type { BoardCommand } from "../../../../src/shared/board-command";
 import { boardRows as sampleRows } from "../../../fixtures/board";
@@ -53,6 +54,7 @@ export function setup(snapshotOverrides: Partial<ShellView> = {}) {
     open: ReturnType<typeof vi.fn>;
     hide: ReturnType<typeof vi.fn>;
     focus: ReturnType<typeof vi.fn>;
+    context: (menu: TerminalContextMenu) => void;
   }[] = [];
   const source: BoardSource = {
     ...data,
@@ -64,7 +66,17 @@ export function setup(snapshotOverrides: Partial<ShellView> = {}) {
     },
     createView: () => {
       let element: HTMLElement | undefined;
+      let contextMenu: ((menu: TerminalContextMenu) => void) | undefined;
       const view = {
+        context: (menu: TerminalContextMenu) => {
+          contextMenu?.(menu);
+        },
+        onContextMenu: (listener: (menu: TerminalContextMenu) => void) => {
+          contextMenu = listener;
+          return () => {
+            contextMenu = undefined;
+          };
+        },
         mount: vi.fn((node: HTMLElement) => {
           element = node;
           return view.dispose;

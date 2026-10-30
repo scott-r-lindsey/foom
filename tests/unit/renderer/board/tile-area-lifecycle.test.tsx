@@ -290,3 +290,35 @@ test.each(["Terminal host failed. Restart the shell to continue.", "Unable to op
     expect(screen.container.querySelector(".tile-status")?.textContent).toBe(status);
   },
 );
+
+test("terminal context menu dismisses on commands, hiding and reassignment", () => {
+  const { screen, click, views } = setup();
+  click(0);
+  const anchor = document.body.appendChild(document.createElement("textarea"));
+  const menu = {
+    id: "permission",
+    anchor,
+    point: { x: 40, y: 40 },
+    copy: undefined,
+    paste: vi.fn(),
+    selectAll: vi.fn(),
+    clear: vi.fn(),
+  };
+  act(() => {
+    views[0]?.context(menu);
+  });
+  fireEvent.click(screen.getByRole("menuitem", { name: "Select all" }));
+  expect(menu.selectAll).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("menu", { name: "Terminal menu" })).toBeNull();
+  act(() => {
+    views[0]?.context(menu);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+  expect(screen.queryByRole("menu", { name: "Terminal menu" })).toBeNull();
+  click(1);
+  act(() => {
+    views[0]?.context(menu);
+  });
+  expect(screen.queryByRole("menu", { name: "Terminal menu" })).toBeNull();
+  anchor.remove();
+});
