@@ -1711,6 +1711,13 @@ test("terminal context menu targets the clicked shell and preserves tracked righ
   const shellB = tiles.nth(1);
   const screenA = shellA.locator(".xterm-screen");
   const screenB = shellB.locator(".xterm-screen");
+  await expect(shellB.locator(".xterm-helper-textarea")).toBeFocused();
+  // ConPTY can truncate a long PowerShell prompt; copy a short deterministic
+  // output line so the assertion identifies A independently of prompt layout.
+  await shellA.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type("echo CONTEXT_COPY_A_936");
+  await page.keyboard.press("Enter");
+  await expect(shellA.locator(".xterm-rows")).toContainText("CONTEXT_COPY_A_936");
   const menu = page.getByRole("menu", { name: "Terminal menu", exact: true });
   const openA = () => screenA.click({ button: "right", position: { x: 90, y: 40 } });
   await openA();
@@ -1743,7 +1750,7 @@ test("terminal context menu targets the clicked shell and preserves tracked righ
     await menu.getByRole("menuitem", { name: "Copy", exact: true }).click();
     await expect
       .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
-      .toMatch(/shell-fixture/);
+      .toMatch(/CONTEXT_COPY_A_936/);
     // A normal left click clears the selection before the next plain-shell capture.
     await screenA.click({ position: { x: 20, y: 40 } });
   }
