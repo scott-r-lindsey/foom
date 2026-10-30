@@ -28,7 +28,10 @@ export function registerTileAreaFixture() {
   });
 }
 
-export function setup(snapshotOverrides: Partial<ShellView> = {}) {
+export function setup(
+  snapshotOverrides: Partial<ShellView> = {},
+  overrides: Partial<BoardSource> = {},
+) {
   const snapshot: ShellView = {
     status: "Terminal",
     cols: 80,
@@ -94,6 +97,7 @@ export function setup(snapshotOverrides: Partial<ShellView> = {}) {
       return view;
     },
   };
+  Object.assign(source, overrides);
   const screen = render(<Board source={source} />);
   const send = (value: BoardCommand) => {
     act(() => {

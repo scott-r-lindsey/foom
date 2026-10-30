@@ -134,6 +134,9 @@ Closed records disappear immediately; a healthy membership read still excludes
 previews whose checkout is absent. These display associations grant no file access
 or worktree authorization. The board places human previews with `placeContent`, preserving
 focus, and measures each preview body to report bounds through the source interface.
+Cross-window token drops and **Move to window** call the same `PreviewHost.moveTo`
+transaction after the destination reserves valid tile geometry; they retain the
+same ID, attribution, reload behavior and network reset described below.
 `preview:popout` validates the owning board and preview ID, opens a board window,
 then destroys the source contents and releases its watch, protocol and partition
 handlers before transferring the registry record with the same ID and attribution.

@@ -16,6 +16,8 @@ export function SidebarPreviewRow({ preview, opener, tile, filter, open }: Sideb
     >
       <button
         type="button"
+        draggable
+        data-drag-preview={preview.id}
         data-nav
         className="tree-row preview-row"
         data-child={Boolean(preview.openedBy)}

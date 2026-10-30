@@ -39,7 +39,7 @@ test("commands and reused pads close and act; Copy requires a selection", () => 
   for (const label of ["Copy", "Paste", "Select all", "Clear"])
     fireEvent.click(screen.getByRole("menuitem", { name: label }));
   for (const command of [copy, paste, selectAll, clear]) expect(command).toHaveBeenCalledOnce();
-  fireEvent.click(screen.getByRole("menuitem", { name: "Split right" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Split terminal right" }));
   expect(action).toHaveBeenCalledWith("right");
   expect(close).toHaveBeenCalledTimes(5);
   fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });

@@ -98,12 +98,12 @@ export async function buildWindow(
   if (initialSession) {
     const owner = wiring.views.owner(initialSession);
     const previous = owner === undefined ? undefined : wiring.windows.get(owner)?.window;
-    if (previous) {
-      wiring.terminals.detachView(initialSession, previous.webContents);
-      wiring.views.release(initialSession, previous.id);
-      previous.webContents.send("windows:removed", initialSession);
-    }
-    wiring.views.claim(initialSession, window.id);
+    wiring.views.transfer(initialSession, owner ?? window.id, window.id, () => {
+      if (previous) {
+        wiring.terminals.detachView(initialSession, previous.webContents);
+        previous.webContents.send("windows:removed", initialSession);
+      }
+    });
   }
   // Keep the development identity when the document publishes its title.
   window.on("page-title-updated", (event) => {
@@ -227,13 +227,14 @@ export async function buildWindow(
     ipc,
     previewHost,
     (worktree) => pickPreviewFile(window, previewHost, wiring.validatePreviewWorktree, worktree),
-    async (id) => {
-      const targetWindow = await wiring.createWindow();
-      const target = wiring.previewHosts.get(targetWindow.id);
-      if (!target) throw new Error("Preview window unavailable");
-      await previewHost.moveTo(id, target);
-      await wiring.previewPlacements.get(targetWindow.id)?.place(id, true);
-    },
+    (id) =>
+      wiring.moves.popout(window.id, async () => {
+        const targetWindow = await wiring.createWindow();
+        const target = wiring.previewHosts.get(targetWindow.id);
+        if (!target) throw new Error("Preview window unavailable");
+        await previewHost.moveTo(id, target);
+        await wiring.previewPlacements.get(targetWindow.id)?.place(id, true);
+      }),
     (id) => wiring.agentPreviews?.humanClose(id),
   );
   const workspaceIpc = attachWorkspace(
@@ -371,6 +372,37 @@ export async function buildWindow(
       wiring.workspace.focusOrchestrator(id);
     },
   );
+  const disposeMoves = wiring.moves.attach(window.id, ipc, {
+    label: `Window ${String(window.id)}`,
+    owns: (content) =>
+      content.kind === "preview"
+        ? previewHost.registry.records.has(content.id)
+        : (wiring.terminals.owns(content.id) || wiring.workspace.ownsSession(content.id)) &&
+          (wiring.views.owner(content.id) === undefined ||
+            wiring.views.owner(content.id) === window.id),
+    send: (channel, ...args) => {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed())
+        window.webContents.send(channel, ...args);
+    },
+    move: async (content, target) => {
+      const destination = wiring.windows.get(target)?.window;
+      if (!destination || destination.isDestroyed()) throw new Error("Window unavailable");
+      if (content.kind === "preview") {
+        const host = wiring.previewHosts.get(target);
+        if (!host) throw new Error("Preview window unavailable");
+        await previewHost.moveTo(content.id, host);
+      } else {
+        if (
+          !wiring.views.transfer(content.id, window.id, target, () => {
+            wiring.terminals.detachView(content.id, window.webContents);
+          })
+        )
+          throw new Error("Terminal view unavailable");
+        window.webContents.send("windows:removed", content.id);
+        wiring.publishViews();
+      }
+    },
+  });
   const disposeViews = attachWindowViews(window, ipc, wiring.views, {
     knows: (id) => wiring.terminals.owns(id) || wiring.workspace.ownsSession(id),
     find: (id) => wiring.windows.get(id)?.window,
@@ -378,7 +410,8 @@ export async function buildWindow(
       wiring.terminals.detachView(id, window.webContents);
     },
     publish: wiring.publishViews,
-    popout: (id) => wiring.createWindow(undefined, undefined, id),
+    popout: (id) =>
+      wiring.moves.popout(window.id, () => wiring.createWindow(undefined, undefined, id)),
   });
   wiring.attention();
   window.once("closed", () => {
@@ -404,6 +437,7 @@ export async function buildWindow(
     workspaceIpc.dispose();
     wiring.windows.delete(window.id);
     if (!wiring.windows.size && process.platform === "darwin") showWindowlessMenu(openWindow);
+    disposeMoves();
     disposeViews();
     disposeAudio();
     wiring.attention();

@@ -63,3 +63,27 @@ to the focused board. It flushes every live renderer, stops PTYs, drains workspa
 persistence, and disposes the terminal host before exiting. Cancellation and failed
 shutdown retain sessions and windows. macOS activation recreates a board after the
 last one closes; Windows/Linux route the last close through confirmed quit.
+
+## Cross-window moves (#950)
+
+`window-moves.ts` keeps the active 15-second, one-use drag token in main, bound to
+its source board and terminal/preview identity. Only the opaque token is published
+to other registered boards. The source registers local sidebar/title gestures and
+revokes on end or Escape; no DataTransfer contents are read. Drops send only the
+token and tile/edge placement. Main consumes the token before awaiting placement,
+rechecks source ownership and both registrations, and serializes moves involving
+either board. Closing a source revokes its gesture. Forged, stale, expired and
+replayed tokens refuse without changing layouts.
+
+`windows:list` returns other live boards with stable lifetime labels, Window N.
+`windows:move` uses the same transaction as a drop with ordinary default placement.
+The destination stages geometry without learning the item's identity, replies to
+a bounded five-second placement request, and holds its tree until commit or abort.
+It applies the transferred identity only on commit. Invalid or full drop geometry
+refuses before ownership changes. Terminal moves share `TerminalViews.transfer`
+with pop-out: detach the source stream before changing its reservation. Preview
+moves call the same `PreviewHost.moveTo` transaction as `preview:popout`, preserving
+identity/attribution and live reload, resetting network to Off. All channels use
+the registered-board sender/frame/page validation in `window-ipc.ts` and validate
+payloads at runtime; unknown windows and confirmation/preview contents have no
+move capability.
