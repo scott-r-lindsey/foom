@@ -37,7 +37,6 @@ export class PreviewBroker {
   readonly history: PreviewOpenAction[] = [];
   private readonly previews = new Map<string, AgentPreview>();
   private readonly buckets = new Map<string, { tokens: number; at: number }>();
-  private readonly dismissed = new Set<string>();
   private pending = Promise.resolve();
   constructor(
     private readonly backend: PreviewBackend,
@@ -189,19 +188,16 @@ export class PreviewBroker {
     if (existing) {
       await this.record(actor, method, existing, "existing");
       this.assertOwned(actor, existing);
-      if (!this.dismissed.has(`${actor.generation}\0${existing.real}`)) {
-        let placement: Placement;
-        try {
-          placement = await this.backend.open(actor, existing, false);
-        } catch (error) {
-          if (error instanceof ControlError) throw error;
-          throw new ControlError("unavailable");
-        }
-        this.active(actor);
-        this.assertOwned(actor, existing);
-        return this.view(existing, placement, true);
+      let placement: Placement;
+      try {
+        placement = await this.backend.open(actor, existing, false);
+      } catch (error) {
+        if (error instanceof ControlError) throw error;
+        throw new ControlError("unavailable");
       }
-      return this.view(existing, "existing", true);
+      this.active(actor);
+      this.assertOwned(actor, existing);
+      return this.view(existing, placement, true);
     }
     if (currentOwned.length >= this.limits.perAgent || this.previews.size >= this.limits.total)
       throw new ControlError("capacity");
@@ -215,11 +211,7 @@ export class PreviewBroker {
     await this.record(actor, method, preview, "opening");
     this.previews.set(preview.previewId, preview);
     try {
-      const placement = await this.backend.open(
-        actor,
-        preview,
-        this.dismissed.has(`${actor.generation}\0${preview.real}`),
-      );
+      const placement = await this.backend.open(actor, preview, false);
       // Revocation during placement transfers ownership rather than undoing the human's view.
       this.active(actor);
       this.assertOwned(actor, preview);
@@ -262,8 +254,6 @@ export class PreviewBroker {
     };
   }
   humanClose(id: string): void {
-    const preview = this.previews.get(id);
-    if (preview?.owner) this.dismissed.add(`${preview.owner}\0${preview.real}`);
     this.previews.delete(id);
   }
   revoke(actor: Principal): void {

@@ -73,7 +73,7 @@ async function measure() {
     for (let index = 0; index < 3; index++) await rows.nth(index).click();
     const splitDown = async (tile, count) => {
       await page.getByRole("button", { name: `Tile ${tile} menu`, exact: true }).click();
-      await page.getByRole("menuitem", { name: "Split down", exact: true }).click();
+      await page.getByRole("menuitem", { name: "Split terminal up", exact: true }).click();
       await expect(page.locator(".terminal-tile")).toHaveCount(count);
     };
     await splitDown(3, 4);

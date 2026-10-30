@@ -1495,3 +1495,80 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "session removal contains image cleanup failure and emits only a fixed diagnostic",
+  async () => {
+    const { RemoteImages } = await import("../../../../src/terminal-host/remote/image-files");
+    await start();
+    const c = await open();
+    const close = vi
+      .spyOn(RemoteImages.prototype, "close")
+      .mockRejectedValueOnce(new Error("private path must not be logged"));
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      c.send({ type: "kill", id: "one", request: 2 });
+      await c.wait(3);
+      expect(c.messages.at(-1)).toMatchObject({ type: "result", id: "one", request: 2 });
+      expect(diagnostic).toHaveBeenCalledExactlyOnceWith("Image paste cleanup failed");
+      expect(mock.kill).toHaveBeenCalledWith("one");
+    } finally {
+      close.mockRestore();
+      diagnostic.mockRestore();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a management peer cannot queue another large image behind an active upload",
+  async () => {
+    const { RemoteImages } = await import("../../../../src/terminal-host/remote/image-files");
+    const { createHash } = await import("node:crypto");
+    await start();
+    const { owner } = await imageAgent();
+    let entered: (() => void) | undefined;
+    let release: (() => void) | undefined;
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const spy = vi
+      .spyOn(RemoteImages.prototype, "put")
+      .mockImplementation(async (_id, _png, live) => {
+        entered?.();
+        await gate;
+        if (!live()) throw new Error("cancelled");
+        return "/unused";
+      });
+    try {
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5ioAAAAASUVORK5CYII=",
+        "base64",
+      );
+      const request = {
+        type: "image-put" as const,
+        id: "image-agent",
+        owner,
+        upload: "c".repeat(32),
+        size: png.length,
+        sha256: createHash("sha256").update(png).digest("hex"),
+        data: png.toString("base64"),
+      };
+      const c = await client();
+      c.send({ type: "hello", build });
+      await c.wait(1);
+      c.send(request);
+      await waiting;
+      const disconnected = once(c.socket, "close");
+      c.send(request);
+      await disconnected;
+      release?.();
+      expect(spy).toHaveBeenCalledOnce();
+    } finally {
+      release?.();
+      spy.mockRestore();
+    }
+  },
+);

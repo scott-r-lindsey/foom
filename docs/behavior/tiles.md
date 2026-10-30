@@ -6,7 +6,8 @@ Decided user-visible behavior. Implementation owners and security rules: [file m
 
 The layout is a binary split tree. Each leaf is a tile with a stable identity and
 at most one terminal or preview; each split has a horizontal or vertical direction and a ratio.
-Split right and Split down add empty space, keep focus in the original tile,
+Split arrows move the occupied tile toward the arrow and add empty space on the
+opposite side, keep focus in the original tile,
 and make the newest space the landing spot. Hide and exited-session Close leave
 empty space in place, with sibling geometry unchanged, and make it the landing spot.
 Hide keeps the session running; Close closes it through the sidebar command.
@@ -52,8 +53,10 @@ Double-clicking the title bar toggles maximize. Right-click opens the same tile
 panel at the pointer. The panel matches the sidebar panels: commands on the left,
 state and reason, live columns × rows, location and agent facts on the right.
 Commands begin with Split and Grow D-pads, each offering left, up, right and down.
-Split puts new space on the chosen side, retaining terminal focus and making that
-space the landing spot. Grow absorbs empty space at the nearest split on that axis
+Split moves the terminal toward the chosen side and puts new space opposite it,
+retaining terminal focus and making that space the landing spot. Split accessible
+names and refusal reasons describe terminal movement. Grow absorbs empty space
+at the nearest split on that axis
 where the tile is opposite the chosen direction. It skips splits on the wrong side.
 Refused arrows stay visible and focusable with dashed outlines and reasons on
 hover/focus: "At the left/right/top/bottom edge" or "Occupied tile to the left/right"
@@ -62,7 +65,15 @@ noninteractive. Maximize/Restore, Move to new window when available, and Hide/Cl
 follow the pads. Escape returns focus to the tile menu button.
 
 Empty space is a dashed outline with no title bar, number or focus, hidden from
-accessibility navigation. Empty spaces have no landing marking at rest. Right-click opens a menu with the Split pad, New shell here (using the existing home-shell directory) and Close space (giving its area to its sibling). Tab moves between the pad and commands. Escape, outside clicks and Tab past the menu boundary dismiss it. While a tile
+accessibility navigation. Empty spaces have no landing marking at rest.
+Right-click opens a menu with two buttons: Split horizontal creates side-by-side
+panes with a vertical divider; Split vertical creates stacked panes with a horizontal
+divider. Each shows its divider icon above a centered label on two lines (Split /
+horizontal or vertical). Depth and leaf limits are unchanged: refused buttons stay
+focusable, dimmed and dashed, with a reason on hover/focus. New shell here (using the
+existing home-shell directory) and Close space (giving its area to its sibling)
+follow. Tab visits the two buttons, then the commands. Escape, outside clicks and
+Tab past the menu boundary dismiss it. While a tile
 or sidebar row is dragged over the board, a dashed, labelled drop preview marks
 the target; leaving the board, ending the drag or cancelling clears it. Sidebar placement
 fills it and focuses the terminal; dropping onto any empty space fills that space.
@@ -105,8 +116,13 @@ sidebar preview places it on the board; reopening a tiled preview leaves it in p
 session. A newly filled tile flares twice in the accent, never amber, then keeps
 its tint and edge until hover or focus. Reduced motion keeps the tint and edge
 without animation. The highlight is local view state; attribution remains textual.
-A human close sticks: the same agent reopening the same file gets only a sidebar
-row. Showing that row follows the same placement as a human open.
+Closing removes the preview. An explicit agent reopen of the same file creates a
+new preview and uses ordinary placement: landing space, empty space, then column
+growth or replacement without displacing focus. Only when placement is unavailable
+(such as protected tiles at layout resource limits) does it stay in the sidebar;
+the result reports `placement: "sidebar"` and the list reports `visible: false`.
+Opening that sidebar preview again retries placement. Showing its row follows
+the same placement as a human open.
 
 Double-click a gutter, or press Enter while it is focused, to give every member
 of its run a share proportional to its column count along the run's axis (rows

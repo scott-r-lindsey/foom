@@ -49,6 +49,7 @@ export function splitReason(layout: TileLayout): string | undefined {
   if (leaves(layout.tree).length >= 256) return "Tile limit reached";
   return undefined;
 }
+/** Arrows name the retained tile’s side; axes split empty space without a direction. */
 export function splitTile(
   layout: TileLayout,
   direction: TileDirection | TileSplit["direction"],
@@ -60,8 +61,8 @@ export function splitTile(
     maximized: null,
     tree: update(layout.tree, layout.focused, (node) =>
       split(
-        direction === "left" || direction === "up" ? next : node,
-        direction === "left" || direction === "up" ? node : next,
+        direction === "right" || direction === "down" ? next : node,
+        direction === "right" || direction === "down" ? node : next,
         direction === "left" || direction === "right" || direction === "horizontal"
           ? "horizontal"
           : "vertical",

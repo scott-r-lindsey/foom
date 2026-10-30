@@ -299,6 +299,7 @@ export function serveHost(
         await send(socket, { type: "agent-hook", id, signal });
     };
     let queued = 0;
+    let imageQueued = false;
     let chain = Promise.resolve();
     const cancellation = new AbortController();
     let deadline = setTimeout(() => socket.destroy(), HOST_HANDSHAKE_TIMEOUT_MS);
@@ -681,6 +682,11 @@ export function serveHost(
       try {
         frames.push(bytes, (value) => {
           if (!remoteRequest(value) || ++queued > 256) throw new Error("Invalid remote request");
+          // Large image bodies must not accumulate behind this connection's chain.
+          if (value.type === "image-put") {
+            if (imageQueued) throw new Error("Image request already pending");
+            imageQueued = true;
+          }
           chain = chain.then(async () => {
             try {
               await dispatch(value);
@@ -698,6 +704,7 @@ export function serveHost(
                 });
               socket.destroy();
             } finally {
+              if (value.type === "image-put") imageQueued = false;
               queued--;
             }
           });

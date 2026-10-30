@@ -168,7 +168,7 @@ test("opens the popout's initial session once inventory arrives and reports oper
   f.windows.sync.mockResolvedValueOnce([]);
   fireEvent.click(view.getByRole("button", { name: "Tile 1 menu" }));
   await act(async () => {
-    fireEvent.click(view.getByRole("menuitem", { name: "Split right" }));
+    fireEvent.click(view.getByRole("menuitem", { name: "Split terminal right" }));
     await Promise.resolve();
   });
   expect(view.container.querySelectorAll(".terminal-tile[data-empty=false]")).toHaveLength(0);

@@ -32,6 +32,7 @@ export function hostRequest(value: unknown): value is HostRequest {
         (spec["replaceEnvironment"] === undefined ||
           typeof spec["replaceEnvironment"] === "boolean") &&
         (spec["shellIntegration"] === undefined || typeof spec["shellIntegration"] === "boolean") &&
+        (spec["imagePaste"] === undefined || typeof spec["imagePaste"] === "boolean") &&
         text(spec["command"]) &&
         text(spec["cwd"]) &&
         Array.isArray(spec["args"]) &&
