@@ -7,7 +7,11 @@ import { join, resolve } from "node:path";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
 import { parseAgentManifest } from "../../shared/agent-plugin-parser";
-import { HOST_CLONE_TIMEOUT_MS, hostManagement } from "../../shared/registered-hosts";
+import {
+  HOST_CLONE_TIMEOUT_MS,
+  HOST_NETWORK_GIT_TIMEOUT_MS,
+  hostManagement,
+} from "../../shared/registered-hosts";
 import type { HostManagement, HostResult, HostFacts } from "../../shared/registered-hosts.d";
 import { hostDiscovery, hostProbe, hostLoginEnvironment } from "./agent-discovery";
 
@@ -38,14 +42,18 @@ export async function approvedCodeFolder(input: string, home: string): Promise<s
   return path;
 }
 /** Linux MemAvailable includes reclaimable cache; macOS available = free + inactive + speculative pages (vm_stat), excluding wired/compressed pages. */
-export async function availableMemory(platform: string, home: string): Promise<number> {
+export async function availableMemory(
+  platform: string,
+  home: string,
+  signal?: AbortSignal,
+): Promise<number> {
   if (platform === "linux") {
     const text = await readFile("/proc/meminfo", "utf8");
     const match = /^MemAvailable:\s+(\d+) kB$/mu.exec(text);
     if (!match?.[1]) throw new Error("Memory unavailable");
     return Number(match[1]) * 1024;
   }
-  const text = await hostProbe("/usr/bin/vm_stat", [], home);
+  const text = await hostProbe("/usr/bin/vm_stat", [], home, undefined, false, 5000, signal);
   const page = /page size of (\d+) bytes/u.exec(text)?.[1];
   if (!page) throw new Error("Memory unavailable");
   let count = 0;
@@ -62,7 +70,9 @@ export async function manageHost(
   shell: string,
   version: string,
   home = homedir(),
+  signal?: AbortSignal,
 ): Promise<HostResult> {
+  signal?.throwIfAborted();
   if (!hostManagement(request)) return { ok: false, reason: "folder-refused" };
   let folder: string;
   try {
@@ -82,7 +92,8 @@ export async function manageHost(
     for (const model of (request.operation === "inspect" ? request.agents : []) ??
       bundledAgentData.map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)) {
       try {
-        const found = await hostDiscovery(model, shell, home);
+        signal?.throwIfAborted();
+        const found = await hostDiscovery(model, shell, home, signal);
         const bundled = bundledAgentData
           .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
           .find((entry) => entry.id === model.id);
@@ -133,23 +144,24 @@ export async function manageHost(
       cores: cpus().length,
       load: loadavg(),
       memoryTotal: totalmem(),
-      memoryAvailable: Math.min(totalmem(), await availableMemory(process.platform, home)),
+      memoryAvailable: Math.min(totalmem(), await availableMemory(process.platform, home, signal)),
       agents,
     };
   } catch {
     return { ok: false, reason: "unreachable" };
   }
+  signal?.throwIfAborted();
   if (request.operation === "inspect") return { ok: true, facts };
   const path = join(folder, request.directory);
   const env = {
-    ...(await hostLoginEnvironment(shell, home)),
+    ...(await hostLoginEnvironment(shell, home, signal)),
     GIT_TERMINAL_PROMPT: "0",
     // Management safety decisions must use stored history, never local overlays.
     GIT_NO_REPLACE_OBJECTS: "1",
     GIT_GRAFT_FILE: "/dev/null",
   };
-  const git = (args: string[], cwd: string) =>
-    hostProbe("git", ["--no-optional-locks", ...args], cwd, env, true);
+  const git = (args: string[], cwd: string, timeout = 5000) =>
+    hostProbe("git", ["--no-optional-locks", ...args], cwd, env, true, timeout, signal);
   const checkout = async (directory: string) => {
     const info = await lstat(directory);
     if (
@@ -168,6 +180,7 @@ export async function manageHost(
   };
   try {
     // Recheck the approved parent immediately before each filesystem mutation.
+    signal?.throwIfAborted();
     await approvedCodeFolder(folder, home);
     let exists = true;
     try {
@@ -189,8 +202,10 @@ export async function manageHost(
           env,
           true,
           HOST_CLONE_TIMEOUT_MS,
+          signal,
         );
         status = await checkout(temporary);
+        signal?.throwIfAborted();
         await approvedCodeFolder(folder, home);
         // Do not replace a destination that appeared while cloning.
         try {
@@ -200,6 +215,7 @@ export async function manageHost(
           if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT")
             throw error;
         }
+        signal?.throwIfAborted();
         await rename(temporary, path);
       } catch {
         return { ok: false, reason: "clone-failed" };
@@ -214,7 +230,11 @@ export async function manageHost(
         path,
       );
       if (refs.trim()) throw new Error("Branch exists");
-      const remote = await git(["ls-remote", "--symref", "origin", "HEAD"], path);
+      const remote = await git(
+        ["ls-remote", "--symref", "origin", "HEAD"],
+        path,
+        HOST_NETWORK_GIT_TIMEOUT_MS,
+      );
       const base = /^ref: refs\/heads\/(\S+)\s+HEAD$/mu.exec(remote)?.[1];
       if (!base || base.startsWith("-")) throw new Error("Default unavailable");
       await git(["check-ref-format", "--branch", base], path);
@@ -223,8 +243,10 @@ export async function manageHost(
       await git(
         ["fetch", "--no-tags", "origin", `+refs/heads/${source}:refs/remotes/origin/${source}`],
         path,
+        HOST_NETWORK_GIT_TIMEOUT_MS,
       );
       const destination = join(folder, `.foom-worktree-${randomUUID()}`);
+      signal?.throwIfAborted();
       await approvedCodeFolder(folder, home);
       await git(
         [
@@ -242,7 +264,7 @@ export async function manageHost(
       if (request.fromOrigin)
         await git(["config", `branch.${request.branch}.pushRemote`, "origin"], path);
       const identity = createHash("sha256")
-        .update(await remoteCheckout(path, destination, env))
+        .update(await remoteCheckout(path, destination, env, signal))
         .digest("hex");
       return {
         ok: true,
@@ -258,7 +280,7 @@ export async function manageHost(
       )
         throw new Error("Outside approved folder");
       const identity = createHash("sha256")
-        .update(await remoteCheckout(path, request.path, env))
+        .update(await remoteCheckout(path, request.path, env, signal))
         .digest("hex");
       if (identity !== request.identity) throw new Error("Identity changed");
       const branch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], request.path)
@@ -276,10 +298,11 @@ export async function manageHost(
       if (changes.length > 65536) throw new Error("Changes too large");
       if (request.operation === "remove-worktree") {
         if (request.changes !== changes) throw new Error("Changes changed");
+        signal?.throwIfAborted();
         await approvedCodeFolder(folder, home);
         if (
           createHash("sha256")
-            .update(await remoteCheckout(path, request.path, env))
+            .update(await remoteCheckout(path, request.path, env, signal))
             .digest("hex") !== identity
         )
           throw new Error("Identity changed");

@@ -169,3 +169,50 @@ test("location loading fails with fixed text and disposes pending subscriptions 
   view.unmount();
   resolve?.({ hosts: [], locations: [] });
 });
+
+test("interrupted clones reconcile locations and Refresh locations can recover a lost successful reply", async () => {
+  const repositories = [{ name: "project", path: "/local/project" }];
+  const location = {
+    repository: "/local/project",
+    host: "worker",
+    result: {
+      ok: true as const,
+      facts,
+      checkout: { path: "/remote/project", state: "absent" as const },
+    },
+  };
+  const initial: HostsState = { hosts: [host], locations: [location] };
+  const recovered: HostsState = {
+    ...initial,
+    locations: [
+      {
+        ...location,
+        result: { ...location.result, checkout: { path: "/remote/project", state: "clean" } },
+      },
+    ],
+  };
+  const api = vi
+    .fn<(action: HostsAction) => Promise<HostsState>>()
+    .mockResolvedValueOnce(initial)
+    .mockResolvedValueOnce({
+      ...initial,
+      locations: [{ ...location, result: { ok: false, reason: "unreachable" } }],
+    })
+    .mockResolvedValueOnce(recovered);
+  render(<RepositoryHosts source={{ hosts: api }} repositories={repositories} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Clone here" }));
+  await screen.findByText("Clean");
+  expect(api.mock.calls.map(([action]) => action.action)).toEqual([
+    "locations",
+    "clone",
+    "locations",
+  ]);
+  api.mockRejectedValueOnce(new Error("private error"));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh locations" }));
+  await screen.findByText("Unable to check locations");
+  api.mockResolvedValueOnce(recovered);
+  fireEvent.click(screen.getByRole("button", { name: "Refresh locations" }));
+  await waitFor(() => {
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
