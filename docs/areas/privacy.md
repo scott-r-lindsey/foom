@@ -2,6 +2,9 @@
 
 Decided implementation and security rules for this area. Read the [file map](../map.md) to locate related owners. User-visible rules: [behavior](../behavior/orchestration.md).
 
+Proposed image paste is not current behavior. The [#937 design note](../design/937-image-paste.md#privacy-wording-for-implementation)
+contains its draft disclosure and retention policy for user approval before implementation.
+
 ## Secrets
 
 Use Electron `safeStorage` for any secret Foom stores; never store plaintext or expose
