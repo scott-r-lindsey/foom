@@ -116,8 +116,8 @@ test.skipIf(process.platform === "win32")(
           { id: "codex", state: "missing" },
           { id: "agy", state: "unable" },
           { id: "copilot", state: "unable" },
-          { id: "opencode", state: "ready" },
-          { id: "pi", state: "ready" },
+          { id: "opencode", state: "unable" },
+          { id: "pi", state: "unable" },
         ],
       },
     });
@@ -181,7 +181,7 @@ test.skipIf(process.platform === "win32")(
         "0.1.0",
         home,
       ),
-    ).toMatchObject({ ok: true, facts: { agents: [{ id: "custom", state: "ready" }] } });
+    ).toMatchObject({ ok: true, facts: { agents: [{ id: "custom", state: "unable" }] } });
   },
 );
 test.skipIf(process.platform === "win32")(
@@ -767,5 +767,33 @@ exec /usr/bin/git "$@"
     git("update-ref", "refs/tags/saved-detached-work", head);
     expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toMatchObject({ ok: true });
     await expect(realpath(path)).rejects.toThrow();
+  },
+);
+
+test.skipIf(process.platform === "win32").each([
+  ["pi", "1.4.0", "--extension", "ready"],
+  ["pi", "1.3.0", "--extension", "unable"],
+  ["pi", "1.4.0", "--help", "unable"],
+  ["opencode", "opencode v2.0.32", "--standalone --session --prompt", "ready"],
+  ["opencode", "opencode v2.0.31", "--standalone --session --prompt", "unable"],
+  ["opencode", "opencode v2.0.32", "--session --prompt", "unable"],
+])(
+  "remote %s inventory requires measured attachment support (%s %s)",
+  async (id, version, help, state) => {
+    mock.discovery.mockResolvedValueOnce({ version, help });
+    expect(
+      await manageHost(
+        {
+          type: "manage",
+          operation: "inspect",
+          codeFolder: "~/code",
+          agents: [{ id, executables: [id] }],
+        },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      ),
+    ).toMatchObject({ ok: true, facts: { agents: [{ id, state }] } });
   },
 );

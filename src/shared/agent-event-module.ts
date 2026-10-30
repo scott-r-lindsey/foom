@@ -1,7 +1,7 @@
-import type { ManifestChannel, ManifestSelector } from "../../../shared/agent-manifest-v2";
+import type { ManifestChannel, ManifestSelector } from "./agent-manifest-v2";
 
 /** Fixed context-event plugin ABI. Manifests supply selectors and event names, never source. */
-export function eventModule(channel: ManifestChannel): string {
+export function eventModule(channel: ManifestChannel, remote = false): string {
   const selectors: ManifestSelector[] = [
     channel.mapping.session,
     channel.mapping.event,
@@ -54,12 +54,22 @@ function reduce(event) {
 function send(payload, signal) {
   return new Promise(resolve => {
     const env = process.env;
-    let url;
+    ${
+      remote
+        ? `
+    if (!env.FOOM_REMOTE_SOCKET || !/^[a-f0-9]{64}$/.test(env.FOOM_REMOTE_HOOK_TOKEN ?? '')) { resolve(); return; }
+    const body = JSON.stringify({channel, payload});
+    const target = {socketPath: env.FOOM_REMOTE_SOCKET, path: '/hook', headers: {Host:'localhost', Authorization:env.FOOM_REMOTE_HOOK_TOKEN}};
+    `
+        : `let url;
     try { url = new URL(env.FOOM_HOOK_URL); } catch { resolve(); return; }
     if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.pathname !== '/hooks' || url.username || url.password || url.search || url.hash || !/^[a-f0-9]{64}$/.test(env.FOOM_TOKEN ?? '') || !/^[a-f0-9-]{36}$/.test(env.FOOM_SESSION ?? '') || env.FOOM_HOOK_PROTOCOL !== '1') { resolve(); return; }
     const body = JSON.stringify(payload);
+    const target = {hostname:url.hostname, port:url.port, path:url.pathname, headers:{'X-Foom-Session':env.FOOM_SESSION,'X-Foom-Channel':channel,Authorization:env.FOOM_TOKEN}};
+    `
+    }
     if (Buffer.byteLength(body) > 65536) { resolve(); return; }
-    const request = http.request(url, {method:'POST', agent:new http.Agent({proxyEnv:{}}), signal, headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'X-Foom-Session':env.FOOM_SESSION,'X-Foom-Channel':channel,Authorization:env.FOOM_TOKEN}}, response => { response.resume(); response.on('end', resolve); response.on('error', resolve); });
+    const request = http.request({...target, method:'POST', agent:false, signal, headers:{...target.headers,'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)}}, response => { response.resume(); response.on('end', resolve); response.on('error', resolve); });
     const deadline = setTimeout(() => request.destroy(), 1000);
     request.on('close', () => { clearTimeout(deadline); resolve(); });
     request.on('error', resolve);
@@ -70,7 +80,7 @@ export default {
   id: 'foom-observer-' + channel,
   setup(context) {
     const abort = new AbortController();
-    if (process.env.FOOM_HOOK_PROTOCOL !== '1' || !process.env.FOOM_TOKEN || !process.env.FOOM_SESSION || !process.env.FOOM_HOOK_URL) return () => abort.abort();
+    if (${remote ? "!process.env.FOOM_REMOTE_SOCKET || !process.env.FOOM_REMOTE_HOOK_TOKEN" : "process.env.FOOM_HOOK_PROTOCOL !== '1' || !process.env.FOOM_TOKEN || !process.env.FOOM_SESSION || !process.env.FOOM_HOOK_URL"}) return () => abort.abort();
     void (async () => {
       try {
         for await (const event of context.event.subscribe({signal:abort.signal})) {
