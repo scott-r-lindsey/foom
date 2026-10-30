@@ -546,11 +546,13 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
 }
 
 const fleetOptions = { skip: process.platform === "win32", timeout: deadline(90000) };
-test(
-  "registered-host orchestration launches Codex, Copilot and Antigravity using host inventory and restricted child tools",
-  fleetOptions,
-  (context) => remoteFleet(context, ["codex", "copilot", "agy"]),
-);
+for (const agent of ["codex", "copilot", "agy"]) {
+  test(
+    `registered-host ${agent} lifecycle uses host inventory and restricted child tools`,
+    fleetOptions,
+    (context) => remoteFleet(context, [agent]),
+  );
+}
 test(
   "registered-host restart reattaches a live child with screen replay and fresh restricted authority",
   fleetOptions,
