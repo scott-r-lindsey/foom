@@ -1198,11 +1198,13 @@ it("tracks two host-bound checkouts on the same branch, adoption, pushes and CI;
   const a = remoteTree("alpha");
   const b = remoteTree("beta");
   let disconnected = false;
+  let betaDisconnected = false;
   let head = "a".repeat(40);
   let conclusion: PullRequest["requiredChecks"] = "pending";
   const inspect = vi.fn((row: ForgeWorktree) =>
     Promise.resolve(
-      disconnected && row.remoteCheckout?.host === "alpha"
+      (disconnected && row.remoteCheckout?.host === "alpha") ||
+        (betaDisconnected && row.remoteCheckout?.host === "beta")
         ? undefined
         : { remote: row.remoteCheckout?.origin ?? "", head },
     ),
@@ -1277,6 +1279,11 @@ it("tracks two host-bound checkouts on the same branch, adoption, pushes and CI;
   now += 120000;
   await tracker.poll();
   expect(tracker.read(a.repository, a.path)).toBeDefined();
+  betaDisconnected = true;
+  tracker.recheck(a.path);
+  await tracker.poll();
+  expect(tracker.read(a.repository, a.path)).toBeDefined();
+  expect(tracker.read(b.repository, b.path)).toBeUndefined();
   tracker.sync(tree.repository, []);
   await tracker.close();
   const saved: unknown = JSON.parse(await readFile(join(directory, "forge.json"), "utf8"));
@@ -1340,3 +1347,55 @@ it("refuses stale remote HEAD and revoked bindings after a query, retaining retr
   await tracker.poll();
   expect(tracker.read(tree.repository, remoteTree.path)).toBeUndefined();
 });
+
+it.each([false, true])(
+  "remote publication refuses invalidation during the final inspection (batch=%s)",
+  async (batched) => {
+    const { locationId } = await import("../../../../src/main/control/metadata");
+    const binding = {
+      host: "alpha",
+      codeFolder: "/code",
+      repository: "/code/repository-fixture",
+      path: "/code/.foom-worktree-fixture",
+      origin: "https://github.com/o/r",
+    };
+    const remote = {
+      ...tree,
+      path: `/foom-remote/${locationId(JSON.stringify([binding.host, binding.path]))}`,
+      remoteCheckout: binding,
+    };
+    let sampled = false;
+    const inspect = vi.fn(() => {
+      if (sampled) {
+        tracker.invalidate();
+        return Promise.reject(new Error("Registration revoked during revalidation"));
+      }
+      return Promise.resolve({ remote: binding.origin, head: "a".repeat(40) });
+    });
+    const lookup = vi.fn(() => {
+      sampled = true;
+      return Promise.resolve(pending);
+    });
+    const batch = vi.fn(() => {
+      sampled = true;
+      return Promise.resolve(
+        new Map([
+          [
+            tree.branch,
+            { ...pending, board: { number: pending.number, state: pending.state, checks: null } },
+          ],
+        ]),
+      );
+    });
+    const tracker = new ForgeTracking(directory, inspect, vi.fn(), () => ({
+      lookup,
+      ...(batched ? { batch } : {}),
+    }));
+    trackers.push(tracker);
+    tracker.track(remote, pending.number);
+    await tracker.poll();
+    expect(sampled).toBe(true);
+    expect(tracker.read(tree.repository, remote.path)).toBeUndefined();
+    expect(tracker.readSettled(tree.repository, remote.path)).toBeUndefined();
+  },
+);

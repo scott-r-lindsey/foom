@@ -442,15 +442,18 @@ test.skipIf(process.platform === "win32")(
       agents: [],
     } as const;
     let changes = "";
+    let inspectedHead = "a".repeat(40);
+    let inspectedOrigin: string = base.origin;
     let refs = "";
     let advertised = "ref: refs/heads/main\tHEAD\n";
     mock.probe.mockImplementation((_command: string, args: string[], cwd: string) => {
-      if (args.includes("config")) return Promise.resolve(base.origin);
+      if (args.includes("config"))
+        return Promise.resolve(cwd === repository ? base.origin : inspectedOrigin);
       if (args.includes("--show-toplevel")) return Promise.resolve(cwd);
       if (args.includes("for-each-ref")) return Promise.resolve(refs);
       if (args.includes("ls-remote")) return Promise.resolve(advertised);
       if (args.includes("symbolic-ref")) return Promise.resolve("feature\n");
-      if (args.includes("HEAD^{commit}")) return Promise.resolve("a".repeat(40));
+      if (args.includes("HEAD^{commit}")) return Promise.resolve(inspectedHead);
       if (args.includes("status") && cwd !== repository) return Promise.resolve(changes);
       return Promise.resolve("");
     });
@@ -544,6 +547,18 @@ test.skipIf(process.platform === "win32")(
       ok: true,
       worktree: { changes },
     });
+    inspectedHead = "invalid";
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    inspectedHead = "a".repeat(40);
+    inspectedOrigin = "git@other.test:team/repo.git";
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    inspectedOrigin = base.origin;
     for (const invalid of [
       { ...request, path: repository },
       { ...request, path: "/outside" },

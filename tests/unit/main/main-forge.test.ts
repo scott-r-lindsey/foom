@@ -238,3 +238,43 @@ test("manifest composition uses live profile choices, discovered PATH and tracke
     discover.mockRestore();
   }
 });
+
+test("remote forge routing uses registered host inspection and never treats synthetic checkout IDs as local paths", async () => {
+  const { Hosts } = await import("../../../src/main/setup/hosts");
+  const evidence = { remote: "https://github.com/o/r", head: "a".repeat(40) };
+  const remote = vi.spyOn(Hosts.prototype, "inspectForge").mockResolvedValue(evidence);
+  const listWorktrees = vi.fn(() => Promise.resolve([]));
+  const launchIdentity = vi.fn();
+  mock.openWorktrees.mockResolvedValue({
+    listRepositories: () => [{ path: "/repo", name: "Repo" }],
+    listWorktrees,
+    launchIdentity,
+    watchPaths: vi.fn(),
+  });
+  await start();
+  const inspect = forgeMock.open.mock.lastCall?.[1];
+  if (!inspect) throw new Error("Missing forge inspector");
+  const tree = {
+    repository: "/repo",
+    path: "/foom-remote/opaque",
+    identity: "a".repeat(64),
+    branch: "feature",
+  };
+  const bound = {
+    ...tree,
+    remoteCheckout: {
+      host: "worker",
+      codeFolder: "/code",
+      repository: "/code/repository-fixture",
+      path: "/code/.foom-worktree-fixture",
+      origin: evidence.remote,
+    },
+  };
+  expect(await inspect(bound, true)).toEqual(evidence);
+  expect(remote).toHaveBeenCalledWith(bound);
+  expect(await inspect(tree)).toBeUndefined();
+  expect(await inspect({ ...bound, repository: "/unregistered" })).toBeUndefined();
+  expect(remote).toHaveBeenCalledOnce();
+  expect(listWorktrees).not.toHaveBeenCalled();
+  expect(launchIdentity).not.toHaveBeenCalled();
+});
