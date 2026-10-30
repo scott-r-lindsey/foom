@@ -387,13 +387,13 @@ export async function buildWindow(
       if (!window.isDestroyed() && !window.webContents.isDestroyed())
         window.webContents.send(channel, ...args);
     },
-    move: async (content, target) => {
+    move: async (content, target, committed) => {
       const destination = wiring.windows.get(target)?.window;
       if (!destination || destination.isDestroyed()) throw new Error("Window unavailable");
       if (content.kind === "preview") {
         const host = wiring.previewHosts.get(target);
         if (!host) throw new Error("Preview window unavailable");
-        await previewHost.moveTo(content.id, host);
+        await previewHost.moveTo(content.id, host, committed);
         // Reuse the pop-out inventory/placement round trip. The reserved board
         // keeps geometry staged while its source refreshes preview display facts.
         await wiring.previewPlacements.get(target)?.place(content.id, true);
@@ -404,6 +404,7 @@ export async function buildWindow(
           })
         )
           throw new Error("Terminal view unavailable");
+        committed();
         window.webContents.send("windows:removed", content.id);
         wiring.publishViews();
       }

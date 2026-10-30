@@ -59,7 +59,7 @@ test("opaque tokens broadcast only to other boards, consume once and preserve th
   const dropping = b.invoke("drop", token, at);
   const request = b.ready();
   await dropping;
-  expect(a.port.move).toHaveBeenCalledExactlyOnceWith(item, 2);
+  expect(a.port.move).toHaveBeenCalledExactlyOnceWith(item, 2, expect.any(Function));
   expect(b.port.send).toHaveBeenLastCalledWith("windows:finish-move", request, item);
   expect(c.port.send).toHaveBeenLastCalledWith("windows:drag", null);
   await expect(b.invoke("drop", token, at)).rejects.toThrow("token");
@@ -72,7 +72,7 @@ test("menu moves use the same transaction with default placement, including prev
   const request = b.ready();
   await moving;
   expect(b.port.send).toHaveBeenCalledWith("windows:prepare-move", request, null);
-  expect(a.port.move).toHaveBeenCalledWith(preview, 2);
+  expect(a.port.move).toHaveBeenCalledWith(preview, 2, expect.any(Function));
 });
 
 test("replaced, cancelled, expired, forged and same-window drags never transfer", async () => {

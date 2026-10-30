@@ -6,7 +6,7 @@ interface MovePort {
   label: string;
   owns(content: MoveContent): boolean;
   send(channel: string, ...args: unknown[]): void;
-  move(content: MoveContent, target: number): Promise<void>;
+  move(content: MoveContent, target: number, committed: () => void): Promise<void>;
 }
 const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -73,6 +73,7 @@ export class WindowMoves {
     this.busy.add(source);
     this.busy.add(target);
     const request = randomUUID();
+    const outcome = { committed: false };
     try {
       const accepted = await new Promise<boolean>((resolve) => {
         const timer = setTimeout(() => {
@@ -93,10 +94,14 @@ export class WindowMoves {
         !origin.owns(item)
       )
         throw new Error("Unable to move tile");
-      await origin.move(item, target);
+      await origin.move(item, target, () => {
+        outcome.committed = true;
+      });
       destination.send("windows:finish-move", request, item);
     } catch (error) {
-      destination.send("windows:finish-move", request, null);
+      // Persistence/notifications may fail after the synchronous ownership switch.
+      // Keep the destination tile in that case, while surfacing the original error.
+      destination.send("windows:finish-move", request, outcome.committed ? item : null);
       throw error;
     } finally {
       this.busy.delete(source);

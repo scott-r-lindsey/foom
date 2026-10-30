@@ -88,6 +88,10 @@ with pop-out: detach the source stream before changing its reservation. Preview
 moves call the same `PreviewHost.moveTo` transaction as `preview:popout`, preserving
 identity/attribution and live reload, resetting network to Off. Their existing
 placement round trip refreshes preview inventory before staged geometry commits.
+Both paths explicitly report the synchronous ownership commit. A later persistence
+or notification error still finishes destination placement and rejects to the
+requesting renderer for its action error; only failures before ownership changes
+abort staged geometry.
 All channels use
 the registered-board sender/frame/page validation in `window-ipc.ts` and validate
 payloads at runtime; unknown windows and confirmation/preview contents have no

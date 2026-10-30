@@ -75,7 +75,7 @@ test("preview moves reuse the pop-out transfer and reject a vanished destination
   });
   await invokeWindow(1, "preview:placed", placement, id, "sidebar");
   await moving;
-  expect(transfer).toHaveBeenCalledWith(id, target);
+  expect(transfer).toHaveBeenCalledWith(id, target, expect.any(Function));
   previewHosts.delete(2);
   const missing = invokeWindow(0, "windows:move", content, 2);
   await accept(1);
@@ -135,3 +135,31 @@ test("archived sessions without a host screen cannot register a drag or move", a
   expect(typeof token).toBe("string");
   await invokeWindow(0, "windows:end-drag", token);
 });
+
+for (const afterCommit of [false, true])
+  test(`terminal wiring failure ${afterCommit ? "after" : "before"} reservation commit finishes the correct placement`, async () => {
+    await start();
+    await newWindow();
+    await invokeWindow(0, "windows:sync", ["t1"]);
+    const item: MoveContent = { kind: "terminal", id: "t1" };
+    if (afterCommit) {
+      mock.window.webContents.send.mockImplementation((channel) => {
+        if (channel === "windows:removed") throw new Error("notification unavailable");
+      });
+    } else
+      mock.terminals.detachView.mockImplementationOnce(() => {
+        throw new Error("detach unavailable");
+      });
+    const moving = invokeWindow(0, "windows:move", item, 2);
+    const request = await accept(1);
+    await expect(moving).rejects.toThrow("foom-error:operation-failed");
+    expect(mock.instances[1]?.webContents.send).toHaveBeenCalledWith(
+      "windows:finish-move",
+      request,
+      afterCommit ? item : null,
+    );
+    await expect(invokeWindow(afterCommit ? 1 : 0, "windows:begin-drag", item)).resolves.toEqual(
+      expect.any(String),
+    );
+    await expect(invokeWindow(afterCommit ? 0 : 1, "windows:begin-drag", item)).rejects.toThrow();
+  });
