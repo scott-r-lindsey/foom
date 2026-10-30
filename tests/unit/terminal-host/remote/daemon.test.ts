@@ -1744,3 +1744,144 @@ test.skipIf(process.platform === "win32")(
     expect(query.messages[1]).toMatchObject({ type: "inventory-result", own: [{ id: "second" }] });
   },
 );
+
+test.skipIf(process.platform === "win32").for(["a", "b"])(
+  "End preserves a later replacement owned by profile %s while an earlier stop awaits",
+  async (owner) => {
+    await start();
+    await disconnect(await open("first"));
+    await disconnect(await open("second"));
+    const c = await client();
+    const profile = "a".repeat(32);
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({ type: "inventory", profile });
+    await c.wait(2);
+    const inventory = c.messages[1];
+    if (!remoteResponse(inventory) || inventory.type !== "inventory-result")
+      throw new Error("Missing inventory");
+    const pending = Promise.withResolvers<boolean>();
+    mock.stop.mockReturnValueOnce(pending.promise);
+    try {
+      c.send({ type: "end-sessions", profile, ids: inventory.foreign });
+      await vi.waitFor(() => {
+        expect(mock.stop).toHaveBeenCalledExactlyOnceWith("first");
+      });
+      const close = await client();
+      close.send({ type: "hello", build });
+      await close.wait(1);
+      close.send({ type: "session-close", id: "second", request: 1, profile: "f".repeat(32) });
+      await close.wait(2);
+      const replacement = await client();
+      replacement.send({ type: "hello", build });
+      await replacement.wait(1);
+      replacement.send({
+        type: "open",
+        id: "second",
+        request: 1,
+        reattach: false,
+        profile: owner.repeat(32),
+        cols: 80,
+        rows: 24,
+      });
+      await replacement.wait(2);
+    } finally {
+      pending.resolve(true);
+    }
+    await c.wait(3);
+    expect(mock.stop.mock.calls).toEqual([["first"], ["second"]]);
+    expect(mock.kill.mock.calls.filter(([id]) => id === "second")).toHaveLength(1);
+    const result = c.messages[2];
+    if (!remoteResponse(result) || result.type !== "inventory-result")
+      throw new Error("Missing updated inventory");
+    if (owner === "a") expect(result.own).toEqual([{ id: "second" }]);
+    else {
+      expect(result.foreign.map(({ id }) => id)).toEqual(["second"]);
+      expect(typeof result.foreign[0]?.generation).toBe("string");
+      expect(result.foreign[0]?.generation).not.toBe(inventory.foreign[1]?.generation);
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "legacy End preserves a replacement observation arriving during its awaited stop",
+  async () => {
+    await start();
+    const old = { executable: "/cache/foom-host", pid: 42, started: "old-start", count: 2 };
+    mock.legacy.mockResolvedValue(old);
+    const c = await client();
+    const profile = "a".repeat(32);
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({ type: "inventory", profile, codeFolder: "/code" });
+    await c.wait(2);
+    const inventory = c.messages[1];
+    if (!remoteResponse(inventory) || inventory.type !== "inventory-result")
+      throw new Error("Missing inventory");
+    const pending = Promise.withResolvers<undefined>();
+    mock.endLegacy.mockReturnValueOnce(pending.promise);
+    let replacement: unknown;
+    try {
+      c.send({ type: "end-sessions", profile, ids: inventory.foreign });
+      await vi.waitFor(() => {
+        expect(mock.endLegacy).toHaveBeenCalledOnce();
+      });
+      mock.legacy.mockResolvedValue({ ...old, pid: 43, started: "new-start" });
+      const query = await client();
+      query.send({ type: "hello", build });
+      await query.wait(1);
+      query.send({ type: "inventory", profile, codeFolder: "/code" });
+      await query.wait(2);
+      replacement = query.messages[1];
+      expect(replacement).not.toEqual(inventory);
+    } finally {
+      pending.resolve(undefined);
+    }
+    await c.wait(3);
+    expect(c.messages[2]).toEqual(replacement);
+    expect(mock.endLegacy).toHaveBeenCalledExactlyOnceWith(old, expect.any(AbortSignal));
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "End skips a legacy daemon replaced while an earlier session stop awaits",
+  async () => {
+    await start();
+    await disconnect(await open("first"));
+    const old = { executable: "/cache/foom-host", pid: 42, started: "old-start", count: 2 };
+    mock.legacy.mockResolvedValue(old);
+    const c = await client();
+    const profile = "a".repeat(32);
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({ type: "inventory", profile, codeFolder: "/code" });
+    await c.wait(2);
+    const inventory = c.messages[1];
+    if (!remoteResponse(inventory) || inventory.type !== "inventory-result")
+      throw new Error("Missing inventory");
+    const pending = Promise.withResolvers<boolean>();
+    mock.stop.mockReturnValueOnce(pending.promise);
+    let replacement: unknown;
+    try {
+      c.send({ type: "end-sessions", profile, ids: inventory.foreign });
+      await vi.waitFor(() => {
+        expect(mock.stop).toHaveBeenCalledExactlyOnceWith("first");
+      });
+      mock.legacy.mockResolvedValue({ ...old, pid: 43, started: "new-start" });
+      const query = await client();
+      query.send({ type: "hello", build });
+      await query.wait(1);
+      query.send({ type: "inventory", profile, codeFolder: "/code" });
+      await query.wait(2);
+      const observed = query.messages[1];
+      if (!remoteResponse(observed) || observed.type !== "inventory-result")
+        throw new Error("Missing replacement inventory");
+      replacement = { ...observed, foreign: observed.foreign.filter(({ id }) => id !== "first") };
+    } finally {
+      pending.resolve(true);
+    }
+    await c.wait(3);
+    expect(c.messages[2]).toEqual(replacement);
+    expect(mock.endLegacy).not.toHaveBeenCalled();
+  },
+);

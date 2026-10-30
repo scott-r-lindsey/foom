@@ -100,7 +100,11 @@ inventory cannot restore a parent, grant or orchestrator role. Other-profile and
 untagged sessions remain untouched. Settings → Hosts reports their live count and
 **End…** opens a trusted confirmation. Main retains the confirmed IDs and random
 session incarnation tags; the daemon refuses a changed incarnation or a session
-owned by this profile. Sessions arriving during confirmation are not ended.
+owned by this profile. Before each awaited stop it checks the confirmed session
+object again; replacements arriving while an earlier stop settles are skipped and
+reported in the returned inventory for a new confirmation. Sessions arriving during
+confirmation are not ended. Legacy End likewise retains its confirmed daemon
+incarnation and never clears a replacement observed while its stop settles.
 Removing a host still only forgets it. A daemon-live invocation saved as exited is
 likewise recovered for the human, without inheriting its stale parent grant.
 Profile tags classify ownership; they are not credentials or isolation from other

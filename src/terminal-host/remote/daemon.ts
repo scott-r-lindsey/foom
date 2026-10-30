@@ -362,15 +362,22 @@ export function serveHost(
               })
             )
               throw new Error("Foreign cleanup refused");
-            for (const { id } of message.ids) {
+            const confirmed = message.ids.map(({ id }) => ({
+              id,
+              session: sessions.get(id),
+              legacy: id === legacy?.id ? legacy : undefined,
+            }));
+            for (const target of confirmed) {
               cancellation.signal.throwIfAborted();
-              if (id === legacy?.id) {
-                await endLegacyDaemon(legacy.daemon, cancellation.signal);
-                legacy = undefined;
-                continue;
+              // Earlier stops yield to other connections. A replacement must be
+              // confirmed again; the inventory below reports its new incarnation.
+              if (target.legacy) {
+                if (legacy !== target.legacy) continue;
+                await endLegacyDaemon(target.legacy.daemon, cancellation.signal);
+                if (legacy === target.legacy) legacy = undefined;
+              } else if (target.session && sessions.get(target.id) === target.session) {
+                await remove(target.id, target.session);
               }
-              const session = sessions.get(id);
-              if (session) await remove(id, session);
             }
           }
           const live = [...sessions].filter(
