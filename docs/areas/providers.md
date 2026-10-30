@@ -187,3 +187,10 @@ bypass acknowledgements use registry IDs rather than a fixed three-agent list,
 so an accepted Copilot argument disclosure persists the same acknowledgement. No global
 Copilot configuration is read or edited by Foom. [Measured evidence](../agents.md#github-copilot-cli-410)
 records the supported screens, hook events and platform limitations.
+
+### Image references (#937)
+
+A build-owned measured recipient catalog grants image paste only to bundled agents
+whose exact interactive labeled-reference hand check passes. Main captures that
+capability at launch; terminal input routing uses the captured capability. Config
+manifests and foreground output cannot grant it. See [image paste](terminals.md#image-paste-937).

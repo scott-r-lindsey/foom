@@ -16,6 +16,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `terminal:kill` | renderer → main (invoke) | `id` |
 | `terminal:input` | renderer → main | `id`, `data` (≤ 64 KB; chunked on code-point boundaries) |
 | `terminal:copy-selection` | renderer → main (invoke) | owned attached `id`, nonempty text ≤65,536 UTF-16 units; writes clipboard only while Copy on select is enabled; no read capability |
+| `terminal:paste` | renderer → main (invoke) | owned attached live `id` → one validated `text` insertion or fixed `unsupported` / `empty` / `failed` / `cancelled` result; main captures clipboard on the gesture, binds work to the attachment generation and serializes a bounded FIFO; image bytes never reach renderer |
 | `terminal:resize` | renderer → main | `id`, `cols`, `rows` |
 | `terminal:ack` | renderer → main | `id`, attachment token, `count` (attached terminals only) |
 | `terminal:data` | main → renderer | `id`, attachment token, `data` (attached terminals only) |

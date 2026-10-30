@@ -22,6 +22,27 @@ const mock = vi.hoisted(() => ({
   },
   spawn: vi.fn(),
   clipboard: { writeText: vi.fn() },
+  readPaste: vi.fn(),
+  normalize: vi.fn(),
+  imagePut: vi.fn(),
+  imageClose: vi.fn(),
+  imageDiscard: vi.fn(),
+  imagePath: vi.fn(),
+}));
+vi.mock("../../../../src/main/terminals/image-clipboard", () => ({ readPaste: mock.readPaste }));
+vi.mock("../../../../src/main/terminals/image-decoder", () => ({ normalizeImage: mock.normalize }));
+vi.mock("../../../../src/main/terminals/image-files", () => ({
+  ImageFiles: class {
+    start() {
+      return Promise.resolve("/private");
+    }
+    put = mock.imagePut;
+    close = mock.imageClose;
+    discard = mock.imageDiscard;
+    dispose() {
+      return Promise.resolve();
+    }
+  },
 }));
 vi.mock("electron", () => ({ app: mock.app, ipcMain: mock, clipboard: mock.clipboard }));
 vi.mock("node-pty", () => ({ spawn: mock.spawn }));
@@ -33,6 +54,7 @@ vi.mock("../../../../src/main/terminals/terminal-host-client", async () => {
       constructor(onExit: (id: string, code: number) => void, events: TerminalTelemetry) {
         this.manager = new TerminalManager(onExit, events);
       }
+      imagePath = mock.imagePath;
       create(spec: TerminalSpec) {
         return this.manager.create(spec);
       }
@@ -1514,4 +1536,118 @@ test("selection copying validates sender, attached ownership, payload and prefer
   await invoke("detach", [next]);
   await expect(invoke("copy-selection", [next, "hidden"])).rejects.toThrow("unattached");
   expect(mock.clipboard.writeText).toHaveBeenCalledTimes(1);
+});
+
+test("shared paste authorizes attached sender, keeps text precedence, and gates shells/agents", async () => {
+  const id = await terminalControl.create({ ...spec, imagePaste: true });
+  expect(() => invoke("paste", [id])).toThrow("unattached");
+  await invoke("attach", [id]);
+  expect(() => invoke("paste", [id], { ...event, senderFrame: null })).toThrow("Untrusted");
+  mock.readPaste.mockResolvedValue({ kind: "text", text: " \n " });
+  expect(await invoke("paste", [id])).toEqual({ kind: "text", text: " \n " });
+  expect(mock.normalize).not.toHaveBeenCalled();
+  mock.readPaste.mockResolvedValue({ kind: "empty" });
+  expect(await invoke("paste", [id])).toEqual({ kind: "empty" });
+  mock.readPaste.mockResolvedValue({ kind: "image", bytes: new Uint8Array([1]) });
+  const png = new Uint8Array([1, 2]);
+  mock.normalize.mockResolvedValue(png);
+  mock.imagePath.mockResolvedValue(undefined);
+  mock.imagePut.mockResolvedValue("/private/a b's/image.png");
+  expect(await invoke("paste", [id])).toEqual({
+    kind: "text",
+    text:
+      process.platform === "win32"
+        ? "[pasted image '/private/a b''s/image.png'] "
+        : "[pasted image '/private/a b'\\''s/image.png'] ",
+  });
+  expect(mock.imagePut).toHaveBeenCalledWith(expect.any(String), png, expect.any(AbortSignal));
+  mock.imagePath.mockResolvedValue("/remote/image.png");
+  expect(await invoke("paste", [id])).toEqual({
+    kind: "text",
+    text: "[pasted image '/remote/image.png'] ",
+  });
+  mock.normalize.mockRejectedValueOnce(new Error("decoder"));
+  expect(await invoke("paste", [id])).toEqual({ kind: "failed" });
+  for (const agent of [undefined, "copilot", "opencode", "agy"]) {
+    const unsupported = await terminalControl.create({
+      ...spec,
+      ...(agent ? { imagePaste: false } : {}),
+    });
+    await invoke("attach", [unsupported]);
+    expect(await invoke("paste", [unsupported])).toEqual({ kind: "unsupported" });
+  }
+});
+test("switching attachments aborts queued paste and releases unused local files", async () => {
+  const id = await terminalControl.create({ ...spec, imagePaste: true });
+  await invoke("attach", [id]);
+  let finish: ((value: unknown) => void) | undefined;
+  mock.readPaste.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const first = invoke("paste", [id]);
+  const second = invoke("paste", [id]);
+  await invoke("detach", [id]);
+  finish?.({ kind: "text", text: "late" });
+  expect(await first).toEqual({ kind: "cancelled" });
+  expect(await second).toEqual({ kind: "cancelled" });
+  await invoke("attach", [id]);
+  mock.readPaste.mockResolvedValue({ kind: "image", bytes: new Uint8Array([1]) });
+  mock.normalize.mockClear();
+  mock.normalize.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const decoding = invoke("paste", [id]);
+  await vi.waitFor(() => {
+    expect(mock.normalize).toHaveBeenCalled();
+  });
+  await invoke("detach", [id]);
+  finish?.(new Uint8Array([2]));
+  expect(await decoding).toEqual({ kind: "cancelled" });
+  await invoke("attach", [id]);
+  mock.normalize.mockResolvedValue(new Uint8Array([2]));
+  mock.imagePath.mockResolvedValue(undefined);
+  mock.imagePut.mockImplementationOnce(async () => {
+    await invoke("detach", [id]);
+    return "/private/unused.png";
+  });
+  expect(await invoke("paste", [id])).toEqual({ kind: "cancelled" });
+  expect(mock.imageDiscard).toHaveBeenCalled();
+  await invoke("attach", [id]);
+  mock.readPaste.mockRejectedValueOnce(new Error("clipboard"));
+  expect(await invoke("paste", [id])).toEqual({ kind: "failed" });
+  pty().emitExit();
+  await vi.waitFor(() => {
+    expect(contents.send).toHaveBeenCalledWith("terminal:exit", id, 0);
+  });
+  expect(await invoke("paste", [id])).toEqual({ kind: "cancelled" });
+});
+
+test("queued paste preserves each gesture's text snapshot and bounds the FIFO", async () => {
+  const id = await terminalControl.create(spec);
+  await invoke("attach", [id]);
+  let finish: ((value: unknown) => void) | undefined;
+  mock.readPaste.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const first = invoke("paste", [id]);
+  const rest: unknown[] = [];
+  for (let n = 1; n < 16; n++) {
+    mock.readPaste.mockResolvedValueOnce({ kind: "text", text: String(n) });
+    rest.push(invoke("paste", [id]));
+  }
+  expect(await invoke("paste", [id])).toEqual({ kind: "failed" });
+  finish?.({ kind: "text", text: "0" });
+  expect(await first).toEqual({ kind: "text", text: "0" });
+  expect(await Promise.all(rest)).toEqual(
+    Array.from({ length: 15 }, (_, n) => ({ kind: "text", text: String(n + 1) })),
+  );
 });

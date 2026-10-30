@@ -1,3 +1,4 @@
+import type { TerminalPaste } from "./image-paste.d";
 import type { RemoteTarget } from "./remote-host";
 import type { PreviewApi } from "./previews";
 import type { EnvironmentApi } from "./environment";
@@ -20,6 +21,8 @@ export interface TerminalTelemetry {
   onQuiet?(id: string): void;
 }
 export interface TerminalSpec {
+  /** Measured bundled recipient capability, main-only; shells/config providers omit it. */
+  imagePaste?: boolean;
   /** Main-only development spike; never copied from renderer payloads. */
   remote?: RemoteTarget;
   /** Main-selected ID when replacing an exited session. Never accepted from renderer launch data. */
@@ -50,6 +53,7 @@ export interface DesktopApi extends WorkspaceApi, SetupApi, ConfigApi, Environme
   detach(id: string): Promise<void>;
   kill(id: string): Promise<void>;
   copyTerminalSelection(id: string, text: string): Promise<void>;
+  pasteTerminal(id: string): Promise<TerminalPaste>;
   input(id: string, data: string, origin?: "wheel"): void;
   resize(id: string, cols: number, rows: number): void;
   acknowledge(id: string, token: string, count: number): void;

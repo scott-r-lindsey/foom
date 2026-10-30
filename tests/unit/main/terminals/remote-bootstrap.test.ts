@@ -24,7 +24,7 @@ async function fixture() {
     source: "a".repeat(40),
     platform: "linux",
     arch: "x64",
-    protocol: 2,
+    protocol: 3,
     size: bytes.length,
     sha256: createHash("sha256").update(bytes).digest("hex"),
   };

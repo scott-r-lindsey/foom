@@ -1,3 +1,4 @@
+import { imagePasteRecipient } from "../../shared/image-paste";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { ControlError } from "../../shared/control-validation";
 import { remoteAgentTarget } from "../terminals/remote-bootstrap";
@@ -452,6 +453,9 @@ export class AgentService {
       request.beforeSpawn?.();
       const id = await this.terminals.create({
         ...(request.terminalId === undefined ? {} : { id: request.terminalId }),
+        ...(provider.origin === "bundled" && imagePasteRecipient(request.agent)
+          ? { imagePaste: true }
+          : {}),
         command: agent.path,
         args,
         cwd: request.worktree,

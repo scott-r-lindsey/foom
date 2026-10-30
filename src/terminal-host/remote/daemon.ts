@@ -1,3 +1,6 @@
+import { RemoteImages } from "./image-files";
+import { createHash, randomBytes } from "node:crypto";
+import { imagePng, IMAGE_TIMEOUT_MS, imagePasteRecipient } from "../../shared/image-paste";
 import {
   HOST_HANDSHAKE_TIMEOUT_MS,
   HOST_MANAGEMENT_TIMEOUT_MS,
@@ -57,6 +60,9 @@ type Expiry = { timer?: ReturnType<typeof setTimeout>; expired?: boolean };
 type Tombstone = { code: number; expiry: Expiry };
 type Session = {
   connection?: Socket;
+  imageOwner?: string;
+  imagePaste?: boolean;
+  imageUpload?: Promise<unknown>;
   exited?: number;
   expiry?: Expiry;
   removing?: Promise<void>;
@@ -71,6 +77,12 @@ export function serveHost(
   timers: Pick<typeof globalThis, "setTimeout" | "clearTimeout"> = globalThis,
 ) {
   const path = hostSocket(home);
+  const images = new RemoteImages(home);
+  // A failed sweep disables image paste; existing terminal capabilities stay available.
+  void images.ready.catch(() => {
+    console.error("Image paste cleanup failed");
+  });
+  let imageBusy = false;
   const sessions = new Map<string, Session>();
   const worktrees = new Set<Session>();
   const removingWorktrees = new Set<string>();
@@ -93,6 +105,7 @@ export function serveHost(
   >();
   const revoke = (id: string, session: Session, stopping = false) => {
     if (!stopping) worktrees.delete(session);
+    delete session.imageOwner;
     session.agent?.endpoint.dispose();
     for (const [key, call] of calls)
       if (call.id === id) {
@@ -173,6 +186,10 @@ export function serveHost(
       try {
         await manager.stop(id);
       } finally {
+        await session.imageUpload?.catch(() => {});
+        await images.close(id).catch(() => {
+          console.error("Image paste cleanup failed");
+        });
         sessions.delete(id);
         manager.kill(id);
         worktrees.delete(session);
@@ -206,6 +223,11 @@ export function serveHost(
     if (message.type === "exit" && session) {
       session.exited = message.code;
       revoke(message.id, session);
+      void (session.imageUpload ?? Promise.resolve())
+        .finally(() => images.close(message.id))
+        .catch(() => {
+          console.error("Image paste cleanup failed");
+        });
     }
     if (session?.connection) void send(session.connection, message);
     else if (message.type === "exit" && session && !shuttingDown) reap(message.id, session, true);
@@ -260,10 +282,18 @@ export function serveHost(
         session.connection.destroy();
       }
       session.connection = socket;
+      if (session.agent) {
+        session.imageOwner = randomBytes(32).toString("hex");
+      }
       pendingConnections.delete(socket);
       clearTimeout(deadline);
       if (session.agent)
-        await send(socket, { type: "agent-ready", id, ready: session.agent.ready });
+        await send(socket, {
+          type: "agent-ready",
+          id,
+          ready: session.agent.ready,
+          ...(session.imageOwner ? { imageOwner: session.imageOwner } : {}),
+        });
       await send(socket, { type: "open-result", id, request, state: "live" });
       for (const signal of session.hooks?.splice(0) ?? [])
         await send(socket, { type: "agent-hook", id, signal });
@@ -290,6 +320,62 @@ export function serveHost(
         return;
       }
       if (message.type === "hello") throw new Error("Repeated negotiation");
+      if (message.type === "image-put") {
+        if (id !== undefined) throw new Error("Session already open");
+        const session = sessions.get(message.id);
+        const connection = session?.connection;
+        const live = () =>
+          !cancellation.signal.aborted &&
+          !disconnected() &&
+          session !== undefined &&
+          session.agent !== undefined &&
+          session.imagePaste === true &&
+          session.exited === undefined &&
+          !session.removing &&
+          session.connection === connection &&
+          connection !== undefined &&
+          !connection.destroyed &&
+          session.imageOwner === message.owner;
+        const refusal = {
+          type: "image-result",
+          id: message.id,
+          owner: message.owner,
+          upload: message.upload,
+          ok: false,
+        } as const;
+        if (!live() || !session || imageBusy || operations.size >= MAX_PENDING_CONNECTIONS) {
+          await send(socket, refusal);
+          return;
+        }
+        budget(IMAGE_TIMEOUT_MS);
+        imageBusy = true;
+        const operation = (async () => {
+          const png = Buffer.from(message.data, "base64");
+          if (
+            png.length !== message.size ||
+            png.toString("base64") !== message.data ||
+            !imagePng(png) ||
+            createHash("sha256").update(png).digest("hex") !== message.sha256
+          )
+            throw new Error("Image integrity refused");
+          const path = await images.put(message.id, png, live);
+          if (!live()) throw new Error("Image cancelled");
+          await send(socket, { ...refusal, ok: true, path });
+        })();
+        session.imageUpload = operation;
+        operations.set(cancellation, operation);
+        try {
+          await operation;
+        } catch {
+          await send(socket, refusal);
+        } finally {
+          if (session.imageUpload === operation) delete session.imageUpload;
+          operations.delete(cancellation);
+          imageBusy = false;
+          if (!disconnected()) budget(HOST_HANDSHAKE_TIMEOUT_MS);
+        }
+        return;
+      }
       if (message.type === "manage") {
         if (id !== undefined) throw new Error("Session already open");
         if (
@@ -403,6 +489,7 @@ export function serveHost(
               throw new Error("Worktree is being removed");
             if (operations.size >= MAX_PENDING_CONNECTIONS) throw new Error("Preparation limit");
             budget(HOST_PREPARATION_TIMEOUT_MS);
+            owned.imagePaste = imagePasteRecipient(message.spec.agent);
             owned.worktree = message.spec.worktree;
             worktrees.add(owned);
             owned.hooks = [];
@@ -635,6 +722,7 @@ export function serveHost(
         const session = sessions.get(sessionId);
         if (!session) return;
         delete session.connection;
+        delete session.imageOwner;
         for (const [key, call] of calls)
           if (call.socket === socket) {
             clearTimeout(call.timer);
@@ -667,6 +755,7 @@ export function serveHost(
           cancelExpiry(session.expiry);
           revoke(id, session);
           delete session.connection;
+          delete session.imageOwner;
           manager.detach(id);
         }
         for (const operation of operations.keys()) operation.abort();
@@ -678,6 +767,7 @@ export function serveHost(
         for (const tombstone of tombstones.values()) cancelExpiry(tombstone.expiry);
         tombstones.clear();
         await manager.shutdown();
+        await Promise.all([...sessions.keys()].map((id) => images.close(id)));
         if (server.listening)
           await new Promise<void>((resolve, reject) =>
             server.close((error) => {

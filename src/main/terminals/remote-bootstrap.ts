@@ -57,7 +57,7 @@ export async function hostArtifact(path: string, expectedSource?: string) {
     typeof value.sha256 !== "string" ||
     !/^[a-f0-9]{64}$/u.test(value.sha256) ||
     !("protocol" in value) ||
-    value.protocol !== 2 ||
+    value.protocol !== 3 ||
     !("size" in value) ||
     value.size !== bytes.length ||
     bytes.length === 0 ||

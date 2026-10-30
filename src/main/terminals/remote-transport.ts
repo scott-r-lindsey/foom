@@ -1,3 +1,6 @@
+import { createHash, randomBytes } from "node:crypto";
+import { IMAGE_TIMEOUT_MS } from "../../shared/image-paste";
+import type { ImagePut, ImagePutResult } from "../../shared/image-paste.d";
 import type { HostManagement, HostResult, HostFailure } from "../../shared/registered-hosts.d";
 import {
   HOST_MANAGEMENT_TIMEOUT_MS,
@@ -35,9 +38,14 @@ type Connection = {
   grace: ReturnType<typeof setTimeout> | undefined;
 };
 
+const imageHosts = new Set<string>();
+
 /** Utility-client-shaped adapter. It never exposes SSH/daemon text as diagnostics. */
 export class RemoteTransport extends EventEmitter {
   private connection: Connection | undefined;
+  private imageOwner: string | undefined;
+  private imageAbort: AbortController | undefined;
+  private readonly expectedVersion: string;
   private readonly cancellation = new AbortController();
   managementFailure: HostFailure = "unreachable";
   private artifactUnavailable = false;
@@ -66,9 +74,10 @@ export class RemoteTransport extends EventEmitter {
   constructor(
     private readonly target: RemoteTarget,
     expectedVersion: string,
-    private readonly management?: HostManagement,
+    private readonly management?: HostManagement | ImagePut,
   ) {
     super();
+    this.expectedVersion = expectedVersion;
     if (!remoteHost(target.host)) throw new Error("Invalid SSH host");
     if (target.agent)
       target.agent.activate = () => {
@@ -135,6 +144,8 @@ export class RemoteTransport extends EventEmitter {
     // Detach synchronously, before signalling or notifying callers. Neither a
     // buffered response nor a reentrant/late process event can revive this stream.
     connection.dead = true;
+    this.imageOwner = undefined;
+    this.imageAbort?.abort();
     clearTimeout(connection.deadline);
     this.connection = undefined;
     this.ready = false;
@@ -264,7 +275,11 @@ export class RemoteTransport extends EventEmitter {
                   () => {
                     this.retireConnection(connection, "failure");
                   },
-                  this.management ? HOST_MANAGEMENT_TIMEOUT_MS : HOST_PREPARATION_TIMEOUT_MS,
+                  this.management
+                    ? this.management.type === "image-put"
+                      ? IMAGE_TIMEOUT_MS
+                      : HOST_MANAGEMENT_TIMEOUT_MS
+                    : HOST_PREPARATION_TIMEOUT_MS,
                 );
                 connection.deadline = deadline;
               }
@@ -281,8 +296,23 @@ export class RemoteTransport extends EventEmitter {
             }
             return;
           }
+          if (value.type === "image-result") {
+            const request = this.management;
+            if (
+              request?.type !== "image-put" ||
+              value.id !== request.id ||
+              value.owner !== request.owner ||
+              value.upload !== request.upload
+            )
+              throw new Error("Foreign image result");
+            clearTimeout(deadline);
+            this.emit("image-result", value);
+            this.kill();
+            return;
+          }
           if (value.type === "managed") {
-            if (!this.management) throw new Error("Unexpected management result");
+            if (!this.management || this.management.type !== "manage")
+              throw new Error("Unexpected management result");
             clearTimeout(deadline);
             this.emit("managed", value.result);
             this.kill();
@@ -330,6 +360,7 @@ export class RemoteTransport extends EventEmitter {
               if (!this.opened && !agentPrepared)
                 throw new Error("Remote spawn was not authorized");
               if (agentReady) throw new Error("Repeated remote agent metadata");
+              this.imageOwner = value.imageOwner;
               agentReady = true;
               agent.ready(value.ready);
             } else if (value.type === "agent-hook") {
@@ -446,6 +477,68 @@ export class RemoteTransport extends EventEmitter {
       clearTimeout(connection.grace);
       this.retireConnection(connection, "close");
     });
+  }
+
+  async putImage(png: Uint8Array, signal: AbortSignal): Promise<string> {
+    const owner = this.imageOwner;
+    const id = this.session?.id;
+    if (
+      !owner ||
+      !id ||
+      !this.opened ||
+      !this.ready ||
+      this.closed ||
+      imageHosts.has(this.target.host)
+    )
+      throw new Error("Image upload unavailable");
+    signal.throwIfAborted();
+    imageHosts.add(this.target.host);
+    const cancellation = new AbortController();
+    this.imageAbort = cancellation;
+    const abort = () => {
+      cancellation.abort();
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    const request: ImagePut = {
+      type: "image-put",
+      id,
+      owner,
+      upload: randomBytes(16).toString("hex"),
+      size: png.length,
+      sha256: createHash("sha256").update(png).digest("hex"),
+      data: Buffer.from(png).toString("base64"),
+    };
+    try {
+      const result = await new Promise<ImagePutResult>((resolve, reject) => {
+        const transport = new RemoteTransport(
+          {
+            host: this.target.host,
+            ...(this.target.artifact ? { artifact: this.target.artifact } : {}),
+          },
+          this.expectedVersion,
+          request,
+        );
+        const cancel = () => transport.kill();
+        cancellation.signal.addEventListener("abort", cancel, { once: true });
+        transport.once("image-result", (value: ImagePutResult) => {
+          cancellation.signal.removeEventListener("abort", cancel);
+          resolve(value);
+        });
+        transport.once("exit", () => {
+          cancellation.signal.removeEventListener("abort", cancel);
+          reject(new Error("Image upload unavailable"));
+        });
+        if (cancellation.signal.aborted) cancel();
+      });
+      signal.throwIfAborted();
+      if (!result.ok || this.imageOwner !== owner || cancellation.signal.aborted)
+        throw new Error("Image upload unavailable");
+      return result.path;
+    } finally {
+      signal.removeEventListener("abort", abort);
+      if (this.imageAbort === cancellation) this.imageAbort = undefined;
+      imageHosts.delete(this.target.host);
+    }
   }
 
   postMessage(message: HostRequest | "shutdown"): void {

@@ -1477,3 +1477,22 @@ test("home-shell returns only its validated request-specific terminal ID", async
   mock.invoke.mockResolvedValue({ terminalId: "private" });
   await expect(api.sidebarCommand({ kind: "stop", id: "one" })).resolves.toBeUndefined();
 });
+
+test("paste bridge validates closed result kinds and projects only insertion text", async () => {
+  const api = await bridge();
+  for (const value of [
+    { kind: "text", text: "label" },
+    { kind: "unsupported" },
+    { kind: "empty" },
+    { kind: "failed" },
+    { kind: "cancelled" },
+  ]) {
+    mock.invoke.mockResolvedValue({ ...value, bytes: "private" });
+    await expect(api.pasteTerminal("one")).resolves.toEqual(value);
+  }
+  expect(mock.invoke).toHaveBeenCalledWith("terminal:paste", "one");
+  for (const value of [null, [], {}, "text", { kind: "text", text: 1 }, { kind: "other" }]) {
+    mock.invoke.mockResolvedValue(value);
+    await expect(api.pasteTerminal("one")).rejects.toThrow("Invalid paste reply");
+  }
+});

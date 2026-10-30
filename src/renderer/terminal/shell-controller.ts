@@ -111,6 +111,60 @@ export function createShell(
     view.status = hostFailed ? terminalStatus : prefix;
     publish();
   };
+  const paste = async () => {
+    if (!activeId || !attached || busy || exited) return;
+    const id = activeId;
+    const generation = request;
+    const live = () =>
+      !isDisposed() && activeId === id && generation === request && attached && !busy && !exited;
+    try {
+      const result = await window.desktop.pasteTerminal(id);
+      if (!live()) return;
+      view.pasteResult =
+        result.kind === "unsupported"
+          ? "Image paste is not supported for this session."
+          : result.kind === "failed"
+            ? "Unable to paste this image."
+            : undefined;
+      if (result.kind === "text") terminal.paste(result.text);
+      publish();
+    } catch {
+      if (live()) {
+        view.pasteResult = "Unable to paste clipboard contents.";
+        publish();
+      }
+    }
+  };
+  terminal.attachCustomKeyEventHandler((event) => {
+    const shortcut =
+      event.key.toLowerCase() === "v" &&
+      !event.altKey &&
+      (navigator.platform.startsWith("Mac")
+        ? event.metaKey && !event.ctrlKey
+        : event.ctrlKey && !event.metaKey);
+    if (!shortcut) return true;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.type === "keydown") void paste();
+    return false;
+  });
+  let primarySelection = false;
+  const pasteMouse = (event: MouseEvent) => {
+    primarySelection = event.button === 1;
+  };
+  const pasteKey = () => {
+    primarySelection = false;
+  };
+  const clipboardPaste = (event: ClipboardEvent) => {
+    // Linux primary selection remains owned by xterm/middle-click.ts.
+    if (primarySelection && navigator.platform.includes("Linux")) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void paste();
+  };
+  container.addEventListener("mousedown", pasteMouse, true);
+  container.addEventListener("keydown", pasteKey, true);
+  container.addEventListener("paste", clipboardPaste, true);
   let parsedFrame = false;
   let frameGeneration = 0;
   const frame = terminal.onRender(() => {
@@ -125,6 +179,7 @@ export function createShell(
       parsedFrame = false;
       view.attaching = false;
     }
+    if (!visible) view.pasteResult = undefined;
     attached = visible;
     container.hidden = !visible;
     renderer.visible(visible);
@@ -419,6 +474,9 @@ export function createShell(
     offRemoved();
     offSetup();
     offMiddleClick();
+    container.removeEventListener("mousedown", pasteMouse, true);
+    container.removeEventListener("keydown", pasteKey, true);
+    container.removeEventListener("paste", clipboardPaste, true);
     offSelectionPaste();
     offSelectionCopy();
     if (activeId && attached && isAvailable(activeId))
@@ -486,6 +544,7 @@ export function createShell(
 
   return {
     terminal,
+    paste,
     release,
     open: async (id?: string) => {
       if (id) return select(id);

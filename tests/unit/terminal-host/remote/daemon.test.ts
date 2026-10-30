@@ -774,7 +774,7 @@ test.skipIf(process.platform === "win32")(
       await c.wait(1);
       const body = Buffer.from(
         JSON.stringify({
-          version: 2,
+          version: 3,
           message: { type: "open", id: "forged", request: 1, cols: 80, rows: 24, reattach },
         }),
       );
@@ -1346,5 +1346,152 @@ test.skipIf(process.platform === "win32")(
     });
     expect(mock.manage).toHaveBeenCalledTimes(4);
     pending.resolve({ ok: false, reason: "unreachable" });
+  },
+);
+
+async function imageAgent() {
+  const c = await client();
+  c.send({ type: "hello", build });
+  await c.wait(1);
+  c.send({
+    type: "agent-open",
+    id: "image-agent",
+    request: 1,
+    cols: 80,
+    rows: 24,
+    spec: {
+      agent: "claude",
+      repository: "/remote/repo",
+      worktree: "/remote/tree",
+      defaults: [],
+      hooks: false,
+    },
+  });
+  await c.wait(2);
+  c.send({ type: "agent-start", id: "image-agent" });
+  await c.wait(4);
+  const ready = c.messages.find((value) => remoteResponse(value) && value.type === "agent-ready");
+  if (!remoteResponse(ready) || ready.type !== "agent-ready" || !ready.imageOwner)
+    throw new Error("Missing image owner");
+  return { c, owner: ready.imageOwner };
+}
+test.skipIf(process.platform === "win32")(
+  "image management authenticates a live agent, verifies bytes and retains files until session close",
+  async () => {
+    const { createHash } = await import("node:crypto");
+    const { readFile, readdir } = await import("node:fs/promises");
+    await start();
+    const { c, owner } = await imageAgent();
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5ioAAAAASUVORK5CYII=",
+      "base64",
+    );
+    const request = {
+      type: "image-put" as const,
+      id: "image-agent",
+      owner,
+      upload: "a".repeat(32),
+      size: png.length,
+      sha256: createHash("sha256").update(png).digest("hex"),
+      data: png.toString("base64"),
+    };
+    const manage = await client();
+    manage.send({ type: "hello", build });
+    await manage.wait(1);
+    for (const bad of [
+      { ...request, owner: "f".repeat(64) },
+      { ...request, id: "missing" },
+      { ...request, sha256: "0".repeat(64) },
+      { ...request, data: Buffer.alloc(png.length).toString("base64") },
+    ]) {
+      const count = manage.messages.length;
+      manage.send(bad);
+      await manage.wait(count + 1);
+      expect(manage.messages.at(-1)).toMatchObject({ type: "image-result", ok: false });
+    }
+    const count = manage.messages.length;
+    manage.send(request);
+    await manage.wait(count + 1);
+    const result = manage.messages.at(-1);
+    if (!remoteResponse(result) || result.type !== "image-result" || !result.ok)
+      throw new Error("Image failed");
+    expect(await readFile(result.path)).toEqual(png);
+    expect((await stat(result.path)).mode & 0o777).toBe(0o600);
+    expect((await stat((await import("node:path")).dirname(result.path))).mode & 0o777).toBe(0o700);
+    const taken = await open("image-agent", true);
+    expect(c.socket.destroyed || c.serverSocket.destroyed).toBe(true);
+    const stale = manage.messages.length;
+    manage.send(request);
+    await manage.wait(stale + 1);
+    expect(manage.messages.at(-1)).toMatchObject({ ok: false });
+    expect(await readFile(result.path)).toEqual(png);
+    const close = await client();
+    close.send({ type: "hello", build });
+    await close.wait(1);
+    close.send({ type: "agent-close", id: "image-agent", request: 2 });
+    await close.wait(2);
+    expect(await readdir(join(root, ".foom-host", "images"))).toEqual([]);
+    taken.socket.destroy();
+  },
+);
+test.skipIf(process.platform === "win32")(
+  "image publication is cancelled by close and cannot recreate a closed session directory",
+  async () => {
+    const { RemoteImages } = await import("../../../../src/terminal-host/remote/image-files");
+    const { createHash } = await import("node:crypto");
+    const { readdir } = await import("node:fs/promises");
+    await start();
+    const { owner } = await imageAgent();
+    let release: (() => void) | undefined;
+    let entered: (() => void) | undefined;
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const storage = new RemoteImages(root);
+    await storage.ready;
+    const original = storage.put.bind(storage);
+    const spy = vi.spyOn(RemoteImages.prototype, "put");
+    spy.mockImplementation(async (...args: Parameters<typeof original>) => {
+      entered?.();
+      await gate;
+      return original(...args);
+    });
+    try {
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5ioAAAAASUVORK5CYII=",
+        "base64",
+      );
+      const manage = await client();
+      manage.send({ type: "hello", build });
+      await manage.wait(1);
+      manage.send({
+        type: "image-put",
+        id: "image-agent",
+        owner,
+        upload: "b".repeat(32),
+        size: png.length,
+        sha256: createHash("sha256").update(png).digest("hex"),
+        data: png.toString("base64"),
+      });
+      await waiting;
+      const close = await client();
+      close.send({ type: "hello", build });
+      await close.wait(1);
+      close.send({ type: "agent-close", id: "image-agent", request: 2 });
+      await vi.waitFor(() => {
+        expect(mock.stop).toHaveBeenCalled();
+      });
+      release?.();
+      await close.wait(2);
+      await manage.wait(2);
+      expect(manage.messages.at(-1)).toMatchObject({ ok: false });
+      expect(await readdir(join(root, ".foom-host", "images"))).toEqual([]);
+    } finally {
+      release?.();
+      spy.mockRestore();
+    }
   },
 );
