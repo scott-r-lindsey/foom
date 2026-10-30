@@ -102,3 +102,9 @@ Remote management Git reads disable replacement refs and legacy grafts, includin
 checkout validation and identity rechecks. Detached worktree removal requires HEAD
 to be reachable from a retained branch, remote-tracking ref or tag using stored
 commit history with commit-graph reads disabled, matching the local removal guard.
+
+Remote child PR/check tracking uses the same management identity checks, with
+validated branch, HEAD and origin evidence. Observations retain the registered
+host and approved folder, canonical paths, creation identity and original local
+origin. The hub's existing forge CLI performs read-only queries with its own login;
+no forge credential enters SSH. See [remote tracking](../contracts/forge-tracking.md#registered-remote-checkouts-940).

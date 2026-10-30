@@ -450,6 +450,7 @@ test.skipIf(process.platform === "win32")(
       if (args.includes("for-each-ref")) return Promise.resolve(refs);
       if (args.includes("ls-remote")) return Promise.resolve(advertised);
       if (args.includes("symbolic-ref")) return Promise.resolve("feature\n");
+      if (args.includes("HEAD^{commit}")) return Promise.resolve("a".repeat(40));
       if (args.includes("status") && cwd !== repository) return Promise.resolve(changes);
       return Promise.resolve("");
     });

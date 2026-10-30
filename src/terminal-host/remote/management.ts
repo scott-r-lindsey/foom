@@ -276,7 +276,17 @@ export async function manageHost(
         }
         await git(["worktree", "remove", "--force", "--", request.path], path);
       }
-      return { ok: true, facts, worktree: { path: request.path, branch, identity, changes } };
+      if (request.operation === "remove-worktree")
+        return { ok: true, facts, worktree: { path: request.path, branch, identity, changes } };
+      const head = (await git(["rev-parse", "--verify", "HEAD^{commit}"], request.path)).trim();
+      const origin = (await git(["config", "--get", "remote.origin.url"], request.path)).trim();
+      if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(head) || origin !== request.origin)
+        throw new Error("Checkout changed");
+      return {
+        ok: true,
+        facts,
+        worktree: { path: request.path, branch, identity, changes, head, origin },
+      };
     }
     return { ok: true, facts, checkout: { path, state: status ? "changed" : "clean" } };
   } catch {

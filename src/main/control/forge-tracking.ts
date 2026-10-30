@@ -1,9 +1,13 @@
+import { hostAlias, codeFolder, gitOrigin } from "../../shared/registered-hosts";
+import { remotePath } from "../../shared/remote-agent-protocol";
+import { locationId } from "./metadata";
 import type { BoardPullRequest } from "../../shared/forge";
 import { lstat, readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { atomicPrivate, privateDirectory, verifyPrivate } from "../../node-common/private-files";
 import { forgeBranch, forgeWebUrl, pullRequest } from "./forge";
 import type {
+  ForgeInspection,
   ForgeMatch,
   ForgeProvider,
   ForgeProviderFactory,
@@ -12,6 +16,7 @@ import type {
 } from "./forge.d";
 
 interface Entry extends ForgeWorktree {
+  inspectedHead?: string;
   binding?: string;
   restored?: boolean;
   board?: BoardPullRequest;
@@ -51,10 +56,10 @@ export class ForgeTracking {
   }
   constructor(
     private readonly directory: string,
-    private readonly inspect: (
+    private readonly inspectCheckout: (
       tree: ForgeWorktree,
       orchestrator?: boolean,
-    ) => Promise<string | undefined>,
+    ) => Promise<string | ForgeInspection | undefined>,
     private readonly changed: () => void,
     private readonly provider: ForgeProviderFactory = () => undefined,
     private readonly now: () => number = Date.now,
@@ -62,7 +67,10 @@ export class ForgeTracking {
 
   static async open(
     userData: string,
-    inspect: (tree: ForgeWorktree, orchestrator?: boolean) => Promise<string | undefined>,
+    inspect: (
+      tree: ForgeWorktree,
+      orchestrator?: boolean,
+    ) => Promise<string | ForgeInspection | undefined>,
     changed: () => void,
     provider: ForgeProviderFactory = () => undefined,
   ): Promise<ForgeTracking> {
@@ -93,7 +101,13 @@ export class ForgeTracking {
         if (typeof item !== "object" || item === null) continue;
         const row: Record<string, unknown> = Object.fromEntries(Object.entries(item));
         const { repository, path, identity, branch, remote, number } = row;
-        const tree = { repository, path, identity, branch };
+        const tree = {
+          repository,
+          path,
+          identity,
+          branch,
+          ...(row["remoteCheckout"] === undefined ? {} : { remoteCheckout: row["remoteCheckout"] }),
+        };
         if (!validTree(tree)) continue;
         if (remote !== undefined && (typeof remote !== "string" || remote.length > 4096)) continue;
         if (
@@ -138,6 +152,7 @@ export class ForgeTracking {
       previous?.identity === tree.identity &&
       previous.branch === tree.branch &&
       previous.repository === tree.repository &&
+      JSON.stringify(previous.remoteCheckout) === JSON.stringify(tree.remoteCheckout) &&
       (number === undefined || previous.number === number)
     ) {
       if (orchestrator) previous.orchestrator = true;
@@ -175,15 +190,33 @@ export class ForgeTracking {
     this.changed();
   }
 
-  private context(rows: readonly Entry[], remote: string, retired: ReadonlySet<Entry>) {
+  private async inspect(tree: Entry, orchestrator?: boolean): Promise<string | undefined> {
+    const result = await this.inspectCheckout(tree, orchestrator);
+    if (typeof result === "string" || result === undefined)
+      return tree.remoteCheckout ? undefined : result;
+    tree.inspectedHead = result.head;
+    return result.remote;
+  }
+
+  private async context(rows: readonly Entry[], remote: string, retired: Set<Entry>) {
+    for (const row of rows) {
+      if (
+        row.remoteCheckout &&
+        (await this.inspect(row, row.orchestrator).catch(() => undefined)) !== remote
+      )
+        retired.add(row);
+    }
+    const heads = new Map(rows.map((row) => [row, row.inspectedHead]));
     return {
       identity: JSON.stringify(
-        rows.map(({ repository, path, identity, branch }) => [
+        rows.map(({ repository, path, identity, branch, remoteCheckout, inspectedHead }) => [
           repository,
           path,
           identity,
           branch,
           remote,
+          remoteCheckout,
+          inspectedHead,
         ]),
       ),
       validate: async (branches?: readonly string[]) => {
@@ -195,7 +228,8 @@ export class ForgeTracking {
           if (
             this.stopped() ||
             this.entries.get(row.path) !== row ||
-            (await this.inspect(row, row.orchestrator)) !== remote
+            (await this.inspect(row, row.orchestrator)) !== remote ||
+            row.inspectedHead !== heads.get(row)
           )
             throw new Error("Forge worktree changed");
         }
@@ -244,7 +278,7 @@ export class ForgeTracking {
     const paths = new Set(trees.map((tree) => tree.path));
     for (const [path, entry] of this.entries) {
       if (entry.repository !== repository || paths.has(path)) continue;
-      if (!entry.orchestrator) this.entries.delete(path);
+      if (!entry.orchestrator && !entry.remoteCheckout) this.entries.delete(path);
     }
     for (const tree of trees) this.track(tree, undefined, false);
   }
@@ -328,7 +362,11 @@ export class ForgeTracking {
         const previous = entry.available ? JSON.stringify(entry.pr) : undefined;
         let refreshed = false;
         if (remote === undefined) {
-          this.entries.delete(entry.path);
+          if (entry.remoteCheckout) {
+            entry.available = false;
+            entry.failures = Math.min(entry.failures + 1, 5);
+            entry.due = this.now() + forgeDelay(entry.failures);
+          } else this.entries.delete(entry.path);
         } else {
           if (entry.remote !== undefined && remote !== entry.remote) delete entry.number;
           const candidates = [...this.entries.values()].filter(
@@ -345,6 +383,7 @@ export class ForgeTracking {
           }
           this.bind(entry, provider);
           const observation = ++this.observation;
+          const head = entry.inspectedHead;
           const result = await provider
             ?.lookup(
               entry.branch,
@@ -358,7 +397,17 @@ export class ForgeTracking {
             this.entries.get(entry.path) !== entry
           )
             return;
-          const pr = pullRequest(result);
+          const valid =
+            !entry.remoteCheckout ||
+            ((await this.inspect(entry, entry.orchestrator).catch(() => undefined)) === remote &&
+              entry.inspectedHead === head);
+          if (
+            this.stopped() ||
+            generation !== this.generation ||
+            this.entries.get(entry.path) !== entry
+          )
+            return;
+          const pr = valid ? pullRequest(result) : undefined;
           entry.available = pr !== undefined;
           if (pr) {
             entry.pr = pr;
@@ -404,7 +453,10 @@ export class ForgeTracking {
       if (this.entries.get(entry.path) !== entry) continue;
       if (current !== remote) {
         retired.add(entry);
-        this.entries.delete(entry.path);
+        if (entry.remoteCheckout) {
+          entry.available = false;
+          entry.due = this.now() + forgeDelay(++entry.failures);
+        } else this.entries.delete(entry.path);
         this.changed();
         continue;
       }
@@ -450,6 +502,7 @@ export class ForgeTracking {
     const keys = new Set(matches.map((request) => request.branch));
     const selected = rows.filter((entry) => keys.has(entry.branch));
     const revisions = new Map(rows.map((entry) => [entry, entry.refresh]));
+    const heads = new Map(rows.map((entry) => [entry, entry.inspectedHead]));
     const observation = ++this.observation;
     const result = await provider.batch?.(matches).catch(() => undefined);
     if (this.stopped() || generation !== this.generation || this.pauses.size > 0) return;
@@ -479,7 +532,17 @@ export class ForgeTracking {
       if (this.entries.get(entry.path) !== entry || (!this.enabled && !entry.orchestrator))
         continue;
       const previous = entry.available ? JSON.stringify([entry.pr, entry.board]) : undefined;
-      const pr = result?.get(entry.branch);
+      const valid =
+        !entry.remoteCheckout ||
+        ((await this.inspect(entry, entry.orchestrator).catch(() => undefined)) === remote &&
+          entry.inspectedHead === heads.get(entry));
+      if (
+        this.stopped() ||
+        generation !== this.generation ||
+        this.entries.get(entry.path) !== entry
+      )
+        continue;
+      const pr = valid ? result?.get(entry.branch) : undefined;
       const old = entry.board;
       const oldHead = entry.pr?.headSha;
       const discovered = pr && !entry.pr && entry.number === undefined;
@@ -530,6 +593,7 @@ export class ForgeTracking {
     await atomicPrivate(this.directory, "forge.json", {
       version: 1,
       entries: [...this.entries.values()].map((entry) => ({
+        remoteCheckout: entry.remoteCheckout,
         binding: entry.binding,
         repository: entry.repository,
         path: entry.path,
@@ -567,6 +631,7 @@ function validTree(tree: {
   path: unknown;
   identity: unknown;
   branch: unknown;
+  remoteCheckout?: unknown;
 }): tree is ForgeWorktree {
   return (
     typeof tree.repository === "string" &&
@@ -577,6 +642,25 @@ function validTree(tree: {
     typeof tree.identity === "string" &&
     tree.identity.length > 0 &&
     tree.identity.length <= 4096 &&
-    forgeBranch(tree.branch)
+    forgeBranch(tree.branch) &&
+    validRemoteCheckout(tree.remoteCheckout, tree.path)
+  );
+}
+
+function validRemoteCheckout(value: unknown, path: string): boolean {
+  if (value === undefined) return !path.startsWith("/foom-remote/");
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const row: Record<string, unknown> = Object.fromEntries(Object.entries(value));
+  return (
+    Object.keys(row).length === 5 &&
+    hostAlias(row["host"]) &&
+    codeFolder(row["codeFolder"]) &&
+    remotePath(row["codeFolder"]) &&
+    remotePath(row["repository"]) &&
+    remotePath(row["path"]) &&
+    gitOrigin(row["origin"]) &&
+    row["path"].startsWith(`${row["codeFolder"]}/.foom-worktree-`) &&
+    !row["path"].slice(row["codeFolder"].length + 1).includes("/") &&
+    path === `/foom-remote/${locationId(JSON.stringify([row["host"], row["path"]]))}`
   );
 }
