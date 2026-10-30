@@ -2,6 +2,10 @@ import { record, keys, remotePath } from "./remote-agent-protocol";
 import type { RegisteredHost, HostManagement, HostResult, HostsAction } from "./registered-hosts.d";
 
 export const HOST_CLONE_TIMEOUT_MS = 5 * 60 * 1000;
+export const HOST_NETWORK_GIT_TIMEOUT_MS = 5 * 60 * 1000;
+export const HOST_MANAGEMENT_TIMEOUT_MS = 7 * 60 * 1000;
+export const HOST_PREPARATION_TIMEOUT_MS = 120000;
+export const HOST_HANDSHAKE_TIMEOUT_MS = 10000;
 export function hostAlias(value: unknown): value is string {
   return (
     typeof value === "string" &&

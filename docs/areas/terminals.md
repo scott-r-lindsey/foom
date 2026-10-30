@@ -137,7 +137,9 @@ private temporary file, checked against the expanded size and SHA-256, then
 atomically installed. Failed/truncated uploads are removed. Cached bytes are
 hash-checked too.
 First-time upload/negotiation has a 120-second transport deadline and a 125-second
-create deadline; normal terminal requests retain their 10-second deadline.
+shell-create deadline; remote agent creation adds its separate 120-second
+preparation/authorization budget to the outer create deadline. Normal terminal
+requests retain their 10-second deadline.
 No remote text is interpolated into commands. Existing symlinks/unsafe directories
 are refused. Linux requires gzip and standard coreutils; macOS uses shasum when sha256sum
 is unavailable.

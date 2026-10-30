@@ -910,3 +910,54 @@ test("clone management connections allow the clone deadline plus bootstrap and v
   await expect(pending).resolves.toEqual({ ok: false, reason: "unreachable" });
   expect(child.kill).toHaveBeenCalledWith("SIGTERM");
 });
+
+test.each(["inspect", "create-worktree"] as const)(
+  "%s gets a fresh management budget after bootstrap",
+  async (operation) => {
+    transport.kill();
+    child = new Child();
+    mock.spawn.mockReturnValue(child);
+    const request =
+      operation === "inspect"
+        ? { type: "manage" as const, operation, codeFolder: "~/foom" }
+        : {
+            type: "manage" as const,
+            operation,
+            codeFolder: "~/foom",
+            directory: "repo",
+            origin: "git@fixture.test:team/repo.git",
+            branch: "feature",
+          };
+    const pending = remoteManagement({ host: "fixture" }, "0.1.0", request);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(119000);
+    child.greet();
+    await vi.advanceTimersByTimeAsync(7 * 60 * 1000 - 1);
+    expect(child.kill).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(pending).resolves.toEqual({ ok: false, reason: "unreachable" });
+  },
+);
+test.each([false, true])(
+  "agent preparation is bounded independently of negotiation (expire: %s)",
+  async (expire) => {
+    await remoteAgent();
+    await vi.advanceTimersByTimeAsync(11000);
+    expect(child.kill).not.toHaveBeenCalled();
+    if (expire) {
+      await vi.advanceTimersByTimeAsync(120000 - 11000);
+      expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    } else {
+      child.message({ type: "agent-prepared", id: "one" });
+      await Promise.resolve();
+      child.message({
+        type: "agent-ready",
+        id: "one",
+        ready: { channels: [], hooks: false, mcp: false },
+      });
+      child.message({ type: "open-result", id: "one", request: 1, state: "live" });
+      await vi.advanceTimersByTimeAsync(120000);
+      expect(child.kill).not.toHaveBeenCalled();
+    }
+  },
+);

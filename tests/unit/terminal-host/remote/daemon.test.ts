@@ -1204,3 +1204,147 @@ test.skipIf(process.platform === "win32")(
     await m.wait(5);
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "management budgets expire, abort, and retain reservations through disconnected cleanup",
+  async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await start();
+    const pending = Promise.withResolvers<HostResult>();
+    let signal: AbortSignal | undefined;
+    mock.manage.mockImplementationOnce(
+      (
+        _request: unknown,
+        _sessions: number,
+        _shell: string,
+        _version: string,
+        _home: string,
+        cancellation: AbortSignal,
+      ) => {
+        signal = cancellation;
+        return pending.promise;
+      },
+    );
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    const request = {
+      type: "manage",
+      operation: "clone",
+      codeFolder: "/code",
+      directory: "repo",
+      origin: "git@fixture.test:team/repo.git",
+    } as const;
+    c.send(request);
+    await vi.waitFor(() => {
+      expect(mock.manage).toHaveBeenCalledOnce();
+    });
+    await vi.advanceTimersByTimeAsync(11000);
+    expect(signal?.aborted).toBe(false);
+    const closed = once(c.socket, "close");
+    await vi.advanceTimersByTimeAsync(7 * 60 * 1000 - 11000);
+    await closed;
+    expect(signal?.aborted).toBe(true);
+    const retry = await client();
+    retry.send({ type: "hello", build });
+    await retry.wait(1);
+    retry.send(request);
+    await retry.wait(2);
+    expect(retry.messages[1]).toMatchObject({
+      type: "managed",
+      result: { ok: false, reason: "checkout-refused" },
+    });
+    expect(mock.manage).toHaveBeenCalledOnce();
+    pending.resolve({ ok: false, reason: "clone-failed" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    mock.manage.mockResolvedValue({ ok: false, reason: "clone-failed" });
+    retry.send(request);
+    await retry.wait(3);
+    expect(mock.manage).toHaveBeenCalledTimes(2);
+  },
+);
+
+test.skipIf(process.platform === "win32").each([false, true])(
+  "preparation has its own budget past the handshake (expire: %s)",
+  async (expire) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await start();
+    const discovery = Promise.withResolvers<Awaited<ReturnType<typeof hostDiscovery>>>();
+    vi.mocked(hostDiscovery).mockReturnValueOnce(discovery.promise);
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "agent-open",
+      id: "slow",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      spec: {
+        agent: "claude",
+        repository: "/remote/repo",
+        worktree: "/remote/tree",
+        defaults: [],
+        hooks: false,
+      },
+    });
+    await vi.waitFor(() => {
+      expect(hostDiscovery).toHaveBeenCalled();
+    });
+    await vi.advanceTimersByTimeAsync(11000);
+    expect(c.socket.destroyed).toBe(false);
+    if (expire) {
+      const closed = once(c.socket, "close");
+      await vi.advanceTimersByTimeAsync(120000 - 11000);
+      await closed;
+    }
+    discovery.resolve({
+      command: "/fixture/claude",
+      env: { PATH: "/fixture" },
+      version: "2.1.296 (Claude Code)",
+      help: "--settings --mcp-config",
+    });
+    if (!expire) {
+      await c.wait(2);
+      expect(c.messages[1]).toEqual({ type: "agent-prepared", id: "slow" });
+      c.send({ type: "agent-start", id: "slow" });
+      await c.wait(4);
+      expect(mock.create).toHaveBeenCalledOnce();
+    } else {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(mock.create).not.toHaveBeenCalled();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "disconnected management work still consumes the bounded operation reserve",
+  async () => {
+    await start();
+    const pending = Promise.withResolvers<HostResult>();
+    mock.manage.mockReturnValue(pending.promise);
+    for (let index = 0; index < 4; index++) {
+      const c = await client();
+      c.send({ type: "hello", build });
+      await c.wait(1);
+      c.send({ type: "manage", operation: "inspect", codeFolder: "/code" });
+      await vi.waitFor(() => {
+        expect(mock.manage).toHaveBeenCalledTimes(index + 1);
+      });
+      const closed = once(c.serverSocket, "close");
+      c.socket.destroy();
+      await closed;
+    }
+    const excess = await client();
+    excess.send({ type: "hello", build });
+    await excess.wait(1);
+    excess.send({ type: "manage", operation: "inspect", codeFolder: "/code" });
+    await excess.wait(2);
+    expect(excess.messages[1]).toMatchObject({
+      type: "managed",
+      result: { ok: false, reason: "checkout-refused" },
+    });
+    expect(mock.manage).toHaveBeenCalledTimes(4);
+    pending.resolve({ ok: false, reason: "unreachable" });
+  },
+);

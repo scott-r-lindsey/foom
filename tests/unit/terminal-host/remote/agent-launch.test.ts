@@ -59,6 +59,7 @@ test.skipIf(process.platform === "win32")(
       expect.objectContaining({ id: "claude" }),
       "/fixture/shell",
       home,
+      undefined,
     );
     expect(remoteCheckout).toHaveBeenCalledTimes(2);
     expect(prepared.ready).toMatchObject({ hooks: true, mcp: true, channels: ["lifecycle"] });
