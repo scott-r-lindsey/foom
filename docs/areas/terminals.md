@@ -87,7 +87,10 @@ action. Nonempty plain text, including whitespace, wins. With no text, one PNG,
 JPEG, WebP or GIF image is normalized to a metadata-free PNG by a disposable
 main-owned decoder process; animation contributes its first frame only. No renderer
 receives image bytes or arbitrary file access. File lists and unsupported data refuse.
-Limits are 4 MiB encoded and normalized bytes, 8,192 pixels on an axis, 16 million
+Chromium performs an initial browser-process image decode before these limits;
+see the [accepted clipboard residual](privacy.md#image-paste-937). Foom adds no
+main-process image conversion and sends encoded bytes straight to its worker.
+Limits after clipboard acquisition are 4 MiB encoded and normalized bytes, 8,192 pixels on an axis, 16 million
 pixels and 16 retained files / 32 MiB per session. Paste operations are serialized per session, with at most 16 queued gestures;
 overflow refuses with a fixed result. Each gesture captures its own snapshot.
 

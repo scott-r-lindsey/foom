@@ -69,14 +69,39 @@ possible, with session cleanup as the fallback.
 
 ## Formats, bounds and validation
 
-Require **4 MiB per image**, enforced on encoded clipboard input where available,
-normalized PNG output, local writes and remote upload. PNG, JPEG, WebP and GIF are
-the only accepted encoded formats. Reject SVG, HTML, TIFF, PDF, URLs and arbitrary
-file references. An OS-native clipboard bitmap is captured as raster pixels and
-normalized to PNG; it does not authorize reading an encoded file of another type.
-When only a native bitmap API is available, the OS may already have allocated its
-bitmap before Foom can apply its limits; do not claim the byte cap bounds that OS
-allocation.
+Require **4 MiB per image**, enforced on the encoded Blob returned by Electron,
+again in the disposable worker, on normalized PNG output, local writes and remote
+upload. PNG, JPEG, WebP and GIF are the only accepted encoded formats. Reject SVG,
+HTML, TIFF, PDF, URLs and arbitrary file references.
+
+### Accepted clipboard decode residual (user decision, 2026-10-30)
+
+Read standard images through Electron's supported `ClipboardItem.getType` API.
+Electron 44 removed `clipboard.readBuffer` and `availableFormats`; its replacement
+API filters standard PNG out of the raw OS-format list. Native PNG names are
+`image/png` on Linux, `NSPasteboardTypePNG` (`public.png`) on macOS and `PNG` on
+Windows (with `CF_DIBV5` for native bitmap fallback). These are source-verified
+against Chromium 152.0.7977.167; Linux was also checked in the installed runtime.
+They do not provide a supported raw-read bypass in Electron 44.9.3.
+
+Electron's image read calls Chromium's browser-process PNG decoder before Foom
+receives the encoded Blob. This is Chromium's existing image-paste decoding
+surface, also used for web image paste in Chrome. Foom's byte/pixel limits and
+JavaScript clipboard deadline cannot bound or interrupt that initial native
+decode. A user who copies and explicitly pastes a hostile or huge image can hang
+or crash Foom. The accepted risk adds no code-execution mechanism beyond
+Chromium's existing decoding surface; this is not a guarantee against upstream
+Chromium vulnerabilities. The user accepted this residual rather than adding a
+native clipboard backend, external tools or disabling standard image paste.
+Revisit if Electron restores raw clipboard reads.
+
+Foom never additionally calls `nativeImage` or `clipboard.readImage`. After the
+Blob-size check, main copies the encoded bytes directly to the disposable worker,
+without parsing, decoding or converting them. The worker enforces Foom's input,
+format, dimension, first-frame and output limits; main revalidates the encoded
+result. Its kill-able deadline protects this second decode, not Chromium's first.
+See the pinned [clipboard enumeration](https://github.com/electron/electron/blob/v44.9.3/shell/browser/api/electron_api_clipboard.cc)
+and [image-read implementation](https://github.com/electron/electron/blob/v44.9.3/shell/browser/api/electron_api_clipboard_item.cc).
 
 Check magic bytes and the decoder's detected format, not only MIME or extension.
 Use a maintained decoder with explicit dimension/allocation limits in an isolated
@@ -86,8 +111,8 @@ malformed, truncated, oversized or unsupported data before writing a published
 file. Do not execute a converter through the shell. The disposable main-owned Electron utility process uses pinned sharp/libvips,
 with `limitInputPixels`, four input channels, first-page decoding, disabled caches,
 one worker thread and strict corrupt-input handling. Main terminates it after five
-seconds. Renderer code never receives image bytes. Native OS clipboard conversion
-may already have occurred before Electron exposes its PNG representation.
+seconds. Renderer code never receives image bytes. This isolation applies only
+after the accepted Chromium clipboard decode described above.
 See [sharp constructor bounds](https://sharp.pixelplumbing.com/api-constructor/).
 
 Decode and re-encode to a fresh `.png`, apply orientation, preserve transparency,
@@ -379,5 +404,6 @@ keep 4 MiB, 16 MP, first-frame and 16-file/32 MiB limits; delete on session clos
 plus startup purge; refuse shells; show no disclosure dialog; and share the paste
 operation with #936. There are no unresolved product questions in this note.
 Remote management stays within #947's budgets and abort handling. The implementation
-PR remains draft pending human approval of its untracked UI screenshots and goes
-to the user to merge because it changes the SSH transport.
+PR may be marked ready after green validation: the user approved its untracked
+UI screenshots on 2026-10-30. It goes to the user to merge because it changes the
+SSH transport.

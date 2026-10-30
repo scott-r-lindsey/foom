@@ -27,12 +27,16 @@ async function snapshotPaste(): Promise<ClipboardPaste> {
     image.types.includes(type),
   );
   if (!type) return { kind: "failed" };
+  // Accepted residual: Electron 44 decodes PNG in Chromium's browser process here,
+  // before Foom's limits. Its public API no longer exposes raw standard PNG reads.
+  // Do not add nativeImage/readImage or another main-process conversion; forward
+  // the encoded Blob bytes unchanged to the bounded disposable decoder.
   const blob = await image.getType(type);
   if (!(blob instanceof Blob) || !blob.size || blob.size > IMAGE_BYTES) return { kind: "failed" };
   return { kind: "image", bytes: new Uint8Array(await blob.arrayBuffer()) };
 }
 
-/** Clipboard owners cannot hold a detached session or app shutdown indefinitely. */
+/** Bounds asynchronous waits; cannot interrupt Chromium's native clipboard decode. */
 export function readPaste(signal?: AbortSignal): Promise<ClipboardPaste> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {

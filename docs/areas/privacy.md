@@ -133,3 +133,15 @@ is no age expiry. Cleanup is not secure erase and does not cover agent-made copi
 transcripts, backups or provider retention. Clipboard/image bytes, hashes and paths
 are excluded from diagnostics, action-log payloads and telemetry. Reference text may
 naturally appear in terminal echo, prompts, transcripts and authorized tails.
+
+Standard image reads use Electron's supported clipboard API. Chromium decodes PNG
+in the browser process before Foom can enforce byte/pixel limits or start its
+disposable worker; Foom's JavaScript deadline cannot interrupt that native decode.
+A user explicitly pasting a hostile or huge copied image can hang or crash Foom.
+The user accepted this residual on 2026-10-30: it uses Chromium's existing web
+image-paste decoding surface and adds no code-execution mechanism beyond it;
+upstream Chromium vulnerabilities remain possible. Electron 44 removed raw
+`readBuffer`/`availableFormats` access; revisit if it restores raw clipboard reads.
+Foom performs no additional `nativeImage`/`readImage` conversion. Encoded bytes go
+directly to the disposable worker for Foom's bounded normalization, and the encoded
+result is validated again. See the [accepted residual](../design/937-image-paste.md#accepted-clipboard-decode-residual-user-decision-2026-10-30).
