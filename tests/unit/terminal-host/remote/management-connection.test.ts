@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { createConnection, type Socket } from "node:net";
-import { mkdir, mkdtemp, readFile, realpath, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
@@ -26,7 +26,9 @@ afterEach(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 async function setup() {
-  root = await realpath(await mkdtemp(join(tmpdir(), "mc-")));
+  // The test runner owns tmpdir(); keep HOME short enough for macOS Unix sockets.
+  root = join(await realpath(tmpdir()), "mc");
+  await mkdir(root, { mode: 0o700 });
   const home = root;
   const bin = join(home, "bin");
   await mkdir(bin);
