@@ -216,7 +216,7 @@ export function hostsAction(value: unknown): value is HostsAction {
   if (!record(value)) return false;
   if (value["action"] === "list" || value["action"] === "locations") return keys(value, ["action"]);
   if (!hostAlias(value["host"])) return false;
-  if (value["action"] === "refresh" || value["action"] === "remove")
+  if (value["action"] === "refresh" || value["action"] === "remove" || value["action"] === "end")
     return keys(value, ["action", "host"]);
   if (value["action"] === "add" || value["action"] === "test")
     return keys(value, ["action", "host", "codeFolder"]) && codeFolder(value["codeFolder"]);

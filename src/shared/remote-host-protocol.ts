@@ -1,6 +1,7 @@
 import { hostAlias, hostManagement, hostResult } from "./registered-hosts";
 import { isLaunchReason } from "./launch-failure";
 import {
+  remotePath,
   remoteAgentSpec,
   remoteAgentReady,
   remoteHook,
@@ -32,12 +33,68 @@ function hello(value: object): boolean {
     /^[a-f0-9]{64}$/u.test(value.build)
   );
 }
+function foreignSession(value: unknown): value is { id: string; generation: string } {
+  return (
+    record(value) &&
+    keys(value, ["id", "generation", "count"]) &&
+    (value["count"] === undefined ||
+      (typeof value["count"] === "number" &&
+        Number.isInteger(value["count"]) &&
+        value["count"] > 0 &&
+        value["count"] <= 32)) &&
+    remoteId(value["id"]) &&
+    profileTag(value["generation"])
+  );
+}
+export function profileTag(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{32}$/u.test(value);
+}
+export function sessionContext(value: unknown): boolean {
+  return (
+    record(value) &&
+    keys(value, ["repository", "worktree", "branch", "agent"]) &&
+    remotePath(value["repository"]) &&
+    remotePath(value["worktree"]) &&
+    (value["branch"] === null ||
+      (typeof value["branch"] === "string" &&
+        value["branch"].length <= 200 &&
+        !/\p{Cc}/u.test(value["branch"]))) &&
+    typeof value["agent"] === "string" &&
+    /^[a-z][a-z0-9-]{0,63}$/u.test(value["agent"])
+  );
+}
 export function remoteRequest(value: unknown): value is RemoteRequest {
   if (!record(value)) return false;
   if (typeof value["type"] !== "string") return false;
   if (hello(value)) return true;
+  if (value["type"] === "inventory")
+    return (
+      keys(value, ["type", "profile", "codeFolder"]) &&
+      (value["codeFolder"] === undefined || remotePath(value["codeFolder"])) &&
+      profileTag(value["profile"])
+    );
+  if (value["type"] === "end-sessions")
+    return (
+      keys(value, ["type", "profile", "ids"]) &&
+      profileTag(value["profile"]) &&
+      Array.isArray(value["ids"]) &&
+      value["ids"].length <= 33 &&
+      value["ids"].every(foreignSession) &&
+      new Set(value["ids"].map((entry: { id: string }) => entry.id)).size === value["ids"].length
+    );
+  if (
+    (value["profile"] !== undefined && !profileTag(value["profile"])) ||
+    (value["context"] !== undefined && !sessionContext(value["context"]))
+  )
+    return false;
   if (value["type"] === "manage") return hostManagement(value);
   if (!remoteId(value["id"])) return false;
+  if (value["type"] === "session-close")
+    return (
+      keys(value, ["type", "id", "request", "profile"]) &&
+      profileTag(value["profile"]) &&
+      hostRequest({ ...value, type: "kill" })
+    );
   if (value["type"] === "agent-close")
     return keys(value, ["type", "id", "request"]) && hostRequest({ ...value, type: "kill" });
   if (value["type"] === "agent-activate" || value["type"] === "agent-start")
@@ -54,12 +111,13 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
   if (value["type"] === "agent-open")
     return (
       record(value) &&
-      keys(value, ["type", "id", "request", "cols", "rows", "spec"]) &&
+      keys(value, ["type", "id", "request", "cols", "rows", "spec", "profile", "context"]) &&
       remoteAgentSpec(value["spec"]) &&
       remoteRequest({ ...value, type: "open", reattach: false })
     );
   if (value["type"] === "open")
     return (
+      (value["human"] === undefined || typeof value["human"] === "boolean") &&
       "reattach" in value &&
       typeof value["reattach"] === "boolean" &&
       hostRequest({
@@ -78,6 +136,41 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
 }
 export function remoteResponse(value: unknown): value is RemoteResponse {
   if (typeof value !== "object" || value === null) return false;
+  if (record(value) && value["type"] === "inventory-result")
+    return (
+      keys(value, ["type", "own", "foreign"]) &&
+      Array.isArray(value["own"]) &&
+      Array.isArray(value["foreign"]) &&
+      value["own"].length + value["foreign"].length <= 33 &&
+      value["own"].every(
+        (entry: unknown) =>
+          record(entry) &&
+          keys(entry, ["id", "context", "checkout"]) &&
+          remoteId(entry["id"]) &&
+          (entry["context"] === undefined || sessionContext(entry["context"])) &&
+          (entry["checkout"] === undefined ||
+            (record(entry["checkout"]) &&
+              keys(entry["checkout"], ["repository", "path", "identity"]) &&
+              remotePath(entry["checkout"]["repository"]) &&
+              remotePath(entry["checkout"]["path"]) &&
+              typeof entry["checkout"]["identity"] === "string" &&
+              /^[a-f0-9]{64}$/u.test(entry["checkout"]["identity"]))),
+      ) &&
+      value["foreign"].every(foreignSession) &&
+      new Set([
+        ...value["own"].map((entry: { id: string }) => entry.id),
+        ...value["foreign"].map((entry: { id: string }) => entry.id),
+      ]).size ===
+        value["own"].length + value["foreign"].length
+    );
+  if (record(value) && value["type"] === "upgrade") return hello({ ...value, type: "hello" });
+  if (
+    record(value) &&
+    value["type"] === "hello" &&
+    value["compatible"] !== undefined &&
+    value["compatible"] !== 2
+  )
+    return false;
   if (record(value) && value["type"] === "managed")
     return keys(value, ["type", "result"]) && hostResult(value["result"]);
   if (record(value) && remoteId(value["id"])) {
@@ -204,6 +297,8 @@ export function* remoteResponseFrames(
   if (
     data.length <= REMOTE_FRAGMENT_SIZE ||
     message.type === "hello" ||
+    message.type === "upgrade" ||
+    message.type === "inventory-result" ||
     message.type === "activity" ||
     message.type === "managed"
   ) {
@@ -244,6 +339,8 @@ export class RemoteMessages {
     if (
       !remoteResponse(value) ||
       value.type === "hello" ||
+      value.type === "upgrade" ||
+      value.type === "inventory-result" ||
       value.type === "fragment" ||
       value.type === "managed" ||
       value.type === "activity" ||

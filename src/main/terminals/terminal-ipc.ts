@@ -41,6 +41,7 @@ export function attachTerminal(
   /** Environment settings for shells: the All sessions layer. */
   shellEnvironment: () => Record<string, string> = () => ({}),
   copyOnSelect: () => boolean = () => false,
+  remoteProfile?: string,
 ) {
   const windows = new Map<
     WebContents,
@@ -319,7 +320,11 @@ export function attachTerminal(
     dispose,
     runningSessions: () => [...running.values()],
     async create(spec: TerminalSpec) {
-      const id = await manager.create(spec);
+      const id = await manager.create(
+        spec.remote && remoteProfile
+          ? { ...spec, remote: { ...spec.remote, profile: remoteProfile } }
+          : spec,
+      );
       owned.add(id);
       running.set(id, { id, command: spec.command, cwd: spec.cwd });
       broadcast("terminal:availability", [id], true, true);
@@ -327,6 +332,7 @@ export function attachTerminal(
     },
     async kill(id: string, remoteHost?: string) {
       if (remoteHost === undefined) await manager.kill(id);
+      else if (remoteProfile) await manager.kill(id, remoteHost, remoteProfile);
       else await manager.kill(id, remoteHost);
       owned.delete(id);
       running.delete(id);

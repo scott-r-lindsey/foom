@@ -75,6 +75,7 @@ process.stdin.on('data', bytes => {
   const n=input.readUInt32BE(0); const {message}=JSON.parse(input.subarray(4,4+n)); input=input.subarray(4+n);
   assert.equal('id' in message,false); appendFileSync(${JSON.stringify(calls)},JSON.stringify({host,message})+'\\n');
   if(message.type==='hello') { send({type:'hello',build:${JSON.stringify(manifest.sha256)}}); continue; }
+  if(message.type==='inventory') {send({type:'inventory-result',own:[],foreign:[]}); continue;}
   assert.equal(message.type,'manage');
   let result;
   if(message.codeFolder==='~/unsafe') result={ok:false,reason:'unsafe-folder'};

@@ -47,7 +47,7 @@ export async function launchRemoteChild(
   let active = true;
   const live = () => active;
   let bound = false;
-  let authorized = false;
+  let authorized = request.reattach === true;
   let prepared = false;
   const pending: HookSignal[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -81,6 +81,13 @@ export async function launchRemoteChild(
       env: {},
       remote: {
         ...mapping.target,
+        ...(request.reattach ? { reattach: true } : {}),
+        context: {
+          repository: request.repository,
+          worktree: request.worktree,
+          branch: request.remoteCheckout?.branch ?? null,
+          agent: request.agent,
+        },
         agent: {
           spec: {
             agent: request.agent,
@@ -113,10 +120,14 @@ export async function launchRemoteChild(
               : Promise.resolve({ type: "error", error: "unavailable" }),
           ready: (value) => {
             if (!live()) return;
+            if (request.reattach) beforeSpawn();
             if (!authorized) throw new Error("Remote launch was not authorized");
             if (conversation && value.conversationId && conversation !== value.conversationId)
               throw new Error("Remote conversation changed");
-            if ((!hooks && value.hooks) || value.hooks !== Boolean(value.channels?.length))
+            if (
+              (!request.reattach && !hooks && value.hooks) ||
+              value.hooks !== Boolean(value.channels?.length)
+            )
               throw new Error("Invalid remote hook selection");
             ready = value;
             conversation ??= value.conversationId;
@@ -134,7 +145,7 @@ export async function launchRemoteChild(
             );
             const entry = channel?.mapping.cases.find((entry) => entry.id === signal.caseId);
             if (
-              !hooks ||
+              (!request.reattach && !hooks) ||
               !channels.has(signal.channel ?? "") ||
               !entry ||
               signal.action !== entry.action ||
@@ -156,8 +167,10 @@ export async function launchRemoteChild(
         },
       },
     };
+    if (request.reattach) beforeSpawn();
     const created = await terminals.create(spec);
     if (created !== id || !ready) throw new Error("Remote launch was not acknowledged");
+    if (request.reattach) beforeSpawn();
     control.bind(id, ready.mcp);
     bound = true;
     spec.remote?.agent?.activate?.();

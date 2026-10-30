@@ -121,7 +121,11 @@ test("updates are private, atomic, serialized and survive a restart", async () =
   expect(await readdir(dir)).toEqual(["settings.json"]);
   const file = path.join(dir, "settings.json");
   if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
-  expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ version: 1, settings: second });
+  expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
+    version: 1,
+    remoteProfile: store.profileTag(),
+    settings: second,
+  });
   expect((await SettingsStore.open(dir)).get()).toEqual(second);
 });
 
@@ -129,6 +133,7 @@ test("a failed write leaves settings unchanged and later writes still work", asy
   const root = await directory();
   const dir = path.join(root, "blocked");
   const store = await SettingsStore.open(dir);
+  await rm(dir, { recursive: true, force: true });
   await writeFile(dir, "a file where the folder should be");
   await expect(store.update({ setupComplete: true })).rejects.toThrow();
   expect(store.get().setupComplete).toBe(false);
@@ -440,6 +445,7 @@ test("attaching Foom config moves agent-editable values out of the profile exact
   const stored = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect(stored).toEqual({
     version: 2,
+    remoteProfile: store.profileTag(),
     settings: expect.not.objectContaining({ terminalFontSize: 18 }) as unknown,
     configDigest: "a".repeat(64),
   });
@@ -524,6 +530,7 @@ test("a failed attach keeps the version 1 profile for the next launch", async ()
   const root = await directory();
   const dir = path.join(root, "blocked");
   const store = await SettingsStore.open(dir);
+  await rm(dir, { recursive: true, force: true });
   await writeFile(dir, "a file where the folder should be");
   await expect(store.attachConfig(async () => {}, { hooks: false }, null)).rejects.toThrow();
   expect(store.legacyConfig()).toEqual({});
@@ -969,3 +976,13 @@ test.each([null, false, {}, [], 3, "auto"])(
     expect((await SettingsStore.open(dir)).get()).toEqual(DEFAULT_SETTINGS);
   },
 );
+
+test("remote profile tags are opaque, stable, private metadata and cannot be set by a patch", async () => {
+  const dir = await directory();
+  const store = await SettingsStore.open(dir);
+  expect(store.profileTag()).toMatch(/^[a-f0-9]{32}$/u);
+  expect((await SettingsStore.open(dir)).profileTag()).toBe(store.profileTag());
+  expect(store.get()).not.toHaveProperty("remoteProfile");
+  expect(() => parseSettingsPatch({ remoteProfile: store.profileTag() })).toThrow();
+  expect((await SettingsStore.open(await directory())).profileTag()).not.toBe(store.profileTag());
+});

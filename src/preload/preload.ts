@@ -430,7 +430,12 @@ const validHostResult: Validator<HostResult> = either(
 );
 const validHostsState: Validator<HostsState> = shape({
   hosts: array(
-    shape({ host: hostAlias, codeFolder: hostFolder, result: either(absent, validHostResult) }),
+    shape({
+      host: hostAlias,
+      codeFolder: hostFolder,
+      result: either(absent, validHostResult),
+      foreignSessions: either(absent, count),
+    }),
   ),
   locations: array(shape({ repository: text, host: hostAlias, result: validHostResult })),
   result: either(absent, validHostResult),

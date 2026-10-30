@@ -1,4 +1,4 @@
-# Registered SSH hosts (#757 PR 1)
+# Registered SSH hosts (#757)
 
 Settings → Hosts is the only enrollment surface. Registrations are profile-only
 `registeredHosts` records, validated on load, with an SSH alias/account selector
@@ -62,8 +62,49 @@ private temporary sibling inside the approved folder, validated, then published
 by rename. Failure removes the temporary directory and leaves the destination
 available for retry; an existing destination is never used as clone staging.
 
-Persistent sessions, hub-restart reattachment and daemon upgrade negotiation are
-PR 2 of #757 and are not implemented by this settings surface.
+## Persistent remote sessions (#757 PR 2)
+
+A private random owning-profile tag is saved beside the profile settings, outside
+the settings/config schema and renderer projection. Every new remote session carries
+it in daemon metadata only; it never reaches a PTY, agent environment, argv or files.
+On startup the hub asks every registered host for this profile's live sessions.
+Saved live rows reattach their existing terminal IDs, with complete screen replay;
+reattachment never spawns a replacement. Already exited rows remain sidebar-only
+under #732. With session restore disabled, rows remain dormant.
+
+This profile's sessions absent from saved records become human-owned tiles. Their
+inventory cannot restore a parent, grant or orchestrator role. Other-profile and
+untagged sessions remain untouched. Settings → Hosts reports their live count and
+**End…** opens a trusted confirmation. Main retains the confirmed IDs and random
+session incarnation tags; the daemon refuses a changed incarnation or a session
+owned by this profile. Sessions arriving during confirmation are not ended.
+Removing a host still only forgets it. A daemon-live invocation saved as exited is
+likewise recovered for the human, without inheriting its stale parent grant.
+Profile tags classify ownership; they are not credentials or isolation from other
+processes running as the account.
+
+Live sessions never expire automatically. Only bounded exit-code tombstones expire
+(after 24 hours from exit disposal, without renewal on reads); no live-detach timer
+or inventory polling loop runs. The daemon has no log files and is launched with
+stdio ignored. SSH stderr is drained, never retained or logged.
+
+The protocol-2 negotiation advertises compatibility independently of build identity.
+A newer hub can use a compatible old daemon while it has sessions, without killing
+or replacing it. An idle daemon with no sessions, preparations or other connected
+clients closes its listener under a synchronous shutdown gate; the new hub retries
+bootstrap and starts its own verified build. Upgrade retries are bounded. Protocol-2 sessions use `host-v2.sock`, leaving a pre-feature daemon's `host.sock`
+and PTYs untouched. On-demand legacy inspection tries at most 32 owner-checked
+cached build identities against the old management API; it creates no PTY and
+runs no cached executable. Legacy sessions appear as one untagged count. End
+explicitly confirms all sessions in that legacy daemon, including sessions started
+during confirmation. It matches a single process's exact cached executable,
+`--daemon` argv, PID and start time from fixed `/bin/ps` output, rechecks before
+SIGTERM, and never unlinks the old socket. Process observation and signaling are
+separate OS operations, with the same-user PID-reuse race; this is not isolation
+from another process running as the account. Unverifiable or unsupported legacy
+peers fail closed. Legacy binaries retain their original lifecycle until ended;
+Foom cannot remove a timer inside an already running old binary. New daemons have
+no live-session reaper. No legacy process is signaled as part of an upgrade.
 
 ## Host-aware orchestration (#756)
 

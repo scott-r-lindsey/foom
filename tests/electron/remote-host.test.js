@@ -23,6 +23,7 @@ const {
   confirmationPage,
   fixtureCleanup,
   launchApp,
+  openSettingsScreen,
   removeAfterApps,
   quitAndWait,
 } = require("./harness.js");
@@ -124,7 +125,7 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
       await closed;
     }
   });
-  const socket = path.join(remoteHome, ".foom-host/host.sock");
+  const socket = path.join(remoteHome, ".foom-host/host-v2.sock");
   await expect
     .poll(async () => {
       try {
@@ -147,6 +148,16 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   cleanup.apps.push(cleanup.apps.shift());
   assert.equal(await app.evaluate(({ app }) => app.getVersion()), manifest.version);
   const page = await boardPage(app);
+  const profilePath = await app.evaluate(({ app }) => app.getPath("userData"));
+  const profileTag = JSON.parse(
+    await readFile(path.join(profilePath, "settings.json"), "utf8"),
+  ).remoteProfile;
+  assert.match(profileTag, /^[a-f0-9]{32}$/u);
+  const enrolled = await page.evaluate(
+    (codeFolder) => window.desktop.hosts({ action: "add", host: "fixture-cloud", codeFolder }),
+    path.join(remoteHome, "code"),
+  );
+  assert.equal(enrolled.result.ok, true);
   await page.evaluate(() => {
     window.remoteReplayTokens = new Set();
     window.stopRemoteReplay = window.desktop.onData((_id, token) =>
@@ -201,11 +212,12 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   );
   const priorTokens = await page.evaluate(() => window.remoteReplayTokens.size);
   assert.ok(priorTokens > 0);
-  const firstSsh = Number((await readFile(pidFile, "utf8")).trim().split("\n")[0]);
+  const sshPids = (await readFile(pidFile, "utf8")).trim().split("\n");
+  const firstSsh = Number(sshPids.at(-1));
   process.kill(firstSsh, "SIGTERM");
   await expect
     .poll(async () => (await readFile(pidFile, "utf8")).trim().split("\n").length)
-    .toBe(2);
+    .toBe(sshPids.length + 1);
   await expect
     .poll(() => page.evaluate(() => window.remoteReplayTokens.size))
     .toBeGreaterThan(priorTokens);
@@ -237,7 +249,16 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   });
   // Hub quit disconnects without terminating the daemon or its shell.
   assert.equal(daemon.exitCode, null);
-  const retained = await hostChannel(socket, manifest.sha256, id, cleanup, 80, 24, true);
+  const retained = await hostChannel(
+    socket,
+    manifest.sha256,
+    id,
+    cleanup,
+    80,
+    24,
+    true,
+    profileTag,
+  );
   try {
     await retained.ask({
       type: "write",
@@ -249,13 +270,94 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   } finally {
     retained.close();
   }
+  const recovered = await hostChannel(
+    socket,
+    manifest.sha256,
+    "lost-profile-write",
+    cleanup,
+    80,
+    24,
+    false,
+    profileTag,
+  );
+  await recovered.ask({ type: "write", data: "printf 'RECOVERED_SCREEN\\n'\r" });
+  await expect
+    .poll(async () => (await recovered.ask({ type: "tail", lines: 40 })).lines.join("\n"))
+    .toContain("RECOVERED_SCREEN");
+  recovered.close();
+  const foreign = await hostChannel(socket, manifest.sha256, "legacy-foreign", cleanup);
+  foreign.close();
+  const restarted = await launchApp(context, {
+    fixture: "empty-board",
+    env: { PATH: bin, SSH_AUTH_SOCK: "" },
+    args: [`--user-data-dir=${profilePath}`, "--remote-shell-spike=fixture-cloud"],
+  });
+  const restored = await boardPage(restarted);
+  await expect
+    .poll(async () =>
+      (await restored.evaluate(() => window.desktop.workspace())).terminals
+        .filter((row) => !row.dormant && !row.exited)
+        .map((row) => row.id)
+        .sort(),
+    )
+    .toEqual([id, "lost-profile-write"].sort());
+  const recoveredRow = (await restored.evaluate(() => window.desktop.workspace())).terminals.find(
+    (row) => row.id === "lost-profile-write",
+  );
+  assert.equal(recoveredRow.orchestration, undefined);
+  await expect(restored.locator(".terminal-tile[data-kind='shell']")).toHaveCount(2);
+  await expect
+    .poll(() => restored.evaluate(() => window.desktop.tail("lost-profile-write", 40)))
+    .toContain("RECOVERED_SCREEN");
+  await openSettingsScreen(restored);
+  await restored
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  await expect(restored.getByText("Other profiles or untagged: 1", { exact: true })).toBeVisible();
+  for (const theme of ["eclipse-light", "eclipse-dark"]) {
+    await restored.evaluate(
+      (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
+      theme,
+    );
+    await restored.screenshot({ path: evidencePath(`757-hosts-${theme}.png`) });
+  }
+  await restored.getByRole("button", { name: "End…", exact: true }).click();
+  const endDialog = await confirmationPage(restarted);
+  await expect(endDialog.getByRole("heading", { name: "End remote sessions?" })).toBeVisible();
+  await endDialog.screenshot({ path: evidencePath("757-end-confirmation.png") });
+  await endDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(restored.getByText("Other profiles or untagged: 1", { exact: true })).toBeVisible();
+  await restored.getByRole("button", { name: "End…", exact: true }).click();
+  await (await confirmationPage(restarted))
+    .getByRole("button", { name: "End sessions", exact: true })
+    .click();
+  await expect(restored.getByText("Other profiles or untagged: 0", { exact: true })).toBeVisible();
+  const ended = await hostChannel(socket, manifest.sha256, "legacy-foreign", cleanup, 80, 24, true);
+  assert.equal(ended.opened.state, "gone");
+  ended.close();
+  await quitAndWait(restarted, async () => {
+    await restarted.evaluate(({ app }) => app.quit());
+    await (await confirmationPage(restarted))
+      .getByRole("button", { name: "Stop all and quit" })
+      .click();
+  });
   await wideReplay(root, socket, manifest.sha256, cleanup);
   const gone = await hostChannel(socket, manifest.sha256, "never-created", cleanup, 80, 24, true);
   assert.equal(gone.opened.state, "gone");
   gone.close();
 });
 
-async function hostChannel(socket, build, id, cleanup, cols = 80, rows = 24, reattach = false) {
+async function hostChannel(
+  socket,
+  build,
+  id,
+  cleanup,
+  cols = 80,
+  rows = 24,
+  reattach = false,
+  profile = "f".repeat(32),
+) {
   const { RemoteFrames, RemoteMessages, remoteFrame, remoteResponse } =
     require("../../build/shared/remote-host-protocol.js");
   const channel = createConnection(socket);
@@ -299,7 +401,7 @@ async function hostChannel(socket, build, id, cleanup, cols = 80, rows = 24, rea
       pending.set(number, { resolve, reject });
       channel.write(remoteFrame({ ...message, id, request: number }));
     });
-  const opened = await ask({ type: "open", cols, rows, reattach });
+  const opened = await ask({ type: "open", cols, rows, reattach, ...(profile ? { profile } : {}) });
   return { ask, events, opened, close: () => channel.destroy() };
 }
 

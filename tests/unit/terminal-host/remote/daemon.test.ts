@@ -21,6 +21,8 @@ import type { RemoteRequest } from "../../../../src/shared/remote-host";
 let telemetry: TerminalTelemetry = {};
 const mock = vi.hoisted(() => ({
   manage: vi.fn(),
+  legacy: vi.fn(),
+  endLegacy: vi.fn(),
   create: vi.fn(),
   attach: vi.fn(),
   detach: vi.fn(),
@@ -35,6 +37,10 @@ const mock = vi.hoisted(() => ({
   shutdown: vi.fn(),
   childInput: vi.fn(),
   exited: (_id: string, _code: number) => {},
+}));
+vi.mock("../../../../src/terminal-host/remote/legacy", () => ({
+  legacyDaemon: mock.legacy,
+  endLegacyDaemon: mock.endLegacy,
 }));
 vi.mock("../../../../src/terminal-host/remote/management", () => ({ manageHost: mock.manage }));
 vi.mock("../../../../src/terminal-host/terminal-manager", () => ({
@@ -71,13 +77,15 @@ vi.mock("../../../../src/terminal-host/remote/agent-discovery", () => ({
   ),
   hostProbe: vi.fn(() => Promise.resolve("[]")),
 }));
-import { DETACHED_SESSION_GRACE_MS, serveHost } from "../../../../src/terminal-host/remote/daemon";
+import { EXIT_TOMBSTONE_GRACE_MS, serveHost } from "../../../../src/terminal-host/remote/daemon";
 let root: string;
 let host: ReturnType<typeof serveHost>;
 const clients: Socket[] = [];
 const build = "a".repeat(64);
 beforeEach(async () => {
   vi.clearAllMocks();
+  mock.legacy.mockResolvedValue(undefined);
+  mock.endLegacy.mockResolvedValue(undefined);
   vi.stubEnv("SHELL", "/bin/sh");
   // Each test run owns tmpdir(); keep HOME short enough for macOS Unix sockets.
   root = join(await realpath(tmpdir()), "rd");
@@ -100,7 +108,7 @@ async function start() {
 }
 async function client() {
   const connected = new Promise<Socket>((resolve) => host.server.once("connection", resolve));
-  const socket = createConnection(join(root, ".foom-host/host.sock"));
+  const socket = createConnection(join(root, ".foom-host/host-v2.sock"));
   clients.push(socket);
   socket.on("error", () => {});
   await once(socket, "connect");
@@ -125,7 +133,7 @@ async function open(id = "one", reattach = false) {
   const c = await client();
   c.send({ type: "hello", build });
   await c.wait(1);
-  c.send({ type: "open", reattach, id, request: 1, cols: 80, rows: 24 });
+  c.send({ type: "open", profile: "f".repeat(32), reattach, id, request: 1, cols: 80, rows: 24 });
   await c.wait(2);
   return c;
 }
@@ -133,7 +141,7 @@ test.skipIf(process.platform === "win32")(
   "owns a private Unix socket and serial shell operations, retaining PTY across disconnect",
   async () => {
     await start();
-    expect((await stat(join(root, ".foom-host/host.sock"))).mode & 0o777).toBe(0o600);
+    expect((await stat(join(root, ".foom-host/host-v2.sock"))).mode & 0o777).toBe(0o600);
     const c = await open();
     expect(mock.create).toHaveBeenCalledWith(
       { command: "/bin/sh", args: ["-i", "-l"], cwd: root, cols: 80, rows: 24 },
@@ -184,10 +192,7 @@ test.skipIf(process.platform === "win32")(
   "refuses build mismatches, repeated negotiation, invalid operations and foreign IDs",
   async () => {
     await start();
-    for (const message of [
-      { type: "hello", build: "b".repeat(64) },
-      { type: "write", id: "one", request: 1, data: "pre-auth" },
-    ] as const) {
+    for (const message of [{ type: "write", id: "one", request: 1, data: "pre-auth" }] as const) {
       const c = await client();
       const closed = once(c.socket, "close");
       c.send(message);
@@ -328,6 +333,7 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
     await child.wait(1);
     child.send({
       type: "agent-open",
+      profile: "f".repeat(32),
       id: "child",
       request: 1,
       cols: 80,
@@ -342,7 +348,7 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
     const next = await client();
     next.send({ type: "hello", build });
     await vi.waitFor(() => {
-      expect(next.messages).toContainEqual({ type: "hello", build });
+      expect(next.messages).toContainEqual({ type: "hello", build, compatible: 2 });
     });
     if (operation === "close") {
       next.send({ type: "agent-close", id: "child", request: 2 });
@@ -352,7 +358,15 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
       expect(mock.kill).toHaveBeenCalledExactlyOnceWith("child");
     } else {
       const replaced = once(child.socket, "close");
-      next.send({ type: "open", id: "child", reattach: true, request: 2, cols: 80, rows: 24 });
+      next.send({
+        type: "open",
+        profile: "f".repeat(32),
+        id: "child",
+        reattach: true,
+        request: 2,
+        cols: 80,
+        rows: 24,
+      });
       await next.wait(3);
       await replaced;
       expect(next.messages).toContainEqual({
@@ -531,29 +545,21 @@ async function disconnect(c: Awaited<ReturnType<typeof client>>) {
 }
 
 test.skipIf(process.platform === "win32")(
-  "reaps detached sessions after the grace period and cancels reaping on reattach",
+  "detached live sessions retain their PTYs indefinitely with no expiry timers",
   async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await start();
     await disconnect(await open("abandoned"));
-    await disconnect(await open("returning"));
-    // A laptop disconnected overnight still owns a live shell.
-    await vi.advanceTimersByTimeAsync(12 * 60 * 60 * 1000);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(EXIT_TOMBSTONE_GRACE_MS * 30);
+    expect(mock.stop).not.toHaveBeenCalled();
     expect(mock.kill).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(DETACHED_SESSION_GRACE_MS - 12 * 60 * 60 * 1000 - 1);
-    expect(mock.kill).not.toHaveBeenCalled();
-    const returning = await open("returning", true);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(mock.stop).toHaveBeenCalledWith("abandoned");
-    expect(mock.kill).toHaveBeenCalledExactlyOnceWith("abandoned");
-    await vi.advanceTimersByTimeAsync(DETACHED_SESSION_GRACE_MS * 2);
-    expect(mock.kill).toHaveBeenCalledTimes(1);
-    returning.send({ type: "write", id: "returning", request: 2, data: "alive" });
+    const returning = await open("abandoned", true);
+    returning.send({ type: "write", id: "abandoned", request: 2, data: "alive" });
     await returning.wait(3);
-    expect(mock.write).toHaveBeenCalledWith("returning", "alive");
+    expect(mock.write).toHaveBeenCalledWith("abandoned", "alive");
     await disconnect(returning);
-    await vi.advanceTimersByTimeAsync(DETACHED_SESSION_GRACE_MS);
-    expect(mock.kill).toHaveBeenCalledWith("returning");
+    expect(vi.getTimerCount()).toBe(0);
   },
 );
 
@@ -597,7 +603,7 @@ test.skipIf(process.platform === "win32")(
 );
 
 test.skipIf(process.platform === "win32")(
-  "recovers the 32 session limit after reaping, even if graceful stop fails",
+  "retains the session limit until explicit removal, even after long disconnect",
   async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await start();
@@ -610,9 +616,13 @@ test.skipIf(process.platform === "win32")(
     excess.send({ type: "open", reattach: false, id: "excess", request: 1, cols: 80, rows: 24 });
     await refused;
     expect(mock.create).toHaveBeenCalledTimes(32);
-    mock.stop.mockRejectedValueOnce(new Error("graceful stop timeout"));
-    await vi.advanceTimersByTimeAsync(DETACHED_SESSION_GRACE_MS);
-    expect(mock.kill).toHaveBeenCalledTimes(32);
+    await vi.advanceTimersByTimeAsync(EXIT_TOMBSTONE_GRACE_MS * 30);
+    expect(mock.kill).not.toHaveBeenCalled();
+    const owned = await open("orphan-0", true);
+    owned.send({ type: "kill", id: "orphan-0", request: 2 });
+    await owned.wait(3);
+    await disconnect(owned);
+    expect(mock.kill).toHaveBeenCalledTimes(1);
     await open("recovered");
     expect(mock.create).toHaveBeenCalledTimes(33);
   },
@@ -660,8 +670,8 @@ test.skipIf(process.platform === "win32")(
   async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await start();
-    await disconnect(await open("expired"));
-    await vi.advanceTimersByTimeAsync(DETACHED_SESSION_GRACE_MS);
+    await exitedDetached("expired", 0);
+    await vi.advanceTimersByTimeAsync(EXIT_TOMBSTONE_GRACE_MS);
     for (const id of ["expired", "unknown"]) {
       const c = await open(id, true);
       expect(c.messages).toContainEqual({ type: "open-result", id, request: 1, state: "gone" });
@@ -680,7 +690,7 @@ test.skipIf(process.platform === "win32")(
 );
 
 test.skipIf(process.platform === "win32")(
-  "tombstones preserve real exit codes, expire at the original detach deadline and never revive shells",
+  "tombstones retain real exit codes for a bounded interval after exit without renewal",
   async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await start();
@@ -697,7 +707,7 @@ test.skipIf(process.platform === "win32")(
       code: 7,
     });
     await disconnect(retained);
-    await vi.advanceTimersByTimeAsync(12 * 60 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(EXIT_TOMBSTONE_GRACE_MS);
     const expired = await open("overnight-exit", true);
     expect(expired.messages).toContainEqual({
       type: "open-result",
@@ -743,7 +753,7 @@ test.skipIf(process.platform === "win32")(
   async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await start();
-    await disconnect(await open());
+    const owner = await open();
     let finish: (() => void) | undefined;
     mock.stop.mockImplementationOnce(
       () =>
@@ -751,7 +761,8 @@ test.skipIf(process.platform === "win32")(
           finish = resolve;
         }),
     );
-    await vi.advanceTimersByTimeAsync(DETACHED_SESSION_GRACE_MS);
+    owner.send({ type: "kill", id: "one", request: 2 });
+    await new Promise<void>((resolve) => setImmediate(resolve));
     const restoring = await open("one", true);
     expect(restoring.messages).toContainEqual({
       type: "open-result",
@@ -802,7 +813,7 @@ test.skipIf(process.platform === "win32")(
         }),
     );
     mock.exited("one", 7);
-    await vi.advanceTimersByTimeAsync(DETACHED_SESSION_GRACE_MS);
+    await vi.advanceTimersByTimeAsync(EXIT_TOMBSTONE_GRACE_MS);
     finish?.();
     await new Promise<void>((resolve) => setImmediate(resolve));
     const expired = await open("one", true);
@@ -826,6 +837,7 @@ test.skipIf(process.platform === "win32")(
     await c.wait(1);
     c.send({
       type: "agent-open",
+      profile: "f".repeat(32),
       id,
       request: 1,
       cols: 80,
@@ -931,6 +943,7 @@ test.skipIf(process.platform === "win32")(
     await c.wait(1);
     c.send({
       type: "agent-open",
+      profile: "f".repeat(32),
       id: "cancelled",
       request: 1,
       cols: 80,
@@ -985,6 +998,7 @@ test.skipIf(process.platform === "win32")(
     await c.wait(1);
     c.send({
       type: "agent-open",
+      profile: "f".repeat(32),
       id: "detached",
       request: 1,
       cols: 80,
@@ -1055,6 +1069,7 @@ test.skipIf(process.platform === "win32").each(["missing", "prepare", "start"])(
     await c.wait(1);
     c.send({
       type: "agent-open",
+      profile: "f".repeat(32),
       id: "failed",
       request: 1,
       cols: 80,
@@ -1134,7 +1149,15 @@ test.skipIf(process.platform === "win32")(
       defaults: [],
       hooks: false,
     };
-    c.send({ type: "agent-open", id: "owned", request: 1, cols: 80, rows: 24, spec: agent });
+    c.send({
+      type: "agent-open",
+      profile: "f".repeat(32),
+      id: "owned",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      spec: agent,
+    });
     await c.wait(2);
     const m = await client();
     m.send({ type: "hello", build });
@@ -1188,6 +1211,7 @@ test.skipIf(process.platform === "win32")(
     await blocked.wait(1);
     blocked.send({
       type: "agent-open",
+      profile: "f".repeat(32),
       id: "blocked",
       request: 1,
       cols: 80,
@@ -1202,5 +1226,192 @@ test.skipIf(process.platform === "win32")(
     expect(mock.create).toHaveBeenCalledOnce();
     pending.resolve({ ok: false, reason: "checkout-refused" });
     await m.wait(5);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "profile tags isolate inventory and reattach; End uses confirmed incarnation snapshots",
+  async () => {
+    await start();
+    const profile = "a".repeat(32);
+    const other = "b".repeat(32);
+    async function tagged(id: string, tag: string) {
+      const c = await client();
+      c.send({ type: "hello", build });
+      await c.wait(1);
+      c.send({
+        type: "open",
+        id,
+        request: 1,
+        cols: 80,
+        rows: 24,
+        reattach: false,
+        profile: tag,
+        context: { repository: "/repo", worktree: "/tree", branch: "topic", agent: "shell" },
+      });
+      await c.wait(2);
+      await disconnect(c);
+    }
+    await tagged("mine", profile);
+    await tagged("other", other);
+    await disconnect(await open("legacy"));
+    const query = await client();
+    query.send({ type: "hello", build });
+    await query.wait(1);
+    query.send({ type: "inventory", profile });
+    await query.wait(2);
+    const result: unknown = query.messages[1];
+    if (!remoteResponse(result) || result.type !== "inventory-result")
+      throw new Error("missing inventory");
+    expect(result.own.map((entry) => entry.id)).toEqual(["mine"]);
+    expect(result.foreign.map((entry) => entry.id)).toEqual(["other", "legacy"]);
+    expect(JSON.stringify(mock.create.mock.calls)).not.toContain(profile);
+    const wrong = await client();
+    wrong.send({ type: "hello", build });
+    await wrong.wait(1);
+    const closed = once(wrong.socket, "close");
+    wrong.send({
+      type: "open",
+      id: "mine",
+      request: 1,
+      reattach: true,
+      profile: other,
+      cols: 80,
+      rows: 24,
+    });
+    await closed;
+    await tagged("arrived-after-confirmation", other);
+    query.send({ type: "end-sessions", profile, ids: result.foreign });
+    await query.wait(3);
+    expect(mock.kill).toHaveBeenCalledWith("other");
+    expect(mock.kill).toHaveBeenCalledWith("legacy");
+    expect(mock.kill).not.toHaveBeenCalledWith("mine");
+    expect(mock.kill).not.toHaveBeenCalledWith("arrived-after-confirmation");
+    const forged = await client();
+    forged.send({ type: "hello", build });
+    await forged.wait(1);
+    const refused = once(forged.socket, "close");
+    forged.send({ type: "end-sessions", profile, ids: [{ id: "mine", generation: profile }] });
+    await refused;
+    expect(mock.kill).not.toHaveBeenCalledWith("mine");
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a newer hub negotiates with the live old daemon and idle upgrades close the listener",
+  async () => {
+    await start();
+    const shell = await open();
+    const newer = await client();
+    newer.send({ type: "hello", build: "b".repeat(64) });
+    await newer.wait(1);
+    expect(newer.messages[0]).toEqual({ type: "hello", build, compatible: 2 });
+    expect(mock.stop).not.toHaveBeenCalled();
+    await disconnect(newer);
+    shell.send({ type: "kill", id: "one", request: 2 });
+    await shell.wait(3);
+    await disconnect(shell);
+    const idle = await client();
+    const closed = once(idle.socket, "close");
+    idle.send({ type: "hello", build: "b".repeat(64) });
+    await closed;
+    expect(idle.messages).toContainEqual({ type: "upgrade", build });
+    await host.close();
+    expect(host.server.listening).toBe(false);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "legacy daemon counts are separate, never upgraded automatically, and End is explicitly scoped",
+  async () => {
+    await start();
+    const old = { executable: "/cache/foom-host", pid: 42, started: "fixed-start", count: 2 };
+    mock.legacy.mockResolvedValue(old);
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({ type: "inventory", profile: "a".repeat(32), codeFolder: "/code" });
+    await c.wait(2);
+    const first = c.messages[1];
+    if (!remoteResponse(first) || first.type !== "inventory-result")
+      throw new Error("No inventory");
+    expect(first.foreign[0]?.count).toBe(2);
+    expect(mock.endLegacy).not.toHaveBeenCalled();
+    mock.legacy.mockResolvedValueOnce({ ...old, count: 3 });
+    c.send({ type: "inventory", profile: "a".repeat(32), codeFolder: "/code" });
+    await c.wait(3);
+    const second = c.messages[2];
+    if (!remoteResponse(second) || second.type !== "inventory-result")
+      throw new Error("No inventory");
+    expect(second.foreign[0]).toMatchObject({ ...first.foreign[0], count: 3 });
+    c.send({ type: "end-sessions", profile: "a".repeat(32), ids: second.foreign });
+    await c.wait(4);
+    expect(mock.endLegacy).toHaveBeenCalledExactlyOnceWith(
+      { ...old, count: 3 },
+      expect.any(AbortSignal),
+    );
+    expect(mock.kill).not.toHaveBeenCalled();
+    expect(mock.create).not.toHaveBeenCalled();
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "profile-scoped Close handles shells and tombstones, refuses foreign profiles, and releases timers",
+  async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await start();
+    const profile = "f".repeat(32);
+    await disconnect(await open("shell"));
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({ type: "session-close", id: "shell", request: 2, profile });
+    await c.wait(2);
+    expect(mock.kill).toHaveBeenCalledWith("shell");
+    await disconnect(c);
+    await exitedDetached("exited", 7);
+    const foreign = await client();
+    foreign.send({ type: "hello", build });
+    await foreign.wait(1);
+    const closed = once(foreign.socket, "close");
+    foreign.send({ type: "session-close", id: "exited", request: 2, profile: "a".repeat(32) });
+    await closed;
+    const retained = await open("exited", true);
+    expect(retained.messages).toContainEqual({
+      type: "open-result",
+      id: "exited",
+      request: 1,
+      state: "exited",
+      code: 7,
+    });
+    await disconnect(retained);
+    const cleanup = await client();
+    cleanup.send({ type: "hello", build });
+    await cleanup.wait(1);
+    cleanup.send({ type: "session-close", id: "exited", request: 2, profile });
+    await cleanup.wait(2);
+    await disconnect(cleanup);
+    expect(vi.getTimerCount()).toBe(0);
+    const gone = await open("exited", true);
+    expect(gone.messages).toContainEqual({
+      type: "open-result",
+      id: "exited",
+      request: 1,
+      state: "gone",
+    });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "new sessions require an owning profile before any PTY is created",
+  async () => {
+    await start();
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    const closed = once(c.socket, "close");
+    c.send({ type: "open", id: "untagged", request: 1, reattach: false, cols: 80, rows: 24 });
+    await closed;
+    expect(mock.create).not.toHaveBeenCalled();
   },
 );

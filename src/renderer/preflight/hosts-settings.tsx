@@ -191,6 +191,22 @@ export function HostsSettings({
           </header>
           <code>{entry.codeFolder}</code>
           <Result result={entry.result} />
+          {entry.foreignSessions !== undefined && (
+            <div className="host-facts">
+              <span>Other profiles or untagged: {entry.foreignSessions}</span>
+              {entry.foreignSessions > 0 && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    void act({ action: "end", host: entry.host });
+                  }}
+                >
+                  End…
+                </button>
+              )}
+            </div>
+          )}
           {entry.result?.ok && (
             <>
               <dl className="host-facts">

@@ -8,9 +8,8 @@ export function restorePlan(entries: readonly StoredSession[], enabled: boolean)
         (entry) =>
           !(entry.providerOrigin === "config" && builtinAgent(entry.agent)) &&
           entry.review === undefined &&
-          entry.remote !== true &&
           entry.running === true &&
-          (entry.agent === "shell" || entry.conversationId !== undefined),
+          (entry.remote === true || entry.agent === "shell" || entry.conversationId !== undefined),
       )
     : [];
 }
@@ -23,6 +22,7 @@ export function restoreAuthority(
 ): boolean {
   return (
     enabled &&
+    entry.remote !== true &&
     !(entry.providerOrigin === "config" && builtinAgent(entry.agent)) &&
     entry.running === true &&
     entry.orchestrator !== undefined &&

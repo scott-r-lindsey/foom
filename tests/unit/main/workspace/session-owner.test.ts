@@ -274,7 +274,7 @@ it.each(["identity", "agent", "existing", "launch", "no-id", "worktrees", "child
       ["identity", "agent", "existing"].includes(failure) ? 0 : 1,
     );
     if (failure === "launch" || failure === "worktrees")
-      expect(f.deps.failed).toHaveBeenCalledWith("parent");
+      expect(f.deps.failed).toHaveBeenCalledWith("parent", expect.any(Error));
     if (failure === "child")
       expect(f.deps.launch).toHaveBeenLastCalledWith(
         expect.objectContaining({ id: "child" }),
@@ -337,6 +337,73 @@ it("marks only eligible running rows before inventory, and clears the reservatio
   vi.mocked(f.deps.launch).mockRejectedValueOnce(new Error("fixture failure"));
   await f.owner.restartSaved();
   expect(f.owner.isRestoring("running")).toBe(false);
-  expect(f.deps.failed).toHaveBeenCalledWith("running");
+  expect(f.deps.failed).toHaveBeenCalledWith("running", expect.any(Error));
   expect(f.rows.get("running")?.dormant).toBe(true);
+});
+
+it("deduplicates discovered sessions against saved records without restoring grants or exposing the discovery marker", async () => {
+  const saved = row("saved");
+  const f = fixture([saved]);
+  const restored = vi.spyOn(f.deps, "restoreRow");
+  f.deps.discover = () =>
+    Promise.resolve([
+      row("saved", { recovered: true }),
+      row("new", { recovered: true }),
+      row("new", { recovered: true }),
+    ]);
+  await f.owner.restore();
+  expect([...f.rows.keys()]).toEqual(["saved"]);
+  await f.owner.restartSaved();
+  expect([...f.rows.keys()]).toEqual(["saved", "new"]);
+  expect(restored.mock.lastCall?.[0]).not.toHaveProperty("recovered");
+  expect(f.deps.launch).toHaveBeenCalledTimes(2);
+  expect(f.deps.launch).toHaveBeenCalledWith(
+    expect.objectContaining({ id: "new", recovered: true }),
+    undefined,
+    undefined,
+  );
+  expect(f.orchestration.reserve).not.toHaveBeenCalled();
+});
+
+it("keeps checkout locators private while preserving them for exited remote rows and prunes removed sessions", async () => {
+  const remoteCheckout = {
+    repository: "/remote/repo",
+    path: "/remote/.foom-worktree-topic",
+    branch: "topic",
+    identity: "a".repeat(64),
+  };
+  const remote = row("remote", {
+    remote: true,
+    running: false,
+    placement: { kind: "remote", host: "worker" },
+    remoteCheckout,
+  });
+  const f = fixture([remote]);
+  const remember = vi.fn();
+  f.deps.rememberRemote = remember;
+  await f.owner.restore();
+  expect(remember).toHaveBeenCalledWith(remote);
+  expect(f.rows.get("remote")).not.toHaveProperty("remoteCheckout");
+  await f.owner.save();
+  expect(f.store.save.mock.lastCall?.[0][0]).toMatchObject({ remoteCheckout, running: false });
+  f.owner.rememberRemote("remote", { ...remoteCheckout, branch: "updated" });
+  await f.owner.save();
+  expect(f.store.save.mock.lastCall?.[0][0]?.remoteCheckout?.branch).toBe("updated");
+  f.rows.delete("remote");
+  await f.owner.save();
+  f.rows.set("remote", row("remote"));
+  await f.owner.save();
+  expect(f.store.save.mock.lastCall?.[0][0]).not.toHaveProperty("remoteCheckout");
+});
+
+it("recovers daemon-live rows saved as exited as human sessions without inheriting stale grants", async () => {
+  const placement = { kind: "remote", host: "worker" } as const;
+  const saved = row("remote", { remote: true, placement, running: false, parentId: "old-parent" });
+  const f = fixture([saved]);
+  const recovered = row("remote", { remote: true, placement, recovered: true });
+  f.deps.discover = () => Promise.resolve([recovered]);
+  await f.owner.restore();
+  await f.owner.restartSaved();
+  expect(f.deps.launch).toHaveBeenCalledWith(recovered, undefined, undefined);
+  expect(f.orchestration.restoreChild).not.toHaveBeenCalled();
 });

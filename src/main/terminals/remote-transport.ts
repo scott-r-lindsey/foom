@@ -6,7 +6,12 @@ import { ApplicationError } from "../../shared/application-errors";
 import { EventEmitter } from "node:events";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { HostRequest } from "../../shared/terminal-host";
-import type { RemoteTarget, RemoteRequest } from "../../shared/remote-host";
+import type {
+  RemoteTarget,
+  RemoteRequest,
+  RemoteInventory,
+  RemoteInventoryResult,
+} from "../../shared/remote-host";
 import {
   RemoteFrames,
   RemoteMessages,
@@ -49,6 +54,7 @@ export class RemoteTransport extends EventEmitter {
   private closed = false;
   private ready = false;
   private opened = false;
+  private upgrades = 0;
   private retries = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private session: Extract<HostRequest, { type: "create" }> | undefined;
@@ -63,7 +69,7 @@ export class RemoteTransport extends EventEmitter {
   constructor(
     private readonly target: RemoteTarget,
     expectedVersion: string,
-    private readonly management?: HostManagement,
+    private readonly management?: HostManagement | RemoteInventory,
   ) {
     super();
     if (!remoteHost(target.host)) throw new Error("Invalid SSH host");
@@ -94,8 +100,15 @@ export class RemoteTransport extends EventEmitter {
   private openRequest(request: number, reattach: boolean): RemoteRequest {
     const session = this.session;
     if (!session) throw new Error("Remote session unavailable");
-    if (this.target.cleanup) return { type: "agent-close", id: session.id, request };
-    return this.target.agent && !reattach
+    if (this.target.cleanup)
+      return this.target.profile
+        ? { type: "session-close", id: session.id, request, profile: this.target.profile }
+        : { type: "agent-close", id: session.id, request };
+    const metadata = {
+      ...(this.target.profile ? { profile: this.target.profile } : {}),
+      ...(this.target.context ? { context: this.target.context } : {}),
+    };
+    return this.target.agent && !reattach && !this.target.reattach
       ? {
           type: "agent-open",
           id: session.id,
@@ -103,6 +116,7 @@ export class RemoteTransport extends EventEmitter {
           cols: session.spec.cols,
           rows: session.spec.rows,
           spec: this.target.agent.spec,
+          ...metadata,
         }
       : {
           type: "open",
@@ -110,7 +124,9 @@ export class RemoteTransport extends EventEmitter {
           request,
           cols: session.spec.cols,
           rows: session.spec.rows,
-          reattach,
+          reattach: reattach || this.target.reattach === true,
+          ...metadata,
+          ...(this.target.human ? { human: true } : {}),
         };
   }
   private send(message: RemoteRequest): void {
@@ -126,7 +142,7 @@ export class RemoteTransport extends EventEmitter {
   }
   private retireConnection(
     connection: Connection,
-    reason: "failure" | "exit" | "close" | "dispose",
+    reason: "failure" | "exit" | "close" | "dispose" | "upgrade",
   ): void {
     if (connection.dead) return;
     // Detach synchronously, before signalling or notifying callers. Neither a
@@ -137,8 +153,8 @@ export class RemoteTransport extends EventEmitter {
     this.ready = false;
     this.restoring = undefined;
     this.restoration.clear();
-    const pending = [...this.pending];
-    this.pending.clear();
+    const pending = reason === "upgrade" ? [] : [...this.pending];
+    if (reason !== "upgrade") this.pending.clear();
     const signal = (name: NodeJS.Signals) => {
       try {
         connection.child.kill(name);
@@ -160,7 +176,7 @@ export class RemoteTransport extends EventEmitter {
     if (!this.opened && reason !== "dispose")
       this.launchFailure ??= new LaunchFailure("remote_host_unreachable");
     for (const [request, id] of pending) this.emit("message", { type: "error", request, id });
-    if (reason === "dispose" || this.closed) return;
+    if (reason === "dispose" || reason === "upgrade" || this.closed) return;
     // Reserve one of five reconnect attempts exactly once, independently of close.
     if (!this.opened || this.retries >= 5) {
       this.launchFailure ??= new LaunchFailure("remote_host_unreachable");
@@ -216,7 +232,10 @@ export class RemoteTransport extends EventEmitter {
       () => {
         this.retireConnection(connection, "failure");
       },
-      120000 + (this.management?.operation === "clone" ? HOST_CLONE_TIMEOUT_MS : 0),
+      120000 +
+        (this.management?.type === "manage" && this.management.operation === "clone"
+          ? HOST_CLONE_TIMEOUT_MS
+          : 0),
     );
     connection.deadline = deadline;
     const receive = (bytes: Buffer) => {
@@ -253,7 +272,17 @@ export class RemoteTransport extends EventEmitter {
           const value = responses.push(wire);
           if (!value) return;
           if (!this.ready) {
-            if (value.type !== "hello" || value.build !== artifact.sha256)
+            if (value.type === "upgrade" && !this.opened && this.upgrades++ < 2) {
+              this.retireConnection(connection, "upgrade");
+              this.timer = setTimeout(() => {
+                this.connect();
+              }, 1000);
+              return;
+            }
+            if (
+              value.type !== "hello" ||
+              (value.build !== artifact.sha256 && value.compatible !== 2)
+            )
               throw new Error("Host version mismatch");
             // Reconnect's deadline covers open, state restoration and the entire
             // replay. Internal requests have no TerminalHostClient request timer.
@@ -270,6 +299,15 @@ export class RemoteTransport extends EventEmitter {
             }
             return;
           }
+          if (value.type === "inventory-result") {
+            if (!this.management || this.management.type === "manage")
+              throw new Error("Unexpected inventory");
+            clearTimeout(deadline);
+            this.emit("inventory", value);
+            this.kill();
+            return;
+          }
+          if (value.type === "upgrade") throw new Error("Unexpected upgrade");
           if (value.type === "managed") {
             if (!this.management) throw new Error("Unexpected management result");
             clearTimeout(deadline);
@@ -316,7 +354,7 @@ export class RemoteTransport extends EventEmitter {
                   this.retireConnection(connection, "failure");
                 });
             } else if (value.type === "agent-ready") {
-              if (!this.opened && !agentPrepared)
+              if (!this.opened && !agentPrepared && !this.target.reattach)
                 throw new Error("Remote spawn was not authorized");
               if (agentReady) throw new Error("Repeated remote agent metadata");
               agentReady = true;
@@ -371,6 +409,19 @@ export class RemoteTransport extends EventEmitter {
                   this.restoration.add(request);
                   this.send({ ...command, request });
                 }
+              return;
+            }
+            if (
+              this.target.reattach &&
+              value.request === this.session.request &&
+              value.state !== "live"
+            ) {
+              this.target.unavailable?.(
+                value.state === "exited" ? value.code : REMOTE_GONE_EXIT_CODE,
+              );
+              this.pending.delete(value.request);
+              this.emit("message", { type: "error", id: value.id, request: value.request });
+              this.kill();
               return;
             }
             if (
@@ -506,6 +557,31 @@ export function remoteManagement(
         ok: false,
         reason: transport.failureReason ? "artifact-unavailable" : transport.managementFailure,
       });
+    });
+    signal?.addEventListener("abort", cancel, { once: true });
+    if (signal?.aborted) cancel();
+  });
+}
+
+/** Profile-scoped reconciliation. IDs and context never enter the renderer. */
+export function remoteInventory(
+  target: RemoteTarget,
+  version: string,
+  request: RemoteInventory,
+  signal?: AbortSignal,
+): Promise<RemoteInventoryResult> {
+  return new Promise((resolve, reject) => {
+    const transport = new RemoteTransport(target, version, request);
+    const cancel = () => transport.kill();
+    let settled = false;
+    transport.once("inventory", (value: RemoteInventoryResult) => {
+      settled = true;
+      signal?.removeEventListener("abort", cancel);
+      resolve(value);
+    });
+    transport.once("exit", () => {
+      signal?.removeEventListener("abort", cancel);
+      if (!settled) reject(new Error("Remote inventory unavailable"));
     });
     signal?.addEventListener("abort", cancel, { once: true });
     if (signal?.aborted) cancel();

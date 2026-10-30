@@ -22,7 +22,7 @@ test.skipIf(process.platform === "win32")(
   () => {
     const home = fixture();
     const socket = hostSocket(home);
-    expect(socket).toBe(join(home, ".foom-host/host.sock"));
+    expect(socket).toBe(join(home, ".foom-host/host-v2.sock"));
     expect(hostSocket(home)).toBe(socket);
     for (const path of ["relative", `${home}/../bad`, `${home}\0`])
       expect(() => {

@@ -54,6 +54,7 @@ export type HostResult =
       worktree?: { path: string; branch: string; identity: string; changes: string };
     };
 export interface HostRow extends RegisteredHost {
+  foreignSessions?: number;
   result?: HostResult | undefined;
 }
 export interface RepositoryLocation {
@@ -72,6 +73,7 @@ export type HostsAction =
   | { action: "test"; host: string; codeFolder: string }
   | { action: "refresh"; host: string }
   | { action: "remove"; host: string }
+  | { action: "end"; host: string }
   | { action: "locations" }
   | { action: "clone"; host: string; repository: string };
 export interface HostsApi {

@@ -576,6 +576,7 @@ const mock = vi.hoisted(() => {
     setupState: vi.fn<() => Promise<{ settings: Partial<Settings> }>>(),
     managesPath: vi.fn(() => Promise.resolve(false)),
     settingsStore: {
+      profileTag: () => "a".repeat(32),
       legacyConfig: vi.fn<() => ConfigSettings | undefined>(() => ({ terminalFontSize: 16 })),
       configDigest: vi.fn(() => null),
       attachConfig: vi.fn(() => Promise.resolve()),

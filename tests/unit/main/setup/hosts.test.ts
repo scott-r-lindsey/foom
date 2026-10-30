@@ -1,9 +1,15 @@
+import type { RemoteInventoryResult, RemoteSessionInfo } from "../../../../src/shared/remote-host";
+import type * as remoteTransport from "../../../../src/main/terminals/remote-transport";
 import type * as childProcess from "node:child_process";
 import { beforeEach, expect, test, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
 import type { Settings } from "../../../../src/shared/setup";
 import type { HostManagement, HostResult } from "../../../../src/shared/registered-hosts.d";
-const mock = vi.hoisted(() => ({ execute: vi.fn(), remote: vi.fn() }));
+const mock = vi.hoisted(() => ({
+  execute: vi.fn(),
+  remote: vi.fn(),
+  inventory: vi.fn<typeof remoteTransport.remoteInventory>(),
+}));
 vi.mock("../../../../src/main/agents/agents", () => ({
   loginPath: () => Promise.resolve({ path: "/fixture-login" }),
 }));
@@ -17,6 +23,7 @@ vi.mock("node:child_process", async (original) => {
 });
 vi.mock("../../../../src/main/terminals/remote-transport", () => ({
   remoteManagement: mock.remote,
+  remoteInventory: mock.inventory,
 }));
 import { Hosts, hostsForStore } from "../../../../src/main/setup/hosts";
 import { UncertainEffect } from "../../../../src/main/workspace/worktree-outcome";
@@ -375,4 +382,134 @@ test("remote worktree commands never clone and only use the registered origin an
       identity: "b".repeat(64),
     }),
   ).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
+});
+
+test("profile inventories project only counts to Settings and End confirms exact session incarnations", async () => {
+  const profile = "a".repeat(32);
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, profile);
+  const snapshot: RemoteInventoryResult = {
+    type: "inventory-result",
+    own: [{ id: "mine" }],
+    foreign: [{ id: "foreign", generation: "b".repeat(32) }],
+  };
+  mock.inventory.mockResolvedValue(snapshot);
+  expect(await hosts.sessions()).toEqual([{ host: "worker", session: { id: "mine" } }]);
+  expect(hosts.state().hosts[0]).toMatchObject({ foreignSessions: 1 });
+  await hosts.action({ action: "list" });
+  expect(hosts.state().hosts[0]?.result).toMatchObject({ ok: true, facts: { sessions: 2 } });
+  mock.inventory.mockResolvedValueOnce({
+    ...snapshot,
+    foreign: [{ id: "foreign", generation: "b".repeat(32), count: 3 }],
+  });
+  await hosts.sessions();
+  expect(hosts.state().hosts[0]).toMatchObject({
+    foreignSessions: 3,
+    result: { facts: { sessions: 4 } },
+  });
+  expect(JSON.stringify(hosts.state())).not.toContain('foreign"');
+  const decline = vi.fn().mockResolvedValue(false);
+  await hosts.action({ action: "end", host: "worker" }, decline);
+  expect(decline).toHaveBeenCalledWith(
+    expect.objectContaining({ title: "End remote sessions?", accept: "End sessions" }),
+  );
+  expect(mock.inventory.mock.calls.filter((call) => call[2].type === "end-sessions")).toHaveLength(
+    0,
+  );
+  const confirm = vi.fn().mockResolvedValue(true);
+  mock.inventory
+    .mockResolvedValueOnce(snapshot)
+    .mockResolvedValueOnce({ type: "inventory-result", own: [{ id: "mine" }], foreign: [] });
+  await hosts.action({ action: "end", host: "worker" }, confirm);
+  expect(mock.inventory).toHaveBeenLastCalledWith(
+    { host: "worker" },
+    "0.1.0",
+    { type: "end-sessions", profile, ids: snapshot.foreign },
+    expect.any(AbortSignal),
+  );
+  expect(hosts.state().hosts[0]).toMatchObject({ foreignSessions: 0 });
+  mock.inventory.mockResolvedValueOnce({ type: "inventory-result", own: [], foreign: [] });
+  confirm.mockClear();
+  await hosts.action({ action: "end", host: "worker" }, confirm);
+  expect(confirm).not.toHaveBeenCalled();
+  mock.inventory.mockRejectedValue(new Error("private network detail"));
+  expect(await hosts.sessions()).toEqual([]);
+  await expect(hosts.action({ action: "refresh", host: "worker" })).rejects.toThrow();
+});
+
+test("recovery placements are profile-owned, registered, and bound to the hashed host/path checkout key", async () => {
+  const { locationId } = await import("../../../../src/main/control/metadata");
+  const host = "worker";
+  const path = `${facts.codeFolder}/.foom-worktree-topic`;
+  const key = `/foom-remote/${locationId(JSON.stringify([host, path]))}`;
+  settings = { ...settings, registeredHosts: [{ host, codeFolder: facts.codeFolder }] };
+  const session = {
+    id: "mine",
+    context: { repository: "/local/repo", worktree: key, branch: "topic", agent: "claude" },
+    checkout: { repository: `${facts.codeFolder}/repo`, path, identity: "c".repeat(64) },
+  };
+  mock.inventory.mockResolvedValue({ type: "inventory-result", own: [session], foreign: [] });
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
+  await hosts.sessions();
+  expect(hosts.placement(key)).toMatchObject({
+    host,
+    path,
+    localRepository: "/local/repo",
+    identity: "c".repeat(64),
+  });
+  expect(hosts.placement("unknown")).toBeUndefined();
+  repositories = [];
+  expect(hosts.placement(key)).toBeUndefined();
+  repositories = [{ path: "/local/repo", name: "repo" }];
+  const withoutContext: RemoteSessionInfo = { id: session.id, checkout: session.checkout };
+  const withoutCheckout: RemoteSessionInfo = { id: session.id, context: session.context };
+  for (const changed of [
+    withoutContext,
+    withoutCheckout,
+    { ...session, context: { ...session.context, worktree: "/forged" } },
+    { ...session, checkout: { ...session.checkout, path: `${path}/nested` } },
+  ]) {
+    mock.inventory.mockResolvedValueOnce({ type: "inventory-result", own: [changed], foreign: [] });
+    await hosts.sessions();
+    expect(hosts.placement(key)).toBeUndefined();
+  }
+  await hosts.action({ action: "remove", host });
+  expect(hosts.placement(key)).toBeUndefined();
+  const untagged = new Hosts(store, () => repositories, "0.1.0", run);
+  settings = { ...settings, registeredHosts: [{ host, codeFolder: facts.codeFolder }] };
+  await expect(untagged.action({ action: "end", host })).rejects.toThrow("Profile unavailable");
+});
+
+test("saved locators survive expired daemon tombstones but never authorize a different folder, host or repository", async () => {
+  const { locationId } = await import("../../../../src/main/control/metadata");
+  const path = `${facts.codeFolder}/.foom-worktree-topic`;
+  const key = `/foom-remote/${locationId(JSON.stringify(["worker", path]))}`;
+  const value = {
+    repository: `${facts.codeFolder}/repo`,
+    path,
+    branch: "topic",
+    identity: "a".repeat(64),
+  };
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  hosts.rememberPlacement("/local/repo", key, "worker", value);
+  expect(hosts.placement(key)).toMatchObject({ host: "worker", path, identity: value.identity });
+  for (const badPath of ["/outside/.foom-worktree-topic", `${path}/nested`]) {
+    const badKey = `/foom-remote/${locationId(JSON.stringify(["worker", badPath]))}`;
+    hosts.rememberPlacement("/local/repo", badKey, "worker", { ...value, path: badPath });
+    expect(hosts.placement(badKey)).toBeUndefined();
+  }
+  for (const [repository, worktree, host, location] of [
+    ["/foreign", "/unknown", "worker", value],
+    ["/local/repo", "/unknown", "missing", value],
+    ["/local/repo", "/unknown", "worker", value],
+    ["/local/repo", "/unknown", "worker", { ...value, path: `${path}/nested` }],
+  ] as const) {
+    hosts.rememberPlacement(repository, worktree, host, location);
+    expect(hosts.placement(worktree)).toBeUndefined();
+  }
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: "/different" }] };
+  expect(hosts.placement(key)).toBeUndefined();
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  await hosts.action({ action: "remove", host: "worker" });
+  expect(hosts.placement(key)).toBeUndefined();
 });

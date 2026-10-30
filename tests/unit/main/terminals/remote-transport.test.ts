@@ -910,3 +910,91 @@ test("clone management connections allow the clone deadline plus bootstrap and v
   await expect(pending).resolves.toEqual({ ok: false, reason: "unreachable" });
   expect(child.kill).toHaveBeenCalledWith("SIGTERM");
 });
+
+test("new hubs negotiate a compatible busy build; idle upgrade retries are bounded before opening", async () => {
+  transport.postMessage(create);
+  await Promise.resolve();
+  child.header();
+  child.message({ type: "upgrade", build: "b".repeat(64) });
+  const replacement = new Child();
+  mock.spawn.mockReturnValue(replacement);
+  await vi.advanceTimersByTimeAsync(1000);
+  replacement.header();
+  replacement.message({ type: "hello", build: "b".repeat(64), compatible: 2 });
+  expect(replacement.messages).toContainEqual(
+    expect.objectContaining({ type: "open", reattach: false }),
+  );
+  replacement.message({ type: "open-result", id: "one", request: 1, state: "live" });
+  expect(events).toContainEqual({ type: "result", id: "one", request: 1, lines: [] });
+  replacement.message({ type: "upgrade", build: "b".repeat(64) });
+  expect(replacement.kill).toHaveBeenCalled();
+});
+
+test.each(["gone", "exited"] as const)(
+  "initial saved reattach reports %s without spawning a replacement",
+  async (state) => {
+    transport.kill();
+    transport = new RemoteTransport(
+      { host: "fixture", reattach: true, human: true, profile: "a".repeat(32) },
+      "0.1.0",
+    );
+    events = [];
+    transport.on("message", (value) => events.push(value));
+    transport.postMessage(create);
+    await Promise.resolve();
+    child.greet();
+    expect(child.messages).toContainEqual(
+      expect.objectContaining({
+        type: "open",
+        reattach: true,
+        human: true,
+        profile: "a".repeat(32),
+      }),
+    );
+    child.message(
+      state === "gone"
+        ? { type: "open-result", id: "one", request: 1, state }
+        : { type: "open-result", id: "one", request: 1, state, code: 7 },
+    );
+    expect(events).toContainEqual({ type: "error", id: "one", request: 1 });
+    const count = mock.spawn.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+    expect(mock.spawn).toHaveBeenCalledTimes(count);
+  },
+);
+
+test("inventory uses a bounded connection, rejects unexpected replies and supports cancellation", async () => {
+  const { remoteInventory } = await import("../../../../src/main/terminals/remote-transport");
+  transport.kill();
+  const pending = remoteInventory({ host: "fixture" }, "0.1.0", {
+    type: "inventory",
+    profile: "a".repeat(32),
+  });
+  await Promise.resolve();
+  child.greet();
+  const result = { type: "inventory-result", own: [{ id: "one" }], foreign: [] } as const;
+  child.message({ ...result, own: [...result.own], foreign: [] });
+  await expect(pending).resolves.toEqual(result);
+  child = new Child();
+  mock.spawn.mockReturnValue(child);
+  const cancellation = new AbortController();
+  const aborted = remoteInventory(
+    { host: "fixture" },
+    "0.1.0",
+    { type: "inventory", profile: "a".repeat(32) },
+    cancellation.signal,
+  );
+  const assertion = expect(aborted).rejects.toThrow("unavailable");
+  await Promise.resolve();
+  child.greet();
+  cancellation.abort();
+  await assertion;
+  child = new Child();
+  mock.spawn.mockReturnValue(child);
+  transport = new RemoteTransport({ host: "fixture" }, "0.1.0");
+  transport.postMessage(create);
+  await Promise.resolve();
+  child.greet();
+  child.message({ type: "inventory-result", own: [], foreign: [] });
+  expect(child.kill).toHaveBeenCalled();
+});

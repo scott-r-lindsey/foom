@@ -1,3 +1,6 @@
+import { legacyDaemon, endLegacyDaemon } from "./legacy";
+import type { LegacyDaemon } from "./legacy";
+import { randomBytes } from "node:crypto";
 import { manageHost } from "./management";
 import { version } from "../../../package.json";
 import { LaunchFailure } from "../../shared/launch-failure";
@@ -10,7 +13,7 @@ import { createServer, type Socket } from "node:net";
 import { homedir, userInfo } from "node:os";
 import { isAbsolute } from "node:path";
 import type { HostResponse } from "../../shared/terminal-host";
-import type { RemoteRequest, RemoteResponse } from "../../shared/remote-host";
+import type { RemoteRequest, RemoteResponse, RemoteSessionContext } from "../../shared/remote-host";
 import {
   RemoteFrames,
   MAX_REMOTE_MESSAGE,
@@ -22,7 +25,7 @@ import { TerminalManager } from "../terminal-manager";
 import { hostSocket } from "./private-path";
 
 export const MAX_EXIT_TOMBSTONES = 64;
-export const DETACHED_SESSION_GRACE_MS = 24 * 60 * 60 * 1000;
+export const EXIT_TOMBSTONE_GRACE_MS = 24 * 60 * 60 * 1000;
 const MAX_SESSIONS = 32;
 const MAX_PENDING_CONNECTIONS = 4;
 
@@ -49,9 +52,14 @@ export function remoteShell(shell = process.env["SHELL"], accountShell = () => u
 }
 
 type Expiry = { timer?: ReturnType<typeof setTimeout>; expired?: boolean };
-type Tombstone = { code: number; expiry: Expiry };
+type Tombstone = { code: number; expiry: Expiry; profile?: string };
 type Session = {
+  generation: string;
   connection?: Socket;
+  profile?: string;
+  context?: RemoteSessionContext;
+  human?: boolean;
+  checkout?: { repository: string; path: string; identity: string };
   exited?: number;
   expiry?: Expiry;
   removing?: Promise<void>;
@@ -70,6 +78,7 @@ export function serveHost(
   const worktrees = new Set<Session>();
   const removingWorktrees = new Set<string>();
   const tombstones = new Map<string, Tombstone>();
+  let legacy: { id: string; generation: string; daemon: LegacyDaemon } | undefined;
   let shuttingDown = false;
   const isShuttingDown = () => shuttingDown;
   let sequence = 0;
@@ -152,7 +161,7 @@ export function serveHost(
       if (tombstones.get(id)?.expiry === expiry) tombstones.delete(id);
       const session = sessions.get(id);
       if (session?.expiry === expiry) reap(id, session);
-    }, DETACHED_SESSION_GRACE_MS);
+    }, EXIT_TOMBSTONE_GRACE_MS);
     return expiry;
   };
   const remove = (id: string, session: Session, rememberExit = false): Promise<void> => {
@@ -175,7 +184,12 @@ export function serveHost(
           remoteResponse({ type: "exit", id, code })
         ) {
           const expiry = session.expiry ?? scheduleExpiry(id);
-          if (!expiry.expired) tombstones.set(id, { code, expiry });
+          if (!expiry.expired)
+            tombstones.set(id, {
+              code,
+              expiry,
+              ...(session.profile ? { profile: session.profile } : {}),
+            });
           // Map insertion order is exit/disposal order; reads never renew it.
           for (const [oldId, old] of tombstones) {
             if (tombstones.size <= MAX_EXIT_TOMBSTONES) break;
@@ -199,7 +213,10 @@ export function serveHost(
       revoke(message.id, session);
     }
     if (session?.connection) void send(session.connection, message);
-    else if (message.type === "exit" && session && !shuttingDown) reap(message.id, session, true);
+    else if (message.type === "exit" && session && !shuttingDown) {
+      session.expiry ??= scheduleExpiry(message.id);
+      reap(message.id, session, true);
+    }
   };
   const manager = new TerminalManager(
     (id, code) => {
@@ -234,6 +251,7 @@ export function serveHost(
     sockets.add(socket);
     pendingConnections.add(socket);
     const frames = new RemoteFrames();
+    const cancellation = new AbortController();
     let negotiated = false;
     let id: string | undefined;
     let prepared:
@@ -253,10 +271,10 @@ export function serveHost(
       session.connection = socket;
       pendingConnections.delete(socket);
       clearTimeout(deadline);
-      if (session.agent)
+      if (session.agent && !session.human)
         await send(socket, { type: "agent-ready", id, ready: session.agent.ready });
       await send(socket, { type: "open-result", id, request, state: "live" });
-      for (const signal of session.hooks?.splice(0) ?? [])
+      for (const signal of session.human ? [] : (session.hooks?.splice(0) ?? []))
         await send(socket, { type: "agent-hook", id, signal });
     };
     let queued = 0;
@@ -266,13 +284,94 @@ export function serveHost(
     const dispatch = async (message: RemoteRequest) => {
       if (disconnected()) return;
       if (!negotiated) {
-        if (message.type !== "hello" || message.build !== build)
-          throw new Error("Host version mismatch");
+        if (message.type !== "hello") throw new Error("Host version mismatch");
+        if (
+          message.build !== build &&
+          sessions.size === 0 &&
+          tombstones.size === 0 &&
+          worktrees.size === 0 &&
+          sockets.size === 1
+        ) {
+          // Set the shutdown gate synchronously: no connection can create a PTY
+          // between the idle decision and listener close. Never unlink a socket.
+          shuttingDown = true;
+          await send(socket, { type: "upgrade", build });
+          void close().catch(() => {});
+          return;
+        }
         negotiated = true;
-        await send(socket, { type: "hello", build });
+        await send(socket, { type: "hello", build, compatible: 2 });
         return;
       }
       if (message.type === "hello") throw new Error("Repeated negotiation");
+      if (message.type === "inventory" || message.type === "end-sessions") {
+        if (id !== undefined) throw new Error("Session already open");
+        if (message.type === "inventory" && message.codeFolder) {
+          const observed = await legacyDaemon(home, message.codeFolder, cancellation.signal);
+          if (observed) {
+            if (
+              !legacy ||
+              legacy.daemon.pid !== observed.pid ||
+              legacy.daemon.started !== observed.started
+            )
+              legacy = {
+                id: `legacy-${randomBytes(16).toString("hex")}`,
+                generation: randomBytes(16).toString("hex"),
+                daemon: observed,
+              };
+            else legacy.daemon = observed;
+          } else legacy = undefined;
+        }
+        if (message.type === "end-sessions") {
+          // The confirmed IDs are a snapshot. Never end this profile's sessions,
+          // or newly arrived sessions not present in the confirmation.
+          if (
+            message.ids.some(({ id, generation }) => {
+              if (id === legacy?.id) return generation !== legacy.generation;
+              const session = sessions.get(id);
+              if (!session && id.startsWith("legacy-")) return true;
+              return (
+                session &&
+                (session.profile === message.profile || session.generation !== generation)
+              );
+            })
+          )
+            throw new Error("Foreign cleanup refused");
+          await Promise.all(
+            message.ids.map(async ({ id }) => {
+              if (id === legacy?.id) {
+                await endLegacyDaemon(legacy.daemon, cancellation.signal);
+                legacy = undefined;
+                return;
+              }
+              const session = sessions.get(id);
+              if (session) await remove(id, session);
+            }),
+          );
+        }
+        const live = [...sessions].filter(
+          ([, session]) => session.exited === undefined && !session.removing,
+        );
+        await send(socket, {
+          type: "inventory-result",
+          own: live
+            .filter(([, session]) => session.profile === message.profile)
+            .map(([id, session]) => ({
+              id,
+              ...(session.context ? { context: session.context } : {}),
+              ...(session.checkout ? { checkout: session.checkout } : {}),
+            })),
+          foreign: [
+            ...live
+              .filter(([, session]) => session.profile !== message.profile)
+              .map(([id, session]) => ({ id, generation: session.generation })),
+            ...(legacy
+              ? [{ id: legacy.id, generation: legacy.generation, count: legacy.daemon.count }]
+              : []),
+          ],
+        });
+        return;
+      }
       if (message.type === "manage") {
         if (id !== undefined) throw new Error("Session already open");
         const removing = message.operation === "remove-worktree" ? message.path : undefined;
@@ -306,11 +405,20 @@ export function serveHost(
         }
         return;
       }
-      if (message.type === "agent-close") {
+      if (message.type === "agent-close" || message.type === "session-close") {
         if (id !== undefined) throw new Error("Already open");
         const session = sessions.get(message.id);
-        if (session && !session.agent) throw new Error("Not an agent");
+        const tombstone = tombstones.get(message.id);
+        if (message.type === "session-close") {
+          if (
+            (session && session.profile !== message.profile) ||
+            (tombstone && tombstone.profile !== message.profile)
+          )
+            throw new Error("Profile mismatch");
+        } else if (session && !session.agent) throw new Error("Not an agent");
         if (session) await remove(message.id, session);
+        cancelExpiry(tombstone?.expiry);
+        tombstones.delete(message.id);
         await send(socket, { type: "result", id: message.id, request: message.request, lines: [] });
         return;
       }
@@ -341,6 +449,7 @@ export function serveHost(
         if (id !== undefined) throw new Error("Already open");
         id = message.id;
         let session = sessions.get(id);
+        if (session && session.profile !== message.profile) throw new Error("Profile mismatch");
         const tombstone = tombstones.get(id);
         if (message.type === "agent-open" && (session || tombstone))
           throw new Error("Agent launch ID already exists");
@@ -352,6 +461,7 @@ export function serveHost(
           return;
         }
         if (tombstone) {
+          if (tombstone.profile !== message.profile) throw new Error("Profile mismatch");
           await send(socket, {
             type: "open-result",
             id,
@@ -362,14 +472,25 @@ export function serveHost(
           return;
         }
         if (!session) {
+          if (!message.profile) throw new Error("Missing owning profile");
           if (sessions.size >= MAX_SESSIONS) throw new Error("Host session limit");
           const sessionId = id;
-          session = {};
+          session = {
+            generation: randomBytes(16).toString("hex"),
+            ...(message.profile ? { profile: message.profile } : {}),
+            ...(message.context ? { context: message.context } : {}),
+          };
           const owned = session;
           if (message.type === "agent-open") {
             if (removingWorktrees.has(message.spec.worktree))
               throw new Error("Worktree is being removed");
             owned.worktree = message.spec.worktree;
+            if (message.spec.checkoutIdentity)
+              owned.checkout = {
+                repository: message.spec.repository,
+                path: message.spec.worktree,
+                identity: message.spec.checkoutIdentity,
+              };
             worktrees.add(owned);
             owned.hooks = [];
             try {
@@ -380,6 +501,7 @@ export function serveHost(
                 (signal) => {
                   const reduced = { ...signal, terminalId: sessionId };
                   if (owned.exited !== undefined || owned.removing) return;
+                  if (owned.human) return;
                   if (owned.connection)
                     void send(owned.connection, {
                       type: "agent-hook",
@@ -395,6 +517,7 @@ export function serveHost(
                   new Promise<RemoteControlResult>((resolve) => {
                     const connection = owned.connection;
                     if (
+                      owned.human ||
                       !connection ||
                       connection.destroyed ||
                       !record(params) ||
@@ -454,6 +577,7 @@ export function serveHost(
           }
           sessions.set(id, owned);
         }
+        session.human = message.type === "open" && message.human === true;
         await opened(session, id, message.request);
         return;
       }
@@ -582,6 +706,7 @@ export function serveHost(
     });
     socket.on("error", () => socket.destroy());
     socket.on("close", () => {
+      cancellation.abort();
       clearTimeout(deadline);
       if (prepared) {
         clearTimeout(prepared.timer);
@@ -602,8 +727,11 @@ export function serveHost(
             call.resolve({ type: "error", error: "unavailable" });
           }
         manager.detach(sessionId);
-        session.expiry = scheduleExpiry(sessionId);
-        if (session.exited !== undefined) reap(sessionId, session, true);
+
+        if (session.exited !== undefined) {
+          session.expiry ??= scheduleExpiry(sessionId);
+          reap(sessionId, session, true);
+        }
       }
     });
   });
@@ -615,42 +743,40 @@ export function serveHost(
     chmodSync(path, 0o600);
   });
   let closing: Promise<void> | undefined;
-  return {
-    server,
-    close(): Promise<void> {
-      if (closing) return closing;
-      shuttingDown = true;
-      closing = (async () => {
-        // Revoke attachments before native shutdown disposes manager sessions;
-        // a later socket-close callback must not address a disposed terminal.
-        for (const [id, session] of sessions) {
-          cancelExpiry(session.expiry);
-          revoke(id, session);
-          delete session.connection;
-          manager.detach(id);
-        }
-        for (const socket of sockets) socket.destroy();
-        await Promise.allSettled(
-          [...sessions.values()].flatMap((session) => (session.removing ? [session.removing] : [])),
+  function close(): Promise<void> {
+    if (closing) return closing;
+    shuttingDown = true;
+    closing = (async () => {
+      // Revoke attachments before native shutdown disposes manager sessions;
+      // a later socket-close callback must not address a disposed terminal.
+      for (const [id, session] of sessions) {
+        cancelExpiry(session.expiry);
+        revoke(id, session);
+        delete session.connection;
+        manager.detach(id);
+      }
+      for (const socket of sockets) socket.destroy();
+      await Promise.allSettled(
+        [...sessions.values()].flatMap((session) => (session.removing ? [session.removing] : [])),
+      );
+      for (const tombstone of tombstones.values()) cancelExpiry(tombstone.expiry);
+      tombstones.clear();
+      await manager.shutdown();
+      if (server.listening)
+        await new Promise<void>((resolve, reject) =>
+          server.close((error) => {
+            if (error) reject(error);
+            else resolve();
+          }),
         );
-        for (const tombstone of tombstones.values()) cancelExpiry(tombstone.expiry);
-        tombstones.clear();
-        await manager.shutdown();
-        if (server.listening)
-          await new Promise<void>((resolve, reject) =>
-            server.close((error) => {
-              if (error) reject(error);
-              else resolve();
-            }),
-          );
-        // net.Server removes only the socket it successfully bound on close.
-        // Never unlink here: another daemon may own a pre-existing/replaced path.
-      })().catch((error: unknown) => {
-        closing = undefined;
-        shuttingDown = false;
-        throw error;
-      });
-      return closing;
-    },
-  };
+      // net.Server removes only the socket it successfully bound on close.
+      // Never unlink here: another daemon may own a pre-existing/replaced path.
+    })().catch((error: unknown) => {
+      closing = undefined;
+      shuttingDown = false;
+      throw error;
+    });
+    return closing;
+  }
+  return { server, close };
 }

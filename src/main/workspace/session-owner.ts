@@ -3,10 +3,12 @@ import type { WorkspaceTerminal } from "../../shared/workspace";
 import type { Orchestration } from "../control/orchestration";
 import { homeDirectory } from "./home-shell";
 import { restoreAuthority, restorePlan, runRestore } from "./session-restore";
-import type { StoredSession } from "./session-restore.d";
+import type { StoredSession, RemoteSavedPlacement } from "./session-restore.d";
 import type { SessionStore } from "./session-store";
 
 export interface SessionOwnerDependencies {
+  discover?: () => Promise<readonly StoredSession[]>;
+  rememberRemote?: (entry: StoredSession) => void;
   store?: Pick<SessionStore, "load" | "save" | "flush">;
   configRoot?: string;
   orchestration: Pick<
@@ -24,7 +26,7 @@ export interface SessionOwnerDependencies {
   terminals: () => readonly WorkspaceTerminal[];
   terminal: (id: string) => WorkspaceTerminal | undefined;
   restoreRow: (row: WorkspaceTerminal) => void;
-  failed: (id: string) => void;
+  failed: (id: string, error?: unknown) => void;
   busy: (id: string, value: boolean) => void;
   closed: () => boolean;
   identity: (repository: string) => Promise<string>;
@@ -41,10 +43,12 @@ export interface SessionOwnerDependencies {
 export class SessionOwner {
   private restoreEnabled = true;
   private readonly saved = new Map<string, StoredSession>();
+  private readonly remotePlacements = new Map<string, RemoteSavedPlacement>();
   private readonly repositoryIdentities = new Map<string, string>();
   private readonly restoring = new Set<string>();
   private readonly unrestoredRoles = new Set<string>();
   private restoreWork: Promise<void> | undefined;
+  private discovery: Promise<readonly StoredSession[]> | undefined;
   private quitting = false;
 
   constructor(private readonly deps: SessionOwnerDependencies) {}
@@ -61,6 +65,17 @@ export class SessionOwner {
   rememberIdentity(repository: string, identity: string): void {
     this.repositoryIdentities.set(repository, identity);
   }
+  rememberRemote(id: string, value: RemoteSavedPlacement): void {
+    const placement = {
+      repository: value.repository,
+      path: value.path,
+      identity: value.identity,
+      branch: value.branch,
+    };
+    this.remotePlacements.set(id, placement);
+    const entry = this.deps.terminal(id);
+    if (entry) this.deps.rememberRemote?.({ ...entry, remoteCheckout: placement });
+  }
   /** Explicit handoff writes propagate failures even during the quit freeze. */
   async save(): Promise<void> {
     await this.deps.store?.save(this.records());
@@ -70,7 +85,27 @@ export class SessionOwner {
   }
 
   async restore(): Promise<void> {
-    for (const entry of (await this.deps.store?.load()) ?? []) {
+    // Network discovery must not delay creating the board windows.
+    this.discovery = this.deps.discover?.().catch(() => []);
+    this.importEntries((await this.deps.store?.load()) ?? []);
+  }
+
+  private importEntries(entries: readonly StoredSession[], discovered = false): void {
+    for (const entry of entries) {
+      if (discovered) {
+        const previous = this.saved.get(entry.id);
+        const reconcile =
+          previous?.remote &&
+          previous.running !== true &&
+          entry.running === true &&
+          previous.placement?.kind === "remote" &&
+          entry.placement?.kind === "remote" &&
+          previous.placement.host === entry.placement.host;
+        // A live invocation saved as exited has no proven running grant. The
+        // daemon observation recovers human access, never old parent authority.
+        if (!reconcile && (previous || this.deps.terminal(entry.id) || this.saved.size >= 1000))
+          continue;
+      }
       if (
         entry.config
           ? entry.worktree !== this.deps.configRoot || entry.repository !== entry.worktree
@@ -83,8 +118,14 @@ export class SessionOwner {
         continue;
       this.deps.orchestration.handoffs.restore(entry.id, entry.handoffs ?? []);
       this.saved.set(entry.id, entry);
+      if (entry.remoteCheckout) {
+        this.remotePlacements.set(entry.id, entry.remoteCheckout);
+        this.deps.rememberRemote?.(entry);
+      }
       const row = { ...entry };
       delete row.running;
+      delete row.recovered;
+      delete row.remoteCheckout;
       delete row.orchestrator;
       delete row.parentId;
       delete row.handoffs;
@@ -95,15 +136,20 @@ export class SessionOwner {
   }
 
   private records(): StoredSession[] {
-    return this.deps
-      .terminals()
+    const entries = this.deps.terminals();
+    const ids = new Set(entries.map((entry) => entry.id));
+    for (const id of this.remotePlacements.keys())
+      if (!ids.has(id)) this.remotePlacements.delete(id);
+    return entries
       .filter((entry) => !entry.probe)
       .map((entry) => {
+        const remoteCheckout = entry.remote ? this.remotePlacements.get(entry.id) : undefined;
         const role = this.deps.orchestration.view(entry.id);
         const identity = this.repositoryIdentities.get(entry.repository);
         const saved = this.restoring.has(entry.id) ? this.saved.get(entry.id) : undefined;
         return {
           ...entry,
+          ...(remoteCheckout ? { remoteCheckout } : {}),
           handoffs: this.deps.orchestration.handoffs.entries(entry.id),
           ...(saved?.orchestrator ? { orchestrator: saved.orchestrator } : {}),
           ...(saved?.parentId ? { parentId: saved.parentId } : {}),
@@ -151,6 +197,16 @@ export class SessionOwner {
   /** Called only after all saved windows have been shown. */
   restartSaved(): Promise<void> {
     if (this.restoreWork) return this.restoreWork;
+    this.restoreWork = this.discovery
+      ? this.discovery.then((entries) => {
+          this.importEntries(entries, true);
+          return this.restartEntries();
+        })
+      : this.restartEntries();
+    return this.restoreWork;
+  }
+
+  private restartEntries(): Promise<void> {
     const plan = restorePlan([...this.saved.values()], this.restoreEnabled);
     this.restoring.clear();
     for (const entry of plan) {
@@ -158,7 +214,7 @@ export class SessionOwner {
       this.deps.busy(entry.id, true);
     }
     this.deps.onChange?.();
-    this.restoreWork = runRestore(plan, async (entry) => {
+    return runRestore(plan, async (entry) => {
       try {
         if (
           this.quitting ||
@@ -168,8 +224,8 @@ export class SessionOwner {
         )
           return;
         await this.restartSavedEntry(entry);
-      } catch {
-        this.deps.failed(entry.id);
+      } catch (error) {
+        this.deps.failed(entry.id, error);
         this.deps.orchestration.exited(entry.id);
       } finally {
         if (this.deps.terminal(entry.id)?.dormant) this.deps.orchestration.exited(entry.id);
@@ -180,7 +236,6 @@ export class SessionOwner {
         this.deps.onChange?.();
       }
     });
-    return this.restoreWork;
   }
 
   private async restartSavedEntry(entry: StoredSession): Promise<void> {

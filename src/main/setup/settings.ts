@@ -167,6 +167,10 @@ function profileOnly(settings: Settings): Partial<Settings> {
  */
 export class SettingsStore {
   private settings: Settings = DEFAULT_SETTINGS;
+  private remoteProfile = randomUUID().replaceAll("-", "");
+  profileTag(): string {
+    return this.remoteProfile;
+  }
   private pending: Promise<void> = Promise.resolve();
   private legacy: ConfigSettings | undefined;
   private migrated = false;
@@ -196,9 +200,18 @@ export class SettingsStore {
     for (const file of keys) await rm(join(userData, file), { force: true });
     const store = new SettingsStore(join(userData, "settings.json"));
     let migrated = false;
+    let hasRemoteProfile = false;
     try {
       const state: unknown = JSON.parse(await readFile(store.file, "utf8"));
       const version = record(state) ? state["version"] : undefined;
+      if (
+        record(state) &&
+        typeof state["remoteProfile"] === "string" &&
+        /^[a-f0-9]{32}$/u.test(state["remoteProfile"])
+      ) {
+        store.remoteProfile = state["remoteProfile"];
+        hasRemoteProfile = true;
+      }
       if (record(state) && (version === 1 || version === 2) && record(state["settings"])) {
         const { agentArguments, sound, ...rest } = migrateAppearanceSettings(state["settings"]);
         const legacy = "inference" in rest || "inferenceTimeoutMs" in rest;
@@ -295,7 +308,7 @@ export class SettingsStore {
     } catch {
       // Defaults.
     }
-    if (migrated) await store.update({});
+    if (migrated || !hasRemoteProfile) await store.write(() => {});
     return store;
   }
 
@@ -420,6 +433,7 @@ export class SettingsStore {
                 this.migrated
                   ? {
                       version: 2,
+                      remoteProfile: this.remoteProfile,
                       settings: {
                         ...profileOnly(this.settings),
                         ...(this.argumentsToMove ? { agentArguments: this.argumentsToMove } : {}),
@@ -430,7 +444,7 @@ export class SettingsStore {
                         ? { themeDigests: this.themeDigests }
                         : {}),
                     }
-                  : { version: 1, settings: this.settings },
+                  : { version: 1, remoteProfile: this.remoteProfile, settings: this.settings },
               ),
               { flag: "wx", mode: 0o600 },
             );
