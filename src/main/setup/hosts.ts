@@ -310,7 +310,7 @@ export class Hosts {
               accept: "End sessions",
               glyph: "power",
               subject: input.host,
-              detail: `${String(before.foreign.reduce((sum, entry) => sum + (entry.count ?? 1), 0))} sessions belong to another profile or have no profile tag. Ending them stops their processes.${before.foreign.some((entry) => entry.count !== undefined) ? " All sessions in the older host daemon will end, including any started before you confirm." : ""}`,
+              detail: `Sessions from other profiles or without a profile tag: ${String(before.foreign.reduce((sum, entry) => sum + (entry.count ?? 1), 0))}. Ending them stops their processes.${before.foreign.some((entry) => entry.count !== undefined) ? " All sessions in the older host daemon will end, including any started before you confirm." : ""}`,
             }))
           )
             return this.state();

@@ -188,13 +188,14 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
   cleanup.audit.add(daemon.pid);
   daemon.stdout.resume();
   daemon.stderr.resume();
-  cleanup.apps.push(async () => {
+  const closeDaemon = async () => {
     if (daemon.exitCode === null && daemon.signalCode === null) {
       const closed = once(daemon, "close");
       daemon.kill("SIGTERM");
       await closed;
     }
-  });
+  };
+  cleanup.apps.push(closeDaemon);
   await expect
     .poll(async () => {
       try {
@@ -418,10 +419,12 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     await app.evaluate(({ app }) => app.quit());
     await (await confirmationPage(app)).getByRole("button", { name: "Stop all and quit" }).click();
   });
-  const daemonCleanup = cleanup.apps.at(-1);
-  const restarted = await launchApp(context, launchOptions);
-  cleanup.apps.splice(cleanup.apps.indexOf(daemonCleanup), 1);
-  cleanup.apps.push(daemonCleanup);
+  const restarted = await launchApp(context, { ...launchOptions, fixture: "restored" }).finally(
+    () => {
+      cleanup.apps.splice(cleanup.apps.indexOf(closeDaemon), 1);
+      cleanup.apps.push(closeDaemon);
+    },
+  );
   const restored = await boardPage(restarted);
   await expect
     .poll(
@@ -444,7 +447,9 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     persistent.pid,
   );
   await expect
-    .poll(() => restored.evaluate((id) => window.desktop.tail(id, 40), persistent.id))
+    .poll(async () =>
+      (await restored.evaluate((id) => window.desktop.tail(id, 40), persistent.id)).join("\n"),
+    )
     .toContain("REMOTE_CODEX_READY");
   await expect
     .poll(

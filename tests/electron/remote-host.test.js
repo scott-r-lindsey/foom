@@ -39,10 +39,8 @@ test("remote shell fixture uploads a pinned headless host and replays the same P
   cleanup.audit ??= await auditProcesses(context);
   // Keep the canonical socket path below the daemon's 100-byte limit even
   // under macOS's long temp prefix plus the parent-owned test-run directory.
-  // This suite has one remote HOME; its run root isolates it from other runs.
-  const remoteHome = path.join(await realpath(tmpdir()), "rh");
+  const remoteHome = await mkdtemp(path.join(await realpath("/tmp"), "rhh-"));
   const bin = path.join(root, "bin");
-  await mkdir(remoteHome, { mode: 0o700 });
   removeAfterApps(context, remoteHome);
   await mkdir(bin, { mode: 0o700 });
   // Only explicitly required tools. No inherited PATH, real ssh, SSH material,
@@ -118,13 +116,14 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   daemon.stderr.on("data", (bytes) => {
     stderr = (stderr + bytes).slice(-8192);
   });
-  cleanup.apps.push(async () => {
+  const closeDaemon = async () => {
     if (daemon.exitCode === null && daemon.signalCode === null) {
       const closed = once(daemon, "close");
       daemon.kill("SIGTERM");
       await closed;
     }
-  });
+  };
+  cleanup.apps.push(closeDaemon);
   const socket = path.join(remoteHome, ".foom-host/host-v2.sock");
   await expect
     .poll(async () => {
@@ -288,9 +287,12 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   const foreign = await hostChannel(socket, manifest.sha256, "legacy-foreign", cleanup);
   foreign.close();
   const restarted = await launchApp(context, {
-    fixture: "empty-board",
+    fixture: "restored",
     env: { PATH: bin, SSH_AUTH_SOCK: "" },
     args: [`--user-data-dir=${profilePath}`, "--remote-shell-spike=fixture-cloud"],
+  }).finally(() => {
+    cleanup.apps.splice(cleanup.apps.indexOf(closeDaemon), 1);
+    cleanup.apps.push(closeDaemon);
   });
   const restored = await boardPage(restarted);
   await expect
@@ -307,7 +309,9 @@ child.on('close', code => { appendFileSync(${JSON.stringify(sshLog)}, 'fixture s
   assert.equal(recoveredRow.orchestration, undefined);
   await expect(restored.locator(".terminal-tile[data-kind='shell']")).toHaveCount(2);
   await expect
-    .poll(() => restored.evaluate(() => window.desktop.tail("lost-profile-write", 40)))
+    .poll(async () =>
+      (await restored.evaluate(() => window.desktop.tail("lost-profile-write", 40))).join("\n"),
+    )
     .toContain("RECOVERED_SCREEN");
   await openSettingsScreen(restored);
   await restored
