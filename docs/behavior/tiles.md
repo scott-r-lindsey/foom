@@ -116,8 +116,13 @@ sidebar preview places it on the board; reopening a tiled preview leaves it in p
 session. A newly filled tile flares twice in the accent, never amber, then keeps
 its tint and edge until hover or focus. Reduced motion keeps the tint and edge
 without animation. The highlight is local view state; attribution remains textual.
-A human close sticks: the same agent reopening the same file gets only a sidebar
-row. Showing that row follows the same placement as a human open.
+Closing removes the preview. An explicit agent reopen of the same file creates a
+new preview and uses ordinary placement: landing space, empty space, then column
+growth or replacement without displacing focus. Only when placement is unavailable
+(such as protected tiles at layout resource limits) does it stay in the sidebar;
+the result reports `placement: "sidebar"` and the list reports `visible: false`.
+Opening that sidebar preview again retries placement. Showing its row follows
+the same placement as a human open.
 
 Double-click a gutter, or press Enter while it is focused, to give every member
 of its run a share proportional to its column count along the run's axis (rows
