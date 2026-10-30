@@ -15,7 +15,7 @@ and HTML documents are allowed; unknown fields and caller-supplied roots are ref
 
 Ownership follows the grant generation. Canonical-path reuse returns `existing`
 and leaves a tiled preview in place; an existing sidebar preview is placed on the
-board unless that canonical path was human-dismissed. Exit, takeover and orchestrator revocation hand existing
+board when placement is available. Exit, takeover and orchestrator revocation hand existing
 previews to the human; worktree removal closes them. Opening fills the landing
 spot, then the first empty tile in tree order. On a full board it reuses terminal
 `placeContent` placement: add a far-right column with proportional shrinkage, or
@@ -27,8 +27,13 @@ Sidebar entries create no view until shown; they do not restore after quitting.
 
 Limits refuse with `capacity`, never evict: four per agent, twelve per instance,
 and six opens in a burst with one token refilled every ten seconds (reuse costs
-one). A human close makes future opens of that canonical path sidebar-only for
-that generation. Fixed session/action/preview/relative-path/outcome audit metadata
+one). A human close removes the preview; a later explicit `open_preview` of that
+file creates a new ID and attempts ordinary visible placement, just like its first
+open. Closing never creates a persistent minimization preference. If the board
+cannot place it (including protected tiles at layout resource limits), the result
+reports `placement: "sidebar"` and `list_previews` reports `visible: false`.
+A later open retries placement with the same ID while that sidebar entry exists.
+Fixed session/action/preview/relative-path/outcome audit metadata
 is written before creation or closure; storage failure refuses the action. Grants
 are rechecked after asynchronous work. View actions have no operation record or
 idempotency key; recover a lost result with `list_previews` or canonical-path reuse.

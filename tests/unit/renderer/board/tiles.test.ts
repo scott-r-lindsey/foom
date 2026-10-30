@@ -292,20 +292,25 @@ test.each(["left", "up", "right", "down"] as const)(
   (direction) => {
     const start = place(initialLayout(), "a");
     const next = splitTile(start, direction);
+    const towardSpace = ({ left: "right", right: "left", up: "down", down: "up" } as const)[
+      direction
+    ];
     expect(next.focused).toBe(start.focused);
     expect(next.tree.kind).toBe("split");
     if (next.tree.kind !== "split") throw new Error("Expected split");
-    const first = direction === "left" || direction === "up";
+    const first = direction === "right" || direction === "down";
     expect(next.tree.direction).toBe(
       direction === "left" || direction === "right" ? "horizontal" : "vertical",
     );
     expect((first ? next.tree.first : next.tree.second).id).toBe(next.landing);
-    expect(growTile(next, direction).tree).toEqual(start.tree);
+    expect(growTile(next, towardSpace).tree).toEqual(start.tree);
     const occupied = place(next, "b");
     const target = { ...occupied, focused: start.focused };
     const reason = { left: "to the left", right: "to the right", up: "above", down: "below" };
-    expect(growTarget(target, direction)).toEqual({ reason: `Occupied tile ${reason[direction]}` });
-    expect(growTile(target, direction)).toBe(target);
+    expect(growTarget(target, towardSpace)).toEqual({
+      reason: `Occupied tile ${reason[towardSpace]}`,
+    });
+    expect(growTile(target, towardSpace)).toBe(target);
     const edge = { left: "left", right: "right", up: "top", down: "bottom" };
     expect(growTarget(start, direction)).toEqual({ reason: `At the ${edge[direction]} edge` });
     expect(growTile(start, direction)).toBe(start);
@@ -317,12 +322,14 @@ test.each(["left", "up", "right", "down"] as const)(
 test.each(["left", "up", "right", "down"] as const)(
   "grow %s skips the wrong side in mixed-axis trees",
   (direction) => {
-    const opposite = { left: "right", right: "left", up: "down", down: "up" } as const;
     const axis = direction === "left" || direction === "right" ? "down" : "right";
     const start = place(initialLayout(), "a");
-    const outer = splitTile(start, direction);
+    const outer = splitTile(
+      start,
+      ({ left: "right", right: "left", up: "down", down: "up" } as const)[direction],
+    );
     const mixed = splitTile(outer, axis);
-    const inner = splitTile(mixed, opposite[direction]);
+    const inner = splitTile(mixed, direction);
     // Nearest same-axis split is occupied on the wrong side; the empty outer side is usable.
     const filled = place(inner, "b");
     const target = { ...filled, focused: start.focused };
@@ -355,9 +362,9 @@ test("close space removes only empty leaves and preserves the focused terminal",
 test("closing focused space beside an empty split retains leaf focus and restorable split bounds", () => {
   const start = initialLayout();
   const pair = splitTile(start, "right");
-  const right = leaves(pair.tree)[1];
-  if (!right) throw new Error("Missing right space");
-  const divided = splitTile({ ...pair, focused: right.id }, "down");
+  const space = leaves(pair.tree).find((tile) => tile.id === pair.landing);
+  if (!space) throw new Error("Missing landing space");
+  const divided = splitTile({ ...pair, focused: space.id }, "down");
   let layout = closeSpace({ ...divided, focused: start.focused }, start.focused);
   expect(leaves(layout.tree).map((tile) => tile.id)).toContain(layout.focused);
   expect(leaves(layout.tree)).toHaveLength(2);
@@ -925,12 +932,28 @@ test.each(["left", "up", "right", "down"] as const)(
   "grow %s absorbs a subdivided all-empty far side",
   (direction) => {
     const start = place(initialLayout(), "a");
-    const outer = splitTile(start, direction);
+    const outer = splitTile(
+      start,
+      ({ left: "right", right: "left", up: "down", down: "up" } as const)[direction],
+    );
     const divided = splitTile(
       { ...outer, focused: outer.landing ?? "" },
       direction === "left" || direction === "right" ? "down" : "right",
     );
     expect(leaves(divided.tree)).toHaveLength(3);
     expect(growTile({ ...divided, focused: start.focused }, direction).tree).toEqual(start.tree);
+  },
+);
+
+test.each(["left", "up", "right", "down"] as const)(
+  "split %s moves the terminal toward the arrow and opens space opposite it",
+  (direction) => {
+    const start = place(initialLayout(), "terminal");
+    const next = splitTile(start, direction);
+    if (next.tree.kind !== "split") throw new Error("Expected split");
+    const terminalFirst = direction === "left" || direction === "up";
+    expect((terminalFirst ? next.tree.first : next.tree.second).id).toBe(start.focused);
+    expect((terminalFirst ? next.tree.second : next.tree.first).id).toBe(next.landing);
+    expect(next.focused).toBe(start.focused);
   },
 );

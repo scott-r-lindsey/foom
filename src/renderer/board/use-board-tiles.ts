@@ -341,7 +341,12 @@ export function useBoardTiles({
                     ? "up"
                     : "down",
             )
-          : action === "right" || action === "down" || action === "left" || action === "up"
+          : action === "right" ||
+              action === "down" ||
+              action === "left" ||
+              action === "up" ||
+              action === "horizontal" ||
+              action === "vertical"
             ? { ...splitTile(current, action), focused: layoutRef.current.focused }
             : action === "close-space"
               ? closeSpace(layoutRef.current, tile)

@@ -51,18 +51,20 @@ export function DirectionPad({
       <div className="pad-grid">
         {(["right", "up", "left", "down"] as const).map((direction) => {
           const target = kind === "Grow" ? growTarget(layout, direction) : undefined;
-          const reason =
+          const refusal =
             kind === "Split"
               ? splitReason(layout)
               : target && "reason" in target
                 ? target.reason
                 : undefined;
+          const reason =
+            kind === "Split" && refusal ? `Cannot move terminal ${direction}: ${refusal}` : refusal;
           return (
             <span className="pad-direction" data-direction={direction} key={direction}>
               <button
                 type="button"
                 role="menuitem"
-                aria-label={`${kind} ${direction}`}
+                aria-label={kind === "Split" ? `Split terminal ${direction}` : `Grow ${direction}`}
                 aria-disabled={Boolean(reason)}
                 aria-describedby={reason ? `${id}-${direction}` : undefined}
                 onClick={() => {

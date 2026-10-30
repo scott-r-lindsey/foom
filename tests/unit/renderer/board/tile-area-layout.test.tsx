@@ -25,7 +25,7 @@ test("irregular splits and maximize retain leaf elements and mounted controllers
   click(1);
   send("split-down");
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(3);
-  expect(screen.container.querySelector(".terminal-tile")).toBe(first);
+  expect(screen.container.querySelectorAll(".terminal-tile")[2]).toBe(first);
   const empty = screen.container.querySelector('[data-empty="true"]');
   expect(empty?.getAttribute("aria-hidden")).toBe("true");
   expect(empty?.querySelector(".tile-title")).toBeNull();
@@ -73,7 +73,7 @@ test("full narrow placement replaces without refusal; hide retains space and ref
   expect(views[0]?.hide).toHaveBeenCalled();
   click(2);
   await act(async () => {});
-  expect(views[0]?.open).toHaveBeenLastCalledWith("check");
+  expect(views[1]?.open).toHaveBeenLastCalledWith("check");
   expect(views[0]?.dispose).not.toHaveBeenCalled();
 });
 test("keyboard-only splits, spatial focus, hide, close and empty layouts remain operable", async () => {
@@ -226,7 +226,7 @@ test("keyboard gutters collapse empty sides and terminal numbering skips spaces"
   const { screen, click, send } = setup();
   click(0);
   send("split-right");
-  fireEvent.keyDown(screen.getByRole("separator", { name: "Resize tiles" }), { key: "End" });
+  fireEvent.keyDown(screen.getByRole("separator", { name: "Resize tiles" }), { key: "Home" });
   expect(screen.container.querySelectorAll(".terminal-tile")).toHaveLength(1);
   send("split-right");
   click(1);
@@ -263,7 +263,7 @@ test("gutter double-click and Enter even a run; footer and command tidy keep occ
   send("tidy-tiles");
   expect(tiles()).toEqual(original);
   expect(tiles().every((tile) => tile.dataset["maximized"] === "false")).toBe(true);
-  expect(tiles()[2]?.dataset["focused"]).toBe("true");
+  expect(tiles()[0]?.dataset["focused"]).toBe("true");
   send("split-right");
   send("tidy-tiles");
   expect(tiles()).toEqual(original);

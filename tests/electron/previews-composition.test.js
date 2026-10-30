@@ -23,7 +23,7 @@ async function expectPreviewSnapshot(page, id) {
 test("preview composition keeps tile and row panels visible and usable above captured pages", async (context) => {
   const { app, page, id, tile, bounds } = await composedPreview(context, 2);
   await tile.getByRole("button", { name: "Tile 2 menu" }).click();
-  await expect(page.getByRole("menuitem", { name: "Split down" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Split terminal up" })).toBeVisible();
   await expect.poll(async () => (await previewViewState(app, id)).visible).toBe(false);
   await expectPreviewSnapshot(page, id);
   await expect(page.locator(".preview-snapshot")).toHaveCSS("left", `${bounds.x}px`);
@@ -32,7 +32,7 @@ test("preview composition keeps tile and row panels visible and usable above cap
     path: evidencePath("preview-overlays-panel.png"),
     animations: "disabled",
   });
-  await page.getByRole("menuitem", { name: "Split down" }).click();
+  await page.getByRole("menuitem", { name: "Split terminal up" }).click();
   await expect(page.locator(".terminal-tile")).toHaveCount(3);
   await expect.poll(async () => (await previewViewState(app, id)).visible).toBe(true);
   await page.locator(".board-row").first().click({ button: "right" });
