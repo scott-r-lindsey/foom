@@ -34,7 +34,7 @@ test("a local orchestrator launches and resumes a remote child with private hook
 }, async (context) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "fra-")));
   removeAfterApps(context, root);
-  const remoteHome = await mkdtemp(path.join(await realpath("/tmp"), "rah-"));
+  const remoteHome = await mkdtemp(path.join(await realpath("/tmp"), "r a'h-"));
   removeAfterApps(context, remoteHome);
   const bin = path.join(root, "bin");
   const remoteBin = path.join(root, "remote-bin");
@@ -142,9 +142,17 @@ save(${JSON.stringify(record)}, { args, env: Object.fromEntries(Object.entries(e
 process.stdout.write('\\x1b[?2004hREMOTE_AGENT_READY\\r\\n');
 hook('UserPromptSubmit');
 process.stdin.setRawMode(true);
+let imageInput = '';
 process.stdin.on('data', (bytes) => {
   const key = bytes.toString();
-  if (key.includes('pasted image')) { save(${JSON.stringify(imageRecord)}, {input:key}); return; }
+  if (imageInput || key.startsWith('\\x1b')) {
+    imageInput += key;
+    if (imageInput.includes('\\x1b[201~')) {
+      save(${JSON.stringify(imageRecord)}, {input:imageInput});
+      imageInput = '';
+    }
+    return;
+  }
   if (key.includes('1')) {
     const messages = [
       {jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'fixture',version:'1'}}},
@@ -400,13 +408,14 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
   assert.equal(JSON.parse(await readFile(record, "utf8")).pid, first.pid);
   // The same explicit paste capability uploads over fixture SSH management.
   await page.locator(`[data-drag-session="${id}"]`).press("Enter");
-  await expect(page.locator(".xterm-rows")).toContainText("REMOTE_WORKING");
+  const remoteTerminal = page.locator(".terminal-tile").filter({ hasText: "REMOTE_WORKING" });
+  await expect(remoteTerminal).toBeVisible();
   await app.evaluate(async ({ clipboard, ClipboardItem }, encoded) => {
     await clipboard.write([
       new ClipboardItem({ "image/png": new Blob([Buffer.from(encoded, "base64")]) }),
     ]);
   }, "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeklEQVR4nO3RwQkAMAwDsey/dDpEH6L0wAPo8OzO0/OCArSgAC0oQAsK0IICtKAALShACwrQggK0oAAtKEALCtCCArSgAC0oQAtuAzzh+wu4oAAtKEALCtCCArSgAC0oQAsK0IICtKAALShACwrQggK0oAAtKEALPg84Qafh0lRgkoQAAAAASUVORK5CYII=");
-  await page.waitForFunction(() => document.activeElement?.matches(".xterm-helper-textarea"));
+  await remoteTerminal.locator(".xterm-helper-textarea").focus();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+V" : "Control+V");
   await expect
     .poll(async () => {
