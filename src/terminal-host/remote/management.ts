@@ -1,3 +1,4 @@
+import { discoveryFacts, selected } from "../../shared/agent-launch-values";
 import { createHash, randomUUID } from "node:crypto";
 import { remoteCheckout } from "./agent-discovery";
 import { cpus, loadavg, totalmem, homedir } from "node:os";
@@ -82,7 +83,39 @@ export async function manageHost(
       bundledAgentData.map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)) {
       try {
         const found = await hostDiscovery(model, shell, home);
-        agents.push({ id: model.id, state: found.version && found.help ? "ready" : "unable" });
+        const bundled = bundledAgentData
+          .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
+          .find((entry) => entry.id === model.id);
+        const facts =
+          bundled &&
+          discoveryFacts(bundled, found.version, found.help, {
+            control: true,
+            hooksEnabled: true,
+            hasPrompt: true,
+            configGreeting: false,
+            resume: false,
+            healthTrusted: false,
+            setupState: "unavailable",
+          });
+        const attachment =
+          bundled?.launch.extension ??
+          (bundled?.hooks?.channels.some((channel) => channel.observer.transport === "event-module")
+            ? bundled.launch.mcp
+            : undefined);
+        agents.push({
+          id: model.id,
+          state:
+            found.version &&
+            found.help &&
+            bundled &&
+            (!attachment ||
+              (facts &&
+                selected(attachment.when, facts) &&
+                (!bundled.launch.prompt?.requires ||
+                  facts[bundled.launch.prompt.requires] === true)))
+              ? "ready"
+              : "unable",
+        });
       } catch (error) {
         agents.push({
           id: model.id,

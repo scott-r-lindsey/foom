@@ -30,7 +30,7 @@ const {
 } = require("./harness.js");
 const { auditProcesses } = require("./process-audit.js");
 
-async function registeredFleet(context, restart) {
+async function remoteFleet(context, agents, restart = false) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "rfl-")));
   removeAfterApps(context, root);
   const remoteHome = await mkdtemp(path.join(await realpath("/tmp"), "rfh-"));
@@ -131,17 +131,40 @@ else process.exit(2);
 `,
     { mode: 0o700 },
   );
-  for (const agent of ["codex", "copilot", "agy"]) {
+  for (const agent of agents) {
     await writeFile(
       path.join(remoteBin, agent),
       `#!${process.execPath}
 const fs = require('node:fs'), path = require('node:path'), {spawnSync} = require('node:child_process');
 const agent = ${JSON.stringify(agent)}, args=process.argv.slice(2);
-if (args[0]==='--version') {console.log({codex:'codex-cli 0.161.0',copilot:'GitHub Copilot CLI 1.0.103.',agy:'1.4.2'}[agent]); process.exit(0);}
-if (args[0]==='--help') {console.log('-c --no-alt-screen --plugin-dir --additional-mcp-config --allow-tool --session-id --resume --interactive --prompt-interactive --conversation'); process.exit(0);}
+if (args[0]==='--version') {console.log({codex:'codex-cli 0.161.0',copilot:'GitHub Copilot CLI 1.0.103.',agy:'1.4.2',pi:'1.4.0',opencode:'opencode v2.0.32'}[agent]); process.exit(0);}
+if (args[0]==='--help') {console.log('-c --no-alt-screen --plugin-dir --additional-mcp-config --allow-tool --session-id --resume --interactive --prompt-interactive --conversation --extension --session --standalone --prompt'); process.exit(0);}
 if (args[0]==='plugin') {console.log('[]'); process.exit(0);}
 const env=process.env;
-fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-launch.json`))},JSON.stringify({args,cwd:process.cwd(),env:Object.fromEntries(Object.entries(env).filter(([key])=>key.startsWith('FOOM_'))),pid:process.pid}));
+(async () => {
+let attachment, cleanup;
+const conversation=args[args.indexOf(agent==='pi' && args.includes('--session-id')?'--session-id':'--session')+1];
+if(agent==='pi') {
+ const handlers=new Map();
+ const file=args[args.indexOf('--extension')+1];
+ const extension=(await import(require('node:url').pathToFileURL(file).href)).default;
+ extension({on(name, handler){const previous=handlers.get(name); handlers.set(name, async (...args)=>{await previous?.(...args); await handler(...args);});},
+ registerMcpServer(name, config){attachment={name,...config};}, unregisterMcpServer(){attachment=undefined;}});
+ const ctx={sessionManager:{getSessionId:()=>conversation},isIdle:()=>true};
+ for (const name of ['session_start','agent_start','agent_before_settle','agent_settled'])
+   await handlers.get(name)?.({outcome:'completed',aborted:false},ctx);
+ if(!attachment) throw new Error('Pi did not consume extension');
+} else if(agent==='opencode') {
+ const config=JSON.parse(env.OPENCODE_CONFIG_CONTENT);
+ attachment=Object.values(config.mcp.servers)[0];
+ const hooks=JSON.parse(fs.readFileSync(env.OPENCODE_CONFIG,'utf8'));
+ const plugin=(await import(require('node:url').pathToFileURL(path.join(hooks.plugins[0],'index.mjs')).href)).default;
+ cleanup=plugin.setup({event:{async *subscribe(){
+  yield {id:'start',type:'session.execution.started',data:{sessionID:conversation,secret:'must not relay'}};
+  yield {id:'end',type:'session.execution.succeeded',data:{sessionID:conversation}};
+ }}});
+}
+fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-launch.json`))},JSON.stringify({args,cwd:process.cwd(),env:Object.fromEntries(Object.entries(env).filter(([key])=>key.startsWith('FOOM_'))),pid:process.pid,attachment,hookFile:env.OPENCODE_CONFIG}));
 process.stdout.write('REMOTE_'+agent.toUpperCase()+'_READY\\r\\n'); process.stdin.setRawMode(true);
 process.stdin.on('data', bytes=>{
  if(!bytes.toString().includes('1')) return;
@@ -150,12 +173,16 @@ process.stdin.on('data', bytes=>{
  let mcp;
  if(agent!=='agy') {
   const messages=[{jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'fixture',version:'1'}}},{jsonrpc:'2.0',method:'notifications/initialized'},{jsonrpc:'2.0',id:2,method:'tools/list'},{jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'whoami',arguments:{}}}];
-  const result=spawnSync(env.FOOM_REMOTE_HELPER,['--mcp'],{env,input:messages.map(value=>JSON.stringify(value)).join('\\n')+'\\n',encoding:'utf8'}); mcp={code:result.status,output:result.stdout};
+  const command=agent==='pi'?attachment.command:agent==='opencode'?attachment.command[0]:env.FOOM_REMOTE_HELPER;
+  const argv=agent==='pi'?attachment.args:agent==='opencode'?attachment.command.slice(1):['--mcp'];
+  const result=spawnSync(command,argv,{env,input:messages.map(value=>JSON.stringify(value)).join('\\n')+'\\n',encoding:'utf8'}); mcp={code:result.status,output:result.stdout};
  }
 
  const handoff=cli(['handoff','--status','done','--summary-file','-','--idempotency-key','fixture-'+agent],agent+' fixture complete');
  fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-report.json`))},JSON.stringify({identity,forbidden,handoff,mcp}));
 });
+process.on('exit',()=>cleanup?.());
+})().catch(error=>{console.error(error);process.exit(1);});
 `,
       { mode: 0o700 },
     );
@@ -247,32 +274,35 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
   const worker = sessions.hosts.find((host) => host.host === "fleet-worker");
   assert.ok(worker.resources.cores > 0);
   assert.ok(worker.resources.memoryTotal >= worker.resources.memoryAvailable);
-  for (const agent of ["codex", "copilot", "agy"])
+  for (const agent of agents)
     assert.equal(worker.agents.find((entry) => entry.id === agent).state, "ready");
   assert.ok(sessions.hosts.some((host) => host.host === null));
-  const tree = await call("create_worktree", {
-    host: "fleet-worker",
-    branch: "missing-agent",
-    idempotencyKey: "missing-tree",
-  });
-  assert.equal(tree.status, "succeeded", JSON.stringify(tree));
-  await rename(path.join(remoteBin, "codex"), path.join(remoteBin, "codex-hidden"));
-  await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
-  const before = await readFile(sshCalls, "utf8");
-  const missing = await call("launch", {
-    host: "fleet-worker",
-    worktreeId: tree.resultId,
-    agent: "codex",
-    idempotencyKey: "missing-agent",
-  });
-  assert.equal(missing.status, "failed");
-  assert.equal(missing.reason, "remote_agent_unavailable");
-  assert.equal(await readFile(sshCalls, "utf8"), before);
-  await rename(path.join(remoteBin, "codex-hidden"), path.join(remoteBin, "codex"));
-  await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
-  for (const agent of restart ? ["codex"] : ["codex", "copilot", "agy"]) {
+  let tree;
+  if (agents.includes("codex")) {
+    tree = await call("create_worktree", {
+      host: "fleet-worker",
+      branch: "missing-agent",
+      idempotencyKey: "missing-tree",
+    });
+    assert.equal(tree.status, "succeeded", JSON.stringify(tree));
+    await rename(path.join(remoteBin, "codex"), path.join(remoteBin, "codex-hidden"));
+    await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
+    const before = await readFile(sshCalls, "utf8");
+    const missing = await call("launch", {
+      host: "fleet-worker",
+      worktreeId: tree.resultId,
+      agent: "codex",
+      idempotencyKey: "missing-agent",
+    });
+    assert.equal(missing.status, "failed");
+    assert.equal(missing.reason, "remote_agent_unavailable");
+    assert.equal(await readFile(sshCalls, "utf8"), before);
+    await rename(path.join(remoteBin, "codex-hidden"), path.join(remoteBin, "codex"));
+    await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
+  }
+  for (const agent of agents) {
     const checkout =
-      agent === "codex"
+      agent === "codex" && tree
         ? tree
         : await call("create_worktree", {
             host: "fleet-worker",
@@ -349,7 +379,15 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
         assert.ok(
           record.args.some((arg) => arg.startsWith("mcp_servers.") && arg.includes("command=")),
         );
-      else assert.ok(record.args.includes("--additional-mcp-config"));
+      else if (agent === "copilot") assert.ok(record.args.includes("--additional-mcp-config"));
+      else if (agent === "pi") {
+        assert.ok(record.args.includes("--extension"));
+        assert.deepEqual(Object.keys(record.attachment.toolExposure).sort(), [
+          "handoff",
+          "manual",
+          "whoami",
+        ]);
+      } else assert.equal(record.attachment.type, "local");
     }
     assert.ok(!JSON.stringify(report).includes(parentId));
     assert.ok(!JSON.stringify(report).includes(launched.resultId));
@@ -368,7 +406,7 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     await expect
       .poll(async () => (await call("session_state", { id: launched.resultId })).state)
       .toBe("exited");
-    if (agent === "copilot") {
+    if (["copilot", "pi", "opencode"].includes(agent)) {
       await page.evaluate(
         (id) => window.desktop.sidebarCommand({ kind: "resume", id }),
         launched.resultId,
@@ -380,12 +418,26 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
         )
         .not.toBe(record.pid);
       const resumed = JSON.parse(await readFile(path.join(root, `${agent}-launch.json`), "utf8"));
-      assert.ok(resumed.args.includes("--resume"));
+      assert.ok(resumed.args.includes(agent === "copilot" ? "--resume" : "--session"));
       assert.ok(resumed.cwd === record.cwd);
-      await call("stop", { id: launched.resultId, idempotencyKey: "stop-resumed-copilot" });
+      await call("stop", { id: launched.resultId, idempotencyKey: `stop-resumed-${agent}` });
       await expect
         .poll(async () => (await call("session_state", { id: launched.resultId })).state)
         .toBe("exited");
+    }
+    if (["pi", "opencode"].includes(agent)) {
+      const file =
+        agent === "pi" ? record.args[record.args.indexOf("--extension") + 1] : record.hookFile;
+      await expect
+        .poll(async () => {
+          try {
+            await stat(file);
+            return true;
+          } catch {
+            return false;
+          }
+        })
+        .toBe(false);
     }
     if (agent === "agy") {
       const removal = await call("remove_worktree", {
@@ -497,10 +549,16 @@ const fleetOptions = { skip: process.platform === "win32", timeout: deadline(900
 test(
   "registered-host orchestration launches Codex, Copilot and Antigravity using host inventory and restricted child tools",
   fleetOptions,
-  (context) => registeredFleet(context, false),
+  (context) => remoteFleet(context, ["codex", "copilot", "agy"]),
 );
 test(
   "registered-host restart reattaches a live child with screen replay and fresh restricted authority",
   fleetOptions,
-  (context) => registeredFleet(context, true),
+  (context) => remoteFleet(context, ["codex"], true),
+);
+
+test(
+  "registered-host Pi and OpenCode consume private extensions, context, MCP and resume attachments",
+  fleetOptions,
+  (context) => remoteFleet(context, ["pi", "opencode"]),
 );

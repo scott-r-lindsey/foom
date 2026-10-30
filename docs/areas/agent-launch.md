@@ -224,9 +224,16 @@ change hub/local CLI hook trust observations.
 
 Remote model/effort selections use the same validated manifest argument replacement
 before relay; effective launch flags and requested selections remain in local session
-metadata. Pi extension and OpenCode context-event launches fail closed with
-`remote_agent_unsupported` until their attachments support the private remote
-transport. Remote Antigravity keeps Unix-socket hooks and CLI handoffs; its local
+metadata. Pi's fixed remote extension and OpenCode's generated context-event module use the
+private Unix endpoint (#939). Pi registers the host helper as a session-only stdio
+MCP server; OpenCode receives invocation-only plugin config and a local stdio MCP
+server in `OPENCODE_CONFIG_CONTENT`, with exactly the three remote child grants.
+Hooks Off retains MCP independently. New OpenCode conversation IDs keep their
+manifest `ses_` prefix; both agents use manifest prompt, resume and declared
+model/effort selections. Private modules, context/config and CLI files share
+endpoint cleanup and revocation on preparation/start failure, exit and removal.
+Config providers remain unsupported remotely and fail with the listed
+`remote_agent_unsupported` reason before allocating launch credentials. Remote Antigravity keeps Unix-socket hooks and CLI handoffs; its local
 loopback MCP bridge stays inactive, with prompt guidance retained. No hub endpoint,
 credential or identity is supplied to activate it.
 

@@ -179,6 +179,8 @@ export class Hosts {
   }
   async requireAgent(host: string, agent: string): Promise<void> {
     if (this.store.get().agents[agent] === false) throw new LaunchFailure("agent_disabled");
+    if (agentProviders().find((provider) => provider.id === agent)?.origin !== "bundled")
+      throw new LaunchFailure("remote_agent_unsupported");
     const result = await this.inventory(host);
     if (!result.ok) throw new LaunchFailure("remote_host_unreachable");
     if (result.facts.agents.find((entry) => entry.id === agent)?.state !== "ready")
@@ -445,7 +447,10 @@ export class Hosts {
           ...result.facts,
           agents: probes.map<HostFacts["agents"][number]>((probe) => ({
             id: probe.id,
-            state: result.facts.agents.find((agent) => agent.id === probe.id)?.state ?? "unable",
+            state:
+              providers.find((provider) => provider.id === probe.id)?.origin === "bundled"
+                ? (result.facts.agents.find((agent) => agent.id === probe.id)?.state ?? "unable")
+                : "unable",
           })),
         },
       };

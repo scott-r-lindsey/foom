@@ -1,5 +1,10 @@
 import type { RemoteInventoryResult, RemoteSessionInfo } from "../../../../src/shared/remote-host";
 import type * as remoteTransport from "../../../../src/main/terminals/remote-transport";
+
+import {
+  agentProvider,
+  replaceConfigProviders,
+} from "../../../../src/main/agents/providers/registry";
 import type * as childProcess from "node:child_process";
 import { beforeEach, expect, test, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../../../../src/main/setup/settings";
@@ -512,4 +517,30 @@ test("saved locators survive expired daemon tombstones but never authorize a dif
   settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
   await hosts.action({ action: "remove", host: "worker" });
   expect(hosts.placement(key)).toBeUndefined();
+});
+
+test("unsupported remote providers refuse with a fixed listed reason before SSH inventory", async () => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  await expect(hosts.requireAgent("worker", "custom")).rejects.toMatchObject({
+    reason: "remote_agent_unsupported",
+  });
+  expect(run).not.toHaveBeenCalled();
+});
+
+test("a config provider cannot appear ready from a remote installation probe", async () => {
+  const base = agentProvider("claude");
+  replaceConfigProviders([
+    { ...base, id: "custom", origin: "config", model: { ...base.model, id: "custom" } },
+  ]);
+  try {
+    run.mockResolvedValue({
+      ok: true,
+      facts: { ...facts, agents: [{ id: "custom", state: "ready" }] },
+    });
+    const result = await hosts.action({ action: "test", host: "worker", codeFolder: "~/code" });
+    if (!result.result?.ok) throw new Error("No inventory");
+    expect(result.result.facts.agents).toContainEqual({ id: "custom", state: "unable" });
+  } finally {
+    replaceConfigProviders([]);
+  }
 });
