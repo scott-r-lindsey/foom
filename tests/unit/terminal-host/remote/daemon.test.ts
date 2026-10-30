@@ -1418,6 +1418,21 @@ test.skipIf(process.platform === "win32")(
     expect(await readFile(result.path)).toEqual(png);
     expect((await stat(result.path)).mode & 0o777).toBe(0o600);
     expect((await stat((await import("node:path")).dirname(result.path))).mode & 0o777).toBe(0o700);
+    // A racing --connect can start a second daemon before the first bind is visible.
+    // Its failed bind must never sweep files belonging to the daemon that won.
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    const conflict = serveHost(build, root);
+    try {
+      await once(conflict.server, "error");
+      await conflict.close();
+      await vi.waitFor(() => {
+        expect(diagnostic).toHaveBeenCalledExactlyOnceWith("Image paste cleanup failed");
+      });
+      expect(await readFile(result.path)).toEqual(png);
+    } finally {
+      await conflict.close();
+      diagnostic.mockRestore();
+    }
     const taken = await open("image-agent", true);
     expect(c.socket.destroyed || c.serverSocket.destroyed).toBe(true);
     const stale = manage.messages.length;

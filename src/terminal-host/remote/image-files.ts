@@ -11,10 +11,10 @@ export class RemoteImages {
   private readonly sessions = new Map<string, Images>();
   private readonly root: string;
   readonly ready: Promise<void>;
-  constructor(home: string) {
+  constructor(home: string, initialize: Promise<void> = Promise.resolve()) {
     this.root = join(home, ".foom-host", "images");
     privateDirectory(this.root);
-    this.ready = this.purge();
+    this.ready = initialize.then(() => this.purge());
   }
   private file(path: string): void {
     const info = lstatSync(path);

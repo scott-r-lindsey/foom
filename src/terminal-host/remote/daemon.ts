@@ -77,7 +77,13 @@ export function serveHost(
   timers: Pick<typeof globalThis, "setTimeout" | "clearTimeout"> = globalThis,
 ) {
   const path = hostSocket(home);
-  const images = new RemoteImages(home);
+  let startImages: (() => void) | undefined;
+  let failImages: ((error: unknown) => void) | undefined;
+  const imageStartup = new Promise<void>((resolve, reject) => {
+    startImages = resolve;
+    failImages = reject;
+  });
+  const images = new RemoteImages(home, imageStartup);
   // A failed sweep disables image paste; existing terminal capabilities stay available.
   void images.ready.catch(() => {
     console.error("Image paste cleanup failed");
@@ -745,11 +751,13 @@ export function serveHost(
     });
   });
   // Never unlink a pre-existing socket: another version or a live daemon may own it.
-  server.on("error", () => {
+  server.on("error", (error) => {
+    failImages?.(error);
     for (const socket of sockets) socket.destroy();
   });
   server.listen(path, () => {
     chmodSync(path, 0o600);
+    startImages?.();
   });
   let closing: Promise<void> | undefined;
   return {
