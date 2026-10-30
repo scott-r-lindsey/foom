@@ -30,10 +30,7 @@ const {
 } = require("./harness.js");
 const { auditProcesses } = require("./process-audit.js");
 
-test("registered-host orchestration launches Codex, Copilot and Antigravity using host inventory and restricted child tools", {
-  skip: process.platform === "win32",
-  timeout: deadline(90000),
-}, async (context) => {
+async function registeredFleet(context, restart) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "rfl-")));
   removeAfterApps(context, root);
   const remoteHome = await mkdtemp(path.join(await realpath("/tmp"), "rfh-"));
@@ -273,7 +270,7 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
   assert.equal(await readFile(sshCalls, "utf8"), before);
   await rename(path.join(remoteBin, "codex-hidden"), path.join(remoteBin, "codex"));
   await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
-  for (const agent of ["codex", "copilot", "agy"]) {
+  for (const agent of restart ? ["codex"] : ["codex", "copilot", "agy"]) {
     const checkout =
       agent === "codex"
         ? tree
@@ -359,7 +356,7 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     await expect
       .poll(async () => (await call("read_handoff", { id: launched.resultId })).summary)
       .toBe(`${agent} fixture complete`);
-    if (agent === "codex") {
+    if (restart && agent === "codex") {
       persistent = {
         id: launched.resultId,
         pid: record.pid,
@@ -406,6 +403,7 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
       assert.ok(!Object.hasOwn(JSON.parse(await readFile(gitState, "utf8")), record.cwd));
     }
   }
+  if (!restart) return;
   assert.ok(persistent);
   await expect
     .poll(
@@ -426,6 +424,15 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     },
   );
   const restored = await boardPage(restarted);
+  // The parent must complete its new launch before child re-grant can finish.
+  await expect
+    .poll(
+      async () =>
+        JSON.parse(await readFile(`${credentials}.app`, "utf8")).controlToken !==
+        parent.controlToken,
+    )
+    .toBe(true);
+  const newParent = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
   await expect
     .poll(
       async () =>
@@ -433,7 +440,14 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
           (row) => row.id === persistent.id,
         )?.orchestration?.role,
     )
-    .toBe("child");
+    .toBe("child")
+    .catch(async (error) => {
+      console.error(
+        "Remote restore state:",
+        await restored.evaluate(() => window.desktop.workspace()),
+      );
+      throw error;
+    });
   await expect
     .poll(
       async () =>
@@ -451,14 +465,6 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
       (await restored.evaluate((id) => window.desktop.tail(id, 40), persistent.id)).join("\n"),
     )
     .toContain("REMOTE_CODEX_READY");
-  await expect
-    .poll(
-      async () =>
-        JSON.parse(await readFile(`${credentials}.app`, "utf8")).controlToken !==
-        parent.controlToken,
-    )
-    .toBe(true);
-  const newParent = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
   const restoredCall = (method, params) => controlCall(newParent, method, params);
   await rm(path.join(root, "codex-report.json"));
   await restoredCall("send_keys", {
@@ -485,4 +491,16 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
   await expect
     .poll(async () => (await restoredCall("session_state", { id: persistent.id })).state)
     .toBe("exited");
-});
+}
+
+const fleetOptions = { skip: process.platform === "win32", timeout: deadline(90000) };
+test(
+  "registered-host orchestration launches Codex, Copilot and Antigravity using host inventory and restricted child tools",
+  fleetOptions,
+  (context) => registeredFleet(context, false),
+);
+test(
+  "registered-host restart reattaches a live child with screen replay and fresh restricted authority",
+  fleetOptions,
+  (context) => registeredFleet(context, true),
+);
