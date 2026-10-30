@@ -1,3 +1,5 @@
+import { eventModule } from "../../shared/agent-event-module";
+import { remotePiExtension } from "./pi-extension";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { matchesArguments } from "../../shared/agent-argument-matchers";
 import { hostSocket, privateDirectory } from "./private-path";
@@ -62,6 +64,14 @@ export function remoteMcpArgument(argument: string, helper: string): string {
 }
 export function remoteMcpFile(content: string, helper: string, name: string): string {
   const value: unknown = JSON.parse(content);
+  if (record(value) && record(value["mcp"]) && record(value["mcp"]["servers"])) {
+    const servers = value["mcp"]["servers"];
+    const server = servers[name];
+    if (!record(server) || server["url"] !== mcpSentinel)
+      throw new Error("Invalid remote MCP attachment");
+    servers[name] = { type: "local", command: [helper, "--mcp"], codemode: false };
+    return JSON.stringify(value);
+  }
   if (!record(value) || !record(value["mcpServers"]))
     throw new Error("Unsupported remote MCP file");
   const server = value["mcpServers"][name];
@@ -89,9 +99,7 @@ export async function prepareRemoteAgent(
   const model = bundledAgentData
     .map((data) => parseAgentManifest(JSON.stringify(data), "bundled").model)
     .find((model) => model.id === request.agent);
-  if (!model) throw new Error("Remote bundled agent is unavailable");
-  if (model.launch.extension || model.id === "opencode")
-    throw new Error("remote_agent_unsupported");
+  if (!model) throw new LaunchFailure("remote_agent_unsupported");
   const checkout = () =>
     remoteCheckout(request.repository, request.worktree, hostEnvironment(), cancellation).catch(
       () => {
@@ -158,7 +166,10 @@ export async function prepareRemoteAgent(
     // The installed plugin bridge targets local loopback HTTP, not the private remote socket.
     facts["pluginMcp"] = false;
     const conversation =
-      request.conversationId ?? (model.conversation.newId ? randomUUID() : undefined);
+      request.conversationId ??
+      (model.conversation.newId
+        ? (model.conversation.newId.prefix ?? "") + randomUUID()
+        : undefined);
     const mcp = Boolean(model.launch.mcp && selected(model.launch.mcp.when, facts));
     const values: Record<string, string | string[] | number> = {
       hookDir: endpoint.directory,
@@ -168,6 +179,13 @@ export async function prepareRemoteAgent(
       ...(!request.conversationId && conversation ? { newId: conversation } : {}),
     };
     if (conversation) endpoint.state.conversation = conversation;
+    values["toolRules"] = JSON.stringify(
+      ["whoami", "manual", "handoff"].map((name) => ({
+        action: `${String(values["mcpName"])}_${name}`,
+        resource: "*",
+        effect: "allow",
+      })),
+    );
     const env: Record<string, string> = Object.fromEntries(
       Object.entries(found.env).filter(
         (entry): entry is [string, string] => entry[1] !== undefined,
@@ -186,6 +204,15 @@ export async function prepareRemoteAgent(
       if (!attached) continue;
       endpoint.channels.set(channel.id, channel);
       const options = channel.observer;
+      if (options.transport === "event-module") {
+        const root = endpoint.folder(channel.id);
+        await writeFile(join(root, "index.mjs"), eventModule(channel, true), {
+          mode: 0o600,
+          flag: "wx",
+        });
+        values[`observerModule:${channel.id}`] = root;
+        continue;
+      }
       const base = [
         process.execPath,
         "--observe",
@@ -210,6 +237,26 @@ export async function prepareRemoteAgent(
         env[`FOOM_ORDER_${channel.id.replaceAll("-", "_")}`] = order;
         if (options.protocol === "ordered-v2") env["FOOM_HOOK_ORDER"] = order;
       }
+    }
+    const extension = model.launch.extension;
+    const attachExtension = Boolean(
+      extension &&
+        selected(extension.when, facts) &&
+        (mcp || endpoint.channels.has(extension.channel)),
+    );
+    if (attachExtension && extension) {
+      const root = endpoint.folder("extension");
+      const path = join(root, "pi-remote-v1.mjs");
+      await writeFile(path, remotePiExtension(), { mode: 0o600, flag: "wx" });
+      await writeFile(
+        join(root, "launch.json"),
+        JSON.stringify({
+          ...(endpoint.channels.has(extension.channel) ? { channel: extension.channel } : {}),
+          ...(mcp ? { mcp: { name: values["mcpName"] } } : {}),
+        }),
+        { mode: 0o600, flag: "wx" },
+      );
+      values["extensionFile"] = path;
     }
     endpoint.state.launchFacts = facts;
     const prompts = request.prompt
@@ -245,9 +292,13 @@ export async function prepareRemoteAgent(
       const target = join(endpoint.directory, file.name);
       values[`file:${file.name}`] = target;
       values[`hookFile:${file.name}`] = target;
-      let content = expandV2(file.content, values);
+      let content = expandV2(
+        file.content.replaceAll("{toolRules:json}", values["toolRules"]),
+        values,
+      );
       if (content.includes(mcpSentinel))
         content = remoteMcpFile(content, process.execPath, String(values["mcpName"]));
+      values[`fileContent:${file.name}`] = content;
       await writeFile(target, content, { mode: 0o600, flag: "wx" });
     }
     const args: string[] = [];
@@ -269,13 +320,15 @@ export async function prepareRemoteAgent(
         selected(model.launch.display.when, facts)
       )
         args.push(...expand(model.launch.display.arguments));
-      else if (stage === "mcp" && mcp && model.launch.mcp)
-        args.push(
-          ...expand(model.launch.mcp.arguments).map((arg) =>
-            remoteMcpArgument(arg, process.execPath),
-          ),
-        );
-      else if (stage === "hooks")
+      else if (stage === "mcp") {
+        if (attachExtension && extension) args.push(...expand(extension.arguments));
+        if (mcp && model.launch.mcp)
+          args.push(
+            ...expand(model.launch.mcp.arguments).map((arg) =>
+              remoteMcpArgument(arg, process.execPath),
+            ),
+          );
+      } else if (stage === "hooks")
         for (const channel of endpoint.channels.values()) args.push(...expand(channel.arguments));
       else if (stage === "tools" && mcp && model.launch.toolPermissions) {
         const permissions = model.launch.toolPermissions;

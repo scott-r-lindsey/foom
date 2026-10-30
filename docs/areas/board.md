@@ -34,6 +34,9 @@ terminal ID in that leaf if still empty, falling back to ordinary placement if i
 filled or closed. Tab moves between the pad and commands; leaving the menu dismisses it. Close space removes the empty leaf and gives its area to its sibling, as a
 collapsed gutter does. Escape and outside clicks dismiss the menu. Spaces remain
 unfocusable with no chrome.
+The [terminal context menu](terminals.md#terminal-context-menu-936) also reuses
+these Split/Grow pads after its clipboard and scrollback commands. Actions target
+the clicked tile and preserve the existing direction semantics and focus rules.
 Gutters clamp occupied sides to 15–85%; empty sides can reach zero and collapse
 on pointer release or keyboard commit past 8%/92%. Each attached terminal retains
 its own PTY size. The controller publishes fitted columns/rows with its view

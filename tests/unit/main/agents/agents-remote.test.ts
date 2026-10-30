@@ -1,4 +1,8 @@
 import {
+  agentProvider,
+  replaceConfigProviders,
+} from "../../../../src/main/agents/providers/registry";
+import {
   agentFixture,
   launchIdentity,
   listWorktrees,
@@ -163,14 +167,22 @@ test("remote selections replace manifest defaults and retain effective local lau
 });
 
 test.each(["pi", "opencode"])(
-  "remote %s attachments refuse before allocating credentials or discovery",
+  "remote %s routes attachments and selected model without local discovery",
   async (agent) => {
     const f = fixture();
-    await expect(
-      f.service.launch({ ...request, agent, control: { parentId: "parent-id" } }),
-    ).rejects.toThrow("remote_agent_unsupported");
-    expect(f.control).not.toHaveBeenCalled();
-    expect(f.create).not.toHaveBeenCalled();
+    const launched = await f.service.launch({
+      ...request,
+      agent,
+      selection: { model: "fixture/model" },
+      control: { parentId: "parent-id" },
+    });
+    expect(f.control).toHaveBeenCalled();
+    expect(f.create.mock.calls[0]?.[0].remote?.agent?.spec).toMatchObject({
+      agent,
+      defaults: ["--model", "fixture/model"],
+    });
+    f.service.release(launched.id);
+    expect(f.dispose).toHaveBeenCalled();
     expect(execFile).not.toHaveBeenCalled();
   },
 );
@@ -225,4 +237,21 @@ test("a main-owned registered checkout skips local Git and binds the expected re
       },
     }),
   ).rejects.toThrow("Registration removed");
+});
+
+test("remote config agents have a fixed unsupported reason before allocating credentials", async () => {
+  const base = agentProvider("claude");
+  replaceConfigProviders([
+    { ...base, id: "custom", origin: "config", model: { ...base.model, id: "custom" } },
+  ]);
+  try {
+    const f = fixture();
+    await expect(
+      f.service.launch({ ...request, agent: "custom", control: { parentId: "parent" } }),
+    ).rejects.toMatchObject({ reason: "remote_agent_unsupported" });
+    expect(f.control).not.toHaveBeenCalled();
+    expect(f.create).not.toHaveBeenCalled();
+  } finally {
+    replaceConfigProviders([]);
+  }
 });

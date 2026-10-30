@@ -182,8 +182,8 @@ const timer=setInterval(()=>{if(fs.existsSync(${JSON.stringify(home)}+'/probe-'+
       operation: "inspect",
       codeFolder: "~/code",
       agents: [
-        { id: "fixture-one", executables: ["fixture-agent"] },
-        { id: "fixture-two", executables: ["fixture-agent"] },
+        { id: "claude", executables: ["fixture-agent"] },
+        { id: "codex", executables: ["fixture-agent"] },
       ],
     });
     for (let n = 1; n <= 4; n++) {
@@ -201,8 +201,8 @@ const timer=setInterval(()=>{if(fs.existsSync(${JSON.stringify(home)}+'/probe-'+
         ok: true,
         facts: {
           agents: [
-            { id: "fixture-one", state: "ready" },
-            { id: "fixture-two", state: "ready" },
+            { id: "claude", state: "ready" },
+            { id: "codex", state: "ready" },
           ],
         },
       },

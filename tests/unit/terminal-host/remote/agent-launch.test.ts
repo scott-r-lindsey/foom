@@ -1,3 +1,10 @@
+import type { HookSignal } from "../../../../src/shared/hooks";
+import {
+  remotePiExtension,
+  assertRemotePiIntegrity,
+} from "../../../../src/terminal-host/remote/pi-extension";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -218,7 +225,7 @@ test.skipIf(process.platform === "win32")(
     ).rejects.toThrow("bypass");
     await expect(
       prepareRemoteAgent({ ...spec, agent: "unknown" }, "/fixture/shell", home, () => {}, call),
-    ).rejects.toThrow("unavailable");
+    ).rejects.toMatchObject({ reason: "remote_agent_unsupported" });
     vi.mocked(remoteCheckout).mockRejectedValueOnce(new Error("PRIVATE git output"));
     await expect(
       prepareRemoteAgent(spec, "/fixture/shell", home, () => {}, call),
@@ -310,14 +317,65 @@ test("MCP conversion refuses unexpected data and never rewrites unrelated user c
   expect(() => remoteMcpFile('{"mcpServers":{}}', "/helper", "name")).toThrow();
 });
 
-test.each(["pi", "opencode"])(
-  "host refuses %s attachments before discovery or checkout probes",
+test.skipIf(process.platform === "win32").each(["pi", "opencode"])(
+  "remote %s stages private attachments, prompt, resume and independent hook selection",
   async (agent) => {
-    await expect(
-      prepareRemoteAgent({ ...spec, agent }, "/fixture/shell", home, () => {}, call),
-    ).rejects.toThrow("remote_agent_unsupported");
-    expect(hostDiscovery).not.toHaveBeenCalled();
-    expect(remoteCheckout).not.toHaveBeenCalled();
+    for (const hooks of [true, false]) {
+      vi.mocked(hostDiscovery).mockResolvedValueOnce({
+        command: `/fixture/${agent}`,
+        env: { PATH: "/fixture" },
+        version: agent === "pi" ? "1.4.0" : "opencode v2.0.32",
+        help: "--extension --session-id --session --standalone --prompt",
+      });
+      const prepared = await prepareRemoteAgent(
+        {
+          ...spec,
+          agent,
+          hooks,
+          conversationId: "ses_existing",
+          defaults: ["--model", "fixture/model"],
+        },
+        "/fixture/shell",
+        home,
+        () => {},
+        call,
+      );
+      endpoints.push(prepared.endpoint);
+      expect(prepared.ready).toMatchObject({ hooks, mcp: true, conversationId: "ses_existing" });
+      expect(prepared.spec.args).toContain("--session");
+      expect(prepared.spec.args).toContain("ses_existing");
+      expect(prepared.spec.args).toContain("fixture/model");
+      expect(prepared.spec.args.join(" ")).toContain(spec.prompt);
+      if (agent === "pi") {
+        const file = prepared.spec.args[prepared.spec.args.indexOf("--extension") + 1];
+        expect(file).toBe(join(prepared.endpoint.directory, "extension/pi-remote-v1.mjs"));
+        expect(await readFile(file ?? "", "utf8")).toContain("registerMcpServer");
+        expect(
+          JSON.parse(
+            await readFile(join(prepared.endpoint.directory, "extension/launch.json"), "utf8"),
+          ),
+        ).toMatchObject(hooks ? { channel: "lifecycle", mcp: {} } : { mcp: {} });
+      } else {
+        const config: unknown = JSON.parse(prepared.spec.env?.["OPENCODE_CONFIG_CONTENT"] ?? "");
+        expect(config).toMatchObject({ mcp: { servers: {} } });
+        if (!record(config)) throw new Error("Invalid config");
+        expect(Array.isArray(config["permissions"])).toBe(true);
+        const content = JSON.stringify(config);
+        expect(content).toContain('"type":"local"');
+        expect(content).toContain("--mcp");
+        expect(content).not.toContain(prepared.endpoint.token);
+        expect(content).not.toContain("http:");
+        expect(content).not.toContain("_launch");
+        expect(prepared.spec.env?.["OPENCODE_CONFIG"]).toBe(
+          hooks ? join(prepared.endpoint.directory, "hooks.json") : undefined,
+        );
+      }
+      prepared.endpoint.dispose();
+      await expect(readFile(join(prepared.endpoint.directory, "s"))).rejects.toThrow();
+      await expect(
+        endpointRequest("/call", { method: "whoami", params: {} }, prepared.spec.env),
+      ).rejects.toThrow();
+    }
   },
 );
 
@@ -357,3 +415,98 @@ test.skipIf(process.platform === "win32")(
     });
   },
 );
+
+test.skipIf(process.platform === "win32").each(["pi", "opencode"])(
+  "fixture %s consumes generated module and sends reduced lifecycle events over the private socket",
+  async (agent) => {
+    vi.mocked(hostDiscovery).mockResolvedValueOnce({
+      command: process.execPath,
+      env: { PATH: "/fixture" },
+      version: agent === "pi" ? "1.4.0" : "opencode v2.0.32",
+      help: "--extension --session-id --session --standalone --prompt",
+    });
+    const signal = vi.fn<(signal: HookSignal) => void>();
+    const relay = vi.fn(() =>
+      Promise.resolve({
+        type: "identity" as const,
+        alias: "11111111-1111-4111-8111-111111111111",
+        role: "child" as const,
+        capabilities: ["whoami", "manual", "handoff"],
+      }),
+    );
+    const prepared = await prepareRemoteAgent(
+      { ...spec, agent },
+      "/fixture/shell",
+      home,
+      signal,
+      relay,
+    );
+    endpoints.push(prepared.endpoint);
+    prepared.endpoint.activate();
+    const conversation = prepared.ready.conversationId;
+    expect(conversation).toMatch(agent === "pi" ? /^[a-f0-9-]{36}$/ : /^ses_[a-f0-9-]{36}$/);
+    const fixture = join(home, "consume.mjs");
+    await writeFile(
+      fixture,
+      `
+import {readFileSync} from 'node:fs';
+import {pathToFileURL} from 'node:url';
+import assert from 'node:assert/strict';
+const agent=${JSON.stringify(agent)}, conversation=${JSON.stringify(conversation)};
+if(agent==='pi') {
+ const file=process.argv[process.argv.indexOf('--extension')+1];
+ const extension=(await import(pathToFileURL(file))).default;
+ const handlers=new Map(); let registered;
+ extension({on(name,handler){const previous=handlers.get(name);handlers.set(name,async (...args)=>{await previous?.(...args);await handler(...args);});},
+ registerMcpServer(name,config){registered={name,...config};}, unregisterMcpServer(){registered=undefined;}});
+ const ctx={sessionManager:{getSessionId:()=>conversation},isIdle:()=>false};
+ await handlers.get('session_start')({},ctx);
+ assert.deepEqual(Object.keys(registered.toolExposure),['whoami','manual','handoff']);
+ assert.deepEqual(registered.args,['--mcp']);
+ assert.equal(registered.command,process.execPath);
+ await handlers.get('agent_start')({},ctx);
+ await handlers.get('agent_before_settle')({outcome:'completed'},ctx);
+ await handlers.get('agent_settled')({aborted:false},ctx);
+ console.log(JSON.stringify(registered));
+ process.env.FOOM_REMOTE_TOKEN='f'.repeat(64);
+ await handlers.get('before_agent_start')({},ctx);
+ assert.equal(registered,undefined);
+} else {
+ const hooks=JSON.parse(readFileSync(process.env.OPENCODE_CONFIG,'utf8'));
+ const module=(await import(pathToFileURL(hooks.plugins[0]+'/index.mjs'))).default;
+ let finished; const done=new Promise(resolve=>finished=resolve);
+ const dispose=module.setup({event:{async *subscribe(){
+  yield {id:'first',type:'session.execution.started',data:{sessionID:conversation,prompt:'PRIVATE'}};
+  yield {id:'second',type:'session.execution.succeeded',data:{sessionID:conversation}};
+  finished();
+ }}});
+ await done; dispose();
+ console.log(process.env.OPENCODE_CONFIG_CONTENT);
+}
+`,
+    );
+    const result = await promisify(execFile)(process.execPath, [fixture, ...prepared.spec.args], {
+      cwd: home,
+      env: prepared.spec.env,
+      timeout: 10000,
+      encoding: "utf8",
+    });
+    expect(signal.mock.calls.map(([value]) => value.action)).toEqual(
+      ["ready", "working", "classify"].filter((value) => agent === "pi" || value !== "ready"),
+    );
+    expect(JSON.stringify(signal.mock.calls)).not.toContain("PRIVATE");
+    expect(result.stdout).toContain("--mcp");
+    const directory = prepared.endpoint.directory;
+    prepared.endpoint.dispose();
+    await expect(readFile(join(directory, "extension/launch.json"))).rejects.toThrow();
+  },
+);
+
+test("the remote Pi ABI is locked to application-owned bytes", () => {
+  expect(() => {
+    assertRemotePiIntegrity(remotePiExtension());
+  }).not.toThrow();
+  expect(() => {
+    assertRemotePiIntegrity(remotePiExtension() + " ");
+  }).toThrow("integrity");
+});

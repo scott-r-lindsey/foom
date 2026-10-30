@@ -1689,3 +1689,111 @@ test("copy on select writes only completed terminal selections when enabled", {
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.keyboard.type("q");
 });
+
+test("terminal context menu targets the clicked shell and preserves tracked right clicks", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "foom-context-menu-"));
+  removeAfterApps(context, root);
+  const marker = path.join(root, "input");
+  await writeFile(marker, "");
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setSize(1400, 1000);
+  });
+  const tiles = page.locator(".terminal-tile[data-kind='shell']");
+  const shellA = tiles.nth(0);
+  await launchCheckoutShell(app, page);
+  await expect(tiles).toHaveCount(2);
+  const shellB = tiles.nth(1);
+  const screenA = shellA.locator(".xterm-screen");
+  const screenB = shellB.locator(".xterm-screen");
+  await expect(shellB.locator(".xterm-helper-textarea")).toBeFocused();
+  // ConPTY can truncate a long PowerShell prompt; copy a short deterministic
+  // output line so the assertion identifies A independently of prompt layout.
+  await shellA.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.type("echo CONTEXT_COPY_A_936");
+  await page.keyboard.press("Enter");
+  await expect(shellA.locator(".xterm-rows")).toContainText("CONTEXT_COPY_A_936");
+  const menu = page.getByRole("menu", { name: "Terminal menu", exact: true });
+  const openA = () => screenA.click({ button: "right", position: { x: 90, y: 40 } });
+  await openA();
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Copy", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(shellA.locator(".xterm-helper-textarea")).toBeFocused();
+  // Capture the plain shell menu, then the same menu with an xterm selection.
+  for (const mode of ["dark", "light"]) {
+    await page.evaluate(
+      async (theme) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${theme}` }),
+      mode,
+    );
+    await openA();
+    await expect(menu).toBeVisible();
+    await page.screenshot({
+      path: evidencePath(`screenshots-936/${mode}-shell.png`),
+      animations: "disabled",
+    });
+    await page.keyboard.press("Escape");
+    await openA();
+    await menu.getByRole("menuitem", { name: "Select all", exact: true }).click();
+    await expect(shellA.locator(".xterm-selection div:visible").first()).toBeVisible();
+    await openA();
+    await expect(menu.getByRole("menuitem", { name: "Copy", exact: true })).toBeEnabled();
+    await page.screenshot({
+      path: evidencePath(`screenshots-936/${mode}-selection.png`),
+      animations: "disabled",
+    });
+    await menu.getByRole("menuitem", { name: "Copy", exact: true }).click();
+    await expect
+      .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+      .toMatch(/CONTEXT_COPY_A_936/);
+    // A normal left click clears the selection before the next plain-shell capture.
+    await screenA.click({ position: { x: 20, y: 40 } });
+  }
+  // An outside click retains its newer focus choice instead of restoring A.
+  await openA();
+  await screenB.click({ position: { x: 20, y: 40 } });
+  await expect(menu).toHaveCount(0);
+  await expect(shellB.locator(".xterm-helper-textarea")).toBeFocused();
+  // Paste must reach A even though B was the focused tile before the menu opened.
+  await app.evaluate(({ clipboard }) => clipboard.writeText("echo CONTEXT_PASTE_936; "));
+  await openA();
+  await menu.getByRole("menuitem", { name: "Paste", exact: true }).click();
+  await expect(shellA.locator(".xterm-rows")).toContainText("CONTEXT_PASTE_936");
+  await expect(shellB.locator(".xterm-rows")).not.toContainText("CONTEXT_PASTE_936");
+  // Continue the pasted statement in Bash and PowerShell without relying on
+  // shell-specific line-editing shortcuts.
+  const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`;
+  await page.keyboard.type(command);
+  await page.keyboard.press("Enter");
+  await expect(shellA.locator(".xterm-rows")).toContainText("INPUT_READY");
+  await openA();
+  await menu.getByRole("menuitem", { name: "Clear", exact: true }).click();
+  await expect(shellA.locator(".xterm-rows")).not.toContainText("INPUT_READY");
+  await expect(shellB.locator(".xterm-rows")).toContainText(/[$#%>]/);
+  await page.keyboard.type("m");
+  await expect(shellA.locator(".xterm-rows")).toContainText("MOUSE_READY");
+  await writeFile(marker, "");
+  await openA();
+  await expect(menu).toHaveCount(0);
+  await page.keyboard.type("b");
+  await expect(shellA.locator(".xterm-rows")).toContainText("INPUT_BARRIER");
+  assert.match(
+    Buffer.from((await readFile(marker, "utf8")).replaceAll("\n", ""), "hex")
+      .toString()
+      .replaceAll("\x1b", "ESC"),
+    /^ESC\[<2;\d+;\d+MESC\[<2;\d+;\d+mb$/,
+  );
+  await writeFile(marker, "");
+  await screenA.click({ button: "right", modifiers: ["Shift"], position: { x: 90, y: 40 } });
+  await expect(menu).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(shellA.locator(".xterm-helper-textarea")).toBeFocused();
+  await page.keyboard.type("b");
+  await expect.poll(async () => (await readFile(marker, "utf8")).trim()).toBe("62");
+  await page.keyboard.type("q");
+});

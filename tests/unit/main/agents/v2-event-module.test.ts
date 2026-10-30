@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, expect, it } from "vitest";
-import { eventModule } from "../../../../src/main/agents/providers/v2-event-module";
+import { eventModule } from "../../../../src/shared/agent-event-module";
 import { agentProvider } from "../../../../src/main/agents/providers/registry";
 import { HookReceiver } from "../../../../src/main/agents/hook-receiver";
 import type { HookSignal } from "../../../../src/shared/hooks";
