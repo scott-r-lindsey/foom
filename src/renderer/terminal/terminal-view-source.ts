@@ -1,3 +1,5 @@
+import { terminalContextMenu } from "./context-menu";
+import type { TerminalContextMenu } from "./terminal-view-source.d";
 import { createShell } from "./shell-controller";
 import type { TerminalViewSource } from "./terminal-view-source.d";
 import type { ShellView } from "./shell.d";
@@ -14,6 +16,8 @@ export function createTerminalView(
   hasExited: (id: string) => boolean = () => false,
 ): TerminalViewSource {
   let controller: ReturnType<typeof createShell> | undefined;
+  let session: string | undefined;
+  const menus = new Set<(menu: TerminalContextMenu) => void>();
   let cancelFocus: (() => void) | undefined;
   let pendingRestoration: { from: Element | null } | undefined;
   let snapshot: ShellView = {
@@ -36,6 +40,12 @@ export function createTerminalView(
       for (const listener of listeners) listener();
     });
   return {
+    onContextMenu: (listener) => {
+      menus.add(listener);
+      return () => {
+        menus.delete(listener);
+      };
+    },
     mount: (element) => {
       controller = createShell(
         element,
@@ -50,7 +60,18 @@ export function createTerminalView(
         available,
         hasExited,
       );
+      const current = controller;
+      const offMenu = terminalContextMenu(
+        element,
+        current.terminal,
+        () =>
+          controller === current && snapshot.visible && !snapshot.attaching ? session : undefined,
+        (menu) => {
+          for (const listener of menus) listener(menu);
+        },
+      );
       return () => {
+        offMenu();
         cancelFocus?.();
         const previous = controller;
         controller = undefined;
@@ -72,6 +93,7 @@ export function createTerminalView(
         if (previous && previous !== current) await previous.hide();
         for (const [session, owner] of owners) if (owner === current) owners.delete(session);
         await current.open(id);
+        session = id;
         owners.set(id, current);
       }),
     hide: () => {

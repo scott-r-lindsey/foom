@@ -375,3 +375,38 @@ test.each([false, true])(
     expect(sameTile ? firstFocus : secondFocus).toHaveBeenCalledOnce();
   },
 );
+
+test("context menu subscription uses only the attached session and is removed on unmount", async () => {
+  const terminal = {
+    focus: vi.fn(),
+    modes: { mouseTrackingMode: "none" },
+    getSelection: () => "",
+    selectAll: vi.fn(),
+    clear: vi.fn(),
+  };
+  let publish: ((state: ShellView) => void) | undefined;
+  mock.create.mockImplementation((_element: HTMLElement, update: (state: ShellView) => void) => {
+    publish = update;
+    return { open: vi.fn(), hide: vi.fn(), dispose: vi.fn(), terminal };
+  });
+  const view = createTerminalView();
+  const listener = vi.fn();
+  const off = view.onContextMenu?.(listener);
+  const element = document.createElement("div");
+  const unmount = view.mount(element);
+  const context = () =>
+    element.dispatchEvent(new MouseEvent("contextmenu", { button: 2, cancelable: true }));
+  context();
+  expect(listener).not.toHaveBeenCalled();
+  await view.open("a");
+  // Publish the same visibility state a live controller reports after attachment.
+  publish?.({ ...view.getSnapshot(), visible: true, attaching: false });
+  context();
+  expect(listener).toHaveBeenCalledOnce();
+  off?.();
+  context();
+  expect(listener).toHaveBeenCalledOnce();
+  unmount();
+  context();
+  expect(listener).toHaveBeenCalledOnce();
+});

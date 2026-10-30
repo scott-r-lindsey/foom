@@ -62,6 +62,24 @@ and backpressure remain unchanged. Prototype tests cover byte-identical mixed-
 chunk normal/alternate buffers, delayed ACKs, watermarks and ordered resize stages.
 
 
+## Terminal context menu (#936)
+
+Right-clicking a terminal opens a pointer-positioned menu: Copy (disabled without
+an xterm selection), Paste, Select all and Clear, then a separator and the tile's
+existing Split/Grow pads. Clear removes the visible view's scrollback with xterm's
+clear operation; it does not send a command to the shell. Copy and Paste focus the
+clicked terminal and use the existing native clipboard commands, independently
+of Copy on select and preserving xterm's bracketed-paste handling.
+Commands are discarded if their view has changed sessions or detached.
+
+With mouse tracking enabled, plain right-click belongs to the running program;
+Shift+right-click opens Foom's menu. Without tracking, plain right-click opens it.
+On macOS Ctrl+click follows the same rule. Menu-owned presses are captured before
+xterm can clear the selection or report them to the program. The menu remains open across xterm
+scroll events from focus changes or output. There is no helper copy. Escape and outside clicks dismiss; shared menu focus restoration returns
+to the originating terminal, preserving a newer outside focus choice (#903).
+The [board rules](board.md) own the unchanged directional controls.
+
 ## Remote shell spike (#754)
 
 Every CI/release package carries a same-commit catalog for `linux-x64`, `linux-arm64`,
