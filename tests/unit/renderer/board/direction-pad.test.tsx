@@ -10,7 +10,10 @@ test.each(["left", "up", "right", "down"] as const)(
   (direction) => {
     const run = vi.fn();
     const initial = initialLayout();
-    const layout = splitTile(initial, direction);
+    const layout = splitTile(
+      initial,
+      ({ left: "right", right: "left", up: "down", down: "up" } as const)[direction],
+    );
     const screen = render(
       <div role="menu">
         <DirectionPad kind="Split" layout={layout} run={run} />
@@ -19,7 +22,7 @@ test.each(["left", "up", "right", "down"] as const)(
     );
     const split = within(screen.getByRole("group", { name: "Split" }));
     const grow = within(screen.getByRole("group", { name: "Grow" }));
-    const arrow = split.getByRole("menuitem", { name: `Split ${direction}` });
+    const arrow = split.getByRole("menuitem", { name: `Split terminal ${direction}` });
     fireEvent.keyDown(arrow, {
       key: `Arrow${direction.charAt(0).toUpperCase()}${direction.slice(1)}`,
     });
@@ -55,10 +58,10 @@ test("split refusal is described and inert at the resource limit", () => {
       <DirectionPad kind="Split" layout={layout} run={run} />
     </div>,
   );
-  const arrow = screen.getByRole("menuitem", { name: "Split left" });
+  const arrow = screen.getByRole("menuitem", { name: "Split terminal left" });
   expect(arrow.getAttribute("aria-disabled")).toBe("true");
   expect(screen.container.querySelector(".pad-reason")?.textContent).toBe(
-    "Split depth limit reached",
+    "Cannot move terminal right: Split depth limit reached",
   );
   fireEvent.click(arrow);
   expect(run).not.toHaveBeenCalled();
@@ -76,7 +79,7 @@ test("space menu keeps Tab navigation inside and dismisses at its boundaries", (
       action={run}
     />,
   );
-  const down = screen.getByRole("menuitem", { name: "Split down" });
+  const down = screen.getByRole("menuitem", { name: "Split vertical" });
   fireEvent.keyDown(document.activeElement ?? document.body, { key: "ArrowDown" });
   expect(document.activeElement).toBe(down);
   fireEvent.keyDown(down, { key: "Tab" });
@@ -91,8 +94,58 @@ test("space menu keeps Tab navigation inside and dismisses at its boundaries", (
   fireEvent.keyDown(remove, { key: "Tab" });
   expect(close).toHaveBeenCalledOnce();
   close.mockClear();
-  const right = screen.getByRole("menuitem", { name: "Split right" });
+  const right = screen.getByRole("menuitem", { name: "Split horizontal" });
   right.focus();
   fireEvent.keyDown(right, { key: "Tab", shiftKey: true });
   expect(close).toHaveBeenCalledOnce();
 });
+
+test.each(["horizontal", "vertical"] as const)("empty-space menu offers Split %s", (axis) => {
+  const action = vi.fn();
+  const screen = render(
+    <SpaceMenu
+      anchor={document.body}
+      point={{ x: 0, y: 0 }}
+      layout={initialLayout()}
+      close={vi.fn()}
+      action={action}
+    />,
+  );
+  expect(screen.getAllByRole("menuitem").map((button) => button.textContent)).toEqual([
+    "Split horizontal",
+    "Split vertical",
+    "New shell here",
+    "Close space",
+  ]);
+  fireEvent.click(screen.getByRole("menuitem", { name: `Split ${axis}` }));
+  expect(action).toHaveBeenCalledWith(axis);
+});
+
+test.each(["horizontal", "vertical"] as const)(
+  "empty Split %s keeps refused limits focusable and inert",
+  (axis) => {
+    let layout = initialLayout();
+    for (let i = 0; i < 64; i++) layout = splitTile(layout, "vertical");
+    const action = vi.fn();
+    const close = vi.fn();
+    const screen = render(
+      <SpaceMenu
+        anchor={document.body}
+        point={{ x: 0, y: 0 }}
+        layout={layout}
+        close={close}
+        action={action}
+      />,
+    );
+    const button = screen.getByRole("menuitem", { name: `Split ${axis}` });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    button.focus();
+    expect(document.activeElement).toBe(button);
+    expect(
+      document.getElementById(button.getAttribute("aria-describedby") ?? "")?.textContent,
+    ).toBe("Split depth limit reached");
+    fireEvent.click(button);
+    expect(action).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+  },
+);

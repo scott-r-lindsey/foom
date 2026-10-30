@@ -122,7 +122,7 @@ test("WebGL uses a visible context budget and releases hidden and unmounted view
       .click();
     await page
       .getByRole("menuitem", {
-        name: largest.width > largest.height * 1.5 ? "Split right" : "Split down",
+        name: largest.width > largest.height * 1.5 ? "Split terminal left" : "Split terminal up",
         exact: true,
       })
       .click();

@@ -35,6 +35,7 @@ export type TileDrag = { kind: "tile" | "session"; id: string };
 
 export type TileAction =
   | TileDirection
+  | TileSplit["direction"]
   | `grow-${TileDirection}`
   | "close-space"
   | "new-shell"

@@ -513,6 +513,59 @@
     grid-template-columns: 254px minmax(0, 1fr);
   }
 }
-.app-menu:not(.sidebar-panel):has(.tile-pads) {
+.app-menu:not(.sidebar-panel):has(.space-splits) {
   min-width: min(250px, calc(100vw - 16px));
+}
+
+.space-splits {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 4px 6px 6px;
+}
+.row-menu .space-split button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 8px;
+  border: 1px solid var(--raised-line);
+  border-radius: 8px;
+  background: var(--raised-top);
+  color: var(--ink);
+  text-align: center;
+}
+.row-menu .space-split button::before {
+  display: none;
+}
+.space-split svg {
+  width: 28px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.row-menu .space-split button:hover:not([aria-disabled="true"]),
+.row-menu .space-split button:focus-visible {
+  background: var(--raised-hover);
+  border-color: var(--highlight);
+  outline: none;
+}
+.row-menu .space-split button[aria-disabled="true"] {
+  opacity: 0.35;
+  border-style: dashed;
+  cursor: default;
+}
+.space-split:hover .pad-reason,
+.space-split:focus-within .pad-reason {
+  display: block;
+}
+
+.space-splits .pad-reason {
+  top: calc(100% + 2px);
+  bottom: auto;
+  max-width: calc(100% - 12px);
 }

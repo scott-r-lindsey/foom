@@ -68,13 +68,15 @@ test("tiles build irregular layouts, preserve views and replace explicitly for a
     });
   });
   await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
-  await expect(page.getByRole("menuitem", { name: "Split right", exact: true })).toBeFocused();
-  await page.getByRole("menuitem", { name: "Split right", exact: true }).click();
+  await expect(
+    page.getByRole("menuitem", { name: "Split terminal right", exact: true }),
+  ).toBeFocused();
+  await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
   await expect(page.locator('[data-empty="true"]')).toHaveAttribute("aria-hidden", "true");
   await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
   await rows.nth(1).click();
   await page.getByRole("button", { name: "Tile 2 menu", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Split down", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Split terminal up", exact: true }).click();
   await rows.nth(2).click();
   const tiles = page.locator(".terminal-tile");
   await expect(tiles).toHaveCount(3);
@@ -202,17 +204,19 @@ test("launching into a narrow full tile uses the focused fallback and empty tile
   await expect(empty).toHaveAttribute("aria-hidden", "true");
   await expect(empty.locator(".tile-title")).toHaveCount(0);
   await expect(empty.locator("button")).toHaveCount(0);
-  await page.getByRole("separator", { name: "Resize tiles" }).first().press("End");
+  await page.getByRole("separator", { name: "Resize tiles" }).first().press("Home");
   await expect(page.locator(".terminal-tile")).toHaveCount(2);
-  await page.getByRole("separator", { name: "Resize tiles" }).press("End");
+  await page.getByRole("separator", { name: "Resize tiles" }).press("Home");
   await expect(page.locator(".terminal-tile")).toHaveCount(1);
   await page.locator(".tile-title").click({ button: "right" });
-  await expect(page.getByRole("menuitem", { name: "Split right", exact: true })).toBeFocused();
+  await expect(
+    page.getByRole("menuitem", { name: "Split terminal right", exact: true }),
+  ).toBeFocused();
   await expect(page.getByRole("menuitem", { name: "Grow right", exact: true })).toBeDisabled();
-  await page.getByRole("menuitem", { name: "Split right", exact: true }).press("Escape");
+  await page.getByRole("menuitem", { name: "Split terminal right", exact: true }).press("Escape");
   await expect(page.getByRole("button", { name: "Tile 1 menu", exact: true })).toBeFocused();
   await page.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Split right", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
   const gutter = page.getByRole("separator", { name: "Resize tiles" });
   const bounds = await page.locator(".tile-area").boundingBox();
   const handle = await gutter.boundingBox();
@@ -265,6 +269,8 @@ test("tile leader avoids AltGr chords and cancels unmatched keys", {
 }, async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
+  const terminalId = await page.locator(".terminal-tile").getAttribute("data-tile");
+  const terminal = page.locator(`[data-tile="${terminalId}"]`);
   const leader = async (keyCode) => {
     await boardCommand(app, "Space");
     await app.evaluate(({ BrowserWindow }, keyCode) => {
@@ -280,7 +286,7 @@ test("tile leader avoids AltGr chords and cancels unmatched keys", {
   await leader("R");
   await expect(tiles).toHaveCount(2);
   await leader("1");
-  await expect(tiles.first()).toHaveAttribute("data-focused", "true");
+  await expect(terminal).toHaveAttribute("data-focused", "true");
   await leader("Escape");
   await page.keyboard.press("r");
   await expect(tiles).toHaveCount(2);
@@ -292,6 +298,8 @@ test("tile leader avoids AltGr chords and cancels unmatched keys", {
 test("tile terminal viewport has no native overflow bars", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell" });
   const page = await boardPage(app);
+  const terminalId = await page.locator(".terminal-tile").getAttribute("data-tile");
+  const terminal = page.locator(`[data-tile="${terminalId}"]`);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await openSettingsScreen(page);
   await page.getByRole("button", { name: "Terminal", exact: true }).click();
@@ -307,18 +315,15 @@ test("tile terminal viewport has no native overflow bars", async (context) => {
   await expect(page.locator(".terminal-tile")).toHaveCount(2);
   await page.evaluate(() => window.desktop.appMenu.execute("split-down"));
   await expect(page.locator(".terminal-tile")).toHaveCount(3);
-  await expect(page.locator(".terminal-tile").first()).toHaveCSS(
-    "background-color",
-    "rgb(40, 42, 54)",
-  );
+  await expect(terminal).toHaveCSS("background-color", "rgb(40, 42, 54)");
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme });
-    const viewport = page.locator(".tile-terminal .xterm-viewport").first();
+    const viewport = terminal.locator(".xterm-viewport");
     await expect(viewport).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(viewport).toHaveCSS("overflow", "hidden");
     // The bottom strip below the last whole character row comes from the tile's
     // terminal theme, while xterm's current viewport still owns scrollback.
-    await expect(page.locator(".xterm-scrollable-element").first()).toBeVisible();
+    await expect(terminal.locator(".xterm-scrollable-element")).toBeVisible();
   }
   await page.screenshot({ path: evidencePath("foom-132-bars-fixed.png") });
 });
@@ -400,9 +405,9 @@ test("tile drag drops replace, split every edge, swap and move without reattachm
   for (const theme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
     await page.getByRole("button", { name: "Tile 1 menu" }).click();
-    await page.getByRole("menuitem", { name: "Split right", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
     await page.getByRole("button", { name: "Tile 1 menu" }).click();
-    await page.getByRole("menuitem", { name: "Split down", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Split terminal up", exact: true }).click();
     const landing = page.locator('.terminal-tile[data-landing="true"]');
     const other = page.locator('.terminal-tile[data-empty="true"][data-landing="false"]');
     const appearance = (element) => {
@@ -970,28 +975,38 @@ test("directional pads and empty-space menu split, grow, launch and close", {
     await menuButton.click();
     const split = page.getByRole("group", { name: "Split", exact: true });
     const grow = page.getByRole("group", { name: "Grow", exact: true });
+    const opposite = { left: "right", right: "left", up: "down", down: "up" }[direction];
     const named = direction[0].toUpperCase() + direction.slice(1);
-    await split.getByRole("menuitem", { name: "Split right", exact: true }).press(`Arrow${named}`);
+    await split
+      .getByRole("menuitem", { name: "Split terminal right", exact: true })
+      .press(`Arrow${named}`);
     await expect(
-      split.getByRole("menuitem", { name: `Split ${direction}`, exact: true }),
+      split.getByRole("menuitem", { name: `Split terminal ${direction}`, exact: true }),
     ).toBeFocused();
     await expect(
       grow.getByRole("menuitem", { name: `Grow ${direction}`, exact: true }),
     ).toBeDisabled();
-    await split.getByRole("menuitem", { name: `Split ${direction}`, exact: true }).click();
+    await split.getByRole("menuitem", { name: `Split terminal ${direction}`, exact: true }).click();
     await expect(spaces).toHaveCount(1);
     await expect(
       page.locator('.terminal-tile[data-empty="false"] .xterm-helper-textarea').first(),
     ).toBeFocused();
+    const terminalBounds = await page.locator('.terminal-tile[data-empty="false"]').boundingBox();
+    const spaceBounds = await spaces.first().boundingBox();
+    assert.ok(terminalBounds && spaceBounds);
+    if (direction === "left") assert.ok(terminalBounds.x < spaceBounds.x);
+    if (direction === "right") assert.ok(terminalBounds.x > spaceBounds.x);
+    if (direction === "up") assert.ok(terminalBounds.y < spaceBounds.y);
+    if (direction === "down") assert.ok(terminalBounds.y > spaceBounds.y);
     await menuButton.click();
     await expect(
-      grow.getByRole("menuitem", { name: `Grow ${direction}`, exact: true }),
+      grow.getByRole("menuitem", { name: `Grow ${opposite}`, exact: true }),
     ).toBeEnabled();
-    await grow.getByRole("menuitem", { name: `Grow ${direction}`, exact: true }).click();
+    await grow.getByRole("menuitem", { name: `Grow ${opposite}`, exact: true }).click();
     await expect(spaces).toHaveCount(0);
   }
   await menuButton.click();
-  await page.getByRole("menuitem", { name: "Split down", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Split terminal down", exact: true }).click();
   for (const colorScheme of ["light", "dark"]) {
     await page.evaluate(
       (base) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${base}` }),
@@ -1005,18 +1020,18 @@ test("directional pads and empty-space menu split, grow, launch and close", {
     await expect(page.locator("html")).toHaveCSS("color-scheme", colorScheme);
     await menuButton.click();
     const panel = page.getByRole("dialog", { name: "Tile 1 menu", exact: true });
-    const refused = panel.getByRole("menuitem", { name: "Grow up", exact: true });
+    const refused = panel.getByRole("menuitem", { name: "Grow down", exact: true });
     await refused.focus();
     await expect(refused).toBeFocused();
-    await expect(refused).toHaveAccessibleDescription("At the top edge");
-    await expect(panel.getByText("At the top edge", { exact: true })).toBeVisible();
-    const arrow = panel.getByRole("menuitem", { name: "Split up", exact: true });
+    await expect(refused).toHaveAccessibleDescription("At the bottom edge");
+    await expect(panel.getByText("At the bottom edge", { exact: true })).toBeVisible();
+    const arrow = panel.getByRole("menuitem", { name: "Split terminal up", exact: true });
     await expect(arrow).toHaveCSS("width", "28px");
     await expect(arrow).toHaveCSS("height", "28px");
     await arrow.focus();
-    await expect(panel.getByText("At the top edge", { exact: true })).toBeHidden();
+    await expect(panel.getByText("At the bottom edge", { exact: true })).toBeHidden();
     await assertAccessible(page);
-    await page.screenshot({ path: evidencePath(`screenshots-889/tile-panel-${colorScheme}.png`) });
+    await page.screenshot({ path: evidencePath(`screenshots-932/tile-panel-${colorScheme}.png`) });
     await arrow.press("Escape");
     await spaces.first().click({ button: "right" });
     const menu = page.getByRole("menu", { name: "Empty space", exact: true });
@@ -1024,18 +1039,19 @@ test("directional pads and empty-space menu split, grow, launch and close", {
     await expect(menu).toHaveCSS("width", "250px");
     await expect(menu.getByRole("group", { name: "Grow", exact: true })).toHaveCount(0);
     await assertAccessible(page);
-    await page.screenshot({ path: evidencePath(`screenshots-889/empty-space-${colorScheme}.png`) });
-    await menu.getByRole("menuitem", { name: "Split right", exact: true }).press("Escape");
+    await page.screenshot({ path: evidencePath(`screenshots-932/empty-space-${colorScheme}.png`) });
+    await menu.getByRole("menuitem", { name: "Split horizontal", exact: true }).press("Escape");
     await expect(menu).toHaveCount(0);
   }
   await spaces.first().click({ button: "right" });
   await spaces.first().click({ position: { x: 10, y: 10 } });
   await expect(page.getByRole("menu", { name: "Empty space", exact: true })).toHaveCount(0);
   await spaces.first().click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Split left", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Split horizontal", exact: true }).click();
   await expect(spaces).toHaveCount(2);
   await spaces.first().click({ button: "right" });
-  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("menuitem", { name: "Split vertical", exact: true })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("menuitem", { name: "New shell here", exact: true })).toBeFocused();
   await page.keyboard.press("Tab");
@@ -1047,10 +1063,14 @@ test("directional pads and empty-space menu split, grow, launch and close", {
   await expect(spaces).toHaveCount(1);
   const target = await spaces.first().getAttribute("data-tile");
   await spaces.first().click({ button: "right" });
-  await page.locator(".tile-title").first().click();
+  await page
+    .locator(".tile-title")
+    .first()
+    .click({ position: { x: 10, y: 10 } });
   await expect(page.getByRole("menu", { name: "Empty space", exact: true })).toHaveCount(0);
   await spaces.first().click({ button: "right" });
-  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("menuitem", { name: "Split vertical", exact: true })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("menuitem", { name: "New shell here", exact: true })).toBeFocused();
   await page.keyboard.press("Enter");
@@ -1058,7 +1078,7 @@ test("directional pads and empty-space menu split, grow, launch and close", {
   await expect(page.locator(`[data-tile="${target}"]`)).toHaveAttribute("data-empty", "false");
   await expect(page.locator(".board-row")).toHaveCount(2);
   await page.getByRole("button", { name: "Tile 2 menu", exact: true }).click();
-  await expect(page.getByRole("menuitem", { name: "Grow up", exact: true })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: "Grow left", exact: true })).toBeDisabled();
   await page.keyboard.press("Escape");
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()
@@ -1077,9 +1097,48 @@ test("directional pads and empty-space menu split, grow, launch and close", {
       }),
     )
     .toBe(true);
-  await expect(narrow.getByRole("menuitem", { name: "Split right", exact: true })).toHaveCSS(
-    "width",
-    "28px",
-  );
+  await expect(
+    narrow.getByRole("menuitem", { name: "Split terminal right", exact: true }),
+  ).toHaveCSS("width", "28px");
   await narrow.press("Escape");
+});
+
+test("empty-space split refusals stay inside the menu at resource limits", async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  const page = await boardPage(app);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.evaluate(() => {
+    let tree = { kind: "tile", id: "limit-space", content: null };
+    for (let index = 0; index < 64; index++)
+      tree = {
+        kind: "split",
+        id: `limit-split-${index}`,
+        direction: "horizontal",
+        ratio: 0.999,
+        first: tree,
+        second: { kind: "tile", id: `side-${index}`, content: null },
+      };
+    localStorage.setItem(
+      `foom.tiles.v1.${window.desktop.windows.id}`,
+      JSON.stringify({ version: 2, tree, focused: "limit-space", maximized: null }),
+    );
+  });
+  await page.reload();
+  const space = page.locator('[data-tile="limit-space"]');
+  await expect(space).toBeVisible();
+  await space.click({ button: "right", position: { x: 100, y: 100 } });
+  const menu = page.getByRole("menu", { name: "Empty space", exact: true });
+  for (const axis of ["horizontal", "vertical"]) {
+    const button = menu.getByRole("menuitem", { name: `Split ${axis}`, exact: true });
+    await expect(button).toBeDisabled();
+    await button.focus();
+    await expect(button).toHaveAccessibleDescription("Split depth limit reached");
+    const reason = menu.locator(`[id="${await button.getAttribute("aria-describedby")}"]`);
+    await expect(reason).toBeVisible();
+    const bounds = await menu.boundingBox();
+    const tip = await reason.boundingBox();
+    assert.ok(bounds && tip);
+    assert.ok(tip.y >= bounds.y && tip.y + tip.height <= bounds.y + bounds.height);
+    assert.ok(tip.x >= bounds.x && tip.x + tip.width <= bounds.x + bounds.width);
+  }
 });
