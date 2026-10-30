@@ -1179,6 +1179,86 @@ it.each(["single", "batch"] as const)(
   },
 );
 
+it("honors unavailable remote backoff while a local checkout keeps polling the shared repository", async () => {
+  const { locationId } = await import("../../../../src/main/control/metadata");
+  const binding = {
+    host: "alpha",
+    codeFolder: "/code",
+    repository: "/code/repository-fixture",
+    path: "/code/.foom-worktree-fixture",
+    origin: "https://github.com/o/r",
+  };
+  const remote = {
+    ...tree,
+    path: `/foom-remote/${locationId(JSON.stringify([binding.host, binding.path]))}`,
+    remoteCheckout: binding,
+  };
+  let now = 0;
+  let disconnected = false;
+  const remoteInspect = vi.fn(() => {
+    if (disconnected) return Promise.reject(new Error("SSH disconnected"));
+    return Promise.resolve({ remote: binding.origin, head: pending.headSha });
+  });
+  const batches = vi.fn();
+  const tracker = new ForgeTracking(
+    directory,
+    (row) => (row.remoteCheckout ? remoteInspect() : Promise.resolve(binding.origin)),
+    vi.fn(),
+    async (_origin, getContext) => {
+      const context = await getContext?.();
+      return {
+        lookup: () => Promise.resolve(pending),
+        batch: async (matches) => {
+          await context?.validate(matches.map((match) => match.branch));
+          batches();
+          await context?.validate(matches.map((match) => match.branch));
+          return new Map(
+            matches.map(({ branch }) => [
+              branch,
+              {
+                ...pending,
+                board: {
+                  number: pending.number,
+                  state: pending.state,
+                  checks: { pending: 1, passed: 0, failed: 0 },
+                },
+              },
+            ]),
+          );
+        },
+      };
+    },
+    () => now,
+  );
+  trackers.push(tracker);
+  tracker.track(remote, pending.number);
+  tracker.track(tree, pending.number);
+  await tracker.poll();
+  expect(tracker.read(tree.repository, remote.path)).toBeDefined();
+  disconnected = true;
+  now = 20000;
+  await tracker.poll();
+  expect(tracker.read(tree.repository, remote.path)).toBeUndefined();
+  const failedCalls = remoteInspect.mock.calls.length;
+  for (now of [40000, 60000]) {
+    await tracker.poll();
+    expect(tracker.read(tree.repository, tree.path)?.requiredChecks).toBe("pending");
+    expect(remoteInspect).toHaveBeenCalledTimes(failedCalls);
+  }
+  expect(batches).toHaveBeenCalledTimes(3);
+  now = 80000;
+  await tracker.poll();
+  expect(remoteInspect).toHaveBeenCalledTimes(failedCalls + 1);
+  // The second failure backs off to 200000, even as local polling continues.
+  now = 100000;
+  await tracker.poll();
+  expect(remoteInspect).toHaveBeenCalledTimes(failedCalls + 1);
+  disconnected = false;
+  now = 200000;
+  await tracker.poll();
+  expect(tracker.read(tree.repository, remote.path)?.requiredChecks).toBe("pending");
+});
+
 it("tracks two host-bound checkouts on the same branch, adoption, pushes and CI; disconnect hides only that host and restart revalidates", async () => {
   const { locationId } = await import("../../../../src/main/control/metadata");
   const remoteTree = (host: string) => {

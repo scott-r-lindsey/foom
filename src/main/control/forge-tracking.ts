@@ -198,7 +198,13 @@ export class ForgeTracking {
     return result.remote;
   }
 
+  private remoteRetryDeferred(entry: Entry): boolean {
+    return entry.remoteCheckout !== undefined && !entry.available && entry.due > this.now();
+  }
+
   private async context(rows: readonly Entry[], remote: string, retired: Set<Entry>) {
+    // A healthy checkout must not retry another host before its backoff expires.
+    rows = rows.filter((row) => !this.remoteRetryDeferred(row));
     for (const row of rows) {
       if (
         row.remoteCheckout &&
@@ -444,7 +450,10 @@ export class ForgeTracking {
   ): Promise<void> {
     const generation = this.generation;
     const candidates = [...this.entries.values()].filter(
-      (entry) => entry.repository === repository && (entry.orchestrator || this.enabled),
+      (entry) =>
+        entry.repository === repository &&
+        (entry.orchestrator || this.enabled) &&
+        !this.remoteRetryDeferred(entry),
     );
     const rows: Entry[] = [];
     for (const entry of candidates) {
