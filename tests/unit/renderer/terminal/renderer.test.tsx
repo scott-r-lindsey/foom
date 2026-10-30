@@ -1527,8 +1527,9 @@ test("shared paste capability inserts once and ignores responses after the view 
   expect(mock.paste).not.toHaveBeenCalled();
   mock.pasteTerminal.mockResolvedValue({ kind: "text", text: "native" });
   container.dispatchEvent(new Event("paste", { cancelable: true }));
-  await Promise.resolve();
-  expect(mock.paste).toHaveBeenCalledWith("native");
+  await vi.waitFor(() => {
+    expect(mock.paste).toHaveBeenCalledWith("native");
+  });
   const platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux");
   mock.pasteTerminal.mockClear();
   container.dispatchEvent(new MouseEvent("mousedown", { button: 1 }));

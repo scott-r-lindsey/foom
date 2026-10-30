@@ -1572,3 +1572,36 @@ test.skipIf(process.platform === "win32")(
     }
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "stopped PTYs are disposed while image cleanup keeps their session reserved",
+  async () => {
+    const { RemoteImages } = await import("../../../../src/terminal-host/remote/image-files");
+    await start();
+    const c = await open("closing");
+    let release: (() => void) | undefined;
+    let cleaned = false;
+    const cleanup = new Promise<void>((resolve) => {
+      release = () => {
+        cleaned = true;
+        resolve();
+      };
+    });
+    const spy = vi.spyOn(RemoteImages.prototype, "close").mockReturnValueOnce(cleanup);
+    try {
+      c.send({ type: "kill", id: "closing", request: 2 });
+      await vi.waitFor(() => {
+        expect(mock.kill).toHaveBeenCalledWith("closing");
+      });
+      expect(cleaned).toBe(false);
+      const pending = await open("closing", true);
+      expect(pending.messages.at(-1)).toMatchObject({ type: "open-result", state: "gone" });
+      release?.();
+      await c.wait(3);
+      expect(c.messages.at(-1)).toMatchObject({ type: "result", request: 2 });
+    } finally {
+      release?.();
+      spy.mockRestore();
+    }
+  },
+);

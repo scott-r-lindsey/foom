@@ -1,6 +1,6 @@
 # Image paste into agent terminals (#937)
 
-**Approved decisions; implementation in progress.** The
+**Implementation and approved decisions.** The
 [decisions on #937](https://github.com/scott-r-lindsey/foom/issues/937#issuecomment-6530141682)
 (amending PR #944) govern this implementation. This implementation supersedes the
 design-only PR #944; that PR can be closed by its owner.
@@ -11,9 +11,9 @@ Terminals carry input text. The renderer's
 [`shell-controller.ts`](../../src/renderer/terminal/shell-controller.ts) forwards
 xterm `onData` through the ID-scoped input bridge;
 [`terminal-ipc.ts`](../../src/main/terminals/terminal-ipc.ts) owns sender, terminal
-and attachment checks. Its existing clipboard capability is **write-only** copy on
-select. Image paste needs a new, narrow read capability; it must not turn copy on
-select into a general clipboard API.
+and attachment checks. Before this change, its clipboard capability was
+**write-only** copy on select. Image paste adds a narrow read capability; it does
+not turn copy on select into a general clipboard API.
 
 [#936](https://github.com/scott-r-lindsey/foom/issues/936) landed in #945.
 Keyboard paste and context-menu Paste invoke the same operation. Plain right-click
@@ -105,7 +105,7 @@ cannot alter a file later. Never log image bytes, clipboard text or content hash
 Use a Foom-owned image root outside every checkout, with a fresh random directory
 per **launch**, allocated lazily on first image paste:
 
-| Placement | Proposed location |
+| Placement | Location |
 | --- | --- |
 | Local | `<os.tmpdir()>/foom-images-<account-key>-<profile-key>/<random-launch>/image-<random>.png` |
 | Remote Linux/macOS | `<remote-home>/.foom-host/images/<random-launch>/image-<random>.png` |

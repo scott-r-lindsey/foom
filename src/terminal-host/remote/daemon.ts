@@ -186,12 +186,14 @@ export function serveHost(
       try {
         await manager.stop(id);
       } finally {
+        // Release the stopped PTY immediately; keep the daemon session reserved
+        // until pending publication and private-file cleanup have settled.
+        manager.kill(id);
         await session.imageUpload?.catch(() => {});
         await images.close(id).catch(() => {
           console.error("Image paste cleanup failed");
         });
         sessions.delete(id);
-        manager.kill(id);
         worktrees.delete(session);
         const code = session.exited;
         if (

@@ -1,3 +1,4 @@
+import { TerminalInputOrder } from "./input-order";
 import { copyOnSelect } from "./copy-on-select";
 import { terminalFontStack, TERMINAL_FONT_FALLBACK } from "../../shared/terminal-fonts";
 import { isUserThemeId } from "../../shared/theme-validation";
@@ -87,6 +88,7 @@ export function createShell(
   const isAvailable = (id: string) => available(id) && !removed.has(id);
   let selection = Promise.resolve();
   let request = 0;
+  const inputOrder = new TerminalInputOrder();
   let attached = false;
   let selectionCopyEnabled = false;
   const offSelectionCopy = copyOnSelect(container, terminal, () =>
@@ -118,16 +120,20 @@ export function createShell(
     const live = () =>
       !isDisposed() && activeId === id && generation === request && attached && !busy && !exited;
     try {
-      const result = await window.desktop.pasteTerminal(id);
-      if (!live()) return;
-      view.pasteResult =
-        result.kind === "unsupported"
-          ? "Image paste is not supported for this session."
-          : result.kind === "failed"
-            ? "Unable to paste this image."
-            : undefined;
-      if (result.kind === "text") terminal.paste(result.text);
-      publish();
+      await inputOrder.paste(
+        window.desktop.pasteTerminal(id),
+        (result) => {
+          view.pasteResult =
+            result.kind === "unsupported"
+              ? "Image paste is not supported for this session."
+              : result.kind === "failed" || result.kind === "cancelled"
+                ? "Unable to paste clipboard contents."
+                : undefined;
+          if (result.kind === "text") terminal.paste(result.text);
+          publish();
+        },
+        live,
+      );
     } catch {
       if (live()) {
         view.pasteResult = "Unable to paste clipboard contents.";
@@ -179,7 +185,10 @@ export function createShell(
       parsedFrame = false;
       view.attaching = false;
     }
-    if (!visible) view.pasteResult = undefined;
+    if (!visible) {
+      inputOrder.cancel();
+      view.pasteResult = undefined;
+    }
     attached = visible;
     container.hidden = !visible;
     renderer.visible(visible);
@@ -262,11 +271,25 @@ export function createShell(
     }
     controls();
   });
+  const sendInput = (data: string, origin?: "wheel") => {
+    const id = activeId;
+    const generation = request;
+    if (!id) return;
+    inputOrder.input(
+      data.length,
+      () => {
+        if (origin === undefined) window.desktop.input(id, data);
+        else window.desktop.input(id, data, origin);
+      },
+      () =>
+        !isDisposed() && id === activeId && generation === request && attached && !busy && !exited,
+    );
+  };
   terminal.onData((data) => {
-    if (activeId && attached && !busy && !exited) window.desktop.input(activeId, data);
+    sendInput(data);
   });
   const wheel = alternateScroll(terminal, (data) => {
-    if (activeId && attached && !busy && !exited) window.desktop.input(activeId, data, "wheel");
+    sendInput(data, "wheel");
   });
   terminal.attachCustomWheelEventHandler((event) => wheel.handle(event));
   const board = container.closest(".board-home");
@@ -473,6 +496,7 @@ export function createShell(
     offExit();
     offRemoved();
     offSetup();
+    inputOrder.cancel();
     offMiddleClick();
     container.removeEventListener("mousedown", pasteMouse, true);
     container.removeEventListener("keydown", pasteKey, true);

@@ -96,6 +96,9 @@ Shells, other agents and config providers show “Image paste is not supported f
 this session.” Text paste is unchanged. Foom inserts exactly one
 `[pasted image '<absolute path>'] ` reference with recipient quoting and a trailing
 space, using xterm paste and no Enter. It never rewrites or submits the message.
+User input is ordered behind a pending paste, so Enter cannot overtake clipboard
+preparation; Foom never adds Enter. Failed/cancelled paste discards buffered input
+rather than replaying it. The input buffer is bounded to 65,536 UTF-16 units.
 Switching/detaching/closing a view invalidates delivery and aborts pending work.
 
 Local PNGs live outside checkouts in a private account/profile temp root with a
