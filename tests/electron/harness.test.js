@@ -325,3 +325,64 @@ test("Linux launch rejects absent or foreign displays before fixture creation", 
     );
   }
 });
+
+test("startup tracing waits for the board document and skips cancelled or failed navigation", async (context) => {
+  const { EventEmitter } = require("node:events");
+  const { recordBoardStartup } = require("./board-startup.js");
+  const previous = globalThis.boardStartup;
+  context.after(() => {
+    if (previous === undefined) delete globalThis.boardStartup;
+    else globalThis.boardStartup = previous;
+  });
+  for (const outcome of ["loaded", "cancelled", "failed", "disabled"]) {
+    const app = new EventEmitter();
+    app.whenReady = () => Promise.resolve();
+    const window = new EventEmitter();
+    const contents = new EventEmitter();
+    window.id = 1;
+    window.webContents = contents;
+    window.isDestroyed = () => false;
+    window.isVisible = window.isFocused = () => true;
+    window.getBounds = window.getContentBounds = () => ({});
+    contents.getURL = () => "app://bundle/index.html";
+    let loading = true;
+    contents.isLoadingMainFrame = () => loading;
+    let starts = 0;
+    const acknowledged = Promise.withResolvers();
+    recordBoardStartup(
+      {
+        app,
+        contentTracing: {
+          startRecording: () => {
+            starts++;
+            return acknowledged.promise;
+          },
+        },
+      },
+      outcome !== "disabled",
+    );
+    const state = globalThis.boardStartup;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(starts, 0, "App readiness must not race cold renderer registration");
+    app.emit("browser-window-created", {}, window);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(starts, 0, "Creating the native window is not document readiness");
+    if (outcome === "cancelled") state.stopRequested = true;
+    if (outcome === "failed") {
+      const rejected = assert.rejects(state.waitForDocument(), /navigation failed/);
+      contents.emit("did-fail-load", {}, -1, "fixture failure", contents.getURL(), true);
+      await rejected;
+    } else {
+      loading = false;
+      contents.emit("did-finish-load");
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(starts, outcome === "loaded" ? 1 : 0);
+    assert.equal(state.tracing, false, "Recording must await the native acknowledgement");
+    acknowledged.resolve();
+    await state.traceReady;
+    assert.equal(state.tracing, outcome === "loaded");
+    assert.equal(contents.listenerCount("did-fail-load"), 0);
+    assert.equal(contents.listenerCount("render-process-gone"), 0);
+  }
+});
