@@ -1760,12 +1760,13 @@ test("terminal context menu targets the clicked shell and preserves tracked righ
   await expect(menu).toHaveCount(0);
   await expect(shellB.locator(".xterm-helper-textarea")).toBeFocused();
   // Paste must reach A even though B was the focused tile before the menu opened.
-  await app.evaluate(({ clipboard }) => clipboard.writeText("CONTEXT_PASTE_936"));
+  await app.evaluate(({ clipboard }) => clipboard.writeText("echo CONTEXT_PASTE_936; "));
   await openA();
   await menu.getByRole("menuitem", { name: "Paste", exact: true }).click();
   await expect(shellA.locator(".xterm-rows")).toContainText("CONTEXT_PASTE_936");
   await expect(shellB.locator(".xterm-rows")).not.toContainText("CONTEXT_PASTE_936");
-  await page.keyboard.press("Control+u");
+  // Continue the pasted statement in Bash and PowerShell without relying on
+  // shell-specific line-editing shortcuts.
   const command = `${process.platform === "win32" ? "& " : ""}"${process.execPath}" "${path.join(__dirname, "input-probe.js")}" "${marker}"`;
   await page.keyboard.type(command);
   await page.keyboard.press("Enter");
