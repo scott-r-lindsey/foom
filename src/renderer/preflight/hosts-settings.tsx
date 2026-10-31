@@ -109,6 +109,7 @@ export function HostsSettings({
           <label>
             SSH host
             <input
+              placeholder="user@host"
               value={host}
               onChange={(event) => {
                 setHost(event.target.value);

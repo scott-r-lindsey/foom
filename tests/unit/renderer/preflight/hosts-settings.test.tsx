@@ -32,6 +32,9 @@ test("host form requires a check, clears stale results on edits, and shows live 
   render(<HostsSettings source={{ hosts: api }} headingRef={createRef()} />);
   await screen.findByText("No hosts");
   fireEvent.click(screen.getByRole("button", { name: "Add host" }));
+  expect(screen.getByPlaceholderText("user@host")).toBe(
+    screen.getByRole("textbox", { name: "SSH host" }),
+  );
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "Add" }).disabled).toBe(true);
   fireEvent.change(screen.getByLabelText("SSH host"), { target: { value: "worker" } });
   fireEvent.change(screen.getByLabelText("Code folder"), { target: { value: "~/code" } });
