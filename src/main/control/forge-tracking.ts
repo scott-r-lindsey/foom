@@ -1,3 +1,4 @@
+import { ControlError } from "../../shared/control-validation";
 import { hostAlias, codeFolder, gitOrigin } from "../../shared/registered-hosts";
 import { remotePath } from "../../shared/remote-agent-protocol";
 import { locationId } from "./metadata";
@@ -16,6 +17,7 @@ import type {
 } from "./forge.d";
 
 interface Entry extends ForgeWorktree {
+  prBranch?: string;
   inspectedHead?: string;
   binding?: string;
   restored?: boolean;
@@ -119,6 +121,8 @@ export class ForgeTracking {
         const binding = row["binding"];
         if (binding !== undefined && (typeof binding !== "string" || binding.length > 8192))
           continue;
+        const prBranch = row["prBranch"];
+        if (prBranch !== undefined && !forgeBranch(prBranch)) continue;
         const pr = pullRequest(row["pr"]);
         if (row["pr"] !== undefined && !pr) continue;
         // Revalidate ownership before making any network call or exposing saved data.
@@ -130,6 +134,7 @@ export class ForgeTracking {
         const entry = this.entries.get(tree.path);
         if (entry) {
           entry.restored = true;
+          if (typeof prBranch === "string") entry.prBranch = prBranch;
           if (typeof binding === "string") entry.binding = binding;
           if (pr) entry.pr = pr;
           if (typeof remote === "string") entry.remote = remote;
@@ -174,6 +179,60 @@ export class ForgeTracking {
     this.schedule();
   }
 
+  /** Explicit numeric binding never substitutes the PR branch for checkout identity. */
+  async bindPullRequest(repository: string, path: string, number: number): Promise<void> {
+    try {
+      const entry = this.entries.get(path);
+      if (
+        !entry ||
+        entry.repository !== repository ||
+        entry.remoteCheckout ||
+        !Number.isSafeInteger(number) ||
+        number <= 0
+      )
+        throw new ControlError("pr_binding_unresolved");
+      const generation = this.generation;
+      const remote = await this.inspect(entry, true).catch(() => undefined);
+      if (!remote) throw new ControlError("pr_binding_unresolved");
+      const provider = await this.provider(remote, () => this.context([entry], remote, new Set()));
+      const resolved = await provider?.resolve?.(number);
+      if (!resolved) throw new ControlError("pr_binding_unresolved");
+      if (resolved.state !== "OPEN") throw new ControlError("pr_not_open");
+      if (!resolved.sameRepository) throw new ControlError("pr_from_fork");
+      if (!forgeBranch(resolved.branch)) throw new ControlError("invalid_branch");
+      const pr = pullRequest(await provider?.lookup(resolved.branch, number));
+      if (!pr || pr.number !== number || pr.state !== "OPEN")
+        throw new ControlError("pr_binding_unresolved");
+      if (
+        this.closed ||
+        this.generation !== generation ||
+        this.entries.get(path) !== entry ||
+        (await this.inspect(entry, true).catch(() => undefined)) !== remote
+      )
+        throw new ControlError("pr_binding_unresolved");
+      this.bind(entry, provider);
+      // Retire in-flight samples captured before this explicit binding.
+      const bound: Entry = {
+        ...entry,
+        prBranch: resolved.branch,
+        number,
+        pr,
+        remote,
+        available: true,
+        refresh: entry.refresh + 1,
+        due: 0,
+      };
+      delete bound.board;
+      delete bound.routedHost;
+      this.entries.set(path, bound);
+      this.changed();
+      await this.save();
+    } catch (error) {
+      if (error instanceof ControlError) throw error;
+      throw new ControlError("pr_binding_unresolved");
+    }
+  }
+
   /** Selection changes retire observations and bindings, including pending publication. */
   invalidate(): void {
     this.generation++;
@@ -182,6 +241,7 @@ export class ForgeTracking {
       delete entry.pr;
       delete entry.board;
       delete entry.number;
+      delete entry.prBranch;
       delete entry.binding;
       delete entry.restored;
       delete entry.followUp;
@@ -230,7 +290,7 @@ export class ForgeTracking {
           // Batch preparation explicitly retires invalid checkouts before sampling.
           // Later removals or replacements still invalidate the captured context.
           if (retired.has(row)) continue;
-          if (branches && !branches.includes(row.branch)) continue;
+          if (branches && !branches.includes(row.prBranch ?? row.branch)) continue;
           if (
             this.stopped() ||
             this.entries.get(row.path) !== row ||
@@ -250,6 +310,7 @@ export class ForgeTracking {
       (entry.restored && entry.binding === undefined && !provider.acceptLegacyBinding)
     ) {
       delete entry.number;
+      delete entry.prBranch;
       delete entry.pr;
       delete entry.board;
       entry.available = false;
@@ -374,7 +435,10 @@ export class ForgeTracking {
             entry.due = this.now() + forgeDelay(entry.failures);
           } else this.entries.delete(entry.path);
         } else {
-          if (entry.remote !== undefined && remote !== entry.remote) delete entry.number;
+          if (entry.remote !== undefined && remote !== entry.remote) {
+            delete entry.number;
+            delete entry.prBranch;
+          }
           const candidates = [...this.entries.values()].filter(
             (row) => row.repository === entry.repository && (row.orchestrator || this.enabled),
           );
@@ -392,7 +456,7 @@ export class ForgeTracking {
           const head = entry.inspectedHead;
           const result = await provider
             ?.lookup(
-              entry.branch,
+              entry.prBranch ?? entry.branch,
               entry.number ?? (remote === entry.remote ? entry.pr?.number : undefined),
             )
             .catch(() => undefined);
@@ -471,6 +535,7 @@ export class ForgeTracking {
       }
       if (entry.remote !== undefined && entry.remote !== remote) {
         delete entry.number;
+        delete entry.prBranch;
         delete entry.pr;
         delete entry.board;
         entry.available = false;
@@ -484,7 +549,10 @@ export class ForgeTracking {
         entry.remote === undefined || entry.remote === remote
           ? (entry.number ?? entry.pr?.number)
           : undefined;
-      return { branch: entry.branch, ...(number === undefined ? {} : { number }) };
+      return {
+        branch: entry.prBranch ?? entry.branch,
+        ...(number === undefined ? {} : { number }),
+      };
     };
     // Start with the oldest due checkout. An unsampled suffix stays due for the next
     // serial worker tick, rather than being hidden or retried inside one sample.
@@ -509,7 +577,7 @@ export class ForgeTracking {
     const size = provider.batchSize?.(requests) ?? requests.length;
     const matches = requests.slice(0, Math.max(1, size));
     const keys = new Set(matches.map((request) => request.branch));
-    const selected = rows.filter((entry) => keys.has(entry.branch));
+    const selected = rows.filter((entry) => keys.has(entry.prBranch ?? entry.branch));
     const revisions = new Map(rows.map((entry) => [entry, entry.refresh]));
     const heads = new Map(rows.map((entry) => [entry, entry.inspectedHead]));
     const observation = ++this.observation;
@@ -551,7 +619,7 @@ export class ForgeTracking {
         this.entries.get(entry.path) !== entry
       )
         continue;
-      const pr = valid ? result?.get(entry.branch) : undefined;
+      const pr = valid ? result?.get(entry.prBranch ?? entry.branch) : undefined;
       const old = entry.board;
       const oldHead = entry.pr?.headSha;
       const discovered = pr && !entry.pr && entry.number === undefined;
@@ -608,6 +676,7 @@ export class ForgeTracking {
         path: entry.path,
         identity: entry.identity,
         branch: entry.branch,
+        prBranch: entry.prBranch,
         remote: entry.remote,
         pr: entry.pr,
         number: entry.number,

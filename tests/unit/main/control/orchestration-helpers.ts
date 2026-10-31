@@ -35,6 +35,9 @@ export function harness(overrides: Pick<OrchestrationHost, "reviewSnapshot"> = {
   const host = {
     forge: {
       track: vi.fn(),
+      bindPullRequest: vi.fn((_repository: string, _path: string, _number: number) =>
+        Promise.resolve(),
+      ),
       waitForRead: vi.fn((_repository: string, _path: string, _after: number) => () => {}),
       revision: vi.fn(() => 0),
       readSettled: vi.fn(

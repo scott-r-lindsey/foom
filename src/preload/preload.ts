@@ -686,6 +686,8 @@ const validSelectionToken: Validator<string> = (value): value is string =>
   /^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$/u.test(value);
 
 const validReviewState: Validator<ReviewState> = shape({
+  lastVerdict: either(absent, validReviewVerdict),
+  pullRequest: either(absent, count),
   model: either(absent, validSelectionToken),
   effort: either(absent, validSelectionToken),
   authorId: text,

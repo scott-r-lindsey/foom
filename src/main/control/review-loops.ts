@@ -38,17 +38,29 @@ export class ReviewLoops {
     private readonly now = Date.now,
   ) {}
 
-  start(authorId: string, options: ReviewOptions): void {
+  start(authorId: string, options: ReviewOptions, number?: number): void {
     const previous = this.loops.get(authorId);
     if (previous) clearTimeout(previous.parentTimer);
     this.loops.set(authorId, {
-      state: { ...options, authorId, round: 0, phase: "building" },
+      state: {
+        ...options,
+        authorId,
+        round: 0,
+        phase: "building",
+        ...(number === undefined ? {} : { pullRequest: number }),
+      },
+      ...(number === undefined ? {} : { number }),
       currentId: authorId,
       afterSeq: 0,
       busy: false,
     });
     this.participants.set(authorId, authorId);
     this.host.changed();
+  }
+
+  isReviewer(id: string): boolean {
+    const author = this.participants.get(id);
+    return author !== undefined && author !== id;
   }
 
   verdictRecorded(id: string): boolean {
@@ -368,6 +380,7 @@ export class ReviewLoops {
         await this.endParticipant(loop, fresh.seq, snapshot, checks);
         return;
       }
+      loop.state = { ...loop.state, lastVerdict: fresh.review };
       this.recordedReviewers.add(loop.currentId);
       if (fresh.review.verdict === "clean") {
         this.finish(loop);
@@ -403,6 +416,7 @@ export class ReviewLoops {
       loop.state = {
         ...loop.state,
         phase: "reviewing",
+        pullRequest: checks.number,
         round: loop.state.round + 1,
         waiting: true,
       };

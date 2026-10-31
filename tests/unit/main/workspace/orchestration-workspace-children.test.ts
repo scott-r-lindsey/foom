@@ -184,14 +184,14 @@ it("refuses to launch a child into the main checkout or an unavailable worktree"
     { idempotencyKey: "a", branch: "feature" },
     operations,
   )) as Operation;
-  expect(
-    await workspace.orchestration.call(
+  await expect(
+    workspace.orchestration.call(
       actor,
       "launch",
       { idempotencyKey: "b", worktreeId: tree.resultId, agent: "claude" },
       operations,
     ),
-  ).toMatchObject({ status: "failed" });
+  ).rejects.toThrow("conflict");
   expect(launch).toHaveBeenCalledTimes(1);
 });
 

@@ -131,12 +131,33 @@ const orchestration = (childLimit: number, agents: readonly string[]) =>
       destructive: false,
     },
     {
+      name: "review",
+      description:
+        "Run one read-only Claude review in a new detached checkout at an open same-repository PR head. Does not change an author's review loop. Optional since is a full commit SHA; focus is quoted review scope. Returns an operation with the reviewer session ID. Read its structured verdict with read_handoff; stop and close it normally. Capacity, worktree identity and takeover rules apply. No forge writes unless postFindings is true.",
+      properties: {
+        idempotencyKey: key,
+        pullRequest: { type: "integer", minimum: 1 },
+        since: { type: "string", pattern: "^[a-f0-9]{40}([a-f0-9]{24})?$" },
+        focus: { type: "string", maxLength: 4096 },
+        postFindings: { type: "boolean", default: false },
+      },
+      required: ["idempotencyKey", "pullRequest"],
+      readOnly: false,
+      destructive: false,
+    },
+    {
       name: "launch",
       description:
-        "Launch an owned child in an unused worktree you created. Give it one task, acceptance criteria and limits in prompt. Optional host must match the worktree; omission keeps its host. The 16 KiB prompt limit includes the author review brief. Children cannot orchestrate. Optional review defaults to 3 rounds (maximum 5), Claude, with resume support; reviewers count toward your limit. Steps use launch/resume argv only. You remain the final merge gate. Placement follows Settings → General. Returns an operation with child session ID in resultId.",
+        "Launch a child in your own worktree after every earlier session there has exited and closed. PR binding and review settings survive continuation. Give it one task, acceptance criteria and limits in prompt. Optional pullRequest binds an open same-repository PR before spawn, even on a different branch; unresolved bindings refuse. Children cannot orchestrate. Review defaults to 3 rounds (max 5), Claude; reviewers share capacity. The 16 KiB prompt limit includes the author brief. You remain the merge gate. Returns child ID in resultId",
       properties: {
         idempotencyKey: key,
         worktreeId: id,
+        pullRequest: {
+          type: "integer",
+          minimum: 1,
+          description:
+            "Explicit PR binding, resolved before spawn even when the checkout branch differs.",
+        },
         host: hostSelector,
         agent: { type: "string", enum: agents },
         model: selectionToken,

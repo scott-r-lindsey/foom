@@ -623,6 +623,7 @@
               "read_handoff",
               "create_worktree",
               "launch",
+              "review",
               "prompt",
               "send_keys",
               "stop",
@@ -633,7 +634,7 @@
               "operation_status"
             ]
           },
-          "maxItems": 19,
+          "maxItems": 20,
           "minItems": 0
         },
         "fileRules": {

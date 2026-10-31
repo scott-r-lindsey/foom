@@ -122,6 +122,7 @@ export class OrchestrationAuthority {
       (row) => this.pullRequest(row),
       (row) => this.handoffMetadata(row),
       (row) => this.reviewMetadata(row),
+      (row, actor) => this.canReadReview(actor, row.id),
     );
   }
 
@@ -180,6 +181,15 @@ export class OrchestrationAuthority {
 
   pullRequest(row: WorkspaceTerminal) {
     return this.host.forge?.read(row.repository, row.worktree);
+  }
+
+  canReadReview(actor: Principal, id: string): boolean {
+    if (actor.role !== "orchestrator") return false;
+    try {
+      return this.own(this.parent(actor), id) !== undefined;
+    } catch {
+      return false;
+    }
   }
 
   reviewMetadata(row: WorkspaceTerminal) {
@@ -261,6 +271,10 @@ export class OrchestrationAuthority {
       path: tree.path,
       identity: tree.identity,
       state: tree.state === "unused" ? "unused" : "used",
+      ...(tree.reviewer ? { reviewer: true } : {}),
+      ...(tree.pullRequest === undefined ? {} : { pullRequest: tree.pullRequest }),
+      ...(tree.review ? { review: tree.review } : {}),
+      ...(tree.closedReviews ? { closedReviews: tree.closedReviews } : {}),
     }));
   }
 
@@ -289,7 +303,7 @@ export class OrchestrationAuthority {
       }
       if (parent.worktrees.has(key)) continue;
       if (saved.state === "unused" && this.unused(parent) >= WORKTREE_LIMIT) continue;
-      parent.worktrees.set(key, { ...tree, path: saved.path, state: saved.state });
+      parent.worktrees.set(key, { ...tree, ...saved });
       this.host.forge?.track({ repository: parent.repository, path: saved.path, ...tree });
     }
     this.changed();
@@ -378,9 +392,28 @@ export class OrchestrationAuthority {
   /** The session left the board. A parent's history goes with its row. */
   removed(id: string): void {
     this.childEvents.publish();
+    const reviewer = this.reviews.isReviewer(id);
+    const review = this.reviews.view(id);
+    for (const entry of this.parents.values()) {
+      const child = this.own(entry, id);
+      const tree = child && entry.worktrees.get(child.worktreeId);
+      if (tree && review?.authorId === id && review.pullRequest !== undefined)
+        tree.pullRequest = review.pullRequest;
+    }
     if (!this.reviews.verdictRecorded(id)) this.reviews.stop(id);
     this.reviews.forget(id);
     this.finishedChildren.removed(id);
+    for (const entry of this.parents.values()) {
+      const child = this.own(entry, id);
+      const tree = child && entry.worktrees.get(child.worktreeId);
+      const reports = this.handoffs.entries(id);
+      if (
+        tree &&
+        (reviewer || tree.reviewer || reports.some((report) => report.review !== undefined))
+      ) {
+        tree.closedReviews = [...(tree.closedReviews ?? []), { id, handoffs: reports }];
+      }
+    }
     this.handoffs.remove(id);
     const parent = this.parents.get(id);
     if (parent) {
@@ -472,7 +505,13 @@ export class OrchestrationAuthority {
     operations: Operations,
   ): void {
     this.reviewEffects.bind(id, actor, operations);
-    this.reviews.start(id, options);
+    const parent = this.parent(actor);
+    const child = this.own(parent, id);
+    this.reviews.start(
+      id,
+      options,
+      child ? parent.worktrees.get(child.worktreeId)?.pullRequest : undefined,
+    );
   }
 
   readReviews(parentId: string): void {
@@ -607,10 +646,22 @@ export class OrchestrationAuthority {
     return [...parent.children.values()].filter((child) => !child.exited).length;
   }
 
+  protected launchable(parent: Parent, worktreeId: string): boolean {
+    const tree = parent.worktrees.get(worktreeId);
+    return (
+      tree !== undefined &&
+      tree.state !== "starting" &&
+      tree.state !== "continuing" &&
+      ![...parent.children.values()].some((child) => child.worktreeId === worktreeId) &&
+      !this.host.terminals().some((row) => row.worktree === tree.path)
+    );
+  }
+
   protected unused(parent: Parent): number {
     return (
-      [...parent.worktrees.values()].filter((tree) => tree.state !== "used").length +
-      parent.uncertain
+      [...parent.worktrees.values()].filter(
+        (tree) => tree.state === "unused" || tree.state === "starting",
+      ).length + parent.uncertain
     );
   }
 

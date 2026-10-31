@@ -390,6 +390,7 @@ it("advertises only current capabilities with CLI fallbacks accepted by the real
     ["open-preview", "report.md"],
     ["previews"],
     ["close-preview", "preview"],
+    ["review", "--pull-request", "972", "--idempotency-key", "key"],
     ["create-worktree", "branch", "--idempotency-key", "key"],
     ["launch", "tree", "--agent", "claude", "--idempotency-key", "key"],
     ["stop", "child", "--idempotency-key", "key"],

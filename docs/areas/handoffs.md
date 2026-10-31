@@ -15,7 +15,9 @@ gate; authorization comes from the live role and exact child ownership.
 
 Reports persist with the child session record (twenty maximum; aggregate session
 storage capped at 32 MiB). The renderer receives the latest report as inert text,
-while control session metadata and the private Action log omit report contents.
+while the private Action log omits report contents. Control metadata omits
+report text except `review.lastVerdict` for the live owning orchestrator (#972);
+ordinary agents, human CLI grants and taken-over children’s metadata omit it.
 Link actions carry a terminal ID, report sequence and index through validated board
 IPC; main reads the stored HTTPS URL, asks through the trusted dialog and rechecks
 the record before opening it. No terminal input capability is involved. See

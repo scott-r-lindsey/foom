@@ -58,6 +58,7 @@ export class ControlService {
           | "canHandoff"
           | "handoffMetadata"
           | "reviewMetadata"
+          | "canReadReview"
           | "childRead"
           | "childEvents"
         >
@@ -79,6 +80,7 @@ export class ControlService {
       (row) => this.orchestration?.pullRequest?.(row),
       (row) => this.orchestration?.handoffMetadata?.(row),
       (row) => this.orchestration?.reviewMetadata?.(row) ?? row.review,
+      (row, actor) => this.orchestration?.canReadReview?.(actor, row.id) ?? false,
     );
   }
 

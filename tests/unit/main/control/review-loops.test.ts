@@ -155,7 +155,9 @@ describe("main-owned sequential review loop", () => {
     const h = fixture(1);
     await h.authorDone();
     await h.reviewed(findings);
-    expect(h.loop.view("author")).toMatchObject({ reason: "round cap" });
+    expect(h.loop.view("author")).toMatchObject({ reason: "round cap", lastVerdict: findings });
+    h.loop.forget("reviewer-1");
+    expect(h.loop.view("author")?.lastVerdict).toEqual(findings);
     const f = fixture();
     await f.authorDone();
     f.setDigest("edited");

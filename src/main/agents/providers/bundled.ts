@@ -27,7 +27,7 @@ export const bundledProviders: readonly AgentProvider[] = [
   bundledProvider(
     claude,
     "claude",
-    "7741c7d4fc2ba9197ae2cdf9c3f0c6e6bd2fc5332bd94d8939d9b9c639bc6d03",
+    "af7d14a677a1dce1124b2b2cc098e260dc900d6228c0df81ed2da02e019b8304",
   ),
   bundledProvider(
     codex,
@@ -38,12 +38,12 @@ export const bundledProviders: readonly AgentProvider[] = [
   bundledProvider(
     copilot,
     "copilot",
-    "488e9800fe5cee3327a44f5095aa492f33ec4d6ff0ea1de4257e8cf73f087a5d",
+    "54a88df8db2b44e5b4a04f60b1214d26dcbcba0890b3bc57d6605d3e5108221d",
   ),
   bundledProvider(
     opencode,
     "opencode",
-    "050f6a0f72b29e98b7c6e11941812eeb90cd4b8c2a39113654d84336c318a943",
+    "41f8c01692689bbb0811fcf60dbc9cb990af988b17cfa46cbf0506e9df4fa98b",
   ),
   bundledProvider(pi, "pi", "3360c8d7d855fe8d67d7550820e7b673febf17fc33647e84a3b98185afa822be"),
 ];

@@ -1,3 +1,4 @@
+import type { OwnedWorktree } from "../workspace/session-restore.d";
 import type { ForgeWorktree } from "./forge.d";
 import type { ReviewSnapshot } from "./review-loops.d";
 import type { ForgeTracking } from "./forge-tracking";
@@ -15,7 +16,7 @@ export interface OrchestrationHost {
   worktreeHost?(path: string): string | undefined;
   worktreeLabel?(path: string): string;
   forge?: Pick<ForgeTracking, "track" | "read"> &
-    Partial<Pick<ForgeTracking, "readSettled" | "revision" | "waitForRead">>;
+    Partial<Pick<ForgeTracking, "readSettled" | "revision" | "waitForRead" | "bindPullRequest">>;
   adoptWorktree?(
     repository: string,
     number: number,
@@ -102,7 +103,10 @@ export interface Parent {
   readonly children: Map<string, Child>;
   readonly worktrees: Map<
     string,
-    { path: string; branch: string; identity: string; state: "unused" | "starting" | "used" }
+    Omit<OwnedWorktree, "state"> & {
+      branch: string;
+      state: "unused" | "starting" | "continuing" | "used";
+    }
   >;
   readonly history: OrchestrationEntry[];
   readonly aborts: Set<AbortController>;

@@ -193,6 +193,11 @@ export const workspace: WorkspaceSnapshot = {
         },
       },
       review: {
+        pullRequest: 972,
+        lastVerdict: {
+          verdict: "findings",
+          findings: [{ file: "a.ts", line: 1, summary: "Bug", scenario: "Zero input" }],
+        },
         rounds: 3,
         agent: "claude",
         postFindings: true,

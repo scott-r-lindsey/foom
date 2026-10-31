@@ -35,7 +35,7 @@ When MCP is attached, Foom pre-approves every registered tool on its own random
 per-launch server through Claude Code's `--allowedTools`, using exact names
 `mcp__<server>__<tool>`: previews (`open_preview`, `list_previews`, `close_preview`),
 reads (`whoami`, `sessions`, `session_state`, `manual`), child reports (`handoff`), and
-orchestration (`create_worktree`, `launch`, `stop`, `close`, `remove_worktree`,
+orchestration (`create_worktree`, `review`, `launch`, `stop`, `close`, `remove_worktree`,
 `tail`, `wait_for`, `read_handoff`, `prompt`, `send_keys`, `operation_status`). The launch builder
 derives grants from the real server registry, restricted to the manifest's reviewed
 tool names; a test requires every tool to be classified and included.

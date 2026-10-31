@@ -224,6 +224,7 @@ it("classifies every real server tool and includes every classification in the b
     read_handoff: "orchestration",
     create_worktree: "orchestration",
     launch: "orchestration",
+    review: "orchestration",
     prompt: "orchestration",
     send_keys: "orchestration",
     stop: "orchestration",

@@ -11,6 +11,7 @@ export const CONTROL_TOOL_CLASSES = {
   read_handoff: "orchestration",
   create_worktree: "orchestration",
   launch: "orchestration",
+  review: "orchestration",
   prompt: "orchestration",
   send_keys: "orchestration",
   stop: "orchestration",

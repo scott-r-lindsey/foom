@@ -4,6 +4,7 @@ import { remoteHost } from "../../shared/remote-host-protocol";
 import { selectionInput } from "../../node-common/launch-selection";
 import { exact, object } from "../../shared/control-validation";
 import { formerConfigAgentIds } from "../agents/providers/bundled";
+import { reviewOptions } from "../../shared/review-validation";
 import { isReviewState } from "../../shared/review-state";
 import { storedHandoffs } from "../../shared/handoff-validation";
 import { builtinAgent, validAgentId } from "../../shared/providers/catalog";
@@ -290,7 +291,18 @@ function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
       const row: Record<string, unknown> = { ...item };
       const { path: checkout, identity, state } = row;
       if (
-        Object.keys(row).some((key) => !["path", "identity", "state"].includes(key)) ||
+        Object.keys(row).some(
+          (key) =>
+            ![
+              "path",
+              "identity",
+              "state",
+              "closedReviews",
+              "pullRequest",
+              "review",
+              "reviewer",
+            ].includes(key),
+        ) ||
         !path(checkout) ||
         paths.has(checkout) ||
         typeof identity !== "string" ||
@@ -300,7 +312,44 @@ function readOrchestrator(value: unknown): StoredSession["orchestrator"] {
       )
         throw new Error("Invalid worktree");
       paths.add(checkout);
-      return { path: checkout, identity, state };
+      if (row["reviewer"] !== undefined && typeof row["reviewer"] !== "boolean")
+        throw new Error("Invalid reviewer");
+      const number = row["pullRequest"];
+      if (
+        number !== undefined &&
+        (typeof number !== "number" || !Number.isSafeInteger(number) || number <= 0)
+      )
+        throw new Error("Invalid PR binding");
+      const review = row["review"] === undefined ? undefined : reviewOptions(row["review"]);
+      const closedReviews = row["closedReviews"];
+      if (
+        closedReviews !== undefined &&
+        (!Array.isArray(closedReviews) || closedReviews.length > 1000)
+      )
+        throw new Error("Invalid closed reviews");
+      const archived =
+        closedReviews === undefined
+          ? undefined
+          : closedReviews.map((item: unknown) => {
+              if (typeof item !== "object" || item === null)
+                throw new Error("Invalid closed review");
+              const record: Record<string, unknown> = { ...item };
+              if (
+                Object.keys(record).some((key) => !["id", "handoffs"].includes(key)) ||
+                !conversationId(record["id"])
+              )
+                throw new Error("Invalid closed review");
+              return { id: record["id"], handoffs: storedHandoffs(record["handoffs"]) };
+            });
+      return {
+        path: checkout,
+        identity,
+        state,
+        ...(number === undefined ? {} : { pullRequest: number }),
+        ...(row["reviewer"] === undefined ? {} : { reviewer: row["reviewer"] }),
+        ...(review === undefined ? {} : { review }),
+        ...(archived === undefined ? {} : { closedReviews: archived }),
+      };
     });
     if (
       owned.filter((tree) => tree.state === "unused").length +

@@ -1,3 +1,4 @@
+import { ControlError } from "../../../../src/shared/control-validation";
 import { describe, expect, it, vi } from "vitest";
 import { AUTHOR_REVIEW_BRIEF } from "../../../../src/main/control/review-loops";
 import { harness, other, repo } from "./orchestration-helpers";
@@ -570,6 +571,206 @@ it.each(["author", "reviewer"])(
     h.orchestration.exited(id);
     await h.sync();
     expect(h.orchestration.reviews.view(author)?.reason).toBe(`${participant} failed`);
+    h.orchestration.disposeUnreadChildren();
+  },
+);
+
+it("continues an owned checkout only after all prior rows are closed, retaining PR and review settings", async () => {
+  const h = fixture();
+  const tree = await h.mutate("create_worktree", { branch: "continue" });
+  const first = await h.mutate("launch", {
+    worktreeId: tree.resultId,
+    agent: "claude",
+    pullRequest: 7,
+    review: { rounds: 2 },
+  });
+  const id = first.resultId ?? "";
+  h.exit(id);
+  await expect(h.mutate("launch", { worktreeId: tree.resultId, agent: "claude" })).rejects.toThrow(
+    "conflict",
+  );
+  h.orchestration.removed(id);
+  h.rows.delete(id);
+  const next = await h.mutate("launch", { worktreeId: tree.resultId, agent: "claude" });
+  expect(next.status).toBe("succeeded");
+  expect(next.resultId).not.toBe(id);
+  expect(h.orchestration.reviews.view(next.resultId ?? "")).toMatchObject({
+    rounds: 2,
+    pullRequest: 7,
+    phase: "building",
+  });
+  expect(h.host.forge.bindPullRequest).toHaveBeenLastCalledWith(
+    repo,
+    h.rows.get(next.resultId ?? "")?.worktree,
+    7,
+  );
+  const saved = h.orchestration.ownedWorktrees("parent")[0];
+  expect(saved).toMatchObject({ pullRequest: 7, review: { rounds: 2 } });
+  h.orchestration.disposeUnreadChildren();
+});
+
+it("refuses an unresolved explicit binding before spawning and preserves the worktree for retry", async () => {
+  const h = fixture();
+  const tree = await h.mutate("create_worktree", { branch: "scratch" });
+  h.host.forge.bindPullRequest.mockRejectedValueOnce(new ControlError("pr_binding_unresolved"));
+  await expect(
+    h.mutate("launch", { worktreeId: tree.resultId, agent: "claude", pullRequest: 7, review: {} }),
+  ).rejects.toThrow("pr_binding_unresolved");
+  expect(h.host.launch).not.toHaveBeenCalled();
+  expect(h.orchestration.ownedWorktrees("parent")[0]?.state).toBe("unused");
+  const launched = await h.mutate("launch", {
+    worktreeId: tree.resultId,
+    agent: "claude",
+    pullRequest: 7,
+    review: {},
+  });
+  expect(h.orchestration.reviews.view(launched.resultId ?? "")?.pullRequest).toBe(7);
+  h.orchestration.disposeUnreadChildren();
+});
+
+it("runs one detached scoped review without changing the author's loop and deduplicates the composite operation", async () => {
+  const h = fixture();
+  const author = await h.launch();
+  const before = h.orchestration.reviews.view(author);
+  const params = {
+    pullRequest: 7,
+    since: "a".repeat(40),
+    focus: "Check zero",
+    idempotencyKey: "one-shot",
+  };
+  const operation = await h.call("review", params);
+  expect(operation).toMatchObject({ status: "succeeded", resultId: "child-2" });
+  expect(await h.call("review", params)).toEqual(operation);
+  expect(h.host.adoptWorktree).toHaveBeenCalledWith(
+    repo,
+    7,
+    expect.any(Array),
+    expect.any(Function),
+    true,
+    undefined,
+  );
+  const launch = h.host.launch.mock.calls.at(-1);
+  expect(launch?.[5]).toContain("Do not edit files");
+  expect(launch?.[5]).toContain("changes since commit " + "a".repeat(40));
+  expect(launch?.[5]).toContain('"Check zero"');
+  expect(launch?.[5]).toContain("Do not post a PR comment");
+  expect(h.orchestration.reviews.view(author)).toEqual(before);
+  expect(h.orchestration.reviews.view("child-2")).toBeUndefined();
+  h.report("child-2", { verdict: "clean" });
+  h.exit("child-2");
+  h.orchestration.removed("child-2");
+  h.rows.delete("child-2");
+  expect(await h.call("read_handoff", { id: "child-2" })).toMatchObject({
+    review: { verdict: "clean" },
+  });
+  h.orchestration.disposeUnreadChildren();
+});
+
+it("keeps retained verdict contents within the live owning parent's output authority", async () => {
+  const h = fixture();
+  const id = await h.launch();
+  h.report(id);
+  h.exit(id);
+  await h.sync();
+  const reviewerId = [...h.rows.keys()].find((child) => child !== id && child !== "parent") ?? "";
+  h.report(reviewerId, { verdict: "clean" });
+  h.exit(reviewerId);
+  await h.sync();
+  expect(await h.call("session_state", { id })).toHaveProperty("review.lastVerdict", {
+    verdict: "clean",
+  });
+  const listed = await h.call("sessions");
+  expect(JSON.stringify(listed)).not.toContain("lastVerdict");
+  const grant = h.service.prepare(repo, repo, "agent");
+  grant.bind("ordinary");
+  const actor = h.service.authenticate(grant.env["FOOM_CONTROL_TOKEN"] ?? "");
+  const request = {
+    version: 1,
+    instanceId: h.service.instanceId,
+    method: "session_state",
+    params: { id },
+  };
+  expect(await h.service.call(actor, request)).not.toHaveProperty("review.lastVerdict");
+  h.orchestration.takeOver(id);
+  expect(await h.call("session_state", { id })).not.toHaveProperty("review.lastVerdict");
+  h.orchestration.disposeUnreadChildren();
+});
+
+it("rechecks authority after asynchronous PR binding and does not spawn after revocation", async () => {
+  const h = fixture();
+  const tree = await h.mutate("create_worktree", { branch: "scratch" });
+  h.host.forge.bindPullRequest.mockImplementationOnce(() => {
+    h.orchestration.revoke("parent");
+    return Promise.resolve();
+  });
+  await expect(
+    h.mutate("launch", { worktreeId: tree.resultId, agent: "claude", pullRequest: 7 }),
+  ).rejects.toThrow("forbidden");
+  expect(h.host.launch).not.toHaveBeenCalled();
+  h.orchestration.disposeUnreadChildren();
+});
+
+it("keeps a failed continuation used and refuses a session that appears before spawn", async () => {
+  const h = fixture();
+  const first = await h.child("continue");
+  h.exit(first.id);
+  h.orchestration.removed(first.id);
+  h.rows.delete(first.id);
+  h.host.launch.mockRejectedValueOnce(new Error("spawn failed"));
+  expect(await h.mutate("launch", { worktreeId: first.worktreeId, agent: "claude" })).toMatchObject(
+    { status: "failed" },
+  );
+  expect(h.orchestration.ownedWorktrees("parent")[0]?.state).toBe("used");
+  h.host.launch.mockImplementationOnce(
+    (_parent, _repo, worktree, _identity, _agent, _prompt, step) => {
+      const parent = h.rows.get("parent");
+      if (!parent) throw new Error("Missing parent");
+      h.rows.set("human", { ...parent, id: "human", worktree, exited: true });
+      step?.validate();
+      return Promise.resolve("unexpected");
+    },
+  );
+  await expect(
+    h.mutate("launch", { worktreeId: first.worktreeId, agent: "claude" }),
+  ).rejects.toThrow("conflict");
+  expect(h.orchestration.ownedWorktrees("parent")[0]?.state).toBe("used");
+  h.orchestration.disposeUnreadChildren();
+});
+
+it.each([
+  { pullRequest: 0 },
+  { pullRequest: 1, since: "HEAD" },
+  { pullRequest: 1, postFindings: "yes" },
+  { pullRequest: 1, focus: "bad\0" },
+  { pullRequest: 1, unknown: true },
+])("refuses malformed standalone scope before creation: %j", async (params) => {
+  const h = fixture();
+  await expect(h.mutate("review", params)).rejects.toThrow("invalid_request");
+  expect(h.host.adoptWorktree).not.toHaveBeenCalled();
+  h.orchestration.disposeUnreadChildren();
+});
+
+it.each(["moved-head", "snapshot-unavailable", "late-head", "failed-spawn"])(
+  "refuses standalone review with %s without launching stale review",
+  async (mode) => {
+    const h = fixture();
+    if (mode === "moved-head")
+      h.snapshot.mockResolvedValue({ head: "different", digest: "initial" });
+    if (mode === "snapshot-unavailable") h.snapshot.mockRejectedValue(new Error("unavailable"));
+    if (mode === "late-head")
+      h.host.launch.mockImplementationOnce(
+        (_parent, _repo, _worktree, _identity, _agent, _prompt, step) => {
+          h.host.forge.read.mockReturnValue(undefined);
+          step?.validate();
+          return Promise.resolve("unexpected");
+        },
+      );
+    if (mode === "failed-spawn") h.host.launch.mockRejectedValueOnce(new Error("failed spawn"));
+    if (mode === "moved-head" || mode === "late-head")
+      await expect(h.mutate("review", { pullRequest: 7 })).rejects.toThrow("pr_binding_unresolved");
+    else await expect(h.mutate("review", { pullRequest: 7 })).rejects.toThrow("unavailable");
+    if (mode === "moved-head" || mode === "snapshot-unavailable")
+      expect(h.host.launch).not.toHaveBeenCalled();
     h.orchestration.disposeUnreadChildren();
   },
 );

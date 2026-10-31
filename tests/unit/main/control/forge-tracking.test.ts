@@ -1479,3 +1479,81 @@ it.each([false, true])(
     expect(tracker.readSettled(tree.repository, remote.path)).toBeUndefined();
   },
 );
+
+it("binds a PR on a different branch while inspecting the original checkout, persisting and polling the explicit target", async () => {
+  const inspect = vi.fn((_tree: ForgeWorktree) => Promise.resolve("https://github.com/o/r"));
+  const lookup = vi.fn(() => Promise.resolve(pending));
+  const resolve = vi.fn(() =>
+    Promise.resolve({ branch: "pr-head", state: "OPEN" as const, sameRepository: true }),
+  );
+  const tracker = new ForgeTracking(directory, inspect, vi.fn(), () => ({ lookup, resolve }));
+  trackers.push(tracker);
+  tracker.track(tree);
+  await tracker.bindPullRequest(tree.repository, tree.path, 340);
+  expect(tracker.read(tree.repository, tree.path)).toEqual(pending);
+  await tracker.poll();
+  expect(lookup).toHaveBeenLastCalledWith("pr-head", 340);
+  expect(inspect.mock.calls.every(([checkout]) => checkout.branch === tree.branch)).toBe(true);
+  await tracker.close();
+  const restored = new ForgeTracking(directory, inspect, vi.fn(), () => ({ lookup, resolve }));
+  trackers.push(restored);
+  await restored.load();
+  await restored.poll();
+  expect(lookup).toHaveBeenLastCalledWith("pr-head", 340);
+});
+
+it.each([
+  "missing",
+  "foreign",
+  "invalid-number",
+  "unavailable",
+  "unresolved",
+  "closed",
+  "fork",
+  "branch",
+  "no-lookup",
+  "wrong-number",
+  "changed",
+  "invalidated",
+])("refuses %s explicit PR bindings before exposing them", async (mode) => {
+  let remote: string | undefined = mode === "unavailable" ? undefined : "https://github.com/o/r";
+  const resolved = {
+    branch: mode === "branch" ? "-bad" : "pr-head",
+    state: mode === "closed" ? ("CLOSED" as const) : ("OPEN" as const),
+    sameRepository: mode !== "fork",
+  };
+  const lookup = vi.fn(() => {
+    if (mode === "changed") remote = undefined;
+    if (mode === "invalidated") tracker.invalidate();
+    return Promise.resolve(
+      mode === "no-lookup" ? undefined : { ...pending, number: mode === "wrong-number" ? 9 : 340 },
+    );
+  });
+  const tracker = new ForgeTracking(
+    directory,
+    () => Promise.resolve(remote),
+    vi.fn(),
+    () => ({
+      lookup,
+      resolve: () => Promise.resolve(mode === "unresolved" ? undefined : resolved),
+    }),
+  );
+  trackers.push(tracker);
+  if (mode !== "missing") tracker.track(tree);
+  await expect(
+    tracker.bindPullRequest(
+      mode === "foreign" ? "foreign" : tree.repository,
+      tree.path,
+      mode === "invalid-number" ? 0 : 340,
+    ),
+  ).rejects.toThrow(
+    mode === "closed"
+      ? "pr_not_open"
+      : mode === "fork"
+        ? "pr_from_fork"
+        : mode === "branch"
+          ? "invalid_branch"
+          : "pr_binding_unresolved",
+  );
+  expect(tracker.read(tree.repository, tree.path)).toBeUndefined();
+});
