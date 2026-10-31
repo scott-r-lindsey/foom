@@ -98,6 +98,25 @@ function BoardContents({
   const configPanelRef = useRef<(() => void) | undefined>(undefined);
   const storageKey = source.windows ? `${TILE_STORAGE}.${source.windows.id}` : TILE_STORAGE;
   const [drag, setDrag] = useState<TileDrag>();
+  const [incomingDrag, setIncomingDrag] = useState<string | null>(null);
+  const dragGestureRef = useRef<object | undefined>(undefined);
+  const dragTokenRef = useRef<string | undefined>(undefined);
+  const endDrag = () => {
+    dragGestureRef.current = undefined;
+    const token = dragTokenRef.current;
+    dragTokenRef.current = undefined;
+    if (token) void source.windows?.moves?.endDrag(token).catch(() => {});
+    setDrag(undefined);
+  };
+  useEffect(() => source.windows?.moves?.onDrag(setIncomingDrag), [source]);
+  useEffect(
+    () => () => {
+      dragGestureRef.current = undefined;
+      const token = dragTokenRef.current;
+      if (token) void source.windows?.moves?.endDrag(token).catch(() => {});
+    },
+    [source],
+  );
   const { report: reportBackground, clear: clearBackground } = useBackgroundErrors();
   const [prune, setPrune] =
     useState<Extract<SidebarCommand, { kind: "remove-worktree" | "prune-worktree" }>>();
@@ -494,7 +513,7 @@ function BoardContents({
       onFocusCapture={(event) => {
         if (!paneInactive) boardFocusRef.current = event.target;
       }}
-      data-dragging={Boolean(drag)}
+      data-dragging={Boolean(drag || incomingDrag)}
       data-preview-covered={paneInactive}
       ref={boardRef}
       aria-label="Board"
@@ -504,32 +523,59 @@ function BoardContents({
         if (
           paneInactive ||
           !(event.target instanceof HTMLElement) ||
-          event.target.closest("button, input")
+          event.target.closest("button:not([data-drag-preview]), input")
         ) {
           event.preventDefault();
           return;
         }
         const session =
           event.target.closest<HTMLElement>("[data-drag-session]")?.dataset["dragSession"];
+        const preview =
+          event.target.closest<HTMLElement>("[data-drag-preview]")?.dataset["dragPreview"];
         const tile = event.target
           .closest<HTMLElement>(".tile-title")
           ?.closest<HTMLElement>("[data-tile]")?.dataset["tile"];
-        if (!session && !tile) {
+        if (!session && !preview && !tile) {
           event.preventDefault();
           return;
         }
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", "Foom tile");
-        setDrag(session ? { kind: "session", id: session } : { kind: "tile", id: tile ?? "" });
+        const origin: TileDrag = session
+          ? { kind: "session", id: session }
+          : preview
+            ? { kind: "preview", id: preview }
+            : { kind: "tile", id: tile ?? "" };
+        setDrag(origin);
+        const content = session
+          ? { kind: "terminal" as const, id: session }
+          : preview
+            ? { kind: "preview" as const, id: preview }
+            : (() => {
+                const item = leaves(layoutRef.current.tree).find(
+                  (leaf) => leaf.id === tile,
+                )?.content;
+                return item
+                  ? { kind: item.kind, id: item.kind === "terminal" ? item.session : item.preview }
+                  : undefined;
+              })();
+        const gesture = {};
+        dragGestureRef.current = gesture;
+        if (content)
+          void source.windows?.moves
+            ?.beginDrag(content)
+            .then((token) => {
+              if (dragGestureRef.current === gesture) dragTokenRef.current = token;
+              else void source.windows?.moves?.endDrag(token).catch(() => {});
+            })
+            .catch(() => {});
       }}
-      onDragEnd={() => {
-        setDrag(undefined);
-      }}
+      onDragEnd={endDrag}
       onKeyDownCapture={(event) => {
         if (drag && event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
-          setDrag(undefined);
+          endDrag();
         }
       }}
     >
@@ -666,9 +712,8 @@ function BoardContents({
               setFocusRequest((value) => value + 1);
             }}
             drag={drag}
-            endDrag={() => {
-              setDrag(undefined);
-            }}
+            foreign={incomingDrag}
+            endDrag={endDrag}
             source={source}
             layout={layout}
             focusRequest={focusRequest}

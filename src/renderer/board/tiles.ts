@@ -596,12 +596,24 @@ export function dropTile(
   const tiles = leaves(layout.tree);
   const destination = tiles.find((tile) => tile.id === target);
   const origin = tiles.find((tile) =>
-    drag.kind === "tile" ? tile.id === drag.id : sessionId(tile) === drag.id,
+    drag.kind === "tile"
+      ? tile.id === drag.id
+      : drag.kind === "preview"
+        ? tile.content?.kind === "preview" && tile.content.preview === drag.id
+        : sessionId(tile) === drag.id,
   );
   if (!destination || origin === destination || (drag.kind === "tile" && !origin)) return layout;
   if (zone === "center" || destination.content === null) {
     if (drag.kind === "tile") return swapTiles(layout, drag.id, target);
-    return placeSession({ ...layout, focused: target }, drag.id, true) ?? layout;
+    return (
+      placeContent(
+        { ...layout, focused: target },
+        drag.kind === "preview"
+          ? { kind: "preview", preview: drag.id }
+          : { kind: "terminal", session: drag.id },
+        true,
+      ) ?? layout
+    );
   }
   const base = drag.kind === "tile" ? removeTile({ ...layout, focused: drag.id }) : layout;
   const added = splitTile(
@@ -614,9 +626,15 @@ export function dropTile(
   const moving =
     drag.kind === "tile" && origin
       ? origin
-      : { ...fresh, content: { kind: "terminal" as const, session: drag.id } };
+      : {
+          ...fresh,
+          content:
+            drag.kind === "preview"
+              ? { kind: "preview" as const, preview: drag.id }
+              : { kind: "terminal" as const, session: drag.id },
+        };
   let tree = update(added.tree, fresh.id, () => moving);
-  if (drag.kind === "session" && origin)
+  if (drag.kind !== "tile" && origin)
     tree = update(tree, origin.id, () => ({ ...origin, content: null }));
   const result = { tree: fitRatios(tree), focused: moving.id, maximized: null };
   return zone === "left" || zone === "up" ? swapTiles(result, moving.id, target) : result;

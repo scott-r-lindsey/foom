@@ -23,3 +23,21 @@ test("closing releases only that window's views and permits a new view elsewhere
   expect(views.close(1)).toEqual([]);
   expect(views.claim("a", 2)).toBe(true);
 });
+
+test("transfers detach before ownership changes and refuse foreign reservations", () => {
+  const views = new TerminalViews();
+  views.claim("a", 1);
+  expect(
+    views.transfer("a", 2, 3, () => {
+      throw new Error("must not detach");
+    }),
+  ).toBe(false);
+  expect(
+    views.transfer("a", 1, 3, () => {
+      expect(views.owner("a")).toBe(1);
+    }),
+  ).toBe(true);
+  expect(views.owner("a")).toBe(3);
+  expect(views.transfer("hidden", 1, 2, () => {})).toBe(true);
+  expect(views.owner("hidden")).toBe(2);
+});

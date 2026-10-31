@@ -1,6 +1,7 @@
 import { agentNames } from "./sidebar-model";
 import type { PreviewSummary } from "../../shared/workspace";
-import { useId, useSyncExternalStore } from "react";
+import type { WindowMovesApi, MoveContent, WindowDestination } from "../../shared/windows";
+import { useEffect, useState, useId, useSyncExternalStore } from "react";
 import type { BoardRow } from "./board.d";
 import type { TileAction, TileLayout } from "./tiles.d";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
@@ -21,6 +22,9 @@ export function TileMenu({
   number,
   view,
   popout,
+  moves,
+  content,
+  moveError,
   network,
   reload,
   close,
@@ -35,11 +39,27 @@ export function TileMenu({
   number: number;
   view: TerminalViewSource | undefined;
   popout: boolean;
+  moves?: WindowMovesApi | undefined;
+  content?: MoveContent | undefined;
+  moveError?: (() => void) | undefined;
   network?: (() => void) | undefined;
   reload?: (() => void) | undefined;
   close: () => void;
   action: (action: TileAction) => void;
 }) {
+  const [windows, setWindows] = useState<WindowDestination[]>([]);
+  useEffect(() => {
+    let active = true;
+    void moves
+      ?.list()
+      .then((list) => {
+        if (active) setWindows(list);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [moves]);
   const status = useSyncExternalStore(
     view?.subscribe ?? noSubscribe,
     view?.getSnapshot ?? noSnapshot,
@@ -86,6 +106,24 @@ export function TileMenu({
           hint: navigator.platform.includes("Mac") ? "⇧⌘↵" : "Ctrl+Shift+Enter",
         },
         ...(popout && (row || preview) ? [item("popout", "Move to new window")] : []),
+        ...(moves && content && windows.length
+          ? [
+              {
+                label: "Move to window",
+                glyph: "popout" as const,
+                run: () => {},
+                submenu: windows.map((window) => ({
+                  label: window.label,
+                  run: () => {
+                    close();
+                    void moves.move(content, window.id).catch(() => {
+                      moveError?.();
+                    });
+                  },
+                })),
+              },
+            ]
+          : []),
         ...(preview && reload
           ? [
               {

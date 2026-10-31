@@ -63,7 +63,10 @@ placement, including previews, the manual and orchestrator children. Blank singl
 about 100 cells; arranged trees retain their geometry.
 Drag origins come only from local sidebar/title-bar gestures; external drag payloads
 are never interpreted. Drop-time inventory and tree lookups reject stale origins
-and targets. Edge drops obey the same depth and leaf limits as ordinary splits;
+and targets. Main publishes opaque tokens for drags from another registered Foom
+board; the destination never reads DataTransfer contents. Cross-window placement
+stages the same tile geometry before main transfers ownership (see [windows](windows.md#cross-window-moves-950)). Preview sidebar rows are local drag origins too.
+Edge drops obey the same depth and leaf limits as ordinary splits;
 refusal leaves the original tree intact. Whole-leaf swaps and moves preserve the
 keyed controllers and their terminal attachments.
 

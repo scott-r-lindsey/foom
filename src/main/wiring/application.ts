@@ -42,6 +42,7 @@ import type { attachAppMenu } from "../window/app-menu";
 import type { Size } from "../window/appearance";
 import { updateAttention } from "../window/attention-badge";
 import type { Command } from "../window/commands";
+import { WindowMoves } from "../window/window-moves";
 import { TerminalViews } from "../window/terminal-views";
 import { WindowAudio } from "../window/window-audio";
 import { WindowIpcRouter } from "../window/window-ipc";
@@ -142,6 +143,7 @@ export function runApplication() {
 
   const router = new WindowIpcRouter();
   const views = new TerminalViews();
+  const moves = new WindowMoves();
   const audio = new WindowAudio();
   const previewPlacements = new Map<number, PreviewPlacement>();
   let agentPreviews: PreviewBroker | undefined;
@@ -499,6 +501,7 @@ export function runApplication() {
     themesChanged,
     validatePreviewWorktree,
     views,
+    moves,
     windows,
     get workspace() {
       return workspace;

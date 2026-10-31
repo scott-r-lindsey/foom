@@ -421,7 +421,7 @@ only names the configuration:
    `cloudfront:CreateInvalidation` only on
    `arn:aws:cloudfront::<ACCOUNT_ID>:distribution/<DISTRIBUTION_ID>`.
    CloudFront IAM scopes this action to a distribution, not individual paths;
-   the uploader restricts requested paths to the three feed files below.
+   the uploader restricts requested paths to the feed and fixed download files below.
    Use bucket policy enforcement of conditional `If-None-Match: *` puts for
    `updates/nightly/artifacts/*` as an additional immutable-storage guard.
    The uploader itself always uses conditional artifact creation and refuses
@@ -433,9 +433,9 @@ only names the configuration:
    without redirecting archive or feed requests. Its private S3 origin access
    must allow CloudFront to read that prefix. Return JSON as `application/json`;
    disable negative caching of missing feeds (a new architecture can appear).
-   Honor feed `Cache-Control: no-cache,max-age=0,must-revalidate` and artifact
+   Honor feed and fixed-download `Cache-Control: no-cache,max-age=0,must-revalidate` and artifact
    `Cache-Control: public,max-age=31536000,immutable`; use a zero minimum TTL for
-   metadata. Do not apply a website SPA fallback to this prefix. Document this
+   all mutable objects. Preserve download Content-Disposition headers. Do not apply a website SPA fallback to this prefix. Document this
    contract in foom-site separately; this task cannot edit that repository.
 4. Create repository Actions **variables**, not secrets:
    `NIGHTLY_FEED_ROLE_ARN` (the role ARN), `NIGHTLY_FEED_AWS_ACCOUNT_ID` (account
@@ -444,18 +444,41 @@ only names the configuration:
    Set the role variable last to enable uploading. No environment creation is
    required. Never store long-lived AWS keys for this flow.
 
-The serialized publisher preflights existing object checksums/lengths and feed
-commit dates. It refuses to move a feed to an older commit date. All immutable
-artifacts are uploaded first using S3 conditional creates, then each metadata
-object is replaced atomically. Failure before metadata publication leaves the
-previous feeds usable. Failure between feed writes can leave architectures on
-different nightlies, each referencing complete immutable archives; retry repairs
-this. Feeds are independent, not a cross-object transaction. A conflicting
-conditional upload fails closed and may be retried without replacing bytes.
+The serialized publisher preflights existing immutable object checksums/lengths
+and every feed/download-manifest commit date before any writes. Each mutable PUT
+records `commit` and `commitdate` in S3 object metadata alongside `sha256`. HEADs
+validate the identity of every existing fixed download and checksum (missing or
+invalid identities fail closed), so an interrupted newer publish blocks older
+queued commits even before its JSON pointers advance. Existing JSON feeds retain
+their body-based identity check for compatibility. It refuses older
+or equal-time different commits, including same-day earlier commits. All immutable
+artifacts are uploaded first using S3 conditional creates, followed by the seven
+fixed downloads, `download/SHA256SUMS`, `download/latest.json`, then the app update
+feeds. Fixed files have `Cache-Control: no-cache,max-age=0,must-revalidate`;
+package Content-Disposition uses the versioned immutable filename. Checksums
+cover the fixed filenames, while the manifest records version, commit, commitDate
+and per-file fixed name, SHA-256 and immutable URL (see the
+[stable URL contract](architecture.md#nightly-update-feed-604)).
+
+Failure before metadata publication leaves previous JSON pointers intact.
+Failure between mutable writes can leave downloads or architectures on different
+nightlies; each published JSON pointer references complete immutable artifacts.
+A same-commit retry repairs the set, including files already written by that commit. These are individual atomic object replacements, not a
+cross-object transaction. A conflicting conditional upload fails closed and may
+be retried without replacing bytes.
 Existing immutable objects are trusted only within this dedicated writer's prefix.
 
-Only these paths are invalidated after successful feed writes:
+One invalidation contains exactly these paths after all writes succeed:
 
+- `/updates/nightly/download/Foom-nightly-darwin-arm64.dmg`
+- `/updates/nightly/download/Foom-nightly-darwin-arm64.zip`
+- `/updates/nightly/download/Foom-nightly-linux-x64.deb`
+- `/updates/nightly/download/Foom-nightly-linux-x64.rpm`
+- `/updates/nightly/download/Foom-nightly-linux-x64.zip`
+- `/updates/nightly/download/Foom-nightly-win32-x64-setup.exe`
+- `/updates/nightly/download/Foom-nightly-win32-x64.zip`
+- `/updates/nightly/download/SHA256SUMS`
+- `/updates/nightly/download/latest.json`
 - `/updates/nightly/darwin-arm64/latest-mac.json`
 - `/updates/nightly/linux-x64/latest.json`
 - `/updates/nightly/win32-x64/latest.json`
@@ -463,6 +486,11 @@ Only these paths are invalidated after successful feed writes:
 No wildcard website invalidation or artifact invalidation is issued. The uploader
 never deletes S3 objects or overwrites immutable artifacts. After merge, the user
 may run the already-existing main `publish_nightly` dispatch to verify real OIDC,
-CloudFront delivery and notarized update installation. Implementation never
+CloudFront delivery and notarized update installation. Also download all seven
+stable URLs, verify `SHA256SUMS` and manifest hashes against the downloaded bytes,
+and verify the macOS DMG/ZIP pass Gatekeeper. No new permissions, secrets or
+variables are required; all keys remain under the existing `updates/nightly/*`
+grant and the single invalidation uses the existing distribution
+`EWHI9NJ60HNKA`. Implementation never
 dispatches workflows or uses real AWS in tests. Until provisioned, new nightly
 builds quietly see missing feed metadata and cannot update automatically.
