@@ -1256,9 +1256,31 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       assert.equal(after.orchestration.active, false);
       await expect(page.getByText("Exited orchestrator", { exact: true })).toBeVisible();
       await expect(page.locator('.board-row .session-robot-mark[data-kind="rx"]')).toHaveCount(1);
+      const childCount = (await page.evaluate(() => window.desktop.workspace())).terminals.filter(
+        (row) => row.orchestration?.role === "child" && row.orchestration.parentId === parentId,
+      ).length;
+      await parentRow
+        .locator(":scope > .board-row")
+        .getByRole("button", { name: /^Actions for/ })
+        .click();
+      await page.getByRole("menuitem", { name: "Close", exact: true }).click();
+      const refusal = page.getByRole("alert");
+      await expect(refusal).toContainText(
+        `Close its ${childCount} ${childCount === 1 ? "child" : "children"} first.`,
+      );
+      if (!cliOnly) {
+        for (const theme of ["eclipse-light", "eclipse-dark"]) {
+          await page.evaluate(
+            (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
+            theme,
+          );
+          await page.screenshot({ path: evidencePath(`975-close-refusal-${theme}.png`) });
+        }
+      }
+      await page.getByRole("button", { name: "Dismiss", exact: true }).click();
       await assert.rejects(
         page.evaluate((id) => window.desktop.sidebarCommand({ kind: "close", id }), parentId),
-        /foom-error:operation-failed/u,
+        new RegExp(`foom-error:session-has-children:${childCount}`),
       );
       assert.ok(after.orchestration.history.some((entry) => entry.action === "remove_worktree"));
     }

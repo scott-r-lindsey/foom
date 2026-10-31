@@ -2,6 +2,10 @@
 export type ApplicationErrorCode =
   | "remote-host-unavailable"
   | "operation-failed"
+  | "session-has-children"
+  | "session-busy"
+  | "session-running"
+  | "session-remote-unreachable"
   | "worktree-prunable"
   | "worktree-locked"
   | "worktree-missing"

@@ -107,7 +107,7 @@ test("stop preserves a session and Close only removes exited sessions, never a w
   expect(vi.spyOn(deps.terminals, "stop")).toHaveBeenCalledWith("t1");
   expect(workspace.snapshot().terminals).toHaveLength(1);
   await expect(workspace.sidebarCommand({ kind: "close", id: "t1" }, confirm)).rejects.toThrow(
-    "still running",
+    "foom-error:session-running",
   );
   await workspace.exited("t1", 0);
   await expect(workspace.sidebarCommand({ kind: "restart", id: "t1" }, confirm)).rejects.toThrow(

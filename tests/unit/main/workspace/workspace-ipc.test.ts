@@ -837,8 +837,34 @@ test("workspace rejections contain only a selected code, never raw exception det
   await expect(invoke("workspace:create-worktree", ["/repo", "branch"])).rejects.toThrow(
     "foom-error:worktree-prunable",
   );
+  Object.assign(workspace, {
+    sidebarCommand: vi.fn().mockRejectedValueOnce(new ApplicationError("session-has-children", 3)),
+  });
+  await expect(invoke("workspace:sidebar-command", [{ kind: "close", id: "t1" }])).rejects.toThrow(
+    "foom-error:session-has-children:3",
+  );
   workspace.createWorktree.mockRejectedValueOnce(new Error("private path and credentials"));
   await expect(invoke("workspace:create-worktree", ["/repo", "branch"])).rejects.toThrow(
     /^foom-error:operation-failed$/u,
+  );
+});
+
+test("only a close's trusted remote launch failure selects its fixed diagnostic", async () => {
+  const { LaunchFailure } = await import("../../../../src/shared/launch-failure");
+  const command = vi.fn().mockRejectedValue(new LaunchFailure("remote_host_unreachable"));
+  Object.assign(workspace, { sidebarCommand: command });
+  await expect(invoke("workspace:sidebar-command", [{ kind: "close", id: "t1" }])).rejects.toThrow(
+    "foom-error:session-remote-unreachable",
+  );
+  await expect(invoke("workspace:sidebar-command", [{ kind: "resume", id: "t1" }])).rejects.toThrow(
+    "foom-error:operation-failed",
+  );
+  command.mockRejectedValueOnce(new LaunchFailure("launch_failed"));
+  await expect(invoke("workspace:sidebar-command", [{ kind: "close", id: "t1" }])).rejects.toThrow(
+    "foom-error:operation-failed",
+  );
+  command.mockRejectedValueOnce(new Error("remote_host_unreachable secret text"));
+  await expect(invoke("workspace:sidebar-command", [{ kind: "close", id: "t1" }])).rejects.toThrow(
+    "foom-error:operation-failed",
   );
 });

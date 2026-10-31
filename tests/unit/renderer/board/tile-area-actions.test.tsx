@@ -1,3 +1,4 @@
+import { ApplicationError } from "../../../../src/shared/application-errors";
 // @vitest-environment jsdom
 import { act, fireEvent, render, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
@@ -517,3 +518,46 @@ test.each(["horizontal", "vertical"] as const)(
     expect(screen.queryByRole("menu", { name: "Empty space" })).toBeNull();
   },
 );
+
+for (const control of ["chrome", "menu"] as const) {
+  test(`exited saved agent ${control} hides its tile and preserves sidebar Close and Resume`, async () => {
+    const { screen, click, data, source } = setup();
+    act(() => {
+      data.update("permission", { exited: true, conversationId: "saved-conversation" });
+    });
+    click(0);
+    await act(async () => {});
+    source.sidebarCommand = vi.fn(async () => {});
+    if (control === "menu") {
+      fireEvent.click(screen.getByRole("button", { name: "Tile 1 menu" }));
+      expect(screen.queryByRole("menuitem", { name: "Close" })).toBeNull();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Hide" }));
+    } else fireEvent.click(screen.getByRole("button", { name: "Hide" }));
+    await act(async () => {});
+    expect(screen.queryByRole("region", { name: /Tile 1:/ })).toBeNull();
+    expect(source.getSnapshot().find((row) => row.id === "permission")?.conversationId).toBe(
+      "saved-conversation",
+    );
+    expect(source.sidebarCommand).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Actions for .* in fix\/session-restore$/ }),
+    );
+    expect(screen.getByRole("menuitem", { name: /^Resume conversation/ })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Close" })).toBeTruthy();
+  });
+}
+
+test("a close refusal shows the fixed child-count reason and retains the tile", async () => {
+  const { screen, click, data, source } = setup();
+  act(() => {
+    data.update("permission", { exited: true });
+  });
+  click(0);
+  source.sidebarCommand = vi
+    .fn()
+    .mockRejectedValue(new ApplicationError("session-has-children", 3));
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  await act(async () => {});
+  expect(screen.getByRole("alert").textContent).toContain("Close its 3 children first.");
+  expect(screen.getByRole("region", { name: /Tile 1:/ })).toBeTruthy();
+});
