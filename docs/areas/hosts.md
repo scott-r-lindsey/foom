@@ -188,3 +188,36 @@ them in Repositories → Locations (their existing location). Copies resolve onl
 registered objects and cached validated checkout observations in main; they
 never initiate SSH. Removed hosts discard cached locations. See the
 [copy IPC contract](ipc.md#visible-fact-copy-controls-960).
+
+## Worktrees without sessions (#941)
+
+Remote creation records durable profile provenance beside the checkout, inside
+its serialized daemon mutation, before Git can add the checkout. The private
+record binds the profile, origin, repository and checkout directory identities.
+It contains no terminal ID, parent, grant, operation or credential. The tag is
+profile metadata, not isolation from another process running as the account.
+
+On-demand inventory reads never create folders or replay mutations. Pending reads
+are shared, observations have a 60-second freshness budget, and create/remove
+results invalidate them. Settings list/Refresh and lost create replies force a
+fresh read. No inventory timer runs. These reads return
+only this profile's worktrees after checking the approved folder, original
+directory identities, canonical clone/origin and live Git membership. These
+worktrees appear in the sidebar even without a session and after the last session
+closes. Restart or re-registering the same host/folder rediscovers them. Replaced,
+redirected, foreign-repository and unavailable checkouts do not become launch or
+removal targets. Human launches recheck identity; deletion requires review and
+fresh ownership, identity, changes and active-session checks under the ordinary
+remote removal reservation. No automatic cleanup applies to recovered worktrees.
+
+Other-profile and untagged worktrees are counted only in Settings → Hosts as
+**other worktrees**. They are never listed, adopted, modified or deleted. There is
+no untagged migration. This applies the profile ownership decision from #757 to
+worktrees as well as sessions.
+
+After an unsuccessful create reply, main reconciles using tagged inventory;
+a matching branch/provenance can be recovered for the human as an unused checkout.
+The original operation remains indeterminate and charged. Recovery grants no
+orchestrator ownership, refunds no budget and resumes no work. Existing branches
+still refuse duplicate creation, including another idempotency key. If Git did
+not finish a valid checkout, provenance alone creates no launch target.

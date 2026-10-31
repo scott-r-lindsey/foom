@@ -1422,7 +1422,7 @@ test("host bridge validates every nested fact and strips undeclared host data", 
   };
   const result = { ok: true, facts, checkout: { path: "/home/worker/foom/repo", state: "clean" } };
   const value = {
-    hosts: [{ host: "worker", codeFolder: facts.codeFolder, result }],
+    hosts: [{ host: "worker", codeFolder: facts.codeFolder, result, foreignWorktrees: 3 }],
     locations: [{ host: "worker", repository: "/local/repo", result }],
     result: { ok: false, reason: "clone-failed" },
   };

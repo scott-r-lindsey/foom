@@ -1044,6 +1044,7 @@ test.each(["inspect", "create-worktree"] as const)(
             directory: "repo",
             origin: "git@fixture.test:team/repo.git",
             branch: "feature",
+            profile: "a".repeat(32),
           };
     const pending = remoteManagement({ host: "fixture" }, "0.1.0", request);
     await Promise.resolve();

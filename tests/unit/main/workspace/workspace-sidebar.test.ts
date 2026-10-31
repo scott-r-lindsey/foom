@@ -674,6 +674,7 @@ test.each([
       true,
     ),
   );
+  const placement = vi.spyOn(hosts, "placement");
   const copy = vi.fn();
   if (mode === "missing-clipboard") delete deps.copyText;
   else deps.copyText = copy;
@@ -709,6 +710,7 @@ test.each([
       await expect(action).rejects.toThrow();
       expect(copy).not.toHaveBeenCalled();
     }
+    if (mode === "valid") expect(placement).toHaveBeenLastCalledWith(path, repo.path);
     expect(deps.worktrees.launchIdentity).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
   } finally {

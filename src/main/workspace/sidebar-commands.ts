@@ -160,7 +160,7 @@ export async function sidebarCommand(
   if (command.kind === "copy-worktree-branch" && command.worktree.startsWith("/foom-remote/")) {
     this.known(command.repository);
     const hosts = this.deps.hosts;
-    const placement = hosts?.placement?.(command.worktree);
+    const placement = hosts?.placement?.(command.worktree, command.repository);
     if (
       !hosts ||
       !placement ||
