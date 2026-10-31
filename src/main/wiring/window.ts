@@ -1,6 +1,6 @@
 import { hostsForStore } from "../setup/hosts";
 import { checkReadiness } from "../setup/readiness";
-import { app, BrowserWindow, dialog, nativeTheme, screen, session } from "electron";
+import { clipboard, app, BrowserWindow, dialog, nativeTheme, screen, session } from "electron";
 import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { resolveInterfaceTheme } from "../../shared/interface-themes";
@@ -236,6 +236,7 @@ export async function buildWindow(
         await wiring.previewPlacements.get(targetWindow.id)?.place(id, true);
       }),
     (id) => wiring.agentPreviews?.humanClose(id),
+    (text) => clipboard.writeText(text),
   );
   const workspaceIpc = attachWorkspace(
     window,
@@ -264,6 +265,7 @@ export async function buildWindow(
     confirmations.refresh();
   };
   const setup = new Setup({
+    copyText: (text) => clipboard.writeText(text),
     confirmRemoteSessions: (content) => confirmations.request(content),
     hosts: hostsForStore(
       wiring.settings,

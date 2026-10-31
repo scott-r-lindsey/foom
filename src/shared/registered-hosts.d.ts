@@ -84,5 +84,12 @@ export type HostsAction =
   | { action: "locations" }
   | { action: "clone"; host: string; repository: string };
 export interface HostsApi {
+  copyHost(command: HostCopyCommand): Promise<void>;
   hosts(action: HostsAction): Promise<HostsState>;
 }
+
+/** Copy requests identify registered objects, never clipboard text. */
+export type HostCopyCommand =
+  | { kind: "copy-host-alias"; host: string }
+  | { kind: "copy-host-code-folder"; host: string }
+  | { kind: "copy-checkout-path"; host: string | null; repository: string };

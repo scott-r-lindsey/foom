@@ -261,6 +261,9 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
       },
       deps: {
         worktrees: {
+          get panelFacts() {
+            return owner.deps.worktrees.panelFacts.bind(owner.deps.worktrees);
+          },
           get reviewIdentity() {
             return owner.deps.worktrees.reviewIdentity.bind(owner.deps.worktrees);
           },

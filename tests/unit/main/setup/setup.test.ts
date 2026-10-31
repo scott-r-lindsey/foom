@@ -522,3 +522,25 @@ test("host authorizations cannot be written through general settings", async () 
   ).rejects.toThrow();
   expect(() => setup.hosts({ action: "list" })).toThrow("Hosts unavailable");
 });
+
+test("host copies require both registered host service and main clipboard capability", async () => {
+  const { Hosts } = await import("../../../../src/main/setup/hosts");
+  const hostService = new Hosts(deps.store, () => [], "0.1.0");
+  deps.hosts = hostService;
+  deps.copyText = vi.fn();
+  const resolve = vi.spyOn(hostService, "copyValue").mockReturnValue("worker");
+  const setup = new Setup(deps);
+  await setup.copyHost({ kind: "copy-host-alias", host: "worker" });
+  expect(deps.copyText).toHaveBeenCalledExactlyOnceWith("worker");
+  resolve.mockImplementationOnce(() => {
+    throw new Error("unknown");
+  });
+  await expect(setup.copyHost({ kind: "copy-host-alias", host: "unknown" })).rejects.toThrow(
+    "unknown",
+  );
+  delete deps.copyText;
+  await expect(setup.copyHost({ kind: "copy-host-alias", host: "worker" })).rejects.toThrow(
+    "unavailable",
+  );
+  hostService.dispose();
+});

@@ -1,3 +1,4 @@
+import { CopyValue as Copy } from "../ui/copy-value";
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { ReactNode } from "react";
 import type { OrchestrationEntry, OrchestrationView, SidebarCommand } from "../../shared/workspace";
@@ -16,30 +17,6 @@ export type PanelSubject =
   | { kind: "worktree"; repository: SidebarRepository; tree: SidebarWorktree }
   | { kind: "session"; row: BoardRow; tile: number | undefined };
 
-function Copy({ value, copy }: { value: string; copy: () => Promise<void> }) {
-  const [message, setMessage] = useState("");
-  return (
-    <>
-      <button
-        type="button"
-        className="panel-copy"
-        onClick={() => {
-          void copy().then(
-            () => {
-              setMessage("Copied");
-            },
-            () => {
-              setMessage("Unable to copy");
-            },
-          );
-        }}
-      >
-        {value}
-      </button>
-      <span role="status">{message}</span>
-    </>
-  );
-}
 /** Chips carry state as tinted text and outline: highlight for information, green for
  * settled, amber only for needs-you and magenta only for failures. Text always names it. */
 type Tone = "neutral" | "info" | "changes" | "working" | "done" | "needs" | "failed";
@@ -90,12 +67,28 @@ const statusNames: Record<OrchestrationEntry["status"], string> = {
 };
 
 /** Basic orchestration visibility: role, children and the latest actions, as text. */
-function OrchestrationFacts({ view, source }: { view: OrchestrationView; source: BoardSource }) {
+function OrchestrationFacts({
+  view,
+  source,
+  id,
+}: {
+  view: OrchestrationView;
+  source: BoardSource;
+  id: string;
+}) {
   if (view.role === "child") {
     const parent = source.getSnapshot().find((row) => row.id === view.parentId);
     return (
       <Fact label="Orchestrator">
         {parent ? `${parent.repository} › ${parent.branch}` : "Closed"}{" "}
+        <Copy
+          value={view.parentId}
+          label="Copy parent ID"
+          copy={() =>
+            source.sidebarCommand?.({ kind: "copy-parent-id", id }) ??
+            Promise.reject(new Error("Copy unavailable"))
+          }
+        />
         <Sub>
           {view.takenOver ? "· You took over" : "· Can send input, stop and read this session"}
         </Sub>
@@ -110,6 +103,21 @@ function OrchestrationFacts({ view, source }: { view: OrchestrationView; source:
           · {view.children} {view.children === 1 ? "child" : "children"} running
         </Sub>
       </Fact>
+      {source
+        .getSnapshot()
+        .filter((row) => row.orchestration?.role === "child" && row.orchestration.parentId === id)
+        .map((child) => (
+          <Fact key={child.id} label="Child">
+            <Copy
+              value={child.id}
+              label="Copy child ID"
+              copy={() =>
+                source.sidebarCommand?.({ kind: "copy-child-id", id, child: child.id }) ??
+                Promise.reject(new Error("Copy unavailable"))
+              }
+            />
+          </Fact>
+        ))}
       <Fact label="Actions">
         {view.history.length === 0 ? (
           <Sub>None yet</Sub>
@@ -157,6 +165,18 @@ export function PanelFacts({
       ? subject.repository.path
       : undefined;
   const worktree = subject.kind === "worktree" ? subject.tree.path : repository;
+  const copyCheckout = (
+    kind:
+      | "copy-default-branch"
+      | "copy-worktree-branch"
+      | "copy-worktree-head"
+      | "copy-pull-request-number"
+      | "copy-pull-request-url"
+      | "copy-remote-url",
+  ) =>
+    repository && worktree
+      ? copy({ kind, repository, worktree })
+      : Promise.reject(new Error("Unknown checkout"));
   const [loaded, setLoaded] = useState<{
     repository: string;
     worktree: string;
@@ -242,9 +262,27 @@ export function PanelFacts({
               }
             />
           </Fact>
-          <Fact label="Remote">{facts?.remote ?? unknown}</Fact>
+          <Fact label="Remote">
+            {facts?.remote ? (
+              <Copy
+                value={facts.remote}
+                label="Copy remote URL"
+                copy={() => copyCheckout("copy-remote-url")}
+              />
+            ) : (
+              unknown
+            )}
+          </Fact>
           <Fact label="Default branch">
-            {facts?.defaultBranch ?? unknown}{" "}
+            {facts?.defaultBranch ? (
+              <Copy
+                value={facts.defaultBranch}
+                label="Copy default branch"
+                copy={() => copyCheckout("copy-default-branch")}
+              />
+            ) : (
+              unknown
+            )}{" "}
             {facts?.fetchFailed ? (
               <Chip tone="failed">Fetch failed</Chip>
             ) : (
@@ -291,10 +329,22 @@ export function PanelFacts({
           {subject.tree.pullRequest && (
             <>
               <Fact label={subject.tree.pullRequest.requestLabel ?? "Pull request"}>
-                {subject.tree.pullRequest.numberPrefix ?? "#"}
-                {subject.tree.pullRequest.number}
+                <Copy
+                  value={`${subject.tree.pullRequest.numberPrefix ?? "#"}${String(subject.tree.pullRequest.number)}`}
+                  label="Copy PR number"
+                  copy={() => copyCheckout("copy-pull-request-number")}
+                />
                 {subject.tree.pullRequest.title && ` · ${subject.tree.pullRequest.title}`}
               </Fact>
+              {subject.tree.pullRequest.url && (
+                <Fact label="URL">
+                  <Copy
+                    value={subject.tree.pullRequest.url}
+                    label="Copy PR URL"
+                    copy={() => copyCheckout("copy-pull-request-url")}
+                  />
+                </Fact>
+              )}
               <Fact label={`${subject.tree.pullRequest.requestLabel ?? "PR"} state`}>
                 {subject.tree.pullRequest.state.toLowerCase()}
               </Fact>
@@ -320,13 +370,25 @@ export function PanelFacts({
           )}
           {subject.tree.branch ? (
             <Fact label="Branch">
-              {subject.tree.branch}{" "}
+              <Copy
+                value={subject.tree.branch}
+                label="Copy branch"
+                copy={() => copyCheckout("copy-worktree-branch")}
+              />{" "}
               {subject.tree.branch === facts?.defaultBranch && <Chip tone="neutral">default</Chip>}
             </Fact>
           ) : (
             <Fact label="HEAD">
               <Chip tone="neutral">Detached</Chip> at{" "}
-              <span className="panel-hash">{subject.tree.head?.slice(0, 7) ?? unknown}</span>
+              {subject.tree.head ? (
+                <Copy
+                  value={subject.tree.head.slice(0, 7)}
+                  label="Copy full HEAD SHA"
+                  copy={() => copyCheckout("copy-worktree-head")}
+                />
+              ) : (
+                unknown
+              )}
             </Fact>
           )}
           <Fact label="Path">
@@ -454,7 +516,19 @@ export function PanelFacts({
                     : "⊘"}{" "}
                 {subject.row.handoff.status} · #{subject.row.handoff.seq}
               </Chip>
-              <p className="handoff-summary">{subject.row.handoff.summary}</p>
+              <p className="handoff-summary">
+                <Copy
+                  value={subject.row.handoff.summary}
+                  label="Copy handoff summary"
+                  copy={() =>
+                    copy({
+                      kind: "copy-handoff-summary",
+                      id: subject.row.id,
+                      seq: subject.row.handoff?.seq ?? 0,
+                    })
+                  }
+                />
+              </p>
               <ul className="handoff-links">
                 {subject.row.handoff.links.map((url, index) => (
                   <li key={`${String(index)}-${url}`}>
@@ -483,7 +557,11 @@ export function PanelFacts({
             </Fact>
           )}
           {subject.row.orchestration && (
-            <OrchestrationFacts view={subject.row.orchestration} source={source} />
+            <OrchestrationFacts
+              view={subject.row.orchestration}
+              source={source}
+              id={subject.row.id}
+            />
           )}
           {source.previews?.getHistory?.().some((entry) => entry.terminalId === subject.row.id) && (
             <Fact label="Recent">
@@ -530,10 +608,18 @@ export function PanelFacts({
               <Chip tone="info">{subject.tile}</Chip>
             )}
           </Fact>
+          <Fact label="Session ID">
+            <Copy
+              value={subject.row.id}
+              label="Copy Foom session ID"
+              copy={() => copy({ kind: "copy-foom-session-id", id: subject.row.id })}
+            />
+          </Fact>
           <Fact label="Conversation">
             {subject.row.conversationId ? (
               <Copy
                 value={subject.row.conversationId}
+                label="Copy session ID"
                 copy={() => copy({ kind: "copy-session-id", id: subject.row.id })}
               />
             ) : (

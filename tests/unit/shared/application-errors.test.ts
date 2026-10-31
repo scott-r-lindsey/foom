@@ -47,3 +47,16 @@ test("only the closed codes select fixed messages, with or without Electron's wr
     expect(errorMessage(error, "Unable to remove worktree.")).toBe("Unable to remove worktree.");
   }
 });
+
+test("copyable errors resolve closed IDs and refuse arbitrary text or inherited properties", async () => {
+  const { copyableErrorId, copyableErrorText, isCopyableErrorId } = await import(
+    "../../../src/shared/application-errors"
+  );
+  for (const [id, message] of Object.entries(copyableErrorText)) {
+    expect(isCopyableErrorId(id)).toBe(true);
+    expect(copyableErrorId(message)).toBeDefined();
+  }
+  for (const value of ["__proto__", "constructor", "token=secret", null, 3])
+    expect(isCopyableErrorId(value)).toBe(false);
+  expect(copyableErrorId("arbitrary exception text")).toBeUndefined();
+});

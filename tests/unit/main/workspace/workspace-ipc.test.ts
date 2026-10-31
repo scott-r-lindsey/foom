@@ -313,7 +313,9 @@ test("sidebar commands copy known fields, validate IDs and paths, and keep confi
     { kind: "revoke-orchestrator", id: "t1" },
   ]) {
     await invoke("workspace:sidebar-command", [
-      { ...value, executable: "/evil", sharedCheckout: true, conversationId: "forged" },
+      value.kind.startsWith("copy-")
+        ? value
+        : { ...value, executable: "/evil", sharedCheckout: true, conversationId: "forged" },
     ]);
     expect(command).toHaveBeenLastCalledWith(value, expect.any(Function));
   }
@@ -841,4 +843,45 @@ test("workspace rejections contain only a selected code, never raw exception det
   await expect(invoke("workspace:create-worktree", ["/repo", "branch"])).rejects.toThrow(
     /^foom-error:operation-failed$/u,
   );
+});
+
+test("copy commands accept only identifiers and refuse malformed or foreign targets before dispatch", () => {
+  const dispatch = vi.fn();
+  Object.assign(workspace, { sidebarCommand: dispatch });
+  const commands = [
+    ...[
+      "copy-default-branch",
+      "copy-worktree-branch",
+      "copy-worktree-head",
+      "copy-pull-request-number",
+      "copy-pull-request-url",
+      "copy-remote-url",
+    ].map((kind) => ({ kind, repository: "/repo", worktree: "/tree" })),
+    ...["copy-foom-session-id", "copy-parent-id"].map((kind) => ({ kind, id: "t1" })),
+    { kind: "copy-child-id", id: "t1", child: "child" },
+    { kind: "copy-handoff-summary", id: "t1", seq: 1 },
+    { kind: "copy-error-text", error: "worktree-locked" },
+  ];
+  for (const command of commands) {
+    invoke("workspace:sidebar-command", [command]);
+    expect(dispatch).toHaveBeenLastCalledWith(command, expect.any(Function));
+    expect(() =>
+      invoke("workspace:sidebar-command", [{ ...command, text: "arbitrary" }]),
+    ).toThrow();
+    expect(() =>
+      invoke("workspace:sidebar-command", [command], {
+        ...trusted,
+        senderFrame: { url: frame.url },
+      }),
+    ).toThrow();
+  }
+  for (const value of [
+    { kind: "copy-child-id", id: "t1", child: "" },
+    { kind: "copy-handoff-summary", id: "t1", seq: 0 },
+    { kind: "copy-handoff-summary", id: "t1", seq: 1.5 },
+    { kind: "copy-parent-id", id: "foreign" },
+    { kind: "copy-error-text", error: "__proto__" },
+    { kind: "copy-error-text", error: "arbitrary text" },
+  ])
+    expect(() => invoke("workspace:sidebar-command", [value])).toThrow();
 });

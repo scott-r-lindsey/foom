@@ -49,6 +49,13 @@ export function attachSetup(
         return setup.readiness();
       },
     ],
+    [
+      "setup:copy-host",
+      (...args) => {
+        if (args.length !== 1) throw new Error("Invalid host copy request");
+        return setup.copyHost(args[0]);
+      },
+    ],
     ["setup:state", () => setup.state()],
     [
       "setup:hosts",

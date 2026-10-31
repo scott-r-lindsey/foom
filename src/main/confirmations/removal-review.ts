@@ -16,6 +16,7 @@ export function removalContent(items: readonly RemovalItem[]): DialogContent {
   return {
     title: item.changes ? "Remove worktree with uncommitted changes?" : "Remove worktree?",
     subject: item.branch,
+    worktreePath: item.path,
     glyph: "branch",
     accept: item.changes ? "Discard changes and remove" : "Remove worktree",
     facts: [
@@ -101,4 +102,30 @@ export class RemovalReview {
       signal?.removeEventListener("abort", cancel);
     }
   }
+}
+
+/** Resolve only paths actually included in this pending removal presentation. */
+export function removalCopyPaths(request: DialogContent): ReadonlyMap<string, string> {
+  const paths = new Map<string, string>();
+  const changes = (value: string | undefined, prefix: string) => {
+    const records = value?.split("\0").filter(Boolean) ?? [];
+    for (let index = 0; index < records.length; index++) {
+      const record = records[index];
+      if (!record) continue;
+      paths.set(`${prefix}:${String(index)}`, record.slice(3));
+      if (/[RC]/u.test(record.slice(0, 2))) {
+        const old = records[++index];
+        if (old) paths.set(`${prefix}:${String(index)}`, old);
+      }
+    }
+  };
+  if (request.worktreePath) paths.set("worktree", request.worktreePath);
+  changes(request.changes, "change");
+  for (const item of request.removals ?? []) {
+    paths.set(`removal:${item.id}`, item.path);
+    changes(item.changes, `removal-change:${item.id}`);
+  }
+  for (const item of request.cleanup?.progress.items ?? [])
+    changes(item.changes, `cleanup-change:${item.id}`);
+  return paths;
 }

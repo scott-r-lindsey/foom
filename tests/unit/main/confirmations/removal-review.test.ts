@@ -125,3 +125,38 @@ test("aborting one item declines it immediately and leaves the others under revi
   await expect(second).resolves.toBe(true);
   await expect(third).resolves.toBe(true);
 });
+
+test("copy targets are only pending worktree and displayed change paths, including rename sources", async () => {
+  const { removalCopyPaths } = await import("../../../../src/main/confirmations/removal-review");
+  const paths = removalCopyPaths({
+    title: "Remove",
+    accept: "Remove",
+    worktreePath: "/tree",
+    changes: "R  new.txt\0old.txt\0?? extra\0",
+    removals: [{ id: "one", branch: "feature", path: "/one", changes: "?? file\0" }],
+    cleanup: {
+      stage: "ready",
+      progress: {
+        total: 1,
+        done: 0,
+        phase: "remove",
+        stopped: false,
+        items: [{ id: "two", branch: "two", state: "queued", changes: "!! ignored\0" }],
+      },
+    },
+    pairing: { code: "SECRET", expiresAt: 10 },
+    facts: [{ label: "Token", value: "SECRET" }],
+  });
+  expect([...paths]).toEqual([
+    ["worktree", "/tree"],
+    ["change:0", "new.txt"],
+    ["change:1", "old.txt"],
+    ["change:2", "extra"],
+    ["removal:one", "/one"],
+    ["removal-change:one:0", "file"],
+    ["cleanup-change:two:0", "ignored"],
+  ]);
+  expect(paths.get("unknown")).toBeUndefined();
+  expect([...paths.values()]).not.toContain("SECRET");
+  expect(removalCopyPaths({ title: "Other", accept: "Continue" }).size).toBe(0);
+});

@@ -3,6 +3,7 @@ import type { SetupSource } from "./setup-source.d";
 export function createSetupSource(): SetupSource {
   const desktop = window.desktop;
   return {
+    copyHost: (command) => desktop.copyHost(command),
     hosts: (action) => desktop.hosts(action),
     checkReadiness: () => desktop.checkReadiness(),
     listTerminalFonts: (refresh) => desktop.listTerminalFonts(refresh),

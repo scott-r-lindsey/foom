@@ -5,7 +5,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import type { ConfirmationWindowApi, DialogRequest } from "../../../src/shared/confirmation";
 const mock = vi.hoisted(() => ({
   exposeInMainWorld: vi.fn<(name: string, api: ConfirmationWindowApi) => void>(),
-  on: vi.fn<(channel: string, listener: (event: unknown, value: unknown) => void) => void>(),
+  on: vi.fn<(channel: string, listener: (event: unknown, ...values: unknown[]) => void) => void>(),
   send: vi.fn(),
 }));
 vi.mock("electron", () => ({ contextBridge: mock, ipcRenderer: mock }));
@@ -17,7 +17,7 @@ test("buffers main's request before React subscribes and exposes only rendering,
   await import("../../../src/preload/confirmation");
   const api = mock.exposeInMainWorld.mock.calls[0]?.[1];
   if (!api) throw Error("Missing API");
-  expect(Object.keys(api)).toEqual(["render", "size", "answer"]);
+  expect(Object.keys(api)).toEqual(["render", "copyPath", "size", "answer"]);
   const listener = mock.on.mock.calls[0]?.[1];
   const request = { id: "one", presented: false, theme, title: "Confirm", accept: "Continue" };
   listener?.({}, request);
@@ -296,4 +296,43 @@ test("rebuilds size and selection payloads and drops malformed confirmation answ
   api.answer("", true);
   for (const selected of [[], [""], ["one", "one"]]) api.answer("request", selected);
   expect(mock.send).not.toHaveBeenCalled();
+});
+
+test("path copies send only pending request/path IDs and validate fixed acknowledgements", async () => {
+  await import("../../../src/preload/confirmation");
+  const api = mock.exposeInMainWorld.mock.calls[0]?.[1];
+  const render = mock.on.mock.calls.find(([channel]) => channel === "confirmation:render")?.[1];
+  const result = mock.on.mock.calls.find(
+    ([channel]) => channel === "confirmation:copy-result",
+  )?.[1];
+  if (!api || !render || !result) throw new Error("Missing bridge");
+  render(
+    {},
+    {
+      id: "one",
+      presented: true,
+      theme,
+      title: "Remove?",
+      accept: "Remove",
+      worktreePath: "/tree",
+    },
+  );
+  await expect(api.copyPath("stale", "worktree")).rejects.toThrow("Unable to copy");
+  const success = api.copyPath("one", "worktree");
+  expect(mock.send).toHaveBeenLastCalledWith("confirmation:copy-path", "one", "worktree", 1);
+  // The event signature is variadic in Electron; the mock also models that here.
+  const acknowledge = result;
+  acknowledge({}, "1", true);
+  acknowledge({}, 1, "true");
+  acknowledge({}, 1, true);
+  await expect(success).resolves.toBeUndefined();
+  const failed = api.copyPath("one", "unknown");
+  acknowledge({}, 2, false);
+  await expect(failed).rejects.toThrow("Unable to copy");
+  vi.useFakeTimers();
+  const timeout = api.copyPath("one", "worktree");
+  const rejected = expect(timeout).rejects.toThrow("Unable to copy");
+  await vi.advanceTimersByTimeAsync(3000);
+  await rejected;
+  vi.useRealTimers();
 });

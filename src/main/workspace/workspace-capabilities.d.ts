@@ -112,6 +112,7 @@ export interface SidebarCommandsContext {
   readonly deps: {
     readonly worktrees: Pick<
       WorkspaceDependencies["worktrees"],
+      | "panelFacts"
       | "cleanupBrokenWorktree"
       | "launchIdentity"
       | "listRepositories"

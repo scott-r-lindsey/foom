@@ -17,6 +17,7 @@ import type { ConfigStatus } from "../../shared/foom-config";
 
 /** What preflight needs from main. Components use this, never the bridge directly. */
 export interface SetupSource {
+  copyHost?: HostsApi["copyHost"];
   hosts?: HostsApi["hosts"];
   restartToUpdate?(): Promise<void>;
   checkReadiness?(): Promise<ReadinessReport>;

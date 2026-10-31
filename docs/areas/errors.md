@@ -31,3 +31,10 @@ Local packages that deliberately omit the remote-host catalog use the fixed
 preserves only that trusted preflight reason through transport and terminal-client
 failure, and renders "Remote host artifact unavailable in this local build."
 Arbitrary artifact errors and host-supplied text cannot select this code.
+
+Error dialogs expose a `Copy error text` button on the fixed sentence. The
+renderer maps that sentence to a closed catalog ID; main resolves the sentence
+from that catalog. Raw exception text and arbitrary renderer strings cannot be
+copied. Every fixed action-dialog sentence, including local validation failures,
+needs a catalog ID when introduced. Menu execution failures use the fixed `Unable to run this command.`
+sentence so dynamic menu labels never become clipboard input.

@@ -279,6 +279,42 @@ export class Hosts {
     this.registered(binding.host, binding.codeFolder);
     return { remote: binding.origin, head: current.head };
   }
+  copyValue(input: unknown): string {
+    if (!input || typeof input !== "object" || Array.isArray(input) || !("kind" in input))
+      throw new Error("Invalid host copy");
+    if (input.kind === "copy-checkout-path") {
+      if (
+        Object.keys(input).length !== 3 ||
+        Object.keys(input).some((key) => !["kind", "host", "repository"].includes(key)) ||
+        !("repository" in input) ||
+        !("host" in input)
+      )
+        throw new Error("Unknown repository");
+      const repository = this.repositories().find((repo) => repo.path === input.repository);
+      if (!repository) throw new Error("Unknown repository");
+      if (input.host === null) return repository.path;
+      if (typeof input.host !== "string") throw new Error("Invalid host");
+      const registered = this.registered(input.host);
+      const location = this.state().locations.find(
+        (entry) => entry.repository === input.repository && entry.host === input.host,
+      );
+      const path = location?.result.ok ? location.result.checkout?.path : undefined;
+      if (!path || !path.startsWith(`${registered.codeFolder}/`))
+        throw new Error("Checkout unavailable");
+      return path;
+    }
+    if (
+      Object.keys(input).length !== 2 ||
+      Object.keys(input).some((key) => !["kind", "host"].includes(key)) ||
+      !("host" in input) ||
+      typeof input.host !== "string"
+    )
+      throw new Error("Invalid host copy");
+    const registered = this.registered(input.host);
+    if (input.kind === "copy-host-alias") return registered.host;
+    if (input.kind === "copy-host-code-folder") return registered.codeFolder;
+    throw new Error("Invalid host copy");
+  }
   private readonly results = new Map<string, HostResult>();
   private locations: RepositoryLocation[] = [];
   private pending: Promise<unknown> = Promise.resolve();
@@ -414,6 +450,7 @@ export class Hosts {
           await this.store.update({
             registeredHosts: hosts.filter((entry) => entry.host !== host.host),
           });
+          this.locations = this.locations.filter((entry) => entry.host !== host.host);
           this.results.delete(host.host);
           this.sessionInventories.delete(host.host);
           for (const [path, entry] of this.savedPlacements)

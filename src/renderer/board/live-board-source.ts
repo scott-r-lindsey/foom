@@ -487,6 +487,8 @@ export function createAppSource(): BoardSource {
       isReady: () => inventoryLoaded,
       getSnapshot: () => previews,
       getHistory: () => previewActions,
+      copyPath: (id) =>
+        window.desktop.previews?.copyPath?.(id) ?? Promise.reject(new Error("Copy unavailable")),
       popout: (id) =>
         window.desktop.previews?.popout(id) ??
         Promise.reject(new Error("Preview host unavailable")),
