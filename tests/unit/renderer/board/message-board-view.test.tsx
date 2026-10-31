@@ -197,3 +197,44 @@ it("surfaces read failures and rejects invalid reply text before calling the API
     expect(view.container.textContent).toContain("Board");
   });
 });
+
+it("stops pagination when the panel closes or a thread read is superseded", async () => {
+  let listReply: (value: BoardThreads) => void = () => {};
+  let threadReply: (value: BoardRead) => void = () => {};
+  const api: MessageBoardApi = {
+    threads: vi.fn(
+      () =>
+        new Promise<BoardThreads>((resolve) => {
+          listReply = resolve;
+        }),
+    ),
+    read: vi.fn(
+      () =>
+        new Promise<BoardRead>((resolve) => {
+          threadReply = resolve;
+        }),
+    ),
+    post: vi.fn(),
+    resolve: vi.fn(),
+  };
+  const subscribe = () => () => {};
+  const first = render(<MessageBoardPanel api={api} subscribe={subscribe} close={() => {}} />);
+  first.unmount();
+  await act(async () => {
+    listReply({ ...list, next: "thread" });
+    await Promise.resolve();
+  });
+  expect(api.threads).toHaveBeenCalledOnce();
+  const second = render(<MessageBoardPanel api={api} subscribe={subscribe} close={() => {}} />);
+  await act(async () => {
+    listReply(list);
+    await Promise.resolve();
+  });
+  fireEvent.click(second.getByRole("button", { name: /Nightly release/ }));
+  second.unmount();
+  await act(async () => {
+    threadReply({ ...detail, next: "post" });
+    await Promise.resolve();
+  });
+  expect(api.read).toHaveBeenCalledOnce();
+});

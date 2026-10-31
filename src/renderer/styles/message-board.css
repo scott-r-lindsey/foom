@@ -73,7 +73,7 @@
   color: var(--muted);
 }
 .message-thread-list > button[data-decision="true"] .message-thread-state,
-.message-thread [data-decision="true"] > span,
+.message-thread > header [data-decision="true"],
 .message-thread li[data-decision="true"] .message-post-meta > span {
   color: var(--attention-ink);
 }
@@ -156,5 +156,20 @@
   font-family: var(--font-interface);
   font-size: inherit;
   font-weight: 600;
+  color: var(--ink);
+}
+
+.sidebar-footer-bar:has(.message-board-toggle) {
+  flex-wrap: wrap;
+}
+.message-board-toggle {
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 6px;
+  font: 11px var(--font-interface);
+  color: var(--muted);
+}
+.message-board-toggle[aria-pressed="true"] {
+  border-color: var(--highlight);
   color: var(--ink);
 }

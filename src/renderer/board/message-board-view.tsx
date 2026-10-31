@@ -51,7 +51,7 @@ export function MessageBoardPanel({
     const load = async () => {
       let next = await api.threads(filter ? { repository: filter } : {});
       const threads = [...next.threads];
-      while (next.next) {
+      while (current && next.next) {
         next = await api.threads({ ...(filter ? { repository: filter } : {}), after: next.next });
         threads.push(...next.threads);
       }
@@ -73,7 +73,7 @@ export function MessageBoardPanel({
     const load = async () => {
       let next = await api.read({ thread });
       const posts: MessagePost[] = [...next.posts];
-      while (next.next) {
+      while (current && next.next) {
         next = await api.read({ thread, after: next.next });
         posts.push(...next.posts);
       }

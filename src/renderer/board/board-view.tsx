@@ -686,6 +686,7 @@ function BoardContents({
               {source.messageBoard && (
                 <button
                   type="button"
+                  className="message-board-toggle"
                   title="Board"
                   aria-label="Open message board"
                   aria-pressed={boardShown}
