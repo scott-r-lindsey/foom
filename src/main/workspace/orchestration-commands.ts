@@ -1,3 +1,4 @@
+import type { ReviewSnapshot } from "../control/review-loops.d";
 import { remoteAgentTarget } from "../terminals/remote-bootstrap";
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
@@ -178,25 +179,30 @@ export async function launchChild(
     selection?: AgentLaunch["selection"];
     resume?: { id: string; conversationId: string };
     loop?: AgentLaunch["loop"];
+    snapshot?: ReviewSnapshot;
     validate(): void;
   },
+  remote?: AgentLaunch["remoteCheckout"],
 ): Promise<string> {
   return this.withRepository(repository, async () => {
-    const tree = (await this.worktrees(repository)).find((item) => item.path === worktree);
+    const tree = remote
+      ? { path: worktree, branch: remote.branch, bare: false, locked: false, prunable: false }
+      : (await this.worktrees(repository)).find((item) => item.path === worktree);
     if (!tree || tree.bare || tree.locked || tree.prunable || tree.path === repository)
       throw new Error("Worktree is unavailable");
-    const key = `${repository}\0${tree.branch ?? ""}`;
+    const key = `${repository}\0${remote ? worktree : (tree.branch ?? "")}`;
     if (this.busyWorktrees.has(key)) throw new Error("This worktree is busy");
     this.busyWorktrees.add(key);
     try {
       // Only the checkout the orchestrator created, never a replacement at the same path.
-      const identity = await this.deps.worktrees.launchIdentity(repository, worktree);
+      const identity =
+        remote?.identity ?? (await this.deps.worktrees.launchIdentity(repository, worktree));
       if (identity !== created) throw new Error("Worktree has changed");
       step?.validate();
       const replacement = step?.resume;
       if (replacement) {
         const old = this.launched.get(replacement.id);
-        if (old?.remote && !remoteAgentTarget(process.argv, worktree))
+        if (old?.remote && !remote && !remoteAgentTarget(process.argv, worktree))
           throw new Error("Remote mapping is required to resume this child");
         if (!old || this.executionOwner.view(old.id).exitCode === undefined)
           throw new Error("Author is still running");
@@ -221,6 +227,7 @@ export async function launchChild(
           replacement,
           {
             ...(step?.selection ? { selection: step.selection } : {}),
+            ...(remote ? { remoteCheckout: remote } : {}),
             control: { parentId },
             prompt: prompt ?? "Await your assigned task.",
             ...(step

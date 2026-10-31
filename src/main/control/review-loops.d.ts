@@ -13,7 +13,12 @@ export interface ReviewLoopHost {
   checks: (id: string) => PullRequest | undefined;
   snapshot: (id: string) => Promise<ReviewSnapshot>;
   /** Reserves capacity and rechecks ownership immediately before spawning. Undefined means wait. */
-  step: (authorId: string, reviewer: boolean, prompt: string) => Promise<string | undefined>;
+  step: (
+    authorId: string,
+    reviewer: boolean,
+    prompt: string,
+    snapshot: ReviewSnapshot,
+  ) => Promise<string | undefined>;
   /** Normal session stop, with ownership checked immediately before signaling. */
   stop: (
     id: string,

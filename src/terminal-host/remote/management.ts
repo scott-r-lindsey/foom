@@ -1,3 +1,4 @@
+import { remoteReviewSnapshot } from "./review-snapshot";
 import { discoveryFacts, selected } from "../../shared/agent-launch-values";
 import { createHash, randomUUID } from "node:crypto";
 import { remoteCheckout } from "./agent-discovery";
@@ -282,7 +283,11 @@ export async function manageHost(
         worktree: { path: destination, branch: request.branch, identity, changes: "" },
       };
     }
-    if (request.operation === "inspect-worktree" || request.operation === "remove-worktree") {
+    if (
+      request.operation === "inspect-worktree" ||
+      request.operation === "snapshot-worktree" ||
+      request.operation === "remove-worktree"
+    ) {
       if (
         request.path === path ||
         !request.path.startsWith(`${folder}/.foom-worktree-`) ||
@@ -348,10 +353,31 @@ export async function manageHost(
       const origin = (await git(["config", "--get", "remote.origin.url"], request.path)).trim();
       if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(head) || origin !== request.origin)
         throw new Error("Checkout changed");
+      const snapshot =
+        request.operation === "snapshot-worktree"
+          ? await remoteReviewSnapshot(path, request.path, identity, env, signal)
+          : undefined;
+      await approvedCodeFolder(folder, home);
+      if (
+        createHash("sha256")
+          .update(await remoteCheckout(path, request.path, env, signal))
+          .digest("hex") !== identity ||
+        (await git(["config", "--get", "remote.origin.url"], request.path)).trim() !== origin ||
+        (snapshot && snapshot.head !== head)
+      )
+        throw new Error("Checkout changed");
       return {
         ok: true,
         facts,
-        worktree: { path: request.path, branch, identity, changes, head, origin },
+        worktree: {
+          path: request.path,
+          branch,
+          identity,
+          changes,
+          head,
+          origin,
+          ...(snapshot ? { snapshot } : {}),
+        },
       };
     }
     return { ok: true, facts, checkout: { path, state: status ? "changed" : "clean" } };

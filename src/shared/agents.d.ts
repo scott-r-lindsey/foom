@@ -1,3 +1,4 @@
+import type { RemoteReviewSnapshot } from "./remote-agent";
 import type { ReviewOptions, ReviewState } from "./review";
 import type { V2Binding } from "./v2-hooks";
 import type { AgentSetupStatus } from "./agent-setup";
@@ -63,6 +64,7 @@ export interface AgentLaunch {
     worktree: string;
     branch: string;
     identity: string;
+    reviewSnapshot?: RemoteReviewSnapshot;
     validate(): Promise<void>;
   };
   /** Main-only restoration preserves the original local placement. */

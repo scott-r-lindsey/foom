@@ -1,3 +1,4 @@
+import { agentProviders } from "../agents/providers/registry";
 import { localResources } from "../setup/local-host";
 import { prepareTail } from "../evaluator/terminal-tail";
 import { locationId } from "../control/metadata";
@@ -218,52 +219,75 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
         return caps.launchChild(parentId, repository, worktree, identity, agent, prompt, step);
       return caps.withRepository(repository, () =>
         reserved(repository, worktree, async () => {
-          if (step?.loop) throw new ControlError("remote_review_unsupported");
           if (identity !== tree.identity) throw new LaunchFailure("remote_worktree_unavailable");
+          hosts().registered(tree.host, tree.codeFolder);
           await hosts().requireAgent(tree.host, agent);
           step?.validate();
           const current = await inspect(repository, tree);
-          const result = await caps.launchAgent(
-            { repository, worktree, agent, cols: 80, rows: 24 },
-            false,
-            false,
+          if (step?.loop && current.branch !== tree.branch) throw new ControlError("conflict");
+          return caps.launchChild(
+            parentId,
+            repository,
+            worktree,
             identity,
-            undefined,
+            agent,
+            prompt,
             {
-              control: { parentId },
-              prompt: prompt ?? "Await your assigned task.",
-              ...(step?.selection ? { selection: step.selection } : {}),
-              beforeSpawn: () => {
+              ...step,
+              validate: () => {
                 hosts().registered(tree.host, tree.codeFolder);
                 step?.validate();
               },
-              remoteCheckout: {
-                target: { host: tree.host },
-                repository: tree.repository,
-                worktree: tree.path,
-                branch: current.branch,
-                identity: tree.identity,
-                // The daemon checks the creation digest during preparation and start.
-                // Keep the hub's final grant/registration check independent of another SSH connection.
-                validate: () => {
-                  hosts().registered(tree.host, tree.codeFolder);
-                  step?.validate();
-                  return Promise.resolve();
-                },
+            },
+            {
+              target: { host: tree.host },
+              repository: tree.repository,
+              worktree: tree.path,
+              branch: current.branch,
+              identity: tree.identity,
+              ...(step?.snapshot ? { reviewSnapshot: step.snapshot } : {}),
+              validate: () => {
+                hosts().registered(tree.host, tree.codeFolder);
+                step?.validate();
+                return Promise.resolve();
               },
             },
           );
-          return result.id;
         }),
       );
     },
-    reviewSnapshot: (repository, worktree, identity) =>
-      reviewSnapshot(caps.deps.worktrees, repository, worktree, identity),
-    reviewAvailable: async (agent, worktree) => {
+    reviewSnapshot: async (repository, worktree, identity) => {
+      const tree = remoteTree(worktree);
+      if (!tree) return reviewSnapshot(caps.deps.worktrees, repository, worktree, identity);
+      if (tree.identity !== identity || tree.localRepository !== repository)
+        throw new ControlError("conflict");
+      hosts().registered(tree.host, tree.codeFolder);
+      const current = await hosts().worktree(tree.host, repository, {
+        operation: "snapshot-worktree",
+        path: tree.path,
+        identity,
+      });
+      hosts().registered(tree.host, tree.codeFolder);
       if (
-        worktree &&
-        (remoteTree(worktree) !== undefined || remoteAgentTarget(process.argv, worktree))
+        current.repository !== tree.repository ||
+        current.path !== tree.path ||
+        current.identity !== identity ||
+        current.branch !== tree.branch ||
+        !current.snapshot ||
+        current.head !== current.snapshot.head
       )
+        throw new ControlError("conflict");
+      return current.snapshot;
+    },
+    reviewAvailable: async (agent, worktree) => {
+      const tree = worktree && remoteTree(worktree);
+      if (tree) {
+        await hosts().requireAgent(tree.host, agent);
+        return agentProviders().some(
+          (provider) => provider.id === agent && provider.model.launch.resume !== undefined,
+        );
+      }
+      if (worktree && remoteAgentTarget(process.argv, worktree))
         throw new ControlError("remote_review_unsupported");
       return (await caps.scanAgents(false)).agents.some(
         (item) => item.id === agent && item.path !== null && item.resume === true,

@@ -1,3 +1,4 @@
+import * as snapshots from "../../../../src/terminal-host/remote/review-snapshot";
 import type { HookSignal } from "../../../../src/shared/hooks";
 import {
   remotePiExtension,
@@ -43,6 +44,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const endpoint of endpoints.splice(0)) endpoint.dispose();
   vi.mocked(remoteCheckout).mockReset().mockResolvedValue("identity");
   await rm(home, { recursive: true, force: true });
@@ -510,3 +512,49 @@ test("the remote Pi ABI is locked to application-owned bytes", () => {
     assertRemotePiIntegrity(remotePiExtension() + " ");
   }).toThrow("integrity");
 });
+
+test.skipIf(process.platform === "win32").each(["head", "digest", "disconnect"] as const)(
+  "remote reviewer and resumed author refuse changed %s after preparation",
+  async (change) => {
+    const evidence = { head: "a".repeat(40), digest: "b".repeat(64) };
+    const read = vi.spyOn(snapshots, "remoteReviewSnapshot").mockResolvedValue({ ...evidence });
+    const prepared = await prepareRemoteAgent(
+      {
+        ...spec,
+        conversationId: "saved-author",
+        checkoutIdentity: createHash("sha256").update("identity").digest("hex"),
+        reviewSnapshot: evidence,
+      },
+      "/fixture/shell",
+      home,
+      () => {},
+      call,
+    );
+    endpoints.push(prepared.endpoint);
+    await prepared.validate();
+    expect(prepared.spec.args).toContain("saved-author");
+    expect(prepared.spec.env).not.toHaveProperty("FOOM_CONTROL_TOKEN");
+    expect(JSON.stringify(prepared.spec)).not.toContain(evidence.digest);
+    if (change === "disconnect") read.mockRejectedValueOnce(new Error("Disconnected"));
+    else
+      read.mockResolvedValueOnce({
+        ...evidence,
+        [change]: "c".repeat(change === "head" ? 40 : 64),
+      });
+    await expect(prepared.validate()).rejects.toThrow();
+    read.mockResolvedValueOnce({ ...evidence, digest: "d".repeat(64) });
+    await expect(
+      prepareRemoteAgent(
+        {
+          ...spec,
+          checkoutIdentity: createHash("sha256").update("identity").digest("hex"),
+          reviewSnapshot: evidence,
+        },
+        "/fixture/shell",
+        home,
+        () => {},
+        call,
+      ),
+    ).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
+  },
+);

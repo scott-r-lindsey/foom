@@ -16,6 +16,7 @@ const {
 } = require("node:fs/promises");
 const path = require("node:path");
 const { tmpdir } = require("node:os");
+const { FAKE_GH } = require("../helpers/forge-cli.js");
 const { gitSync } = require("../helpers/git.js");
 const { launchTrustedParent } = require("./agent-fixture.js");
 const { deadline, expect } = require("./test-policy.js");
@@ -30,7 +31,7 @@ const {
 } = require("./harness.js");
 const { auditProcesses } = require("./process-audit.js");
 
-async function remoteFleet(context, agents, restart = false) {
+async function remoteFleet(context, agents, restart = false, reviewLoop = false) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "rfl-")));
   removeAfterApps(context, root);
   const remoteHome = await mkdtemp(path.join(await realpath("/tmp"), "rfh-"));
@@ -54,8 +55,21 @@ async function remoteFleet(context, agents, restart = false) {
     ],
     { cwd: repo },
   );
-  const origin = "git@fixture.test:team/repo.git";
+  const origin = reviewLoop
+    ? "https://github.com/fixture/offline.git"
+    : "git@fixture.test:team/repo.git";
   gitSync(["remote", "add", "origin", origin], { cwd: repo });
+  const forgeState = path.join(root, "forge.json");
+  if (reviewLoop) {
+    await writeFile(path.join(bin, "gh"), FAKE_GH, { mode: 0o700 });
+    await writeFile(
+      forgeState,
+      JSON.stringify({
+        pr: { headRefName: "missing-agent", headRefOid: "a".repeat(40) },
+        checks: [{ bucket: "pass" }],
+      }),
+    );
+  }
   const folder = path.join(remoteHome, "code");
   const remoteRepo = path.join(
     folder,
@@ -126,7 +140,10 @@ else if (args.includes('worktree') && args.includes('add')) {
  for (const [directory,branch] of Object.entries(state)) process.stdout.write('worktree '+directory+'\\0HEAD '+ 'a'.repeat(40)+'\\0branch refs/heads/'+branch+'\\0\\0');
 } else if (args.includes('worktree') && args.includes('remove')) {const directory=args.at(-1); fs.rmSync(directory,{recursive:true}); delete state[directory]; fs.writeFileSync(${JSON.stringify(gitState)},JSON.stringify(state));}
 else if (args.includes('status') || args.includes('check-ref-format') || args.includes('fetch') || args.includes('for-each-ref')) {}
-else if (args.includes('--verify')) console.log('a'.repeat(40));
+else if (args.includes('--git-path')) console.log(path.join(cwd, '.snapshot-missing'));
+else if (args.includes('--symbolic-full-name')) console.log('refs/heads/'+state[cwd]);
+else if (args.includes('rev-parse')) console.log('a'.repeat(40));
+else if (args.includes('ls-files')) {}
 else process.exit(2);
 `,
     { mode: 0o700 },
@@ -141,8 +158,18 @@ if (args[0]==='--version') {console.log({codex:'codex-cli 0.161.0',copilot:'GitH
 if (args[0]==='--help') {console.log('-c --no-alt-screen --plugin-dir --additional-mcp-config --allow-tool --session-id --resume --interactive --prompt-interactive --conversation --extension --session --standalone --prompt'); process.exit(0);}
 if (args[0]==='plugin') {console.log('[]'); process.exit(0);}
 const env=process.env;
+const reviewLoop=${JSON.stringify(reviewLoop)};
+const reviewer=reviewLoop && args.some(arg=>arg.includes('Review PR #340'));
+const resumed=reviewLoop && !reviewer && args.includes('resume');
 (async () => {
 let attachment, cleanup;
+if(reviewLoop) {
+ const conversation=reviewer ? 'review-'+process.pid : 'author-conversation';
+ for(const event of ['SessionStart','Stop']) {
+  const result=spawnSync(env.FOOM_REMOTE_HELPER,['--observe','lifecycle','stdin','silent','unordered'],{env,input:JSON.stringify({session_id:conversation,hook_event_name:event}),encoding:'utf8'});
+  if(result.status!==0) throw new Error('Fixture hook failed');
+ }
+}
 const conversation=args[args.indexOf(agent==='pi' && args.includes('--session-id')?'--session-id':'--session')+1];
 if(agent==='pi') {
  const handlers=new Map();
@@ -164,7 +191,7 @@ if(agent==='pi') {
   yield {id:'end',type:'session.execution.succeeded',data:{sessionID:conversation}};
  }}});
 }
-fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-launch.json`))},JSON.stringify({args,cwd:process.cwd(),env:Object.fromEntries(Object.entries(env).filter(([key])=>key.startsWith('FOOM_'))),pid:process.pid,attachment,hookFile:env.OPENCODE_CONFIG}));
+fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-launch.json`))},JSON.stringify({args,reviewer,resumed,cwd:process.cwd(),env:Object.fromEntries(Object.entries(env).filter(([key])=>key.startsWith('FOOM_'))),pid:process.pid,attachment,hookFile:env.OPENCODE_CONFIG}));
 process.stdout.write('REMOTE_'+agent.toUpperCase()+'_READY\\r\\n'); process.stdin.setRawMode(true);
 process.stdin.on('data', bytes=>{
  if(!bytes.toString().includes('1')) return;
@@ -178,7 +205,9 @@ process.stdin.on('data', bytes=>{
   const result=spawnSync(command,argv,{env,input:messages.map(value=>JSON.stringify(value)).join('\\n')+'\\n',encoding:'utf8'}); mcp={code:result.status,output:result.stdout};
  }
 
- const handoff=cli(['handoff','--status','done','--summary-file','-','--idempotency-key','fixture-'+agent],agent+' fixture complete');
+ const verdict=reviewer ? (fs.existsSync(${JSON.stringify(path.join(root, "reviewed-once"))}) ? {verdict:'clean'} : {verdict:'findings',findings:[{file:'a.ts',line:1,summary:'Fixture defect',scenario:'Zero input'}]}) : undefined;
+ if(reviewer) fs.writeFileSync(${JSON.stringify(path.join(root, "reviewed-once"))},'1');
+ const handoff=cli(['handoff','--status','done','--summary-file','-','--idempotency-key','fixture-'+agent,...(verdict ? ['--review',JSON.stringify(verdict)] : [])],agent+' fixture complete');
  fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-report.json`))},JSON.stringify({identity,forbidden,handoff,mcp}));
 });
 process.on('exit',()=>cleanup?.());
@@ -240,7 +269,12 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
   const launchOptions = {
     fixture: "agent",
     args: [`--user-data-dir=${profile}`],
-    env: { HOME: home, PATH: bin, TEST_FAKE_CREDENTIALS: credentials },
+    env: {
+      HOME: home,
+      PATH: bin,
+      TEST_FAKE_CREDENTIALS: credentials,
+      ...(reviewLoop ? { TEST_FORGE_STATE: forgeState } : {}),
+    },
   };
   const { app, page, parent } = await launchTrustedParent(context, {
     repo,
@@ -323,6 +357,7 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
       worktreeId: checkout.resultId,
       agent,
       prompt: "Complete the fixture task",
+      ...(reviewLoop ? { review: { agent: "codex", rounds: 3 } } : {}),
       idempotencyKey: `launch-${agent}`,
     });
     assert.equal(launched.status, "succeeded", agent + ": " + JSON.stringify(launched));
@@ -355,6 +390,13 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
       (await call("session_state", { id: launched.resultId, host: "fleet-worker" })).host,
       "fleet-worker",
     );
+    if (reviewLoop)
+      await expect
+        .poll(
+          async () =>
+            (await call("session_state", { id: launched.resultId })).pullRequest?.requiredChecks,
+        )
+        .toBe("success");
     await call("send_keys", {
       id: launched.resultId,
       keys: ["1"],
@@ -404,6 +446,69 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     await expect
       .poll(async () => (await call("read_handoff", { id: launched.resultId })).summary)
       .toBe(`${agent} fixture complete`);
+    if (reviewLoop) {
+      let previous = record;
+      const aliases = new Set([JSON.parse(report.identity.output).alias]);
+      for (const stage of ["review-1", "fix", "review-2"]) {
+        await expect
+          .poll(async () => {
+            const current = JSON.parse(
+              await readFile(path.join(root, `${agent}-launch.json`), "utf8"),
+            );
+            return (
+              current.pid !== previous.pid && (stage === "fix" ? current.resumed : current.reviewer)
+            );
+          })
+          .toBe(true);
+        const current = JSON.parse(await readFile(path.join(root, `${agent}-launch.json`), "utf8"));
+        const state = (await call("sessions")).sessions;
+        const participant =
+          stage === "fix"
+            ? launched.resultId
+            : state.find(
+                (row) =>
+                  row.id !== launched.resultId &&
+                  row.review?.phase === "reviewing" &&
+                  row.state !== "exited",
+              )?.id;
+        assert.ok(participant, JSON.stringify(state));
+        assert.ok(!JSON.stringify(current).includes(participant));
+        assert.ok(!JSON.stringify(current).includes(parentId));
+        assert.ok(!JSON.stringify(current).includes(parent.controlToken));
+        assert.equal(current.cwd, record.cwd);
+        if (stage === "fix") assert.ok(current.args.at(-1).includes("Quoted review notes"));
+        await rm(path.join(root, `${agent}-report.json`));
+        await call("send_keys", {
+          id: participant,
+          keys: ["1"],
+          idempotencyKey: `report-${stage}`,
+        });
+        await expect
+          .poll(async () => {
+            try {
+              return JSON.parse(await readFile(path.join(root, `${agent}-report.json`), "utf8"));
+            } catch {
+              return null;
+            }
+          })
+          .not.toBeNull();
+        const next = JSON.parse(await readFile(path.join(root, `${agent}-report.json`), "utf8"));
+        const identity = JSON.parse(next.identity.output);
+        assert.equal(identity.role, "child");
+        assert.deepEqual(identity.capabilities.sort(), ["handoff", "manual", "whoami"]);
+        assert.ok(!aliases.has(identity.alias));
+        aliases.add(identity.alias);
+        assert.equal(JSON.parse(next.forbidden.output).error, "phase_2_restricted");
+        assert.equal(next.handoff.code, 0);
+        assert.ok(!JSON.stringify(next).includes(participant));
+        previous = current;
+      }
+      await expect
+        .poll(async () => (await call("session_state", { id: launched.resultId })).review?.phase)
+        .toBe("clean");
+      assert.equal((await call("session_state", { id: launched.resultId })).review.round, 2);
+      return;
+    }
     if (restart && agent === "codex") {
       persistent = {
         id: launched.resultId,
@@ -573,4 +678,10 @@ test(
   "registered-host Pi and OpenCode consume private extensions, context, MCP and resume attachments",
   fleetOptions,
   (context) => remoteFleet(context, ["pi", "opencode"]),
+);
+
+test(
+  "registered-host review loop runs sequential reviewers and resumes its author with restricted identities",
+  fleetOptions,
+  (context) => remoteFleet(context, ["codex"], false, true),
 );

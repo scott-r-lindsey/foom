@@ -201,7 +201,7 @@ export class Hosts {
     action:
       | { operation: "create-worktree"; branch: string; fromOrigin?: boolean }
       | {
-          operation: "inspect-worktree" | "remove-worktree";
+          operation: "inspect-worktree" | "snapshot-worktree" | "remove-worktree";
           path: string;
           identity: string;
           changes?: string;
@@ -237,6 +237,17 @@ export class Hosts {
         result.worktree.path.slice(entry.codeFolder.length + 1).includes("/")
       )
         throw new LaunchFailure("remote_worktree_unavailable");
+      if (action.operation === "snapshot-worktree") {
+        if (
+          !result.worktree.snapshot ||
+          result.worktree.head !== result.worktree.snapshot.head ||
+          result.worktree.origin !== origin ||
+          (await this.origin(repository)) !== origin ||
+          !this.repositories().some((repo) => repo.path === repository)
+        )
+          throw new LaunchFailure("remote_worktree_unavailable");
+        this.registered(host, entry.codeFolder);
+      }
       return { repository: source.checkout.path, ...result.worktree, sourceOrigin: origin };
     } catch (error) {
       // Preflight above cannot create a checkout. After dispatch, even a failed
