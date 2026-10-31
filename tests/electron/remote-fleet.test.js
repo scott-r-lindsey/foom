@@ -462,11 +462,11 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     );
     assert.ok(row.branch.includes("fleet-worker"));
     await expect(page.getByText(row.branch, { exact: true }).first()).toBeVisible();
-    if (agent === agents[0])
+    if (!reviewLoop && agent === agents[0])
       await copyRemoteBranch(
         app,
         page,
-        reviewLoop || (agent === "codex" && tree) ? "missing-agent" : `child-${agent}`,
+        agent === "codex" && tree ? "missing-agent" : `child-${agent}`,
       );
     assert.equal(
       (await call("session_state", { id: launched.resultId, host: "fleet-worker" })).host,
