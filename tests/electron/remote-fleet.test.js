@@ -27,6 +27,7 @@ const {
   quitAndWait,
   confirmationPage,
   fixtureCleanup,
+  createMemoryFixture,
   removeAfterApps,
 } = require("./harness.js");
 const { auditProcesses } = require("./process-audit.js");
@@ -123,7 +124,7 @@ notify.end(JSON.stringify({session_id:'fleet-parent-conversation',hook_event_nam
   const gitState = path.join(root, "remote-git.json");
   await writeFile(gitState, "{}");
   await writeFile(
-    path.join(remoteBin, "git"),
+    path.join(remoteBin, reviewLoop ? "git-fixture.js" : "git"),
     `#!${process.execPath}
 const fs = require('node:fs'), path = require('node:path');
 const args = process.argv.slice(2), cwd = process.cwd();
@@ -135,7 +136,7 @@ else if (args.includes('--absolute-git-dir')) console.log(path.join(${JSON.strin
 else if (args.includes('ls-remote')) process.stdout.write('ref: refs/heads/main\\tHEAD\\n');
 else if (args.includes('symbolic-ref')) console.log(state[cwd]);
 else if (args.includes('worktree') && args.includes('add')) {
- const destination=args[args.indexOf('--')+1]; fs.mkdirSync(destination,{mode:0o700}); const metadata=path.join(${JSON.stringify(path.join(remoteRepo, ".git", "worktrees"))},path.basename(destination)); fs.mkdirSync(metadata,{recursive:true,mode:0o700}); fs.writeFileSync(path.join(destination,'.git'),'gitdir: '+metadata+'\\n'); state[destination]=args[args.indexOf('-b')+1]; fs.writeFileSync(${JSON.stringify(gitState)},JSON.stringify(state));
+ const destination=args[args.indexOf('--')+1]; fs.mkdirSync(destination,{mode:0o700}); const metadata=path.join(${JSON.stringify(path.join(remoteRepo, ".git", "worktrees"))},path.basename(destination)); fs.mkdirSync(metadata,{recursive:true,mode:0o700}); fs.writeFileSync(path.join(destination,'.git'),'gitdir: '+metadata+'\\n'); state[destination]=args[args.indexOf('-b')+1]; fs.writeFileSync(path.join(metadata,'fixture-branch'),state[destination]+'\\n'); fs.writeFileSync(${JSON.stringify(gitState)},JSON.stringify(state));
 } else if (args.includes('worktree') && args.includes('list')) {
  for (const [directory,branch] of Object.entries(state)) process.stdout.write('worktree '+directory+'\\0HEAD '+ 'a'.repeat(40)+'\\0branch refs/heads/'+branch+'\\0\\0');
 } else if (args.includes('worktree') && args.includes('remove')) {const directory=args.at(-1); fs.rmSync(directory,{recursive:true}); delete state[directory]; fs.writeFileSync(${JSON.stringify(gitState)},JSON.stringify(state));}
@@ -148,6 +149,32 @@ else process.exit(2);
 `,
     { mode: 0o700 },
   );
+  if (reviewLoop) {
+    await symlink(process.execPath, path.join(remoteBin, "node"));
+    // Snapshot reads need fixed facts, not a new Node VM for each Git argument array.
+    // Mutations/inventory still run the stateful fixture; no system Git or network runs.
+    await writeFile(
+      path.join(remoteBin, "git"),
+      [
+        "#!/bin/sh",
+        'case " $* " in',
+        "  *' config '*) printf '%s\\n' \"$FIXTURE_REMOTE_ORIGIN\";;",
+        "  *' --show-toplevel '*) pwd -P;;",
+        "  *' --git-common-dir '*) printf '%s/.git\\n' \"$FIXTURE_REMOTE_GIT_ROOT\";;",
+        "  *' --absolute-git-dir '*) printf '%s/.git/worktrees/%s\\n' \"$FIXTURE_REMOTE_GIT_ROOT\" \"${PWD##*/}\";;",
+        "  *' --git-path '*) printf '%s/.snapshot-missing\\n' \"$PWD\";;",
+        "  *' --symbolic-full-name '*) IFS= read -r branch < \"$FIXTURE_REMOTE_GIT_ROOT/.git/worktrees/${PWD##*/}/fixture-branch\"; printf 'refs/heads/%s\\n' \"$branch\";;",
+        "  *' symbolic-ref '*) IFS= read -r branch < \"$FIXTURE_REMOTE_GIT_ROOT/.git/worktrees/${PWD##*/}/fixture-branch\"; printf '%s\\n' \"$branch\";;",
+        "  *' ls-remote '*) printf 'ref: refs/heads/main\\tHEAD\\n';;",
+        "  *' rev-parse '*) printf '%s\\n' \"$FIXTURE_REMOTE_HEAD\";;",
+        "  *' status '*|*' check-ref-format '*|*' fetch '*|*' for-each-ref '*|*' ls-files '*) exit 0;;",
+        '  *) exec node "${0%/*}/git-fixture.js" "$@";;',
+        "esac",
+        "",
+      ].join("\n"),
+      { mode: 0o700 },
+    );
+  }
   for (const agent of agents) {
     await writeFile(
       path.join(remoteBin, agent),
@@ -166,7 +193,7 @@ let attachment, cleanup;
 if(reviewLoop) {
  const conversation=reviewer ? 'review-'+process.pid : 'author-conversation';
  for(const event of ['SessionStart','Stop']) {
-  const result=spawnSync(env.FOOM_REMOTE_HELPER,['--observe','lifecycle','stdin','silent','unordered'],{env,input:JSON.stringify({session_id:conversation,hook_event_name:event}),encoding:'utf8'});
+  const result=spawnSync(env.FOOM_REMOTE_HELPER,['--observe','lifecycle','stdin','silent','unordered'],{env,input:JSON.stringify({session_id:conversation,hook_event_name:event,source:resumed?"resume":"startup",turn_id:"fixture-turn",stop_hook_active:false}),encoding:'utf8'});
   if(result.status!==0) throw new Error('Fixture hook failed');
  }
 }
@@ -227,10 +254,10 @@ const args=process.argv.slice(2), split=args.indexOf('--');
 if(args[split+1]!=='fleet-worker') process.exit(2);
 appendFileSync(${JSON.stringify(sshCalls)},'ssh\\n');
 if(args.at(-1)==='uname -s; uname -m') {process.stdout.write(require('node:os').type()+'\\n'+(process.arch==='x64'?'x86_64':process.platform==='darwin'?'arm64':'aarch64')+'\\n');process.exit(0);}
-const child=spawn('/bin/sh',['-c','exec '+args.slice(split+2).join(' ')],{env:{HOME:${JSON.stringify(remoteHome)},PATH:${JSON.stringify(remoteBin)},SHELL:${JSON.stringify(shell)},LANG:'C'},stdio:['pipe','pipe','pipe']});
+const child=spawn('/bin/sh',['-c','exec '+args.slice(split+2).join(' ')],{env:{HOME:${JSON.stringify(remoteHome)},PATH:${JSON.stringify(remoteBin)},SHELL:${JSON.stringify(shell)},LANG:'C',FIXTURE_REMOTE_GIT_ROOT:${JSON.stringify(remoteRepo)},FIXTURE_REMOTE_ORIGIN:${JSON.stringify(origin)},FIXTURE_REMOTE_HEAD:'a'.repeat(40)},stdio:['pipe','pipe','pipe']});
 const {RemoteFrames}=require(${JSON.stringify(path.resolve("build/shared/remote-host-protocol.js"))});
 const frames=new RemoteFrames(); let ready=false, header='';
-child.stdout.on('data',bytes=>{if(!ready){header=(header+bytes.toString('ascii')).slice(-128);ready=header.includes('FOOM-READY\\n');}});
+child.stdout.on('data',bytes=>{if(!ready){const next=header+bytes.toString('ascii');ready=next.includes('FOOM-READY\\n');header=next.slice(-128);}});
 process.stdin.on('data',bytes=>{if(ready)frames.push(bytes,message=>{if(message.type.startsWith('agent-'))appendFileSync(${JSON.stringify(launchCalls)},message.type+'\\n');});});
 process.stdin.pipe(child.stdin);child.stdout.pipe(process.stdout);child.stderr.pipe(process.stderr);child.stdin.on('error',()=>{});
 process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.exit(code??1));
@@ -241,7 +268,14 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
   cleanup.audit ??= await auditProcesses(context);
   const artifact = path.resolve("build/remote-host/foom-host");
   const daemon = spawn(artifact, ["--daemon"], {
-    env: { HOME: remoteHome, PATH: remoteBin, SHELL: shell },
+    env: {
+      HOME: remoteHome,
+      PATH: remoteBin,
+      SHELL: shell,
+      FIXTURE_REMOTE_GIT_ROOT: remoteRepo,
+      FIXTURE_REMOTE_ORIGIN: origin,
+      FIXTURE_REMOTE_HEAD: "a".repeat(40),
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   cleanup.audit.add(daemon.pid);
@@ -265,7 +299,10 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     })
     .toBe(true);
   const credentials = path.join(root, "credentials");
-  const profile = path.join(root, "profile");
+  // Review transitions exercise durable control/session writes, as in review-loop.test.js.
+  const profile = reviewLoop
+    ? await createMemoryFixture(context, "foom-remote-review-profile-")
+    : path.join(root, "profile");
   const launchOptions = {
     fixture: "agent",
     args: [`--user-data-dir=${profile}`],
@@ -318,7 +355,7 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     assert.equal(worker.agents.find((entry) => entry.id === agent).state, "ready");
   assert.ok(sessions.hosts.some((host) => host.host === null));
   let tree;
-  if (agents.includes("codex")) {
+  if (agents.includes("codex") && !reviewLoop) {
     tree = await call("create_worktree", {
       host: "fleet-worker",
       branch: "missing-agent",
@@ -348,7 +385,7 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
         ? tree
         : await call("create_worktree", {
             host: "fleet-worker",
-            branch: `child-${agent}`,
+            ...(reviewLoop ? { pullRequest: 340 } : { branch: `child-${agent}` }),
             idempotencyKey: `tree-${agent}`,
           });
     assert.equal(checkout.status, "succeeded", JSON.stringify(checkout));
@@ -447,6 +484,9 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
       .poll(async () => (await call("read_handoff", { id: launched.resultId })).summary)
       .toBe(`${agent} fixture complete`);
     if (reviewLoop) {
+      await expect
+        .poll(async () => (await call("session_state", { id: launched.resultId })).state)
+        .toBe("exited");
       let previous = record;
       const aliases = new Set([JSON.parse(report.identity.output).alias]);
       for (const stage of ["review-1", "fix", "review-2"]) {
@@ -455,11 +495,44 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
             const current = JSON.parse(
               await readFile(path.join(root, `${agent}-launch.json`), "utf8"),
             );
+            const rows = (await call("sessions")).sessions;
+            const live = rows.some(
+              (row) =>
+                row.state !== "exited" &&
+                row.review?.waiting === false &&
+                (stage === "fix"
+                  ? row.id === launched.resultId
+                  : row.id !== launched.resultId && row.review?.phase === "reviewing"),
+            );
             return (
-              current.pid !== previous.pid && (stage === "fix" ? current.resumed : current.reviewer)
+              current.pid !== previous.pid &&
+              live &&
+              (stage === "fix" ? current.resumed : current.reviewer)
             );
           })
-          .toBe(true);
+          .toBe(true)
+          .catch(async (error) => {
+            const latest = JSON.parse(
+              await readFile(path.join(root, `${agent}-launch.json`), "utf8"),
+            );
+            const rows = (await call("sessions")).sessions;
+            console.error(
+              "Remote review progression",
+              JSON.stringify({
+                stage,
+                launch: { pid: latest.pid, reviewer: latest.reviewer, resumed: latest.resumed },
+                launchFrames: await readFile(launchCalls, "utf8"),
+                sessions: rows.map(({ id, state, review, handoff, pullRequest }) => ({
+                  id,
+                  state,
+                  review,
+                  handoff,
+                  pullRequest,
+                })),
+              }),
+            );
+            throw error;
+          });
         const current = JSON.parse(await readFile(path.join(root, `${agent}-launch.json`), "utf8"));
         const state = (await call("sessions")).sessions;
         const participant =
@@ -476,7 +549,10 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
         assert.ok(!JSON.stringify(current).includes(parentId));
         assert.ok(!JSON.stringify(current).includes(parent.controlToken));
         assert.equal(current.cwd, record.cwd);
-        if (stage === "fix") assert.ok(current.args.at(-1).includes("Quoted review notes"));
+        if (stage === "fix") {
+          assert.ok(current.args.at(-1).includes("Quoted review notes"));
+          assert.ok(current.args.includes("author-conversation"));
+        }
         await rm(path.join(root, `${agent}-report.json`));
         await call("send_keys", {
           id: participant,
@@ -500,6 +576,9 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
         aliases.add(identity.alias);
         assert.equal(JSON.parse(next.forbidden.output).error, "phase_2_restricted");
         assert.equal(next.handoff.code, 0);
+        await expect
+          .poll(async () => (await call("session_state", { id: participant })).state)
+          .toBe("exited");
         assert.ok(!JSON.stringify(next).includes(participant));
         previous = current;
       }
