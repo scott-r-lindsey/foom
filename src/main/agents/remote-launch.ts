@@ -98,7 +98,12 @@ export async function launchRemoteChild(
             defaults: [...defaults],
             hooks,
             ...(request.remoteCheckout
-              ? { checkoutIdentity: request.remoteCheckout.identity }
+              ? {
+                  checkoutIdentity: request.remoteCheckout.identity,
+                  ...(request.remoteCheckout.reviewSnapshot
+                    ? { reviewSnapshot: request.remoteCheckout.reviewSnapshot }
+                    : {}),
+                }
               : {}),
             ...(request.prompt === undefined ? {} : { prompt: request.prompt }),
             ...(request.conversationId === undefined

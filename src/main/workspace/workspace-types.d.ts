@@ -1,3 +1,4 @@
+import type { ReviewSnapshot } from "../control/review-loops.d";
 import type { Orchestration } from "../control/orchestration";
 import type { Hosts } from "../setup/hosts";
 import type { SidebarCommandResult } from "../../shared/workspace";
@@ -137,8 +138,10 @@ export interface WorkspaceMethods {
       selection?: AgentLaunch["selection"];
       resume?: { id: string; conversationId: string };
       loop?: AgentLaunch["loop"];
+      snapshot?: ReviewSnapshot;
       validate(): void;
     },
+    remote?: AgentLaunch["remoteCheckout"],
   ): Promise<string>;
   known(repository: string): void;
   reserveRepositoryRemoval(repository: string, validate: () => void): () => void;

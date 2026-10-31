@@ -135,6 +135,25 @@ test.skipIf(process.platform === "win32")(
   },
 );
 test.skipIf(process.platform === "win32")(
+  "snapshot probes allow larger inventories but retain a fixed stdout cap and small stderr cap",
+  async () => {
+    const probe = (stream: string, bytes: number) =>
+      hostProbe(
+        process.execPath,
+        ["-e", `process.${stream}.write(Buffer.alloc(${String(bytes)}, 120))`],
+        root,
+        {},
+        false,
+        5000,
+        undefined,
+        "review-snapshot",
+      );
+    expect((await probe("stdout", 512 * 1024)).length).toBe(512 * 1024);
+    await expect(probe("stdout", 16 * 1024 * 1024 + 1)).rejects.toThrow("exceeded");
+    await expect(probe("stderr", 256 * 1024 + 1)).rejects.toThrow("exceeded");
+  },
+);
+test.skipIf(process.platform === "win32")(
   "remote checkout validation requires canonical paths, live Git membership and the same common directory",
   async () => {
     const repo = join(root, "repo");

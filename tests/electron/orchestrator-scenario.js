@@ -1274,7 +1274,10 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
             (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
             theme,
           );
-          await page.screenshot({ path: evidencePath(`975-close-refusal-${theme}.png`) });
+          await page.screenshot({
+            path: evidencePath(`975-close-refusal-${theme}.png`),
+            animations: "disabled",
+          });
         }
       }
       await page.getByRole("button", { name: "Dismiss", exact: true }).click();

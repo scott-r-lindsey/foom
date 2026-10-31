@@ -42,7 +42,7 @@ function applicationErrorDetails(
     /^(?:Error invoking remote method '[^']+': (?:Error: )?)?foom-error:([a-z-]+)(?::([1-9][0-9]{0,15}))?$/u.exec(
       error.message,
     );
-  if (match?.[0] !== error.message) return undefined;
+  if (!match || match[0] !== error.message) return undefined;
   const code = match[1];
   if (!isApplicationErrorCode(code)) return undefined;
   const count = match[2];

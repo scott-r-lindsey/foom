@@ -40,6 +40,7 @@ test("only the closed codes select fixed messages, with or without Electron's wr
   }
   for (const error of [
     null,
+    Object.assign(new Error(), { message: undefined }),
     "foom-error:worktree-prunable",
     { message: "foom-error:worktree-prunable" },
     new Error("foom-error:unknown"),

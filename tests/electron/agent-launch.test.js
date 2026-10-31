@@ -352,6 +352,9 @@ test("launches an agent in a managed worktree and routes its attention signals",
   assert.equal((await mcpRequest({ id: 5, method: "tools/list" })).status, 401);
   await expect(agentRow).toHaveAttribute("data-state", "failed");
   await boardCommand(app, "B");
+  // The saved agent stays resumable in the sidebar when its tile is hidden.
+  await page.getByRole("button", { name: "Hide", exact: true }).click();
+  await expect(agentRow).toBeVisible();
   for (const branch of ["finish-ok", "finish-failed"]) {
     await page.evaluate(
       async ({ repository, branch }) => {
@@ -368,13 +371,15 @@ test("launches an agent in a managed worktree and routes its attention signals",
     );
     const row = page.locator(".board-row").filter({ hasText: branch });
     await expect(row).toHaveAttribute("data-state", branch === "finish-ok" ? "done" : "failed");
-    await page.getByRole("button", { name: "Close", exact: true }).click();
     await row.click();
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await expect(page.locator(".xterm-rows")).toContainText(
       branch === "finish-ok" ? "Finished successfully" : "Failed task",
     );
     await page.keyboard.press("Escape");
+    // These short-lived fixtures never reported a saved conversation.
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(row).toHaveCount(0);
   }
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()

@@ -77,7 +77,8 @@ export class OrchestrationAuthority {
         },
         snapshot: (id) => this.reviewEffects.snapshot(id),
         stop: (id, validate) => this.reviewEffects.stop(id, validate),
-        step: (id, reviewer, prompt) => this.reviewEffects.step(id, reviewer, prompt),
+        step: (id, reviewer, prompt, snapshot) =>
+          this.reviewEffects.step(id, reviewer, prompt, snapshot),
         changed: () => {
           this.changed();
         },

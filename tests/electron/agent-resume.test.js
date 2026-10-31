@@ -178,7 +178,10 @@ if (resumed) {
         );
         await exitedTile.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
         await expect(restored.getByRole("menuitem", { name: "Hide", exact: true })).toBeVisible();
-        await restored.screenshot({ path: evidencePath(`975-exited-agent-${theme}.png`) });
+        await restored.screenshot({
+          path: evidencePath(`975-exited-agent-${theme}.png`),
+          animations: "disabled",
+        });
         await restored.getByRole("dialog", { name: "Tile 1 menu", exact: true }).press("Escape");
       }
     }
@@ -250,7 +253,10 @@ if (resumed) {
         );
         await restored.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
         await expect(restored.getByRole("menuitem", { name: "Close", exact: true })).toBeVisible();
-        await restored.screenshot({ path: evidencePath(`975-exited-shell-${theme}.png`) });
+        await restored.screenshot({
+          path: evidencePath(`975-exited-shell-${theme}.png`),
+          animations: "disabled",
+        });
         await restored.getByRole("dialog", { name: "Tile 1 menu", exact: true }).press("Escape");
       }
       await restored.getByRole("button", { name: "Close", exact: true }).click();
