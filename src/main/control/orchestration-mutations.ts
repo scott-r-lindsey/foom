@@ -127,10 +127,8 @@ export class OrchestrationMutations extends OrchestrationAuthority {
               review === true,
               host,
             ) ?? Promise.reject(new ControlError("forge_unavailable")));
-      if (host === undefined && number === undefined)
-        this.host.forge?.track({ repository: parent.repository, ...tree });
-      else if (host === undefined)
-        this.host.forge?.track({ repository: parent.repository, ...tree }, number);
+      if (number === undefined) this.host.forge?.track({ repository: parent.repository, ...tree });
+      else this.host.forge?.track({ repository: parent.repository, ...tree }, number);
       const id = locationId(tree.path);
       parent.worktrees.set(id, {
         path: tree.path,

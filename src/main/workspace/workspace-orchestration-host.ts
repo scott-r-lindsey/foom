@@ -31,7 +31,13 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
   const rememberRemote = (
     repository: string,
     host: string,
-    tree: { repository: string; path: string; branch: string; identity: string },
+    tree: {
+      repository: string;
+      path: string;
+      branch: string;
+      identity: string;
+      sourceOrigin: string;
+    },
     revalidate?: () => void,
   ) => {
     try {
@@ -43,7 +49,18 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
         codeFolder: hosts().registered(host).codeFolder,
         localRepository: repository,
       });
-      return { path, branch: tree.branch, identity: tree.identity };
+      return {
+        path,
+        branch: tree.branch,
+        identity: tree.identity,
+        remoteCheckout: {
+          host,
+          codeFolder: hosts().registered(host).codeFolder,
+          repository: tree.repository,
+          path: tree.path,
+          origin: tree.sourceOrigin,
+        },
+      };
     } catch {
       // Creation succeeded; a later refusal cannot prove the checkout is absent.
       throw new UncertainEffect();

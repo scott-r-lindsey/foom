@@ -202,6 +202,7 @@ function fleetFixture() {
   const base = hostFixture();
   const tree = {
     repository: "/code/repository-fixture",
+    sourceOrigin: "git@forge.test:me/repo.git",
     path: "/code/.foom-worktree-fixture",
     branch: "feature",
     identity: "a".repeat(64),

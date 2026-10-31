@@ -22,11 +22,14 @@ Removing a registration only forgets it: it sends no stop, kill or session-close
 operation, including when the last observation reports live sessions.
 
 The default code folder is `~/foom`. The remote expands it against its own home,
-creates missing components with mode 0700 and checks canonical containment,
+creates missing components with mode 0700 only for explicit enrollment/inventory
+(`inspect`) and clone requests, and checks canonical containment,
 symlinks, ownership of the code folder and group/world write permissions. Ancestors
 must not be group/world writable, except a root-owned sticky ancestor such as
 `/tmp`. Checks repeat before repository mutation. These are filesystem observations,
-not atomic traversal or protection from a compromised account/root.
+not atomic traversal or protection from a compromised account/root. Repository and
+worktree inspection never create missing components: a missing approved folder or
+ancestor refuses the read. Rechecks before mutation also validate without creation.
 
 Host rows expose daemon version, live session count, CPU cores and three load
 averages, memory total/available and fixed agent states with Refresh. Linux uses
@@ -70,7 +73,10 @@ cancellation first; an already-issued rename/mutation can still finish and must
 be reconciled by reading state.
 The daemon retains at most four in-flight management/preparation operations even
 when their clients disconnect, until their subprocesses and cleanup settle.
-Repository mutations run one at a time per daemon; overlapping mutations refuse
+Read-only worktree inspections share this bounded reserve without taking the mutation
+slot, so PR polling can overlap launch inspections. Enrollment/inventory requests
+share the mutation slot because they may create the approved folder. Repository
+mutations run one at a time per daemon; overlapping mutations refuse
 with the fixed checkout-refused reason, including retries during cancellation.
 Once cancellation settles, a clone retry inspects an existing published checkout
 instead of cloning again. Worktree creation remains charged/indeterminate if its
@@ -123,3 +129,9 @@ Remote management Git reads disable replacement refs and legacy grafts, includin
 checkout validation and identity rechecks. Detached worktree removal requires HEAD
 to be reachable from a retained branch, remote-tracking ref or tag using stored
 commit history with commit-graph reads disabled, matching the local removal guard.
+
+Remote child PR/check tracking uses the same management identity checks, with
+validated branch, HEAD and origin evidence. Observations retain the registered
+host and approved folder, canonical paths, creation identity and original local
+origin. The hub's existing forge CLI performs read-only queries with its own login;
+no forge credential enters SSH. See [remote tracking](../contracts/forge-tracking.md#registered-remote-checkouts-940).

@@ -1,3 +1,4 @@
+import type { ForgeWorktree, ForgeInspection } from "../control/forge.d";
 import { ControlError } from "../../shared/control-validation";
 import { UncertainEffect } from "../workspace/worktree-outcome";
 import { LaunchFailure } from "../../shared/launch-failure";
@@ -129,13 +130,47 @@ export class Hosts {
         result.worktree.path.slice(entry.codeFolder.length + 1).includes("/")
       )
         throw new LaunchFailure("remote_worktree_unavailable");
-      return { repository: source.checkout.path, ...result.worktree };
+      return { repository: source.checkout.path, ...result.worktree, sourceOrigin: origin };
     } catch (error) {
       // Preflight above cannot create a checkout. After dispatch, even a failed
       // reply may follow a partial creation or a failed final identity check.
       if (action.operation === "create-worktree") throw new UncertainEffect();
       throw error;
     }
+  }
+  /** Saved observations never authorize a host or change the selected local origin. */
+  async inspectForge(tree: ForgeWorktree): Promise<ForgeInspection | undefined> {
+    const binding = tree.remoteCheckout;
+    if (!binding) return undefined;
+    this.registered(binding.host, binding.codeFolder);
+    if ((await this.origin(tree.repository)) !== binding.origin) return undefined;
+    if (!this.repositories().some((repo) => repo.path === tree.repository)) return undefined;
+    const directory = `repository-${createHash("sha256").update(binding.origin).digest("hex").slice(0, 24)}`;
+    if (binding.repository !== `${binding.codeFolder}/${directory}`) return undefined;
+    const result = await this.run(binding.host, {
+      type: "manage",
+      codeFolder: binding.codeFolder,
+      directory,
+      origin: binding.origin,
+      operation: "inspect-worktree",
+      path: binding.path,
+      identity: tree.identity,
+    });
+    this.registered(binding.host, binding.codeFolder);
+    const current = result.ok ? result.worktree : undefined;
+    if (
+      (await this.origin(tree.repository)) !== binding.origin ||
+      !this.repositories().some((repo) => repo.path === tree.repository) ||
+      !current ||
+      current.path !== binding.path ||
+      current.identity !== tree.identity ||
+      current.branch !== tree.branch ||
+      current.origin !== binding.origin ||
+      !current.head
+    )
+      return undefined;
+    this.registered(binding.host, binding.codeFolder);
+    return { remote: binding.origin, head: current.head };
   }
   private readonly results = new Map<string, HostResult>();
   private locations: RepositoryLocation[] = [];

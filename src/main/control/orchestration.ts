@@ -50,7 +50,13 @@ interface SessionEventFacts {
   reason: string;
   review?: unknown;
   handoff?: { seq: number; status: string };
-  pullRequest?: { number: number; state: string; requiredChecks: string; checksMeaning?: string };
+  pullRequest?: {
+    number: number;
+    headSha: string;
+    state: string;
+    requiredChecks: string;
+    checksMeaning?: string;
+  };
 }
 
 /** Long-wait cursor: lifecycle, handoff and PR facts, never output or input counters. */
@@ -64,6 +70,7 @@ function eventCursor(row: SessionEventFacts): string {
         row.handoff?.seq ?? 0,
         row.handoff?.status ?? null,
         row.pullRequest?.number ?? null,
+        row.pullRequest?.headSha ?? null,
         row.pullRequest?.state ?? null,
         row.pullRequest?.requiredChecks ?? null,
         row.pullRequest?.checksMeaning ?? null,

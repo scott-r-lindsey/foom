@@ -51,7 +51,14 @@ export type HostResult =
       ok: true;
       facts: HostFacts;
       checkout?: { path: string; state: "clean" | "changed" | "absent" };
-      worktree?: { path: string; branch: string; identity: string; changes: string };
+      worktree?: {
+        path: string;
+        branch: string;
+        identity: string;
+        changes: string;
+        head?: string;
+        origin?: string;
+      };
     };
 export interface HostRow extends RegisteredHost {
   result?: HostResult | undefined;

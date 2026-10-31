@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ForgeTracking, forgeDelay } from "../../../../src/main/control/forge-tracking";
 import { privateDirectory, atomicPrivate } from "../../../../src/node-common/private-files";
-import type { ForgeMatch, PullRequest } from "../../../../src/main/control/forge.d";
+import type { ForgeMatch, ForgeWorktree, PullRequest } from "../../../../src/main/control/forge.d";
 import { SessionMetadata } from "../../../../src/main/control/metadata";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 import type { Principal } from "../../../../src/main/control/types";
@@ -1176,5 +1176,306 @@ it.each(["single", "batch"] as const)(
     h.advance(600000);
     await h.tracker.poll();
     expect(h.changed).toHaveBeenCalledTimes(2);
+  },
+);
+
+it("honors unavailable remote backoff while a local checkout keeps polling the shared repository", async () => {
+  const { locationId } = await import("../../../../src/main/control/metadata");
+  const binding = {
+    host: "alpha",
+    codeFolder: "/code",
+    repository: "/code/repository-fixture",
+    path: "/code/.foom-worktree-fixture",
+    origin: "https://github.com/o/r",
+  };
+  const remote = {
+    ...tree,
+    path: `/foom-remote/${locationId(JSON.stringify([binding.host, binding.path]))}`,
+    remoteCheckout: binding,
+  };
+  let now = 0;
+  let disconnected = false;
+  const remoteInspect = vi.fn(() => {
+    if (disconnected) return Promise.reject(new Error("SSH disconnected"));
+    return Promise.resolve({ remote: binding.origin, head: pending.headSha });
+  });
+  const batches = vi.fn();
+  const tracker = new ForgeTracking(
+    directory,
+    (row) => (row.remoteCheckout ? remoteInspect() : Promise.resolve(binding.origin)),
+    vi.fn(),
+    async (_origin, getContext) => {
+      const context = await getContext?.();
+      return {
+        lookup: () => Promise.resolve(pending),
+        batch: async (matches) => {
+          await context?.validate(matches.map((match) => match.branch));
+          batches();
+          await context?.validate(matches.map((match) => match.branch));
+          return new Map(
+            matches.map(({ branch }) => [
+              branch,
+              {
+                ...pending,
+                board: {
+                  number: pending.number,
+                  state: pending.state,
+                  checks: { pending: 1, passed: 0, failed: 0 },
+                },
+              },
+            ]),
+          );
+        },
+      };
+    },
+    () => now,
+  );
+  trackers.push(tracker);
+  tracker.track(remote, pending.number);
+  tracker.track(tree, pending.number);
+  await tracker.poll();
+  expect(tracker.read(tree.repository, remote.path)).toBeDefined();
+  disconnected = true;
+  now = 20000;
+  await tracker.poll();
+  expect(tracker.read(tree.repository, remote.path)).toBeUndefined();
+  const failedCalls = remoteInspect.mock.calls.length;
+  for (now of [40000, 60000]) {
+    await tracker.poll();
+    expect(tracker.read(tree.repository, tree.path)?.requiredChecks).toBe("pending");
+    expect(remoteInspect).toHaveBeenCalledTimes(failedCalls);
+  }
+  expect(batches).toHaveBeenCalledTimes(3);
+  now = 80000;
+  await tracker.poll();
+  expect(remoteInspect).toHaveBeenCalledTimes(failedCalls + 1);
+  // The second failure backs off to 200000, even as local polling continues.
+  now = 100000;
+  await tracker.poll();
+  expect(remoteInspect).toHaveBeenCalledTimes(failedCalls + 1);
+  disconnected = false;
+  now = 200000;
+  await tracker.poll();
+  expect(tracker.read(tree.repository, remote.path)?.requiredChecks).toBe("pending");
+});
+
+it("tracks two host-bound checkouts on the same branch, adoption, pushes and CI; disconnect hides only that host and restart revalidates", async () => {
+  const { locationId } = await import("../../../../src/main/control/metadata");
+  const remoteTree = (host: string) => {
+    const binding = {
+      host,
+      codeFolder: "/code",
+      repository: "/code/repository-fixture",
+      path: "/code/.foom-worktree-fixture",
+      origin: "https://github.com/o/r",
+    };
+    return {
+      ...tree,
+      path: `/foom-remote/${locationId(JSON.stringify([host, binding.path]))}`,
+      remoteCheckout: binding,
+    };
+  };
+  const a = remoteTree("alpha");
+  const b = remoteTree("beta");
+  let disconnected = false;
+  let betaDisconnected = false;
+  let head = "a".repeat(40);
+  let conclusion: PullRequest["requiredChecks"] = "pending";
+  const inspect = vi.fn((row: ForgeWorktree) =>
+    Promise.resolve(
+      (disconnected && row.remoteCheckout?.host === "alpha") ||
+        (betaDisconnected && row.remoteCheckout?.host === "beta")
+        ? undefined
+        : { remote: row.remoteCheckout?.origin ?? "", head },
+    ),
+  );
+  const batch = vi.fn(() =>
+    Promise.resolve(
+      new Map([
+        [
+          tree.branch,
+          {
+            ...pending,
+            headSha: head,
+            requiredChecks: conclusion,
+            board: {
+              number: 340,
+              state: "OPEN" as const,
+              checks: {
+                pending: conclusion === "pending" ? 1 : 0,
+                passed: conclusion === "success" ? 1 : 0,
+                failed: 0,
+              },
+            },
+          },
+        ],
+      ]),
+    ),
+  );
+  const changed = vi.fn();
+  let now = 0;
+  const tracker = new ForgeTracking(
+    directory,
+    inspect,
+    changed,
+    async (_remote, getContext) => {
+      const context = await getContext?.();
+      return {
+        lookup: () => Promise.resolve(pending),
+        batch: async (matches) => {
+          await context?.validate(matches.map((match) => match.branch));
+          const result = await batch();
+          await context?.validate(matches.map((match) => match.branch));
+          return result;
+        },
+      };
+    },
+    () => now,
+  );
+  trackers.push(tracker);
+  tracker.setEnabled(true);
+  tracker.track(a, 340);
+  tracker.track(b);
+  await tracker.poll();
+  expect(tracker.read(a.repository, a.path)?.requiredChecks).toBe("pending");
+  expect(tracker.read(b.repository, b.path)?.headSha).toBe(head);
+  expect(batch).toHaveBeenCalledOnce();
+  conclusion = "success";
+  head = "b".repeat(40);
+  now += 30000;
+  await tracker.poll();
+  expect(tracker.read(a.repository, a.path)).toMatchObject({
+    headSha: head,
+    requiredChecks: "success",
+  });
+  expect(tracker.readBoard(a.repository, a.path)?.checks?.passed).toBe(1);
+  disconnected = true;
+  now += 120000;
+  await tracker.poll();
+  expect(tracker.read(a.repository, a.path)).toBeUndefined();
+  await tracker.poll();
+  expect(tracker.read(b.repository, b.path)).toBeDefined();
+  disconnected = false;
+  now += 120000;
+  await tracker.poll();
+  expect(tracker.read(a.repository, a.path)).toBeDefined();
+  betaDisconnected = true;
+  tracker.recheck(a.path);
+  await tracker.poll();
+  expect(tracker.read(a.repository, a.path)).toBeDefined();
+  expect(tracker.read(b.repository, b.path)).toBeUndefined();
+  tracker.sync(tree.repository, []);
+  await tracker.close();
+  const saved: unknown = JSON.parse(await readFile(join(directory, "forge.json"), "utf8"));
+  expect(saved).toMatchObject({
+    entries: [{ remoteCheckout: a.remoteCheckout }, { remoteCheckout: b.remoteCheckout }],
+  });
+  const restored = new ForgeTracking(
+    directory,
+    inspect,
+    changed,
+    () => ({ lookup: () => Promise.resolve(pending), batch }),
+    () => now,
+  );
+  trackers.push(restored);
+  await restored.load();
+  expect(restored.read(a.repository, a.path)).toBeUndefined();
+  await restored.poll();
+  expect(restored.read(a.repository, a.path)).toBeDefined();
+});
+
+it("refuses stale remote HEAD and revoked bindings after a query, retaining retry and never accepting unbound synthetic paths", async () => {
+  const { locationId } = await import("../../../../src/main/control/metadata");
+  const binding = {
+    host: "alpha",
+    codeFolder: "/code",
+    repository: "/code/repository-fixture",
+    path: "/code/.foom-worktree-fixture",
+    origin: "https://github.com/o/r",
+  };
+  const remoteTree = {
+    ...tree,
+    path: `/foom-remote/${locationId(JSON.stringify([binding.host, binding.path]))}`,
+    remoteCheckout: binding,
+  };
+  let head = "a".repeat(40);
+  let valid = true;
+  const inspect = vi.fn(() =>
+    Promise.resolve(valid ? { remote: binding.origin, head } : undefined),
+  );
+  const lookup = vi.fn(() => {
+    head = "b".repeat(40);
+    return Promise.resolve(pending);
+  });
+  const tracker = new ForgeTracking(directory, inspect, vi.fn(), () => ({ lookup }));
+  trackers.push(tracker);
+  tracker.track({ ...tree, path: remoteTree.path });
+  await tracker.poll();
+  expect(inspect).not.toHaveBeenCalled();
+  tracker.track(remoteTree, 340);
+  await tracker.poll();
+  expect(tracker.read(tree.repository, remoteTree.path)).toBeUndefined();
+  lookup.mockImplementation(() => Promise.resolve(pending));
+  tracker.recheck(remoteTree.path);
+  await tracker.poll();
+  expect(tracker.read(tree.repository, remoteTree.path)).toBeDefined();
+  lookup.mockImplementation(() => {
+    valid = false;
+    return Promise.resolve(pending);
+  });
+  tracker.recheck(remoteTree.path);
+  await tracker.poll();
+  expect(tracker.read(tree.repository, remoteTree.path)).toBeUndefined();
+});
+
+it.each([false, true])(
+  "remote publication refuses invalidation during the final inspection (batch=%s)",
+  async (batched) => {
+    const { locationId } = await import("../../../../src/main/control/metadata");
+    const binding = {
+      host: "alpha",
+      codeFolder: "/code",
+      repository: "/code/repository-fixture",
+      path: "/code/.foom-worktree-fixture",
+      origin: "https://github.com/o/r",
+    };
+    const remote = {
+      ...tree,
+      path: `/foom-remote/${locationId(JSON.stringify([binding.host, binding.path]))}`,
+      remoteCheckout: binding,
+    };
+    let sampled = false;
+    const inspect = vi.fn(() => {
+      if (sampled) {
+        tracker.invalidate();
+        return Promise.reject(new Error("Registration revoked during revalidation"));
+      }
+      return Promise.resolve({ remote: binding.origin, head: "a".repeat(40) });
+    });
+    const lookup = vi.fn(() => {
+      sampled = true;
+      return Promise.resolve(pending);
+    });
+    const batch = vi.fn(() => {
+      sampled = true;
+      return Promise.resolve(
+        new Map([
+          [
+            tree.branch,
+            { ...pending, board: { number: pending.number, state: pending.state, checks: null } },
+          ],
+        ]),
+      );
+    });
+    const tracker = new ForgeTracking(directory, inspect, vi.fn(), () => ({
+      lookup,
+      ...(batched ? { batch } : {}),
+    }));
+    trackers.push(tracker);
+    tracker.track(remote, pending.number);
+    await tracker.poll();
+    expect(sampled).toBe(true);
+    expect(tracker.read(tree.repository, remote.path)).toBeUndefined();
+    expect(tracker.readSettled(tree.repository, remote.path)).toBeUndefined();
   },
 );

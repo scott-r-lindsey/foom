@@ -172,7 +172,9 @@ and fleet/repository tools are refused with a fixed phase-2 restriction reason;
 host-aware placement (#756) does not widen the remote child's tool authority.
 Review-enabled remote launches fail with `remote_review_unsupported`; local
 HEAD/dirty snapshots and forge observations cannot attest to the remote checkout.
-Host-aware review snapshots and forge evidence remain future work.
+Host-aware review snapshots and evidence for automated remote reviews remain future
+work. Ordinary registered remote child PR/check observations use the
+[host-bound tracker](../contracts/forge-tracking.md#registered-remote-checkouts-940).
 
 Remote hook and control endpoints terminate on private Unix sockets. A local
 stdio MCP adapter talks to the remote endpoint; only bounded, versioned, validated

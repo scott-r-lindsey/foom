@@ -79,6 +79,13 @@ export async function initializeWorkspace(
       async (tree, orchestrator) => {
         if (!wiring.worktrees.listRepositories().some((repo) => repo.path === tree.repository))
           return undefined;
+        if (tree.remoteCheckout)
+          return hostsForStore(
+            wiring.settings,
+            wiring.worktrees.listRepositories.bind(wiring.worktrees),
+            app.getVersion(),
+          ).inspectForge(tree);
+        if (tree.path.startsWith("/foom-remote/")) return undefined;
         const owned = (await wiring.worktrees.listWorktrees(tree.repository)).find(
           (row) => row.path === tree.path,
         );

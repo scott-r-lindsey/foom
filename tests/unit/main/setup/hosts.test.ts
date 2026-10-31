@@ -325,7 +325,7 @@ test("remote worktree commands never clone and only use the registered origin an
       operation: "create-worktree",
       branch: "feature",
     }),
-  ).toEqual({ repository: `${facts.codeFolder}/${directory}`, ...tree });
+  ).toEqual({ repository: `${facts.codeFolder}/${directory}`, ...tree, sourceOrigin: origin });
   expect(run.mock.calls.map((call) => call[1].operation)).toEqual([
     "repository",
     "create-worktree",
@@ -379,6 +379,73 @@ test("remote worktree commands never clone and only use the registered origin an
       identity: "b".repeat(64),
     }),
   ).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
+});
+
+test("forge inspection binds registered host, folder, checkout identity, branch, HEAD and unchanged local and remote origins", async () => {
+  const origin = "git@forge.test:me/repo.git";
+  const { createHash } = await import("node:crypto");
+  const repository = `${facts.codeFolder}/repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
+  const binding = {
+    host: "worker",
+    codeFolder: facts.codeFolder,
+    repository,
+    path: `${facts.codeFolder}/.foom-worktree-fixture`,
+    origin,
+  };
+  const tree = {
+    repository: "/local/repo",
+    path: "/opaque",
+    branch: "feature",
+    identity: "a".repeat(64),
+    remoteCheckout: binding,
+  };
+  const worktree = {
+    path: binding.path,
+    branch: tree.branch,
+    identity: tree.identity,
+    head: "b".repeat(40),
+    origin,
+    changes: "",
+  };
+  settings = {
+    ...settings,
+    registeredHosts: [{ host: binding.host, codeFolder: facts.codeFolder }],
+  };
+  run.mockImplementation((_host, request) =>
+    Promise.resolve(
+      request.operation === "repository"
+        ? { ok: true, facts, checkout: { path: repository, state: "clean" } }
+        : { ok: true, facts, worktree },
+    ),
+  );
+  expect(await hosts.inspectForge(tree)).toEqual({ remote: origin, head: worktree.head });
+  expect(
+    await hosts.inspectForge({
+      repository: tree.repository,
+      path: tree.path,
+      branch: tree.branch,
+      identity: tree.identity,
+    }),
+  ).toBeUndefined();
+  for (const patch of [
+    { branch: "changed" },
+    { origin: "git@other.test:me/repo.git" },
+    { head: "" },
+  ]) {
+    run.mockImplementation((_host, request) =>
+      Promise.resolve(
+        request.operation === "repository"
+          ? { ok: true, facts, checkout: { path: repository, state: "clean" } }
+          : { ok: true, facts, worktree: { ...worktree, ...patch } },
+      ),
+    );
+    expect(await hosts.inspectForge(tree)).toBeUndefined();
+  }
+  mock.execute.mockResolvedValueOnce({ stdout: "git@other.test:me/repo.git" });
+  expect(await hosts.inspectForge(tree)).toBeUndefined();
+  expect(await hosts.inspectForge({ ...tree, identity: "c".repeat(64) })).toBeUndefined();
+  settings = { ...settings, registeredHosts: [] };
+  await expect(hosts.inspectForge(tree)).rejects.toMatchObject({ code: "not_found" });
 });
 
 test("unsupported remote providers refuse with a fixed listed reason before SSH inventory", async () => {

@@ -80,13 +80,20 @@ vi.mock("../../../src/main/agents/setup-offers", () => ({
 
 import type { PreviewRecord } from "../../../src/shared/previews";
 
-import type { ForgeProviderFactory, ForgeWorktree } from "../../../src/main/control/forge.d";
+import type {
+  ForgeProviderFactory,
+  ForgeWorktree,
+  ForgeInspection,
+} from "../../../src/main/control/forge.d";
 
 const forgeMock = vi.hoisted(() => ({
   open: vi.fn<
     (
       directory: string,
-      inspect: (tree: ForgeWorktree, orchestrator?: boolean) => Promise<string | undefined>,
+      inspect: (
+        tree: ForgeWorktree,
+        orchestrator?: boolean,
+      ) => Promise<string | ForgeInspection | undefined>,
       changed: () => void,
       provider?: ForgeProviderFactory,
     ) => Promise<unknown>
