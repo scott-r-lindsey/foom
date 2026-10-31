@@ -78,7 +78,12 @@ export class PreviewTransfer {
     if (incoming) clearTimeout(incoming.timer);
     this.incoming.delete(id);
   }
-  moveTo(id: string, target: PreviewTransfer, recovering = false): Promise<void> {
+  moveTo(
+    id: string,
+    target: PreviewTransfer,
+    recovering = false,
+    committed?: () => void,
+  ): Promise<void> {
     const record = this.port.registry.records.get(id);
     const available = () =>
       !this.port.disposed() &&
@@ -100,6 +105,7 @@ export class PreviewTransfer {
       this.forgetIncoming(id);
       this.port.registry.records.delete(id);
       target.port.registry.records.set(id, { ...record, network: false });
+      committed?.();
       if (!recovering)
         target.incoming.set(id, {
           source: this,

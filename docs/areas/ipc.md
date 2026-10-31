@@ -84,3 +84,16 @@ Capability rejections and their fixed renderer messages follow the [coded error 
 It enters normal quit only when a stable macOS update is downloaded and checking
 is enabled. `SetupState.updates` carries a fixed status enum and nonnegative
 running-agent count, validated by preload; it never contains remote text or URLs.
+
+## Window move IPC (#950)
+
+Registered board main frames use `windows:list` (no arguments → bounded live
+window ID/label list), `windows:begin-drag` (terminal/preview kind and ID → opaque
+UUID), `windows:end-drag` (token), `windows:drop` (token and nullable tile/edge
+placement), and `windows:move` (kind/ID and existing target window number).
+Main sends `windows:drag` with only a token or null. `windows:prepare-move` carries
+a UUID request and nullable placement, answered by `windows:move-ready` with that
+request and a boolean from the requesting destination only. `windows:finish-move`
+carries the same request and transferred kind/ID or null on refusal. The preload
+validates and projects every reply/event. Tokens expire after 15 seconds and are
+consumed before asynchronous work; renderer payloads never identify drag authority.

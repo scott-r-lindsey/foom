@@ -354,8 +354,8 @@ export class PreviewHost {
   }
   /** Keep the ID discoverable until native cleanup finishes, then transfer it atomically.
    * A destination without board geometry receives a native landing view after five seconds. */
-  moveTo(id: string, target: PreviewHost): Promise<void> {
-    return this.transfer.moveTo(id, target.transfer);
+  moveTo(id: string, target: PreviewHost, committed?: () => void): Promise<void> {
+    return this.transfer.moveTo(id, target.transfer, false, committed);
   }
   async close(id: string): Promise<void> {
     const closingTransfer = this.transfer.followClose(id);

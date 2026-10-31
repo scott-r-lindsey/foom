@@ -14,6 +14,15 @@ export class TerminalViews {
     return true;
   }
 
+  /** Shared by pop-out and existing-window moves; detach precedes new ownership. */
+  transfer(id: string, source: number, target: number, detach: () => void): boolean {
+    const owner = this.owner(id);
+    if (owner !== undefined && owner !== source) return false;
+    detach();
+    this.owners.set(id, target);
+    return true;
+  }
+
   release(id: string, window: number): boolean {
     if (this.owners.get(id) !== window) return false;
     return this.owners.delete(id);
