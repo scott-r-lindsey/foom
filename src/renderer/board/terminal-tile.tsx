@@ -83,6 +83,11 @@ function TerminalView({
         {status.status}
       </span>
       <div className="tile-terminal" ref={mount} />
+      {status.pasteResult && (
+        <div className="tile-paste-result" role="status">
+          {status.pasteResult}
+        </div>
+      )}
       {row && (row.dormant || status.attaching) && (
         <div className="tile-restoring" aria-label={`Restoring ${name}`} role="status">
           <div className="tile-restoring-identity">

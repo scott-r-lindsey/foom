@@ -1,3 +1,4 @@
+import { imagePasteRecipient } from "../../shared/image-paste";
 import { randomUUID } from "node:crypto";
 import type { AgentLaunch, AgentLaunched, HookHealthState } from "../../shared/agents";
 import type { HookSignal } from "../../shared/hooks";
@@ -72,6 +73,7 @@ export async function launchRemoteChild(
     if ([id, request.control.parentId].some((secret) => serialized.includes(secret)))
       throw new Error("Remote launch data contains a hub terminal identity");
     const spec: TerminalSpec = {
+      imagePaste: imagePasteRecipient(request.agent),
       id,
       command: `ssh ${mapping.target.host}`,
       args: [],

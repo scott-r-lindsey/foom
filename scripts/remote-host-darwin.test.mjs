@@ -14,7 +14,7 @@ async function fixture(t, arch = "arm64") {
   await mkdir(inputs);
   const manifest = {
     format: 1,
-    protocol: 2,
+    protocol: 3,
     platform: "darwin",
     arch,
     source,

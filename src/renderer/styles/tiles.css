@@ -521,6 +521,20 @@
   min-width: min(250px, calc(100vw - 16px));
 }
 
+.tile-paste-result {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  padding: 8px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 2;
+}
+
 .space-splits {
   position: relative;
   display: grid;

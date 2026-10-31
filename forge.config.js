@@ -58,7 +58,7 @@ module.exports = {
     // Let Packager infer the real semver. appVersion also rewrites ASAR's package.json.
     asar: {
       unpack: "**/build/{observers/**/*,console/**/*,remote-hosts/**/*,manual/!(sections.json)}",
-      unpackDir: "**/node_modules/node-pty/**",
+      unpackDir: "**/node_modules/{node-pty,@img}/**",
     },
     executableName: "Foom",
     appBundleId: "com.foom-term.foom",

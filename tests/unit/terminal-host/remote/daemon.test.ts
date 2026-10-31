@@ -774,7 +774,7 @@ test.skipIf(process.platform === "win32")(
       await c.wait(1);
       const body = Buffer.from(
         JSON.stringify({
-          version: 2,
+          version: 3,
           message: { type: "open", id: "forged", request: 1, cols: 80, rows: 24, reattach },
         }),
       );
@@ -1428,5 +1428,308 @@ test.skipIf(process.platform === "win32")(
     });
     expect(mock.manage).toHaveBeenCalledTimes(4);
     pending.resolve({ ok: false, reason: "unreachable" });
+  },
+);
+
+async function imageAgent() {
+  const c = await client();
+  c.send({ type: "hello", build });
+  await c.wait(1);
+  c.send({
+    type: "agent-open",
+    id: "image-agent",
+    request: 1,
+    cols: 80,
+    rows: 24,
+    spec: {
+      agent: "claude",
+      repository: "/remote/repo",
+      worktree: "/remote/tree",
+      defaults: [],
+      hooks: false,
+    },
+  });
+  await c.wait(2);
+  c.send({ type: "agent-start", id: "image-agent" });
+  await c.wait(4);
+  const ready = c.messages.find((value) => remoteResponse(value) && value.type === "agent-ready");
+  if (!remoteResponse(ready) || ready.type !== "agent-ready" || !ready.imageOwner)
+    throw new Error("Missing image owner");
+  return { c, owner: ready.imageOwner };
+}
+test.skipIf(process.platform === "win32")(
+  "image management authenticates a live agent, verifies bytes and retains files until session close",
+  async () => {
+    const { createHash } = await import("node:crypto");
+    const { readFile, readdir } = await import("node:fs/promises");
+    await start();
+    const { c, owner } = await imageAgent();
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5ioAAAAASUVORK5CYII=",
+      "base64",
+    );
+    const request = {
+      type: "image-put" as const,
+      id: "image-agent",
+      owner,
+      upload: "a".repeat(32),
+      size: png.length,
+      sha256: createHash("sha256").update(png).digest("hex"),
+      data: png.toString("base64"),
+    };
+    const manage = await client();
+    manage.send({ type: "hello", build });
+    await manage.wait(1);
+    for (const bad of [
+      { ...request, owner: "f".repeat(64) },
+      { ...request, id: "missing" },
+      { ...request, sha256: "0".repeat(64) },
+      { ...request, data: Buffer.alloc(png.length).toString("base64") },
+    ]) {
+      const count = manage.messages.length;
+      manage.send(bad);
+      await manage.wait(count + 1);
+      expect(manage.messages.at(-1)).toMatchObject({ type: "image-result", ok: false });
+    }
+    const count = manage.messages.length;
+    manage.send(request);
+    await manage.wait(count + 1);
+    const result = manage.messages.at(-1);
+    if (!remoteResponse(result) || result.type !== "image-result" || !result.ok)
+      throw new Error("Image failed");
+    expect(await readFile(result.path)).toEqual(png);
+    expect((await stat(result.path)).mode & 0o777).toBe(0o600);
+    expect((await stat((await import("node:path")).dirname(result.path))).mode & 0o777).toBe(0o700);
+    // A racing --connect can start a second daemon before the first bind is visible.
+    // Its failed bind must never sweep files belonging to the daemon that won.
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    const conflict = serveHost(build, root);
+    try {
+      await once(conflict.server, "error");
+      await conflict.close();
+      await vi.waitFor(() => {
+        expect(diagnostic).toHaveBeenCalledExactlyOnceWith("Image paste cleanup failed");
+      });
+      expect(await readFile(result.path)).toEqual(png);
+    } finally {
+      await conflict.close();
+      diagnostic.mockRestore();
+    }
+    const taken = await open("image-agent", true);
+    expect(c.socket.destroyed || c.serverSocket.destroyed).toBe(true);
+    const stale = manage.messages.length;
+    manage.send(request);
+    await manage.wait(stale + 1);
+    expect(manage.messages.at(-1)).toMatchObject({ ok: false });
+    expect(await readFile(result.path)).toEqual(png);
+    const close = await client();
+    close.send({ type: "hello", build });
+    await close.wait(1);
+    close.send({ type: "agent-close", id: "image-agent", request: 2 });
+    await close.wait(2);
+    expect(await readdir(join(root, ".foom-host", "images"))).toEqual([]);
+    taken.socket.destroy();
+  },
+);
+test.skipIf(process.platform === "win32")(
+  "image publication is cancelled by close and cannot recreate a closed session directory",
+  async () => {
+    const { RemoteImages } = await import("../../../../src/terminal-host/remote/image-files");
+    const { createHash } = await import("node:crypto");
+    const { readdir } = await import("node:fs/promises");
+    await start();
+    const { owner } = await imageAgent();
+    let release: (() => void) | undefined;
+    let entered: (() => void) | undefined;
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const storage = new RemoteImages(root);
+    await storage.ready;
+    const original = storage.put.bind(storage);
+    const spy = vi.spyOn(RemoteImages.prototype, "put");
+    spy.mockImplementation(async (...args: Parameters<typeof original>) => {
+      entered?.();
+      await gate;
+      return original(...args);
+    });
+    try {
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5ioAAAAASUVORK5CYII=",
+        "base64",
+      );
+      const manage = await client();
+      manage.send({ type: "hello", build });
+      await manage.wait(1);
+      manage.send({
+        type: "image-put",
+        id: "image-agent",
+        owner,
+        upload: "b".repeat(32),
+        size: png.length,
+        sha256: createHash("sha256").update(png).digest("hex"),
+        data: png.toString("base64"),
+      });
+      await waiting;
+      const close = await client();
+      close.send({ type: "hello", build });
+      await close.wait(1);
+      close.send({ type: "agent-close", id: "image-agent", request: 2 });
+      await vi.waitFor(() => {
+        expect(mock.stop).toHaveBeenCalled();
+      });
+      release?.();
+      await close.wait(2);
+      await manage.wait(2);
+      expect(manage.messages.at(-1)).toMatchObject({ ok: false });
+      expect(await readdir(join(root, ".foom-host", "images"))).toEqual([]);
+    } finally {
+      release?.();
+      spy.mockRestore();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "session removal contains image cleanup failure and emits only a fixed diagnostic",
+  async () => {
+    const { RemoteImages } = await import("../../../../src/terminal-host/remote/image-files");
+    await start();
+    const c = await open();
+    const close = vi
+      .spyOn(RemoteImages.prototype, "close")
+      .mockRejectedValueOnce(new Error("private path must not be logged"));
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      c.send({ type: "kill", id: "one", request: 2 });
+      await c.wait(3);
+      expect(c.messages.at(-1)).toMatchObject({ type: "result", id: "one", request: 2 });
+      expect(diagnostic).toHaveBeenCalledExactlyOnceWith("Image paste cleanup failed");
+      expect(mock.kill).toHaveBeenCalledWith("one");
+    } finally {
+      close.mockRestore();
+      diagnostic.mockRestore();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a management peer cannot queue another large image behind an active upload",
+  async () => {
+    const { RemoteImages } = await import("../../../../src/terminal-host/remote/image-files");
+    const { createHash } = await import("node:crypto");
+    await start();
+    const { owner } = await imageAgent();
+    let entered: (() => void) | undefined;
+    let release: (() => void) | undefined;
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const spy = vi
+      .spyOn(RemoteImages.prototype, "put")
+      .mockImplementation(async (_id, _png, live) => {
+        entered?.();
+        await gate;
+        if (!live()) throw new Error("cancelled");
+        return "/unused";
+      });
+    try {
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j5ioAAAAASUVORK5CYII=",
+        "base64",
+      );
+      const request = {
+        type: "image-put" as const,
+        id: "image-agent",
+        owner,
+        upload: "c".repeat(32),
+        size: png.length,
+        sha256: createHash("sha256").update(png).digest("hex"),
+        data: png.toString("base64"),
+      };
+      const c = await client();
+      c.send({ type: "hello", build });
+      await c.wait(1);
+      c.send(request);
+      await waiting;
+      const disconnected = once(c.socket, "close");
+      c.send(request);
+      await disconnected;
+      release?.();
+      expect(spy).toHaveBeenCalledOnce();
+    } finally {
+      release?.();
+      spy.mockRestore();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "stopped PTYs are disposed while image cleanup keeps their session reserved",
+  async () => {
+    const { RemoteImages } = await import("../../../../src/terminal-host/remote/image-files");
+    await start();
+    const c = await open("closing");
+    let release: (() => void) | undefined;
+    let cleaned = false;
+    const cleanup = new Promise<void>((resolve) => {
+      release = () => {
+        cleaned = true;
+        resolve();
+      };
+    });
+    const spy = vi.spyOn(RemoteImages.prototype, "close").mockReturnValueOnce(cleanup);
+    try {
+      c.send({ type: "kill", id: "closing", request: 2 });
+      await vi.waitFor(() => {
+        expect(mock.kill).toHaveBeenCalledWith("closing");
+      });
+      expect(cleaned).toBe(false);
+      const pending = await open("closing", true);
+      expect(pending.messages.at(-1)).toMatchObject({ type: "open-result", state: "gone" });
+      release?.();
+      await c.wait(3);
+      expect(c.messages.at(-1)).toMatchObject({ type: "result", request: 2 });
+    } finally {
+      release?.();
+      spy.mockRestore();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "reconnect observes an exited PTY while image cleanup still reserves its session",
+  async () => {
+    const { RemoteImages } = await import("../../../../src/terminal-host/remote/image-files");
+    await start();
+    const c = await open("cleanup-exit");
+    const cleanup = Promise.withResolvers<undefined>();
+    const spy = vi.spyOn(RemoteImages.prototype, "close").mockReturnValue(cleanup.promise);
+    try {
+      mock.exited("cleanup-exit", 7);
+      await c.wait(3);
+      await disconnect(c);
+      await vi.waitFor(() => {
+        expect(mock.kill).toHaveBeenCalledWith("cleanup-exit");
+      });
+      const restored = await open("cleanup-exit", true);
+      expect(restored.messages.at(-1)).toEqual({
+        type: "open-result",
+        id: "cleanup-exit",
+        request: 1,
+        state: "exited",
+        code: 7,
+      });
+      expect(mock.create).toHaveBeenCalledOnce();
+    } finally {
+      cleanup.resolve(undefined);
+      spy.mockRestore();
+    }
   },
 );

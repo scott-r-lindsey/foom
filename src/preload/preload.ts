@@ -1600,6 +1600,20 @@ const desktop: DesktopApi = {
     await ipcRenderer.invoke("terminal:kill", id);
   },
   copyTerminalSelection: (id, text) => invokeVoid("terminal:copy-selection", id, text),
+  pasteTerminal: async (id) => {
+    const value: unknown = await ipcRenderer.invoke("terminal:paste", id);
+    if (!object(value)) throw new Error("Invalid paste reply");
+    if (value["kind"] === "text" && typeof value["text"] === "string")
+      return { kind: "text", text: value["text"] };
+    if (
+      value["kind"] === "empty" ||
+      value["kind"] === "unsupported" ||
+      value["kind"] === "failed" ||
+      value["kind"] === "cancelled"
+    )
+      return { kind: value["kind"] };
+    throw new Error("Invalid paste reply");
+  },
   input(id, data, origin) {
     for (let offset = 0; offset < data.length; ) {
       let end = Math.min(offset + 65536, data.length);

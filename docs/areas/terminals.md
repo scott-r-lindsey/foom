@@ -13,7 +13,7 @@ Linux and Windows behavior is unchanged.
 
 [Remote hosts #753](https://github.com/scott-r-lindsey/foom/issues/753) decides
 SSH-only transport and persistent remote PTYs. The older [#518 research](../research/remote-machines.md)
-is historical; the opt-in phase-1 spike is described below. There is no Hosts setting yet.
+is historical; the opt-in phase-1 spike is described below. Settings → Hosts owns registered-host enrollment; see [Hosts](hosts.md).
 
 **Today:** `src/terminal-host/terminal-host.ts` runs `TerminalManager` in an Electron utility process, owning independent PTYs and headless screens by ID. `src/main/terminals/terminal-host-client.ts` brokers asynchronous operations in main over the parent port; it never imports node-pty or headless xterm. `src/main/terminals/terminal-ipc.ts` grants registered app windows access to app-owned terminals and enforces exclusive attachments. The first board opens the bundled manual after setup, with no PTY until a launch is requested. Selecting a row places its session in an available tile or focuses its existing tile; Esc remains terminal input. Hiding a tile or entering Settings detaches the stream without stopping the shell. Placing another terminal in an empty tile or returning from Settings drains pending renderer writes, resets the display, fits the visible grid, and restores a fresh host snapshot before continuing the live stream. Input and resize events are suppressed while hidden or changing attachment. The manager and ID-scoped bridge support multiple concurrent sessions; the board consumes live worktree and verdict data. Closing a window detaches its views; the last window requests quit on Windows/Linux and keeps the app alive on macOS. Running terminals require confirmation; cancellation preserves the window and sessions. Confirmed quit stops each PTY and waits for its exit before disposing sessions and closing the window. On Unix, a PTY that ignores graceful termination receives a force-kill after one second. Windows uses ConPTY termination without Unix signals; once a termination request succeeds, shutdown and retries only drain its native exit callback, because closing a ConPTY handle twice can crash the host. A throwing termination request remains retryable. Failure to exit within five seconds leaves the app open with an error so quitting can be retried. Detached sessions continue running; navigation or a renderer crash automatically detaches views. PTY termination requests retain their process handles and exit subscriptions even after a terminal is removed from the board. Confirmed quit applies the same graceful termination and force-kill deadlines to these removed processes and waits for their pending native exits before closing the window; the `will-quit` barrier remains a final safeguard against native callbacks racing Node teardown on Windows.
 
@@ -67,9 +67,9 @@ chunk normal/alternate buffers, delayed ACKs, watermarks and ordered resize stag
 Right-clicking a terminal opens a pointer-positioned menu: Copy (disabled without
 an xterm selection), Paste, Select all and Clear, then a separator and the tile's
 existing Split/Grow pads. Clear removes the visible view's scrollback with xterm's
-clear operation; it does not send a command to the shell. Copy and Paste focus the
-clicked terminal and use the existing native clipboard commands, independently
-of Copy on select and preserving xterm's bracketed-paste handling.
+clear operation; it does not send a command to the shell. Copy and Paste focus the clicked terminal, independently of Copy on select.
+Copy uses the native clipboard command; Paste shares the explicit main-owned
+operation with keyboard paste, preserving xterm's bracketed-paste handling.
 Commands are discarded if their view has changed sessions or detached.
 
 With mouse tracking enabled, plain right-click belongs to the running program;
@@ -79,6 +79,43 @@ xterm can clear the selection or report them to the program. The menu remains op
 scroll events from focus changes or output. There is no helper copy. Escape and outside clicks dismiss; shared menu focus restoration returns
 to the originating terminal, preserving a newer outside focus choice (#903).
 The [board rules](board.md) own the unchanged directional controls.
+
+## Image paste (#937)
+
+Keyboard paste and context-menu Paste capture the clipboard only on that explicit
+action. Nonempty plain text, including whitespace, wins. With no text, one PNG,
+JPEG, WebP or GIF image is normalized to a metadata-free PNG by a disposable
+main-owned decoder process; animation contributes its first frame only. No renderer
+receives image bytes or arbitrary file access. File lists and unsupported data refuse.
+Chromium performs an initial browser-process image decode before these limits;
+see the [accepted clipboard residual](privacy.md#image-paste-937). Foom adds no
+main-process image conversion and sends encoded bytes straight to its worker.
+Limits after clipboard acquisition are 4 MiB encoded and normalized bytes, 8,192 pixels on an axis, 16 million
+pixels and 16 retained files / 32 MiB per session. Paste operations are serialized per session, with at most 16 queued gestures;
+overflow refuses with a fixed result. Each gesture captures its own snapshot.
+
+Only hand-checked bundled Claude, Codex and Pi launches receive image references.
+Shells, other agents and config providers show “Image paste is not supported for
+this session.” Text paste is unchanged. Foom inserts exactly one
+`[pasted image '<absolute path>'] ` reference with recipient quoting and a trailing
+space, using xterm paste and no Enter. It never rewrites or submits the message.
+User input is ordered behind a pending paste, so Enter cannot overtake clipboard
+preparation; Foom never adds Enter. Failed/cancelled paste discards buffered input
+rather than replaying it. The input buffer is bounded to 65,536 UTF-16 units.
+Switching/detaching/closing a view invalidates delivery and aborts pending work.
+
+Local PNGs live outside checkouts in a private account/profile temp root with a
+random directory per launch. Directories are 0700 and files 0600 on POSIX; Windows
+uses current-user-only protected ACLs. Startup purges owned leftovers. Closing the
+session deletes its files; hiding a tile does not. There is no age expiry.
+Remote images use the existing SSH management path, protocol 3, a rotated
+connection-owner capability and a daemon-chosen per-session `.foom-host/images/`
+directory. One upload per host is bounded to 60 seconds after negotiation, under
+#947's separate bootstrap/operation budgets and abort signals. The daemon checks
+canonical base64, PNG dimensions, size and SHA-256; remote paths are never opened
+on the hub. SSH loss leaves a live remote session's completed images intact;
+actual exit/close and daemon startup own cleanup. See [privacy](privacy.md#image-paste-937)
+and the [design and hand checks](../design/937-image-paste.md).
 
 ## Remote shell spike (#754)
 

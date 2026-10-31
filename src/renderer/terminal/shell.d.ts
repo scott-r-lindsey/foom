@@ -1,5 +1,6 @@
 export interface ShellView {
   status: string;
+  pasteResult?: string | undefined;
   cols?: number;
   rows?: number;
   state: "quiet_ok" | "done" | "failed";

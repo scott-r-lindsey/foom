@@ -10,7 +10,10 @@ export function terminalContextMenu(
   },
   target: () => string | undefined,
   open: (menu: TerminalContextMenu) => void,
-  desktop: { appMenu: Pick<DesktopApi["appMenu"], "execute"> } = window.desktop,
+  desktop: {
+    appMenu: Pick<DesktopApi["appMenu"], "execute">;
+    paste?: () => Promise<void>;
+  } = window.desktop,
   platform = navigator.platform,
 ) {
   const owns = (event: MouseEvent) =>
@@ -47,7 +50,7 @@ export function terminalContextMenu(
         : undefined,
       paste: run(() => {
         terminal.focus();
-        return desktop.appMenu.execute("paste");
+        return desktop.paste ? desktop.paste() : desktop.appMenu.execute("paste");
       }),
       selectAll: run(() => {
         terminal.selectAll();

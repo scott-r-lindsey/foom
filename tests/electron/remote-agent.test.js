@@ -34,7 +34,7 @@ test("a local orchestrator launches and resumes a remote child with private hook
 }, async (context) => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "fra-")));
   removeAfterApps(context, root);
-  const remoteHome = await mkdtemp(path.join(await realpath("/tmp"), "rah-"));
+  const remoteHome = await mkdtemp(path.join(await realpath("/tmp"), "r a'h-"));
   removeAfterApps(context, remoteHome);
   const bin = path.join(root, "bin");
   const remoteBin = path.join(root, "remote-bin");
@@ -121,6 +121,7 @@ else process.exit(2);
   );
   const record = path.join(root, "remote-agent.json");
   const mcpRecord = path.join(root, "remote-mcp.json");
+  const imageRecord = path.join(root, "remote-image.json");
   await writeFile(
     path.join(remoteBin, "claude"),
     `#!${process.execPath}
@@ -138,11 +139,20 @@ function hook(event) {
 function save(file, value) { writeFileSync(file + '.tmp', JSON.stringify(value)); renameSync(file + '.tmp', file); }
 const whoami = spawnSync(env.FOOM_REMOTE_HELPER, ['--cli','whoami','--json'], { env, encoding: 'utf8' });
 save(${JSON.stringify(record)}, { args, env: Object.fromEntries(Object.entries(env).filter(([key]) => key.startsWith('FOOM_'))), pid: process.pid, whoami: whoami.stdout });
-process.stdout.write('REMOTE_AGENT_READY\\r\\n');
+process.stdout.write('\\x1b[?2004hREMOTE_AGENT_READY\\r\\n');
 hook('UserPromptSubmit');
 process.stdin.setRawMode(true);
+let imageInput = '';
 process.stdin.on('data', (bytes) => {
   const key = bytes.toString();
+  if (imageInput || key.startsWith('\\x1b')) {
+    imageInput += key;
+    if (imageInput.includes('\\x1b[201~')) {
+      save(${JSON.stringify(imageRecord)}, {input:imageInput});
+      imageInput = '';
+    }
+    return;
+  }
   if (key.includes('1')) {
     const messages = [
       {jsonrpc:'2.0', id:1, method:'initialize', params:{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'fixture',version:'1'}}},
@@ -396,7 +406,49 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
     .toContain("REMOTE_WORKING");
   await expect.poll(async () => (await row())?.exited).not.toBe(true);
   assert.equal(JSON.parse(await readFile(record, "utf8")).pid, first.pid);
+  // The same explicit paste capability uploads over fixture SSH management.
+  await page.locator(`[data-drag-session="${id}"]`).press("Enter");
+  const remoteTerminal = page.locator(".terminal-tile").filter({ hasText: "REMOTE_WORKING" });
+  await expect(remoteTerminal).toBeVisible();
+  await app.evaluate(async ({ clipboard, ClipboardItem }, encoded) => {
+    await clipboard.write([
+      new ClipboardItem({ "image/png": new Blob([Buffer.from(encoded, "base64")]) }),
+    ]);
+  }, "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeklEQVR4nO3RwQkAMAwDsey/dDpEH6L0wAPo8OzO0/OCArSgAC0oQAsK0IICtKAALShACwrQggK0oAAtKEALCtCCArSgAC0oQAtuAzzh+wu4oAAtKEALCtCCArSgAC0oQAsK0IICtKAALShACwrQggK0oAAtKEALPg84Qafh0lRgkoQAAAAASUVORK5CYII=");
+  await remoteTerminal.locator(".xterm-helper-textarea").focus();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+V" : "Control+V");
+  await expect
+    .poll(async () => {
+      try {
+        return JSON.parse(await readFile(imageRecord, "utf8")).input;
+      } catch {
+        return "";
+      }
+    })
+    .toContain("[pasted image '");
+  const imageInput = JSON.parse(await readFile(imageRecord, "utf8")).input;
+  assert.ok(imageInput.startsWith("\x1b[200~[pasted image '"));
+  assert.ok(imageInput.endsWith("'] \x1b[201~"));
+  assert.equal(imageInput.split("\x1b[200~").length, 2);
+  assert.doesNotMatch(imageInput, /[\r\n]/u);
+  const remoteImage = imageInput
+    .slice("\x1b[200~[pasted image '".length, -"'] \x1b[201~".length)
+    .replaceAll("'\\''", "'");
+  assert.ok(remoteImage.startsWith(remoteHome + path.sep));
+  assert.equal((await readFile(remoteImage)).subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
+  assert.equal((await stat(remoteImage)).mode & 0o777, 0o600);
   await settle("stop", { id, idempotencyKey: "remote-stop" });
+  await expect
+    .poll(async () => {
+      try {
+        await stat(remoteImage);
+        return true;
+      } catch (error) {
+        if (error.code === "ENOENT") return false;
+        throw error;
+      }
+    })
+    .toBe(false);
   await expect.poll(async () => (await row())?.exited).toBe(true);
   await expect
     .poll(async () => {

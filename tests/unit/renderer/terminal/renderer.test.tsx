@@ -100,6 +100,7 @@ const mock = vi.hoisted(() => {
     key: vi.fn<(handler: (event: KeyboardEvent) => boolean) => void>(),
     kill: vi.fn(),
     input: vi.fn(),
+    pasteTerminal: vi.fn(),
     resize: vi.fn(),
     acknowledge: vi.fn(),
     offData: vi.fn(),
@@ -421,7 +422,7 @@ test("Escape is not intercepted and input reaches the PTY", async () => {
   await settle(() => {
     render(<Shell />);
   });
-  expect(mock.key).not.toHaveBeenCalled();
+  expect(mock.key).toHaveBeenCalledOnce();
   mock.onInput.mock.calls[0]?.[0]("\x1b");
   expect(mock.input).toHaveBeenCalledWith("one", "\x1b");
   expect(mock.detach).not.toHaveBeenCalled();
@@ -669,8 +670,8 @@ test("hidden startup exposes a tail without attaching and preserves Escape", asy
   expect(controller.owns("sample")).toBe(false);
   await expect(controller.tail()).resolves.toEqual(["hidden output"]);
   expect(tail).toHaveBeenCalledWith("one", 40);
-  mock.key.mock.calls[0]?.[0](new KeyboardEvent("keydown", { key: "Escape" }));
-  expect(mock.key).not.toHaveBeenCalled();
+  expect(mock.key.mock.calls[0]?.[0](new KeyboardEvent("keydown", { key: "Escape" }))).toBe(true);
+  expect(mock.key).toHaveBeenCalledOnce();
   await controller.hide();
   await controller.open();
   await controller.open();
@@ -1496,4 +1497,73 @@ test("releasing an exited session discards evidence before an unselected host re
   mock.onTerminalAvailability.mock.calls[0]?.[0]("resumed", true);
   await controller.open("resumed");
   controller.dispose();
+});
+
+test("shared paste capability inserts once and ignores responses after the view switches", async () => {
+  const container = document.createElement("div");
+  const update = vi.fn();
+  const controller = createShell(container, update, false, undefined, false);
+  await controller.open("one");
+  mock.pasteTerminal.mockResolvedValue({ kind: "text", text: "[pasted image '/tmp/image.png'] " });
+  await controller.paste();
+  expect(mock.paste).toHaveBeenCalledExactlyOnceWith("[pasted image '/tmp/image.png'] ");
+  mock.paste.mockClear();
+  for (const kind of ["unsupported", "failed", "empty", "cancelled"]) {
+    mock.pasteTerminal.mockResolvedValue({ kind });
+    await controller.paste();
+  }
+  expect(mock.paste).not.toHaveBeenCalled();
+  mock.pasteTerminal.mockRejectedValueOnce(new Error("private"));
+  await controller.paste();
+  expect(update).toHaveBeenLastCalledWith(
+    expect.objectContaining({ pasteResult: "Unable to paste clipboard contents." }),
+  );
+  const delayed = Promise.withResolvers<unknown>();
+  mock.pasteTerminal.mockReturnValueOnce(delayed.promise);
+  const pending = controller.paste();
+  await controller.open("two");
+  delayed.resolve({ kind: "text", text: "late" });
+  await pending;
+  expect(mock.paste).not.toHaveBeenCalled();
+  mock.pasteTerminal.mockResolvedValue({ kind: "text", text: "native" });
+  container.dispatchEvent(new Event("paste", { cancelable: true }));
+  await vi.waitFor(() => {
+    expect(mock.paste).toHaveBeenCalledWith("native");
+  });
+  const platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux");
+  mock.pasteTerminal.mockClear();
+  container.dispatchEvent(new MouseEvent("mousedown", { button: 1 }));
+  container.dispatchEvent(new Event("paste"));
+  expect(mock.pasteTerminal).not.toHaveBeenCalled();
+  container.dispatchEvent(new KeyboardEvent("keydown", { key: "v", ctrlKey: true }));
+  container.dispatchEvent(new Event("paste"));
+  await Promise.resolve();
+  expect(mock.pasteTerminal).toHaveBeenCalledWith("two");
+  platform.mockRestore();
+  await controller.hide();
+  mock.pasteTerminal.mockClear();
+  await controller.paste();
+  expect(mock.pasteTerminal).not.toHaveBeenCalled();
+  controller.dispose();
+});
+
+test("image-only platform paste shortcut never reaches the raw terminal control byte", async () => {
+  const platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux");
+  const controller = createShell(document.createElement("div"), vi.fn(), false, undefined, false);
+  await controller.open("one");
+  mock.pasteTerminal.mockResolvedValue({ kind: "empty" });
+  const key = mock.key.mock.calls.at(-1)?.[0];
+  expect(key?.(new KeyboardEvent("keydown", { key: "v", ctrlKey: true }))).toBe(false);
+  await Promise.resolve();
+  expect(mock.pasteTerminal).toHaveBeenCalledWith("one");
+  mock.pasteTerminal.mockClear();
+  expect(key?.(new KeyboardEvent("keyup", { key: "v", ctrlKey: true }))).toBe(false);
+  expect(mock.pasteTerminal).not.toHaveBeenCalled();
+  expect(key?.(new KeyboardEvent("keydown", { key: "x", ctrlKey: true }))).toBe(true);
+  platform.mockReturnValue("MacIntel");
+  expect(key?.(new KeyboardEvent("keydown", { key: "v", metaKey: true }))).toBe(false);
+  await Promise.resolve();
+  expect(mock.pasteTerminal).toHaveBeenCalledWith("one");
+  controller.dispose();
+  platform.mockRestore();
 });

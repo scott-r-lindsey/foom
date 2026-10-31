@@ -115,3 +115,33 @@ Explicitly scoped child tails/reports can enter the requesting agent's model
 context under the [existing disclosure](../contracts/control-privacy.md#output-privacy-and-visibility).
 No global MCP config or credentials are written. Existing installations offer an
 explicit Update, with the MCP server included in the trusted disclosure.
+
+## Image paste (#937)
+
+Image paste is an explicit user action, shared by keyboard and terminal-menu Paste;
+Foom never watches the clipboard. Nonempty text wins. For supported agent sessions,
+Foom normalizes one image to a metadata-free PNG and inserts a labeled file reference
+without Enter. When the agent reads it, the image enters that agent's context and
+may reach its model provider under the agent's settings. Remote sessions first
+upload the normalized PNG through SSH to the user's own host; Foom never opens the
+remote path on the hub. There is no disclosure dialog or automatic model request.
+
+Private per-session files stay outside checkouts, with size/count/pixel limits.
+The session owner deletes them on exit/close, with startup purge after crashes;
+hiding a tile or losing SSH does not delete a live remote session's images. There
+is no age expiry. Cleanup is not secure erase and does not cover agent-made copies,
+transcripts, backups or provider retention. Clipboard/image bytes, hashes and paths
+are excluded from diagnostics, action-log payloads and telemetry. Reference text may
+naturally appear in terminal echo, prompts, transcripts and authorized tails.
+
+Standard image reads use Electron's supported clipboard API. Chromium decodes PNG
+in the browser process before Foom can enforce byte/pixel limits or start its
+disposable worker; Foom's JavaScript deadline cannot interrupt that native decode.
+A user explicitly pasting a hostile or huge copied image can hang or crash Foom.
+The user accepted this residual on 2026-10-30: it uses Chromium's existing web
+image-paste decoding surface and adds no code-execution mechanism beyond it;
+upstream Chromium vulnerabilities remain possible. Electron 44 removed raw
+`readBuffer`/`availableFormats` access; revisit if it restores raw clipboard reads.
+Foom performs no additional `nativeImage`/`readImage` conversion. Encoded bytes go
+directly to the disposable worker for Foom's bounded normalization, and the encoded
+result is validated again. See the [accepted residual](../design/937-image-paste.md#accepted-clipboard-decode-residual-user-decision-2026-10-30).
