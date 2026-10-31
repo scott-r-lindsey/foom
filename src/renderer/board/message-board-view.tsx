@@ -262,12 +262,14 @@ export function MessageBoardPanel({
           </section>
         )}
       </div>
-      <ActionError
-        message={error}
-        close={() => {
-          setError("");
-        }}
-      />
+      {error && (
+        <ActionError
+          message={error}
+          close={() => {
+            setError("");
+          }}
+        />
+      )}
     </section>
   );
 }

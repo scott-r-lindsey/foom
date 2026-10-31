@@ -320,6 +320,14 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       idempotencyKey: "spoof",
     });
     assert.equal(denied.status, 400);
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      if (!window) throw new Error("Missing board window");
+      window.setContentSize(1280, 900);
+    });
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(1280);
     await page.getByRole("button", { name: "Open message board" }).click();
     const panel = page.getByRole("region", { name: "Message board", exact: true });
     await expect(panel.getByRole("button", { name: /Stable nightly release/ })).toContainText(
@@ -355,13 +363,18 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
     }
     await panel.getByRole("button", { name: "Post reply" }).click();
     await expect(
-      panel.getByText("Use the existing artifacts. Hold implementation until I approve it.", {
-        exact: true,
-      }),
+      panel
+        .locator(".message-thread ol")
+        .getByText("Use the existing artifacts. Hold implementation until I approve it.", {
+          exact: true,
+        }),
     ).toBeVisible();
     const human = (await directCall(parent.controlToken, "board_read", { thread })).body.result;
     assert.equal(human.posts.at(-1).author, "human");
     await panel.getByRole("button", { name: "Mark resolved" }).click();
+    await expect(
+      panel.locator(".message-thread > header").getByText("Resolved", { exact: true }),
+    ).toBeVisible();
     await expect(panel.getByRole("button", { name: "Mark resolved" })).toBeDisabled();
     assert.equal(
       (await directCall(siteAgent.controlToken, "board_read", { thread })).body.result.thread.state,

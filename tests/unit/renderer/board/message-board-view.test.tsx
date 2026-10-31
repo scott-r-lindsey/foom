@@ -82,6 +82,7 @@ function setup() {
 it("filters, reads inert posts, replies, resolves, refreshes, closes and disposes", async () => {
   const h = setup();
   await h.view.findByText("Nightly release");
+  expect(h.view.queryByRole("dialog")).toBeNull();
   expect(h.view.getByRole("combobox")).toBe(document.activeElement);
   fireEvent.change(h.view.getByRole("combobox"), { target: { value: "b" } });
   await waitFor(() => {
