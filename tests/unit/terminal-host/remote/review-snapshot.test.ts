@@ -88,6 +88,7 @@ describe("bounded worktree review snapshot", () => {
       false,
       3000,
       undefined,
+      "review-snapshot",
     );
   });
   it.skipIf(process.platform === "win32")(
@@ -183,6 +184,41 @@ async function realWorktrees() {
   await git("worktree", "add", "-b", "review", linked);
   return { git, checkouts: [main, linked] };
 }
+
+it.skipIf(process.platform === "win32")(
+  "snapshots a real linked checkout whose index and path inventories exceed ordinary probe output",
+  { timeout: nativeDeadline(10000) },
+  async () => {
+    const { checkouts } = await realWorktrees();
+    const repository = checkouts[0];
+    const worktree = checkouts[1];
+    if (!repository || !worktree) throw new Error("Missing fixture checkouts");
+    const names = Array.from({ length: 1500 }, (_, i) => `file-${String(i)}-${"x".repeat(180)}`);
+    await Promise.all(names.map((name) => writeFile(join(worktree, name), "")));
+    await execute(["add", "--all"], { cwd: worktree });
+    for (const args of [
+      ["ls-files", "--stage", "-v", "--debug", "-z"],
+      ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+    ]) {
+      const output = (await execute(args, { cwd: worktree, maxBuffer: 16 * 1024 * 1024 })).stdout;
+      expect(Buffer.byteLength(output)).toBeGreaterThan(256 * 1024);
+    }
+    // Exercise production collection and checkout validation, not the small-data
+    // Git adapter used by the semantic snapshot cases above.
+    vi.mocked(operations.hostProbe).mockRestore();
+    vi.mocked(operations.remoteCheckout).mockRestore();
+    const env = operations.hostEnvironment();
+    const checkout = createHash("sha256")
+      .update(await operations.remoteCheckout(repository, worktree, env))
+      .digest("hex");
+    const evidence = await remoteReviewSnapshot(repository, worktree, checkout, env);
+    expect(evidence.head).toBe(
+      (await execute(["rev-parse", "HEAD"], { cwd: worktree })).stdout.trim(),
+    );
+    expect(evidence.digest).toMatch(/^[a-f0-9]{64}$/u);
+    expect(await remoteReviewSnapshot(repository, worktree, checkout, env)).toEqual(evidence);
+  },
+);
 
 it.each(["--skip-worktree", "--assume-unchanged"])(
   "detects %s index flags in both main and linked worktrees",

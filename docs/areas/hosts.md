@@ -193,5 +193,8 @@ approved-folder checks. No terminal ID, file bytes or credential enters manageme
 requests or snapshot responses. The host revalidates pinned evidence before each
 reviewer/author PTY start. The hub retains loop policy, limits and grants; see
 [review loops](orchestration.md#optional-child-buildreview-loop-690).
+Snapshot Git index/path inventories have a separate 16 MiB stdout budget, matching
+local Git, in addition to the 10,000-file / 32 MiB content bounds. Other probe
+stdout and every stderr stream retain their 256 KiB limits.
 Compatible older daemons that cannot supply this evidence refuse remote review;
 ordinary sessions and reattachment remain usable.

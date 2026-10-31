@@ -42,7 +42,7 @@ export async function remoteReviewSnapshot(
       .digest("hex");
     if (current !== identity) throw new Error("Worktree changed");
   };
-  const inspect = (args: string[]) =>
+  const inspect = (args: string[], stdoutBudget: "probe" | "review-snapshot" = "probe") =>
     hostProbe(
       "git",
       ["--no-optional-locks", "-c", "core.fsmonitor=false", ...args],
@@ -51,6 +51,7 @@ export async function remoteReviewSnapshot(
       false,
       3000,
       signal,
+      stdoutBudget,
     );
   await validate();
   const head = (await inspect(["rev-parse", "HEAD"])).trim();
@@ -64,12 +65,19 @@ export async function remoteReviewSnapshot(
   const hash = createHash("sha256").update(
     JSON.stringify([repository, worktree, identity, head, binding]),
   );
-  hash.update(indexState(await inspect(["ls-files", "--stage", "-v", "--debug", "-z"])));
+  hash.update(
+    indexState(await inspect(["ls-files", "--stage", "-v", "--debug", "-z"], "review-snapshot")),
+  );
   // Read tracked bytes as well as untracked files; diff alone misses skip-worktree
   // entries and changes within an already-dirty file. No filters or diff helpers run.
   const files = [
     ...new Set(
-      (await inspect(["ls-files", "--cached", "--others", "--exclude-standard", "-z"]))
+      (
+        await inspect(
+          ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+          "review-snapshot",
+        )
+      )
         .split("\0")
         .filter(Boolean),
     ),
