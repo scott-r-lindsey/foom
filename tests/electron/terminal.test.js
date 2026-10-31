@@ -440,6 +440,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "decideConfig",
           "openConfigFolder",
           "onConfigChange",
+          "copyHost",
           "hosts",
           "listTerminalFonts",
           "listThemes",

@@ -1,3 +1,4 @@
+import type { BoardSource } from "./board/board-source.d";
 import { attachTerminalSelectionBuffer } from "./terminal/middle-click";
 import { restoreBoardFocus } from "./board/focus-restore";
 import { LegalDialog } from "./about/legal-dialog";
@@ -23,13 +24,23 @@ function showConfirmationScrim(element: HTMLDivElement | null): void {
  * Once mounted, the board stays mounted underneath so its shell keeps running.
  */
 export function App() {
+  const [source] = useState(() =>
+    typeof FOOM_SAMPLE_BOARD !== "undefined" && FOOM_SAMPLE_BOARD
+      ? createSampleSource()
+      : createAppSource(),
+  );
   return (
-    <ErrorPresentation>
-      <AppContents />
+    <ErrorPresentation
+      copyError={(error) =>
+        source.sidebarCommand?.({ kind: "copy-error-text", error }) ??
+        Promise.reject(new Error("Copy unavailable"))
+      }
+    >
+      <AppContents source={source} />
     </ErrorPresentation>
   );
 }
-function AppContents() {
+function AppContents({ source }: { source: BoardSource }) {
   const [legal, setLegal] = useState<{ id: LegalDocument; version: number }>();
   useEffect(
     () =>
@@ -40,11 +51,6 @@ function AppContents() {
   );
   const [about, setAbout] = useState(false);
   const [actionError, setActionError] = useState(false);
-  const [source] = useState(() =>
-    typeof FOOM_SAMPLE_BOARD !== "undefined" && FOOM_SAMPLE_BOARD
-      ? createSampleSource()
-      : createAppSource(),
-  );
   useEffect(
     () =>
       source.subscribeCommands?.((command) => {

@@ -1,3 +1,4 @@
+import { CopyValue } from "../ui/copy-value";
 import { useEffect, useState } from "react";
 import type { RefObject } from "react";
 import type {
@@ -36,7 +37,7 @@ export function HostsSettings({
   source,
   headingRef,
 }: {
-  source: Pick<SetupSource, "hosts">;
+  source: Pick<SetupSource, "hosts" | "copyHost">;
   headingRef: RefObject<HTMLHeadingElement | null>;
 }) {
   const [state, setState] = useState<HostsState>({ hosts: [], locations: [] });
@@ -170,7 +171,16 @@ export function HostsSettings({
       {state.hosts.map((entry) => (
         <section className="host-card" key={entry.host} aria-label={entry.host}>
           <header className="hosts-heading">
-            <h3>{entry.host}</h3>
+            <h3>
+              <CopyValue
+                value={entry.host}
+                label="Copy host alias"
+                copy={() =>
+                  source.copyHost?.({ kind: "copy-host-alias", host: entry.host }) ??
+                  Promise.reject(new Error("Copy unavailable"))
+                }
+              />
+            </h3>
             <button
               type="button"
               disabled={busy}
@@ -190,7 +200,16 @@ export function HostsSettings({
               Remove
             </button>
           </header>
-          <code>{entry.codeFolder}</code>
+          <code>
+            <CopyValue
+              value={entry.codeFolder}
+              label="Copy code folder"
+              copy={() =>
+                source.copyHost?.({ kind: "copy-host-code-folder", host: entry.host }) ??
+                Promise.reject(new Error("Copy unavailable"))
+              }
+            />
+          </code>
           <Result result={entry.result} />
           {entry.foreignWorktrees !== undefined && <p>{entry.foreignWorktrees} other worktrees</p>}
           {entry.foreignSessions !== undefined && (
@@ -264,7 +283,7 @@ export function RepositoryHosts({
   source,
   repositories,
 }: {
-  source: Pick<SetupSource, "hosts">;
+  source: Pick<SetupSource, "hosts" | "copyHost">;
   repositories: readonly Repository[];
 }) {
   const [state, setState] = useState<HostsState>({ hosts: [], locations: [] });
@@ -354,7 +373,19 @@ export function RepositoryHosts({
               <tr key={repo.path}>
                 <th scope="row">{repo.name}</th>
                 <td>
-                  <code>{repo.path}</code>
+                  <code>
+                    <CopyValue
+                      value={repo.path}
+                      label="Copy checkout path"
+                      copy={() =>
+                        source.copyHost?.({
+                          kind: "copy-checkout-path",
+                          host: null,
+                          repository: repo.path,
+                        }) ?? Promise.reject(new Error("Copy unavailable"))
+                      }
+                    />
+                  </code>
                   <span>Checked out</span>
                 </td>
                 {state.hosts.map((host) => {
@@ -365,7 +396,19 @@ export function RepositoryHosts({
                     <td key={host.host}>
                       {result?.ok && result.checkout ? (
                         <>
-                          <code>{result.checkout.path}</code>
+                          <code>
+                            <CopyValue
+                              value={result.checkout.path}
+                              label="Copy checkout path"
+                              copy={() =>
+                                source.copyHost?.({
+                                  kind: "copy-checkout-path",
+                                  host: host.host,
+                                  repository: repo.path,
+                                }) ?? Promise.reject(new Error("Copy unavailable"))
+                              }
+                            />
+                          </code>
                           {result.checkout.state === "absent" ? (
                             <>
                               <span>Not checked out</span>

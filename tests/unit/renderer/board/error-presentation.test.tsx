@@ -215,3 +215,53 @@ test("implicit preview cleanup during a background placement marks its row and c
   expect(screen.queryByRole("button", { name: "Show failure" })).toBeNull();
   localStorage.clear();
 });
+
+test("the error sentence copies through its closed identifier and failure stays local", async () => {
+  const copyError = vi.fn(async () => {});
+  const view = render(
+    <ErrorPresentation copyError={copyError}>
+      <ActionError message="This worktree is locked." close={() => {}} />
+    </ErrorPresentation>,
+  );
+  await act(async () => {
+    await Promise.resolve();
+    fireEvent.click(view.getByRole("button", { name: "Copy error text" }));
+    await Promise.resolve();
+  });
+  expect(copyError).toHaveBeenCalledExactlyOnceWith("worktree-locked");
+  copyError.mockRejectedValueOnce(new Error("clipboard"));
+  await act(async () => {
+    await Promise.resolve();
+    fireEvent.click(view.getByRole("button", { name: "Copy error text" }));
+    await Promise.resolve();
+  });
+  expect(view.getByText("Unable to copy")).toBeDefined();
+});
+
+test.each([
+  ["Unable to close preview.", "unable-to-close-preview"],
+  ["Unable to update repositories.", "unable-to-update-repositories"],
+  [
+    "Git is unavailable. Install Git and recheck on Go / no-go.",
+    "git-is-unavailable-install-git-and-recheck-on-go-no-go",
+  ],
+  ["Unable to open sounds folder", "unable-to-open-sounds-folder"],
+  ["Unable to read sound credits", "unable-to-read-sound-credits"],
+  ["Invalid sound choice", "invalid-sound-choice"],
+  [
+    "Needs you must use a different file from Done and Refusal",
+    "needs-you-must-use-a-different-file-from-done-and-refusal",
+  ],
+])("copies the fixed validation sentence %s by its catalog ID", async (message, id) => {
+  const copyError = vi.fn(async () => {});
+  const view = render(
+    <ErrorPresentation copyError={copyError}>
+      <ActionError message={message} close={() => {}} />
+    </ErrorPresentation>,
+  );
+  await act(async () => {
+    fireEvent.click(view.getByRole("button", { name: "Copy error text" }));
+    await Promise.resolve();
+  });
+  expect(copyError).toHaveBeenCalledExactlyOnceWith(id);
+});

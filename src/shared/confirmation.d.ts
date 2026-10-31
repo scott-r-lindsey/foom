@@ -58,6 +58,7 @@ export interface DialogContent {
   arguments?: readonly string[];
   pairing?: { code: string; expiresAt: number };
   worktrees?: readonly { branch: string; reason?: string }[];
+  worktreePath?: string;
   changes?: string;
   sessions?: readonly { id: string; name: string; location: string; state: string }[];
 }
@@ -69,6 +70,7 @@ export interface DialogRequest extends Omit<DialogContent, "feed" | "removal" | 
 }
 export interface ConfirmationWindowApi {
   render(callback: (request: DialogRequest | null) => void): () => void;
+  copyPath(id: string, pathId: string): Promise<void>;
   size(value: { width: number; height: number }): void;
   answer(id: string, accepted: boolean | readonly string[]): void;
 }
@@ -82,7 +84,7 @@ export type WorkspaceConfirmation =
       worktrees: readonly { branch: string; reason?: string }[];
       subject?: string;
     }
-  | { kind: "dirty-worktree"; title: string; branch?: string; changes: string }
+  | { kind: "dirty-worktree"; title: string; branch?: string; path?: string; changes: string }
   | {
       kind: "orchestrator";
       agent: string;

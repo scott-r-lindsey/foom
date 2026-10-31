@@ -1,4 +1,4 @@
-import { ApplicationError } from "../../shared/application-errors";
+import { isCopyableErrorId, ApplicationError } from "../../shared/application-errors";
 import { knownAgentId } from "../agents/providers/registry";
 import type { PreviewOpenAction, PreviewRecord } from "../../shared/previews";
 import { conversationId } from "../../shared/conversation";
@@ -77,6 +77,29 @@ function sidebarCommand(value: unknown): SidebarCommand {
       throw new Error("Invalid handoff link");
     return { kind, id, seq, index };
   }
+  if (kind === "copy-error-text") {
+    if (Object.keys(value).length !== 2 || !isCopyableErrorId(value["error"]))
+      throw new Error("Invalid error copy");
+    return { kind, error: value["error"] };
+  }
+  if (kind === "copy-handoff-summary" || kind === "copy-child-id") {
+    const { id, seq, child } = value;
+    if (Object.keys(value).length !== 3 || !text(id))
+      throw new Error("Invalid session copy request");
+    if (kind === "copy-handoff-summary") {
+      if (typeof seq !== "number" || !Number.isSafeInteger(seq) || seq < 1)
+        throw new Error("Invalid handoff sequence");
+      return { kind, id, seq };
+    }
+    if (!text(child)) throw new Error("Invalid child ID");
+    return { kind, id, child };
+  }
+  if (
+    typeof kind === "string" &&
+    kind.startsWith("copy-") &&
+    Object.keys(value).length !== ("repository" in value ? 3 : 2)
+  )
+    throw new Error("Invalid copy request");
   if (kind === "resume-id") {
     const checkout = value["checkout"];
     if (
@@ -112,6 +135,8 @@ function sidebarCommand(value: unknown): SidebarCommand {
     kind === "resume" ||
     kind === "new-conversation" ||
     kind === "copy-session-id" ||
+    kind === "copy-foom-session-id" ||
+    kind === "copy-parent-id" ||
     kind === "take-over" ||
     kind === "make-orchestrator" ||
     kind === "revoke-orchestrator"
@@ -136,6 +161,12 @@ function sidebarCommand(value: unknown): SidebarCommand {
     kind === "cleanup-worktree" ||
     kind === "prune-worktree" ||
     kind === "copy-worktree-path" ||
+    kind === "copy-default-branch" ||
+    kind === "copy-worktree-branch" ||
+    kind === "copy-worktree-head" ||
+    kind === "copy-pull-request-number" ||
+    kind === "copy-pull-request-url" ||
+    kind === "copy-remote-url" ||
     kind === "open-pull-request"
   )
     return { kind, repository, worktree };
@@ -273,6 +304,12 @@ export function attachWorkspace(
           subject: request.branch ?? title,
           glyph: "branch",
           changes,
+          ...(request.path
+            ? {
+                worktreePath: request.path,
+                facts: [{ label: "Worktree", value: request.path, mono: true }],
+              }
+            : {}),
           accept: `Discard ${String(count)} ${count === 1 ? "change" : "changes"} and remove`,
         });
       }
@@ -318,13 +355,20 @@ export function attachWorkspace(
         if (!text(id)) throw new Error("Invalid terminal ID");
         if (!owns(id)) throw new Error("Unknown or foreign terminal ID");
         const confirm = confirmation(JSON.stringify(["remove", id]));
-        return workspace.removeWorktree(id, (branch, changes) =>
-          confirm(
+        return workspace.removeWorktree(id, (branch, changes) => {
+          const path = workspace.snapshot().terminals.find((row) => row.id === id)?.worktree;
+          return confirm(
             changes
-              ? { kind: "dirty-worktree", title: `Remove ${branch}?`, branch, changes }
+              ? {
+                  kind: "dirty-worktree",
+                  title: `Remove ${branch}?`,
+                  branch,
+                  changes,
+                  ...(path ? { path } : {}),
+                }
               : { kind: "remove" },
-          ),
-        );
+          );
+        });
       },
     ],
     [
@@ -377,8 +421,9 @@ export function attachWorkspace(
     ],
     [
       "workspace:sidebar-command",
-      (value) => {
-        const command = sidebarCommand(value);
+      (...args) => {
+        if (args.length !== 1) throw new Error("Invalid sidebar request");
+        const command = sidebarCommand(args[0]);
         if (
           command.kind !== "resume-id" &&
           "id" in command &&

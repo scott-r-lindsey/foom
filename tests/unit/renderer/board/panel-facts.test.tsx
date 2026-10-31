@@ -53,7 +53,7 @@ test("renders local facts, unknowns, state chips and copy buttons", async () => 
   expect(view.container.textContent).toContain("main");
   expect(view.container.textContent).toContain("2 eligible");
   await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: "/repo" }));
+    fireEvent.click(view.getByRole("button", { name: "Copy path" }));
     await Promise.resolve();
   });
   expect(writeText).toHaveBeenCalledWith({
@@ -61,13 +61,13 @@ test("renders local facts, unknowns, state chips and copy buttons", async () => 
     repository: "/repo",
     worktree: "/repo",
   });
-  expect(view.getByRole("status").textContent).toBe("Copied");
+  expect(view.getByRole("button", { name: "Copy path" }).getAttribute("data-copied")).toBe("true");
   writeText.mockRejectedValueOnce(Error("denied"));
   await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: "/repo" }));
+    fireEvent.click(view.getByRole("button", { name: "Copy path" }));
     await Promise.resolve();
   });
-  expect(view.getByRole("status").textContent).toBe("Unable to copy");
+  expect(view.getByText("Unable to copy")).toBeDefined();
   view.rerender(
     <PanelFacts
       subject={{ kind: "worktree", repository, tree }}
@@ -84,7 +84,7 @@ test("renders local facts, unknowns, state chips and copy buttons", async () => 
   expect(view.container.textContent).toContain("Last change");
   expect(view.container.textContent).toContain("Merged into default branch");
   await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: "/tree" }));
+    fireEvent.click(view.getByRole("button", { name: "Copy path" }));
     await Promise.resolve();
   });
   expect(writeText).toHaveBeenLastCalledWith({
@@ -104,7 +104,7 @@ test("renders local facts, unknowns, state chips and copy buttons", async () => 
     />,
   );
   await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: "/home/me" }));
+    fireEvent.click(view.getByRole("button", { name: "Copy path" }));
     await Promise.resolve();
   });
   expect(writeText).toHaveBeenLastCalledWith({ kind: "copy-home-path" });
@@ -120,7 +120,7 @@ test("renders local facts, unknowns, state chips and copy buttons", async () => 
     />,
   );
   await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: "conversation" }));
+    fireEvent.click(view.getByRole("button", { name: "Copy session ID" }));
     await Promise.resolve();
   });
   expect(writeText).toHaveBeenLastCalledWith({ kind: "copy-session-id", id: row.id });
@@ -132,10 +132,10 @@ test("renders local facts, unknowns, state chips and copy buttons", async () => 
     />,
   );
   await act(async () => {
-    fireEvent.click(view.getByRole("button", { name: "/repo" }));
+    fireEvent.click(view.getByRole("button", { name: "Copy path" }));
     await Promise.resolve();
   });
-  expect(view.getByRole("status").textContent).toBe("Unable to copy");
+  expect(view.getByText("Unable to copy")).toBeDefined();
 });
 test.each([false, true])(
   "Created by Foom uses an unpunctuated label and explicit value (%s)",
@@ -421,7 +421,9 @@ test("checkout panel renders a plain PR title, state and complete check counts",
       options={undefined}
     />,
   );
-  expect(view.getByText("#12 · <b>Untrusted title</b>")).toBeTruthy();
+  expect(view.getByRole("button", { name: "Copy PR number" }).parentElement?.textContent).toBe(
+    "#12 · <b>Untrusted title</b>",
+  );
   expect(view.getByText("2 passed · 1 failed · 3 running")).toBeTruthy();
   expect(view.container.querySelector("b")).toBeNull();
   view.rerender(
@@ -553,4 +555,150 @@ test("labels the relevant check conclusion separately from all-check counts", as
   });
   expect(view.getByText("#12")).toBeTruthy();
   expect(view.getByText("unknown")).toBeTruthy();
+});
+
+test("every checkout copy control sends identifiers while keeping the short HEAD display", async () => {
+  const sidebarCommand = vi.fn(async () => {});
+  const live = { ...source, sidebarCommand, panelFacts: () => Promise.resolve(facts) };
+  const view = render(
+    <PanelFacts
+      subject={{
+        kind: "worktree",
+        repository,
+        tree: {
+          ...tree,
+          branch: "feature",
+          pullRequest: {
+            number: 960,
+            url: "https://github.com/o/r/pull/960",
+            state: "OPEN",
+            checks: null,
+          },
+        },
+      }}
+      source={live}
+      options={undefined}
+    />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  for (const [label, kind] of [
+    ["Copy branch", "copy-worktree-branch"],
+    ["Copy PR number", "copy-pull-request-number"],
+    ["Copy PR URL", "copy-pull-request-url"],
+  ] as const) {
+    await act(async () => {
+      await Promise.resolve();
+      fireEvent.click(view.getByRole("button", { name: label }));
+    });
+    expect(sidebarCommand).toHaveBeenLastCalledWith({
+      kind,
+      repository: "/repo",
+      worktree: "/tree",
+    });
+  }
+  view.rerender(
+    <PanelFacts
+      subject={{ kind: "worktree", repository, tree }}
+      source={live}
+      options={undefined}
+    />,
+  );
+  expect(view.getByRole("button", { name: "Copy full HEAD SHA" }).textContent).toBe("1234567");
+  await act(async () => {
+    await Promise.resolve();
+    fireEvent.click(view.getByRole("button", { name: "Copy full HEAD SHA" }));
+  });
+  expect(sidebarCommand).toHaveBeenLastCalledWith({
+    kind: "copy-worktree-head",
+    repository: "/repo",
+    worktree: "/tree",
+  });
+  view.rerender(
+    <PanelFacts
+      subject={{ kind: "repository", repository, rows: [] }}
+      source={live}
+      options={undefined}
+    />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  await act(async () => {
+    await Promise.resolve();
+    fireEvent.click(view.getByRole("button", { name: "Copy remote URL" }));
+    await Promise.resolve();
+  });
+  expect(sidebarCommand).toHaveBeenLastCalledWith({
+    kind: "copy-remote-url",
+    repository: "/repo",
+    worktree: "/repo",
+  });
+  await act(async () => {
+    fireEvent.click(view.getByRole("button", { name: "Copy default branch" }));
+    await Promise.resolve();
+  });
+  expect(sidebarCommand).toHaveBeenLastCalledWith({
+    kind: "copy-default-branch",
+    repository: "/repo",
+    worktree: "/repo",
+  });
+});
+
+test("session relationship and handoff controls identify the selected session", async () => {
+  const sidebarCommand = vi.fn(async () => {});
+  const child = {
+    ...row,
+    id: "child",
+    orchestration: { role: "child" as const, parentId: row.id, takenOver: false },
+    handoff: {
+      seq: 2,
+      status: "done" as const,
+      summary: "Finished",
+      links: [],
+      timestamp: "2026-10-31T00:00:00.000Z",
+    },
+  };
+  const parent = {
+    ...row,
+    orchestration: { role: "orchestrator" as const, active: true, children: 1, history: [] },
+  };
+  const live = { ...source, sidebarCommand, getSnapshot: () => [parent, child] };
+  const view = render(
+    <PanelFacts
+      subject={{ kind: "session", row: child, tile: undefined }}
+      source={live}
+      options={undefined}
+    />,
+  );
+  for (const [label, command] of [
+    ["Copy Foom session ID", { kind: "copy-foom-session-id", id: "child" }],
+    ["Copy parent ID", { kind: "copy-parent-id", id: "child" }],
+    ["Copy handoff summary", { kind: "copy-handoff-summary", id: "child", seq: 2 }],
+  ] as const) {
+    await act(async () => {
+      await Promise.resolve();
+      fireEvent.click(view.getByRole("button", { name: label }));
+    });
+    expect(sidebarCommand).toHaveBeenLastCalledWith(command);
+  }
+  view.rerender(
+    <PanelFacts
+      subject={{ kind: "session", row: parent, tile: undefined }}
+      source={live}
+      options={undefined}
+    />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+    fireEvent.click(view.getByRole("button", { name: "Copy child ID" }));
+  });
+  expect(sidebarCommand).toHaveBeenLastCalledWith({
+    kind: "copy-child-id",
+    id: row.id,
+    child: "child",
+  });
 });

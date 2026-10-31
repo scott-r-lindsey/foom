@@ -48,6 +48,7 @@ export interface BoardSource {
     isReady?(): boolean;
     getSnapshot(): readonly PreviewSummary[];
     getHistory?(): readonly PreviewOpenAction[];
+    copyPath?(id: string): Promise<void>;
     popout?(id: string): Promise<void>;
     network?(id: string, enabled: boolean): Promise<void>;
     reload?(id: string): Promise<void>;

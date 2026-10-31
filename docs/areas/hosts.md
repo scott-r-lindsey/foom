@@ -183,6 +183,12 @@ host and approved folder, canonical paths, creation identity and original local
 origin. The hub's existing forge CLI performs read-only queries with its own login;
 no forge credential enters SSH. See [remote tracking](../contracts/forge-tracking.md#registered-remote-checkouts-940).
 
+Host aliases and code folders have copy controls in Hosts; checkout paths have
+them in Repositories → Locations (their existing location). Copies resolve only
+registered objects and cached validated checkout observations in main; they
+never initiate SSH. Removed hosts discard cached locations. See the
+[copy IPC contract](ipc.md#visible-fact-copy-controls-960).
+
 ## Worktrees without sessions (#941)
 
 Remote creation records durable profile provenance beside the checkout, inside

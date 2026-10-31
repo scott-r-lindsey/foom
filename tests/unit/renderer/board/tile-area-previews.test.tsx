@@ -42,9 +42,12 @@ test.each(["markdown", "html"] as const)(
     const close = vi.fn(() => Promise.resolve());
     const reload = vi.fn(async () => {});
     const network = vi.fn(async () => {});
+    const copyPath = vi.fn(async () => {});
+    const sidebarCommand = vi.fn(async () => {});
     let command: ((command: BoardCommand) => void) | undefined;
     const source: BoardSource = {
       ...data,
+      sidebarCommand,
       previews: {
         getSnapshot: () => [preview],
         pick: vi.fn(() => Promise.resolve(null)),
@@ -52,6 +55,7 @@ test.each(["markdown", "html"] as const)(
         close,
         network,
         reload,
+        copyPath,
       },
       subscribeCommands: (listener) => {
         command = listener;
@@ -85,6 +89,12 @@ test.each(["markdown", "html"] as const)(
     fireEvent.click(within(tile).getByRole("button", { name: "Reload" }));
     await act(async () => {});
     expect(screen.getByRole("alert").textContent).toBe("Reload failed");
+    fireEvent.click(screen.getByRole("button", { name: "Copy error text" }));
+    await act(async () => {});
+    expect(sidebarCommand).toHaveBeenCalledWith({
+      kind: "copy-error-text",
+      error: "reload-failed",
+    });
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     fireEvent.click(within(tile).getByRole("button", { name: "Tile 2 menu" }));
     expect(screen.queryByRole("menuitem", { name: "Hide" })).toBeNull();
@@ -92,6 +102,9 @@ test.each(["markdown", "html"] as const)(
       screen.getByText(kind === "markdown" ? "Markdown" : "HTML", { selector: "dd" }),
     ).toBeTruthy();
     expect(screen.getByText("Off", { selector: "dd" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Copy opened file path" }));
+    await act(async () => {});
+    expect(copyPath).toHaveBeenCalledExactlyOnceWith("preview");
     fireEvent.click(screen.getByRole("menuitem", { name: "Allow network…" }));
     await act(async () => {});
     expect(network).toHaveBeenCalledWith("preview", true);

@@ -399,7 +399,7 @@ test("the Size row is one stop, steps without closing and shows main's size", as
   fireEvent.click(smaller);
   expect(await screen.findByRole("alert")).toHaveProperty(
     "textContent",
-    "Unable to run Smaller interface.",
+    "Unable to run this command.",
   );
   expect(screen.queryByRole("menu", { name: "Foom" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));

@@ -1,0 +1,56 @@
+/* Copy affordances share typography with their value on every surface. */
+button.copy-value[data-copied] {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  width: auto;
+  max-width: 100%;
+  min-height: 0;
+  height: auto;
+  white-space: inherit;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  animation: none;
+}
+button.copy-value[data-copied]::before {
+  display: none;
+}
+button.copy-value[data-copied]:hover {
+  background: transparent;
+  color: inherit;
+}
+.copy-value .copy-text {
+  min-width: 0;
+}
+.copy-value .copy-glyph {
+  display: inline-block;
+  flex-shrink: 0;
+  align-self: flex-end;
+  width: 13px;
+  height: 13px;
+  margin-bottom: 3px;
+  opacity: 0.25;
+}
+.copy-value:hover .copy-glyph,
+.copy-value:focus-visible .copy-glyph {
+  opacity: 0.65;
+}
+.copy-value[data-copied="true"] .copy-glyph {
+  opacity: 1;
+}
+.copy-value:focus-visible {
+  outline: 1px solid var(--highlight);
+  outline-offset: 2px;
+}
+.copy-value + [role="status"]:not(:empty) {
+  margin-left: 6px;
+  color: var(--muted);
+  font: 11px var(--font-interface);
+}

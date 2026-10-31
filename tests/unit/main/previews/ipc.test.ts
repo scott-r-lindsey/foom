@@ -1,3 +1,4 @@
+import { join as requirePath } from "node:path";
 import { expect, test, vi } from "vitest";
 import type { IpcMainInvokeEvent } from "electron";
 import type { WindowIpc } from "../../../../src/main/window/window-ipc";
@@ -50,11 +51,24 @@ test("board IPC accepts exact requests and routes only IDs to its window host", 
   const humanClose = vi.fn();
   const pick = vi.fn(() => Promise.resolve("a".repeat(32)));
   const popout = vi.fn(async () => {});
-  const dispose = attachPreviews(ipc, host as unknown as PreviewHost, pick, popout, humanClose);
+  const copy = vi.fn();
+  const dispose = attachPreviews(
+    ipc,
+    host as unknown as PreviewHost,
+    pick,
+    popout,
+    humanClose,
+    copy,
+  );
   const invoke = (name: string, ...args: unknown[]) =>
     handlers.get(`preview:${name}`)?.({} as IpcMainInvokeEvent, ...args);
   const id = "a".repeat(32);
   await expect(invoke("pick", "/repo")).resolves.toBe(id);
+  invoke("copy-path", id);
+  expect(copy).toHaveBeenCalledExactlyOnceWith(requirePath("/repo", "a.html"));
+  for (const args of [[], ["unknown"], ["b".repeat(32)], [id, "arbitrary"]])
+    expect(() => invoke("copy-path", ...args)).toThrow();
+  expect(copy).toHaveBeenCalledTimes(1);
   const moving = invoke("popout", id);
   expect(() => invoke("popout", id)).toThrow("in progress");
   await moving;

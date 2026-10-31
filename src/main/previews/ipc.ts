@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { PreviewBounds } from "../../shared/previews";
 import type { WindowIpc } from "../window/window-ipc";
 import type { PreviewHost } from "./host";
@@ -36,6 +37,7 @@ export function attachPreviews(
   pick: (worktree: string) => Promise<string | null>,
   popout: (id: string) => Promise<void>,
   humanClose: (id: string) => void = () => {},
+  copyText?: (text: string) => void | Promise<void>,
 ): () => void {
   const moving = new Set<string>();
   ipc.handle("preview:pick", (_event, ...args) => {
@@ -49,6 +51,13 @@ export function attachPreviews(
     )
       throw new Error("Invalid preview request");
     return pick(worktree);
+  });
+  ipc.handle("preview:copy-path", (_event, ...args) => {
+    const [id] = args;
+    if (args.length !== 1 || !previewId(id)) throw new Error("Invalid preview ID");
+    const record = host.registry.records.get(id);
+    if (!record || record.bundled || !copyText) throw new Error("Copy unavailable");
+    return copyText(join(record.worktree, record.relativePath));
   });
   ipc.handle("preview:reload", (_event, ...args) => {
     const [id] = args;
@@ -103,6 +112,7 @@ export function attachPreviews(
   });
   return () => {
     for (const channel of [
+      "preview:copy-path",
       "preview:pick",
       "preview:popout",
       "preview:close",

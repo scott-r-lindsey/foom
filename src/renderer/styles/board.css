@@ -1330,7 +1330,6 @@
 .panel-sub {
   color: var(--muted);
 }
-.sidebar-panel .panel-copy,
 .sidebar-panel .panel-rename-title {
   display: inline;
   width: auto;
@@ -1344,24 +1343,9 @@
   overflow-wrap: anywhere;
   animation: none;
 }
-.sidebar-panel .panel-copy {
-  border-bottom: var(--shape-border, 1px) dotted var(--muted);
-}
-.sidebar-panel .panel-copy:hover,
-.sidebar-panel .panel-copy:focus-visible {
-  color: var(--highlight);
-  background: transparent;
-  border-bottom-color: var(--highlight);
-}
 .sidebar-panel .panel-rename-title:hover {
   background: transparent;
 }
-.panel-copy + [role="status"]:not(:empty) {
-  margin-left: 6px;
-  color: var(--muted);
-  font: 11px var(--font-interface);
-}
-.panel-copy::before,
 .panel-rename-title::before {
   display: none;
 }

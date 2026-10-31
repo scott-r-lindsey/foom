@@ -10,7 +10,8 @@ Main panel facts remain in `workspace-context.ts`; sidebar dispatch is in `sideb
 suppression. The sidebar derives panel subjects and commands from its source;
 `RowMenu` shares positioning, keyboard and main-owned confirmations between the
 application menu and labelled sidebar dialogs. Panel facts load through the
-source, ignore superseded replies and remain inert text. Session title edits
+source and ignore superseded replies. Values render as inert text, with narrow
+identifier-scoped copy controls for the listed facts. Session title edits
 remain local view preferences. The theme subscription applies the validated
 `panelColor` setting as root metadata; CSS forces undecorated panels for High
 Contrast and increased OS contrast without weakening status outlines.
@@ -36,3 +37,10 @@ is added. The bounded shell version probe is main-owned and cached.
 The read-only mockup reference is `docs/mockups/sidebar-panels.html`; its existing
 README entry describes these panels. Contributor rules keep that reference
 folder unchanged.
+
+Copyable facts use the shared `CopyValue` control: value and trailing glyph copy
+on click or keyboard activation, a check lasts one second, and only failures add
+`Unable to copy`. Checkout panels include branch, full detached HEAD (seven-character
+display), PR number/URL and remote URL. Session panels include the Foom session ID,
+conversation ID, parent/child IDs and current handoff summary. Main resolves each
+through its [identifier-only copy commands](ipc.md#visible-fact-copy-controls-960).

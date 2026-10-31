@@ -455,7 +455,7 @@ test("sidebar panels hover, pin, rename and launch a home shell", async (context
   // Home shells use the OS home directory; the harness gives Electron a private one.
   const expectedHome = (await page.evaluate(() => window.desktop.sidebarInventory())).home
     .directory;
-  await panel.getByRole("button", { name: expectedHome, exact: true }).click();
+  await panel.getByRole("button", { name: "Copy path", exact: true }).click();
   await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(expectedHome);
   for (const [panelColor, tint] of [
     ["vivid", "1"],

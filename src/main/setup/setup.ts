@@ -21,6 +21,7 @@ import type { WorktreeService } from "../workspace/worktrees";
 
 export interface SetupDependencies {
   hosts?: Hosts;
+  copyText?: (value: string) => void | Promise<void>;
   confirmRemoteSessions?: (content: DialogContent) => Promise<boolean>;
   updates?: () => UpdateState;
   restartToUpdate?: () => Promise<void>;
@@ -62,6 +63,10 @@ export class Setup {
     this.deps.apply(this.deps.store.get());
   }
 
+  async copyHost(input: unknown): Promise<void> {
+    if (!this.deps.hosts || !this.deps.copyText) throw new Error("Copy unavailable");
+    await this.deps.copyText(this.deps.hosts.copyValue(input));
+  }
   hosts(input: unknown) {
     if (!this.deps.hosts) throw new Error("Hosts unavailable");
     return this.deps.hosts.action(input, this.deps.confirmRemoteSessions);

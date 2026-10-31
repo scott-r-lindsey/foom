@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { CopyValue } from "./ui/copy-value";
+import { createContext, use, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { DialogRequest } from "../shared/confirmation";
 const stateLabels: Readonly<Record<string, string>> = {
@@ -50,7 +51,26 @@ function Section({
     </div>
   );
 }
-function Changes({ value, omitted = 0 }: { value: string; omitted?: number | undefined }) {
+const CopyPathContext = createContext<((id: string) => Promise<void>) | undefined>(undefined);
+function CopyPath({ value, pathId }: { value: string; pathId: string }) {
+  const copy = use(CopyPathContext);
+  return (
+    <CopyValue
+      value={value}
+      label="Copy path"
+      copy={() => copy?.(pathId) ?? Promise.reject(new Error("Copy unavailable"))}
+    />
+  );
+}
+function Changes({
+  value,
+  omitted = 0,
+  prefix = "change",
+}: {
+  value: string;
+  omitted?: number | undefined;
+  prefix?: string;
+}) {
   const records = value.split("\0").filter(Boolean);
   const items = [];
   for (let index = 0; index < records.length; index++) {
@@ -74,7 +94,12 @@ function Changes({ value, omitted = 0 }: { value: string; omitted?: number | und
                   : status.includes("U")
                     ? "unmerged"
                     : "modified";
-    items.push({ path: record.slice(3), label, old: renamed ? records[++index] : undefined });
+    items.push({
+      index,
+      path: record.slice(3),
+      label,
+      old: renamed ? records[++index] : undefined,
+    });
   }
   return (
     <Section label="Discarded" count={items.length + omitted}>
@@ -83,8 +108,12 @@ function Changes({ value, omitted = 0 }: { value: string; omitted?: number | und
           <li className="row change" key={item.path}>
             <span className="chip">{item.label}</span>
             <span className="name">
-              {item.path}
-              {item.old !== undefined && <span className="sub">← {item.old}</span>}
+              <CopyPath value={item.path} pathId={`${prefix}:${String(item.index)}`} />
+              {item.old !== undefined && (
+                <span className="sub">
+                  ← <CopyPath value={item.old} pathId={`${prefix}:${String(item.index + 1)}`} />
+                </span>
+              )}
             </span>
           </li>
         ))}
@@ -130,7 +159,13 @@ function Worktrees({
           </span>
           <div className="name">
             {item.branch}
-            {item.changes && <Changes value={item.changes} omitted={item.omittedChanges} />}
+            {item.changes && (
+              <Changes
+                value={item.changes}
+                omitted={item.omittedChanges}
+                prefix={`cleanup-change:${item.id ?? ""}`}
+              />
+            )}
           </div>
           <span className="why">
             {item.state === "error"
@@ -305,7 +340,7 @@ export function ConfirmationPage() {
       accepted && request.removals ? request.removals.map((item) => item.id) : accepted,
     );
   };
-  return (
+  const content = (
     <main
       onKeyDown={(event) => {
         if (event.key === "Escape") {
@@ -453,7 +488,13 @@ export function ConfirmationPage() {
                 {request.facts.map((fact) => (
                   <div key={fact.label}>
                     <dt>{fact.label}</dt>
-                    <dd className={fact.mono ? "mono" : undefined}>{fact.value}</dd>
+                    <dd className={fact.mono ? "mono" : undefined}>
+                      {request.worktreePath === fact.value ? (
+                        <CopyPath value={fact.value} pathId="worktree" />
+                      ) : (
+                        fact.value
+                      )}
+                    </dd>
                   </div>
                 ))}
               </dl>
@@ -523,8 +564,9 @@ export function ConfirmationPage() {
                 <ul className="well" aria-label="Worktrees to remove">
                   {request.removals.map((item) => (
                     <li key={item.id} data-dirty={Boolean(item.changes)}>
-                      <label className="row">
+                      <div className="row">
                         <input
+                          id={`${request.id}-${item.id}`}
                           type="checkbox"
                           aria-label={item.branch}
                           disabled={!request.presented}
@@ -538,8 +580,10 @@ export function ConfirmationPage() {
                           }}
                         />
                         <span className="name">
-                          {item.branch}
-                          <span className="sub">{item.path}</span>
+                          <label htmlFor={`${request.id}-${item.id}`}>{item.branch}</label>
+                          <span className="sub">
+                            <CopyPath value={item.path} pathId={`removal:${item.id}`} />
+                          </span>
                           {item.pullRequest && (
                             <span className="sub">
                               PR #{item.pullRequest.number} · {item.pullRequest.state}
@@ -550,8 +594,10 @@ export function ConfirmationPage() {
                           {item.changes && <Glyph name="warning" />}
                           {item.changes ? "Dirty" : "Clean"}
                         </span>
-                      </label>
-                      {item.changes && <Changes value={item.changes} />}
+                      </div>
+                      {item.changes && (
+                        <Changes value={item.changes} prefix={`removal-change:${item.id}`} />
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -675,6 +721,11 @@ export function ConfirmationPage() {
         </footer>
       </section>
     </main>
+  );
+  return (
+    <CopyPathContext value={(pathId) => window.confirmation.copyPath(request.id, pathId)}>
+      {content}
+    </CopyPathContext>
   );
 }
 const root = document.getElementById("root");
