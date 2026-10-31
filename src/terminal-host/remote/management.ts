@@ -317,6 +317,8 @@ export async function manageHost(
         HOST_NETWORK_GIT_TIMEOUT_MS,
       );
       const destination = join(folder, `.foom-worktree-${randomUUID()}`);
+      signal?.throwIfAborted();
+      await approvedCodeFolder(folder, home);
       await mkdir(destination, { mode: 0o700 });
       // Persist ownership before Git can publish a checkout, including after disconnect.
       await writeWorktreeProvenance(request.profile, path, destination, request.origin);

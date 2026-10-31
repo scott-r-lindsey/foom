@@ -303,4 +303,9 @@ states. Foom does not check sign-in. Remove forgets the host without stopping se
 Repositories shows Local plus registered hosts, each checkout's path and state,
 and Clone here where absent. Clones use that repository's own origin and the
 host's own Git access, inside its approved code folder. Failures show fixed reasons.
-Persistent sessions, reattachment and upgrades are a separate #757 PR.
+This profile’s live remote sessions survive hub restarts with screen replay.
+Profile-owned worktrees remain in the sidebar without a session, including after
+the last session closes or a create reply is lost. Recovery launches nothing and
+grants no orchestrator control. Hosts counts other-profile and untagged worktrees
+as **other worktrees**; these are never listed or adopted. See [Hosts](../areas/hosts.md)
+for the profile and cleanup rules.

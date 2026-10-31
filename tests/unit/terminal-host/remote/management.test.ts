@@ -11,6 +11,7 @@ import {
   writeFile,
   readdir,
   lstat,
+  rename,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1003,5 +1004,52 @@ test.skipIf(process.platform === "win32")(
       ok: true,
       inventory: { own: [], other: 3 },
     });
+  },
+);
+
+test.skipIf(process.platform === "win32").each(["redirected", "cancelled"] as const)(
+  "creation refuses a %s approved folder before writing provenance after fetch",
+  async (mode) => {
+    const folder = await approvedCodeFolder("~/code", home, "create");
+    const repository = join(folder, "repo");
+    const outside = join(home, "outside");
+    await mkdir(repository, { mode: 0o700 });
+    await mkdir(outside, { mode: 0o700 });
+    const cancellation = new AbortController();
+    const origin = "git@fixture.test:team/repo.git";
+    mock.probe.mockImplementation(async (_command: string, args: string[], cwd: string) => {
+      if (args.includes("config")) return origin;
+      if (args.includes("--show-toplevel")) return cwd;
+      if (args.includes("ls-remote")) return "ref: refs/heads/main\tHEAD\n";
+      if (args.includes("fetch")) {
+        if (mode === "cancelled") cancellation.abort();
+        else {
+          await rename(folder, `${folder}-old`);
+          await symlink(outside, folder);
+        }
+      }
+      return "";
+    });
+    expect(
+      await manageHost(
+        {
+          type: "manage",
+          operation: "create-worktree",
+          codeFolder: folder,
+          directory: "repo",
+          origin,
+          profile: "a".repeat(32),
+          branch: "feature",
+          agents: [],
+        },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+        cancellation.signal,
+      ),
+    ).toEqual({ ok: false, reason: "checkout-refused" });
+    expect(await readdir(outside)).toEqual([]);
+    if (mode === "cancelled") expect(await readdir(folder)).toEqual(["repo"]);
   },
 );

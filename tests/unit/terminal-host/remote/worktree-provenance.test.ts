@@ -52,6 +52,7 @@ test.skipIf(process.platform === "win32")(
       { profile: "bad" },
       { path: "/foreign" },
       { repository: "relative" },
+      { repository: "/outside/repo" },
       { origin: "file:///foreign" },
       { directoryIdentity: "replaced" },
       { repositoryIdentity: "replaced" },

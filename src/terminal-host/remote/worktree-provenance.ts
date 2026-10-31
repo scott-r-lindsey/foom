@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
 import { record, keys, remotePath } from "../../shared/remote-agent-protocol";
@@ -94,6 +95,7 @@ export async function readWorktreeProvenance(path: string) {
       value["path"] !== path ||
       !remotePath(value["repository"]) ||
       !gitOrigin(value["origin"]) ||
+      dirname(value["repository"]) !== dirname(path) ||
       value["directoryIdentity"] !== (await directoryIdentity(path)) ||
       value["repositoryIdentity"] !== (await directoryIdentity(value["repository"]))
     )
