@@ -1,3 +1,8 @@
+/** Bounded host evidence; contains no file content or process authority. */
+export interface RemoteReviewSnapshot {
+  head: string;
+  digest: string;
+}
 import type { HookSignal } from "./hooks";
 /** Main-only mapping; paths authorize nothing without the selected local checkout. */
 export interface RemoteAgentSpec {
@@ -9,6 +14,7 @@ export interface RemoteAgentSpec {
   conversationId?: string;
   hooks: boolean;
   checkoutIdentity?: string;
+  reviewSnapshot?: RemoteReviewSnapshot;
 }
 export type RemoteControlResult =
   | { type: "identity"; alias: string; role: "child"; capabilities: string[] }

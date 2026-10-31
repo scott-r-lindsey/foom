@@ -292,3 +292,21 @@ test("tool params are validated on the host with the same handoff/review contrac
   ] as const)
     expect(() => remoteControlParams(method, params)).toThrow("invalid_request");
 });
+
+test("remote review evidence is bounded, closed and requires a checkout identity", () => {
+  const snapshot = { head: "a".repeat(40), digest: "b".repeat(64) };
+  const bound = { ...spec, checkoutIdentity: "c".repeat(64), reviewSnapshot: snapshot };
+  expect(remoteAgentSpec(bound)).toBe(true);
+  expect(remoteAgentSpec({ ...spec, reviewSnapshot: snapshot })).toBe(false);
+  for (const evidence of [
+    null,
+    {},
+    { ...snapshot, terminalId: "hub" },
+    { ...snapshot, head: "bad" },
+    { ...snapshot, head: 1 },
+    { ...snapshot, digest: null },
+    { ...snapshot, digest: "f".repeat(65) },
+  ]) {
+    expect(remoteAgentSpec({ ...bound, reviewSnapshot: evidence })).toBe(false);
+  }
+});

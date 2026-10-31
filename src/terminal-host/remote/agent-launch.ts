@@ -1,3 +1,4 @@
+import { remoteReviewSnapshot } from "./review-snapshot";
 import { readWorktreeProvenance } from "./worktree-provenance";
 import { eventModule } from "../../shared/agent-event-module";
 import { remotePiExtension } from "./pi-extension";
@@ -121,6 +122,21 @@ export async function prepareRemoteAgent(
     createHash("sha256").update(identity).digest("hex") !== request.checkoutIdentity
   )
     throw new LaunchFailure("remote_worktree_unavailable");
+  const validateReview = async (env: NodeJS.ProcessEnv) => {
+    if (!request.reviewSnapshot) return;
+    const snapshot = await remoteReviewSnapshot(
+      request.repository,
+      request.worktree,
+      createHash("sha256").update(identity).digest("hex"),
+      { ...env, GIT_NO_REPLACE_OBJECTS: "1", GIT_GRAFT_FILE: "/dev/null" },
+      cancellation,
+    );
+    if (
+      snapshot.head !== request.reviewSnapshot.head ||
+      snapshot.digest !== request.reviewSnapshot.digest
+    )
+      throw new LaunchFailure("remote_worktree_unavailable");
+  };
   const found = await hostDiscovery(model, shell, home, cancellation);
   if (bypassEnvironment(model, found.env, false).length)
     throw new Error("Remote child environment bypass is unavailable");
@@ -366,6 +382,7 @@ export async function prepareRemoteAgent(
     for (const entry of model.launch.environment ?? [])
       if (selected(entry.when, facts)) env[entry.name] = expandV2(entry.value, values);
     if ((await checkout()) !== identity) throw new LaunchFailure("remote_worktree_unavailable");
+    await validateReview(found.env);
     cancellation?.throwIfAborted();
     const spec: Omit<TerminalSpec, "cols" | "rows"> = {
       command: found.command,
@@ -376,6 +393,7 @@ export async function prepareRemoteAgent(
     };
     return {
       validate: async () => {
+        await validateReview(found.env);
         await validateOwner();
         if ((await checkout()) !== identity) throw new LaunchFailure("remote_worktree_unavailable");
       },

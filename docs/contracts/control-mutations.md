@@ -193,7 +193,9 @@ adoption retains open/same-repository/default-branch checks and tracks origin.
 `launch` uses the created worktree's host; an explicit different host refuses.
 A host's current inventory can refuse an absent/uncheckable agent with
 `remote_agent_unavailable` before launch preparation. Missing/stale inventories
-are probed. Existing remote review restrictions remain in effect.
+are probed. Registered-host sequential review loops use pinned host snapshots
+(#942); detached remote review checkouts and developer spike mappings remain
+unsupported. Reviewer grants retain the three restricted child tools.
 
 Worktrees discovered through profile-tagged remote inventory (#941) belong to the
 human only. Discovery never creates a worktree ID or child grant, refunds an

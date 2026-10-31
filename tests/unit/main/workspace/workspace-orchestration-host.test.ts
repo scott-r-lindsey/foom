@@ -215,7 +215,7 @@ function fleetFixture() {
     fleet: vi.fn<Hosts["fleet"]>().mockResolvedValue([]),
   };
   const caps = { ...base, deps: { ...base.deps, hosts } };
-  vi.mocked(caps.launchAgent).mockResolvedValue({ id: "child", attention: "evaluator" });
+  vi.mocked(caps.launchChild).mockResolvedValue("child");
   vi.mocked(caps.scanAgents).mockResolvedValue({ warning: null, agents: [] });
   return { caps, hosts, tree, host: workspaceOrchestrationHost(caps) };
 }
@@ -234,7 +234,7 @@ it("creates a host-bound opaque checkout and probes inventory before preparing a
   await expect(
     host.launch("parent", "/local/repo", created.path, created.identity, "codex", "Task"),
   ).rejects.toThrow("missing");
-  expect(caps.launchAgent).not.toHaveBeenCalled();
+  expect(caps.launchChild).not.toHaveBeenCalled();
   expect(hosts.worktree).toHaveBeenCalledTimes(1);
   const validate = vi.fn();
   expect(
@@ -243,20 +243,24 @@ it("creates a host-bound opaque checkout and probes inventory before preparing a
       validate,
     }),
   ).toBe("child");
-  const launch = vi.mocked(caps.launchAgent).mock.calls.at(-1)?.[5];
-  expect(launch).toMatchObject({
-    control: { parentId: "parent" },
-    selection: { model: "test" },
-    prompt: "Task",
-    remoteCheckout: {
-      target: { host: "worker" },
-      repository: tree.repository,
-      worktree: tree.path,
-      identity: tree.identity,
-    },
+  const launch = vi.mocked(caps.launchChild).mock.calls.at(-1);
+  expect(launch?.slice(0, 6)).toEqual([
+    "parent",
+    "/local/repo",
+    created.path,
+    created.identity,
+    "codex",
+    "Task",
+  ]);
+  expect(launch?.[6]).toMatchObject({ selection: { model: "test" } });
+  expect(launch?.[7]).toMatchObject({
+    target: { host: "worker" },
+    repository: tree.repository,
+    worktree: tree.path,
+    identity: tree.identity,
   });
-  launch?.beforeSpawn?.();
-  await launch?.remoteCheckout?.validate();
+  launch?.[6]?.validate();
+  await launch?.[7]?.validate();
   expect(validate).toHaveBeenCalled();
   await expect(
     host.launch("parent", "/local/repo", created.path, "wrong", "codex", undefined),
@@ -269,9 +273,7 @@ it("creates a host-bound opaque checkout and probes inventory before preparing a
     identity: tree.identity,
   });
   expect(await host.remoteCheckout?.("/unknown", "codex")).toBeUndefined();
-  await expect(host.reviewAvailable?.("claude", created.path)).rejects.toMatchObject({
-    code: "remote_review_unsupported",
-  });
+  await expect(host.reviewAvailable?.("claude", created.path)).resolves.toBe(true);
 });
 
 it("remote removal retains confirmation, rechecks authorization and refuses while preparation is in flight", async () => {
@@ -478,9 +480,7 @@ it("branch changes retain checkout authority and use the current branch in launc
   const created = await host.createWorktree("/local/repo", "feature", "worker");
   hosts.worktree.mockResolvedValue({ ...tree, branch: "changed" });
   await host.launch("parent", "/local/repo", created.path, created.identity, "codex", undefined);
-  expect(vi.mocked(caps.launchAgent).mock.calls.at(-1)?.[5]?.remoteCheckout?.branch).toBe(
-    "changed",
-  );
+  expect(vi.mocked(caps.launchChild).mock.calls.at(-1)?.[7]?.branch).toBe("changed");
   const capability = await host.remoteCheckout?.(created.path, "codex");
   expect(capability?.branch).toBe("changed");
   await capability?.validate();
