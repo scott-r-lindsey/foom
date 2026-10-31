@@ -474,6 +474,19 @@ export function Tile({
           name={name}
           number={number}
           view={view}
+          moves={source.windows?.moves}
+          content={
+            tile.content
+              ? {
+                  kind: tile.content.kind,
+                  id:
+                    tile.content.kind === "terminal" ? tile.content.session : tile.content.preview,
+                }
+              : undefined
+          }
+          moveError={() => {
+            setError("Unable to move tile to window.");
+          }}
           popout={preview ? typeof source.previews?.popout === "function" : Boolean(source.windows)}
           network={
             preview && preview.worktree !== "foom:manual" && source.previews?.network

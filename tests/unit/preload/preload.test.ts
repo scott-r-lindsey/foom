@@ -1477,3 +1477,65 @@ test("home-shell returns only its validated request-specific terminal ID", async
   mock.invoke.mockResolvedValue({ terminalId: "private" });
   await expect(api.sidebarCommand({ kind: "stop", id: "one" })).resolves.toBeUndefined();
 });
+
+test("window moves validate and project tokens, destinations and placement events", async () => {
+  const moveRequest = requestId();
+  const movePreviewId = previewId();
+  const api = (await bridge()).windows?.moves;
+  if (!api) throw new Error("Missing moves");
+  mock.invoke.mockResolvedValue([{ id: 2, label: "Window 2", secret: "discard" }]);
+  await expect(api.list()).resolves.toEqual([{ id: 2, label: "Window 2" }]);
+  mock.invoke.mockResolvedValue([{ id: NaN, label: "bad" }]);
+  await expect(api.list()).rejects.toThrow();
+  mock.invoke.mockResolvedValue(moveRequest);
+  await expect(api.beginDrag({ kind: "terminal", id: "one" })).resolves.toBe(moveRequest);
+  mock.invoke.mockResolvedValue("forged");
+  await expect(api.beginDrag({ kind: "terminal", id: "one" })).rejects.toThrow();
+  await api.endDrag(moveRequest);
+  await api.drop(moveRequest, { tile: "tile", zone: "up" });
+  await api.move({ kind: "preview", id: movePreviewId }, 2);
+  await api.ready(moveRequest, true);
+  expect(mock.invoke).toHaveBeenCalledWith("windows:end-drag", moveRequest);
+  expect(mock.invoke).toHaveBeenCalledWith("windows:drop", moveRequest, {
+    tile: "tile",
+    zone: "up",
+  });
+  expect(mock.invoke).toHaveBeenCalledWith(
+    "windows:move",
+    { kind: "preview", id: movePreviewId },
+    2,
+  );
+  expect(mock.invoke).toHaveBeenCalledWith("windows:move-ready", moveRequest, true);
+  const drag = vi.fn(),
+    prepare = vi.fn(),
+    finish = vi.fn();
+  const off = [api.onDrag(drag), api.onPrepare(prepare), api.onFinish(finish)];
+  const emit = (name: string, ...values: unknown[]) =>
+    mock.on.mock.calls.find(([channel]) => channel === name)?.[1]({}, ...values);
+  emit("windows:drag", moveRequest);
+  emit("windows:drag", null);
+  emit("windows:prepare-move", moveRequest, null);
+  emit("windows:prepare-move", moveRequest, { tile: "t", zone: "right", secret: true });
+  emit("windows:finish-move", moveRequest, null);
+  emit("windows:finish-move", moveRequest, { kind: "preview", id: movePreviewId, secret: true });
+  for (const bad of [undefined, {}, "forged", "", 1]) {
+    emit("windows:drag", bad);
+    emit("windows:prepare-move", bad, null);
+    emit("windows:finish-move", bad, null);
+  }
+  emit("windows:prepare-move", moveRequest, { tile: "t", zone: "outside" });
+  emit("windows:finish-move", moveRequest, { kind: "unknown", id: "a" });
+  expect(drag.mock.calls).toEqual([[moveRequest], [null]]);
+  expect(prepare.mock.calls).toEqual([
+    [moveRequest, null],
+    [moveRequest, { tile: "t", zone: "right" }],
+  ]);
+  expect(finish.mock.calls).toEqual([
+    [moveRequest, null],
+    [moveRequest, { kind: "preview", id: movePreviewId }],
+  ]);
+  for (const dispose of off) dispose();
+  expect(mock.removeListener).toHaveBeenCalledWith("windows:drag", expect.any(Function));
+  expect(mock.removeListener).toHaveBeenCalledWith("windows:prepare-move", expect.any(Function));
+  expect(mock.removeListener).toHaveBeenCalledWith("windows:finish-move", expect.any(Function));
+});

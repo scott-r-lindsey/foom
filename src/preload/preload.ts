@@ -57,7 +57,7 @@ import type { ActionLogEntry, ActionLogPage } from "../shared/action-log";
 import type { EnvironmentCandidate, EnvironmentRow, EnvironmentState } from "../shared/environment";
 import type { AppMenuEntry, CommandItem, ShortcutGroup, ShortcutRow } from "../shared/app-menu";
 import type { ReadinessReport } from "../shared/readiness";
-import type { WindowAudioState, WindowView } from "../shared/windows";
+import type { WindowAudioState, WindowView, MoveContent, MovePlacement } from "../shared/windows";
 import type { IpcRendererEvent } from "electron";
 import type { DesktopApi, TerminalActivity } from "../shared/desktop";
 import { isBoardCommand } from "../shared/board-commands";
@@ -1211,6 +1211,18 @@ ipcRenderer.on("terminal:flush-views", (_event, ids: unknown, token: unknown) =>
   });
 });
 
+const moveId: Validator<string> = (value): value is string =>
+  text(value) && value.length > 0 && value.length <= 200;
+const dragToken: Validator<string> = (value): value is string =>
+  text(value) && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(value);
+const moveContent: Validator<MoveContent> = shape({
+  kind: literal("terminal", "preview"),
+  id: moveId,
+});
+const movePlacement: Validator<MovePlacement> = either(
+  nil,
+  shape({ tile: moveId, zone: literal("center", "left", "right", "up", "down") }),
+);
 function windowViews(value: unknown): value is WindowView[] {
   return (
     Array.isArray(value) &&
@@ -1331,6 +1343,46 @@ const desktop: DesktopApi = {
     },
   },
   windows: {
+    moves: {
+      list: () => reply("windows:list", array(shape({ id: positiveCount, label: moveId }))),
+      beginDrag: (content) => reply("windows:begin-drag", dragToken, content),
+      endDrag: (token) => invokeVoid("windows:end-drag", token),
+      drop: (token, placement) => invokeVoid("windows:drop", token, placement),
+      move: (content, target) => invokeVoid("windows:move", content, target),
+      ready: (request, accepted) => invokeVoid("windows:move-ready", request, accepted),
+      onDrag: (callback) => {
+        const listener = (_event: IpcRendererEvent, token: unknown) => {
+          if (token === null || dragToken(token)) callback(token);
+        };
+        ipcRenderer.on("windows:drag", listener);
+        return () => {
+          ipcRenderer.removeListener("windows:drag", listener);
+        };
+      },
+      onPrepare: (callback) => {
+        const listener = (_event: IpcRendererEvent, request: unknown, placement: unknown) => {
+          if (dragToken(request) && movePlacement(placement))
+            callback(
+              request,
+              placement === null ? null : { tile: placement.tile, zone: placement.zone },
+            );
+        };
+        ipcRenderer.on("windows:prepare-move", listener);
+        return () => {
+          ipcRenderer.removeListener("windows:prepare-move", listener);
+        };
+      },
+      onFinish: (callback) => {
+        const listener = (_event: IpcRendererEvent, request: unknown, content: unknown) => {
+          if (dragToken(request) && (content === null || moveContent(content)))
+            callback(request, content === null ? null : { kind: content.kind, id: content.id });
+        };
+        ipcRenderer.on("windows:finish-move", listener);
+        return () => {
+          ipcRenderer.removeListener("windows:finish-move", listener);
+        };
+      },
+    },
     audio: {
       state: async () => {
         const value: unknown = await ipcRenderer.invoke("windows:audio-state");

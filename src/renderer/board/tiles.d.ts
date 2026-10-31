@@ -31,7 +31,7 @@ export interface TileRect {
 }
 export type TileDirection = "left" | "up" | "right" | "down";
 export type DropZone = "center" | "left" | "right" | "up" | "down";
-export type TileDrag = { kind: "tile" | "session"; id: string };
+export type TileDrag = { kind: "tile" | "session" | "preview"; id: string };
 
 export type TileAction =
   | TileDirection
