@@ -1,6 +1,8 @@
 import * as reviewSnapshots from "../../../../src/main/workspace/review-snapshot";
+import type { HostManagement } from "../../../../src/shared/registered-hosts.d";
 import { ForgeTracking } from "../../../../src/main/control/forge-tracking";
 import { expect, it, vi } from "vitest";
+import { object } from "../../../../src/shared/control-validation";
 import { Operations } from "../../../../src/main/control/operations";
 import {
   repo,
@@ -13,9 +15,39 @@ import {
   createWorkspace,
 } from "./orchestration-workspace-fixture";
 
-it.each([false, true])(
-  "runs review steps through launches and author resume (resume failure: %s)",
-  async (resumeFails) => {
+const runs: {
+  resumeFails: boolean;
+  remote: boolean;
+  fault?:
+    | "disconnect"
+    | "identity"
+    | "branch"
+    | "missing"
+    | "head"
+    | "takeover"
+    | "forge"
+    | "capacity";
+}[] = [
+  { resumeFails: false, remote: false },
+  { resumeFails: true, remote: false },
+  { resumeFails: false, remote: true },
+  { resumeFails: true, remote: true },
+  ...(
+    [
+      "disconnect",
+      "identity",
+      "branch",
+      "missing",
+      "head",
+      "takeover",
+      "forge",
+      "capacity",
+    ] as const
+  ).map((fault) => ({ remote: true, resumeFails: false, fault })),
+];
+it.each(runs)(
+  "runs review steps through launches and author resume %j",
+  async ({ resumeFails, remote, fault }) => {
     const snapshot = vi
       .spyOn(reviewSnapshots, "reviewSnapshot")
       .mockResolvedValue({ head: "head", digest: "same" });
@@ -25,7 +57,7 @@ it.each([false, true])(
       () => {},
     );
     vi.spyOn(forge, "track").mockImplementation(() => {});
-    vi.spyOn(forge, "read").mockReturnValue({
+    const forgeRead = vi.spyOn(forge, "read").mockReturnValue({
       number: 7,
       headSha: "head",
       state: "OPEN",
@@ -35,7 +67,67 @@ it.each([false, true])(
       ...scans.current,
       agents: scans.current.agents.map((agent) => ({ ...agent, resume: true })),
     };
-    const workspace = createWorkspace({ ...deps, forge });
+    const hostTree = {
+      repository: "/code/repository-fixture",
+      path: "/code/.foom-worktree-fixture",
+      sourceOrigin: "https://forge.test/o/r",
+      branch: "feature",
+      identity: "a".repeat(64),
+      changes: "",
+      head: "head",
+      snapshot: { head: "head", digest: "same" },
+    };
+    let invalidate = false;
+    const snapshotGate = Promise.withResolvers<undefined>();
+    const snapshotEntered = vi.fn();
+    const hosts = {
+      registered: vi.fn(() => ({ host: "worker", codeFolder: "/code" })),
+      worktree: vi.fn(
+        (
+          _host: string,
+          _repo: string,
+          action: { operation: HostManagement["operation"]; branch?: string; path?: string },
+        ) => {
+          if (action.branch === "blocking" || action.path?.endsWith("blocking")) {
+            return Promise.resolve({
+              ...hostTree,
+              path: "/code/.foom-worktree-blocking",
+              branch: "blocking",
+            });
+          }
+          if (invalidate && action.operation === "snapshot-worktree") {
+            if (fault === "capacity") {
+              snapshotEntered();
+              return snapshotGate.promise.then(() => ({ ...hostTree }));
+            }
+            if (fault === "disconnect") return Promise.reject(new Error("Unreachable"));
+            if (fault === "takeover") workspace.orchestration.takeOver("child-1");
+            if (fault === "forge") forgeRead.mockReturnValue(undefined);
+            if (fault === "missing") {
+              return Promise.resolve({
+                repository: hostTree.repository,
+                path: hostTree.path,
+                sourceOrigin: hostTree.sourceOrigin,
+                branch: hostTree.branch,
+                identity: hostTree.identity,
+                changes: hostTree.changes,
+                head: hostTree.head,
+              });
+            }
+            return Promise.resolve({
+              ...hostTree,
+              ...(fault === "identity" ? { identity: "changed" } : {}),
+              ...(fault === "branch" ? { branch: "other" } : {}),
+              ...(fault === "head" ? { head: "other" } : {}),
+            });
+          }
+          return Promise.resolve({ ...hostTree });
+        },
+      ),
+      requireAgent: vi.fn(() => Promise.resolve()),
+      fleet: vi.fn(() => Promise.resolve([])),
+    };
+    const workspace = createWorkspace({ ...deps, forge, ...(remote ? { hosts } : {}) });
     await orchestrate(workspace);
     let next = 0;
     launch.mockImplementation((request) => {
@@ -43,6 +135,7 @@ it.each([false, true])(
       return Promise.resolve({
         id: request.terminalId ?? `child-${String(++next)}`,
         attention: "evaluator",
+        ...(remote ? { remote: true, placement: { kind: "remote", host: "worker" } } : {}),
         conversationId: request.conversationId ?? "author-conversation",
       });
     });
@@ -53,7 +146,11 @@ it.each([false, true])(
     );
     const call = (method: string, params: Record<string, unknown>) =>
       workspace.orchestration.call(actor, method, params, operations);
-    const tree = await call("create_worktree", { branch: "feature", idempotencyKey: "tree" });
+    const tree = await call("create_worktree", {
+      branch: "feature",
+      idempotencyKey: "tree",
+      ...(remote ? { host: "worker" } : {}),
+    });
     if (typeof tree !== "object" || tree === null || !("resultId" in tree))
       throw new Error("missing tree");
     await call("launch", {
@@ -88,20 +185,93 @@ it.each([false, true])(
     expect(workspace.snapshot().terminals.find((row) => row.id === "child-1")?.review?.phase).toBe(
       "building",
     );
+    invalidate = fault !== undefined;
     report("child-1", 1);
     await workspace.exited("child-1", 0);
+    if (fault === "capacity") {
+      await vi.waitFor(() => {
+        expect(snapshotEntered).toHaveBeenCalled();
+      });
+      workspace.configure({
+        hooks: false,
+        agents: { claude: true, codex: true, agy: true },
+        concurrentChildren: 1,
+      });
+      const blocker = object(
+        await call("create_worktree", {
+          host: "worker",
+          branch: "blocking",
+          idempotencyKey: "blocking-tree",
+        }),
+      );
+      await call("launch", {
+        worktreeId: blocker["resultId"],
+        agent: "claude",
+        idempotencyKey: "blocking-launch",
+      });
+      snapshotGate.resolve(undefined);
+      await vi.waitFor(() => {
+        expect(workspace.orchestration.reviews.view("child-1")).toMatchObject({
+          phase: "reviewing",
+          waiting: true,
+        });
+      });
+      expect(launch.mock.calls.filter(([request]) => request.worktree !== repo.path)).toHaveLength(
+        2,
+      );
+      await workspace.exited("child-2", 0);
+      await vi.waitFor(() => {
+        expect(workspace.orchestration.reviews.view("child-1")).toMatchObject({
+          phase: "reviewing",
+          waiting: false,
+        });
+      });
+      expect(launch.mock.calls.at(-1)?.[0].remoteCheckout?.reviewSnapshot).toEqual(
+        hostTree.snapshot,
+      );
+      workspace.orchestration.disposeUnreadChildren();
+      return;
+    }
+    if (fault) {
+      await vi.waitFor(() => {
+        expect(workspace.orchestration.reviews.view("child-1")?.phase).toBe("escalated");
+      });
+      expect(launch.mock.calls.filter(([request]) => request.worktree !== repo.path)).toHaveLength(
+        1,
+      );
+      workspace.orchestration.disposeUnreadChildren();
+      return;
+    }
     await vi.waitFor(() => {
       expect(workspace.orchestration.reviews.view("child-1")).toMatchObject({
         phase: "reviewing",
         waiting: false,
       });
     });
-    const snapshotCall = snapshot.mock.calls[0];
-    expect(snapshotCall?.slice(1)).toEqual([repo.path, child.path, "identity"]);
-    const snapshotService = snapshotCall?.[0];
-    if (!snapshotService) throw new Error("missing snapshot capability");
-    await expect(snapshotService.launchIdentity(repo.path, child.path)).resolves.toBe("identity");
-    expect(deps.worktrees.launchIdentity).toHaveBeenLastCalledWith(repo.path, child.path);
+    if (remote) {
+      expect(snapshot).not.toHaveBeenCalled();
+      expect(hosts.worktree).toHaveBeenCalledWith(
+        "worker",
+        repo.path,
+        expect.objectContaining({ operation: "snapshot-worktree", identity: hostTree.identity }),
+      );
+      expect(launch.mock.calls.at(-1)?.[0]).toMatchObject({
+        remoteCheckout: {
+          target: { host: "worker" },
+          worktree: hostTree.path,
+          reviewSnapshot: hostTree.snapshot,
+        },
+        loop: { phase: "reviewing" },
+        control: { parentId: "parent" },
+      });
+    } else {
+      const snapshotCall = snapshot.mock.calls[0];
+      expect(snapshotCall?.slice(1)).toEqual([repo.path, child.path, "identity"]);
+      const snapshotService = snapshotCall?.[0];
+      if (!snapshotService) throw new Error("missing snapshot capability");
+      await expect(snapshotService.launchIdentity(repo.path, child.path)).resolves.toBe("identity");
+      expect(deps.worktrees.launchIdentity).toHaveBeenLastCalledWith(repo.path, child.path);
+    }
     expect(deps.placeChild).toHaveBeenLastCalledWith("child-2", "parent");
     workspace.configure({
       hooks: false,

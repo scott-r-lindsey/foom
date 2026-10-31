@@ -109,12 +109,12 @@ role, not privileges inherited by orchestrators. #67 remote access is out of sco
 A human CLI grant exposes only its approved operations through the same validators.
 
 The #755 phase-2 exception permits local-orchestrator-owned remote children with
-only handoff, manual and sanitized identity. Remote `launch` requests with
-`review` (or internal review `loop` metadata) fail with the fixed
-`remote_review_unsupported` code before reviewer discovery or remote preparation.
-Local HEAD/dirty snapshots and forge observations are not evidence about a
-mapped remote checkout. Host-aware review snapshots and forge evidence remain
-unsupported future work under #756/#757. Ordinary remote launch authority
+only handoff, manual and sanitized identity. Registered-host review loops (#942)
+retain exactly that identity restriction for reviewers and resumed authors.
+Main pins host HEAD/dirty snapshots and host-bound forge evidence; the host
+revalidates snapshots before PTY creation. Developer spike mappings and detached
+remote review checkouts still fail with `remote_review_unsupported`.
+Local snapshots cannot attest to a mapped remote checkout. Ordinary remote launch authority
 captures the authenticated parent principal/generation and launch operation;
 both must still be current immediately before the hub sends `agent-start`.
 Failure closes the prepared remote channel and revokes its launch files and

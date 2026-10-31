@@ -1,4 +1,4 @@
-import { record, keys, remotePath } from "./remote-agent-protocol";
+import { record, keys, remotePath, remoteReviewEvidence } from "./remote-agent-protocol";
 import type { RegisteredHost, HostManagement, HostResult, HostsAction } from "./registered-hosts.d";
 
 export const HOST_CLONE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -107,6 +107,7 @@ export function hostManagement(value: unknown): value is HostManagement {
   if (
     value["operation"] === "create-worktree" ||
     value["operation"] === "inspect-worktree" ||
+    value["operation"] === "snapshot-worktree" ||
     value["operation"] === "remove-worktree"
   ) {
     const common = ["type", "operation", "codeFolder", "directory", "origin", "agents", "profile"];
@@ -189,8 +190,18 @@ export function hostResult(value: unknown): value is HostResult {
         ))) &&
     (value["worktree"] === undefined ||
       (record(value["worktree"]) &&
-        keys(value["worktree"], ["path", "branch", "identity", "changes", "head", "origin"]) &&
+        keys(value["worktree"], [
+          "path",
+          "branch",
+          "identity",
+          "changes",
+          "head",
+          "origin",
+          "snapshot",
+        ]) &&
         remotePath(value["worktree"]["path"]) &&
+        (value["worktree"]["snapshot"] === undefined ||
+          remoteReviewEvidence(value["worktree"]["snapshot"])) &&
         (value["worktree"]["head"] === undefined ||
           (typeof value["worktree"]["head"] === "string" &&
             /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(value["worktree"]["head"]))) &&

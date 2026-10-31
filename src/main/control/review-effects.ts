@@ -92,7 +92,12 @@ export class ReviewEffects {
     }
   }
 
-  async step(authorId: string, reviewer: boolean, prompt: string): Promise<string | undefined> {
+  async step(
+    authorId: string,
+    reviewer: boolean,
+    prompt: string,
+    snapshot?: ReviewSnapshot,
+  ): Promise<string | undefined> {
     const run = this.runs.get(authorId);
     if (!run) throw new ControlError("forbidden");
     const { actor, operations } = run;
@@ -107,7 +112,7 @@ export class ReviewEffects {
     const validate = () => {
       if (operation) operations.lookup(actor, { operationId: operation.operationId });
       owned.validate();
-      if (reviewer && !this.reviews().reviewReady(authorId)) throw new ControlError("conflict");
+      if (!this.reviews().reviewReady(authorId)) throw new ControlError("conflict");
       const current = this.reviews().view(authorId);
       if (
         current?.phase !== state.phase ||
@@ -160,6 +165,7 @@ export class ReviewEffects {
               }
             : author.selection,
           loop: state,
+          ...(snapshot ? { snapshot } : {}),
           validate,
         },
       );
