@@ -44,7 +44,19 @@ export interface ForgeProvider {
   /** Branch lookup is also reusable by PR-aware worktree creation (#337). */
   lookup(branch: string, number?: number, state?: "open" | "all"): Promise<PullRequest | undefined>;
 }
+export interface RemoteForgeCheckout {
+  host: string;
+  codeFolder: string;
+  repository: string;
+  path: string;
+  origin: string;
+}
+export interface ForgeInspection {
+  remote: string;
+  head: string;
+}
 export interface ForgeWorktree {
+  remoteCheckout?: RemoteForgeCheckout;
   repository: string;
   path: string;
   identity: string;

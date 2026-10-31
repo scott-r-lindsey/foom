@@ -83,6 +83,11 @@ function TerminalView({
         {status.status}
       </span>
       <div className="tile-terminal" ref={mount} />
+      {status.pasteResult && (
+        <div className="tile-paste-result" role="status">
+          {status.pasteResult}
+        </div>
+      )}
       {row && (row.dormant || status.attaching) && (
         <div className="tile-restoring" aria-label={`Restoring ${name}`} role="status">
           <div className="tile-restoring-identity">
@@ -474,6 +479,19 @@ export function Tile({
           name={name}
           number={number}
           view={view}
+          moves={source.windows?.moves}
+          content={
+            tile.content
+              ? {
+                  kind: tile.content.kind,
+                  id:
+                    tile.content.kind === "terminal" ? tile.content.session : tile.content.preview,
+                }
+              : undefined
+          }
+          moveError={() => {
+            setError("Unable to move tile to window.");
+          }}
           popout={preview ? typeof source.previews?.popout === "function" : Boolean(source.windows)}
           network={
             preview && preview.worktree !== "foom:manual" && source.previews?.network

@@ -16,6 +16,7 @@ Every channel checks the sender (a registered app window, its main frame, `app:/
 | `terminal:kill` | renderer → main (invoke) | `id` |
 | `terminal:input` | renderer → main | `id`, `data` (≤ 64 KB; chunked on code-point boundaries) |
 | `terminal:copy-selection` | renderer → main (invoke) | owned attached `id`, nonempty text ≤65,536 UTF-16 units; writes clipboard only while Copy on select is enabled; no read capability |
+| `terminal:paste` | renderer → main (invoke) | owned attached live `id` → one validated `text` insertion or fixed `unsupported` / `empty` / `failed` / `cancelled` result; main captures clipboard on the gesture, binds work to the attachment generation and serializes a bounded FIFO; image bytes never reach renderer |
 | `terminal:resize` | renderer → main | `id`, `cols`, `rows` |
 | `terminal:ack` | renderer → main | `id`, attachment token, `count` (attached terminals only) |
 | `terminal:data` | main → renderer | `id`, attachment token, `data` (attached terminals only) |
@@ -83,3 +84,16 @@ Capability rejections and their fixed renderer messages follow the [coded error 
 It enters normal quit only when a stable macOS update is downloaded and checking
 is enabled. `SetupState.updates` carries a fixed status enum and nonnegative
 running-agent count, validated by preload; it never contains remote text or URLs.
+
+## Window move IPC (#950)
+
+Registered board main frames use `windows:list` (no arguments → bounded live
+window ID/label list), `windows:begin-drag` (terminal/preview kind and ID → opaque
+UUID), `windows:end-drag` (token), `windows:drop` (token and nullable tile/edge
+placement), and `windows:move` (kind/ID and existing target window number).
+Main sends `windows:drag` with only a token or null. `windows:prepare-move` carries
+a UUID request and nullable placement, answered by `windows:move-ready` with that
+request and a boolean from the requesting destination only. `windows:finish-move`
+carries the same request and transferred kind/ID or null on refusal. The preload
+validates and projects every reply/event. Tokens expire after 15 seconds and are
+consumed before asynchronous work; renderer payloads never identify drag authority.

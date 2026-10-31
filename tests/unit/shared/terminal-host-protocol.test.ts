@@ -196,3 +196,10 @@ test("stop acknowledgements validate a boolean at the host boundary", () => {
   for (const signaled of [0, 1, "true", null, {}])
     expect(hostResponse({ ...base, type: "result", lines: [], signaled })).toBe(false);
 });
+
+test("the captured image recipient fact remains a boolean at the host boundary", () => {
+  for (const imagePaste of [undefined, true, false])
+    expect(hostRequest({ ...base, type: "create", spec: { ...spec, imagePaste } })).toBe(true);
+  for (const imagePaste of [null, 1, "true", {}])
+    expect(hostRequest({ ...base, type: "create", spec: { ...spec, imagePaste } })).toBe(false);
+});

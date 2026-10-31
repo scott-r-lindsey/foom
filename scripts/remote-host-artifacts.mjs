@@ -30,7 +30,7 @@ export async function writeHostManifest(output, { version, platform, arch, sourc
     platform,
     arch,
     source,
-    protocol: 2,
+    protocol: 3,
     size: bytes.length,
     sha256: digest(bytes),
     gzipSize: compressed.length,
@@ -95,7 +95,7 @@ export async function verifyHostArtifact(directory, target, version, revision) {
   assert.ok(manifest && typeof manifest === "object", "Invalid host manifest");
   assert.equal(`${manifest.platform}-${manifest.arch}`, target, "Host target mismatch");
   assert.equal(manifest.version, version, "Host version mismatch");
-  assert.equal(manifest.protocol, 2, "Host protocol mismatch");
+  assert.equal(manifest.protocol, 3, "Host protocol mismatch");
   assert.ok(
     typeof manifest.source === "string" && /^[a-f0-9]{40}$/.test(manifest.source),
     "Invalid host source revision",

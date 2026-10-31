@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { createShell } from "../../../../src/renderer/terminal/shell-controller";
 import type { ShellView } from "../../../../src/renderer/terminal/shell.d";
 import { captureTerminalFocusRestoration } from "../../../../src/renderer/board/focus-restore";
 import { createTerminalView } from "../../../../src/renderer/terminal/terminal-view-source";
 const mock = vi.hoisted(() => ({ create: vi.fn() }));
 vi.mock("../../../../src/renderer/terminal/shell-controller", () => ({ createShell: mock.create }));
+beforeEach(() => {
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: { appMenu: { execute: vi.fn() } },
+  });
+});
 afterEach(() => {
   document.body.replaceChildren();
 });

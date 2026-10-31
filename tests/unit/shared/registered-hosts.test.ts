@@ -261,6 +261,16 @@ test("worktree management is closed, bounded and cannot select arbitrary command
     changes: "",
   };
   expect(hostResult({ ok: true, facts, worktree })).toBe(true);
+  const evidence = { ...worktree, head: "b".repeat(40), origin: "https://github.com/o/r" };
+  expect(hostResult({ ok: true, facts, worktree: evidence })).toBe(true);
+  for (const patch of [
+    { head: 1 },
+    { head: "bad" },
+    { origin: "https://user:secret@host/repo" },
+    { origin: 1 },
+  ])
+    expect(hostResult({ ok: true, facts, worktree: { ...evidence, ...patch } })).toBe(false);
+
   for (const patch of [{ branch: "" }, { identity: "x" }, { changes: 1 }, { extra: true }])
     expect(hostResult({ ok: true, facts, worktree: { ...worktree, ...patch } })).toBe(false);
 });

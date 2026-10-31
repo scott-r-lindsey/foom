@@ -1,3 +1,9 @@
+import { randomUUID } from "node:crypto";
+import { readPaste } from "./image-clipboard";
+import { normalizeImage } from "./image-decoder";
+import { ImageFiles } from "./image-files";
+import { imageLabel } from "../../shared/image-paste";
+import type { TerminalPaste } from "../../shared/image-paste.d";
 import { isChildInput, type ChildInput } from "../../shared/child-input";
 import type { AgentEvidence } from "../../shared/agent-detection";
 import { isTerminalSelection } from "../../shared/terminal-selection";
@@ -48,6 +54,30 @@ export function attachTerminal(
     { alive: boolean; dispose(): void; flush(ids: string[]): Promise<void> }
   >();
   const attached = new Map<string, WebContents>();
+  const leases = new Map<string, AbortController>();
+  const pasteQueues = new Map<string, Promise<unknown>>();
+  const queuedPastes = new Map<string, number>();
+  const pasteRecipients = new Set<string>();
+  const imageSessions = new Map<string, string>();
+  const images = new ImageFiles(() => app.getPath("userData"));
+  void images.start().catch(() => {
+    console.error("Image paste cleanup failed");
+  });
+  const invalidatePaste = (id: string) => {
+    leases.get(id)?.abort();
+    leases.delete(id);
+  };
+  const closeImages = (id: string) => {
+    invalidatePaste(id);
+    pasteRecipients.delete(id);
+    const imageSession = imageSessions.get(id);
+    imageSessions.delete(id);
+    void (pasteQueues.get(id) ?? Promise.resolve())
+      .finally(() => (imageSession ? images.close(imageSession) : undefined))
+      .catch(() => {
+        console.error("Image paste cleanup failed");
+      });
+  };
   const broadcast = (channel: string, ...args: unknown[]) => {
     for (const [contents, state] of windows)
       if (
@@ -68,6 +98,7 @@ export function attachTerminal(
     event.senderFrame.url === "app://bundle/index.html";
   const manager = new TerminalHostClient(
     (id, code) => {
+      closeImages(id);
       running.delete(id);
       broadcast("terminal:exit", id, code);
       if (owned.has(id)) events.onExit?.(id, code);
@@ -135,6 +166,8 @@ export function attachTerminal(
         const owner = attached.get(id);
         if (owner && owner !== event.sender)
           throw new Error("Terminal view belongs to another window");
+        invalidatePaste(id);
+        leases.set(id, new AbortController());
         attached.set(id, event.sender);
         try {
           await manager.attach(id, (token, data) => {
@@ -142,24 +175,82 @@ export function attachTerminal(
               event.sender.send("terminal:data", id, token, data);
           });
         } catch (error) {
-          if (attached.get(id) === event.sender) attached.delete(id);
+          if (attached.get(id) === event.sender) {
+            invalidatePaste(id);
+            attached.delete(id);
+          }
           throw error;
         }
       } else if (operation === "detach") {
         if (attached.get(id) === event.sender) {
+          invalidatePaste(id);
           attached.delete(id);
           manager.detach(id);
         }
       } else {
         await manager.kill(id);
+        closeImages(id);
         owned.delete(id);
         running.delete(id);
+        invalidatePaste(id);
         attached.delete(id);
         broadcast("terminal:availability", [id], false);
         events.onRemoved?.(id);
       }
     });
   }
+  handlers.set("terminal:paste", (event, id): Promise<TerminalPaste> => {
+    if (!trusted(event)) throw new Error("Untrusted IPC sender");
+    if (!validId(id) || attached.get(id) !== event.sender)
+      throw new Error("Unknown or unattached terminal ID");
+    const imageSession = imageSessions.get(id);
+    const lease = leases.get(id);
+    if (!lease || lease.signal.aborted || !running.has(id))
+      return Promise.resolve({ kind: "cancelled" });
+    const live = () =>
+      !lease.signal.aborted &&
+      leases.get(id) === lease &&
+      running.has(id) &&
+      attached.get(id) === event.sender;
+    // Snapshot each gesture immediately, preserving order with a bounded FIFO.
+    const queued = queuedPastes.get(id) ?? 0;
+    if (queued >= 16) return Promise.resolve({ kind: "failed" });
+    queuedPastes.set(id, queued + 1);
+    const snapshotReady = readPaste(lease.signal).catch(() => ({ kind: "failed" }) as const);
+    const previous = pasteQueues.get(id) ?? Promise.resolve();
+    const operation = previous.then(async (): Promise<TerminalPaste> => {
+      try {
+        if (!live()) return { kind: "cancelled" };
+        const snapshot = await snapshotReady;
+        if (!live()) return { kind: "cancelled" };
+        if (snapshot.kind !== "image") return snapshot;
+        if (!imageSession || !pasteRecipients.has(id)) return { kind: "unsupported" };
+        const png = await normalizeImage(snapshot.bytes, lease.signal);
+        if (!live()) return { kind: "cancelled" };
+        const size = png.length;
+        const remote = await manager.imagePath(id, png, lease.signal);
+        const path = remote ?? (await images.put(imageSession, png, lease.signal));
+        if (!live()) {
+          if (!remote) await images.discard(imageSession, path, size);
+          return { kind: "cancelled" };
+        }
+        return {
+          kind: "text",
+          text: imageLabel(path, remote ? false : process.platform === "win32"),
+        };
+      } catch {
+        return { kind: live() ? "failed" : "cancelled" };
+      }
+    });
+    pasteQueues.set(id, operation);
+    void operation.finally(() => {
+      const remaining = (queuedPastes.get(id) ?? 1) - 1;
+      if (remaining) queuedPastes.set(id, remaining);
+      else queuedPastes.delete(id);
+      if (pasteQueues.get(id) === operation) pasteQueues.delete(id);
+    });
+    return operation;
+  });
   handlers.set("terminal:copy-selection", async (event, id, text) => {
     if (!trusted(event)) throw new Error("Untrusted IPC sender");
     if (!validId(id) || attached.get(id) !== event.sender)
@@ -217,6 +308,7 @@ export function attachTerminal(
     const detachViews = () => {
       for (const [id, owner] of attached)
         if (owner === contents) {
+          invalidatePaste(id);
           attached.delete(id);
           manager.detach(id);
         }
@@ -307,11 +399,14 @@ export function attachTerminal(
     ipcMain.removeListener("terminal:ack", acknowledge);
     await manager.dispose();
     await manager.waitForExit();
+    await Promise.allSettled([...pasteQueues.values()]);
+    await images.dispose();
     app.removeListener("will-quit", willQuit);
   };
   return {
     detachView: (id: string, contents: WebContents) => {
       if (attached.get(id) === contents) {
+        invalidatePaste(id);
         attached.delete(id);
         manager.detach(id);
       }
@@ -326,6 +421,10 @@ export function attachTerminal(
           : spec,
       );
       owned.add(id);
+      if (spec.imagePaste) {
+        pasteRecipients.add(id);
+        imageSessions.set(id, randomUUID());
+      }
       running.set(id, { id, command: spec.command, cwd: spec.cwd });
       broadcast("terminal:availability", [id], true, true);
       return id;
@@ -334,8 +433,10 @@ export function attachTerminal(
       if (remoteHost === undefined) await manager.kill(id);
       else if (remoteProfile) await manager.kill(id, remoteHost, remoteProfile);
       else await manager.kill(id, remoteHost);
+      closeImages(id);
       owned.delete(id);
       running.delete(id);
+      invalidatePaste(id);
       attached.delete(id);
       broadcast("terminal:availability", [id], false);
     },
@@ -372,6 +473,7 @@ export function attachTerminal(
             .map(([, state]) => state.flush(ids)),
         );
         await manager.shutdown();
+        for (const id of ids) closeImages(id);
         attached.clear();
         owned.clear();
         running.clear();

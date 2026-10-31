@@ -69,6 +69,7 @@ export function createTerminalView(
         (menu) => {
           for (const listener of menus) listener(menu);
         },
+        { appMenu: window.desktop.appMenu, paste: current.paste },
       );
       return () => {
         offMenu();

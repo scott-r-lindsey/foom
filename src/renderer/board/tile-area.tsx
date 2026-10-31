@@ -108,6 +108,7 @@ function Gutter({
 }
 export function TileArea({
   drag,
+  foreign,
   endDrag,
   dropLayout,
   source,
@@ -124,6 +125,7 @@ export function TileArea({
   action,
 }: {
   drag?: TileDrag | undefined;
+  foreign?: string | null;
   endDrag: () => void;
   dropLayout: (next: TileLayout) => void;
   source: BoardSource;
@@ -142,18 +144,20 @@ export function TileArea({
   const [lastPreview, setLastPreview] = useState<{
     tile: string;
     zone: DropZone;
-    drag: TileDrag;
+    drag: TileDrag | undefined;
+    token: string | null | undefined;
   }>();
-  const preview = lastPreview?.drag === drag ? lastPreview : undefined;
+  const preview =
+    lastPreview?.drag === drag && lastPreview?.token === foreign ? lastPreview : undefined;
   const geometry = rectangles(layout.tree);
   const placing =
     preview && !geometry.tiles.find(({ tile }) => tile.id === preview.tile)?.tile.content;
   const targetAt = (event: DragEvent<HTMLDivElement>) => {
     if (
-      !drag ||
+      (!drag && !foreign) ||
       inactive ||
       !(event.target instanceof Element) ||
-      (drag.kind === "session" &&
+      (drag?.kind === "session" &&
         !rows.some((row) => row.id === drag.id && !(row.dormant && row.exited)))
     )
       return;
@@ -164,6 +168,7 @@ export function TileArea({
     if (!bounds.width || !bounds.height) return;
     return {
       drag,
+      token: foreign,
       tile: id,
       zone:
         tile.dataset["empty"] === "true"
@@ -196,7 +201,12 @@ export function TileArea({
       }}
       onDrop={(event) => {
         const target = targetAt(event);
-        if (target && drag) {
+        if (target && foreign) {
+          event.preventDefault();
+          void source.windows?.moves
+            ?.drop(foreign, { tile: target.tile, zone: target.zone })
+            .catch(() => {});
+        } else if (target && drag) {
           event.preventDefault();
           const next = dropTile(layout, drag, target.tile, target.zone);
           if (next !== layout) dropLayout(next);
@@ -206,13 +216,13 @@ export function TileArea({
       }}
     >
       <span className="visually-hidden" role="status">
-        {drag
+        {drag || foreign
           ? preview
-            ? `Drop ${preview.zone === "center" ? (placing ? "to place here" : drag.kind === "tile" ? "to swap" : "to replace session") : `to split ${preview.zone}`} on tile ${String(geometry.tiles.findIndex(({ tile }) => tile.id === preview.tile) + 1)}. Escape cancels.`
+            ? `Drop ${preview.zone === "center" ? (placing ? "to place here" : drag?.kind === "tile" ? "to swap" : "to replace session") : `to split ${preview.zone}`} on tile ${String(geometry.tiles.findIndex(({ tile }) => tile.id === preview.tile) + 1)}. Escape cancels.`
             : "Drag to a tile center to replace or swap, or an edge to split. Escape cancels."
           : ""}
       </span>
-      {drag && preview && (
+      {(drag || foreign) && preview && (
         <div
           className="tile-drop-preview"
           data-zone={preview.zone}
@@ -237,7 +247,7 @@ export function TileArea({
           {preview.zone === "center"
             ? placing
               ? "Place here"
-              : drag.kind === "tile"
+              : drag?.kind === "tile"
                 ? "Swap tiles"
                 : "Replace session"
             : `Split ${preview.zone}`}

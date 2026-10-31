@@ -1,3 +1,4 @@
+import { imagePut, imagePutResult, imageNonce } from "./image-paste";
 import { hostAlias, hostManagement, hostResult } from "./registered-hosts";
 import { isLaunchReason } from "./launch-failure";
 import {
@@ -12,7 +13,7 @@ import {
 import type { RemoteRequest, RemoteResponse } from "./remote-host";
 import { hostRequest, hostResponse } from "./terminal-host-protocol";
 
-export const REMOTE_PROTOCOL = 2;
+export const REMOTE_PROTOCOL = 3;
 export const REMOTE_GONE_EXIT_CODE = -1;
 export const MAX_REMOTE_FRAME = 8 * 1024 * 1024;
 // Fragment offsets and totals count UTF-16 units, bounding string storage to 64 MiB.
@@ -87,6 +88,7 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
     (value["context"] !== undefined && !sessionContext(value["context"]))
   )
     return false;
+  if (value["type"] === "image-put") return imagePut(value);
   if (value["type"] === "manage") return hostManagement(value);
   if (!remoteId(value["id"])) return false;
   if (value["type"] === "session-close")
@@ -171,6 +173,7 @@ export function remoteResponse(value: unknown): value is RemoteResponse {
     value["compatible"] !== 2
   )
     return false;
+  if (record(value) && value["type"] === "image-result") return imagePutResult(value);
   if (record(value) && value["type"] === "managed")
     return keys(value, ["type", "result"]) && hostResult(value["result"]);
   if (record(value) && remoteId(value["id"])) {
@@ -178,7 +181,11 @@ export function remoteResponse(value: unknown): value is RemoteResponse {
       return keys(value, ["type", "id", "reason"]) && isLaunchReason(value["reason"]);
     if (value["type"] === "agent-prepared") return keys(value, ["type", "id"]);
     if (value["type"] === "agent-ready")
-      return keys(value, ["type", "id", "ready"]) && remoteAgentReady(value["ready"]);
+      return (
+        keys(value, ["type", "id", "ready", "imageOwner"]) &&
+        (value["imageOwner"] === undefined || imageNonce(value["imageOwner"])) &&
+        remoteAgentReady(value["ready"])
+      );
     if (value["type"] === "agent-hook")
       return (
         keys(value, ["type", "id", "signal"]) &&

@@ -691,3 +691,14 @@ test("remote agent create allows bootstrap plus preparation and still expires", 
   await rejected;
   expect(remote.kill).toHaveBeenCalled();
 });
+
+test("image staging distinguishes a live local session from a missing/expired target", async () => {
+  const signal = new AbortController().signal;
+  await expect(client.imagePath("unknown", new Uint8Array(), signal)).rejects.toThrow(
+    "unavailable",
+  );
+  const id = await create();
+  await expect(client.imagePath(id, new Uint8Array(), signal)).resolves.toBeUndefined();
+  child.emit("message", { type: "exit", id, code: 0 });
+  await expect(client.imagePath(id, new Uint8Array(), signal)).rejects.toThrow("unavailable");
+});

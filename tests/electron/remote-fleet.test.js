@@ -188,6 +188,8 @@ process.on('exit',()=>cleanup?.());
     );
   }
   const sshCalls = path.join(root, "ssh-calls");
+  const launchCalls = path.join(root, "ssh-launch-calls");
+  await writeFile(launchCalls, "");
   await writeFile(
     path.join(bin, "ssh"),
     `#!${process.execPath}
@@ -197,6 +199,10 @@ if(args[split+1]!=='fleet-worker') process.exit(2);
 appendFileSync(${JSON.stringify(sshCalls)},'ssh\\n');
 if(args.at(-1)==='uname -s; uname -m') {process.stdout.write(require('node:os').type()+'\\n'+(process.arch==='x64'?'x86_64':process.platform==='darwin'?'arm64':'aarch64')+'\\n');process.exit(0);}
 const child=spawn('/bin/sh',['-c','exec '+args.slice(split+2).join(' ')],{env:{HOME:${JSON.stringify(remoteHome)},PATH:${JSON.stringify(remoteBin)},SHELL:${JSON.stringify(shell)},LANG:'C'},stdio:['pipe','pipe','pipe']});
+const {RemoteFrames}=require(${JSON.stringify(path.resolve("build/shared/remote-host-protocol.js"))});
+const frames=new RemoteFrames(); let ready=false, header='';
+child.stdout.on('data',bytes=>{if(!ready){header=(header+bytes.toString('ascii')).slice(-128);ready=header.includes('FOOM-READY\\n');}});
+process.stdin.on('data',bytes=>{if(ready)frames.push(bytes,message=>{if(message.type.startsWith('agent-'))appendFileSync(${JSON.stringify(launchCalls)},message.type+'\\n');});});
 process.stdin.pipe(child.stdin);child.stdout.pipe(process.stdout);child.stderr.pipe(process.stderr);child.stdin.on('error',()=>{});
 process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.exit(code??1));
 `,
@@ -287,7 +293,9 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     assert.equal(tree.status, "succeeded", JSON.stringify(tree));
     await rename(path.join(remoteBin, "codex"), path.join(remoteBin, "codex-hidden"));
     await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
-    const before = await readFile(sshCalls, "utf8");
+    // Background forge inspections may use SSH; refused launch must send no
+    // agent preparation/start frame. Record types only, never credentials or prompts.
+    const before = await readFile(launchCalls, "utf8");
     const missing = await call("launch", {
       host: "fleet-worker",
       worktreeId: tree.resultId,
@@ -296,7 +304,7 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     });
     assert.equal(missing.status, "failed");
     assert.equal(missing.reason, "remote_agent_unavailable");
-    assert.equal(await readFile(sshCalls, "utf8"), before);
+    assert.equal(await readFile(launchCalls, "utf8"), before);
     await rename(path.join(remoteBin, "codex-hidden"), path.join(remoteBin, "codex"));
     await page.evaluate(() => window.desktop.hosts({ action: "refresh", host: "fleet-worker" }));
   }
@@ -319,6 +327,8 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     });
     assert.equal(launched.status, "succeeded", agent + ": " + JSON.stringify(launched));
     assert.deepEqual(launched.placement, { kind: "remote", host: "fleet-worker" });
+    assert.ok((await readFile(launchCalls, "utf8")).includes("agent-open\n"));
+    assert.ok((await readFile(launchCalls, "utf8")).includes("agent-start\n"));
     await expect
       .poll(async () => {
         try {

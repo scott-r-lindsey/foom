@@ -154,6 +154,7 @@ const thirdPartyNotices = [
   "src/shared/terminal-theme-LICENSE.txt",
   "node_modules/markdown-it/LICENSE",
   "node_modules/smol-toml/LICENSE",
+  "node_modules/sharp/LICENSE",
   "node_modules/highlight.js/LICENSE",
   "node_modules/argparse/LICENSE",
   "node_modules/entities/LICENSE",
@@ -165,6 +166,9 @@ const thirdPartyNotices = [
   "src/main/evaluator/agent-rules/LICENSE.txt",
 ];
 for await (const name of glob("src/renderer/fonts/*.txt", { cwd: root })) {
+  thirdPartyNotices.push(name);
+}
+for await (const name of glob("node_modules/@img/*/{LICENSE,README.md}", { cwd: root })) {
   thirdPartyNotices.push(name);
 }
 thirdPartyNotices.sort();

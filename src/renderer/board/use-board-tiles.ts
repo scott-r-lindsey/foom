@@ -1,3 +1,4 @@
+import { prepareMove, finishMove } from "./move-placement";
 import { useBackgroundErrors } from "./error-presentation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TERMINAL_FONT_FALLBACK, terminalFontStack } from "../../shared/terminal-fonts";
@@ -80,6 +81,7 @@ export function useBoardTiles({
     };
   }, [soundSetup]);
   const layoutRef = useRef(layout);
+  const movePendingRef = useRef<{ request: string; next: TileLayout } | undefined>(undefined);
   const previewIds = useCallback(
     (current: TileLayout) =>
       new Set(
@@ -94,6 +96,7 @@ export function useBoardTiles({
   const [focusRequest, setFocusRequest] = useState(0);
   const changeLayout = useCallback(
     (next: TileLayout, background = false) => {
+      if (movePendingRef.current) return;
       next = {
         ...next,
         sidebarCollapsed: next.sidebarCollapsed ?? layoutRef.current.sidebarCollapsed ?? false,
@@ -159,10 +162,60 @@ export function useBoardTiles({
       focusedAt: focusedAtRef.current,
     };
   }, [source]);
+  useEffect(() => {
+    const api = source.windows?.moves;
+    if (!api) return;
+    const prepare = api.onPrepare((request, at) => {
+      const covered = boardRef.current?.dataset["previewCovered"] === "true";
+      const next =
+        movePendingRef.current || covered
+          ? null
+          : prepareMove(layoutRef.current, at, placementOptions());
+      if (next) {
+        movePendingRef.current = { request, next };
+        boardRef.current?.setAttribute("inert", "");
+      }
+      void api.ready(request, Boolean(next)).catch(() => {
+        if (movePendingRef.current?.request === request) {
+          movePendingRef.current = undefined;
+          boardRef.current?.removeAttribute("inert");
+        }
+      });
+    });
+    const finish = api.onFinish((request, content) => {
+      const pending = movePendingRef.current;
+      if (pending?.request !== request) return;
+      movePendingRef.current = undefined;
+      boardRef.current?.removeAttribute("inert");
+      if (content) {
+        const next = finishMove(pending.next, content);
+        const sessions = new Set(
+          source.isReady?.() === false
+            ? leaves(next.tree).flatMap((tile) => (sessionId(tile) ? [sessionId(tile) ?? ""] : []))
+            : source
+                .getSnapshot()
+                .filter((row) => !(row.dormant && row.exited))
+                .map((row) => row.id),
+        );
+        const knownPreviews = previewIds(next);
+        if (content.kind === "terminal") sessions.add(content.id);
+        else knownPreviews.add(content.id);
+        changeLayout(pruneContent(next, { sessions, previews: knownPreviews }));
+        setFocusRequest((value) => value + 1);
+      }
+    });
+    return () => {
+      prepare();
+      finish();
+      movePendingRef.current = undefined;
+      boardRef.current?.removeAttribute("inert");
+    };
+  }, [source, changeLayout, placementOptions, previewIds]);
   useEffect(
     () =>
       source.previews?.onPlace?.((id, expiresAt) => {
         if (
+          movePendingRef.current ||
           Date.now() >= expiresAt ||
           !source.previews?.getSnapshot().some((preview) => preview.id === id)
         )
@@ -262,7 +315,7 @@ export function useBoardTiles({
     { source: BoardSource; layout: TileLayout; ids: string } | undefined
   >(undefined);
   useEffect(() => {
-    if (!source.windows || (source.isReady && !source.isReady())) return;
+    if (movePendingRef.current || !source.windows || (source.isReady && !source.isReady())) return;
     const current = layout;
     const ids = leaves(current.tree).flatMap((tile) =>
       sessionId(tile) && rows.some((row) => row.id === sessionId(tile))

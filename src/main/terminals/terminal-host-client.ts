@@ -61,6 +61,17 @@ export class TerminalHostClient {
   private releaseDiagnostics: (() => void) | undefined;
   private failure: Error | undefined;
 
+  async imagePath(id: string, png: Uint8Array, signal: AbortSignal): Promise<string | undefined> {
+    const remote = this.remotes.get(id);
+    if (remote) return remote.imagePath(id, png, signal);
+    if (!this.remote) {
+      if (!this.sessions.get(id)?.alive) throw new Error("Terminal unavailable");
+      return undefined;
+    }
+    if (!(this.child instanceof RemoteTransport)) throw new Error("Remote unavailable");
+    return this.child.putImage(png, signal);
+  }
+
   private themeChoice: TerminalThemeChoice = "follow";
   private themeKey = "";
 

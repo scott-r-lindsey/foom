@@ -124,10 +124,38 @@ retain the `@electron/notarize` 3.1.2 pin. A transitive
 Vite dependency. It satisfies Vitest 5's Vite peer range; frozen installation,
 `pnpm run audit` and the full check/coverage runs validate the override.
 
+Scoped transitive overrides address minimatch
+[GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249) and glob
+[GHSA-3g3m-2fjr-6pw4](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4) while
+the latest ASAR and Forge installer parents still request vulnerable versions.
+ASAR uses glob 14.0.3 and minimatch 11.0.3, retaining its named async `glob` and
+`minimatch` calls. `electron-installer-common` and `electron-winstaller` use ASAR 4.3.1; their synchronous
+`extractFile` call remains available through Node 24's `require(esm)` support.
+ESLint and `@eslint/config-array` use minimatch 11.0.3 with the same `Minimatch`
+API. The typescript-estree override retains its named `minimatch` API for
+default-project matching.
+
+`electron-installer-common` also uses glob 14.0.3, with a two-line
+[pnpm patch](../patches/electron-installer-common@0.10.4.patch) replacing its
+promisified callback imports with `require('glob').glob`. Its metadata discovery
+and installer output discovery continue to await string arrays. This avoids
+forcing minimatch 11 into legacy glob 7, which relies on removed private matching
+fields.
+
+The Windows installer's `temp` dependency uses rimraf 6.1.3 with glob 14.0.3. A
+[second patch](../patches/temp@0.9.4.patch) adapts rimraf's named promise API with
+`callbackify`, selects `rimrafSync`, and maps `maxBusyTries` to `maxRetries` to
+retain six cleanup retries. Exercise temp's file and directory cleanup through
+callback, promise, synchronous and process-exit paths. Validate the graph with
+frozen installation and audit, fixture metadata discovery and package moves,
+ASAR packing/unpacking, full lint/check and coverage, Electron tests, Linux
+DEB/RPM makers and packaged smoke. Three-platform CI verifies the native paths.
+Remove the patches and overrides when maintained parent releases adopt the fixes.
+
 `electron-winstaller` is pinned directly at 5.4.4 because the Windows packaging
 hook uses its bundled tools. Keeping it required also prevents pnpm's hoisted
-optional-platform graph from dropping its legacy glob dependency on clean
-Windows installs. Validate dependency loading with a clean Windows-target
+optional-platform graph from dropping its dependencies on clean Windows
+installs. Validate dependency loading with a clean Windows-target
 optional-dependency install, plus the native Windows maker and smoke tests.
 Its lifecycle script stays disabled; Forge selects the bundled host 7-Zip files.
 

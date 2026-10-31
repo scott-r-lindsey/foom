@@ -1,3 +1,4 @@
+import type { ImagePut, ImagePutResult } from "./image-paste.d";
 import type { HostManagement, HostResult } from "./registered-hosts.d";
 import type { LaunchReason } from "./launch-failure";
 import type {
@@ -52,6 +53,7 @@ export type RemoteTarget = {
 };
 export type RemoteRequest =
   | RemoteInventory
+  | ImagePut
   | HostManagement
   | { type: "hello"; build: string }
   | {
@@ -95,6 +97,7 @@ export type RemoteOpenResult = { type: "open-result"; request: number; id: strin
 export type RemoteResponse =
   | RemoteInventoryResult
   | { type: "upgrade"; build: string }
+  | ImagePutResult
   | { type: "managed"; result: HostResult }
   | { type: "agent-failed"; id: string; reason: LaunchReason }
   | { type: "hello"; build: string; compatible?: 2 }
@@ -102,7 +105,7 @@ export type RemoteResponse =
   | RemoteFragment
   | RemoteOpenResult
   | { type: "agent-prepared"; id: string }
-  | { type: "agent-ready"; id: string; ready: RemoteAgentReady }
+  | { type: "agent-ready"; id: string; ready: RemoteAgentReady; imageOwner?: string }
   | { type: "agent-hook"; id: string; signal: HookSignal }
   | {
       type: "agent-call";
@@ -111,4 +114,4 @@ export type RemoteResponse =
       method: string;
       params: Record<string, unknown>;
     };
-export type RemoteEnvelope = { version: 2; message: RemoteRequest | RemoteResponse };
+export type RemoteEnvelope = { version: 3; message: RemoteRequest | RemoteResponse };

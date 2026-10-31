@@ -42,7 +42,7 @@ test("Settings authorizes checked SSH hosts and shows repository locations witho
   await mkdir(catalog, { recursive: true });
   const manifest = {
     version: require("../../package.json").version,
-    protocol: 2,
+    protocol: 3,
     source: gitSync(["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
     platform,
     arch: process.arch,
@@ -68,7 +68,7 @@ if (host === 'offline-cloud') { process.stderr.write('RAW SSH SECRET'); process.
 if (args.at(-1) === 'uname -s; uname -m') { process.stdout.write(${JSON.stringify(`${platform === "darwin" ? "Darwin" : "Linux"}\n${process.arch === "x64" ? "x86_64" : platform === "darwin" ? "arm64" : "aarch64"}\n`)}); process.exit(0); }
 process.stdout.write('FOOM-READY\\n');
 let input=Buffer.alloc(0);
-function send(message) { const data=Buffer.from(JSON.stringify({version:2,message})); const head=Buffer.alloc(4); head.writeUInt32BE(data.length); process.stdout.write(Buffer.concat([head,data])); }
+function send(message) { const data=Buffer.from(JSON.stringify({version:3,message})); const head=Buffer.alloc(4); head.writeUInt32BE(data.length); process.stdout.write(Buffer.concat([head,data])); }
 process.stdin.on('data', bytes => {
  input=Buffer.concat([input,bytes]);
  while(input.length>=4 && input.length>=4+input.readUInt32BE(0)) {

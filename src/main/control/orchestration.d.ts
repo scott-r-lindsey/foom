@@ -1,3 +1,4 @@
+import type { ForgeWorktree } from "./forge.d";
 import type { ReviewSnapshot } from "./review-loops.d";
 import type { ForgeTracking } from "./forge-tracking";
 import type { AgentId, AgentLaunch } from "../../shared/agents";
@@ -22,7 +23,7 @@ export interface OrchestrationHost {
     revalidate: (path?: string, branch?: string) => void,
     review?: boolean,
     host?: string,
-  ): Promise<{ path: string; branch: string; identity: string }>;
+  ): Promise<Omit<ForgeWorktree, "repository">>;
   terminals(): readonly WorkspaceTerminal[];
   /**
    * A new local branch in a new worktree. PR adoption uses the separate narrow path.
@@ -33,7 +34,7 @@ export interface OrchestrationHost {
     repository: string,
     branch: string,
     host?: string,
-  ): Promise<{ path: string; branch: string; identity: string }>;
+  ): Promise<Omit<ForgeWorktree, "repository">>;
   /** An ordinary child in the checkout created with `identity`: the user's non-bypass defaults, a read-only grant. */
   launch(
     parentId: string,

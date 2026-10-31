@@ -43,7 +43,7 @@ async function fixture() {
   const manifest = {
     version: "0.1.0",
     source: "a".repeat(40),
-    protocol: 2,
+    protocol: 3,
     platform: "linux",
     arch: "x64",
     size: bytes.length,

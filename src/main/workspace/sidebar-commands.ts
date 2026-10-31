@@ -34,7 +34,13 @@ export async function sidebarInventory(this: SidebarCommandsContext): Promise<Si
         if (this.deps.forge?.boardEnabled) {
           const tracked = await Promise.all(
             worktrees
-              .filter((tree) => tree.branch && !tree.bare && !tree.prunable)
+              .filter(
+                (tree) =>
+                  tree.branch &&
+                  !tree.bare &&
+                  !tree.prunable &&
+                  !tree.path.startsWith("/foom-remote/"),
+              )
               .map(async (tree) => {
                 const identity = await this.deps.worktrees
                   .launchIdentity(repository.path, tree.path)

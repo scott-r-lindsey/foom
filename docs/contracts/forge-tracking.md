@@ -140,3 +140,24 @@ the recheck generation are unchanged. This includes already-exited children rest
 after a cached read. Eligibility changes cancel stale interest. Unchanged periodic
 reads without waiting children publish nothing; registering interest adds no timer,
 poll or forge request.
+
+## Registered remote checkouts (#940)
+
+Remote child observations bind the registered SSH alias, approved code folder,
+canonical clone and worktree paths, creation identity, actual branch and the local
+repository's origin. Host decoration is display text only. The typed management
+inspection checks membership, identity and origin on the host and returns bounded
+branch/HEAD evidence. The hub rechecks registration and its own origin before and
+after inspection. Forge requests still use the hub's selected local CLI and its
+existing login; credentials and local checkouts are never copied to the host.
+
+The shared tracker publishes remote PR/check changes through board, session and
+child-event metadata. Equal branches on different hosts retain separate checkout
+bindings, even when their remote paths match. Remote HEAD and binding evidence are
+revalidated before publication; a push racing a query suppresses that sample.
+Disconnect, revoked registration or changed identity/origin hide facts and back
+off. Retained private bindings permit a later valid observation and restart
+revalidation, but never restore grants or authorize a host. Missing remote HEAD
+or origin evidence fails closed. Local sidebar scans never inspect opaque remote
+checkout IDs as local paths. No merge authority, remote review snapshots or
+automatic remote worktree removal is added.

@@ -1078,3 +1078,77 @@ test.each([false, true])(
     }
   },
 );
+
+test("image management uses owner capability on a separate SSH connection and never opens a remote path", async () => {
+  await remoteStarted();
+  // A fresh ready metadata event occurs only on a new connection; use the regular fixture helper with an owner below.
+  await expect(
+    transport.putImage(new Uint8Array([1]), new AbortController().signal),
+  ).rejects.toThrow();
+  await remoteAgent();
+  child.message({ type: "agent-prepared", id: "one" });
+  await vi.advanceTimersByTimeAsync(0);
+  const owner = "d".repeat(64);
+  child.message({
+    type: "agent-ready",
+    id: "one",
+    imageOwner: owner,
+    ready: { hooks: true, mcp: true, channels: ["lifecycle"] },
+  });
+  child.message({ type: "open-result", id: "one", request: 1, state: "live" });
+  const upload = new Child();
+  mock.spawn.mockReturnValue(upload);
+  const pending = transport.putImage(new Uint8Array(33), new AbortController().signal);
+  await vi.advanceTimersByTimeAsync(0);
+  upload.greet();
+  const request = upload.messages.find(
+    (value) =>
+      typeof value === "object" && value !== null && "type" in value && value.type === "image-put",
+  );
+  const { imagePut } = await import("../../../../src/shared/image-paste");
+  if (!imagePut(request)) throw new Error("Missing image request");
+  expect(request.owner).toBe(owner);
+  expect(request.data).toBe(Buffer.alloc(33).toString("base64"));
+  await expect(
+    transport.putImage(new Uint8Array([1]), new AbortController().signal),
+  ).rejects.toThrow();
+  const remote = `/remote/.foom-host/images/${"a".repeat(32)}/image-${"b".repeat(32)}.png`;
+  upload.message({
+    type: "image-result",
+    id: request.id,
+    owner,
+    upload: request.upload,
+    ok: true,
+    path: remote,
+  });
+  expect(await pending).toBe(remote);
+  const next = new Child();
+  mock.spawn.mockReturnValue(next);
+  const cancel = new AbortController();
+  const cancelled = transport.putImage(new Uint8Array(33), cancel.signal);
+  const assertion = expect(cancelled).rejects.toThrow();
+  await vi.advanceTimersByTimeAsync(0);
+  cancel.abort();
+  await assertion;
+  expect(next.kill).toHaveBeenCalled();
+});
+
+test("image upload refuses a session-inventory response on its management connection", async () => {
+  transport.kill();
+  transport = new RemoteTransport({ host: "fixture" }, "0.1.0", {
+    type: "image-put",
+    id: "one",
+    owner: "d".repeat(64),
+    upload: "e".repeat(32),
+    size: 33,
+    sha256: "f".repeat(64),
+    data: Buffer.alloc(33).toString("base64"),
+  });
+  const inventory = vi.fn();
+  transport.on("inventory", inventory);
+  await Promise.resolve();
+  child.greet();
+  child.message({ type: "inventory-result", own: [], foreign: [] });
+  expect(inventory).not.toHaveBeenCalled();
+  expect(child.kill).toHaveBeenCalled();
+});

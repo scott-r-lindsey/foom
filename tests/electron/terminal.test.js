@@ -412,6 +412,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "detach",
           "kill",
           "copyTerminalSelection",
+          "pasteTerminal",
           "input",
           "resize",
           "acknowledge",

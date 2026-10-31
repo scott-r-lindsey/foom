@@ -145,7 +145,7 @@ async function fixture(t, metadata = {}, packageManifest = { version: "0.1.0" })
         join(inputs, "manifest.json"),
         JSON.stringify({
           format: 1,
-          protocol: 2,
+          protocol: 3,
           platform,
           arch,
           source: "a".repeat(40),

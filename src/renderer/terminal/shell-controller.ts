@@ -1,3 +1,4 @@
+import { TerminalInputOrder } from "./input-order";
 import { copyOnSelect } from "./copy-on-select";
 import { terminalFontStack, TERMINAL_FONT_FALLBACK } from "../../shared/terminal-fonts";
 import { isUserThemeId } from "../../shared/theme-validation";
@@ -87,6 +88,7 @@ export function createShell(
   const isAvailable = (id: string) => available(id) && !removed.has(id);
   let selection = Promise.resolve();
   let request = 0;
+  const inputOrder = new TerminalInputOrder();
   let attached = false;
   let selectionCopyEnabled = false;
   const offSelectionCopy = copyOnSelect(container, terminal, () =>
@@ -111,6 +113,64 @@ export function createShell(
     view.status = hostFailed ? terminalStatus : prefix;
     publish();
   };
+  const paste = async () => {
+    if (!activeId || !attached || busy || exited) return;
+    const id = activeId;
+    const generation = request;
+    const live = () =>
+      !isDisposed() && activeId === id && generation === request && attached && !busy && !exited;
+    try {
+      await inputOrder.paste(
+        window.desktop.pasteTerminal(id),
+        (result) => {
+          view.pasteResult =
+            result.kind === "unsupported"
+              ? "Image paste is not supported for this session."
+              : result.kind === "failed" || result.kind === "cancelled"
+                ? "Unable to paste clipboard contents."
+                : undefined;
+          if (result.kind === "text") terminal.paste(result.text);
+          publish();
+        },
+        live,
+      );
+    } catch {
+      if (live()) {
+        view.pasteResult = "Unable to paste clipboard contents.";
+        publish();
+      }
+    }
+  };
+  terminal.attachCustomKeyEventHandler((event) => {
+    const shortcut =
+      event.key.toLowerCase() === "v" &&
+      !event.altKey &&
+      (navigator.platform.startsWith("Mac")
+        ? event.metaKey && !event.ctrlKey
+        : event.ctrlKey && !event.metaKey);
+    if (!shortcut) return true;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.type === "keydown") void paste();
+    return false;
+  });
+  let primarySelection = false;
+  const pasteMouse = (event: MouseEvent) => {
+    primarySelection = event.button === 1;
+  };
+  const pasteKey = () => {
+    primarySelection = false;
+  };
+  const clipboardPaste = (event: ClipboardEvent) => {
+    // Linux primary selection remains owned by xterm/middle-click.ts.
+    if (primarySelection && navigator.platform.includes("Linux")) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void paste();
+  };
+  container.addEventListener("mousedown", pasteMouse, true);
+  container.addEventListener("keydown", pasteKey, true);
+  container.addEventListener("paste", clipboardPaste, true);
   let parsedFrame = false;
   let frameGeneration = 0;
   const frame = terminal.onRender(() => {
@@ -124,6 +184,10 @@ export function createShell(
       ++frameGeneration;
       parsedFrame = false;
       view.attaching = false;
+    }
+    if (!visible) {
+      inputOrder.cancel();
+      view.pasteResult = undefined;
     }
     attached = visible;
     container.hidden = !visible;
@@ -207,11 +271,25 @@ export function createShell(
     }
     controls();
   });
+  const sendInput = (data: string, origin?: "wheel") => {
+    const id = activeId;
+    const generation = request;
+    if (!id) return;
+    inputOrder.input(
+      data.length,
+      () => {
+        if (origin === undefined) window.desktop.input(id, data);
+        else window.desktop.input(id, data, origin);
+      },
+      () =>
+        !isDisposed() && id === activeId && generation === request && attached && !busy && !exited,
+    );
+  };
   terminal.onData((data) => {
-    if (activeId && attached && !busy && !exited) window.desktop.input(activeId, data);
+    sendInput(data);
   });
   const wheel = alternateScroll(terminal, (data) => {
-    if (activeId && attached && !busy && !exited) window.desktop.input(activeId, data, "wheel");
+    sendInput(data, "wheel");
   });
   terminal.attachCustomWheelEventHandler((event) => wheel.handle(event));
   const board = container.closest(".board-home");
@@ -418,7 +496,11 @@ export function createShell(
     offExit();
     offRemoved();
     offSetup();
+    inputOrder.cancel();
     offMiddleClick();
+    container.removeEventListener("mousedown", pasteMouse, true);
+    container.removeEventListener("keydown", pasteKey, true);
+    container.removeEventListener("paste", clipboardPaste, true);
     offSelectionPaste();
     offSelectionCopy();
     if (activeId && attached && isAvailable(activeId))
@@ -486,6 +568,7 @@ export function createShell(
 
   return {
     terminal,
+    paste,
     release,
     open: async (id?: string) => {
       if (id) return select(id);

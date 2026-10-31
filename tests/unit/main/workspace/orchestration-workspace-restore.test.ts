@@ -493,7 +493,9 @@ it("reconciles remote inventory through workspace wiring without granting recove
   const rememberPlacement = vi.fn();
   const hosts = {
     registered: vi.fn(() => ({ host: "worker", codeFolder: "/code" })),
-    worktree: vi.fn(() => Promise.resolve({ ...checkout, changes: "" })),
+    worktree: vi.fn(() =>
+      Promise.resolve({ ...checkout, changes: "", sourceOrigin: "git@forge.test:me/repo.git" }),
+    ),
     placement: vi.fn((path: string) => (path === remotePath ? checkout : undefined)),
     rememberPlacement,
     requireAgent: vi.fn(() => Promise.resolve()),

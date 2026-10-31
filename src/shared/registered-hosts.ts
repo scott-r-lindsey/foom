@@ -162,8 +162,12 @@ export function hostResult(value: unknown): value is HostResult {
     keys(value, ["ok", "facts", "checkout", "worktree"]) &&
     (value["worktree"] === undefined ||
       (record(value["worktree"]) &&
-        keys(value["worktree"], ["path", "branch", "identity", "changes"]) &&
+        keys(value["worktree"], ["path", "branch", "identity", "changes", "head", "origin"]) &&
         remotePath(value["worktree"]["path"]) &&
+        (value["worktree"]["head"] === undefined ||
+          (typeof value["worktree"]["head"] === "string" &&
+            /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(value["worktree"]["head"]))) &&
+        (value["worktree"]["origin"] === undefined || gitOrigin(value["worktree"]["origin"])) &&
         hostBranch(value["worktree"]["branch"]) &&
         typeof value["worktree"]["identity"] === "string" &&
         /^[a-f0-9]{64}$/u.test(value["worktree"]["identity"]) &&
