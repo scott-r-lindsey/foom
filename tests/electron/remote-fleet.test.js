@@ -242,9 +242,8 @@ process.stdin.on('data', bytes=>{
   const result=spawnSync(command,argv,{env,input:messages.map(value=>JSON.stringify(value)).join('\\n')+'\\n',encoding:'utf8'}); mcp={code:result.status,output:result.stdout};
  }
 
- const verdict=reviewer ? (fs.existsSync(${JSON.stringify(path.join(root, "reviewed-once"))}) ? {verdict:'clean'} : {verdict:'findings',findings:[{file:'a.ts',line:1,summary:'Fixture defect',scenario:'Zero input'}]}) : undefined;
- if(reviewer) fs.writeFileSync(${JSON.stringify(path.join(root, "reviewed-once"))},'1');
- const handoff=cli(['handoff','--status','done','--summary-file','-','--idempotency-key','fixture-'+agent,...(verdict ? ['--review',JSON.stringify(verdict)] : [])],agent+' fixture complete');
+ const verdict=reviewer ? (reviewLoop==='clean' ? {verdict:'clean'} : {verdict:'findings',findings:[{file:'a.ts',line:1,summary:'Fixture defect',scenario:'Zero input'}]}) : undefined;
+ const handoff=cli(['handoff','--status',resumed && reviewLoop==='findings' ? 'blocked' : 'done','--summary-file','-','--idempotency-key','fixture-'+agent,...(verdict ? ['--review',JSON.stringify(verdict)] : [])],agent+' fixture complete');
  fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-report.json`))},JSON.stringify({identity,forbidden,handoff,mcp}));
 });
 process.on('exit',()=>cleanup?.());
@@ -520,25 +519,30 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
         .toBe("exited");
       let previous = record;
       const aliases = new Set([JSON.parse(report.identity.output).alias]);
-      for (const stage of ["review-1", "fix", "review-2"]) {
+      for (const stage of reviewLoop === "clean" ? ["review-1"] : ["review-1", "fix"]) {
+        // Main snapshots the exited checkout before preparing the next launch.
+        await expect
+          .poll(async () => (await call("session_state", { id: launched.resultId })).review?.phase)
+          .toBe(stage === "fix" ? "fixing" : "reviewing");
+        const opens = (await readFile(launchCalls, "utf8")).split("agent-open\n").length;
         await expect
           .poll(async () => {
             const current = JSON.parse(
               await readFile(path.join(root, `${agent}-launch.json`), "utf8"),
             );
-            const rows = (await call("sessions")).sessions;
-            const live = rows.some(
-              (row) =>
-                row.state !== "exited" &&
-                row.review?.waiting === false &&
-                (stage === "fix"
-                  ? row.id === launched.resultId
-                  : row.id !== launched.resultId && row.review?.phase === "reviewing"),
+            return (
+              current.pid !== previous.pid ||
+              (await readFile(launchCalls, "utf8")).split("agent-open\n").length > opens
+            );
+          })
+          .toBe(true);
+        await expect
+          .poll(async () => {
+            const current = JSON.parse(
+              await readFile(path.join(root, `${agent}-launch.json`), "utf8"),
             );
             return (
-              current.pid !== previous.pid &&
-              live &&
-              (stage === "fix" ? current.resumed : current.reviewer)
+              current.pid !== previous.pid && (stage === "fix" ? current.resumed : current.reviewer)
             );
           })
           .toBe(true)
@@ -564,6 +568,18 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
             );
             throw error;
           });
+        await expect
+          .poll(async () =>
+            (await call("sessions")).sessions.some(
+              (row) =>
+                row.state !== "exited" &&
+                row.review?.waiting === false &&
+                (stage === "fix"
+                  ? row.id === launched.resultId
+                  : row.id !== launched.resultId && row.review?.phase === "reviewing"),
+            ),
+          )
+          .toBe(true);
         const current = JSON.parse(await readFile(path.join(root, `${agent}-launch.json`), "utf8"));
         const state = (await call("sessions")).sessions;
         const participant =
@@ -607,16 +623,17 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
         aliases.add(identity.alias);
         assert.equal(JSON.parse(next.forbidden.output).error, "phase_2_restricted");
         assert.equal(next.handoff.code, 0);
-        await expect
-          .poll(async () => (await call("session_state", { id: participant })).state)
-          .toBe("exited");
+        if (stage !== "fix")
+          await expect
+            .poll(async () => (await call("session_state", { id: participant })).state)
+            .toBe("exited");
         assert.ok(!JSON.stringify(next).includes(participant));
         previous = current;
       }
       await expect
         .poll(async () => (await call("session_state", { id: launched.resultId })).review?.phase)
-        .toBe("clean");
-      assert.equal((await call("session_state", { id: launched.resultId })).review.round, 2);
+        .toBe(reviewLoop === "clean" ? "clean" : "waiting-on-parent");
+      assert.equal((await call("session_state", { id: launched.resultId })).review.round, 1);
       return;
     }
     if (restart && agent === "codex") {
@@ -790,8 +807,11 @@ test(
   (context) => remoteFleet(context, ["pi", "opencode"]),
 );
 
+test("registered-host clean reviewer completes with restricted identity", fleetOptions, (context) =>
+  remoteFleet(context, ["codex"], false, "clean"),
+);
 test(
-  "registered-host review loop runs sequential reviewers and resumes its author with restricted identities",
+  "registered-host review findings resume the author with fresh restricted identity",
   fleetOptions,
-  (context) => remoteFleet(context, ["codex"], false, true),
+  (context) => remoteFleet(context, ["codex"], false, "findings"),
 );
