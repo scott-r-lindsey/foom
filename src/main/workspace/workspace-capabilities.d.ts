@@ -110,6 +110,9 @@ export interface SidebarCommandsContext {
   readonly withRepository: <T>(repository: string, work: () => Promise<T>) => Promise<T>;
   readonly worktrees: WorkspaceMethods["worktrees"];
   readonly deps: {
+    readonly hosts:
+      | Pick<NonNullable<WorkspaceDependencies["hosts"]>, "placement" | "registered">
+      | undefined;
     readonly worktrees: Pick<
       WorkspaceDependencies["worktrees"],
       | "panelFacts"

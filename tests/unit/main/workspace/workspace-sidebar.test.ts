@@ -604,6 +604,119 @@ test("checkout copy commands resolve main facts and refuse missing, redirected o
   }
 });
 
+test.each([
+  "valid",
+  "unknown-row",
+  "unknown-path",
+  "foreign-repository",
+  "foreign-host",
+  "removed-host",
+  "changed-folder",
+  "removed-repository",
+  "missing-branch",
+  "missing-hosts",
+  "missing-clipboard",
+] as const)("remote branch copy authorizes the registered placement: %s", async (mode) => {
+  const { Hosts } = await import("../../../../src/main/setup/hosts");
+  const { DEFAULT_SETTINGS } = await import("../../../../src/main/setup/settings");
+  const { locationId } = await import("../../../../src/main/control/metadata");
+  const { checkoutIdentity } = await import("../../../../src/main/workspace/worktree-identity");
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  let settings = {
+    ...DEFAULT_SETTINGS,
+    registeredHosts: [{ host: "worker", codeFolder: "/code" }],
+  };
+  const execute = vi.fn();
+  const hosts = new Hosts(
+    { get: () => settings, update: vi.fn(() => Promise.resolve(settings)) },
+    () => deps.worktrees.listRepositories(),
+    "0.1.0",
+    execute,
+  );
+  deps.hosts = hosts;
+  const remote = {
+    repository: "/code/repository",
+    path: "/code/.foom-worktree-topic",
+    branch: "topic",
+    identity: "a".repeat(64),
+  };
+  const path = `/foom-remote/${locationId(JSON.stringify(["worker", remote.path]))}`;
+  const saved = readSessions([
+    {
+      id: "remote-child",
+      agent: "claude",
+      repository: repo.path,
+      worktree: path,
+      branch: "topic · worker",
+      remote: true,
+      placement: { kind: "remote", host: mode === "foreign-host" ? "other" : "worker" },
+      remoteCheckout: remote,
+      running: false,
+    },
+  ]);
+  expect(saved).toHaveLength(1);
+  deps.sessions = {
+    load: () => Promise.resolve(mode === "unknown-row" ? [] : saved),
+    save: vi.fn(async () => {}),
+    flush: vi.fn(async () => {}),
+  };
+  // A synthetic remote row can never pass the real local membership check.
+  vi.mocked(deps.worktrees.launchIdentity).mockImplementation((repository, worktree) =>
+    checkoutIdentity(
+      {
+        listWorktrees: (repository) => deps.worktrees.listWorktrees(repository),
+        validatePath: () => {},
+        realpath: vi.fn(),
+        git: vi.fn(),
+      },
+      repository,
+      worktree,
+      true,
+    ),
+  );
+  const copy = vi.fn();
+  if (mode === "missing-clipboard") delete deps.copyText;
+  else deps.copyText = copy;
+  const workspace = new Workspace(deps);
+  try {
+    await workspace.restore();
+    hosts.rememberPlacement(repo.path, path, "worker", remote);
+    if (mode === "foreign-repository") {
+      const foreign = { path: "/repos/other", name: "other" };
+      vi.mocked(deps.worktrees.listRepositories).mockReturnValue([repo, foreign]);
+      hosts.rememberPlacement(foreign.path, path, "worker", remote);
+    }
+    if (mode === "removed-host") settings = { ...settings, registeredHosts: [] };
+    if (mode === "changed-folder")
+      settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: "/other" }] };
+    if (mode === "removed-repository")
+      vi.mocked(deps.worktrees.listRepositories).mockReturnValue([]);
+    if (mode === "missing-branch")
+      hosts.rememberPlacement(repo.path, path, "worker", { ...remote, branch: "" });
+    if (mode === "missing-hosts") delete deps.hosts;
+    const action = workspace.sidebarCommand(
+      {
+        kind: "copy-worktree-branch",
+        repository: repo.path,
+        worktree: mode === "unknown-path" ? "/foom-remote/unknown" : path,
+      },
+      () => Promise.resolve(false),
+    );
+    if (mode === "valid") {
+      await action;
+      expect(copy).toHaveBeenCalledExactlyOnceWith("topic");
+    } else {
+      await expect(action).rejects.toThrow();
+      expect(copy).not.toHaveBeenCalled();
+    }
+    expect(deps.worktrees.launchIdentity).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  } finally {
+    await workspace.dispose();
+    hosts.dispose();
+  }
+});
+
 test("session copies resolve the selected session, its relationships and the current handoff only", async () => {
   const copy = vi.fn();
   deps.copyText = copy;

@@ -30,6 +30,17 @@ const {
 } = require("./harness.js");
 const { auditProcesses } = require("./process-audit.js");
 
+async function copyRemoteBranch(app, page, branch, expected) {
+  await page.getByRole("button", { name: `Actions for ${branch}`, exact: true }).click();
+  const panel = page.getByRole("dialog", { name: `${branch} details and commands`, exact: true });
+  const copy = panel.getByRole("button", { name: "Copy branch", exact: true });
+  await copy.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(expected);
+  await expect(copy).toHaveAttribute("data-copied", "true");
+  await page.keyboard.press("Escape");
+}
+
 async function remoteFleet(context, agents, restart = false) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "rfl-")));
   removeAfterApps(context, root);
@@ -351,6 +362,13 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     );
     assert.ok(row.branch.includes("fleet-worker"));
     await expect(page.getByText(row.branch, { exact: true }).first()).toBeVisible();
+    if (agent === agents[0])
+      await copyRemoteBranch(
+        app,
+        page,
+        row.branch,
+        agent === "codex" && tree ? "missing-agent" : `child-${agent}`,
+      );
     assert.equal(
       (await call("session_state", { id: launched.resultId, host: "fleet-worker" })).host,
       "fleet-worker",
@@ -518,6 +536,10 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
         )?.dormant,
     )
     .toBe(false);
+  const restoredChild = (await restored.evaluate(() => window.desktop.workspace())).terminals.find(
+    (row) => row.id === persistent.id,
+  );
+  await copyRemoteBranch(restarted, restored, restoredChild.branch, "missing-agent");
   assert.equal(
     JSON.parse(await readFile(path.join(root, "codex-launch.json"), "utf8")).pid,
     persistent.pid,

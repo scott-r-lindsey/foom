@@ -157,6 +157,28 @@ export async function sidebarCommand(
     await this.deps.copyText?.(command.worktree);
     return;
   }
+  if (command.kind === "copy-worktree-branch" && command.worktree.startsWith("/foom-remote/")) {
+    this.known(command.repository);
+    const hosts = this.deps.hosts;
+    const placement = hosts?.placement?.(command.worktree);
+    if (
+      !hosts ||
+      !placement ||
+      placement.localRepository !== command.repository ||
+      ![...this.launched.values()].some(
+        (row) =>
+          row.repository === command.repository &&
+          row.worktree === command.worktree &&
+          row.placement?.kind === "remote" &&
+          row.placement.host === placement.host,
+      )
+    )
+      throw new Error("Unknown remote checkout");
+    hosts.registered(placement.host, placement.codeFolder);
+    if (!placement.branch || !this.deps.copyText) throw new Error("Copy value unavailable");
+    await this.deps.copyText(placement.branch);
+    return;
+  }
   if (
     command.kind === "copy-default-branch" ||
     command.kind === "copy-worktree-branch" ||

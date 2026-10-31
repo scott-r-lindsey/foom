@@ -116,7 +116,7 @@ registered board/main-frame/URL sender checks apply before dispatch.
 | --- | --- | --- |
 | `copy-worktree-path` | repository, worktree | Existing canonical checkout membership check |
 | `copy-default-branch` | repository, worktree | Authorized panel facts' default branch |
-| `copy-worktree-branch` | repository, worktree | Current registered checkout branch |
+| `copy-worktree-branch` | repository, worktree | Current local checkout branch, or the registered remote placement's raw branch (without host decoration) |
 | `copy-worktree-head` | repository, worktree | Full HEAD of a currently detached checkout; display stays seven characters |
 | `copy-pull-request-number` | repository, worktree | Current tracked PR number |
 | `copy-pull-request-url` | repository, worktree | Forge's host-validated current PR URL |
@@ -128,8 +128,11 @@ registered board/main-frame/URL sender checks apply before dispatch.
 | `copy-handoff-summary` | session ID, positive sequence | Selected session's current handoff, refusing stale sequences |
 | `copy-error-text` | closed error sentence ID | Fixed sentence catalog in `shared/application-errors.ts`; arbitrary exception text is never accepted |
 
-Checkout fact copies authorize identity before resolution and again after awaited
-reads. Missing facts, unknown checkouts/sessions, unrelated children and stale
+Local checkout fact copies authorize identity before resolution and again after
+awaited reads. Remote branch copies resolve only a retained registered placement
+bound to the selected local repository and a current session row on the same host;
+main rechecks its host and approved folder registration, without local Git or SSH.
+Missing facts, unknown checkouts/sessions, unrelated children and stale
 handoffs refuse. Remote copies accept credential-free HTTP(S), SSH, Git and file
 URLs, SCP-style remotes and absolute or explicit relative Git paths. URL queries
 and fragments refuse because they may carry tokens. PR URLs retain the forge's
