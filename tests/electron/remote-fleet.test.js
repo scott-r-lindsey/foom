@@ -637,7 +637,23 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
           await verifiedCompletion(completedSnapshots);
           await expect
             .poll(async () => (await call("session_state", { id: participant })).state)
-            .toBe("exited");
+            .toBe("exited")
+            .catch(async (error) => {
+              const { state, review, pullRequest, handoff } = await call("session_state", {
+                id: participant,
+              });
+              console.error(
+                "Remote reviewer completion",
+                JSON.stringify({
+                  state,
+                  review,
+                  pullRequest,
+                  handoff,
+                  launchFrames: await readFile(launchCalls, "utf8"),
+                }),
+              );
+              throw error;
+            });
         }
         assert.ok(!JSON.stringify(next).includes(participant));
         previous = current;
