@@ -241,3 +241,46 @@ it("test-rules uses config credentials, reports expected/actual/rule and exits n
     expect.stringContaining("Use --save idle or --save other"),
   );
 });
+
+it("dispatches board text-file commands and permits the model's recipient and link bounds", async () => {
+  vi.mocked(inherited).mockReturnValue({ token: "SECRET", endpoint: "local", instanceId: "id" });
+  expect(await execute(["board", "threads"], "1", io(), {}, "/foom")).toBe(0);
+  const recipients = Array.from({ length: 16 }, (_, index) => [
+    "--to",
+    `repo-${String(index)}`,
+  ]).flat();
+  const links = Array.from({ length: 10 }, () => ["--link", "#973"]).flat();
+  const args = [
+    "board",
+    "post",
+    "--new",
+    ...recipients,
+    "--title",
+    "Topic",
+    "--kind",
+    "request",
+    "--text-file",
+    "-",
+    ...links,
+    "--idempotency-key",
+    "board-key",
+  ];
+  expect(await execute(args, "1", io(["Hello"]), {}, "/foom")).toBe(0);
+  expect(call).toHaveBeenLastCalledWith(
+    { token: "SECRET", endpoint: "local", instanceId: "id" },
+    {
+      method: "board_post",
+      params: {
+        to: Array.from({ length: 16 }, (_, index) => `repo-${String(index)}`),
+        title: "Topic",
+        kind: "request",
+        text: "Hello",
+        links: Array(10).fill("#973"),
+        idempotencyKey: "board-key",
+      },
+    },
+  );
+  expect(await execute(["board", ...Array<string>(64).fill("bad")], "1", io(), {}, "/foom")).toBe(
+    2,
+  );
+});

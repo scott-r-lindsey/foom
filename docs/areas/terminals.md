@@ -219,11 +219,11 @@ history is not erased and remains available to tail requests.
 Both peers negotiate the SHA-256 build identity before operations. Shell sessions
 permit open, attach/replay, input, resize, theme, acknowledgement, screen,
 tail, stop and close; they cannot create arbitrary commands or shut down the
-daemon. Version 2 also supports the separately authorized [phase-2 agent launch](agent-launch.md#remote-agent-phase-2-755): prepare/start/activate, reduced hooks, typed control calls/replies and validated child input for agent sessions only. Review-enabled remote launches are not supported in phase 2 and fail with
-`remote_review_unsupported`: local HEAD/dirty snapshots and forge observations
-cannot establish what a different remote checkout reviewed. Host-aware review
-snapshots and forge evidence remain future work. Host-aware placement (#756)
-does not enable remote review. Every ordinary
+daemon. Version 2 also supports the separately authorized [phase-2 agent launch](agent-launch.md#remote-agent-phase-2-755): prepare/start/activate, reduced hooks, typed control calls/replies and validated child input for agent sessions only. Registered-host review loops (#942) use host HEAD/dirty snapshot evidence and
+the existing host-bound forge tracker; each remote reviewer and author resume
+rechecks pinned evidence before starting its PTY. They retain the restricted
+child identity and tools. Developer spike mappings and detached remote review
+checkouts still fail with `remote_review_unsupported`. Every ordinary
 remote child launch captures its authenticated parent generation and launch
 operation, then synchronously rechecks both immediately before `agent-start`.
 Parent exit, revocation, replacement or a non-current operation aborts preparation

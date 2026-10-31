@@ -23,7 +23,7 @@ retry with the same key returns that record.
 | `handoff` (child only) | `status`, `summary`, optional `links` and `review`, `idempotencyKey` | `{ seq, status, timestamp }` |
 | `read_handoff` (orchestrator only) | `id`, optional `seq` | Bounded report with `untrusted: true` |
 | `tail` | `id`, optional `lines` 1–40 | `{ id, revision, timestamp, lines, truncated, untrusted: true, notice }` |
-| `wait_for` | `ids` (1–configured child limit), optional `after` map of ID → revision, `timeoutMs` 0–30000 | `{ sessions, changed, timedOut }` |
+| `wait_for` | `ids` (0–configured child limit with the board), optional `after` map of ID → revision, `boardAfter`, `timeoutMs` 0–30000 | `{ sessions, changed, timedOut, board }`; see the [board cursor](#local-message-board-973) |
 
 Initial launch prompts and branch names reject control characters other than newline and tab,
 Unicode format characters, and a leading `-`, so they cannot become options.
@@ -193,7 +193,9 @@ adoption retains open/same-repository/default-branch checks and tracks origin.
 `launch` uses the created worktree's host; an explicit different host refuses.
 A host's current inventory can refuse an absent/uncheckable agent with
 `remote_agent_unavailable` before launch preparation. Missing/stale inventories
-are probed. Existing remote review restrictions remain in effect.
+are probed. Registered-host sequential review loops use pinned host snapshots
+(#942); detached remote review checkouts and developer spike mappings remain
+unsupported. Reviewer grants retain the three restricted child tools.
 
 Worktrees discovered through profile-tagged remote inventory (#941) belong to the
 human only. Discovery never creates a worktree ID or child grant, refunds an

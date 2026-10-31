@@ -21,6 +21,7 @@ export async function hostProbe(
   hostGitConfig = false,
   timeoutMs = 5000,
   signal?: AbortSignal,
+  stdoutBudget: "probe" | "review-snapshot" = "probe",
 ): Promise<string> {
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
@@ -59,7 +60,9 @@ export async function hostProbe(
     }, timeoutMs);
     child.stdout.on("data", (data: Buffer) => {
       stdout += data.length;
-      if (stdout > 256 * 1024) {
+      // Snapshot inventories use the same bounded output budget as local Git.
+      // Discovery and every stderr stream retain their small probe limit.
+      if (stdout > (stdoutBudget === "review-snapshot" ? 16 * 1024 * 1024 : 256 * 1024)) {
         failure = new Error("Remote probe output exceeded");
         kill();
       } else chunks.push(data);

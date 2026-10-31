@@ -31,7 +31,7 @@ export async function execute(
   };
   try {
     if (
-      args.length > 32 ||
+      args.length > (args[0] === "board" ? 64 : 32) ||
       args.some((value) => Buffer.byteLength(value) > 16384) ||
       args.filter((value) => value === "--json").length > 1
     )

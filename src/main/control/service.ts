@@ -404,7 +404,8 @@ export class ControlService {
         JSON.stringify(input),
         input.thread ?? null,
       );
-      if (!operation.created) return operation;
+      if (!operation.created)
+        return this.operations.lookup(actor, { operationId: operation.operationId });
       try {
         authorize();
         const result =

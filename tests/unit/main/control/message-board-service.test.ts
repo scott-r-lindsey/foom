@@ -19,18 +19,14 @@ const cleanups: (() => void)[] = [];
 afterEach(() => {
   for (const close of cleanups.splice(0)) close();
 });
-function setup() {
+function setup(save = () => Promise.resolve()) {
   let changed = () => {};
-  const board = new MessageBoard(
-    async () => {},
-    repos,
-    () => {
-      changed();
-    },
-  );
+  const board = new MessageBoard(save, repos, () => {
+    changed();
+  });
   const h = harness({}, board);
   changed = () => {
-    h.orchestration.childEvents.publish();
+    h.service.boardChanged();
   };
   cleanups.push(() => {
     h.service.close();
@@ -45,7 +41,7 @@ describe("board grant authority", () => {
     const id = operation.resultId ?? "";
     expect(operation.status).toBe("succeeded");
     expect(h.board.read({ thread: id }).posts[0]?.author).toBe(`orchestrator:${a}`);
-    expect(await h.mutate("board_post", input)).toMatchObject(operation);
+    expect(await h.mutate("board_post", input)).toEqual(operation);
     const second = h.launchParent("second", other);
     expect(await second.call("board_read", { thread: id })).toMatchObject({ untrusted: true });
     await second.mutate("board_post", { thread: id, text: "Decision?", kind: "decision-needed" });
@@ -160,4 +156,17 @@ it("rechecks the grant after durable intent before any board write", async () =>
   });
   await expect(h.mutate("board_post", input)).rejects.toThrow("unauthorized");
   expect(h.board.threads({}).threads).toEqual([]);
+});
+
+it("returns an indeterminate operation for an ambiguous save and refuses an unavailable board", async () => {
+  const h = setup(() => Promise.reject(new Error("disk")));
+  const operation = await h.mutate("board_post", input);
+  expect(operation.status).toBe("indeterminate");
+  expect(h.board.threads({}).threads).toEqual([]);
+  const bare = harness();
+  cleanups.push(() => {
+    bare.service.close();
+    bare.orchestration.disposeUnreadChildren();
+  });
+  await expect(bare.call("board_threads")).rejects.toThrow("unavailable");
 });

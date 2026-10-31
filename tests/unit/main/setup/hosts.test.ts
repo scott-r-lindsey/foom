@@ -618,6 +618,51 @@ test("a config provider cannot appear ready from a remote installation probe", a
   }
 });
 
+test.each([
+  "valid",
+  "missing",
+  "head",
+  "remote-origin",
+  "local-origin",
+  "repository",
+  "registration",
+])("review snapshots bind host evidence and recheck local authorization: %s", async (mode) => {
+  settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+  const origin = "git@forge.test:me/repo.git";
+  const { createHash } = await import("node:crypto");
+  const directory = `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
+  const snapshot = { head: "b".repeat(40), digest: "c".repeat(64) };
+  const tree = {
+    path: `${facts.codeFolder}/.foom-worktree-review`,
+    branch: "feature",
+    identity: "a".repeat(64),
+    changes: "",
+    head: mode === "head" ? "d".repeat(40) : snapshot.head,
+    origin: mode === "remote-origin" ? "https://other.test/o/r" : origin,
+    ...(mode === "missing" ? {} : { snapshot }),
+  };
+  run
+    .mockResolvedValueOnce({
+      ok: true,
+      facts,
+      checkout: { path: `${facts.codeFolder}/${directory}`, state: "clean" },
+    })
+    .mockImplementationOnce(() => {
+      if (mode === "local-origin")
+        mock.execute.mockResolvedValue({ stdout: "git@other.test:me/repo.git" });
+      if (mode === "repository") repositories = [];
+      if (mode === "registration") settings = { ...settings, registeredHosts: [] };
+      return Promise.resolve({ ok: true, facts, worktree: tree });
+    });
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
+  const result = hosts.worktree("worker", "/local/repo", {
+    operation: "snapshot-worktree",
+    path: tree.path,
+    identity: tree.identity,
+  });
+  if (mode === "valid") await expect(result).resolves.toMatchObject({ snapshot });
+  else await expect(result).rejects.toThrow();
+});
 test("tagged inventory survives a new hub owner, last-row absence and re-registration without adopting a foreign clone", async () => {
   const { createHash } = await import("node:crypto");
   const { locationId } = await import("../../../../src/main/control/metadata");
