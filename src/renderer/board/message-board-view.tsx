@@ -181,8 +181,10 @@ export function MessageBoardPanel({
               aria-pressed={thread === row.id}
               data-decision={row.state === "waiting-human"}
               onClick={() => {
-                setThread(row.id);
-                setReply("");
+                if (thread !== row.id) {
+                  setThread(row.id);
+                  setReply("");
+                }
               }}
             >
               <strong>{row.title}</strong>

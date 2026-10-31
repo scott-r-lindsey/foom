@@ -147,6 +147,26 @@ it("retains idempotency keys across failed replies and resolution retries", asyn
   });
   expect(vi.mocked(h.api.resolve).mock.calls[0]).toEqual(vi.mocked(h.api.resolve).mock.calls[1]);
 });
+it("preserves an unsent reply when reselecting a thread and clears it when switching threads", async () => {
+  const h = setup();
+  const second = { ...thread, id: "second", title: "Release screenshots" };
+  vi.mocked(h.api.threads).mockResolvedValue({ ...list, threads: [thread, second] });
+  vi.mocked(h.api.read).mockImplementation(({ thread: id }) =>
+    Promise.resolve({ ...detail, thread: id === second.id ? second : thread }),
+  );
+  h.changed();
+  await h.view.findByRole("button", { name: /Release screenshots/ });
+  fireEvent.click(h.view.getByRole("button", { name: /Nightly release/ }));
+  fireEvent.change(await h.view.findByLabelText("Reply"), { target: { value: "Unsent reply" } });
+
+  fireEvent.click(h.view.getByRole("button", { name: /Nightly release/ }));
+  expect(h.view.getByLabelText("Reply")).toHaveProperty("value", "Unsent reply");
+
+  fireEvent.click(h.view.getByRole("button", { name: /Release screenshots/ }));
+  await h.view.findByRole("heading", { name: "Release screenshots" });
+  expect(h.view.getByLabelText("Reply")).toHaveProperty("value", "");
+  expect(h.api.post).not.toHaveBeenCalled();
+});
 it("loads all pages and keeps resolved threads read-only", async () => {
   const api: MessageBoardApi = {
     threads: vi
