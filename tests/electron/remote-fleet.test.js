@@ -61,8 +61,17 @@ async function remoteFleet(context, agents, restart = false, reviewLoop = false)
     : "git@fixture.test:team/repo.git";
   gitSync(["remote", "add", "origin", origin], { cwd: repo });
   const forgeState = path.join(root, "forge.json");
+  const forgeCalls = path.join(root, "forge-calls");
   if (reviewLoop) {
-    await writeFile(path.join(bin, "gh"), FAKE_GH, { mode: 0o700 });
+    await writeFile(forgeCalls, "");
+    await writeFile(
+      path.join(bin, "gh"),
+      FAKE_GH.replace(
+        "const args = process.argv.slice(2);",
+        `const args = process.argv.slice(2); fs.appendFileSync(${JSON.stringify(forgeCalls)}, args[0] + "\\n");`,
+      ),
+      { mode: 0o700 },
+    );
     await writeFile(
       forgeState,
       JSON.stringify({
@@ -152,7 +161,7 @@ else process.exit(2);
   if (reviewLoop) {
     await symlink(process.execPath, path.join(remoteBin, "node"));
     // Snapshot reads need fixed facts, not a new Node VM for each Git argument array.
-    // Mutations/inventory still run the stateful fixture; no system Git or network runs.
+    // Mutations still run the stateful fixture; no system Git or network runs.
     await writeFile(
       path.join(remoteBin, "git"),
       [
@@ -165,6 +174,7 @@ else process.exit(2);
         "  *' --git-path '*) printf '%s/.snapshot-missing\\n' \"$PWD\";;",
         "  *' --symbolic-full-name '*) IFS= read -r branch < \"$FIXTURE_REMOTE_GIT_ROOT/.git/worktrees/${PWD##*/}/fixture-branch\"; printf 'refs/heads/%s\\n' \"$branch\";;",
         "  *' symbolic-ref '*) IFS= read -r branch < \"$FIXTURE_REMOTE_GIT_ROOT/.git/worktrees/${PWD##*/}/fixture-branch\"; printf '%s\\n' \"$branch\";;",
+        '  *\' worktree list \'*) for record in "$FIXTURE_REMOTE_GIT_ROOT"/.git/worktrees/.foom-worktree-*/fixture-branch; do [ -f "$record" ] || continue; IFS= read -r branch < "$record"; metadata="${record%/fixture-branch}"; printf \'worktree %s/%s\\000HEAD %s\\000branch refs/heads/%s\\000\\000\' "${FIXTURE_REMOTE_GIT_ROOT%/*}" "${metadata##*/}" "$FIXTURE_REMOTE_HEAD" "$branch"; done;;',
         "  *' ls-remote '*) printf 'ref: refs/heads/main\\tHEAD\\n';;",
         "  *' rev-parse '*) printf '%s\\n' \"$FIXTURE_REMOTE_HEAD\";;",
         "  *' status '*|*' check-ref-format '*|*' fetch '*|*' for-each-ref '*|*' ls-files '*) exit 0;;",
@@ -427,13 +437,34 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
       (await call("session_state", { id: launched.resultId, host: "fleet-worker" })).host,
       "fleet-worker",
     );
-    if (reviewLoop)
+    if (reviewLoop) {
+      // Observe the asynchronous forge request before waiting for its validated
+      // publication; neither stage borrows the other's assertion deadline.
+      await expect
+        .poll(async () => (await readFile(forgeCalls, "utf8")).includes("api\n"))
+        .toBe(true);
       await expect
         .poll(
           async () =>
             (await call("session_state", { id: launched.resultId })).pullRequest?.requiredChecks,
         )
-        .toBe("success");
+        .toBe("success")
+        .catch(async (error) => {
+          const { state, review, pullRequest } = await call("session_state", {
+            id: launched.resultId,
+          });
+          console.error(
+            "Remote review initial observation",
+            JSON.stringify({
+              state,
+              review,
+              pullRequest,
+              forgeCalls: await readFile(forgeCalls, "utf8"),
+            }),
+          );
+          throw error;
+        });
+    }
     await call("send_keys", {
       id: launched.resultId,
       keys: ["1"],
