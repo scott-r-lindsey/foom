@@ -2,10 +2,10 @@ import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fingerprint } from "./validation-fingerprint.mjs";
 
-// Memoize only a complete successful lint of identical inputs. Per-file ESLint
+// Memoize only a complete successful lint of identical inputs. Per-file lint
 // caches cannot see type changes in a different file. Include installed packages
 // as well as the lockfile so changed dependency declarations invalidate this too.
-const cache = ".eslintcache";
+const cache = ".oxlintcache";
 const excluded = new Set([
   ".git",
   cache,
@@ -37,7 +37,7 @@ if (saved?.fingerprint === before) {
   rmSync(cache, { force: true });
   const result = spawnSync(
     process.execPath,
-    ["node_modules/eslint/bin/eslint.js", ".", "--max-warnings=0"],
+    ["node_modules/oxlint/bin/oxlint", ".", "--deny-warnings"],
     { stdio: "inherit" },
   );
   if (result.error) throw result.error;

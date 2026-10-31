@@ -1,0 +1,1953 @@
+{
+  "constructor-super": {
+    "config": [2],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "for-direction": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "getter-return": {
+    "config": [
+      2,
+      {
+        "allowImplicit": false
+      }
+    ],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-async-promise-executor": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-case-declarations": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-class-assign": {
+    "config": [2],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-compare-neg-zero": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-cond-assign": {
+    "config": [2, "except-parens"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-const-assign": {
+    "config": [2],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-constant-binary-expression": {
+    "config": [
+      2,
+      {
+        "checkRelationalComparisons": false
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-constant-condition": {
+    "config": [
+      2,
+      {
+        "checkLoops": "allExceptWhileTrue"
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-control-regex": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-debugger": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-delete-var": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-dupe-args": {
+    "config": [2],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-dupe-class-members": {
+    "config": [2],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-dupe-else-if": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-dupe-keys": {
+    "config": [2],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-duplicate-case": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-empty": {
+    "config": [
+      2,
+      {
+        "allowEmptyCatch": false
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-empty-character-class": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-empty-pattern": {
+    "config": [
+      2,
+      {
+        "allowObjectPatternsAsParameters": false
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-empty-static-block": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-ex-assign": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-extra-boolean-cast": {
+    "config": [2, {}],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-fallthrough": {
+    "config": [
+      2,
+      {
+        "allowEmptyCase": false,
+        "reportUnusedFallthroughComment": false
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-func-assign": {
+    "config": [2],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-global-assign": {
+    "config": [
+      2,
+      {
+        "exceptions": []
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-import-assign": {
+    "config": [2],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-invalid-regexp": {
+    "config": [2, {}],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-irregular-whitespace": {
+    "config": [
+      2,
+      {
+        "skipComments": false,
+        "skipJSXText": false,
+        "skipRegExps": false,
+        "skipStrings": true,
+        "skipTemplates": false
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-loss-of-precision": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-misleading-character-class": {
+    "config": [
+      2,
+      {
+        "allowEscape": false
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-new-native-nonconstructor": {
+    "config": [2],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-nonoctal-decimal-escape": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-obj-calls": {
+    "config": [2],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-octal": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-prototype-builtins": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-redeclare": {
+    "config": [
+      2,
+      {
+        "builtinGlobals": true
+      }
+    ],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-regex-spaces": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-self-assign": {
+    "config": [
+      2,
+      {
+        "props": true
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-setter-return": {
+    "config": [2],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-shadow-restricted-names": {
+    "config": [
+      2,
+      {
+        "reportGlobalThis": true
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-sparse-arrays": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-this-before-super": {
+    "config": [2],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-unassigned-vars": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-undef": {
+    "config": [
+      2,
+      {
+        "typeof": false
+      }
+    ],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-unexpected-multiline": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-unreachable": {
+    "config": [2],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-unsafe-finally": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-unsafe-negation": {
+    "config": [
+      2,
+      {
+        "enforceForOrderingRelations": false
+      }
+    ],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-unsafe-optional-chaining": {
+    "config": [
+      2,
+      {
+        "disallowArithmeticOperators": false
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-unused-labels": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-unused-private-class-members": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-unused-vars": {
+    "config": [
+      2,
+      {
+        "vars": "all",
+        "args": "after-used",
+        "ignoreRestSiblings": false,
+        "caughtErrors": "all",
+        "ignoreClassWithStaticInitBlock": false,
+        "ignoreUsingDeclarations": false,
+        "reportUsedIgnorePattern": false,
+        "argsIgnorePattern": "^_"
+      }
+    ],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "no-useless-assignment": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-useless-backreference": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-useless-catch": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-useless-escape": {
+    "config": [
+      2,
+      {
+        "allowRegexCharacters": []
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-with": {
+    "config": [2],
+    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "typed": false
+  },
+  "preserve-caught-error": {
+    "config": [
+      2,
+      {
+        "requireCatchParameter": false,
+        "errorClassNames": []
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "require-yield": {
+    "config": [2],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "use-isnan": {
+    "config": [
+      2,
+      {
+        "enforceForIndexOf": false,
+        "enforceForSwitchCase": true
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "valid-typeof": {
+    "config": [
+      2,
+      {
+        "requireStringLiterals": false
+      }
+    ],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "no-var": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "prefer-const": {
+    "config": [
+      2,
+      {
+        "destructuring": "any",
+        "ignoreReadBeforeAssign": false
+      }
+    ],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "prefer-rest-params": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "prefer-spread": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/await-thenable": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/ban-ts-comment": {
+    "config": [
+      2,
+      {
+        "minimumDescriptionLength": 10
+      }
+    ],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-array-constructor": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-array-delete": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-base-to-string": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-confusing-void-expression": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-deprecated": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-duplicate-enum-values": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-duplicate-type-constituents": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-dynamic-delete": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-empty-object-type": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-explicit-any": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-extra-non-null-assertion": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-extraneous-class": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-floating-promises": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-for-in-array": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-generated-empty-object-type": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-implied-eval": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-invalid-void-type": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-meaningless-void-operator": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-misused-new": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-misused-promises": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-misused-spread": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-mixed-enums": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-namespace": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-non-null-asserted-nullish-coalescing": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-non-null-asserted-optional-chain": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-non-null-assertion": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-redundant-type-constituents": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-require-imports": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-this-alias": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-unnecessary-boolean-literal-compare": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unnecessary-condition": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unnecessary-template-expression": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unnecessary-type-arguments": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unnecessary-type-assertion": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unnecessary-type-constraint": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-unnecessary-type-conversion": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unnecessary-type-parameters": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unsafe-argument": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unsafe-assignment": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unsafe-call": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unsafe-declaration-merging": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-unsafe-enum-assignment": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unsafe-enum-comparison": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unsafe-function-type": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-unsafe-member-access": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unsafe-return": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unsafe-unary-minus": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-unused-expressions": {
+    "config": [
+      2,
+      {
+        "allowShortCircuit": false,
+        "allowTaggedTemplates": false,
+        "allowTernary": false
+      }
+    ],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-unused-vars": {
+    "config": [
+      2,
+      {
+        "argsIgnorePattern": "^_"
+      }
+    ],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-useless-constructor": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/no-useless-default-assignment": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/no-wrapper-object-types": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/only-throw-error": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/prefer-as-const": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/prefer-literal-enum-member": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/prefer-namespace-keyword": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/prefer-promise-reject-errors": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/prefer-reduce-type-parameter": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/prefer-return-this-type": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/related-getter-setter-pairs": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/require-await": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/restrict-plus-operands": {
+    "config": [
+      2,
+      {
+        "allowAny": false,
+        "allowBoolean": false,
+        "allowNullish": false,
+        "allowNumberAndString": false,
+        "allowRegExp": false
+      }
+    ],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/restrict-template-expressions": {
+    "config": [
+      2,
+      {
+        "allowAny": false,
+        "allowBoolean": false,
+        "allowNever": false,
+        "allowNullish": false,
+        "allowNumber": false,
+        "allowRegExp": false
+      }
+    ],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/return-await": {
+    "config": [2, "error-handling-correctness-only"],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/triple-slash-reference": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/unbound-method": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/unified-signatures": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "@typescript-eslint/use-unknown-in-catch-callback-variable": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": true
+  },
+  "@typescript-eslint/consistent-type-imports": {
+    "config": [2],
+    "files": [
+      "src/main/main.ts",
+      "src/renderer/renderer.tsx",
+      "tests/unit/main/profile.test.ts",
+      "src/shared/desktop.d.ts"
+    ],
+    "typed": false
+  },
+  "foom/process-boundaries": {
+    "config": [2],
+    "files": ["src/main/main.ts", "src/renderer/renderer.tsx", "src/shared/desktop.d.ts"],
+    "typed": false
+  },
+  "react-hooks/rules-of-hooks": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/exhaustive-deps": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/static-components": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/use-memo": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/preserve-manual-memoization": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/incompatible-library": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/immutability": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/globals": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/refs": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/set-state-in-effect": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/error-boundaries": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/purity": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/set-state-in-render": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/unsupported-syntax": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/config": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "react-hooks/gating": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/error-boundaries": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/exhaustive-deps": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-access-state-in-setstate": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-array-index-key": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-children-count": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-children-for-each": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-children-map": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-children-only": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-children-to-array": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-clone-element": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-component-will-mount": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-component-will-receive-props": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-component-will-update": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-context-provider": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-create-ref": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-direct-mutation-state": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-forward-ref": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-missing-key": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-nested-component-definitions": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-nested-lazy-component-declarations": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-set-state-in-component-did-mount": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-set-state-in-component-did-update": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-set-state-in-component-will-update": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-unnecessary-use-prefix": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-unsafe-component-will-mount": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-unsafe-component-will-receive-props": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-unsafe-component-will-update": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-unused-class-component-members": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/no-use-context": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/purity": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/rules-of-hooks": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/set-state-in-effect": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/set-state-in-render": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/static-components": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/unsupported-syntax": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/use-memo": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/use-state": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/jsx-no-children-prop": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/jsx-no-children-prop-with-children": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/jsx-no-comment-textnodes": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/jsx-no-key-after-spread": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/jsx-no-leaked-dollar": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/jsx-no-leaked-semicolon": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/jsx-no-namespace": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/rsc-function-definition": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/dom-no-dangerously-set-innerhtml": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/dom-no-dangerously-set-innerhtml-with-children": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/dom-no-find-dom-node": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/dom-no-flush-sync": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/dom-no-hydrate": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/dom-no-render": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/dom-no-render-return-value": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/dom-no-script-url": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/dom-no-unsafe-iframe-sandbox": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/dom-no-use-form-state": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/dom-no-void-elements-with-children": {
+    "config": [2],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/web-api-no-leaked-event-listener": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/web-api-no-leaked-fetch": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/web-api-no-leaked-intersection-observer": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/web-api-no-leaked-interval": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/web-api-no-leaked-resize-observer": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/web-api-no-leaked-timeout": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/naming-convention-context-name": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/naming-convention-id-name": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  },
+  "@eslint-react/naming-convention-ref-name": {
+    "config": [1],
+    "files": ["src/renderer/renderer.tsx"],
+    "typed": false
+  }
+}

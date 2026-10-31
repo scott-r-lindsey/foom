@@ -256,7 +256,9 @@ it("holds a bounded wait_for open past the five-second transport deadline", asyn
     agent: "claude",
   });
   const first = await orchestrator.tool("wait_for", { ids: ["child"] });
-  const revision = (first.structuredContent?.["sessions"] as { revision: string }[])[0]?.revision;
+  const revision = (
+    first.structuredContent?.["sessions"] as { revision: string }[] | undefined
+  )?.[0]?.revision;
   const started = Date.now();
   const response = await fetch(http.endpoint, {
     method: "POST",

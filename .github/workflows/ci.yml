@@ -87,7 +87,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run format:check
       - run: pnpm run docs:check
-      - run: pnpm run lint
+      - name: Oxlint (type-aware, warnings denied)
+        run: pnpm run lint
+      - name: Benchmark Oxlint with and without type awareness
+        run: pnpm run lint:benchmark
       - run: pnpm run typecheck
       - run: pnpm run audit
       - run: pnpm run test:ci
