@@ -26,6 +26,7 @@ const {
   launchApp,
   quitAndWait,
   confirmationPage,
+  openSettingsScreen,
   fixtureCleanup,
   createMemoryFixture,
   removeAfterApps,
@@ -145,7 +146,7 @@ else if (args.includes('--absolute-git-dir')) console.log(path.join(${JSON.strin
 else if (args.includes('ls-remote')) process.stdout.write('ref: refs/heads/main\\tHEAD\\n');
 else if (args.includes('symbolic-ref')) console.log(state[cwd]);
 else if (args.includes('worktree') && args.includes('add')) {
- const destination=args[args.indexOf('--')+1]; fs.mkdirSync(destination,{mode:0o700}); const metadata=path.join(${JSON.stringify(path.join(remoteRepo, ".git", "worktrees"))},path.basename(destination)); fs.mkdirSync(metadata,{recursive:true,mode:0o700}); fs.writeFileSync(path.join(destination,'.git'),'gitdir: '+metadata+'\\n'); state[destination]=args[args.indexOf('-b')+1]; fs.writeFileSync(path.join(metadata,'fixture-branch'),state[destination]+'\\n'); fs.writeFileSync(${JSON.stringify(gitState)},JSON.stringify(state));
+ const destination=args[args.indexOf('--')+1]; fs.mkdirSync(destination,{mode:0o700,recursive:true}); const metadata=path.join(${JSON.stringify(path.join(remoteRepo, ".git", "worktrees"))},path.basename(destination)); fs.mkdirSync(metadata,{recursive:true,mode:0o700}); fs.writeFileSync(path.join(destination,'.git'),'gitdir: '+metadata+'\\n'); state[destination]=args[args.indexOf('-b')+1]; fs.writeFileSync(path.join(metadata,'fixture-branch'),state[destination]+'\\n'); fs.writeFileSync(${JSON.stringify(gitState)},JSON.stringify(state));
 } else if (args.includes('worktree') && args.includes('list')) {
  for (const [directory,branch] of Object.entries(state)) process.stdout.write('worktree '+directory+'\\0HEAD '+ 'a'.repeat(40)+'\\0branch refs/heads/'+branch+'\\0\\0');
 } else if (args.includes('worktree') && args.includes('remove')) {const directory=args.at(-1); fs.rmSync(directory,{recursive:true}); delete state[directory]; fs.writeFileSync(${JSON.stringify(gitState)},JSON.stringify(state));}
@@ -738,6 +739,20 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   }
   if (!restart) return;
   assert.ok(persistent);
+  const unused = await call("create_worktree", {
+    host: "fleet-worker",
+    branch: "unused-after-restart",
+    idempotencyKey: "unused-before-restart",
+  });
+  assert.equal(unused.status, "succeeded", JSON.stringify(unused));
+  const foreignTree = path.join(folder, ".foom-worktree-other-profile");
+  const untaggedTree = path.join(folder, ".foom-worktree-untagged");
+  await mkdir(foreignTree, { mode: 0o700 });
+  await mkdir(untaggedTree, { mode: 0o700 });
+  const {
+    writeWorktreeProvenance,
+  } = require("../../build/terminal-host/remote/worktree-provenance.js");
+  await writeWorktreeProvenance("b".repeat(32), remoteRepo, foreignTree, origin);
   await expect
     .poll(
       async () =>
@@ -757,6 +772,30 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     },
   );
   const restored = await boardPage(restarted);
+  // Inventory recovers an unused checkout without any session or orchestration grant.
+  const restoredTrees = await restored.evaluate(
+    (repository) => window.desktop.worktrees(repository),
+    repo,
+  );
+  const recovered = restoredTrees.find((tree) => tree.branch === "unused-after-restart");
+  assert.ok(recovered);
+  assert.equal(recovered.host, "fleet-worker");
+  assert.ok(!restoredTrees.some((tree) => /other-profile|untagged/.test(tree.branch || "")));
+  const hostState = await restored.evaluate(() => window.desktop.hosts({ action: "list" }));
+  assert.equal(hostState.hosts.find((host) => host.host === "fleet-worker").foreignWorktrees, 2);
+  assert.ok(
+    !(await restored.evaluate(() => window.desktop.workspace())).terminals.some(
+      (row) => row.worktree === recovered.path,
+    ),
+  );
+  for (const theme of ["eclipse-light", "eclipse-dark"]) {
+    await restored.evaluate(
+      (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
+      theme,
+    );
+    await restored.screenshot({ path: path.resolve(`test-results/941-recovered-${theme}.png`) });
+  }
+
   // The parent must complete its new launch before child re-grant can finish.
   await expect
     .poll(
@@ -824,6 +863,86 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   await expect
     .poll(async () => (await restoredCall("session_state", { id: persistent.id })).state)
     .toBe("exited");
+  await restored.evaluate(
+    ({ repository, worktree }) =>
+      window.desktop.sidebarCommand({ kind: "launch", repository, worktree, run: "shell" }),
+    { repository: repo, worktree: recovered.path },
+  );
+  const expectedCheckout = Object.entries(JSON.parse(await readFile(gitState, "utf8"))).find(
+    ([, branch]) => branch === "unused-after-restart",
+  )?.[0];
+  assert.ok(expectedCheckout);
+  const humanShell = (await restored.evaluate(() => window.desktop.workspace())).terminals.find(
+    (row) => row.worktree === recovered.path,
+  );
+  assert.ok(humanShell);
+  assert.equal(humanShell.orchestration, undefined);
+  assert.deepEqual(humanShell.placement, { kind: "remote", host: "fleet-worker" });
+  await restored.locator(".board-row[data-kind='shell']").click();
+  await expect(
+    restored.locator(".terminal-tile[data-kind='shell'] .xterm-helper-textarea"),
+  ).toBeFocused();
+  await restored.keyboard.type("pwd");
+  await restored.keyboard.press("Enter");
+  await expect
+    .poll(async () =>
+      (await restored.evaluate((id) => window.desktop.tail(id, 40), humanShell.id)).join(""),
+    )
+    .toContain(expectedCheckout);
+  await restored.keyboard.type("exit");
+  await restored.keyboard.press("Enter");
+  await expect
+    .poll(
+      async () =>
+        (await restored.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.id === humanShell.id,
+        )?.exited,
+    )
+    .toBe(true);
+  await restored.evaluate(
+    (id) => window.desktop.sidebarCommand({ kind: "close", id }),
+    humanShell.id,
+  );
+  assert.ok(
+    (await restored.evaluate((repository) => window.desktop.worktrees(repository), repo)).some(
+      (tree) => tree.path === recovered.path,
+    ),
+  );
+  const deleting = restored.evaluate(
+    ({ repository, worktree }) =>
+      window.desktop.sidebarCommand({ kind: "remove-worktree", repository, worktree }),
+    { repository: repo, worktree: recovered.path },
+  );
+  const review = await confirmationPage(restarted);
+  await expect(
+    review.getByRole("heading", { name: "Remove worktree?", exact: true }),
+  ).toBeVisible();
+  await expect(review.getByText(`fleet-worker:${expectedCheckout}`, { exact: true })).toBeVisible();
+  await review.getByRole("button", { name: "Remove worktree", exact: true }).click();
+  await deleting;
+  assert.ok(
+    !(await restored.evaluate((repository) => window.desktop.worktrees(repository), repo)).some(
+      (tree) => tree.path === recovered.path,
+    ),
+  );
+  assert.ok(
+    !Object.values(JSON.parse(await readFile(gitState, "utf8"))).includes("unused-after-restart"),
+  );
+  assert.ok((await stat(foreignTree)).isDirectory());
+  assert.ok((await stat(untaggedTree)).isDirectory());
+  await openSettingsScreen(restored);
+  await restored
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  await expect(restored.getByText("2 other worktrees", { exact: true })).toBeVisible();
+  for (const theme of ["eclipse-light", "eclipse-dark"]) {
+    await restored.evaluate(
+      (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
+      theme,
+    );
+    await restored.screenshot({ path: path.resolve(`test-results/941-hosts-${theme}.png`) });
+  }
 }
 
 const fleetOptions = { skip: process.platform === "win32", timeout: deadline(90000) };

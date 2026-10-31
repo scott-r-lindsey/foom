@@ -231,18 +231,47 @@ export async function startShell(
   restoreId?: string,
   pathFirst?: string,
   configEnvironment?: Readonly<Record<string, string>>,
+  checkout?: Awaited<ReturnType<WorktreeLaunchContext["orchestration"]["remoteCheckout"]>>,
 ): Promise<string> {
-  const remote = location.home ? remoteSpikeTarget(process.argv) : undefined;
+  const remote = checkout
+    ? {
+        ...checkout.target,
+        checkout: {
+          repository: checkout.repository,
+          path: checkout.worktree,
+          identity: checkout.identity,
+        },
+      }
+    : location.home
+      ? remoteSpikeTarget(process.argv)
+      : undefined;
   const environment = remote ? { env: {}, names: [] } : await this.shellEnvironment(pathFirst);
   if (restoreId !== undefined) this.executionOwner.reset(restoreId);
+  await checkout?.validate();
   const id = await this.deps.terminals.create({
     ...(restoreId === undefined ? {} : { id: restoreId }),
-    ...(remote ? { remote } : {}),
+    ...(remote
+      ? {
+          remote: {
+            ...remote,
+            ...(checkout
+              ? {
+                  context: {
+                    repository: location.repository,
+                    worktree: location.worktree,
+                    branch: checkout.branch,
+                    agent: "shell",
+                  },
+                }
+              : {}),
+          },
+        }
+      : {}),
     command: remote ? `ssh ${remote.host}` : shellPath(),
     args: process.platform === "win32" ? ["-NoLogo"] : ["-l"],
     shellIntegration: true,
     env: { ...environment.env, ...configEnvironment },
-    cwd: location.worktree,
+    cwd: checkout?.worktree ?? location.worktree,
     cols: 80,
     rows: 24,
   });
@@ -252,12 +281,21 @@ export async function startShell(
     kind: "shell",
     agent: "shell",
     ...location,
+    ...(remote ? { remote: true, placement: { kind: "remote" as const, host: remote.host } } : {}),
+    ...(checkout ? { branch: `${checkout.branch} · ${checkout.target.host}` } : {}),
     ...(environment.names.length ? { environment: environment.names } : {}),
     attention: "evaluator",
     state: null,
     startedAt: this.now(),
   });
   this.executionOwner.ensure(id);
+  if (checkout)
+    this.sessions.rememberRemote(id, {
+      repository: checkout.repository,
+      path: checkout.worktree,
+      identity: checkout.identity,
+      branch: checkout.branch,
+    });
   this.persist();
   this.refresh();
   return id;
@@ -452,11 +490,17 @@ export async function startExisting(
           throw error;
         }
       } else {
-        if ((await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity)
+        if (
+          !registeredRemote &&
+          (await this.deps.worktrees.launchIdentity(repository, worktree)) !== identity
+        )
           throw new Error("Worktree has changed. Select it and try again.");
         return await this.startShell(
           { repository, worktree, branch: tree.branch },
           replacement?.id,
+          undefined,
+          undefined,
+          registeredRemote,
         );
       }
     } finally {

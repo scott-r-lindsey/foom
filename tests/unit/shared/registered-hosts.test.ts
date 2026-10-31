@@ -213,6 +213,7 @@ test("worktree management is closed, bounded and cannot select arbitrary command
   const request = {
     type: "manage",
     operation: "create-worktree",
+    profile: "a".repeat(32),
     codeFolder: "/code",
     directory: "repo",
     origin: "git@fixture.test:team/repo.git",
@@ -242,6 +243,7 @@ test("worktree management is closed, bounded and cannot select arbitrary command
   const removal = {
     ...common,
     operation: "remove-worktree",
+    profile: "a".repeat(32),
     path: "/code/.foom-worktree-fixture",
     identity: "a".repeat(64),
     changes: "?? file\n",
@@ -279,6 +281,7 @@ test("snapshot management has no process authority and accepts only bounded evid
   const request = {
     type: "manage",
     operation: "snapshot-worktree",
+    profile: "a".repeat(32),
     codeFolder: "/code",
     directory: "repository-fixture",
     origin: "https://forge.test/o/r",
@@ -286,7 +289,13 @@ test("snapshot management has no process authority and accepts only bounded evid
     identity: "a".repeat(64),
   };
   expect(hostManagement(request)).toBe(true);
-  for (const extra of [{ terminalId: "hub" }, { snapshot: {} }, { command: "git" }])
+  for (const extra of [
+    { terminalId: "hub" },
+    { snapshot: {} },
+    { command: "git" },
+    { profile: undefined },
+    { profile: "bad" },
+  ])
     expect(hostManagement({ ...request, ...extra })).toBe(false);
   const worktree = {
     path: request.path,
@@ -303,4 +312,47 @@ test("snapshot management has no process authority and accepts only bounded evid
       worktree: { ...worktree, snapshot: { ...worktree.snapshot, contents: "file" } },
     }),
   ).toBe(false);
+});
+
+test("worktree inventory is bounded and validates private profile metadata and every returned locator", () => {
+  const request = {
+    type: "manage",
+    operation: "list-worktrees",
+    codeFolder: "/code",
+    profile: "a".repeat(32),
+  };
+  expect(hostManagement(request)).toBe(true);
+  for (const patch of [
+    { profile: undefined },
+    { profile: "bad" },
+    { terminalId: "foreign" },
+    { directory: "repo" },
+    { origin: "git@fixture.test:x/y" },
+  ])
+    expect(hostManagement({ ...request, ...patch })).toBe(false);
+  const tree = {
+    repository: "/code/repository-fixture",
+    path: "/code/.foom-worktree-fixture",
+    branch: "main",
+    identity: "a".repeat(64),
+    origin: "git@fixture.test:team/repo.git",
+  };
+  const result = { ok: true, facts, inventory: { own: [tree], other: 3 } };
+  expect(hostResult(result)).toBe(true);
+  for (const inventory of [
+    null,
+    { own: [], other: -1 },
+    { own: [], other: 0.5 },
+    { own: [], other: "3" },
+    { own: Array.from({ length: 129 }, () => tree), other: 0 },
+    { own: [null], other: 0 },
+    { own: [{ ...tree, identity: "bad" }], other: 0 },
+    { own: [{ ...tree, origin: "file:///secret" }], other: 0 },
+    { own: [{ ...tree, repository: "relative" }], other: 0 },
+    { own: [{ ...tree, path: "/../secret" }], other: 0 },
+    { own: [{ ...tree, branch: "-bad" }], other: 0 },
+    { own: [{ ...tree, extra: "raw" }], other: 0 },
+    { own: [], other: 0, extra: true },
+  ])
+    expect(hostResult({ ...result, inventory })).toBe(false);
 });

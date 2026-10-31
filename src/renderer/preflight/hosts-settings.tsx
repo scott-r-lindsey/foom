@@ -109,6 +109,7 @@ export function HostsSettings({
           <label>
             SSH host
             <input
+              placeholder="user@host"
               value={host}
               onChange={(event) => {
                 setHost(event.target.value);
@@ -191,6 +192,7 @@ export function HostsSettings({
           </header>
           <code>{entry.codeFolder}</code>
           <Result result={entry.result} />
+          {entry.foreignWorktrees !== undefined && <p>{entry.foreignWorktrees} other worktrees</p>}
           {entry.foreignSessions !== undefined && (
             <div className="host-facts">
               <span>Other profiles or untagged: {entry.foreignSessions}</span>

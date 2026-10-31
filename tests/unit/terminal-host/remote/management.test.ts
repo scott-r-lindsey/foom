@@ -1,3 +1,4 @@
+import { writeWorktreeProvenance } from "../../../../src/terminal-host/remote/worktree-provenance";
 import type * as fsPromises from "node:fs/promises";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import {
@@ -10,6 +11,7 @@ import {
   writeFile,
   readdir,
   lstat,
+  rename,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -93,7 +95,7 @@ test.skipIf(process.platform === "win32").each(["folder", "ancestor", "recheck"]
     const folder = join(parent, "code");
     await mkdir(folder, { recursive: true, mode: 0o700 });
     const removed = missing === "ancestor" ? parent : folder;
-    for (const operation of ["inspect-worktree", "repository"] as const) {
+    for (const operation of ["inspect-worktree", "repository", "list-worktrees"] as const) {
       await mkdir(folder, { recursive: true, mode: 0o700 });
       if (missing === "recheck")
         mock.login.mockImplementationOnce(async () => {
@@ -115,8 +117,11 @@ test.skipIf(process.platform === "win32").each(["folder", "ancestor", "recheck"]
               operation,
               path: join(folder, ".foom-worktree-test"),
               identity: "a".repeat(64),
+              profile: "a".repeat(32),
             }
-          : { ...base, operation },
+          : operation === "list-worktrees"
+            ? { type: "manage", operation, codeFolder: folder, profile: "a".repeat(32), agents: [] }
+            : { ...base, operation },
         0,
         "/fixture",
         "0.1.0",
@@ -492,6 +497,7 @@ test.skipIf(process.platform === "win32")(
     await mkdir(repository, { mode: 0o700 });
     const base = {
       type: "manage",
+      profile: "a".repeat(32),
       codeFolder: folder,
       directory: "repo",
       origin: "git@fixture.test:team/repo.git",
@@ -612,6 +618,7 @@ test.skipIf(process.platform === "win32")(
     const request = {
       ...base,
       operation: "inspect-worktree",
+      profile: "a".repeat(32),
       path: tree.path,
       identity: tree.identity,
     } as const;
@@ -711,6 +718,7 @@ test.skipIf(process.platform === "win32")(
     const request = {
       type: "manage",
       operation: "remove-worktree",
+      profile: "a".repeat(32),
       codeFolder: folder,
       directory: "repo",
       origin: "git@fixture.test:team/repo.git",
@@ -719,6 +727,7 @@ test.skipIf(process.platform === "win32")(
       identity,
       changes: "",
     } as const;
+    await writeWorktreeProvenance(request.profile, repository, path, request.origin);
     let symbolic = "HEAD";
     let refs = "refs/heads/preserved\n";
     let head = "a".repeat(40);
@@ -757,6 +766,7 @@ test.skipIf(process.platform === "win32")(
       5000,
       undefined,
     );
+    await writeWorktreeProvenance(request.profile, repository, path, request.origin);
     refs = "";
     expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
       ok: false,
@@ -796,6 +806,7 @@ test.skipIf(process.platform === "win32").each(["replacement", "graft"] as const
     git("commit", "--allow-empty", "-qm", "base");
     const base = git("rev-parse", "HEAD");
     git("worktree", "add", "--detach", path, base);
+    await chmod(path, 0o700);
     gitSync(["commit", "--allow-empty", "-qm", "detached work"], { cwd: path });
     const head = gitSync(["rev-parse", "HEAD"], { cwd: path }).toString().trim();
     git("commit", "--allow-empty", "-qm", "retained branch");
@@ -844,6 +855,7 @@ exec /usr/bin/git "$@"
     const request = {
       type: "manage",
       operation: "remove-worktree",
+      profile: "a".repeat(32),
       codeFolder: folder,
       directory: "repo",
       origin: "git@fixture.test:team/repo.git",
@@ -852,6 +864,7 @@ exec /usr/bin/git "$@"
       identity: createHash("sha256").update("identity").digest("hex"),
       changes: "",
     } as const;
+    await writeWorktreeProvenance(request.profile, repository, path, request.origin);
     const result = await manageHost(request, 0, "/fixture", "0.1.0", home);
     expect(result).toEqual({ ok: false, reason: "checkout-refused" });
     expect(await realpath(path)).toBe(path);
@@ -905,6 +918,7 @@ test.skipIf(process.platform === "win32")(
     const request = {
       type: "manage",
       operation: "snapshot-worktree",
+      profile: "a".repeat(32),
       codeFolder: folder,
       directory: "repo",
       origin: "https://fixture.test/o/r",
@@ -912,6 +926,7 @@ test.skipIf(process.platform === "win32")(
       path,
       identity: createHash("sha256").update("identity").digest("hex"),
     } as const;
+    await writeWorktreeProvenance(request.profile, repository, path, request.origin);
     let head = "a".repeat(40);
     let origins = 0;
     let redirect = false;
@@ -932,6 +947,9 @@ test.skipIf(process.platform === "win32")(
       if (args.includes("ls-files")) return Promise.resolve("tracked\0");
       return Promise.resolve("");
     });
+    expect(
+      await manageHost({ ...request, profile: "b".repeat(32) }, 0, "/fixture", "0.1.0", home),
+    ).toEqual({ ok: false, reason: "checkout-refused" });
     const first = await manageHost(request, 0, "/fixture", "0.1.0", home);
     expect(first).toMatchObject({
       ok: true,
@@ -963,5 +981,154 @@ test.skipIf(process.platform === "win32")(
       ok: false,
       reason: "checkout-refused",
     });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "tagged no-session worktrees reconcile lost create replies, isolate profiles and reject foreign or replaced checkouts",
+  async () => {
+    const { createHash } = await import("node:crypto");
+    const origin = "git@fixture.test:team/repo.git";
+    const folder = await approvedCodeFolder("~/code", home, "create");
+    const directory = `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
+    const repository = join(folder, directory);
+    await mkdir(repository, { mode: 0o700 });
+    const profile = "a".repeat(32);
+    const base = {
+      type: "manage",
+      codeFolder: folder,
+      directory,
+      origin,
+      profile,
+      agents: [],
+    } as const;
+    let path = "";
+    const cancellation = new AbortController();
+    mock.probe.mockImplementation(async (_command: string, args: string[], cwd: string) => {
+      if (args.includes("config")) return origin;
+      if (args.includes("--show-toplevel")) return cwd;
+      if (args.includes("HEAD^{commit}")) return "a".repeat(40);
+      if (args.includes("ls-remote")) return "ref: refs/heads/main\tHEAD\n";
+      if (args.includes("symbolic-ref")) return "lost-reply";
+      if (args.includes("worktree") && args.includes("add")) {
+        path = args[args.indexOf("--") + 1] ?? "";
+        // Ownership exists before Git can publish, even when cancellation loses its result.
+        const { readWorktreeProvenance } = await import(
+          "../../../../src/terminal-host/remote/worktree-provenance"
+        );
+        expect(await readWorktreeProvenance(path)).toMatchObject({ profile, repository, origin });
+        cancellation.abort();
+        throw new Error("Lost create acknowledgement");
+      }
+      return "";
+    });
+    expect(
+      await manageHost(
+        { ...base, operation: "create-worktree", branch: "lost-reply" },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+        cancellation.signal,
+      ),
+    ).toEqual({ ok: false, reason: "checkout-refused" });
+    const untagged = join(folder, ".foom-worktree-untagged");
+    const foreign = join(folder, ".foom-worktree-other-profile");
+    const foreignRepo = join(folder, ".foom-worktree-other-repository");
+    for (const target of [untagged, foreign, foreignRepo]) await mkdir(target, { mode: 0o700 });
+    await writeWorktreeProvenance("b".repeat(32), repository, foreign, origin);
+    const otherRepo = join(folder, "unapproved-repository");
+    await mkdir(otherRepo, { mode: 0o700 });
+    await writeWorktreeProvenance(profile, otherRepo, foreignRepo, origin);
+    const request = {
+      type: "manage",
+      operation: "list-worktrees",
+      codeFolder: folder,
+      profile,
+      agents: [],
+    } as const;
+    const before = mock.probe.mock.calls.filter(
+      ([, args]) => Array.isArray(args) && args.includes("add"),
+    ).length;
+    const inventory = await manageHost(request, 0, "/fixture", "0.1.0", home);
+    expect(inventory).toMatchObject({
+      ok: true,
+      inventory: { own: [{ path, branch: "lost-reply", repository, origin }], other: 2 },
+    });
+    expect(
+      mock.probe.mock.calls.filter(([, args]) => Array.isArray(args) && args.includes("add")),
+    ).toHaveLength(before);
+    const identity = createHash("sha256").update("identity").digest("hex");
+    for (const target of [untagged, foreign, foreignRepo]) {
+      expect(
+        await manageHost(
+          { ...base, operation: "remove-worktree", path: target, identity, changes: "" },
+          0,
+          "/fixture",
+          "0.1.0",
+          home,
+        ),
+      ).toEqual({ ok: false, reason: "checkout-refused" });
+      expect(await realpath(target)).toBe(target);
+    }
+    // A same-profile marker cannot authorize another repository's Git membership.
+    mock.checkout.mockRejectedValueOnce(new Error("Foreign Git checkout"));
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toMatchObject({
+      ok: true,
+      inventory: { own: [], other: 2 },
+    });
+    await rm(path, { recursive: true });
+    await mkdir(path, { mode: 0o700 });
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toMatchObject({
+      ok: true,
+      inventory: { own: [], other: 3 },
+    });
+  },
+);
+
+test.skipIf(process.platform === "win32").each(["redirected", "cancelled"] as const)(
+  "creation refuses a %s approved folder before writing provenance after fetch",
+  async (mode) => {
+    const folder = await approvedCodeFolder("~/code", home, "create");
+    const repository = join(folder, "repo");
+    const outside = join(home, "outside");
+    await mkdir(repository, { mode: 0o700 });
+    await mkdir(outside, { mode: 0o700 });
+    const cancellation = new AbortController();
+    const origin = "git@fixture.test:team/repo.git";
+    mock.probe.mockImplementation(async (_command: string, args: string[], cwd: string) => {
+      if (args.includes("config")) return origin;
+      if (args.includes("--show-toplevel")) return cwd;
+      if (args.includes("ls-remote")) return "ref: refs/heads/main\tHEAD\n";
+      if (args.includes("fetch")) {
+        if (mode === "cancelled") cancellation.abort();
+        else {
+          await rename(folder, `${folder}-old`);
+          await symlink(outside, folder);
+        }
+      }
+      return "";
+    });
+    expect(
+      await manageHost(
+        {
+          type: "manage",
+          operation: "create-worktree",
+          codeFolder: folder,
+          directory: "repo",
+          origin,
+          profile: "a".repeat(32),
+          branch: "feature",
+          agents: [],
+        },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+        cancellation.signal,
+      ),
+    ).toEqual({ ok: false, reason: "checkout-refused" });
+    expect(await readdir(outside)).toEqual([]);
+    if (mode === "cancelled") expect(await readdir(folder)).toEqual(["repo"]);
   },
 );

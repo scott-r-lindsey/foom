@@ -819,12 +819,20 @@ test("first-run rail shares the Theme menu and saves its live selection", async 
   await expect(page.getByRole("menuitemradio", { name: "Default", exact: true })).toBeVisible();
   await page.getByRole("menuitemradio", { name: "Default", exact: true }).click();
   await expect(page.locator("html")).toHaveCSS("color-scheme", systemDark ? "dark" : "light");
-  assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), "system");
+  await expect
+    .poll(() => app.evaluate(({ nativeTheme }) => nativeTheme.themeSource))
+    .toBe("system");
   // Force the opposite base and verify that Default remains unqualified there too.
   await chooseTheme(page, systemDark ? "Eclipse Light" : "Eclipse Dark");
   await page.getByRole("button", { name: /^Theme Eclipse / }).click();
   await expect(page.getByRole("menuitemradio", { name: "Default", exact: true })).toBeVisible();
   await page.getByRole("menuitemradio", { name: "Default", exact: true }).click();
+  // Config publishes the choice before its baseline write and final setup apply.
+  // Drain the serialized save queue before overriding nativeTheme: that final
+  // apply would otherwise reset the test's forced source back to system.
+  const saved = await page.evaluate(() => window.desktop.saveSetup({}));
+  assert.equal(saved.settings.interfaceTheme, "follow");
+  assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), "system");
   await expect(page.locator("html")).toHaveCSS("color-scheme", systemDark ? "dark" : "light");
   for (const mode of ["light", "dark"]) {
     await app.evaluate(({ nativeTheme }, mode) => {

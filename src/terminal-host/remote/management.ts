@@ -1,9 +1,14 @@
 import { remoteReviewSnapshot } from "./review-snapshot";
+import {
+  readWorktreeProvenance,
+  writeWorktreeProvenance,
+  worktreeProvenancePath,
+} from "./worktree-provenance";
 import { discoveryFacts, selected } from "../../shared/agent-launch-values";
 import { createHash, randomUUID } from "node:crypto";
 import { remoteCheckout } from "./agent-discovery";
 import { cpus, loadavg, totalmem, homedir } from "node:os";
-import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, opendir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
@@ -13,7 +18,12 @@ import {
   HOST_NETWORK_GIT_TIMEOUT_MS,
   hostManagement,
 } from "../../shared/registered-hosts";
-import type { HostManagement, HostResult, HostFacts } from "../../shared/registered-hosts.d";
+import type {
+  HostManagement,
+  HostResult,
+  HostFacts,
+  RemoteWorktree,
+} from "../../shared/registered-hosts.d";
 import { hostDiscovery, hostProbe, hostLoginEnvironment } from "./agent-discovery";
 
 /** Validate existing ancestors; only enrollment and explicit cloning may create them. */
@@ -163,7 +173,7 @@ export async function manageHost(
   }
   signal?.throwIfAborted();
   if (request.operation === "inspect") return { ok: true, facts };
-  const path = join(folder, request.directory);
+
   const env = {
     ...(await hostLoginEnvironment(shell, home, signal)),
     GIT_TERMINAL_PROMPT: "0",
@@ -173,7 +183,7 @@ export async function manageHost(
   };
   const git = (args: string[], cwd: string, timeout = 5000) =>
     hostProbe("git", ["--no-optional-locks", ...args], cwd, env, true, timeout, signal);
-  const checkout = async (directory: string) => {
+  const checkout = async (directory: string, origin: string) => {
     const info = await lstat(directory);
     if (
       !info.isDirectory() ||
@@ -181,7 +191,7 @@ export async function manageHost(
       info.uid !== process.getuid?.() ||
       (info.mode & 0o022) !== 0 ||
       (await realpath(directory)) !== directory ||
-      (await git(["config", "--get", "remote.origin.url"], directory)).trim() !== request.origin ||
+      (await git(["config", "--get", "remote.origin.url"], directory)).trim() !== origin ||
       (await git(["rev-parse", "--show-toplevel"], directory)).trim() !== directory
     )
       throw new Error("Invalid checkout");
@@ -193,6 +203,57 @@ export async function manageHost(
     // Revalidate without recreating a folder removed since the initial check.
     signal?.throwIfAborted();
     await approvedCodeFolder(folder, home);
+    if (request.operation === "list-worktrees") {
+      const entries = await opendir(folder);
+      let count = 0;
+      const own: RemoteWorktree[] = [];
+      let other = 0;
+      for await (const entry of entries) {
+        if (++count > 4096) throw new Error("Inventory too large");
+        signal?.throwIfAborted();
+        if (!entry.name.startsWith(".foom-worktree-") || !entry.isDirectory()) continue;
+        const destination = join(folder, entry.name);
+        const owner = await readWorktreeProvenance(destination);
+        if (!owner || owner.profile !== request.profile) {
+          other++;
+          continue;
+        }
+        const directory = `repository-${createHash("sha256").update(owner.origin).digest("hex").slice(0, 24)}`;
+        if (owner.repository !== join(folder, directory)) continue;
+        try {
+          await checkout(owner.repository, owner.origin);
+          await checkout(destination, owner.origin);
+          const identity = createHash("sha256")
+            .update(await remoteCheckout(owner.repository, destination, env, signal))
+            .digest("hex");
+          const branch = await git(["symbolic-ref", "--quiet", "--short", "HEAD"], destination)
+            .then((value) => value.trim())
+            .catch(() => "HEAD");
+          if (branch !== "HEAD") await git(["check-ref-format", "--branch", branch], destination);
+          const currentOwner = await readWorktreeProvenance(destination);
+          if (
+            !currentOwner ||
+            currentOwner.profile !== owner.profile ||
+            currentOwner.repository !== owner.repository ||
+            currentOwner.origin !== owner.origin
+          )
+            continue;
+          if (own.length >= 128) return { ok: false, reason: "checkout-refused" };
+          own.push({
+            repository: owner.repository,
+            path: destination,
+            branch,
+            identity,
+            origin: owner.origin,
+          });
+        } catch {
+          /* Invalid/stale owned entries do not become launch targets. */
+        }
+      }
+      await approvedCodeFolder(folder, home);
+      return { ok: true, facts, inventory: { own, other } };
+    }
+    const path = join(folder, request.directory);
     let exists = true;
     try {
       await lstat(path);
@@ -215,7 +276,7 @@ export async function manageHost(
           HOST_CLONE_TIMEOUT_MS,
           signal,
         );
-        status = await checkout(temporary);
+        status = await checkout(temporary, request.origin);
         signal?.throwIfAborted();
         await approvedCodeFolder(folder, home);
         // Do not replace a destination that appeared while cloning.
@@ -233,7 +294,7 @@ export async function manageHost(
       } finally {
         await rm(temporary, { recursive: true, force: true });
       }
-    } else status = await checkout(path);
+    } else status = await checkout(path, request.origin);
     if (request.operation === "create-worktree") {
       await git(["check-ref-format", "--branch", request.branch], path);
       const refs = await git(
@@ -257,6 +318,11 @@ export async function manageHost(
         HOST_NETWORK_GIT_TIMEOUT_MS,
       );
       const destination = join(folder, `.foom-worktree-${randomUUID()}`);
+      signal?.throwIfAborted();
+      await approvedCodeFolder(folder, home);
+      await mkdir(destination, { mode: 0o700 });
+      // Persist ownership before Git can publish a checkout, including after disconnect.
+      await writeWorktreeProvenance(request.profile, path, destination, request.origin);
       signal?.throwIfAborted();
       await approvedCodeFolder(folder, home);
       await git(
@@ -294,6 +360,14 @@ export async function manageHost(
         request.path.slice(folder.length + 1).includes("/")
       )
         throw new Error("Outside approved folder");
+      const owner = await readWorktreeProvenance(request.path);
+      if (
+        !owner ||
+        owner.profile !== request.profile ||
+        owner.repository !== path ||
+        owner.origin !== request.origin
+      )
+        throw new Error("Foreign worktree");
       const identity = createHash("sha256")
         .update(await remoteCheckout(path, request.path, env, signal))
         .digest("hex");
@@ -345,7 +419,16 @@ export async function manageHost(
           if ((await git(["rev-parse", "--verify", "HEAD^{commit}"], request.path)).trim() !== head)
             throw new Error("HEAD changed");
         }
+        const owner = await readWorktreeProvenance(request.path);
+        if (
+          !owner ||
+          owner.profile !== request.profile ||
+          owner.repository !== path ||
+          owner.origin !== request.origin
+        )
+          throw new Error("Ownership changed");
         await git(["worktree", "remove", "--force", "--", request.path], path);
+        await rm(worktreeProvenancePath(request.path));
       }
       if (request.operation === "remove-worktree")
         return { ok: true, facts, worktree: { path: request.path, branch, identity, changes } };

@@ -1,4 +1,5 @@
 import type { ReviewSnapshot } from "../control/review-loops.d";
+import type { Orchestration } from "../control/orchestration";
 import type { Hosts } from "../setup/hosts";
 import type { SidebarCommandResult } from "../../shared/workspace";
 import type { AgentEvidence } from "../../shared/agent-detection";
@@ -81,6 +82,7 @@ export interface WorkspaceMethods {
     restoreId?: string,
     pathFirst?: string,
     configEnvironment?: Readonly<Record<string, string>>,
+    checkout?: Awaited<ReturnType<Orchestration["remoteCheckout"]>>,
   ): Promise<string>;
   startHomeShell(restoreId?: string): Promise<string>;
   resumeId(
@@ -176,7 +178,7 @@ export type Agents = Pick<
 >;
 export interface WorkspaceDependencies {
   hosts?: Pick<Hosts, "fleet" | "worktree" | "registered" | "requireAgent"> &
-    Partial<Pick<Hosts, "sessions" | "placement" | "rememberPlacement">>;
+    Partial<Pick<Hosts, "sessions" | "placement" | "rememberPlacement" | "worktrees">>;
   /** Main-owned clock budget; tests may inject a shorter probe reminder. */
   probeWaitingMs?: number;
   pluginStagingRoot?: string;

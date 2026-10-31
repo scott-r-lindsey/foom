@@ -197,6 +197,11 @@ are probed. Registered-host sequential review loops use pinned host snapshots
 (#942); detached remote review checkouts and developer spike mappings remain
 unsupported. Reviewer grants retain the three restricted child tools.
 
+Worktrees discovered through profile-tagged remote inventory (#941) belong to the
+human only. Discovery never creates a worktree ID or child grant, refunds an
+indeterminate creation, or replays a mutation. A lost create reply remains charged;
+the human can launch or review removal of a validated recovered checkout.
+
 `sessions` and `session_state` accept optional `host` to filter for that remote
 host. Every row includes `host: SSH_ALIAS | null` alongside actual `placement`.
 Orchestrator calls also return `hosts`: observations with `host`, `resources`

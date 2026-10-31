@@ -1,4 +1,5 @@
 import { remoteReviewSnapshot } from "./review-snapshot";
+import { readWorktreeProvenance } from "./worktree-provenance";
 import { eventModule } from "../../shared/agent-event-module";
 import { remotePiExtension } from "./pi-extension";
 import { LaunchFailure } from "../../shared/launch-failure";
@@ -95,6 +96,7 @@ export async function prepareRemoteAgent(
   signal: (signal: HookSignal) => void,
   call: (method: string, params: unknown) => Promise<RemoteControlResult>,
   cancellation?: AbortSignal,
+  profile?: string,
 ) {
   // Build inputs are immutable application bytes; peer-supplied manifests are not accepted.
   const model = bundledAgentData
@@ -107,6 +109,13 @@ export async function prepareRemoteAgent(
         throw new LaunchFailure("remote_worktree_unavailable");
       },
     );
+  const validateOwner = async () => {
+    if (!request.checkoutIdentity || profile === undefined) return;
+    const owner = await readWorktreeProvenance(request.worktree);
+    if (!owner || owner.profile !== profile || owner.repository !== request.repository)
+      throw new LaunchFailure("remote_worktree_unavailable");
+  };
+  await validateOwner();
   const identity = await checkout();
   if (
     request.checkoutIdentity !== undefined &&
@@ -385,6 +394,7 @@ export async function prepareRemoteAgent(
     return {
       validate: async () => {
         await validateReview(found.env);
+        await validateOwner();
         if ((await checkout()) !== identity) throw new LaunchFailure("remote_worktree_unavailable");
       },
       spec,

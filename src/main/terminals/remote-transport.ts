@@ -139,6 +139,7 @@ export class RemoteTransport extends EventEmitter {
           reattach: reattach || this.target.reattach === true,
           ...metadata,
           ...(this.target.human ? { human: true } : {}),
+          ...(this.target.checkout ? { checkout: this.target.checkout } : {}),
         };
   }
   private send(message: RemoteRequest): void {

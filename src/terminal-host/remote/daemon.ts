@@ -8,6 +8,8 @@ import {
   HOST_MANAGEMENT_TIMEOUT_MS,
   HOST_PREPARATION_TIMEOUT_MS,
 } from "../../shared/registered-hosts";
+import { readWorktreeProvenance } from "./worktree-provenance";
+import { remoteCheckout, hostLoginEnvironment } from "./agent-discovery";
 import { manageHost } from "./management";
 import { version } from "../../../package.json";
 import { LaunchFailure } from "../../shared/launch-failure";
@@ -698,6 +700,7 @@ export function serveHost(
                     });
                   }),
                 cancellation.signal,
+                message.profile,
               );
               operations.set(cancellation, preparation);
               owned.agent = await preparation;
@@ -720,13 +723,54 @@ export function serveHost(
             return;
           }
           try {
+            const checkout = message.checkout;
+            if (checkout) {
+              if (
+                removingWorktrees.has(checkout.path) ||
+                operations.size >= MAX_PENDING_CONNECTIONS
+              )
+                throw new Error("Checkout unavailable");
+              budget(HOST_PREPARATION_TIMEOUT_MS);
+              owned.worktree = checkout.path;
+              owned.checkout = checkout;
+              worktrees.add(owned);
+              const preparation = (async () => {
+                const owner = await readWorktreeProvenance(checkout.path);
+                if (
+                  !owner ||
+                  owner.profile !== message.profile ||
+                  owner.repository !== checkout.repository
+                )
+                  throw new LaunchFailure("remote_worktree_unavailable");
+                const env = {
+                  ...(await hostLoginEnvironment(remoteShell(), home, cancellation.signal)),
+                  GIT_NO_REPLACE_OBJECTS: "1",
+                  GIT_GRAFT_FILE: "/dev/null",
+                };
+                const identity = await remoteCheckout(
+                  checkout.repository,
+                  checkout.path,
+                  env,
+                  cancellation.signal,
+                );
+                if (createHash("sha256").update(identity).digest("hex") !== checkout.identity)
+                  throw new LaunchFailure("remote_worktree_unavailable");
+              })();
+              operations.set(cancellation, preparation);
+              try {
+                await preparation;
+              } finally {
+                operations.delete(cancellation);
+              }
+              if (disconnected() || isShuttingDown()) throw new Error("Launch cancelled");
+            }
             manager.create(
               owned.agent
                 ? { ...owned.agent.spec, cols: message.cols, rows: message.rows }
                 : {
                     command: remoteShell(),
                     args: ["-i", "-l"],
-                    cwd: home,
+                    cwd: message.checkout?.path ?? home,
                     cols: message.cols,
                     rows: message.rows,
                   },

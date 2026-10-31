@@ -558,3 +558,41 @@ test.skipIf(process.platform === "win32").each(["head", "digest", "disconnect"] 
     ).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
   },
 );
+
+test.skipIf(process.platform === "win32").each([false, true])(
+  "registered launches require profile provenance before discovery and revalidate it at spawn (review: %s)",
+  async (review) => {
+    const { writeWorktreeProvenance, worktreeProvenancePath } = await import(
+      "../../../../src/terminal-host/remote/worktree-provenance"
+    );
+    const repository = join(home, "repo");
+    const worktree = join(home, ".foom-worktree-owned");
+    await mkdir(repository, { mode: 0o700 });
+    await mkdir(worktree, { mode: 0o700 });
+    const profile = "a".repeat(32);
+    const evidence = { head: "a".repeat(40), digest: "b".repeat(64) };
+    vi.spyOn(snapshots, "remoteReviewSnapshot").mockResolvedValue(evidence);
+    const request = {
+      ...spec,
+      ...(review ? { reviewSnapshot: evidence } : {}),
+      repository,
+      worktree,
+      checkoutIdentity: createHash("sha256").update("identity").digest("hex"),
+    };
+    const prepare = (owner = profile) =>
+      prepareRemoteAgent(request, "/fixture/shell", home, () => {}, call, undefined, owner);
+    await expect(prepare()).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
+    expect(hostDiscovery).not.toHaveBeenCalled();
+    await writeWorktreeProvenance(profile, repository, worktree, "git@fixture.test:team/repo.git");
+    await expect(prepare("b".repeat(32))).rejects.toMatchObject({
+      reason: "remote_worktree_unavailable",
+    });
+    const prepared = await prepare();
+    endpoints.push(prepared.endpoint);
+    await prepared.validate();
+    await rm(worktreeProvenancePath(worktree));
+    await expect(prepared.validate()).rejects.toMatchObject({
+      reason: "remote_worktree_unavailable",
+    });
+  },
+);

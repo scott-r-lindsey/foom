@@ -128,7 +128,10 @@ export function SidebarWorktreeSection({
               </span>
             )}
             <span className={main ? "tree-label tree-checkout-branch" : undefined}>
-              <Highlight text={branch} filter={filter} />
+              <Highlight
+                text={worktree.host ? `${branch} · ${worktree.host}` : branch}
+                filter={filter}
+              />
             </span>
           </span>
         </button>

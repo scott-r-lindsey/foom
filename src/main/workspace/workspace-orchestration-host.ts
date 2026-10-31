@@ -25,7 +25,12 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       identity: string;
     }
   >();
-  const remoteTree = (path: string) => remote.get(path) ?? caps.deps.hosts?.placement?.(path);
+  const remoteTree = (path: string, repository?: string) => {
+    const saved = remote.get(path);
+    return saved && (repository === undefined || saved.localRepository === repository)
+      ? saved
+      : caps.deps.hosts?.placement?.(path, repository);
+  };
   const hosts = () => {
     if (!caps.deps.hosts) throw new ControlError("not_found");
     return caps.deps.hosts;
@@ -83,6 +88,8 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     }
   };
   const inspect = async (repository: string, tree: NonNullable<ReturnType<typeof remote.get>>) => {
+    if (tree.localRepository !== repository) throw new LaunchFailure("remote_worktree_unavailable");
+    hosts().registered(tree.host, tree.codeFolder);
     const current = await hosts().worktree(tree.host, repository, {
       operation: "inspect-worktree",
       path: tree.path,
@@ -134,7 +141,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     remoteCheckout: async (path, agent) => {
       const tree = remoteTree(path);
       if (!tree) return undefined;
-      await hosts().requireAgent(tree.host, agent);
+      if (agent !== "shell") await hosts().requireAgent(tree.host, agent);
       const current = await inspect(tree.localRepository, tree);
       return {
         target: { host: tree.host },
@@ -257,7 +264,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       );
     },
     reviewSnapshot: async (repository, worktree, identity) => {
-      const tree = remoteTree(worktree);
+      const tree = remoteTree(worktree, repository);
       if (!tree) return reviewSnapshot(caps.deps.worktrees, repository, worktree, identity);
       if (tree.identity !== identity || tree.localRepository !== repository)
         throw new ControlError("conflict");
@@ -333,7 +340,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     reveal: (id) => caps.deps.reveal?.(id),
     tail: (id, lines) => caps.deps.terminals.tail(id, lines),
     remove: async (repository, worktree, identity, confirm, revalidate) => {
-      const tree = remoteTree(worktree);
+      const tree = remoteTree(worktree, repository);
       if (!tree)
         return caps.cleanup.removeOwnedTree(repository, worktree, identity, confirm, revalidate);
       return caps.withRepository(repository, () =>
@@ -364,6 +371,11 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
             throw new UncertainEffect();
           }
           remote.delete(worktree);
+          // Release exited screens and persisted rows only after confirmed deletion,
+          // while the removal reservation still prevents a replacement launch.
+          const entries = caps.snapshot().terminals.filter((row) => row.worktree === worktree);
+          for (const entry of entries)
+            await caps.sidebarCommand({ kind: "close", id: entry.id }, () => Promise.resolve(true));
           return true;
         }),
       );

@@ -6,6 +6,9 @@ export const HOST_NETWORK_GIT_TIMEOUT_MS = 5 * 60 * 1000;
 export const HOST_MANAGEMENT_TIMEOUT_MS = 7 * 60 * 1000;
 export const HOST_PREPARATION_TIMEOUT_MS = 120000;
 export const HOST_HANDSHAKE_TIMEOUT_MS = 10000;
+export function hostProfile(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{32}$/u.test(value);
+}
 export function hostAlias(value: unknown): value is string {
   return (
     typeof value === "string" &&
@@ -94,6 +97,11 @@ export function hostManagement(value: unknown): value is HostManagement {
       ))
   )
     return false;
+  if (value["operation"] === "list-worktrees")
+    return (
+      keys(value, ["type", "operation", "codeFolder", "agents", "profile"]) &&
+      hostProfile(value["profile"])
+    );
   if (value["operation"] === "inspect")
     return keys(value, ["type", "operation", "codeFolder", "agents"]);
   if (
@@ -102,7 +110,8 @@ export function hostManagement(value: unknown): value is HostManagement {
     value["operation"] === "snapshot-worktree" ||
     value["operation"] === "remove-worktree"
   ) {
-    const common = ["type", "operation", "codeFolder", "directory", "origin", "agents"];
+    const common = ["type", "operation", "codeFolder", "directory", "origin", "agents", "profile"];
+    if (!hostProfile(value["profile"])) return false;
     if (
       !hostManagement({
         type: "manage",
@@ -160,7 +169,25 @@ export function hostResult(value: unknown): value is HostResult {
   const checkout = value["checkout"];
   return (
     value["ok"] === true &&
-    keys(value, ["ok", "facts", "checkout", "worktree"]) &&
+    keys(value, ["ok", "facts", "checkout", "worktree", "inventory"]) &&
+    (value["inventory"] === undefined ||
+      (record(value["inventory"]) &&
+        keys(value["inventory"], ["own", "other"]) &&
+        Number.isSafeInteger(value["inventory"]["other"]) &&
+        Number(value["inventory"]["other"]) >= 0 &&
+        Array.isArray(value["inventory"]["own"]) &&
+        value["inventory"]["own"].length <= 128 &&
+        value["inventory"]["own"].every(
+          (tree: unknown) =>
+            record(tree) &&
+            keys(tree, ["repository", "path", "branch", "identity", "origin"]) &&
+            remotePath(tree["repository"]) &&
+            remotePath(tree["path"]) &&
+            hostBranch(tree["branch"]) &&
+            typeof tree["identity"] === "string" &&
+            /^[a-f0-9]{64}$/u.test(tree["identity"]) &&
+            gitOrigin(tree["origin"]),
+        ))) &&
     (value["worktree"] === undefined ||
       (record(value["worktree"]) &&
         keys(value["worktree"], [
