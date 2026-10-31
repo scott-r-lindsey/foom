@@ -331,17 +331,26 @@ export class Hosts {
     if (!this.profile) throw new LaunchFailure("remote_worktree_unavailable");
     if (!this.repositories().some((repo) => repo.path === repository))
       throw new ControlError("not_found");
-    const source = await this.repository(host, entry.codeFolder, repository, false);
-    this.registered(host, entry.codeFolder);
-    if (!source.ok || !source.checkout || source.checkout.state === "absent")
-      throw new LaunchFailure("remote_worktree_unavailable");
+    let sourcePath: string | undefined;
+    if (action.operation === "create-worktree" || action.operation === "remove-worktree") {
+      const source = await this.repository(host, entry.codeFolder, repository, false);
+      this.registered(host, entry.codeFolder);
+      if (!source.ok || !source.checkout || source.checkout.state === "absent")
+        throw new LaunchFailure("remote_worktree_unavailable");
+      sourcePath = source.checkout.path;
+    }
     const origin = await this.origin(repository);
     this.registered(host, entry.codeFolder);
+    // Read-only management already validates the clone and worktree together.
+    // A separate repository connection repeats bootstrap and the same Git reads.
+    const source =
+      sourcePath ??
+      `${entry.codeFolder}/repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
     try {
       const result = await this.run(host, {
         type: "manage",
         codeFolder: entry.codeFolder,
-        directory: source.checkout.path.slice(entry.codeFolder.length + 1),
+        directory: source.slice(entry.codeFolder.length + 1),
         origin,
         ...action,
         profile: this.profile,
@@ -373,7 +382,7 @@ export class Hosts {
           throw new LaunchFailure("remote_worktree_unavailable");
         this.registered(host, entry.codeFolder);
       }
-      return { repository: source.checkout.path, ...result.worktree, sourceOrigin: origin };
+      return { repository: source, ...result.worktree, sourceOrigin: origin };
     } catch (error) {
       // Preflight above cannot create a checkout. After dispatch, even a failed
       // reply may follow a partial creation or a failed final identity check.

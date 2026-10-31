@@ -374,13 +374,7 @@ test("remote worktree commands never clone and only use the registered origin an
       hosts.worktree("worker", "/local/repo", { operation: "create-worktree", branch: "feature" }),
     ).rejects.toBeInstanceOf(UncertainEffect);
   }
-  run
-    .mockResolvedValueOnce({
-      ok: true,
-      facts,
-      checkout: { path: `${facts.codeFolder}/${directory}`, state: "clean" },
-    })
-    .mockResolvedValueOnce({ ok: true, facts, worktree: tree });
+  run.mockResolvedValueOnce({ ok: true, facts, worktree: tree });
   await expect(
     hosts.worktree("worker", "/local/repo", {
       operation: "inspect-worktree",
@@ -389,6 +383,51 @@ test("remote worktree commands never clone and only use the registered origin an
     }),
   ).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
 });
+
+test.each(["inspect-worktree", "snapshot-worktree"] as const)(
+  "%s validates the canonical checkout in one management connection",
+  async (operation) => {
+    settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
+    hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
+    const origin = "git@forge.test:me/repo.git";
+    const { createHash } = await import("node:crypto");
+    const directory = `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
+    const snapshot = { head: "a".repeat(40), digest: "b".repeat(64) };
+    const tree = {
+      path: `${facts.codeFolder}/.foom-worktree-fixture`,
+      branch: "feature",
+      identity: "a".repeat(64),
+      changes: "",
+      head: snapshot.head,
+      origin,
+      ...(operation === "snapshot-worktree" ? { snapshot } : {}),
+    };
+    run.mockResolvedValueOnce({ ok: true, facts, worktree: tree });
+    await expect(
+      hosts.worktree("worker", "/local/repo", {
+        operation,
+        path: tree.path,
+        identity: tree.identity,
+      }),
+    ).resolves.toMatchObject({
+      repository: `${facts.codeFolder}/${directory}`,
+      ...tree,
+      sourceOrigin: origin,
+    });
+    expect(run).toHaveBeenCalledExactlyOnceWith(
+      "worker",
+      expect.objectContaining({
+        operation,
+        directory,
+        origin,
+        codeFolder: facts.codeFolder,
+        profile: "a".repeat(32),
+        path: tree.path,
+        identity: tree.identity,
+      }),
+    );
+  },
+);
 
 test("profile inventories project only counts to Settings and End confirms exact session incarnations", async () => {
   const profile = "a".repeat(32);
@@ -629,8 +668,6 @@ test.each([
 ])("review snapshots bind host evidence and recheck local authorization: %s", async (mode) => {
   settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
   const origin = "git@forge.test:me/repo.git";
-  const { createHash } = await import("node:crypto");
-  const directory = `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
   const snapshot = { head: "b".repeat(40), digest: "c".repeat(64) };
   const tree = {
     path: `${facts.codeFolder}/.foom-worktree-review`,
@@ -641,19 +678,13 @@ test.each([
     origin: mode === "remote-origin" ? "https://other.test/o/r" : origin,
     ...(mode === "missing" ? {} : { snapshot }),
   };
-  run
-    .mockResolvedValueOnce({
-      ok: true,
-      facts,
-      checkout: { path: `${facts.codeFolder}/${directory}`, state: "clean" },
-    })
-    .mockImplementationOnce(() => {
-      if (mode === "local-origin")
-        mock.execute.mockResolvedValue({ stdout: "git@other.test:me/repo.git" });
-      if (mode === "repository") repositories = [];
-      if (mode === "registration") settings = { ...settings, registeredHosts: [] };
-      return Promise.resolve({ ok: true, facts, worktree: tree });
-    });
+  run.mockImplementationOnce(() => {
+    if (mode === "local-origin")
+      mock.execute.mockResolvedValue({ stdout: "git@other.test:me/repo.git" });
+    if (mode === "repository") repositories = [];
+    if (mode === "registration") settings = { ...settings, registeredHosts: [] };
+    return Promise.resolve({ ok: true, facts, worktree: tree });
+  });
   hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
   const result = hosts.worktree("worker", "/local/repo", {
     operation: "snapshot-worktree",
