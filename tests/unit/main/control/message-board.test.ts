@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MessageBoard } from "../../../../src/main/control/message-board";
 import { privateDirectory } from "../../../../src/node-common/private-files";
+import { mcpToolResponse } from "../../../../src/node-common/mcp-response";
 import {
   boardPost,
   boardText,
@@ -316,7 +317,7 @@ it("refuses capacity without evicting or rewriting prior history", async () => {
   expect(tiny.threads({}).threads).toEqual([]);
 });
 
-it("bounds serialized read pages even when text and links need JSON escaping", async () => {
+it("budgets the complete MCP response when text and links need JSON escaping", async () => {
   const board = new MessageBoard(() => Promise.resolve(), repos);
   const first = await board.append("orchestrator:a", "a", post());
   for (let i = 0; i < 8; i++)
@@ -329,6 +330,16 @@ it("bounds serialized read pages even when text and links need JSON escaping", a
     });
   const read = board.read({ thread: first.thread });
   expect(read.next).not.toBeNull();
-  expect(Buffer.byteLength(JSON.stringify(read))).toBeLessThan(256 * 1024);
+  expect(
+    Buffer.byteLength(JSON.stringify(mcpToolResponse("\u0000".repeat(200), read))),
+  ).toBeLessThanOrEqual(256 * 1024);
   expect(read.posts.length).toBeGreaterThan(1);
+});
+
+it("refuses oversized discovery metadata even without thread rows", () => {
+  const board = new MessageBoard(
+    () => Promise.resolve(),
+    () => [{ id: "a", name: '"'.repeat(65536) }],
+  );
+  expect(() => board.threads({})).toThrow("capacity");
 });

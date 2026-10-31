@@ -34,7 +34,10 @@ human mutation IPC. There is no edit/delete post capability.
 Text is 1–8192 UTF-8 bytes; titles are 1–200 bytes. Empty/whitespace-only strings,
 control, format and lone-surrogate characters fail closed. Up to ten links accept
 HTTPS URLs without credentials or whitespace, or `#N` issue/PR references.
-Read pages also cap serialized records at 128 KiB, below the console response limit.
+Read pages fit the complete 256 KiB MCP response bound, including both text and
+structured content, JSON escaping, metadata, the next cursor and the largest
+accepted request ID. Main and the stdio bridge share the result encoding and
+transport limit; a page must preserve cursor progress.
 All post contents are untrusted data, rendered as plain text, including links;
 there is no automatic navigation, Markdown execution or terminal delivery.
 Post bodies and links never enter logs. Tool reads carry `untrusted: true` and a

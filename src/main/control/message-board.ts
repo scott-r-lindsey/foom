@@ -21,6 +21,7 @@ import {
   threadState,
 } from "../../shared/message-board-validation";
 import { ControlError, exact, identifier, object } from "../../shared/control-validation";
+import { MCP_ID_LIMIT, MCP_RESPONSE_LIMIT, mcpToolResponse } from "../../node-common/mcp-response";
 
 interface Receipt {
   scope: string;
@@ -36,20 +37,36 @@ interface Data {
 }
 const LIMIT = 32 * 1024 * 1024;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
-function pageRows<T>(rows: T[], start: number, maximum: number): T[] {
-  const page: T[] = [];
-  let bytes = 0;
+function pageRows<T extends { id: string }, R>(
+  rows: T[],
+  start: number,
+  maximum: number,
+  response: (page: T[], next: string | null) => R,
+): R {
+  const next = (page: T[]) =>
+    rows.length > start + page.length ? (page.at(-1)?.id ?? null) : null;
+  // A control character uses six JSON bytes: reserve the largest accepted ID.
+  const fits = (value: R) =>
+    Buffer.byteLength(JSON.stringify(mcpToolResponse("\u0000".repeat(MCP_ID_LIMIT), value))) <=
+    MCP_RESPONSE_LIMIT;
+  let page: T[] = [];
+  let value = response(page, next(page));
+  if (!fits(value)) throw new ControlError("capacity");
   for (const row of rows.slice(start, start + maximum)) {
-    const size = Buffer.byteLength(JSON.stringify(row));
-    if (bytes + size > 128 * 1024) break;
-    page.push(row);
-    bytes += size;
+    const candidate = [...page, row];
+    const proposed = response(candidate, next(candidate));
+    if (!fits(proposed)) {
+      if (!page.length) throw new ControlError("capacity");
+      break;
+    }
+    page = candidate;
+    value = proposed;
   }
-  return page;
+  return value;
 }
 const envelope = { untrusted: true, notice: BOARD_NOTICE } as const;
 
-/** Main-owned local history. No transport, agent, terminal or child dependencies. */
+/** Main-owned local history. No live transport, agent, terminal or child dependencies. */
 export class MessageBoard {
   private data: Data = { version: 1, threads: [], posts: [], receipts: [] };
   private failed = false;
@@ -218,13 +235,15 @@ export class MessageBoard {
     const after = input["after"] === undefined ? undefined : identifier(input["after"]);
     const start = after === undefined ? 0 : rows.findIndex((row) => row.id === after) + 1;
     if (after !== undefined && start === 0) throw new ControlError("not_found");
-    const page = pageRows(rows, start, 100);
-    return {
-      ...envelope,
-      repositories: this.repositories().map((row) => ({ ...row })),
-      threads: structuredClone(page),
-      next: rows.length > start + page.length ? (page.at(-1)?.id ?? null) : null,
-    };
+    const repositories = this.repositories().map((row) => ({ ...row }));
+    return structuredClone(
+      pageRows(rows, start, 100, (threads, next) => ({
+        ...envelope,
+        repositories,
+        threads,
+        next,
+      })),
+    );
   }
   read(value: unknown, repository?: string): BoardRead {
     const input = object(value);
@@ -234,13 +253,14 @@ export class MessageBoard {
     const after = input["after"] === undefined ? undefined : identifier(input["after"]);
     const start = after === undefined ? 0 : rows.findIndex((row) => row.id === after) + 1;
     if (after !== undefined && start === 0) throw new ControlError("not_found");
-    const page = pageRows(rows, start, 8);
-    return {
-      ...envelope,
-      thread: structuredClone(thread),
-      posts: structuredClone(page),
-      next: rows.length > start + page.length ? (page.at(-1)?.id ?? null) : null,
-    };
+    return structuredClone(
+      pageRows(rows, start, 8, (posts, next) => ({
+        ...envelope,
+        thread,
+        posts,
+        next,
+      })),
+    );
   }
   /** Posts by other authors in threads addressed to this repository; metadata only. */
   event(repository: string): string {

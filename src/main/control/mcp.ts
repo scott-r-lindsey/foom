@@ -6,6 +6,7 @@ import type { IncomingHttpHeaders } from "node:http";
 import type { ControlService } from "./service";
 import type { Principal } from "./types";
 import { ControlError, exact, object } from "../../shared/control-validation";
+import { MCP_ID_LIMIT, mcpToolResponse } from "../../node-common/mcp-response";
 
 const versions = ["2025-03-26", "2025-06-18", "2025-11-25"];
 const REFUSED =
@@ -50,7 +51,7 @@ export class ControlMcp {
       request["jsonrpc"] !== "2.0" ||
       typeof request["method"] !== "string" ||
       (id !== undefined &&
-        !(typeof id === "string" && id.length <= 200) &&
+        !(typeof id === "string" && id.length <= MCP_ID_LIMIT) &&
         !(typeof id === "number" && Number.isSafeInteger(id)))
     )
       throw new ControlError("invalid_request");
@@ -133,11 +134,7 @@ export class ControlMcp {
           method: params["name"],
           params: params["arguments"] ?? {},
         });
-        return result({
-          content: [{ type: "text", text: JSON.stringify(value) }],
-          structuredContent: value,
-          isError: false,
-        });
+        return { status: 200, body: mcpToolResponse(id, value) };
       } catch (error) {
         if (!(error instanceof ControlError) || error.code === "unauthorized") throw error;
         const name = params["name"];
