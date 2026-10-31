@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, readlink, realpath } from "node:fs/promises";
-import { dirname, resolve, relative, isAbsolute } from "node:path";
+import { dirname, resolve, relative, isAbsolute, sep } from "node:path";
 import { hostProbe, remoteCheckout } from "./agent-discovery";
 import type { RemoteReviewSnapshot } from "../../shared/remote-agent";
 
@@ -89,7 +89,7 @@ export async function remoteReviewSnapshot(
     ...files.map((file) => {
       const path = resolve(worktree, file);
       const inside = relative(worktree, path);
-      if (!inside || inside === ".." || inside.startsWith("../") || isAbsolute(inside))
+      if (!inside || inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside))
         throw new Error("Outside worktree");
       return { file: ["worktree", file], path };
     }),
