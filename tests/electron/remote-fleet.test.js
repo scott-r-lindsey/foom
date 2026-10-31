@@ -25,6 +25,7 @@ const {
   launchApp,
   quitAndWait,
   confirmationPage,
+  openSettingsScreen,
   fixtureCleanup,
   removeAfterApps,
 } = require("./harness.js");
@@ -591,6 +592,86 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
   await expect
     .poll(async () => (await restoredCall("session_state", { id: persistent.id })).state)
     .toBe("exited");
+  await restored.evaluate(
+    ({ repository, worktree }) =>
+      window.desktop.sidebarCommand({ kind: "launch", repository, worktree, run: "shell" }),
+    { repository: repo, worktree: recovered.path },
+  );
+  const expectedCheckout = Object.entries(JSON.parse(await readFile(gitState, "utf8"))).find(
+    ([, branch]) => branch === "unused-after-restart",
+  )?.[0];
+  assert.ok(expectedCheckout);
+  const humanShell = (await restored.evaluate(() => window.desktop.workspace())).terminals.find(
+    (row) => row.worktree === recovered.path,
+  );
+  assert.ok(humanShell);
+  assert.equal(humanShell.orchestration, undefined);
+  assert.deepEqual(humanShell.placement, { kind: "remote", host: "fleet-worker" });
+  await restored.locator(".board-row[data-kind='shell']").click();
+  await expect(
+    restored.locator(".terminal-tile[data-kind='shell'] .xterm-helper-textarea"),
+  ).toBeFocused();
+  await restored.keyboard.type("pwd");
+  await restored.keyboard.press("Enter");
+  await expect
+    .poll(async () =>
+      (await restored.evaluate((id) => window.desktop.tail(id, 40), humanShell.id)).join(""),
+    )
+    .toContain(expectedCheckout);
+  await restored.keyboard.type("exit");
+  await restored.keyboard.press("Enter");
+  await expect
+    .poll(
+      async () =>
+        (await restored.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.id === humanShell.id,
+        )?.exited,
+    )
+    .toBe(true);
+  await restored.evaluate(
+    (id) => window.desktop.sidebarCommand({ kind: "close", id }),
+    humanShell.id,
+  );
+  assert.ok(
+    (await restored.evaluate((repository) => window.desktop.worktrees(repository), repo)).some(
+      (tree) => tree.path === recovered.path,
+    ),
+  );
+  const deleting = restored.evaluate(
+    ({ repository, worktree }) =>
+      window.desktop.sidebarCommand({ kind: "remove-worktree", repository, worktree }),
+    { repository: repo, worktree: recovered.path },
+  );
+  const review = await confirmationPage(restarted);
+  await expect(
+    review.getByRole("heading", { name: "Remove worktree?", exact: true }),
+  ).toBeVisible();
+  await expect(review.getByText(`fleet-worker:${expectedCheckout}`, { exact: true })).toBeVisible();
+  await review.getByRole("button", { name: "Remove worktree", exact: true }).click();
+  await deleting;
+  assert.ok(
+    !(await restored.evaluate((repository) => window.desktop.worktrees(repository), repo)).some(
+      (tree) => tree.path === recovered.path,
+    ),
+  );
+  assert.ok(
+    !Object.values(JSON.parse(await readFile(gitState, "utf8"))).includes("unused-after-restart"),
+  );
+  assert.ok((await stat(foreignTree)).isDirectory());
+  assert.ok((await stat(untaggedTree)).isDirectory());
+  await openSettingsScreen(restored);
+  await restored
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name: "Hosts", exact: true })
+    .click();
+  await expect(restored.getByText("2 other worktrees", { exact: true })).toBeVisible();
+  for (const theme of ["eclipse-light", "eclipse-dark"]) {
+    await restored.evaluate(
+      (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
+      theme,
+    );
+    await restored.screenshot({ path: path.resolve(`test-results/941-hosts-${theme}.png`) });
+  }
 }
 
 const fleetOptions = { skip: process.platform === "win32", timeout: deadline(90000) };
