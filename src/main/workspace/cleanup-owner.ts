@@ -324,7 +324,7 @@ export class CleanupOwner {
       trees.map(async (tree) => {
         let reason: CleanupReason | undefined;
         if (tree.path === repository || tree.bare) reason = "main checkout";
-        else if (tree.locked || tree.prunable) reason = "unavailable";
+        else if (tree.host || tree.locked || tree.prunable) reason = "unavailable";
         else reason = this.sessionSkip(tree.path);
         let changes = "";
         if (!reason) {

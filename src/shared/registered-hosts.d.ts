@@ -28,9 +28,11 @@ export type HostManagement = {
   agents?: readonly { id: string; executables: readonly string[] }[];
 } & (
   | { operation: "inspect" }
+  | { operation: "list-worktrees"; profile: string }
   | { operation: "repository" | "clone"; directory: string; origin: string }
   | {
       operation: "create-worktree";
+      profile: string;
       directory: string;
       origin: string;
       branch: string;
@@ -38,6 +40,7 @@ export type HostManagement = {
     }
   | {
       operation: "inspect-worktree" | "remove-worktree";
+      profile: string;
       directory: string;
       origin: string;
       path: string;
@@ -51,6 +54,7 @@ export type HostResult =
       ok: true;
       facts: HostFacts;
       checkout?: { path: string; state: "clean" | "changed" | "absent" };
+      inventory?: { own: readonly RemoteWorktree[]; other: number };
       worktree?: {
         path: string;
         branch: string;
@@ -62,6 +66,7 @@ export type HostResult =
     };
 export interface HostRow extends RegisteredHost {
   foreignSessions?: number;
+  foreignWorktrees?: number;
   result?: HostResult | undefined;
 }
 export interface RepositoryLocation {
@@ -85,4 +90,13 @@ export type HostsAction =
   | { action: "clone"; host: string; repository: string };
 export interface HostsApi {
   hosts(action: HostsAction): Promise<HostsState>;
+}
+
+/** Private management inventory; never projected into Settings. */
+export interface RemoteWorktree {
+  repository: string;
+  path: string;
+  branch: string;
+  identity: string;
+  origin: string;
 }

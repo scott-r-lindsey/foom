@@ -21,6 +21,7 @@ import type { RemoteRequest } from "../../../../src/shared/remote-host";
 let telemetry: TerminalTelemetry = {};
 const mock = vi.hoisted(() => ({
   manage: vi.fn(),
+  owner: vi.fn(),
   legacy: vi.fn(),
   endLegacy: vi.fn(),
   create: vi.fn(),
@@ -64,7 +65,11 @@ vi.mock("../../../../src/terminal-host/terminal-manager", () => ({
     }
   },
 }));
+vi.mock("../../../../src/terminal-host/remote/worktree-provenance", () => ({
+  readWorktreeProvenance: mock.owner,
+}));
 vi.mock("../../../../src/terminal-host/remote/agent-discovery", () => ({
+  hostLoginEnvironment: vi.fn(() => Promise.resolve({ PATH: "/fixture" })),
   hostEnvironment: () => ({ PATH: "/fixture" }),
   remoteCheckout: vi.fn(() => Promise.resolve("identity")),
   hostDiscovery: vi.fn(() =>
@@ -84,6 +89,7 @@ const clients: Socket[] = [];
 const build = "a".repeat(64);
 beforeEach(async () => {
   vi.clearAllMocks();
+  mock.owner.mockReset().mockResolvedValue(undefined);
   mock.legacy.mockResolvedValue(undefined);
   mock.endLegacy.mockResolvedValue(undefined);
   vi.stubEnv("SHELL", "/bin/sh");
@@ -1165,6 +1171,7 @@ test.skipIf(process.platform === "win32")(
     const request = {
       type: "manage",
       operation: "remove-worktree",
+      profile: "a".repeat(32),
       codeFolder: "/remote",
       directory: "repo",
       origin: "git@fixture.test:team/repo.git",
@@ -1229,9 +1236,14 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
-test.skipIf(process.platform === "win32").each(["clone", "inspect"] as const)(
-  "read-only worktree inspections overlap without releasing or taking the %s mutation reserve",
-  async (operation) => {
+test.skipIf(process.platform === "win32").each([
+  ["clone", "inspect-worktree"],
+  ["inspect", "inspect-worktree"],
+  ["clone", "list-worktrees"],
+  ["inspect", "list-worktrees"],
+] as const)(
+  "read-only %s / %s inspections overlap without releasing or taking the mutation reserve",
+  async (operation, read) => {
     await start();
     const cloning = Promise.withResolvers<HostResult>();
     const inspecting = Promise.withResolvers<HostResult>();
@@ -1267,14 +1279,24 @@ test.skipIf(process.platform === "win32").each(["clone", "inspect"] as const)(
       const inspection = {
         ...request,
         operation: "inspect-worktree",
+        profile: "a".repeat(32),
         path: "/code/.foom-worktree-fixture",
         identity: "a".repeat(64),
       } as const;
-      first.send(inspection);
+      const readRequest =
+        read === "list-worktrees"
+          ? {
+              type: "manage" as const,
+              operation: read,
+              codeFolder: "/code",
+              profile: "a".repeat(32),
+            }
+          : inspection;
+      first.send(readRequest);
       await vi.waitFor(() => {
         expect(mock.manage).toHaveBeenCalledTimes(2);
       });
-      second.send(inspection);
+      second.send(readRequest);
       await second.wait(2);
       expect(mock.manage).toHaveBeenCalledTimes(3);
       inspecting.resolve({ ok: false, reason: "checkout-refused" });
@@ -2268,5 +2290,80 @@ test.skipIf(process.platform === "win32")(
       cleanup.resolve(undefined);
       spy.mockRestore();
     }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "human checkout shells use only validated profile-owned checkout paths and never spawn on failed evidence",
+  async () => {
+    await start();
+    const profile = "a".repeat(32);
+    const checkout = {
+      repository: "/code/repository-clone",
+      path: "/code/.foom-worktree-owned",
+      identity: (await import("node:crypto")).createHash("sha256").update("identity").digest("hex"),
+    };
+    for (const owner of [
+      undefined,
+      { profile: "b".repeat(32), repository: checkout.repository },
+      { profile, repository: "/foreign" },
+    ]) {
+      mock.owner.mockResolvedValue(owner);
+      const c = await client();
+      c.send({ type: "hello", build });
+      await c.wait(1);
+      const closed = once(c.socket, "close");
+      c.send({
+        type: "open",
+        reattach: false,
+        profile,
+        id: "human",
+        request: 1,
+        cols: 80,
+        rows: 24,
+        checkout,
+      });
+      await closed;
+      expect(mock.create).not.toHaveBeenCalled();
+    }
+    mock.owner.mockResolvedValue({ profile, repository: checkout.repository });
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "open",
+      reattach: false,
+      profile,
+      id: "human",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      checkout,
+    });
+    await c.wait(2);
+    expect(mock.create).toHaveBeenCalledWith(
+      expect.objectContaining({ cwd: checkout.path }),
+      "human",
+    );
+    const read = await client();
+    read.send({ type: "hello", build });
+    await read.wait(1);
+    read.send({
+      type: "manage",
+      operation: "remove-worktree",
+      profile,
+      codeFolder: "/code",
+      directory: "repository-clone",
+      origin: "git@fixture.test:team/repo.git",
+      path: checkout.path,
+      identity: checkout.identity,
+      changes: "",
+    });
+    await read.wait(2);
+    expect(read.messages[1]).toMatchObject({
+      type: "managed",
+      result: { ok: false, reason: "checkout-refused" },
+    });
+    expect(mock.manage).not.toHaveBeenCalled();
   },
 );

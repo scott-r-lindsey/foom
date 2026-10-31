@@ -119,6 +119,13 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
     );
   if (value["type"] === "open")
     return (
+      (value["checkout"] === undefined ||
+        (record(value["checkout"]) &&
+          keys(value["checkout"], ["repository", "path", "identity"]) &&
+          remotePath(value["checkout"]["repository"]) &&
+          remotePath(value["checkout"]["path"]) &&
+          typeof value["checkout"]["identity"] === "string" &&
+          /^[a-f0-9]{64}$/u.test(value["checkout"]["identity"]))) &&
       (value["human"] === undefined || typeof value["human"] === "boolean") &&
       "reattach" in value &&
       typeof value["reattach"] === "boolean" &&

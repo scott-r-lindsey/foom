@@ -85,6 +85,7 @@ test.each([
       () => [repo],
       "0.1.0",
       execute,
+      "a".repeat(32),
     );
     vi.mocked(deps.worktrees.adoptionBranch).mockResolvedValue("pr-branch");
     const workspace = createWorkspace({ ...deps, hosts });
@@ -120,20 +121,21 @@ test.each([
           status: uncertain ? "indeterminate" : "failed",
         });
       if (uncertain) {
-        expect(execute.mock.calls.map(([, request]) => request.operation)).toEqual(
-          Array.from({ length: 4 }, () => ["repository", "create-worktree"]).flat(),
-        );
+        expect(
+          execute.mock.calls
+            .filter(([, request]) => request.operation !== "list-worktrees")
+            .map(([, request]) => request.operation),
+        ).toEqual(Array.from({ length: 4 }, () => ["repository", "create-worktree"]).flat());
         await expect(create("local-after-uncertain", false)).rejects.toMatchObject({
           code: "capacity",
         });
         return;
       }
-      expect(execute.mock.calls.map(([, request]) => request.operation)).toEqual([
-        "repository",
-        "repository",
-        "repository",
-        "repository",
-      ]);
+      expect(
+        execute.mock.calls
+          .filter(([, request]) => request.operation !== "list-worktrees")
+          .map(([, request]) => request.operation),
+      ).toEqual(["repository", "repository", "repository", "repository"]);
       expect(await create("local-after-refusals", false)).toMatchObject({ status: "succeeded" });
       checkedOut = true;
       const recovered = object(await create("remote-after-checkout"));

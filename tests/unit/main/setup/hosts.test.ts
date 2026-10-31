@@ -311,6 +311,7 @@ test("registration revocation or a manifest-selection change during inventory ca
 });
 
 test("remote worktree commands never clone and only use the registered origin and approved code folder", async () => {
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
   settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
   const origin = "git@forge.test:me/repo.git";
   const { createHash } = await import("node:crypto");
@@ -520,6 +521,7 @@ test("saved locators survive expired daemon tombstones but never authorize a dif
 });
 
 test("forge inspection binds registered host, folder, checkout identity, branch, HEAD and unchanged local and remote origins", async () => {
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
   const origin = "git@forge.test:me/repo.git";
   const { createHash } = await import("node:crypto");
   const repository = `${facts.codeFolder}/repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
@@ -610,4 +612,106 @@ test("a config provider cannot appear ready from a remote installation probe", a
   } finally {
     replaceConfigProviders([]);
   }
+});
+
+test("tagged inventory survives a new hub owner, last-row absence and re-registration without adopting a foreign clone", async () => {
+  const { createHash } = await import("node:crypto");
+  const { locationId } = await import("../../../../src/main/control/metadata");
+  const origin = "git@forge.test:me/repo.git";
+  const directory = `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
+  const tree = {
+    repository: `${facts.codeFolder}/${directory}`,
+    path: `${facts.codeFolder}/.foom-worktree-orphan`,
+    origin,
+    branch: "unused",
+    identity: "a".repeat(64),
+  };
+  const key = `/foom-remote/${locationId(JSON.stringify(["worker", tree.path]))}`;
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  const profile = "a".repeat(32);
+  const inventory = { ok: true, facts, inventory: { own: [tree], other: 3 } } as const;
+  run.mockResolvedValue(inventory);
+  const fresh = () => new Hosts(store, () => repositories, "0.1.0", run, profile);
+  hosts = fresh();
+  const recovered = await hosts.worktrees("/local/repo");
+  expect(recovered).toMatchObject([
+    { path: key, host: "worker", branch: "unused", managed: false },
+  ]);
+  expect(hosts.placement(key)).toMatchObject({
+    ...tree,
+    localRepository: "/local/repo",
+    host: "worker",
+  });
+  expect(hosts.state().hosts[0]).toMatchObject({ foreignWorktrees: 3 });
+  expect(JSON.stringify(hosts.state())).not.toContain(tree.path);
+  expect(
+    run.mock.calls.every(
+      ([, request]) => request.operation === "list-worktrees" && request.profile === profile,
+    ),
+  ).toBe(true);
+  hosts = fresh();
+  expect(hosts.placement(key)).toBeUndefined();
+  expect(await hosts.worktrees("/local/repo")).toEqual(recovered);
+  await hosts.action({ action: "remove", host: "worker" });
+  expect(hosts.placement(key)).toBeUndefined();
+  expect(await hosts.worktrees("/local/repo")).toEqual([]);
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  expect(await fresh().worktrees("/local/repo")).toEqual(recovered);
+  run.mockResolvedValue({
+    ...inventory,
+    inventory: {
+      own: [
+        { ...tree, repository: "/foreign/clone" },
+        { ...tree, path: "/outside" },
+      ],
+      other: 3,
+    },
+  });
+  expect(await fresh().worktrees("/local/repo")).toEqual([]);
+  run.mockResolvedValue(inventory);
+  mock.execute.mockResolvedValue({ stdout: "git@other.test:other/repo.git" });
+  expect(await fresh().worktrees("/local/repo")).toEqual([]);
+  mock.execute.mockResolvedValue({ stdout: origin });
+  run.mockResolvedValue({ ...inventory, inventory: { own: [tree, tree], other: 3 } });
+  expect(await fresh().worktrees("/local/repo")).toEqual([]);
+  run.mockResolvedValue({ ok: false, reason: "unreachable" });
+  hosts = fresh();
+  expect(await hosts.worktrees("/local/repo")).toEqual([]);
+  expect(hosts.state().hosts[0]?.foreignWorktrees).toBeUndefined();
+});
+
+test("a lost create reply reconciles tagged inventory without replaying creation or returning success", async () => {
+  const { createHash } = await import("node:crypto");
+  const origin = "git@forge.test:me/repo.git";
+  const repository = `${facts.codeFolder}/repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
+  const tree = {
+    repository,
+    origin,
+    path: `${facts.codeFolder}/.foom-worktree-lost`,
+    branch: "lost",
+    identity: "a".repeat(64),
+  };
+  settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+  hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
+  run.mockImplementation((_host, request) => {
+    if (request.operation === "repository")
+      return Promise.resolve({ ok: true, facts, checkout: { path: repository, state: "clean" } });
+    if (request.operation === "create-worktree")
+      return Promise.resolve({ ok: false, reason: "unreachable" });
+    if (request.operation === "list-worktrees")
+      return Promise.resolve({ ok: true, facts, inventory: { own: [tree], other: 0 } });
+    throw new Error("Unexpected operation");
+  });
+  await expect(
+    hosts.worktree("worker", "/local/repo", { operation: "create-worktree", branch: "lost" }),
+  ).rejects.toBeInstanceOf(UncertainEffect);
+  expect(run.mock.calls.map(([, request]) => request.operation)).toEqual([
+    "repository",
+    "create-worktree",
+    "list-worktrees",
+  ]);
+  expect(await hosts.worktrees("/local/repo")).toMatchObject([{ branch: "lost" }]);
+  expect(
+    run.mock.calls.filter(([, request]) => request.operation === "create-worktree"),
+  ).toHaveLength(1);
 });

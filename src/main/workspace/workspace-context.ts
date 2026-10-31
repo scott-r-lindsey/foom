@@ -4,6 +4,7 @@ import {
   reattachRemoteSession,
   RemoteSessionExit,
 } from "./remote-session-restore";
+import type { OrchestrationHost } from "../control/orchestration.d";
 import { RemovalError } from "./worktree-outcome";
 import { workspaceFeatureWiring } from "./workspace-feature-wiring";
 import { workspaceOrchestrationHost } from "./workspace-orchestration-host";
@@ -44,6 +45,7 @@ export class WorkspaceContext {
   private readonly features = workspaceFeatureWiring(this);
   /** Repository orchestrators and their children; the control service delegates here. */
   readonly orchestration: Orchestration;
+  private readonly orchestrationHost: OrchestrationHost;
   readonly agents: Agents;
   probes: AgentProbes | undefined;
   readonly probeIds = new Set<string>();
@@ -153,8 +155,9 @@ export class WorkspaceContext {
               : control.prepare(repository, worktree, sessionId, "agent", role.parentId);
         }
       : undefined;
+    this.orchestrationHost = workspaceOrchestrationHost(this.features.orchestrationHost);
     this.orchestration = new Orchestration(
-      workspaceOrchestrationHost(this.features.orchestrationHost),
+      this.orchestrationHost,
       this.now,
       () => this.concurrentChildren,
     );
@@ -531,7 +534,8 @@ export class WorkspaceContext {
   async worktrees(repository: string): Promise<readonly Worktree[]> {
     this.known(repository);
     const local = await this.deps.worktrees.listWorktrees(repository);
-    const remote = [
+    const discovered = await this.deps.hosts?.worktrees?.(repository);
+    const remote = discovered ?? [
       ...new Map(
         [...this.launched.values()]
           .filter(
@@ -611,6 +615,34 @@ export class WorkspaceContext {
     autoApprove?: () => Promise<boolean>,
     readSnapshot?: () => Promise<string>,
   ): Promise<boolean> {
+    if (worktree.startsWith("/foom-remote/")) {
+      const tree = this.deps.hosts?.placement?.(worktree);
+      if (!tree || tree.localRepository !== repository)
+        throw new Error("Remote worktree unavailable");
+      return this.orchestrationHost.remove(
+        repository,
+        worktree,
+        tree.identity,
+        (branch, changes) =>
+          this.deps.dialog?.(
+            {
+              title: "Remove remote worktree?",
+              accept: changes ? "Discard changes and remove" : "Remove worktree",
+              glyph: "trash",
+              subject: `${tree.host}:${tree.path}`,
+              removal: {
+                group: `remote-human-${worktree}`,
+                item: { id: worktree, branch, path: `${tree.host}:${tree.path}`, changes },
+              },
+            },
+            this.launchAbort.signal,
+          ) ?? Promise.resolve(false),
+        () => {
+          if (this.closed) throw new Error("Workspace closed");
+          this.known(repository);
+        },
+      );
+    }
     const key = `${repository}\0${branch ?? ""}`;
     if (this.busyWorktrees.has(key)) throw new RemovalError("busy", "This worktree is busy");
     this.busyWorktrees.add(key);

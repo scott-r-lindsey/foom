@@ -82,6 +82,8 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     }
   };
   const inspect = async (repository: string, tree: NonNullable<ReturnType<typeof remote.get>>) => {
+    if (tree.localRepository !== repository) throw new LaunchFailure("remote_worktree_unavailable");
+    hosts().registered(tree.host, tree.codeFolder);
     const current = await hosts().worktree(tree.host, repository, {
       operation: "inspect-worktree",
       path: tree.path,
@@ -133,7 +135,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     remoteCheckout: async (path, agent) => {
       const tree = remoteTree(path);
       if (!tree) return undefined;
-      await hosts().requireAgent(tree.host, agent);
+      if (agent !== "shell") await hosts().requireAgent(tree.host, agent);
       const current = await inspect(tree.localRepository, tree);
       return {
         target: { host: tree.host },
