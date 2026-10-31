@@ -230,7 +230,7 @@ function orchestration(name: string | undefined, words: string[]): Command {
         new Set(ids).size !== ids.length
       )
         throw new ControlError("invalid_request");
-      if (ids.length) params["ids"] = ids;
+      if (ids.length || (!params["untilEvent"] && flags.has("--board-after"))) params["ids"] = ids;
       if (flags.has("--timeout")) {
         if (!params["untilEvent"] || flags.has("--timeout-ms"))
           throw new ControlError("invalid_request");

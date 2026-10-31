@@ -129,7 +129,7 @@ it("retains idempotency keys across failed replies and resolution retries", asyn
   fireEvent.change(await h.view.findByLabelText("Reply"), { target: { value: "Yes" } });
   fireEvent.click(h.view.getByText("Post reply"));
   await h.view.findByText("Unable to post reply.");
-  fireEvent.click(h.view.getByRole("button", { name: "Dismiss" }));
+  fireEvent.click(await h.view.findByRole("button", { name: "Dismiss" }));
   fireEvent.click(h.view.getByText("Post reply"));
   await waitFor(() => {
     expect(h.api.post).toHaveBeenCalledTimes(2);
@@ -140,7 +140,7 @@ it("retains idempotency keys across failed replies and resolution retries", asyn
   });
   fireEvent.click(h.view.getByText("Mark resolved"));
   await h.view.findByText("Unable to resolve thread.");
-  fireEvent.click(h.view.getByRole("button", { name: "Dismiss" }));
+  fireEvent.click(await h.view.findByRole("button", { name: "Dismiss" }));
   fireEvent.click(h.view.getByText("Mark resolved"));
   await waitFor(() => {
     expect(h.api.resolve).toHaveBeenCalledTimes(2);

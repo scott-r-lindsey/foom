@@ -444,6 +444,15 @@ test("orchestrator commands name only an owned terminal; the disclosure names a 
   expect(JSON.stringify(disclosure.sections)).toContain(
     "Close its exited children, discarding their final screens; their worktrees and branches remain.",
   );
+  expect(JSON.stringify(disclosure.sections)).toContain(
+    "Post local Board threads for this repository.",
+  );
+  expect(JSON.stringify(disclosure.sections)).toContain(
+    "Board posts addressed to or opened by this repository.",
+  );
+  expect(JSON.stringify(disclosure.sections)).toMatch(
+    /Board posts may be sent to this agent's model provider/u,
+  );
   expect(JSON.stringify(disclosure.sections)).toMatch(/model provider/u);
   expect(JSON.stringify(disclosure.sections)).toMatch(/redaction cannot catch every secret/u);
   expect(JSON.stringify(disclosure.sections)).not.toMatch(/stops orchestrating/u);

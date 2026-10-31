@@ -103,3 +103,10 @@ it("rejects malformed flags and combinations before reading input", async () => 
   for (const args of bad)
     await expect(boardCommand(args, input())).rejects.toThrow("invalid_request");
 });
+
+it("forwards an explicit empty target set for bounded board-only waits", () => {
+  expect(command(["wait-for", "--board-after", "cursor", "--timeout-ms", "0"])).toEqual({
+    method: "wait_for",
+    params: { ids: [], boardAfter: "cursor", timeoutMs: 0 },
+  });
+});

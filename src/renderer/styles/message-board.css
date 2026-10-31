@@ -173,3 +173,6 @@
   border-color: var(--highlight);
   color: var(--ink);
 }
+.sidebar-footer-bar:has(.message-board-toggle) .master-volume {
+  min-width: 80px;
+}

@@ -18,6 +18,8 @@ The main-only `append(author, scope, input, active)` seam deliberately has no
 agent or terminal dependency. Future main-owned producers can append through it;
 recording orchestrator/child conversations belongs to #974 and is not implemented.
 Neither transport nor renderer may choose this author argument.
+The Make orchestrator disclosure names Board read/post access and the path to
+the agent's model provider.
 
 The service derives `orchestrator:<repository ID>` from the caller's live grant,
 checks the exact current orchestrator slot and generation, rejects children and
