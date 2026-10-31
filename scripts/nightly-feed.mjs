@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { assets, buildIdentity, identity, macBundleVersion } from "./nightly.mjs";
+import { assets, buildIdentity, checksums, identity, macBundleVersion } from "./nightly.mjs";
 
 const prefix = "updates/nightly/";
 const digest = (data) => createHash("sha256").update(data).digest("hex");
@@ -34,7 +34,7 @@ export function generateFeed(packages, info) {
   const feeds = ["darwin-arm64", "linux-x64", "win32-x64"].map((target) => {
     const name = `Foom-nightly-${info.day}-${info.short}-${target}.zip`;
     const archive = immutable.find(({ key }) => key.endsWith(`/${name}`));
-    if (!archive || archive.data.readUInt32LE(0) !== 0x04034b50)
+    if (!archive || archive.data.length < 4 || archive.data.readUInt32LE(0) !== 0x04034b50)
       throw new Error(`Missing or invalid ${target} nightly ZIP`);
     const url = `https://foom-term.com/${archive.key}`;
     const metadata = {
@@ -63,7 +63,64 @@ export function generateFeed(packages, info) {
       immutable: false,
     };
   });
-  return [...immutable, ...feeds];
+  const downloads = [
+    ["darwin-arm64.dmg", /\.dmg$/],
+    ["darwin-arm64.zip", /-darwin-arm64\.zip$/],
+    ["linux-x64.deb", /\.deb$/],
+    ["linux-x64.rpm", /\.rpm$/],
+    ["linux-x64.zip", /-linux-x64\.zip$/],
+    ["win32-x64-setup.exe", /\.exe$/],
+    ["win32-x64.zip", /-win32-x64\.zip$/],
+  ].map(([suffix, pattern]) => {
+    const matches = immutable.filter(({ key }) => pattern.test(key));
+    if (matches.length !== 1) throw new Error(`Missing or duplicate nightly download: ${suffix}`);
+    const archive = matches[0];
+    return {
+      ...archive,
+      key: `${prefix}download/Foom-nightly-${suffix}`,
+      filename: archive.key.split("/").at(-1),
+      immutable: false,
+    };
+  });
+  const metadata = (name, data) => ({
+    key: `${prefix}download/${name}`,
+    data,
+    sha256: digest(data),
+    immutable: false,
+  });
+  const sums = metadata(
+    "SHA256SUMS",
+    Buffer.from(
+      checksums(downloads.map(({ key, data }) => ({ name: key.split("/").at(-1), data }))),
+    ),
+  );
+  const manifest = metadata(
+    "latest.json",
+    Buffer.from(
+      `${JSON.stringify(
+        {
+          version: info.version,
+          commit: info.sha,
+          commitDate: info.date,
+          files: downloads.map(({ key, filename, sha256 }) => ({
+            name: key.split("/").at(-1),
+            sha256,
+            url: `https://foom-term.com/${prefix}artifacts/${info.sha}/${filename}`,
+          })),
+        },
+        null,
+        2,
+      )}\n`,
+    ),
+  );
+  return [
+    ...immutable,
+    ...[...downloads, sums, manifest, ...feeds].map((object) => ({
+      ...object,
+      commit: info.sha,
+      commitDate: info.date,
+    })),
+  ];
 }
 
 /** Argument arrays only; tests inject the entire AWS boundary and never contact AWS. */
@@ -110,21 +167,30 @@ export function uploadFeed(objects, { bucket, distribution, region }, aws = runA
         continue;
       }
       if (head && !object.immutable) {
-        const file = join(directory, "previous.json");
-        call(["s3api", "get-object", "--bucket", bucket, "--key", object.key, file]);
-        const previous = JSON.parse(readFileSync(file, "utf8"));
-        const next = JSON.parse(object.data);
-        if (!Number.isFinite(Date.parse(previous.commitDate)))
-          throw new Error("Invalid existing feed date");
+        // Fixed bytes may already belong to a newer, interrupted publication
+        // whose JSON pointers still describe the previous night. HEAD metadata
+        // protects every overwritten download/checksum before any writes occur.
+        let previous = { commit: head.Metadata?.commit, commitDate: head.Metadata?.commitdate };
+        if (object.key.endsWith(".json")) {
+          const file = join(directory, "previous.json");
+          call(["s3api", "get-object", "--bucket", bucket, "--key", object.key, file]);
+          previous = JSON.parse(readFileSync(file, "utf8"));
+        }
         if (
-          previous.commit !== next.commit &&
-          Date.parse(previous.commitDate) >= Date.parse(next.commitDate)
+          !/^[a-f0-9]{40}$/.test(previous.commit ?? "") ||
+          !Number.isFinite(Date.parse(previous.commitDate))
+        )
+          throw new Error("Invalid existing nightly publication identity");
+        if (
+          previous.commit !== object.commit &&
+          Date.parse(previous.commitDate) >= Date.parse(object.commitDate)
         )
           throw new Error("Refusing to move nightly feed backwards");
       }
       pending.push(object);
     }
-    // All immutable bytes reach S3 before any mutable feed references them.
+    // Immutable bytes, fixed downloads/checksums, manifest, then update feeds.
+    // Metadata always references complete immutable objects, even on partial failure.
     for (const [index, object] of pending.entries()) {
       const file = join(directory, String(index));
       writeFileSync(file, object.data);
@@ -138,7 +204,10 @@ export function uploadFeed(objects, { bucket, distribution, region }, aws = runA
         "--body",
         file,
         "--metadata",
-        `sha256=${object.sha256}`,
+        JSON.stringify({
+          sha256: object.sha256,
+          ...(!object.immutable ? { commit: object.commit, commitdate: object.commitDate } : {}),
+        }),
         "--checksum-algorithm",
         "SHA256",
         "--checksum-sha256",
@@ -148,7 +217,14 @@ export function uploadFeed(objects, { bucket, distribution, region }, aws = runA
           ? "public,max-age=31536000,immutable"
           : "no-cache,max-age=0,must-revalidate",
         "--content-type",
-        object.immutable ? "application/octet-stream" : "application/json",
+        object.key.endsWith(".json")
+          ? "application/json"
+          : object.key.endsWith("/SHA256SUMS")
+            ? "text/plain"
+            : "application/octet-stream",
+        ...(object.filename
+          ? ["--content-disposition", `attachment; filename="${object.filename}"`]
+          : []),
         ...(object.immutable ? ["--if-none-match", "*"] : []),
       ]);
     }
