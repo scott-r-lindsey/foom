@@ -293,6 +293,7 @@ export function serveHost(
       if (message.type === "manage") {
         if (id !== undefined) throw new Error("Session already open");
         const mutation =
+          message.operation === "inspect" || // Enrollment may create the approved folder.
           message.operation === "clone" ||
           message.operation === "create-worktree" ||
           message.operation === "remove-worktree";

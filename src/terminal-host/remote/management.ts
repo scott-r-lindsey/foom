@@ -15,18 +15,24 @@ import {
 import type { HostManagement, HostResult, HostFacts } from "../../shared/registered-hosts.d";
 import { hostDiscovery, hostProbe, hostLoginEnvironment } from "./agent-discovery";
 
-/** Check every ancestor; never follow symlinks or create beneath a writable parent. */
-export async function approvedCodeFolder(input: string, home: string): Promise<string> {
+/** Validate existing ancestors; only enrollment and explicit cloning may create them. */
+export async function approvedCodeFolder(
+  input: string,
+  home: string,
+  mode: "existing" | "create" = "existing",
+): Promise<string> {
   const path = input.startsWith("~/") ? join(home, input.slice(2)) : input;
   if (resolve(path) !== path || path === "/") throw new Error("unsafe-folder");
   let current = "/";
   for (const part of path.slice(1).split("/")) {
     current = join(current, part);
-    try {
-      await mkdir(current, { mode: 0o700 });
-    } catch (error) {
-      if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST")
-        throw new Error("folder-refused", { cause: error });
+    if (mode === "create") {
+      try {
+        await mkdir(current, { mode: 0o700 });
+      } catch (error) {
+        if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST")
+          throw new Error("folder-refused", { cause: error });
+      }
     }
     const info = await lstat(current);
     if (
@@ -76,7 +82,11 @@ export async function manageHost(
   if (!hostManagement(request)) return { ok: false, reason: "folder-refused" };
   let folder: string;
   try {
-    folder = await approvedCodeFolder(request.codeFolder, home);
+    folder = await approvedCodeFolder(
+      request.codeFolder,
+      home,
+      request.operation === "inspect" || request.operation === "clone" ? "create" : "existing",
+    );
   } catch (error) {
     return {
       ok: false,
@@ -179,7 +189,7 @@ export async function manageHost(
     return await git(["status", "--porcelain", "-z", "--untracked-files=normal"], directory);
   };
   try {
-    // Recheck the approved parent immediately before each filesystem mutation.
+    // Revalidate without recreating a folder removed since the initial check.
     signal?.throwIfAborted();
     await approvedCodeFolder(folder, home);
     let exists = true;

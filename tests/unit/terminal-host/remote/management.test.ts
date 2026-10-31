@@ -25,6 +25,7 @@ const mock = vi.hoisted(() => ({
   probe: vi.fn(),
   read: vi.fn(),
   lstat: vi.fn(),
+  login: vi.fn(),
 }));
 vi.mock("node:fs/promises", async (original) => {
   const fs = await original<typeof fsPromises>();
@@ -36,7 +37,7 @@ vi.mock("../../../../src/terminal-host/remote/agent-discovery", () => ({
   remoteCheckout: mock.checkout,
   hostDiscovery: mock.discovery,
   hostProbe: mock.probe,
-  hostLoginEnvironment: () => Promise.resolve({ PATH: "/fixture-login" }),
+  hostLoginEnvironment: mock.login,
 }));
 import {
   approvedCodeFolder,
@@ -46,6 +47,7 @@ import {
 let home: string;
 beforeEach(async () => {
   home = await realpath(await mkdtemp(join(tmpdir(), "management-")));
+  mock.login.mockReset().mockResolvedValue({ PATH: "/fixture-login" });
   mock.checkout.mockReset().mockResolvedValue("identity");
   mock.discovery.mockReset().mockResolvedValue({ version: "1.0", help: "--help" });
   mock.probe.mockReset().mockResolvedValue("");
@@ -58,7 +60,7 @@ afterEach(async () => {
 test.skipIf(process.platform === "win32")(
   "approved folders are private, canonical, owned and never follow links",
   async () => {
-    const folder = await approvedCodeFolder("~/code", home);
+    const folder = await approvedCodeFolder("~/code", home, "create");
     expect(folder).toBe(join(home, "code"));
     expect(await approvedCodeFolder(folder, home)).toBe(folder);
     for (const path of ["/", join(home, "code", "..", "code") + "/", "relative"])
@@ -79,6 +81,55 @@ test.skipIf(process.platform === "win32")(
     );
     await expect(approvedCodeFolder(folder, home)).rejects.toThrow("unsafe");
     mock.lstat.mockImplementation(fs.lstat);
+  },
+);
+test.skipIf(process.platform === "win32").each(["folder", "ancestor", "recheck"] as const)(
+  "read-only management does not recreate a missing code folder: %s",
+  async (missing) => {
+    mock.probe.mockResolvedValue(
+      "page size of 4096 bytes\nPages free: 10.\nPages inactive: 20.\nPages speculative: 3.\n",
+    );
+    const parent = join(home, "parent");
+    const folder = join(parent, "code");
+    await mkdir(folder, { recursive: true, mode: 0o700 });
+    const removed = missing === "ancestor" ? parent : folder;
+    for (const operation of ["inspect-worktree", "repository"] as const) {
+      await mkdir(folder, { recursive: true, mode: 0o700 });
+      if (missing === "recheck")
+        mock.login.mockImplementationOnce(async () => {
+          await rm(removed, { recursive: true });
+          return { PATH: "/fixture-login" };
+        });
+      else await rm(removed, { recursive: true });
+      const base = {
+        type: "manage",
+        codeFolder: folder,
+        directory: "repo",
+        origin: "git@fixture.test:team/repo.git",
+        agents: [],
+      } as const;
+      const result = await manageHost(
+        operation === "inspect-worktree"
+          ? {
+              ...base,
+              operation,
+              path: join(folder, ".foom-worktree-test"),
+              identity: "a".repeat(64),
+            }
+          : { ...base, operation },
+        0,
+        "/fixture",
+        "0.1.0",
+        home,
+      );
+      await expect(lstat(removed)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(result).toEqual({
+        ok: false,
+        reason: missing === "recheck" ? "checkout-refused" : "folder-refused",
+      });
+      expect(mock.probe.mock.calls.some(([command]) => command === "git")).toBe(false);
+      expect(mock.checkout).not.toHaveBeenCalled();
+    }
   },
 );
 test("available memory uses Linux MemAvailable and macOS free + inactive + speculative pages", async () => {
@@ -199,6 +250,7 @@ test.skipIf(process.platform === "win32")(
       agents: [],
     } as const;
     const path = join(home, "code/repo");
+    await mkdir(join(home, "code"), { mode: 0o700 });
     expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toMatchObject({
       ok: true,
       checkout: { path, state: "absent" },
@@ -435,7 +487,7 @@ test.skipIf(process.platform === "win32").each(["unborn", "destination-appeared"
 test.skipIf(process.platform === "win32")(
   "branch worktrees are fetched from the default, remain inside the approved folder, and removal binds identity and displayed changes",
   async () => {
-    const folder = await approvedCodeFolder("~/code", home);
+    const folder = await approvedCodeFolder("~/code", home, "create");
     const repository = join(folder, "repo");
     await mkdir(repository, { mode: 0o700 });
     const base = {
@@ -649,7 +701,7 @@ test.skipIf(process.platform === "win32")(
 test.skipIf(process.platform === "win32")(
   "detached remote removal requires HEAD reachability from a retained public ref and refuses changing evidence",
   async () => {
-    const folder = await approvedCodeFolder("~/code", home);
+    const folder = await approvedCodeFolder("~/code", home, "create");
     const repository = join(folder, "repo");
     const path = join(folder, ".foom-worktree-detached");
     await mkdir(repository, { mode: 0o700 });
@@ -733,7 +785,7 @@ test.skipIf(process.platform === "win32")(
 test.skipIf(process.platform === "win32").each(["replacement", "graft"] as const)(
   "detached remote removal ignores %s history overlays",
   async (overlay) => {
-    const folder = await approvedCodeFolder("~/code", home);
+    const folder = await approvedCodeFolder("~/code", home, "create");
     const repository = join(folder, "repo");
     const path = join(folder, ".foom-worktree-detached");
     await mkdir(repository, { mode: 0o700 });
