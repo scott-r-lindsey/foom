@@ -68,7 +68,7 @@ async function remoteFleet(context, agents, restart = false, reviewLoop = false)
       path.join(bin, "gh"),
       FAKE_GH.replace(
         "const args = process.argv.slice(2);",
-        `const args = process.argv.slice(2); fs.appendFileSync(${JSON.stringify(forgeCalls)}, args[0] + "\\n");`,
+        `const args = process.argv.slice(2); fs.appendFileSync(${JSON.stringify(forgeCalls)}, (args[0] === "api" && args[5]?.includes("pullRequest(number: 340)") ? "remote-status" : args[0]) + "\\n");`,
       ),
       { mode: 0o700 },
     );
@@ -437,10 +437,10 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
       "fleet-worker",
     );
     if (reviewLoop) {
-      // Observe the asynchronous forge request before waiting for its validated
-      // publication; neither stage borrows the other's assertion deadline.
+      // Board discovery also makes API calls. Observe the bound child status
+      // request before waiting for its validated publication.
       await expect
-        .poll(async () => (await readFile(forgeCalls, "utf8")).includes("api\n"))
+        .poll(async () => (await readFile(forgeCalls, "utf8")).includes("remote-status\n"))
         .toBe(true);
       await expect
         .poll(
