@@ -170,10 +170,12 @@ Its identity is a fresh opaque per-launch alias, never a hub terminal ID or pare
 ID. Local `whoami` and parent-facing terminal IDs are unchanged. Filesystem preview
 and fleet/repository tools are refused with a fixed phase-2 restriction reason;
 host-aware placement (#756) does not widen the remote child's tool authority.
-Review-enabled remote launches fail with `remote_review_unsupported`; local
-HEAD/dirty snapshots and forge observations cannot attest to the remote checkout.
-Host-aware review snapshots and evidence for automated remote reviews remain future
-work. Ordinary registered remote child PR/check observations use the
+Registered-host review loops (#942) use bounded host HEAD/dirty snapshots and
+the host-bound forge observations. Each reviewer and author resume carries pinned
+HEAD/digest evidence, checked on the host after preparation and immediately before
+PTY creation. Reviewers retain the same three restricted tools and opaque per-launch
+identity as remote authors. Developer spike mappings and detached remote review
+checkouts still refuse with `remote_review_unsupported`. Ordinary registered remote child PR/check observations use the
 [host-bound tracker](../contracts/forge-tracking.md#registered-remote-checkouts-940).
 
 Remote hook and control endpoints terminate on private Unix sockets. A local

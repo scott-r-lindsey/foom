@@ -16,6 +16,7 @@ const {
 } = require("node:fs/promises");
 const path = require("node:path");
 const { tmpdir } = require("node:os");
+const { FAKE_GH } = require("../helpers/forge-cli.js");
 const { gitSync } = require("../helpers/git.js");
 const { launchTrustedParent } = require("./agent-fixture.js");
 const { deadline, expect } = require("./test-policy.js");
@@ -27,6 +28,7 @@ const {
   confirmationPage,
   openSettingsScreen,
   fixtureCleanup,
+  createMemoryFixture,
   removeAfterApps,
 } = require("./harness.js");
 const { auditProcesses } = require("./process-audit.js");
@@ -42,7 +44,7 @@ async function copyRemoteBranch(app, page, expected) {
   await page.keyboard.press("Escape");
 }
 
-async function remoteFleet(context, agents, restart = false) {
+async function remoteFleet(context, agents, restart = false, reviewLoop = false) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "rfl-")));
   removeAfterApps(context, root);
   const remoteHome = await mkdtemp(path.join(await realpath("/tmp"), "rfh-"));
@@ -66,8 +68,30 @@ async function remoteFleet(context, agents, restart = false) {
     ],
     { cwd: repo },
   );
-  const origin = "git@fixture.test:team/repo.git";
+  const origin = reviewLoop
+    ? "https://github.com/fixture/offline.git"
+    : "git@fixture.test:team/repo.git";
   gitSync(["remote", "add", "origin", origin], { cwd: repo });
+  const forgeState = path.join(root, "forge.json");
+  const forgeCalls = path.join(root, "forge-calls");
+  if (reviewLoop) {
+    await writeFile(forgeCalls, "");
+    await writeFile(
+      path.join(bin, "gh"),
+      FAKE_GH.replace(
+        "const args = process.argv.slice(2);",
+        `const args = process.argv.slice(2); fs.appendFileSync(${JSON.stringify(forgeCalls)}, (args[0] === "api" && args[5]?.includes("pullRequest(number: 340)") ? "remote-status" : args[0]) + "\\n");`,
+      ),
+      { mode: 0o700 },
+    );
+    await writeFile(
+      forgeState,
+      JSON.stringify({
+        pr: { headRefName: "missing-agent", headRefOid: "a".repeat(40) },
+        checks: [{ bucket: "pass" }],
+      }),
+    );
+  }
   const folder = path.join(remoteHome, "code");
   const remoteRepo = path.join(
     folder,
@@ -121,7 +145,7 @@ notify.end(JSON.stringify({session_id:'fleet-parent-conversation',hook_event_nam
   const gitState = path.join(root, "remote-git.json");
   await writeFile(gitState, "{}");
   await writeFile(
-    path.join(remoteBin, "git"),
+    path.join(remoteBin, reviewLoop ? "git-fixture.js" : "git"),
     `#!${process.execPath}
 const fs = require('node:fs'), path = require('node:path');
 const args = process.argv.slice(2), cwd = process.cwd();
@@ -133,16 +157,46 @@ else if (args.includes('--absolute-git-dir')) console.log(path.join(${JSON.strin
 else if (args.includes('ls-remote')) process.stdout.write('ref: refs/heads/main\\tHEAD\\n');
 else if (args.includes('symbolic-ref')) console.log(state[cwd]);
 else if (args.includes('worktree') && args.includes('add')) {
- const destination=args[args.indexOf('--')+1]; fs.mkdirSync(destination,{mode:0o700,recursive:true}); const metadata=path.join(${JSON.stringify(path.join(remoteRepo, ".git", "worktrees"))},path.basename(destination)); fs.mkdirSync(metadata,{recursive:true,mode:0o700}); fs.writeFileSync(path.join(destination,'.git'),'gitdir: '+metadata+'\\n'); state[destination]=args[args.indexOf('-b')+1]; fs.writeFileSync(${JSON.stringify(gitState)},JSON.stringify(state));
+ const destination=args[args.indexOf('--')+1]; fs.mkdirSync(destination,{mode:0o700,recursive:true}); const metadata=path.join(${JSON.stringify(path.join(remoteRepo, ".git", "worktrees"))},path.basename(destination)); fs.mkdirSync(metadata,{recursive:true,mode:0o700}); fs.writeFileSync(path.join(destination,'.git'),'gitdir: '+metadata+'\\n'); state[destination]=args[args.indexOf('-b')+1]; fs.writeFileSync(path.join(metadata,'fixture-branch'),state[destination]+'\\n'); fs.writeFileSync(${JSON.stringify(gitState)},JSON.stringify(state));
 } else if (args.includes('worktree') && args.includes('list')) {
  for (const [directory,branch] of Object.entries(state)) process.stdout.write('worktree '+directory+'\\0HEAD '+ 'a'.repeat(40)+'\\0branch refs/heads/'+branch+'\\0\\0');
 } else if (args.includes('worktree') && args.includes('remove')) {const directory=args.at(-1); fs.rmSync(directory,{recursive:true}); delete state[directory]; fs.writeFileSync(${JSON.stringify(gitState)},JSON.stringify(state));}
 else if (args.includes('status') || args.includes('check-ref-format') || args.includes('fetch') || args.includes('for-each-ref')) {}
-else if (args.includes('--verify')) console.log('a'.repeat(40));
+else if (args.includes('--git-path')) console.log(path.join(cwd, '.snapshot-missing'));
+else if (args.includes('--symbolic-full-name')) console.log('refs/heads/'+state[cwd]);
+else if (args.includes('rev-parse')) console.log('a'.repeat(40));
+else if (args.includes('ls-files')) {}
 else process.exit(2);
 `,
     { mode: 0o700 },
   );
+  if (reviewLoop) {
+    await symlink(process.execPath, path.join(remoteBin, "node"));
+    // Snapshot reads need fixed facts, not a new Node VM for each Git argument array.
+    // Mutations still run the stateful fixture; no system Git or network runs.
+    await writeFile(
+      path.join(remoteBin, "git"),
+      [
+        "#!/bin/sh",
+        'case " $* " in',
+        "  *' config '*) printf '%s\\n' \"$FIXTURE_REMOTE_ORIGIN\";;",
+        "  *' --show-toplevel '*) pwd -P;;",
+        "  *' --git-common-dir '*) printf '%s/.git\\n' \"$FIXTURE_REMOTE_GIT_ROOT\";;",
+        "  *' --absolute-git-dir '*) printf '%s/.git/worktrees/%s\\n' \"$FIXTURE_REMOTE_GIT_ROOT\" \"${PWD##*/}\";;",
+        "  *' --git-path '*) printf '%s/.snapshot-missing\\n' \"$PWD\";;",
+        "  *' --symbolic-full-name '*) IFS= read -r branch < \"$FIXTURE_REMOTE_GIT_ROOT/.git/worktrees/${PWD##*/}/fixture-branch\"; printf 'refs/heads/%s\\n' \"$branch\";;",
+        "  *' symbolic-ref '*) IFS= read -r branch < \"$FIXTURE_REMOTE_GIT_ROOT/.git/worktrees/${PWD##*/}/fixture-branch\"; printf '%s\\n' \"$branch\";;",
+        '  *\' worktree list \'*) for record in "$FIXTURE_REMOTE_GIT_ROOT"/.git/worktrees/.foom-worktree-*/fixture-branch; do [ -f "$record" ] || continue; IFS= read -r branch < "$record"; metadata="${record%/fixture-branch}"; printf \'worktree %s/%s\\000HEAD %s\\000branch refs/heads/%s\\000\\000\' "${FIXTURE_REMOTE_GIT_ROOT%/*}" "${metadata##*/}" "$FIXTURE_REMOTE_HEAD" "$branch"; done;;',
+        "  *' ls-remote '*) printf 'ref: refs/heads/main\\tHEAD\\n';;",
+        "  *' rev-parse '*) printf '%s\\n' \"$FIXTURE_REMOTE_HEAD\";;",
+        "  *' status '*|*' check-ref-format '*|*' fetch '*|*' for-each-ref '*|*' ls-files '*) exit 0;;",
+        '  *) exec node "${0%/*}/git-fixture.js" "$@";;',
+        "esac",
+        "",
+      ].join("\n"),
+      { mode: 0o700 },
+    );
+  }
   for (const agent of agents) {
     await writeFile(
       path.join(remoteBin, agent),
@@ -153,8 +207,18 @@ if (args[0]==='--version') {console.log({codex:'codex-cli 0.161.0',copilot:'GitH
 if (args[0]==='--help') {console.log('-c --no-alt-screen --plugin-dir --additional-mcp-config --allow-tool --session-id --resume --interactive --prompt-interactive --conversation --extension --session --standalone --prompt'); process.exit(0);}
 if (args[0]==='plugin') {console.log('[]'); process.exit(0);}
 const env=process.env;
+const reviewLoop=${JSON.stringify(reviewLoop)};
+const reviewer=reviewLoop && args.some(arg=>arg.includes('Review PR #340'));
+const resumed=reviewLoop && !reviewer && args.includes('resume');
 (async () => {
 let attachment, cleanup;
+if(reviewLoop) {
+ const conversation=reviewer ? 'review-'+process.pid : 'author-conversation';
+ for(const event of ['SessionStart','Stop']) {
+  const result=spawnSync(env.FOOM_REMOTE_HELPER,['--observe','lifecycle','stdin','silent','unordered'],{env,input:JSON.stringify({session_id:conversation,hook_event_name:event,source:resumed?"resume":"startup",turn_id:"fixture-turn",stop_hook_active:false}),encoding:'utf8'});
+  if(result.status!==0) throw new Error('Fixture hook failed');
+ }
+}
 const conversation=args[args.indexOf(agent==='pi' && args.includes('--session-id')?'--session-id':'--session')+1];
 if(agent==='pi') {
  const handlers=new Map();
@@ -176,7 +240,7 @@ if(agent==='pi') {
   yield {id:'end',type:'session.execution.succeeded',data:{sessionID:conversation}};
  }}});
 }
-fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-launch.json`))},JSON.stringify({args,cwd:process.cwd(),env:Object.fromEntries(Object.entries(env).filter(([key])=>key.startsWith('FOOM_'))),pid:process.pid,attachment,hookFile:env.OPENCODE_CONFIG}));
+fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-launch.json`))},JSON.stringify({args,reviewer,resumed,cwd:process.cwd(),env:Object.fromEntries(Object.entries(env).filter(([key])=>key.startsWith('FOOM_'))),pid:process.pid,attachment,hookFile:env.OPENCODE_CONFIG}));
 process.stdout.write('REMOTE_'+agent.toUpperCase()+'_READY\\r\\n'); process.stdin.setRawMode(true);
 process.stdin.on('data', bytes=>{
  if(!bytes.toString().includes('1')) return;
@@ -190,7 +254,8 @@ process.stdin.on('data', bytes=>{
   const result=spawnSync(command,argv,{env,input:messages.map(value=>JSON.stringify(value)).join('\\n')+'\\n',encoding:'utf8'}); mcp={code:result.status,output:result.stdout};
  }
 
- const handoff=cli(['handoff','--status','done','--summary-file','-','--idempotency-key','fixture-'+agent],agent+' fixture complete');
+ const verdict=reviewer ? (reviewLoop==='clean' ? {verdict:'clean'} : {verdict:'findings',findings:[{file:'a.ts',line:1,summary:'Fixture defect',scenario:'Zero input'}]}) : undefined;
+ const handoff=cli(['handoff','--status',resumed && reviewLoop==='findings' ? 'blocked' : 'done','--summary-file','-','--idempotency-key','fixture-'+agent,...(verdict ? ['--review',JSON.stringify(verdict)] : [])],agent+' fixture complete');
  fs.writeFileSync(${JSON.stringify(path.join(root, `${agent}-report.json`))},JSON.stringify({identity,forbidden,handoff,mcp}));
 });
 process.on('exit',()=>cleanup?.());
@@ -202,6 +267,12 @@ process.on('exit',()=>cleanup?.());
   const sshCalls = path.join(root, "ssh-calls");
   const launchCalls = path.join(root, "ssh-launch-calls");
   await writeFile(launchCalls, "");
+  const snapshots = async () =>
+    (await readFile(launchCalls, "utf8")).split("snapshot-complete\n").length - 1;
+  const verifiedCompletion = async (before) => {
+    // Main reads evidence, then independently revalidates it before sending stop.
+    for (const count of [1, 2]) await expect.poll(snapshots).toBeGreaterThanOrEqual(before + count);
+  };
   await writeFile(
     path.join(bin, "ssh"),
     `#!${process.execPath}
@@ -210,13 +281,25 @@ const args=process.argv.slice(2), split=args.indexOf('--');
 if(args[split+1]!=='fleet-worker') process.exit(2);
 appendFileSync(${JSON.stringify(sshCalls)},'ssh\\n');
 if(args.at(-1)==='uname -s; uname -m') {process.stdout.write(require('node:os').type()+'\\n'+(process.arch==='x64'?'x86_64':process.platform==='darwin'?'arm64':'aarch64')+'\\n');process.exit(0);}
-const child=spawn('/bin/sh',['-c','exec '+args.slice(split+2).join(' ')],{env:{HOME:${JSON.stringify(remoteHome)},PATH:${JSON.stringify(remoteBin)},SHELL:${JSON.stringify(shell)},LANG:'C'},stdio:['pipe','pipe','pipe']});
 const {RemoteFrames}=require(${JSON.stringify(path.resolve("build/shared/remote-host-protocol.js"))});
-const frames=new RemoteFrames(); let ready=false, header='';
-child.stdout.on('data',bytes=>{if(!ready){header=(header+bytes.toString('ascii')).slice(-128);ready=header.includes('FOOM-READY\\n');}});
-process.stdin.on('data',bytes=>{if(ready)frames.push(bytes,message=>{if(message.type.startsWith('agent-'))appendFileSync(${JSON.stringify(launchCalls)},message.type+'\\n');});});
-process.stdin.pipe(child.stdin);child.stdout.pipe(process.stdout);child.stderr.pipe(process.stderr);child.stdin.on('error',()=>{});
-process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.exit(code??1));
+const frames=new RemoteFrames(), responses=new RemoteFrames(); let operation;
+const sent=bytes=>frames.push(bytes,message=>{if(message.type==='manage')operation=message.operation; if(message.type.startsWith('agent-'))appendFileSync(${JSON.stringify(launchCalls)},message.type+'\\n');});
+const received=bytes=>responses.push(bytes,message=>{if(message.type==='managed' && operation==='snapshot-worktree')appendFileSync(${JSON.stringify(launchCalls)},message.result.ok?'snapshot-complete\\n':'snapshot-refused\\n');});
+if (${JSON.stringify(Boolean(reviewLoop))}) {
+ // The review scenarios use the already-running real daemon. Bootstrap/upload
+ // is covered by the other fleet/host cases; do not hash the SEA on every read.
+ const socket=require('node:net').createConnection(${JSON.stringify(path.join(remoteHome, ".foom-host/host-v2.sock"))});
+ socket.once('connect',()=>{process.stdout.write('FOOM-READY\\n');process.stdin.on('data',sent);process.stdin.pipe(socket);socket.pipe(process.stdout);});
+ socket.on('data',received);socket.on('error',()=>process.exit(1));socket.on('close',()=>process.exit(0));
+ process.stdin.once('end',()=>socket.destroy());process.on('SIGTERM',()=>socket.destroy());
+} else {
+ const child=spawn('/bin/sh',['-c','exec '+args.slice(split+2).join(' ')],{env:{HOME:${JSON.stringify(remoteHome)},PATH:${JSON.stringify(remoteBin)},SHELL:${JSON.stringify(shell)},LANG:'C',FIXTURE_REMOTE_GIT_ROOT:${JSON.stringify(remoteRepo)},FIXTURE_REMOTE_ORIGIN:${JSON.stringify(origin)},FIXTURE_REMOTE_HEAD:'a'.repeat(40)},stdio:['pipe','pipe','pipe']});
+ let ready=false, header=Buffer.alloc(0);
+ child.stdout.on('data',bytes=>{if(ready){received(bytes);return;} header=Buffer.concat([header,bytes]); const marker=Buffer.from('FOOM-READY\\n'), end=header.indexOf(marker); if(end<0)return; ready=true; received(header.subarray(end+marker.length)); header=Buffer.alloc(0);});
+ process.stdin.on('data',bytes=>{if(ready)sent(bytes);});
+ process.stdin.pipe(child.stdin);child.stdout.pipe(process.stdout);child.stderr.pipe(process.stderr);child.stdin.on('error',()=>{});
+ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.exit(code??1));
+}
 `,
     { mode: 0o700 },
   );
@@ -224,7 +307,14 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
   cleanup.audit ??= await auditProcesses(context);
   const artifact = path.resolve("build/remote-host/foom-host");
   const daemon = spawn(artifact, ["--daemon"], {
-    env: { HOME: remoteHome, PATH: remoteBin, SHELL: shell },
+    env: {
+      HOME: remoteHome,
+      PATH: remoteBin,
+      SHELL: shell,
+      FIXTURE_REMOTE_GIT_ROOT: remoteRepo,
+      FIXTURE_REMOTE_ORIGIN: origin,
+      FIXTURE_REMOTE_HEAD: "a".repeat(40),
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   cleanup.audit.add(daemon.pid);
@@ -248,11 +338,19 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     })
     .toBe(true);
   const credentials = path.join(root, "credentials");
-  const profile = path.join(root, "profile");
+  // Review transitions exercise durable control/session writes, as in review-loop.test.js.
+  const profile = reviewLoop
+    ? await createMemoryFixture(context, "foom-remote-review-profile-")
+    : path.join(root, "profile");
   const launchOptions = {
     fixture: "agent",
     args: [`--user-data-dir=${profile}`],
-    env: { HOME: home, PATH: bin, TEST_FAKE_CREDENTIALS: credentials },
+    env: {
+      HOME: home,
+      PATH: bin,
+      TEST_FAKE_CREDENTIALS: credentials,
+      ...(reviewLoop ? { TEST_FORGE_STATE: forgeState } : {}),
+    },
   };
   const { app, page, parent } = await launchTrustedParent(context, {
     repo,
@@ -296,7 +394,7 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     assert.equal(worker.agents.find((entry) => entry.id === agent).state, "ready");
   assert.ok(sessions.hosts.some((host) => host.host === null));
   let tree;
-  if (agents.includes("codex")) {
+  if (agents.includes("codex") && !reviewLoop) {
     tree = await call("create_worktree", {
       host: "fleet-worker",
       branch: "missing-agent",
@@ -326,7 +424,7 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
         ? tree
         : await call("create_worktree", {
             host: "fleet-worker",
-            branch: `child-${agent}`,
+            ...(reviewLoop ? { pullRequest: 340 } : { branch: `child-${agent}` }),
             idempotencyKey: `tree-${agent}`,
           });
     assert.equal(checkout.status, "succeeded", JSON.stringify(checkout));
@@ -335,6 +433,7 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
       worktreeId: checkout.resultId,
       agent,
       prompt: "Complete the fixture task",
+      ...(reviewLoop ? { review: { agent: "codex", rounds: 3 } } : {}),
       idempotencyKey: `launch-${agent}`,
     });
     assert.equal(launched.status, "succeeded", agent + ": " + JSON.stringify(launched));
@@ -367,12 +466,41 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
       await copyRemoteBranch(
         app,
         page,
-        agent === "codex" && tree ? "missing-agent" : `child-${agent}`,
+        reviewLoop || (agent === "codex" && tree) ? "missing-agent" : `child-${agent}`,
       );
     assert.equal(
       (await call("session_state", { id: launched.resultId, host: "fleet-worker" })).host,
       "fleet-worker",
     );
+    if (reviewLoop) {
+      // Board discovery also makes API calls. Observe the bound child status
+      // request before waiting for its validated publication.
+      await expect
+        .poll(async () => (await readFile(forgeCalls, "utf8")).includes("remote-status\n"))
+        .toBe(true);
+      await expect
+        .poll(
+          async () =>
+            (await call("session_state", { id: launched.resultId })).pullRequest?.requiredChecks,
+        )
+        .toBe("success")
+        .catch(async (error) => {
+          const { state, review, pullRequest } = await call("session_state", {
+            id: launched.resultId,
+          });
+          console.error(
+            "Remote review initial observation",
+            JSON.stringify({
+              state,
+              review,
+              pullRequest,
+              forgeCalls: await readFile(forgeCalls, "utf8"),
+            }),
+          );
+          throw error;
+        });
+    }
+    const initialSnapshots = reviewLoop ? await snapshots() : 0;
     await call("send_keys", {
       id: launched.resultId,
       keys: ["1"],
@@ -422,6 +550,149 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     await expect
       .poll(async () => (await call("read_handoff", { id: launched.resultId })).summary)
       .toBe(`${agent} fixture complete`);
+    if (reviewLoop) {
+      await verifiedCompletion(initialSnapshots);
+      await expect
+        .poll(async () => (await call("session_state", { id: launched.resultId })).state)
+        .toBe("exited");
+      let previous = record;
+      const aliases = new Set([JSON.parse(report.identity.output).alias]);
+      for (const stage of reviewLoop === "clean" ? ["review-1"] : ["review-1", "fix"]) {
+        // Main snapshots the exited checkout before preparing the next launch.
+        await expect
+          .poll(async () => (await call("session_state", { id: launched.resultId })).review?.phase)
+          .toBe(stage === "fix" ? "fixing" : "reviewing");
+        const opens = (await readFile(launchCalls, "utf8")).split("agent-open\n").length;
+        await expect
+          .poll(async () => {
+            const current = JSON.parse(
+              await readFile(path.join(root, `${agent}-launch.json`), "utf8"),
+            );
+            return (
+              current.pid !== previous.pid ||
+              (await readFile(launchCalls, "utf8")).split("agent-open\n").length > opens
+            );
+          })
+          .toBe(true);
+        await expect
+          .poll(async () => {
+            const current = JSON.parse(
+              await readFile(path.join(root, `${agent}-launch.json`), "utf8"),
+            );
+            return (
+              current.pid !== previous.pid && (stage === "fix" ? current.resumed : current.reviewer)
+            );
+          })
+          .toBe(true)
+          .catch(async (error) => {
+            const latest = JSON.parse(
+              await readFile(path.join(root, `${agent}-launch.json`), "utf8"),
+            );
+            const rows = (await call("sessions")).sessions;
+            console.error(
+              "Remote review progression",
+              JSON.stringify({
+                stage,
+                launch: { pid: latest.pid, reviewer: latest.reviewer, resumed: latest.resumed },
+                launchFrames: await readFile(launchCalls, "utf8"),
+                sessions: rows.map(({ id, state, review, handoff, pullRequest }) => ({
+                  id,
+                  state,
+                  review,
+                  handoff,
+                  pullRequest,
+                })),
+              }),
+            );
+            throw error;
+          });
+        await expect
+          .poll(async () =>
+            (await call("sessions")).sessions.some(
+              (row) =>
+                row.state !== "exited" &&
+                row.review?.waiting === false &&
+                (stage === "fix"
+                  ? row.id === launched.resultId
+                  : row.id !== launched.resultId && row.review?.phase === "reviewing"),
+            ),
+          )
+          .toBe(true);
+        const current = JSON.parse(await readFile(path.join(root, `${agent}-launch.json`), "utf8"));
+        const state = (await call("sessions")).sessions;
+        const participant =
+          stage === "fix"
+            ? launched.resultId
+            : state.find(
+                (row) =>
+                  row.id !== launched.resultId &&
+                  row.review?.phase === "reviewing" &&
+                  row.state !== "exited",
+              )?.id;
+        assert.ok(participant, JSON.stringify(state));
+        assert.ok(!JSON.stringify(current).includes(participant));
+        assert.ok(!JSON.stringify(current).includes(parentId));
+        assert.ok(!JSON.stringify(current).includes(parent.controlToken));
+        assert.equal(current.cwd, record.cwd);
+        if (stage === "fix") {
+          assert.ok(current.args.at(-1).includes("Quoted review notes"));
+          assert.ok(current.args.includes("author-conversation"));
+        }
+        await rm(path.join(root, `${agent}-report.json`));
+        const completedSnapshots = await snapshots();
+        await call("send_keys", {
+          id: participant,
+          keys: ["1"],
+          idempotencyKey: `report-${stage}`,
+        });
+        await expect
+          .poll(async () => {
+            try {
+              return JSON.parse(await readFile(path.join(root, `${agent}-report.json`), "utf8"));
+            } catch {
+              return null;
+            }
+          })
+          .not.toBeNull();
+        const next = JSON.parse(await readFile(path.join(root, `${agent}-report.json`), "utf8"));
+        const identity = JSON.parse(next.identity.output);
+        assert.equal(identity.role, "child");
+        assert.deepEqual(identity.capabilities.sort(), ["handoff", "manual", "whoami"]);
+        assert.ok(!aliases.has(identity.alias));
+        aliases.add(identity.alias);
+        assert.equal(JSON.parse(next.forbidden.output).error, "phase_2_restricted");
+        assert.equal(next.handoff.code, 0);
+        if (stage !== "fix") {
+          await verifiedCompletion(completedSnapshots);
+          await expect
+            .poll(async () => (await call("session_state", { id: participant })).state)
+            .toBe("exited")
+            .catch(async (error) => {
+              const { state, review, pullRequest, handoff } = await call("session_state", {
+                id: participant,
+              });
+              console.error(
+                "Remote reviewer completion",
+                JSON.stringify({
+                  state,
+                  review,
+                  pullRequest,
+                  handoff,
+                  launchFrames: await readFile(launchCalls, "utf8"),
+                }),
+              );
+              throw error;
+            });
+        }
+        assert.ok(!JSON.stringify(next).includes(participant));
+        previous = current;
+      }
+      await expect
+        .poll(async () => (await call("session_state", { id: launched.resultId })).review?.phase)
+        .toBe(reviewLoop === "clean" ? "clean" : "waiting-on-parent");
+      assert.equal((await call("session_state", { id: launched.resultId })).review.round, 1);
+      return;
+    }
     if (restart && agent === "codex") {
       persistent = {
         id: launched.resultId,
@@ -710,4 +981,13 @@ test(
   "registered-host Pi and OpenCode consume private extensions, context, MCP and resume attachments",
   fleetOptions,
   (context) => remoteFleet(context, ["pi", "opencode"]),
+);
+
+test("registered-host clean reviewer completes with restricted identity", fleetOptions, (context) =>
+  remoteFleet(context, ["codex"], false, "clean"),
+);
+test(
+  "registered-host review findings resume the author with fresh restricted identity",
+  fleetOptions,
+  (context) => remoteFleet(context, ["codex"], false, "findings"),
 );

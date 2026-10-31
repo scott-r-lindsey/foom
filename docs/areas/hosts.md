@@ -189,6 +189,21 @@ registered objects and cached validated checkout observations in main; they
 never initiate SSH. Removed hosts discard cached locations. See the
 [copy IPC contract](ipc.md#visible-fact-copy-controls-960).
 
+## Remote review evidence (#942)
+
+Registered-host review loops use the read-only `snapshot-worktree` management
+operation and the existing bounded operation reserve. It returns only a validated
+HEAD and SHA-256 digest after canonical membership, creation identity, origin,
+approved-folder and owning-profile provenance checks. No terminal ID, file bytes
+or credential enters management requests or snapshot responses. The host revalidates
+pinned evidence before each reviewer/author PTY start. The hub retains loop policy, limits and grants; see
+[review loops](orchestration.md#optional-child-buildreview-loop-690).
+Snapshot Git index/path inventories have a separate 16 MiB stdout budget, matching
+local Git, in addition to the 10,000-file / 32 MiB content bounds. Other probe
+stdout and every stderr stream retain their 256 KiB limits.
+Compatible older daemons that cannot supply this evidence refuse remote review;
+ordinary sessions and reattachment remain usable.
+
 ## Worktrees without sessions (#941)
 
 Remote creation records durable profile provenance beside the checkout, inside
