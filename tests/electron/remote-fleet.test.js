@@ -269,14 +269,25 @@ const args=process.argv.slice(2), split=args.indexOf('--');
 if(args[split+1]!=='fleet-worker') process.exit(2);
 appendFileSync(${JSON.stringify(sshCalls)},'ssh\\n');
 if(args.at(-1)==='uname -s; uname -m') {process.stdout.write(require('node:os').type()+'\\n'+(process.arch==='x64'?'x86_64':process.platform==='darwin'?'arm64':'aarch64')+'\\n');process.exit(0);}
-const child=spawn('/bin/sh',['-c','exec '+args.slice(split+2).join(' ')],{env:{HOME:${JSON.stringify(remoteHome)},PATH:${JSON.stringify(remoteBin)},SHELL:${JSON.stringify(shell)},LANG:'C',FIXTURE_REMOTE_GIT_ROOT:${JSON.stringify(remoteRepo)},FIXTURE_REMOTE_ORIGIN:${JSON.stringify(origin)},FIXTURE_REMOTE_HEAD:'a'.repeat(40)},stdio:['pipe','pipe','pipe']});
 const {RemoteFrames}=require(${JSON.stringify(path.resolve("build/shared/remote-host-protocol.js"))});
-const frames=new RemoteFrames(), responses=new RemoteFrames(); let ready=false, header=Buffer.alloc(0), operation;
+const frames=new RemoteFrames(), responses=new RemoteFrames(); let operation;
+const sent=bytes=>frames.push(bytes,message=>{if(message.type==='manage')operation=message.operation; if(message.type.startsWith('agent-'))appendFileSync(${JSON.stringify(launchCalls)},message.type+'\\n');});
 const received=bytes=>responses.push(bytes,message=>{if(message.type==='managed' && operation==='snapshot-worktree')appendFileSync(${JSON.stringify(launchCalls)},message.result.ok?'snapshot-complete\\n':'snapshot-refused\\n');});
-child.stdout.on('data',bytes=>{if(ready){received(bytes);return;} header=Buffer.concat([header,bytes]); const marker=Buffer.from('FOOM-READY\\n'), end=header.indexOf(marker); if(end<0)return; ready=true; received(header.subarray(end+marker.length)); header=Buffer.alloc(0);});
-process.stdin.on('data',bytes=>{if(ready)frames.push(bytes,message=>{if(message.type==='manage')operation=message.operation; if(message.type.startsWith('agent-'))appendFileSync(${JSON.stringify(launchCalls)},message.type+'\\n');});});
-process.stdin.pipe(child.stdin);child.stdout.pipe(process.stdout);child.stderr.pipe(process.stderr);child.stdin.on('error',()=>{});
-process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.exit(code??1));
+if (${JSON.stringify(Boolean(reviewLoop))}) {
+ // The review scenarios use the already-running real daemon. Bootstrap/upload
+ // is covered by the other fleet/host cases; do not hash the SEA on every read.
+ const socket=require('node:net').createConnection(${JSON.stringify(path.join(remoteHome, ".foom-host/host-v2.sock"))});
+ socket.once('connect',()=>{process.stdout.write('FOOM-READY\\n');process.stdin.on('data',sent);process.stdin.pipe(socket);socket.pipe(process.stdout);});
+ socket.on('data',received);socket.on('error',()=>process.exit(1));socket.on('close',()=>process.exit(0));
+ process.stdin.once('end',()=>socket.destroy());process.on('SIGTERM',()=>socket.destroy());
+} else {
+ const child=spawn('/bin/sh',['-c','exec '+args.slice(split+2).join(' ')],{env:{HOME:${JSON.stringify(remoteHome)},PATH:${JSON.stringify(remoteBin)},SHELL:${JSON.stringify(shell)},LANG:'C',FIXTURE_REMOTE_GIT_ROOT:${JSON.stringify(remoteRepo)},FIXTURE_REMOTE_ORIGIN:${JSON.stringify(origin)},FIXTURE_REMOTE_HEAD:'a'.repeat(40)},stdio:['pipe','pipe','pipe']});
+ let ready=false, header=Buffer.alloc(0);
+ child.stdout.on('data',bytes=>{if(ready){received(bytes);return;} header=Buffer.concat([header,bytes]); const marker=Buffer.from('FOOM-READY\\n'), end=header.indexOf(marker); if(end<0)return; ready=true; received(header.subarray(end+marker.length)); header=Buffer.alloc(0);});
+ process.stdin.on('data',bytes=>{if(ready)sent(bytes);});
+ process.stdin.pipe(child.stdin);child.stdout.pipe(process.stdout);child.stderr.pipe(process.stderr);child.stdin.on('error',()=>{});
+ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.exit(code??1));
+}
 `,
     { mode: 0o700 },
   );
