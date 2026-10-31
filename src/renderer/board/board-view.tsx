@@ -17,6 +17,7 @@ import type { PreviewSummary, SidebarCommand } from "../../shared/workspace";
 import type { SetupSource } from "../preflight/setup-source.d";
 import { createSoundController } from "../sound/sound-controller";
 import { createAudioSink } from "../sound/web-audio";
+import { MessageBoardPanel } from "./message-board-view";
 import { ActionLog } from "./action-log-view";
 import type { BoardSource } from "./board-source.d";
 import type { BoardRow } from "./board.d";
@@ -127,7 +128,9 @@ function BoardContents({
     setActionMessage(message);
   }, []);
   const [logOpen, setLogOpen] = useState(false);
-  const settingsOpen = Boolean(settingsView) || logOpen;
+  const [boardOpen, setBoardOpen] = useState(false);
+  const boardShown = boardOpen && !logOpen && !settingsView;
+  const settingsOpen = Boolean(settingsView) || logOpen || boardShown;
   const paneInactive = inactive || settingsOpen;
   const rows = useSyncExternalStore(source.subscribe, source.getSnapshot);
   const previews = source.previews?.getSnapshot() ?? emptyPreviews;
@@ -678,7 +681,26 @@ function BoardContents({
           newWorktreeRef={newWorktreeRef}
           command={command}
           options={options}
-          footer={<SidebarControls source={soundSetup} />}
+          footer={
+            <>
+              {source.messageBoard && (
+                <button
+                  type="button"
+                  title="Board"
+                  aria-label="Open message board"
+                  aria-pressed={boardShown}
+                  onClick={() => {
+                    setLogOpen(false);
+                    onCloseSettings?.();
+                    setBoardOpen((value) => !value);
+                  }}
+                >
+                  Board
+                </button>
+              )}
+              <SidebarControls source={soundSetup} />
+            </>
+          }
         />
         {!logOpen && (
           <ConfigThemeLauncherContext
@@ -688,6 +710,15 @@ function BoardContents({
           >
             {settingsView}
           </ConfigThemeLauncherContext>
+        )}
+        {boardShown && source.messageBoard && (
+          <MessageBoardPanel
+            api={source.messageBoard}
+            subscribe={source.subscribe}
+            close={() => {
+              setBoardOpen(false);
+            }}
+          />
         )}
         {logOpen && source.actionLog && (
           <ActionLog

@@ -34,7 +34,8 @@ const commandHelp = [
       "close ID --idempotency-key KEY",
       "remove-worktree WORKTREE_ID --idempotency-key KEY",
       "tail ID [--lines 1-40]",
-      "wait-for ID... [--after JSON_ID_TO_REVISION] [--timeout-ms 0-30000] | wait-for [ID...] --until-event [--after JSON_ID_TO_EVENT] [--timeout SECONDS]",
+      "board threads [--state S] | board read THREAD [--after POST] | board post --thread ID|--new --to REPO --title T --kind K --text-file FILE|- [--link URL] --idempotency-key KEY | board resolve THREAD --idempotency-key KEY",
+      "wait-for ID... [--after JSON_ID_TO_REVISION] [--timeout-ms 0-30000] | wait-for [ID...] --until-event [--after JSON_ID_TO_EVENT] [--board-after EVENT] [--timeout SECONDS]",
     ],
     suffix:
       "\nOrchestration mutations wait up to 60 seconds. Exit 6 (unknown_outcome) means the action may have succeeded. Check foom operation-status --idempotency-key KEY with the same credentials; never retry with a new key.\nConcurrent children and wait-for IDs follow Settings → General (default 4, range 1-16).\nHuman/script access: add --repository ABSOLUTE_PATH [--profile PROFILE]. Approve pairing in Foom.",

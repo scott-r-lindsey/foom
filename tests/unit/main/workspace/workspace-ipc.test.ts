@@ -34,6 +34,7 @@ const trusted = { sender: contents, senderFrame: frame } as unknown as IpcMainIn
 const handoffEntries = vi.fn(() => [{ seq: 1, links: ["https://example.com/pr/1"] }]);
 const workspace = {
   orchestration: { handoffs: { entries: handoffEntries } },
+  messageBoard: vi.fn(),
   actionLog: vi.fn(),
   clearActionLog: vi.fn(),
   panelFacts: vi.fn(),
@@ -88,6 +89,7 @@ test("rejects untrusted senders on every channel", () => {
     "workspace:panel-facts",
     "workspace:sidebar",
     "workspace:sidebar-command",
+    "workspace:message-board",
     "workspace:action-log",
     "workspace:clear-action-log",
     "workspace:snapshot",
@@ -841,4 +843,11 @@ test("workspace rejections contain only a selected code, never raw exception det
   await expect(invoke("workspace:create-worktree", ["/repo", "branch"])).rejects.toThrow(
     /^foom-error:operation-failed$/u,
   );
+});
+
+test("board IPC is sender checked and accepts only method plus payload", () => {
+  invoke("workspace:message-board", ["threads", {}]);
+  expect(workspace.messageBoard).toHaveBeenCalledWith("threads", {});
+  for (const args of [[], ["threads"], [3, {}], ["read", {}, "extra"]])
+    expect(() => invoke("workspace:message-board", args)).toThrow();
 });

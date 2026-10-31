@@ -69,6 +69,8 @@ function ago(now: number, timestamp: number) {
   return hours < 48 ? `${String(hours)} h ago` : `${String(Math.floor(hours / 24))} days ago`;
 }
 const actionNames: Record<OrchestrationEntry["action"], string> = {
+  board_post: "Post to board",
+  board_resolve: "Resolve thread",
   create_worktree: "New worktree",
   launch: "Launch",
   stop: "Stop",

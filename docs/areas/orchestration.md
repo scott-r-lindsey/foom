@@ -210,3 +210,10 @@ Local); orchestrator reads also include host resource/agent observations. Host
 filters affect rows, not authority. Remote ownership/reattachment after hub restart
 remains #757 PR 2. Detached remote review and automated review loops retain
 `remote_review_unsupported`; remote forge/snapshot attestation is not widened.
+
+## Local message board (#973)
+
+Current orchestrators and the human exchange local topic threads through the
+[message board](message-board.md). Children have no board authority. Board posts
+are untrusted data and never authorize work; only human posts count as decisions.
+The shared wait watcher also observes new addressed board posts.

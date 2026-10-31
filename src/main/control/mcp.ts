@@ -126,7 +126,7 @@ export class ControlMcp {
         )
           throw new ControlError("forbidden");
         if (params["name"] === "wait_for")
-          exact(object(params["arguments"] ?? {}), ["ids", "after", "timeoutMs"]);
+          exact(object(params["arguments"] ?? {}), ["ids", "after", "timeoutMs", "boardAfter"]);
         const value = await this.service.call(actor, {
           version: 1,
           instanceId: this.service.instanceId,

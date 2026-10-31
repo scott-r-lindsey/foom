@@ -415,6 +415,14 @@ export function attachWorkspace(
       },
     ],
     [
+      "workspace:message-board",
+      (...args) => {
+        if (args.length !== 2 || typeof args[0] !== "string")
+          throw new Error("Invalid board request");
+        return workspace.messageBoard(args[0], args[1]);
+      },
+    ],
+    [
       "workspace:action-log",
       (...args) => {
         if (args.length !== 1) throw new Error("Invalid action log request");
