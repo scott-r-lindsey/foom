@@ -33,7 +33,19 @@ vi.mock("node:fs/promises", async (original) => {
   const fs = await original<typeof fsPromises>();
   mock.read.mockImplementation(fs.readFile);
   mock.lstat.mockImplementation(fs.lstat);
-  return { ...fs, readFile: mock.read, lstat: mock.lstat };
+  return {
+    ...fs,
+    readFile: mock.read,
+    lstat: mock.lstat,
+    open: async (...args: Parameters<typeof fs.open>) => {
+      if (args[0] !== "/proc/meminfo") return fs.open(...args);
+      const fixture = join(home, "meminfo");
+      const text: unknown = await mock.read("/proc/meminfo", "utf8");
+      if (typeof text !== "string") throw new Error("Invalid fixture");
+      await fs.writeFile(fixture, text);
+      return fs.open(fixture, args[1]);
+    },
+  };
 });
 vi.mock("../../../../src/terminal-host/remote/agent-discovery", () => ({
   remoteCheckout: mock.checkout,

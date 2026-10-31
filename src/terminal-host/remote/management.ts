@@ -1,3 +1,4 @@
+import { daemonHostPlatform, createHostPlatform } from "./host-platform";
 import {
   readWorktreeProvenance,
   writeWorktreeProvenance,
@@ -7,7 +8,7 @@ import { discoveryFacts, selected } from "../../shared/agent-launch-values";
 import { createHash, randomUUID } from "node:crypto";
 import { remoteCheckout } from "./agent-discovery";
 import { cpus, loadavg, totalmem, homedir } from "node:os";
-import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, opendir } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, realpath, rename, rm, opendir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { LaunchFailure } from "../../shared/launch-failure";
 import { bundledAgentData } from "../../shared/bundled-agent-data";
@@ -57,28 +58,9 @@ export async function approvedCodeFolder(
   if ((await realpath(path)) !== path) throw new Error("unsafe-folder");
   return path;
 }
-/** Linux MemAvailable includes reclaimable cache; macOS available = free + inactive + speculative pages (vm_stat), excluding wired/compressed pages. */
-export async function availableMemory(
-  platform: string,
-  home: string,
-  signal?: AbortSignal,
-): Promise<number> {
-  if (platform === "linux") {
-    const text = await readFile("/proc/meminfo", "utf8");
-    const match = /^MemAvailable:\s+(\d+) kB$/mu.exec(text);
-    if (!match?.[1]) throw new Error("Memory unavailable");
-    return Number(match[1]) * 1024;
-  }
-  const text = await hostProbe("/usr/bin/vm_stat", [], home, undefined, false, 5000, signal);
-  const page = /page size of (\d+) bytes/u.exec(text)?.[1];
-  if (!page) throw new Error("Memory unavailable");
-  let count = 0;
-  for (const name of ["free", "inactive", "speculative"]) {
-    const match = new RegExp(`^Pages ${name}:\\s+(\\d+)\\.`, "mu").exec(text)?.[1];
-    if (!match) throw new Error("Memory unavailable");
-    count += Number(match);
-  }
-  return count * Number(page);
+/** Explicit-platform observation used by host diagnostics. */
+export function availableMemory(platform: string, home: string, signal?: AbortSignal) {
+  return createHostPlatform(platform, home).memoryAvailable(signal);
 }
 export async function manageHost(
   request: HostManagement,
@@ -164,7 +146,7 @@ export async function manageHost(
       cores: cpus().length,
       load: loadavg(),
       memoryTotal: totalmem(),
-      memoryAvailable: Math.min(totalmem(), await availableMemory(process.platform, home, signal)),
+      memoryAvailable: Math.min(totalmem(), await daemonHostPlatform.memoryAvailable(signal)),
       agents,
     };
   } catch {
