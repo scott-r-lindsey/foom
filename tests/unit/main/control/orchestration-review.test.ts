@@ -774,3 +774,16 @@ it.each(["moved-head", "snapshot-unavailable", "late-head", "failed-spawn"])(
     h.orchestration.disposeUnreadChildren();
   },
 );
+
+it.each([null, 0, "7", 1.5])(
+  "rejects malformed explicit launch binding %j before spawn",
+  async (pullRequest) => {
+    const h = fixture();
+    const tree = await h.mutate("create_worktree", { branch: "invalid-binding" });
+    await expect(
+      h.mutate("launch", { worktreeId: tree.resultId, agent: "claude", pullRequest }),
+    ).rejects.toThrow("invalid_request");
+    expect(h.host.launch).not.toHaveBeenCalled();
+    h.orchestration.disposeUnreadChildren();
+  },
+);

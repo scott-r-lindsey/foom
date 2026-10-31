@@ -166,6 +166,7 @@ it("bounds replies, refuses redirects and malformed JSON, and does not print ser
       "pr_binding_unresolved",
       "pr_not_open",
       "pr_from_fork",
+      "invalid_branch",
       "SECRET",
     ]) {
       data = `${JSON.stringify({ error })}\n`;

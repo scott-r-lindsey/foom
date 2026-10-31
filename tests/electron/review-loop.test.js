@@ -420,7 +420,7 @@ for (const scenario of [
       assert.equal(current.review.pullRequest, 340);
       assert.equal(current.review.rounds, 3);
       assert.equal(current.review.phase, "building");
-      assert.equal(current.branch, "child-one");
+      assert.equal(current.name, "child-one");
       return;
     }
     if (scenario === "one-shot") {

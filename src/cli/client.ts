@@ -152,6 +152,7 @@ function serverError(value: unknown): ControlError {
     "pr_binding_unresolved",
     "pr_not_open",
     "pr_from_fork",
+    "invalid_branch",
     "not_found",
     "conflict",
     "capacity",

@@ -262,7 +262,8 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     const inherited = this.parent(actor).worktrees.get(worktreeId);
     const review =
       params["review"] === undefined ? inherited?.review : reviewOptions(params["review"]);
-    const number = params["pullRequest"] ?? inherited?.pullRequest;
+    const number =
+      params["pullRequest"] === undefined ? inherited?.pullRequest : params["pullRequest"];
     if (
       number !== undefined &&
       (typeof number !== "number" || !Number.isSafeInteger(number) || number <= 0)
@@ -321,7 +322,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     // Children run with the user's defaults, so bypass defaults refuse before spawning.
     if (this.host.bypassDefaults?.(agent))
       return this.refuse(actor, parent, operations, operation, label, "forbidden");
-    // Still charged to the unused budget until the spawn succeeds.
+    // Both paths reserve the checkout; only fresh ones remain in the unused budget.
     const priorState = tree.state;
     const startingState = priorState === "used" ? "continuing" : "starting";
     tree.state = startingState;
