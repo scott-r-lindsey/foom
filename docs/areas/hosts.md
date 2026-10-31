@@ -189,6 +189,21 @@ host and approved folder, canonical paths, creation identity and original local
 origin. The hub's existing forge CLI performs read-only queries with its own login;
 no forge credential enters SSH. See [remote tracking](../contracts/forge-tracking.md#registered-remote-checkouts-940).
 
+## Remote review evidence (#942)
+
+Registered-host review loops use the read-only `snapshot-worktree` management
+operation and the existing bounded operation reserve. It returns only a validated
+HEAD and SHA-256 digest after canonical membership, creation identity, origin,
+approved-folder and owning-profile provenance checks. No terminal ID, file bytes
+or credential enters management requests or snapshot responses. The host revalidates
+pinned evidence before each reviewer/author PTY start. The hub retains loop policy, limits and grants; see
+[review loops](orchestration.md#optional-child-buildreview-loop-690).
+Snapshot Git index/path inventories have a separate 16 MiB stdout budget, matching
+local Git, in addition to the 10,000-file / 32 MiB content bounds. Other probe
+stdout and every stderr stream retain their 256 KiB limits.
+Compatible older daemons that cannot supply this evidence refuse remote review;
+ordinary sessions and reattachment remain usable.
+
 ## Worktrees without sessions (#941)
 
 Remote creation records durable profile provenance beside the checkout, inside
