@@ -715,3 +715,94 @@ test("a lost create reply reconciles tagged inventory without replaying creation
     run.mock.calls.filter(([, request]) => request.operation === "create-worktree"),
   ).toHaveLength(1);
 });
+
+test.each([
+  ["create", "before"],
+  ["create", "after"],
+  ["lost-create", "before"],
+  ["lost-create", "after"],
+  ["remove", "before"],
+  ["remove", "after"],
+] as const)(
+  "%s discards a pending pre-mutation inventory resolving %s the fresh response",
+  async (mutation, staleOrder) => {
+    const { createHash } = await import("node:crypto");
+    const origin = "git@forge.test:me/repo.git";
+    const repository = `${facts.codeFolder}/repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`;
+    const tree = {
+      repository,
+      origin,
+      path: `${facts.codeFolder}/.foom-worktree-race`,
+      branch: "race",
+      identity: "a".repeat(64),
+    };
+    settings.registeredHosts = [{ host: "worker", codeFolder: facts.codeFolder }];
+    hosts = new Hosts(store, () => repositories, "0.1.0", run, "a".repeat(32));
+    const stale = Promise.withResolvers<HostResult>();
+    const fresh = Promise.withResolvers<HostResult>();
+    let reads = 0;
+    run.mockImplementation((_host, request) => {
+      if (request.operation === "repository")
+        return Promise.resolve({ ok: true, facts, checkout: { path: repository, state: "clean" } });
+      if (request.operation === "list-worktrees")
+        return ++reads === 1 ? stale.promise : fresh.promise;
+      if (request.operation === "create-worktree" || request.operation === "remove-worktree")
+        return Promise.resolve(
+          mutation === "lost-create"
+            ? { ok: false, reason: "unreachable" }
+            : {
+                ok: true,
+                facts,
+                worktree: {
+                  path: tree.path,
+                  branch: tree.branch,
+                  identity: tree.identity,
+                  changes: "",
+                },
+              },
+        );
+      throw new Error("Unexpected operation");
+    });
+    const oldInventory = hosts.worktrees("/local/repo");
+    await vi.waitFor(() => {
+      expect(reads).toBe(1);
+    });
+    const action =
+      mutation === "remove"
+        ? ({ operation: "remove-worktree", path: tree.path, identity: tree.identity } as const)
+        : ({ operation: "create-worktree", branch: tree.branch } as const);
+    const result = hosts.worktree("worker", "/local/repo", action).catch((error: unknown) => error);
+    if (mutation === "lost-create")
+      await vi.waitFor(() => {
+        expect(reads).toBe(2);
+      });
+    else expect(await result).toMatchObject({ path: tree.path });
+    const newInventory = hosts.worktrees("/local/repo");
+    await vi.waitFor(() => {
+      expect(reads).toBe(2);
+    });
+    const staleResult = {
+      ok: true,
+      facts,
+      inventory: { own: mutation === "remove" ? [tree] : [], other: 7 },
+    } as const;
+    const freshResult = {
+      ok: true,
+      facts,
+      inventory: { own: mutation === "remove" ? [] : [tree], other: 2 },
+    } as const;
+    if (staleOrder === "before") stale.resolve(staleResult);
+    fresh.resolve(freshResult);
+    const expected = mutation === "remove" ? [] : [expect.objectContaining({ branch: "race" })];
+    expect(await newInventory).toEqual(expected);
+    if (staleOrder === "after") stale.resolve(staleResult);
+    expect(await oldInventory).toEqual(expected);
+    if (mutation === "lost-create") expect(await result).toBeInstanceOf(UncertainEffect);
+    expect(await hosts.worktrees("/local/repo")).toEqual(expected);
+    expect(hosts.state().hosts[0]?.foreignWorktrees).toBe(2);
+    expect(reads).toBe(2);
+    expect(
+      run.mock.calls.filter(([, request]) => request.operation === action.operation),
+    ).toHaveLength(1);
+  },
+);

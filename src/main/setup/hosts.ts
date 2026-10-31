@@ -71,7 +71,14 @@ export class Hosts {
     string,
     { codeFolder: string; own: readonly RemoteWorktree[]; other: number; at: number }
   >();
-  private readonly worktreeReads = new Map<string, Promise<readonly RemoteWorktree[]>>();
+  private readonly worktreeReads = new Map<
+    string,
+    { token: symbol; work: Promise<readonly RemoteWorktree[]> }
+  >();
+  private invalidateWorktrees(host: string): void {
+    this.worktreeInventories.delete(host);
+    this.worktreeReads.delete(host);
+  }
   private async readWorktrees(host: string, fresh = false): Promise<readonly RemoteWorktree[]> {
     const cached = this.worktreeInventories.get(host);
     const registration = this.registered(host);
@@ -83,7 +90,8 @@ export class Hosts {
     )
       return cached.own;
     const pending = this.worktreeReads.get(host);
-    if (pending) return pending;
+    if (pending) return pending.work;
+    const token = Symbol();
     const work = (async () => {
       this.worktreeInventories.delete(host);
       if (!this.profile) return [];
@@ -93,6 +101,9 @@ export class Hosts {
         codeFolder: registration.codeFolder,
         profile: this.profile,
       });
+      // A completed mutation or forgotten registration supersedes this read.
+      // Its callers join the current observation; its reply cannot refill the cache.
+      if (this.worktreeReads.get(host)?.token !== token) return this.readWorktrees(host);
       this.registered(host, registration.codeFolder);
       if (!result.ok || !result.inventory) return [];
       const own = result.inventory.own.filter(
@@ -111,11 +122,11 @@ export class Hosts {
       });
       return own;
     })();
-    this.worktreeReads.set(host, work);
+    this.worktreeReads.set(host, { token, work });
     try {
       return await work;
     } finally {
-      if (this.worktreeReads.get(host) === work) this.worktreeReads.delete(host);
+      if (this.worktreeReads.get(host)?.token === token) this.worktreeReads.delete(host);
     }
   }
   /** Fresh observations only. Discovering a checkout never creates an orchestration grant. */
@@ -330,6 +341,8 @@ export class Hosts {
         origin,
         ...action,
         profile: this.profile,
+      }).finally(() => {
+        if (action.operation !== "inspect-worktree") this.invalidateWorktrees(host);
       });
       this.registered(host, entry.codeFolder);
       if (!result.ok || !result.worktree) throw new LaunchFailure("remote_worktree_unavailable");
@@ -344,7 +357,6 @@ export class Hosts {
         result.worktree.path.slice(entry.codeFolder.length + 1).includes("/")
       )
         throw new LaunchFailure("remote_worktree_unavailable");
-      if (action.operation !== "inspect-worktree") this.worktreeInventories.delete(host);
       return { repository: source.checkout.path, ...result.worktree, sourceOrigin: origin };
     } catch (error) {
       // Preflight above cannot create a checkout. After dispatch, even a failed
@@ -536,7 +548,7 @@ export class Hosts {
           });
           this.results.delete(host.host);
           this.sessionInventories.delete(host.host);
-          this.worktreeInventories.delete(host.host);
+          this.invalidateWorktrees(host.host);
           for (const [path, entry] of this.savedPlacements)
             if (entry.host === host.host) this.savedPlacements.delete(path);
           return this.state();
