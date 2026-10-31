@@ -1557,3 +1557,46 @@ it.each([
   );
   expect(tracker.read(tree.repository, tree.path)).toBeUndefined();
 });
+
+it.each([false, true])(
+  "explicit remote binding retains host HEAD revalidation (changed: %s)",
+  async (changed) => {
+    const { locationId } = await import("../../../../src/main/control/metadata");
+    const binding = {
+      host: "alpha",
+      codeFolder: "/code",
+      repository: "/code/repository-fixture",
+      path: "/code/.foom-worktree-fixture",
+      origin: "https://github.com/o/r",
+    };
+    const remoteTree = {
+      ...tree,
+      path: `/foom-remote/${locationId(JSON.stringify([binding.host, binding.path]))}`,
+      remoteCheckout: binding,
+    };
+    let head = pending.headSha;
+    const tracker = new ForgeTracking(
+      directory,
+      () => Promise.resolve({ remote: binding.origin, head }),
+      vi.fn(),
+      () => ({
+        resolve: () =>
+          Promise.resolve({ branch: "pr-head", state: "OPEN" as const, sameRepository: true }),
+        lookup: () => {
+          if (changed) head = "b".repeat(40);
+          return Promise.resolve(pending);
+        },
+      }),
+    );
+    trackers.push(tracker);
+    tracker.track(remoteTree);
+    if (changed)
+      await expect(tracker.bindPullRequest(tree.repository, remoteTree.path, 340)).rejects.toThrow(
+        "pr_binding_unresolved",
+      );
+    else {
+      await tracker.bindPullRequest(tree.repository, remoteTree.path, 340);
+      expect(tracker.read(tree.repository, remoteTree.path)).toEqual(pending);
+    }
+  },
+);

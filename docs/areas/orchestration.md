@@ -87,7 +87,7 @@ on #690; there is no parentless-agent handoff capability.
 
 The author keeps one PR, waits for green required checks, and hands off `done`.
 Main verifies an open PR and a successful (or empty) required-check set
-whose head matches local HEAD before stopping the author through the normal host
+whose head matches the checkout HEAD before stopping the author through the normal host
 session stop path (signal the process group, wait briefly, then force). Main waits
 for the observed exit before launching a reviewer in the same checkout. Invalid
 handoffs escalate without stopping the process.
@@ -208,8 +208,24 @@ A lost removal result is indeterminate. Sidebar checkout labels include the SSH
 host in text. Session metadata retains actual placement and adds `host` (null for
 Local); orchestrator reads also include host resource/agent observations. Host
 filters affect rows, not authority. Remote ownership/reattachment after hub restart
-remains #757 PR 2. Detached remote review and automated review loops retain
-`remote_review_unsupported`; remote forge/snapshot attestation is not widened.
+follows #757 PR 2. Detached remote review checkouts and developer spike mappings
+retain `remote_review_unsupported`.
+
+Registered remote children support the same optional sequential loop (#942).
+A read-only `snapshot-worktree` management operation validates registration,
+approved folder, canonical checkout membership, creation identity and origin,
+then returns only HEAD and a SHA-256 digest. The digest pins branch/origin,
+index semantics, exclusion rules and tracked/untracked bytes under the local
+snapshot's 10,000-file / 32 MiB limits; bytes never leave the host. Cancellation,
+disconnect, unavailable evidence and identity changes refuse advancement.
+Main pins each round's evidence, retains the shared forge/capacity/ownership
+checks, and sends the pinned snapshot only in the private typed launch protocol.
+The daemon recomputes it after preparation and immediately before starting either
+the reviewer or resumed author. The captured author conversation and terminal ID
+stay in main; only the conversation needed by the provider reaches its resume argv.
+Reviewers receive fresh ordinary restricted child grants with exactly handoff,
+manual and sanitized whoami, never hub terminal IDs or control credentials.
+This adds no remote previews, merge authority or detached-review cleanup exception.
 
 ### Retained review evidence (#972)
 

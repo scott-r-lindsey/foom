@@ -183,17 +183,12 @@ export class ForgeTracking {
   async bindPullRequest(repository: string, path: string, number: number): Promise<void> {
     try {
       const entry = this.entries.get(path);
-      if (
-        !entry ||
-        entry.repository !== repository ||
-        entry.remoteCheckout ||
-        !Number.isSafeInteger(number) ||
-        number <= 0
-      )
+      if (!entry || entry.repository !== repository || !Number.isSafeInteger(number) || number <= 0)
         throw new ControlError("pr_binding_unresolved");
       const generation = this.generation;
       const remote = await this.inspect(entry, true).catch(() => undefined);
       if (!remote) throw new ControlError("pr_binding_unresolved");
+      const head = entry.inspectedHead;
       const provider = await this.provider(remote, () => this.context([entry], remote, new Set()));
       const resolved = await provider?.resolve?.(number);
       if (!resolved) throw new ControlError("pr_binding_unresolved");
@@ -207,7 +202,8 @@ export class ForgeTracking {
         this.closed ||
         this.generation !== generation ||
         this.entries.get(path) !== entry ||
-        (await this.inspect(entry, true).catch(() => undefined)) !== remote
+        (await this.inspect(entry, true).catch(() => undefined)) !== remote ||
+        (entry.remoteCheckout !== undefined && entry.inspectedHead !== head)
       )
         throw new ControlError("pr_binding_unresolved");
       this.bind(entry, provider);

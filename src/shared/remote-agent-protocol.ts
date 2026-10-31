@@ -1,6 +1,11 @@
 import { ControlError, object as controlObject, exact as controlExact } from "./control-validation";
 import { handoffRequest } from "./handoff-validation";
-import type { RemoteAgentReady, RemoteAgentSpec, RemoteControlResult } from "./remote-agent";
+import type {
+  RemoteAgentReady,
+  RemoteAgentSpec,
+  RemoteControlResult,
+  RemoteReviewSnapshot,
+} from "./remote-agent";
 import type { HookSignal } from "./hooks";
 import { conversationId } from "./conversation";
 
@@ -24,6 +29,16 @@ export function remotePath(value: unknown): value is string {
     !value.split("/").some((part) => part === "." || part === "..")
   );
 }
+export function remoteReviewEvidence(value: unknown): value is RemoteReviewSnapshot {
+  return (
+    record(value) &&
+    keys(value, ["head", "digest"]) &&
+    typeof value["head"] === "string" &&
+    /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(value["head"]) &&
+    typeof value["digest"] === "string" &&
+    /^[a-f0-9]{64}$/u.test(value["digest"])
+  );
+}
 export function remoteAgentSpec(value: unknown): value is RemoteAgentSpec {
   return (
     record(value) &&
@@ -36,10 +51,13 @@ export function remoteAgentSpec(value: unknown): value is RemoteAgentSpec {
       "conversationId",
       "hooks",
       "checkoutIdentity",
+      "reviewSnapshot",
     ]) &&
     (value["checkoutIdentity"] === undefined ||
       (typeof value["checkoutIdentity"] === "string" &&
         /^[a-f0-9]{64}$/u.test(value["checkoutIdentity"]))) &&
+    (value["reviewSnapshot"] === undefined ||
+      (value["checkoutIdentity"] !== undefined && remoteReviewEvidence(value["reviewSnapshot"]))) &&
     typeof value["agent"] === "string" &&
     /^[a-z][a-z0-9-]{0,63}$/u.test(value["agent"]) &&
     remotePath(value["repository"]) &&

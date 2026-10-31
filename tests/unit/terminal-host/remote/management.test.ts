@@ -906,6 +906,85 @@ test.skipIf(process.platform === "win32").each([
 );
 
 test.skipIf(process.platform === "win32")(
+  "snapshot management returns only bounded HEAD/digest and rejects identity or origin races",
+  async () => {
+    const { createHash } = await import("node:crypto");
+    const folder = await approvedCodeFolder("~/code", home, "create");
+    const repository = join(folder, "repo");
+    const path = join(folder, ".foom-worktree-snapshot");
+    await mkdir(repository, { mode: 0o700 });
+    await mkdir(path, { mode: 0o700 });
+    await writeFile(join(path, "tracked"), "before");
+    const request = {
+      type: "manage",
+      operation: "snapshot-worktree",
+      profile: "a".repeat(32),
+      codeFolder: folder,
+      directory: "repo",
+      origin: "https://fixture.test/o/r",
+      agents: [],
+      path,
+      identity: createHash("sha256").update("identity").digest("hex"),
+    } as const;
+    await writeWorktreeProvenance(request.profile, repository, path, request.origin);
+    let head = "a".repeat(40);
+    let origins = 0;
+    let redirect = false;
+    mock.probe.mockImplementation((_command: string, args: string[], cwd: string) => {
+      if (args.includes("config"))
+        return Promise.resolve(
+          redirect && ++origins > 2 ? "https://fixture.test/other/r" : request.origin,
+        );
+      if (args.includes("--show-toplevel")) return Promise.resolve(cwd);
+      if (args.includes("--git-path")) return Promise.resolve(join(repository, "missing"));
+      if (args.includes("symbolic-ref") || args.includes("--symbolic-full-name"))
+        return Promise.resolve("refs/heads/feature");
+      if (args.includes("rev-parse")) return Promise.resolve(head);
+      if (args.includes("--stage"))
+        return Promise.resolve(
+          "H 100644 object 0\ttracked\0  ctime: 0:0\n  mtime: 0:0\n  dev: 0\tino: 0\n  uid: 0\tgid: 0\n  size: 0\tflags: 0\n",
+        );
+      if (args.includes("ls-files")) return Promise.resolve("tracked\0");
+      return Promise.resolve("");
+    });
+    expect(
+      await manageHost({ ...request, profile: "b".repeat(32) }, 0, "/fixture", "0.1.0", home),
+    ).toEqual({ ok: false, reason: "checkout-refused" });
+    const first = await manageHost(request, 0, "/fixture", "0.1.0", home);
+    expect(first).toMatchObject({
+      ok: true,
+      worktree: { head, snapshot: { head } },
+    });
+    if (!first.ok) throw new Error("Missing snapshot");
+    expect(first.worktree?.snapshot?.digest).toMatch(/^[a-f0-9]{64}$/u);
+    await writeFile(join(path, "tracked"), "after");
+    const next = await manageHost(request, 0, "/fixture", "0.1.0", home);
+    expect(next).not.toEqual(first);
+    expect(JSON.stringify(next)).not.toContain("after");
+    head = "invalid";
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    head = "a".repeat(40);
+    mock.checkout
+      .mockResolvedValueOnce("identity")
+      .mockResolvedValueOnce("identity")
+      .mockResolvedValueOnce("identity")
+      .mockResolvedValueOnce("replacement");
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+    redirect = true;
+    expect(await manageHost(request, 0, "/fixture", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "checkout-refused",
+    });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
   "tagged no-session worktrees reconcile lost create replies, isolate profiles and reject foreign or replaced checkouts",
   async () => {
     const { createHash } = await import("node:crypto");

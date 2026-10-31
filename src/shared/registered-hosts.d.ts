@@ -1,3 +1,4 @@
+import type { RemoteReviewSnapshot } from "./remote-agent";
 export interface RegisteredHost {
   host: string;
   codeFolder: string;
@@ -39,7 +40,7 @@ export type HostManagement = {
       fromOrigin?: boolean;
     }
   | {
-      operation: "inspect-worktree" | "remove-worktree";
+      operation: "inspect-worktree" | "snapshot-worktree" | "remove-worktree";
       profile: string;
       directory: string;
       origin: string;
@@ -60,6 +61,7 @@ export type HostResult =
         branch: string;
         identity: string;
         changes: string;
+        snapshot?: RemoteReviewSnapshot;
         head?: string;
         origin?: string;
       };

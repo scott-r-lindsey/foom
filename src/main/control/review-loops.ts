@@ -95,7 +95,7 @@ export class ReviewLoops {
   /** Recheck after capacity waits and again at the main-owned spawn boundary. */
   reviewReady(authorId: string): boolean {
     const loop = this.loops.get(authorId);
-    if (!loop || loop.state.phase !== "reviewing") return false;
+    if (!loop || (loop.state.phase !== "reviewing" && loop.state.phase !== "fixing")) return false;
     if (
       loop.number === undefined ||
       !green(this.host.checks(authorId), loop.snapshot?.head, loop.number)
@@ -243,11 +243,13 @@ export class ReviewLoops {
     // Persist the boundary before launch. Restore always escalates saved loops.
     await this.host.save();
     if (this.finished(loop)) return;
-    if (loop.state.phase === "reviewing" && !this.reviewReady(loop.state.authorId)) return;
+    if (!this.reviewReady(loop.state.authorId)) return;
+    if (!loop.snapshot) throw new Error("Review evidence unavailable");
     const id = await this.host.step(
       loop.state.authorId,
       loop.state.phase === "reviewing",
       loop.prompt,
+      loop.snapshot,
     );
     if (id === undefined) return;
     this.attach(id, loop.state.authorId);
@@ -371,12 +373,12 @@ export class ReviewLoops {
         this.finish(loop, "missing verdict");
         return;
       }
+      const checks = this.host.checks(loop.state.authorId);
+      if (!green(checks, snapshot.head, loop.number)) {
+        this.finish(loop, "checks not green");
+        return;
+      }
       if (!row.exited) {
-        const checks = this.host.checks(loop.state.authorId);
-        if (!green(checks, snapshot.head, loop.number)) {
-          this.finish(loop, "checks not green");
-          return;
-        }
         await this.endParticipant(loop, fresh.seq, snapshot, checks);
         return;
       }

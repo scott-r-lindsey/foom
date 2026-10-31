@@ -120,7 +120,10 @@ describe("main-owned sequential review loop", () => {
     h.exit("author");
     await h.sync();
     expect(h.loop.view("author")).toMatchObject({ phase: "reviewing", round: 1, waiting: false });
-    expect(h.host.step).toHaveBeenCalledWith("author", true, reviewerBrief(7, false));
+    expect(h.host.step).toHaveBeenCalledWith("author", true, reviewerBrief(7, false), {
+      head: "head",
+      digest: "initial",
+    });
     expect(h.loop.view("reviewer-1")).toEqual(h.loop.view("author"));
     await h.reviewed({ verdict: "clean" });
     expect(h.loop.view("reviewer-1")).toMatchObject({ phase: "clean" });
@@ -138,7 +141,10 @@ describe("main-owned sequential review loop", () => {
     await h.authorDone();
     await h.reviewed(findings);
     expect(h.loop.view("author")).toMatchObject({ phase: "fixing", round: 1 });
-    expect(h.host.step).toHaveBeenLastCalledWith("author", false, findingsBrief(7, findings));
+    expect(h.host.step).toHaveBeenLastCalledWith("author", false, findingsBrief(7, findings), {
+      head: "head",
+      digest: "initial",
+    });
     expect(findingsBrief(7, findings)).toContain(JSON.stringify(findings));
     h.exit("author");
     await h.sync();
@@ -518,7 +524,10 @@ it("ends a reviewer after a valid verdict and resumes only after its signal exit
   reviewer.exitCode = 143;
   h.exit("reviewer-1");
   await h.sync();
-  expect(h.host.step).toHaveBeenLastCalledWith("author", false, findingsBrief(7, findings));
+  expect(h.host.step).toHaveBeenLastCalledWith("author", false, findingsBrief(7, findings), {
+    head: "head",
+    digest: "initial",
+  });
   h.handoff("author");
   await h.sync();
   expect(h.host.stop).toHaveBeenLastCalledWith("author", expect.any(Function));
@@ -596,8 +605,35 @@ it.each([false, true])(
       expect(h.rows.get("author")?.exited).toBe(true);
       await h.reviewed(findings);
       expect(h.loop.view("author")).toMatchObject({ phase: "fixing", round });
-      expect(h.host.step).toHaveBeenLastCalledWith("author", false, findingsBrief(7, findings));
+      expect(h.host.step).toHaveBeenLastCalledWith("author", false, findingsBrief(7, findings), {
+        head: "head",
+        digest: "initial",
+      });
     }
     expect(h.host.step).toHaveBeenCalledTimes(4);
   },
 );
+
+it("refuses stale forge evidence when accepting an exited reviewer or resuming its author", async () => {
+  const red: PullRequest = { number: 7, state: "OPEN", headSha: "head", requiredChecks: "failure" };
+  const exited = fixture();
+  await exited.authorDone();
+  exited.setChecks(red);
+  await exited.reviewed({ verdict: "clean" });
+  expect(exited.loop.view("author")).toMatchObject({
+    phase: "escalated",
+    reason: "checks not green",
+  });
+  const resuming = fixture();
+  await resuming.authorDone();
+  vi.mocked(resuming.host.save).mockImplementationOnce(() => {
+    resuming.setChecks(red);
+    return Promise.resolve();
+  });
+  await resuming.reviewed(findings);
+  expect(resuming.loop.view("author")).toMatchObject({
+    phase: "escalated",
+    reason: "checks not green",
+  });
+  expect(resuming.host.step).toHaveBeenCalledTimes(1);
+});

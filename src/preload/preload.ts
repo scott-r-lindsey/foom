@@ -687,7 +687,7 @@ const validSelectionToken: Validator<string> = (value): value is string =>
 
 const validReviewState: Validator<ReviewState> = shape({
   lastVerdict: either(absent, validReviewVerdict),
-  pullRequest: either(absent, count),
+  pullRequest: either(absent, positiveCount),
   model: either(absent, validSelectionToken),
   effort: either(absent, validSelectionToken),
   authorId: text,

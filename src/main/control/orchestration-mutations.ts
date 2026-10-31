@@ -330,8 +330,6 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     try {
       const parentCurrent = this.remoteParentGuard(actor.terminalId);
       if (number !== undefined && (params["pullRequest"] !== undefined || review)) {
-        if (this.host.worktreeHost?.(tree.path))
-          throw new ControlError("remote_review_unsupported");
         if (!this.host.forge?.bindPullRequest) throw new ControlError("pr_binding_unresolved");
         await this.host.forge.bindPullRequest(parent.repository, tree.path, number);
         parentCurrent();

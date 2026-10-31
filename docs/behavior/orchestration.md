@@ -260,6 +260,14 @@ deletion. A failed or unavailable proof asks through trusted confirmation; the
 existing safety guards still apply. Declining retains the screen and files.
 Ordinary checkout removal is unchanged.
 
+
+Registered remote children can opt into the same sequential review loop. Foom
+checks the host's HEAD and bounded dirty-state digest for each round and before
+launching the reviewer or resuming the author. Disconnects or changed evidence
+end automation safely. Remote reviewers have only handoff, manual and sanitized
+identity, just like remote authors; remote previews remain unavailable. Detached
+remote review checkouts and developer spike mappings remain unsupported.
+
 ### Retained review evidence (#972)
 
 The author’s review state includes `lastVerdict`, the latest accepted verdict and

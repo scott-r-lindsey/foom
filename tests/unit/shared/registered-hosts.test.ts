@@ -277,6 +277,43 @@ test("worktree management is closed, bounded and cannot select arbitrary command
     expect(hostResult({ ok: true, facts, worktree: { ...worktree, ...patch } })).toBe(false);
 });
 
+test("snapshot management has no process authority and accepts only bounded evidence", () => {
+  const request = {
+    type: "manage",
+    operation: "snapshot-worktree",
+    profile: "a".repeat(32),
+    codeFolder: "/code",
+    directory: "repository-fixture",
+    origin: "https://forge.test/o/r",
+    path: "/code/.foom-worktree-fixture",
+    identity: "a".repeat(64),
+  };
+  expect(hostManagement(request)).toBe(true);
+  for (const extra of [
+    { terminalId: "hub" },
+    { snapshot: {} },
+    { command: "git" },
+    { profile: undefined },
+    { profile: "bad" },
+  ])
+    expect(hostManagement({ ...request, ...extra })).toBe(false);
+  const worktree = {
+    path: request.path,
+    branch: "feature",
+    identity: request.identity,
+    changes: "",
+    snapshot: { head: "b".repeat(40), digest: "c".repeat(64) },
+  };
+  expect(hostResult({ ok: true, facts, worktree })).toBe(true);
+  expect(
+    hostResult({
+      ok: true,
+      facts,
+      worktree: { ...worktree, snapshot: { ...worktree.snapshot, contents: "file" } },
+    }),
+  ).toBe(false);
+});
+
 test("worktree inventory is bounded and validates private profile metadata and every returned locator", () => {
   const request = {
     type: "manage",

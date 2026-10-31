@@ -255,3 +255,35 @@ test("remote config agents have a fixed unsupported reason before allocating cre
     replaceConfigProviders([]);
   }
 });
+
+test("registered-host review participants relay pinned evidence without local discovery or hub process authority", async () => {
+  const f = fixture();
+  const evidence = { head: "a".repeat(40), digest: "b".repeat(64) };
+  const validate = vi.fn(async () => {});
+  const launched = await f.service.launch({
+    ...request,
+    terminalId: "reviewer-id",
+    control: { parentId: "parent-id" },
+    loop: { rounds: 3, agent: "codex", postFindings: false },
+    remoteCheckout: {
+      target: { host: "registered-worker" },
+      repository: "/remote/repo",
+      worktree: "/remote/tree",
+      branch: "feature",
+      identity: "c".repeat(64),
+      reviewSnapshot: evidence,
+      validate,
+    },
+  });
+  expect(launched).toMatchObject({ id: "reviewer-id", remote: true });
+  expect(f.target()?.spec).toMatchObject({
+    checkoutIdentity: "c".repeat(64),
+    reviewSnapshot: evidence,
+  });
+  expect(JSON.stringify(f.target()?.spec)).not.toContain("reviewer-id");
+  expect(JSON.stringify(f.target()?.spec)).not.toContain("parent-id");
+  expect(JSON.stringify(f.target()?.spec)).not.toContain("hub-only-token");
+  expect(validate).toHaveBeenCalled();
+  expect(execFile).not.toHaveBeenCalled();
+  expect(prepare).not.toHaveBeenCalled();
+});
