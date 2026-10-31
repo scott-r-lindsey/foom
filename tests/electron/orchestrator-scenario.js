@@ -251,10 +251,12 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
       ],
       { cwd: site },
     );
+    const sitePickerPath = path.join(root, "site-picker");
+    await symlink(site, sitePickerPath, "dir");
     await app.evaluate(({ dialog }, directory) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
-    }, site);
-    await page.evaluate(() => window.desktop.addRepository());
+    }, sitePickerPath);
+    const sitePath = await page.evaluate(async () => (await window.desktop.addRepository()).path);
     await page.evaluate(
       (repository) =>
         window.desktop.sidebarCommand({
@@ -263,7 +265,7 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
           worktree: repository,
           run: "claude",
         }),
-      site,
+      sitePath,
     );
     await expect
       .poll(() => existsSync(`${credentials}.site`), { timeout: deadline(15000) })
