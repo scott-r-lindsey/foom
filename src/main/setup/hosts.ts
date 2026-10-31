@@ -17,9 +17,10 @@ import type {
   HostResult,
   HostsState,
   RepositoryLocation,
+  RemoteWorktree,
 } from "../../shared/registered-hosts.d";
 import type { SettingsStore } from "./settings";
-import type { Repository } from "../../shared/worktrees";
+import type { Repository, Worktree } from "../../shared/worktrees";
 import type { RemoteSavedPlacement } from "../workspace/session-restore.d";
 import type { DialogContent } from "../../shared/confirmation";
 import type { RemoteSessionInfo, RemoteInventoryResult } from "../../shared/remote-host";
@@ -66,6 +67,104 @@ export class Hosts {
       identity: value.identity,
     });
   }
+  private readonly worktreeInventories = new Map<
+    string,
+    { codeFolder: string; own: readonly RemoteWorktree[]; other: number; at: number }
+  >();
+  private readonly worktreeReads = new Map<
+    string,
+    { token: symbol; work: Promise<readonly RemoteWorktree[]> }
+  >();
+  private invalidateWorktrees(host: string): void {
+    this.worktreeInventories.delete(host);
+    this.worktreeReads.delete(host);
+  }
+  private async readWorktrees(host: string, fresh = false): Promise<readonly RemoteWorktree[]> {
+    const cached = this.worktreeInventories.get(host);
+    const registration = this.registered(host);
+    if (
+      !fresh &&
+      cached?.codeFolder === registration.codeFolder &&
+      Date.now() >= cached.at &&
+      Date.now() - cached.at < 60000
+    )
+      return cached.own;
+    const pending = this.worktreeReads.get(host);
+    if (pending) return pending.work;
+    const token = Symbol();
+    const work = (async () => {
+      this.worktreeInventories.delete(host);
+      if (!this.profile) return [];
+      const result = await this.run(host, {
+        type: "manage",
+        operation: "list-worktrees",
+        codeFolder: registration.codeFolder,
+        profile: this.profile,
+      });
+      // A completed mutation or forgotten registration supersedes this read.
+      // Its callers join the current observation; its reply cannot refill the cache.
+      if (this.worktreeReads.get(host)?.token !== token) return this.readWorktrees(host);
+      this.registered(host, registration.codeFolder);
+      if (!result.ok || !result.inventory) return [];
+      const own = result.inventory.own.filter(
+        (tree) =>
+          tree.repository ===
+            `${registration.codeFolder}/repository-${createHash("sha256").update(tree.origin).digest("hex").slice(0, 24)}` &&
+          tree.path.startsWith(`${registration.codeFolder}/.foom-worktree-`) &&
+          !tree.path.slice(registration.codeFolder.length + 1).includes("/"),
+      );
+      if (new Set(own.map((tree) => tree.path)).size !== own.length) return [];
+      this.worktreeInventories.set(host, {
+        codeFolder: registration.codeFolder,
+        own,
+        other: result.inventory.other,
+        at: Date.now(),
+      });
+      return own;
+    })();
+    this.worktreeReads.set(host, { token, work });
+    try {
+      return await work;
+    } finally {
+      if (this.worktreeReads.get(host)?.token === token) this.worktreeReads.delete(host);
+    }
+  }
+  /** Fresh observations only. Discovering a checkout never creates an orchestration grant. */
+  async worktrees(repository: string): Promise<readonly Worktree[]> {
+    if (!this.repositories().some((repo) => repo.path === repository))
+      throw new ControlError("not_found");
+    if (!this.store.get().registeredHosts?.length) return [];
+    const origin = await this.origin(repository).catch(() => undefined);
+    if (!origin) return [];
+    const entries = await Promise.all(
+      (this.store.get().registeredHosts ?? []).map(async ({ host }) => {
+        try {
+          const trees = await this.readWorktrees(host);
+          this.registered(host);
+          if (
+            (await this.origin(repository)) !== origin ||
+            !this.repositories().some((repo) => repo.path === repository)
+          )
+            return [];
+          return trees
+            .filter((tree) => tree.origin === origin)
+            .map((tree) => ({
+              host,
+              path: `/foom-remote/${locationId(JSON.stringify([host, tree.path]))}`,
+              branch: tree.branch,
+              head: null,
+              bare: false,
+              locked: false,
+              prunable: false,
+              managed: false,
+            }));
+        } catch {
+          return [];
+        }
+      }),
+    );
+    return entries.flat();
+  }
   private readonly sessionInventories = new Map<string, RemoteInventoryResult>();
   async sessions(): Promise<readonly { host: string; session: RemoteSessionInfo }[]> {
     const rows: { host: string; session: RemoteSessionInfo }[] = [];
@@ -92,10 +191,30 @@ export class Hosts {
     this.sessionInventories.set(host, result);
     return result;
   }
-  placement(worktree: string) {
+  private readonly repositoryOrigins = new Map<string, string>();
+  placement(worktree: string, repository?: string) {
+    for (const [host, inventory] of this.worktreeInventories) {
+      const registered = this.store
+        .get()
+        .registeredHosts?.some(
+          (entry) => entry.host === host && entry.codeFolder === inventory.codeFolder,
+        );
+      if (!registered) continue;
+      for (const tree of inventory.own) {
+        if (worktree !== `/foom-remote/${locationId(JSON.stringify([host, tree.path]))}`) continue;
+        const localRepository = this.repositories().find(
+          (repo) =>
+            (repository === undefined || repo.path === repository) &&
+            this.repositoryOrigins.get(repo.path) === tree.origin,
+        )?.path;
+        if (localRepository)
+          return { ...tree, host, codeFolder: inventory.codeFolder, localRepository };
+      }
+    }
     const saved = this.savedPlacements.get(worktree);
     if (
       saved &&
+      (repository === undefined || saved.localRepository === repository) &&
       this.store
         .get()
         .registeredHosts?.some(
@@ -111,6 +230,7 @@ export class Hosts {
         const tree = session.checkout;
         if (
           !context ||
+          (repository !== undefined && context.repository !== repository) ||
           !tree ||
           context.worktree !== worktree ||
           worktree !== `/foom-remote/${locationId(JSON.stringify([host, tree.path]))}` ||
@@ -208,6 +328,7 @@ export class Hosts {
         },
   ) {
     const entry = this.registered(host);
+    if (!this.profile) throw new LaunchFailure("remote_worktree_unavailable");
     if (!this.repositories().some((repo) => repo.path === repository))
       throw new ControlError("not_found");
     const source = await this.repository(host, entry.codeFolder, repository, false);
@@ -223,6 +344,9 @@ export class Hosts {
         directory: source.checkout.path.slice(entry.codeFolder.length + 1),
         origin,
         ...action,
+        profile: this.profile,
+      }).finally(() => {
+        if (action.operation !== "inspect-worktree") this.invalidateWorktrees(host);
       });
       this.registered(host, entry.codeFolder);
       if (!result.ok || !result.worktree) throw new LaunchFailure("remote_worktree_unavailable");
@@ -241,13 +365,18 @@ export class Hosts {
     } catch (error) {
       // Preflight above cannot create a checkout. After dispatch, even a failed
       // reply may follow a partial creation or a failed final identity check.
-      if (action.operation === "create-worktree") throw new UncertainEffect();
+      if (action.operation === "create-worktree") {
+        // Reconcile by reading; never replay the mutation or release its charged slot.
+        await this.readWorktrees(host, true).catch(() => []);
+        throw new UncertainEffect();
+      }
       throw error;
     }
   }
   /** Saved observations never authorize a host or change the selected local origin. */
   async inspectForge(tree: ForgeWorktree): Promise<ForgeInspection | undefined> {
     const binding = tree.remoteCheckout;
+    if (!this.profile) return undefined;
     if (!binding) return undefined;
     this.registered(binding.host, binding.codeFolder);
     if ((await this.origin(tree.repository)) !== binding.origin) return undefined;
@@ -260,6 +389,7 @@ export class Hosts {
       directory,
       origin: binding.origin,
       operation: "inspect-worktree",
+      profile: this.profile,
       path: binding.path,
       identity: tree.identity,
     });
@@ -311,6 +441,9 @@ export class Hosts {
     return {
       hosts: (this.store.get().registeredHosts ?? []).map((host) => ({
         ...host,
+        ...(this.worktreeInventories.has(host.host)
+          ? { foreignWorktrees: this.worktreeInventories.get(host.host)?.other ?? 0 }
+          : {}),
         ...(this.sessionInventories.has(host.host)
           ? {
               foreignSessions:
@@ -364,7 +497,10 @@ export class Hosts {
           return this.state();
         }
         if (input.action === "list") {
-          if (this.profile) await this.sessions();
+          if (this.profile) {
+            await this.sessions();
+            for (const host of hosts) await this.readWorktrees(host.host, true);
+          }
           for (const host of hosts)
             if (!this.results.has(host.host))
               this.results.set(
@@ -416,12 +552,16 @@ export class Hosts {
           });
           this.results.delete(host.host);
           this.sessionInventories.delete(host.host);
+          this.invalidateWorktrees(host.host);
           for (const [path, entry] of this.savedPlacements)
             if (entry.host === host.host) this.savedPlacements.delete(path);
           return this.state();
         }
         if (input.action === "refresh") {
-          if (this.profile) await this.readSessions(host.host);
+          if (this.profile) {
+            await this.readSessions(host.host);
+            await this.readWorktrees(host.host, true);
+          }
           this.results.set(
             host.host,
             await this.run(host.host, {
@@ -517,6 +657,7 @@ export class Hosts {
       );
       const origin = result.stdout.trim();
       if (!gitOrigin(origin)) throw new Error("Unsupported origin");
+      this.repositoryOrigins.set(repository, origin);
       return origin;
     } catch {
       throw new Error("Origin unavailable");

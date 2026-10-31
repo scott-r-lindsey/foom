@@ -18,7 +18,12 @@ const facts = {
     { id: "pi", state: "unable" as const },
   ],
 };
-const host = { host: "worker", codeFolder: facts.codeFolder, result: { ok: true as const, facts } };
+const host = {
+  foreignWorktrees: 2,
+  host: "worker",
+  codeFolder: facts.codeFolder,
+  result: { ok: true as const, facts },
+};
 afterEach(cleanup);
 test("host form requires a check, clears stale results on edits, and shows live numeric facts and fixed agent states", async () => {
   let state: HostsState = { hosts: [], locations: [] };
@@ -46,6 +51,7 @@ test("host form requires a check, clears stale results on edits, and shows live 
   await screen.findByText("Connection ready · Code folder checked");
   fireEvent.click(screen.getByRole("button", { name: "Add" }));
   await screen.findByRole("region", { name: "worker" });
+  expect(screen.getByText("2 other worktrees")).toBeTruthy();
   expect(screen.getByText("8.0 GiB")).toBeTruthy();
   expect(screen.getByText("4.0 GiB")).toBeTruthy();
   expect(screen.getByText("1.00 · 2.00 · 3.00")).toBeTruthy();

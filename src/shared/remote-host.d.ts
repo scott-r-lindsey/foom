@@ -46,6 +46,7 @@ export type RemoteTarget = {
   cleanup?: true;
   profile?: string;
   context?: RemoteSessionContext;
+  checkout?: { repository: string; path: string; identity: string };
   reattach?: true;
   human?: true;
   /** Main-only notification of a definitive reattach outcome. */
@@ -63,6 +64,7 @@ export type RemoteRequest =
       cols: number;
       rows: number;
       reattach: boolean;
+      checkout?: { repository: string; path: string; identity: string };
       profile?: string;
       context?: RemoteSessionContext;
       human?: boolean;

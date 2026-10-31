@@ -435,6 +435,7 @@ const validHostsState: Validator<HostsState> = shape({
       codeFolder: hostFolder,
       result: either(absent, validHostResult),
       foreignSessions: either(absent, count),
+      foreignWorktrees: either(absent, count),
     }),
   ),
   locations: array(shape({ repository: text, host: hostAlias, result: validHostResult })),
@@ -805,6 +806,7 @@ const validBoardPullRequest: Validator<BoardPullRequest> = shape({
 } satisfies Contract<BoardPullRequest>);
 
 const validWorktree: Validator<Worktree> = shape({
+  host: either(absent, hostAlias),
   pullRequest: either(absent, validBoardPullRequest),
   path: text,
   head: either(nil, text),
