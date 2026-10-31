@@ -463,6 +463,8 @@ test("recovery placements are profile-owned, registered, and bound to the hashed
     localRepository: "/local/repo",
     identity: "c".repeat(64),
   });
+  expect(hosts.placement(key, "/local/repo")?.localRepository).toBe("/local/repo");
+  expect(hosts.placement(key, "/local/other")).toBeUndefined();
   expect(hosts.placement("unknown")).toBeUndefined();
   repositories = [];
   expect(hosts.placement(key)).toBeUndefined();
@@ -499,6 +501,8 @@ test("saved locators survive expired daemon tombstones but never authorize a dif
   settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
   hosts.rememberPlacement("/local/repo", key, "worker", value);
   expect(hosts.placement(key)).toMatchObject({ host: "worker", path, identity: value.identity });
+  expect(hosts.placement(key, "/local/repo")?.localRepository).toBe("/local/repo");
+  expect(hosts.placement(key, "/local/other")).toBeUndefined();
   for (const badPath of ["/outside/.foom-worktree-topic", `${path}/nested`]) {
     const badKey = `/foom-remote/${locationId(JSON.stringify(["worker", badPath]))}`;
     hosts.rememberPlacement("/local/repo", badKey, "worker", { ...value, path: badPath });

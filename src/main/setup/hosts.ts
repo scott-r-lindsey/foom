@@ -192,7 +192,7 @@ export class Hosts {
     return result;
   }
   private readonly repositoryOrigins = new Map<string, string>();
-  placement(worktree: string) {
+  placement(worktree: string, repository?: string) {
     for (const [host, inventory] of this.worktreeInventories) {
       const registered = this.store
         .get()
@@ -203,7 +203,9 @@ export class Hosts {
       for (const tree of inventory.own) {
         if (worktree !== `/foom-remote/${locationId(JSON.stringify([host, tree.path]))}`) continue;
         const localRepository = this.repositories().find(
-          (repo) => this.repositoryOrigins.get(repo.path) === tree.origin,
+          (repo) =>
+            (repository === undefined || repo.path === repository) &&
+            this.repositoryOrigins.get(repo.path) === tree.origin,
         )?.path;
         if (localRepository)
           return { ...tree, host, codeFolder: inventory.codeFolder, localRepository };
@@ -212,6 +214,7 @@ export class Hosts {
     const saved = this.savedPlacements.get(worktree);
     if (
       saved &&
+      (repository === undefined || saved.localRepository === repository) &&
       this.store
         .get()
         .registeredHosts?.some(
@@ -227,6 +230,7 @@ export class Hosts {
         const tree = session.checkout;
         if (
           !context ||
+          (repository !== undefined && context.repository !== repository) ||
           !tree ||
           context.worktree !== worktree ||
           worktree !== `/foom-remote/${locationId(JSON.stringify([host, tree.path]))}` ||

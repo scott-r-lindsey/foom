@@ -616,7 +616,7 @@ export class WorkspaceContext {
     readSnapshot?: () => Promise<string>,
   ): Promise<boolean> {
     if (worktree.startsWith("/foom-remote/")) {
-      const tree = this.deps.hosts?.placement?.(worktree);
+      const tree = this.deps.hosts?.placement?.(worktree, repository);
       if (!tree || tree.localRepository !== repository)
         throw new Error("Remote worktree unavailable");
       return this.orchestrationHost.remove(
