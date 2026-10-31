@@ -1,3 +1,5 @@
+import { record, keys, remotePath } from "../../shared/remote-agent-protocol";
+import { hostBranch } from "../../shared/registered-hosts";
 import { remoteHost } from "../../shared/remote-host-protocol";
 import { selectionInput } from "../../node-common/launch-selection";
 import { exact, object } from "../../shared/control-validation";
@@ -10,8 +12,20 @@ import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { conversationId } from "../agents/conversation";
 import { WORKTREE_LIMIT } from "../control/orchestration-limits";
-import type { OwnedWorktree, StoredSession } from "./session-restore.d";
+import type { OwnedWorktree, StoredSession, RemoteSavedPlacement } from "./session-restore.d";
 import type { OrchestrationEntry } from "../../shared/workspace";
+
+function savedRemote(value: unknown): value is RemoteSavedPlacement {
+  return (
+    record(value) &&
+    keys(value, ["repository", "path", "identity", "branch"]) &&
+    remotePath(value["repository"]) &&
+    remotePath(value["path"]) &&
+    hostBranch(value["branch"]) &&
+    typeof value["identity"] === "string" &&
+    /^[a-f0-9]{64}$/u.test(value["identity"])
+  );
+}
 
 function objectPlacement(
   value: unknown,
@@ -60,13 +74,15 @@ export function readSessions(value: unknown): StoredSession[] {
       providerOrigin,
       remote,
       placement,
+      remoteCheckout,
       handoffs,
       review,
     } = data;
     if (
+      (remoteCheckout !== undefined && (remote !== true || !savedRemote(remoteCheckout))) ||
       (placement !== undefined &&
         (!objectPlacement(placement) || (placement.kind === "remote") !== (remote === true))) ||
-      (remote !== undefined && (remote !== true || agent === "shell" || config || home)) ||
+      (remote !== undefined && (remote !== true || config)) ||
       (providerOrigin !== undefined &&
         (providerOrigin === "bundled"
           ? typeof agent !== "string" || !builtinAgent(agent)
@@ -116,6 +132,7 @@ export function readSessions(value: unknown): StoredSession[] {
       ...(handoffs === undefined ? {} : { handoffs: storedHandoffs(handoffs) }),
       ...(providerOrigin === "config" || providerOrigin === "bundled" ? { providerOrigin } : {}),
       ...(remote === true ? { remote: true } : {}),
+      ...(savedRemote(remoteCheckout) ? { remoteCheckout: { ...remoteCheckout } } : {}),
       ...(objectPlacement(placement) ? { placement } : {}),
       ...(running === undefined ? {} : { running }),
       ...(role === undefined ? {} : { orchestrator: role }),
@@ -162,6 +179,7 @@ export class SessionStore {
           providerOrigin,
           remote,
           placement,
+          remoteCheckout,
           home,
           config,
           handoffs,
@@ -188,6 +206,7 @@ export class SessionStore {
           ...(providerOrigin ? { providerOrigin } : {}),
           ...(remote ? { remote: true } : {}),
           ...(placement ? { placement } : {}),
+          ...(remoteCheckout ? { remoteCheckout } : {}),
         }),
       ),
     );

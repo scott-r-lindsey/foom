@@ -20,11 +20,118 @@ import type {
 } from "../../shared/registered-hosts.d";
 import type { SettingsStore } from "./settings";
 import type { Repository } from "../../shared/worktrees";
-import { remoteManagement } from "../terminals/remote-transport";
+import type { RemoteSavedPlacement } from "../workspace/session-restore.d";
+import type { DialogContent } from "../../shared/confirmation";
+import type { RemoteSessionInfo, RemoteInventoryResult } from "../../shared/remote-host";
+import { locationId } from "../control/metadata";
+import { remoteInventory, remoteManagement } from "../terminals/remote-transport";
 import { sshEnvironment } from "../terminals/remote-bootstrap";
 
 /** Profile-owned registrations only. Developer mappings never enter this service. */
 export class Hosts {
+  private readonly savedPlacements = new Map<
+    string,
+    {
+      host: string;
+      codeFolder: string;
+      localRepository: string;
+      repository: string;
+      path: string;
+      branch: string;
+      identity: string;
+    }
+  >();
+  rememberPlacement(
+    repository: string,
+    worktree: string,
+    host: string,
+    value: RemoteSavedPlacement,
+  ): void {
+    const registered = this.store.get().registeredHosts?.find((entry) => entry.host === host);
+    if (
+      !registered ||
+      !this.repositories().some((entry) => entry.path === repository) ||
+      worktree !== `/foom-remote/${locationId(JSON.stringify([host, value.path]))}` ||
+      !value.path.startsWith(`${registered.codeFolder}/.foom-worktree-`) ||
+      value.path.slice(registered.codeFolder.length + 1).includes("/")
+    )
+      return;
+    this.savedPlacements.set(worktree, {
+      host,
+      codeFolder: registered.codeFolder,
+      localRepository: repository,
+      repository: value.repository,
+      path: value.path,
+      branch: value.branch,
+      identity: value.identity,
+    });
+  }
+  private readonly sessionInventories = new Map<string, RemoteInventoryResult>();
+  async sessions(): Promise<readonly { host: string; session: RemoteSessionInfo }[]> {
+    const rows: { host: string; session: RemoteSessionInfo }[] = [];
+    for (const registration of this.store.get().registeredHosts ?? []) {
+      try {
+        const result = await this.readSessions(registration.host);
+        rows.push(...result.own.map((session) => ({ host: registration.host, session })));
+      } catch {
+        /* A host being offline must not prevent the others restoring. */
+      }
+    }
+    return rows;
+  }
+  private async readSessions(host: string): Promise<RemoteInventoryResult> {
+    const registered = this.registered(host);
+    if (!this.profile) throw new Error("Profile unavailable");
+    const result = await remoteInventory(
+      { host },
+      this.version,
+      { type: "inventory", profile: this.profile, codeFolder: registered.codeFolder },
+      this.cancellation.signal,
+    );
+    this.registered(host, registered.codeFolder);
+    this.sessionInventories.set(host, result);
+    return result;
+  }
+  placement(worktree: string) {
+    const saved = this.savedPlacements.get(worktree);
+    if (
+      saved &&
+      this.store
+        .get()
+        .registeredHosts?.some(
+          (entry) => entry.host === saved.host && entry.codeFolder === saved.codeFolder,
+        ) &&
+      this.repositories().some((entry) => entry.path === saved.localRepository)
+    )
+      return saved;
+    for (const [host, inventory] of this.sessionInventories) {
+      const registration = this.registered(host);
+      for (const session of inventory.own) {
+        const context = session.context;
+        const tree = session.checkout;
+        if (
+          !context ||
+          !tree ||
+          context.worktree !== worktree ||
+          worktree !== `/foom-remote/${locationId(JSON.stringify([host, tree.path]))}` ||
+          !this.repositories().some((repo) => repo.path === context.repository) ||
+          !tree.path.startsWith(`${registration.codeFolder}/.foom-worktree-`) ||
+          tree.path.slice(registration.codeFolder.length + 1).includes("/")
+        )
+          continue;
+        return {
+          host,
+          codeFolder: registration.codeFolder,
+          localRepository: context.repository,
+          repository: tree.repository,
+          path: tree.path,
+          branch: context.branch ?? "HEAD",
+          identity: tree.identity,
+        };
+      }
+    }
+    return undefined;
+  }
   private readonly inventoryReads = new Map<string, Promise<HostResult>>();
   private readonly cancellation = new AbortController();
   dispose(): void {
@@ -178,17 +285,41 @@ export class Hosts {
   constructor(
     private readonly store: Pick<SettingsStore, "get" | "update">,
     private readonly repositories: () => readonly Repository[],
-    version: string,
+    private readonly version: string,
     private readonly execute: (host: string, request: HostManagement) => Promise<HostResult> = (
       host,
       request,
     ) => remoteManagement({ host }, version, request, this.cancellation.signal),
+    private readonly profile?: string,
   ) {}
+  private projectedResult(host: string): HostResult | undefined {
+    const result = this.results.get(host);
+    const inventory = this.sessionInventories.get(host);
+    return result?.ok && inventory
+      ? {
+          ...result,
+          facts: {
+            ...result.facts,
+            sessions:
+              inventory.own.length +
+              inventory.foreign.reduce((sum, entry) => sum + (entry.count ?? 1), 0),
+          },
+        }
+      : result;
+  }
   state(result?: HostResult): HostsState {
     return {
       hosts: (this.store.get().registeredHosts ?? []).map((host) => ({
         ...host,
-        ...(this.results.get(host.host) ? { result: this.results.get(host.host) } : {}),
+        ...(this.sessionInventories.has(host.host)
+          ? {
+              foreignSessions:
+                this.sessionInventories
+                  .get(host.host)
+                  ?.foreign.reduce((sum, entry) => sum + (entry.count ?? 1), 0) ?? 0,
+            }
+          : {}),
+        ...(this.results.get(host.host) ? { result: this.projectedResult(host.host) } : {}),
       })),
       locations: this.locations.filter(
         (location) =>
@@ -198,13 +329,42 @@ export class Hosts {
       ...(result ? { result } : {}),
     };
   }
-  action(input: unknown): Promise<HostsState> {
+  action(
+    input: unknown,
+    confirm?: (content: DialogContent) => Promise<boolean>,
+  ): Promise<HostsState> {
     if (!hostsAction(input)) return Promise.reject(new Error("Invalid host action"));
     const work = this.pending
       .catch(() => undefined)
       .then(async () => {
         const hosts = this.store.get().registeredHosts ?? [];
+        if (input.action === "end") {
+          const before = await this.readSessions(input.host);
+          if (!before.foreign.length) return this.state();
+          if (
+            !(await confirm?.({
+              title: "End remote sessions?",
+              accept: "End sessions",
+              glyph: "power",
+              subject: input.host,
+              detail: `Sessions from other profiles or without a profile tag: ${String(before.foreign.reduce((sum, entry) => sum + (entry.count ?? 1), 0))}. Ending them stops their processes.${before.foreign.some((entry) => entry.count !== undefined) ? " All sessions in the older host daemon will end, including any started before you confirm." : ""}`,
+            }))
+          )
+            return this.state();
+          this.registered(input.host);
+          if (!this.profile) throw new Error("Profile unavailable");
+          const result = await remoteInventory(
+            { host: input.host },
+            this.version,
+            { type: "end-sessions", profile: this.profile, ids: before.foreign },
+            this.cancellation.signal,
+          );
+          this.registered(input.host);
+          this.sessionInventories.set(input.host, result);
+          return this.state();
+        }
         if (input.action === "list") {
+          if (this.profile) await this.sessions();
           for (const host of hosts)
             if (!this.results.has(host.host))
               this.results.set(
@@ -255,9 +415,13 @@ export class Hosts {
             registeredHosts: hosts.filter((entry) => entry.host !== host.host),
           });
           this.results.delete(host.host);
+          this.sessionInventories.delete(host.host);
+          for (const [path, entry] of this.savedPlacements)
+            if (entry.host === host.host) this.savedPlacements.delete(path);
           return this.state();
         }
         if (input.action === "refresh") {
+          if (this.profile) await this.readSessions(host.host);
           this.results.set(
             host.host,
             await this.run(host.host, {
@@ -386,14 +550,14 @@ export class Hosts {
 
 const services = new WeakMap<object, Hosts>();
 export function hostsForStore(
-  store: Pick<SettingsStore, "get" | "update">,
+  store: Pick<SettingsStore, "get" | "update"> & Partial<Pick<SettingsStore, "profileTag">>,
   repositories: () => readonly Repository[],
   version: string,
   onQuit?: (dispose: () => void) => void,
 ): Hosts {
   let hosts = services.get(store);
   if (!hosts) {
-    hosts = new Hosts(store, repositories, version);
+    hosts = new Hosts(store, repositories, version, undefined, store.profileTag?.());
     services.set(store, hosts);
     onQuit?.(hosts.dispose.bind(hosts));
   }

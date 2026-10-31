@@ -1,3 +1,9 @@
+import type { StoredSession } from "./session-restore.d";
+import {
+  discoverRemoteSessions,
+  reattachRemoteSession,
+  RemoteSessionExit,
+} from "./remote-session-restore";
 import { RemovalError } from "./worktree-outcome";
 import { workspaceFeatureWiring } from "./workspace-feature-wiring";
 import { workspaceOrchestrationHost } from "./workspace-orchestration-host";
@@ -237,7 +243,22 @@ export class WorkspaceContext {
       onChange: () => deps.onChange?.(),
       now: this.now,
     });
+    const registeredHosts = deps.hosts;
     this.sessions = new SessionOwner({
+      ...(registeredHosts
+        ? {
+            discover: () => discoverRemoteSessions(registeredHosts),
+            rememberRemote: (entry: StoredSession) => {
+              if (entry.remoteCheckout && entry.placement?.kind === "remote")
+                registeredHosts.rememberPlacement?.(
+                  entry.repository,
+                  entry.worktree,
+                  entry.placement.host,
+                  entry.remoteCheckout,
+                );
+            },
+          }
+        : {}),
       ...(deps.sessions ? { store: deps.sessions } : {}),
       ...(deps.config ? { configRoot: deps.config.root } : {}),
       orchestration: this.orchestration,
@@ -247,8 +268,8 @@ export class WorkspaceContext {
         this.launched.set(row.id, row);
         this.executionOwner.markExited(row.id, -1);
       },
-      failed: (id) => {
-        this.executionOwner.markExited(id, -1);
+      failed: (id, error) => {
+        this.executionOwner.markExited(id, error instanceof RemoteSessionExit ? error.code : -1);
       },
       busy: (id, value) => {
         if (value) this.busySessions.add(id);
@@ -263,6 +284,37 @@ export class WorkspaceContext {
           ...(entry.conversationId === undefined ? {} : { conversationId: entry.conversationId }),
         };
         const confirm: ConfirmWorkspace = () => Promise.resolve(false);
+        if (entry.remote && registeredHosts) {
+          this.executionOwner.reset(entry.id);
+          const result = await reattachRemoteSession(
+            entry,
+            registeredHosts,
+            deps.terminals,
+            (request) => this.agents.launch(request),
+            control,
+            control && "parentId" in control
+              ? this.orchestration.remoteParentGuard(control.parentId)
+              : undefined,
+          );
+          const row = {
+            ...entry,
+            ...result,
+            ...this.replacementVersion(entry.id),
+            dormant: false,
+            exited: false,
+            state: null,
+          };
+          delete row.running;
+          delete row.recovered;
+          delete row.remoteCheckout;
+          delete row.parentId;
+          delete row.orchestrator;
+          this.launched.set(entry.id, row);
+          this.executionOwner.launched(entry.id);
+          if (entry.recovered) deps.placeChild?.(entry.id, entry.id);
+          this.refresh();
+          return entry.id;
+        }
         if (entry.home) {
           await this.startHomeShell(entry.id);
           return undefined;

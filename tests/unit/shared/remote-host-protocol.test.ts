@@ -255,3 +255,75 @@ test("agent failures are a fixed enum and cleanup requests cannot carry commands
   ])
     expect(remoteResponse(value)).toBe(false);
 });
+
+test("profile inventory and confirmed cleanup are closed, bounded and incarnation-scoped", () => {
+  const profile = "a".repeat(32);
+  const foreign = { id: "other", generation: "b".repeat(32) };
+  const context = { repository: "/repo", worktree: "/tree", branch: "topic", agent: "claude" };
+  const request = { type: "open", id: "one", request: 1, cols: 80, rows: 24, reattach: true };
+  expect(remoteRequest({ ...request, profile, context, human: true })).toBe(true);
+  expect(remoteRequest({ type: "inventory", profile })).toBe(true);
+  expect(remoteRequest({ type: "end-sessions", profile, ids: [foreign] })).toBe(true);
+  expect(
+    remoteResponse({
+      type: "inventory-result",
+      own: [
+        {
+          id: "one",
+          context,
+          checkout: { repository: "/repo", path: "/tree", identity: "c".repeat(64) },
+        },
+      ],
+      foreign: [foreign],
+    }),
+  ).toBe(true);
+  expect(remoteResponse({ type: "hello", build: "a".repeat(64), compatible: 2 })).toBe(true);
+  expect(remoteResponse({ type: "hello", build: "a".repeat(64), compatible: 3 })).toBe(false);
+  expect(remoteResponse({ type: "upgrade", build: "a".repeat(64) })).toBe(true);
+  for (const value of [undefined, null, 0, "short", "z".repeat(32)]) {
+    expect(remoteRequest({ type: "inventory", profile: value })).toBe(false);
+    if (value !== undefined) expect(remoteRequest({ ...request, profile: value })).toBe(false);
+  }
+  for (const value of [
+    null,
+    {},
+    { ...context, repository: "relative" },
+    { ...context, worktree: "relative" },
+    { ...context, branch: "bad\nbranch" },
+    { ...context, agent: "-x" },
+  ])
+    expect(remoteRequest({ ...request, context: value })).toBe(false);
+  expect(remoteRequest({ ...request, context: { ...context, branch: null } })).toBe(true);
+  expect(remoteRequest({ ...request, human: "yes" })).toBe(false);
+  for (const ids of [
+    null,
+    [foreign, foreign],
+    [{ id: "other" }],
+    [{ ...foreign, generation: "bad" }],
+    Array.from({ length: 34 }, () => foreign),
+  ])
+    expect(remoteRequest({ type: "end-sessions", profile, ids })).toBe(false);
+  for (const changed of [
+    { own: [{ id: "one" }, { id: "one" }], foreign: [] },
+    { own: [{ id: "other" }], foreign: [foreign] },
+    { own: [], foreign: [{ id: "other", generation: "bad" }] },
+    { own: [{ id: "one", context: {} }], foreign: [] },
+    { own: [{ id: "one", checkout: {} }], foreign: [] },
+    { own: [], foreign: Array.from({ length: 34 }, () => foreign) },
+    { own: null, foreign: [] },
+    { own: [], foreign: null },
+  ])
+    expect(remoteResponse({ type: "inventory-result", ...changed })).toBe(false);
+});
+
+test("session cleanup is terminal-ID and profile scoped", () => {
+  const message = { type: "session-close", id: "one", request: 1, profile: "a".repeat(32) };
+  expect(remoteRequest(message)).toBe(true);
+  for (const changed of [
+    { ...message, profile: "bad" },
+    { ...message, id: "../foreign" },
+    { ...message, request: -1 },
+    { ...message, force: true },
+  ])
+    expect(remoteRequest(changed)).toBe(false);
+});

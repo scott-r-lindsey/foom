@@ -8,7 +8,17 @@ export interface OwnedWorktree {
 }
 
 /** Main-owned launch provenance. Never supplied by hooks, IPC, or conversation metadata. */
+export interface RemoteSavedPlacement {
+  repository: string;
+  path: string;
+  identity: string;
+  branch: string;
+}
 export interface StoredSession extends WorkspaceTerminal {
+  /** Private main-owned locator; never projected to the board. */
+  remoteCheckout?: RemoteSavedPlacement;
+  /** Transient discovery marker; never persisted or supplied to the renderer. */
+  recovered?: true;
   handoffs?: readonly Handoff[];
   running?: boolean;
   orchestrator?: {

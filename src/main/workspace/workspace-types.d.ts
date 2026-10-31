@@ -172,7 +172,8 @@ export type Agents = Pick<
   "scan" | "launch" | "release" | "dispose" | "setHooksEnabled" | "setBypassIdentities"
 >;
 export interface WorkspaceDependencies {
-  hosts?: Pick<Hosts, "fleet" | "worktree" | "registered" | "requireAgent">;
+  hosts?: Pick<Hosts, "fleet" | "worktree" | "registered" | "requireAgent"> &
+    Partial<Pick<Hosts, "sessions" | "placement" | "rememberPlacement">>;
   /** Main-owned clock budget; tests may inject a shorter probe reminder. */
   probeWaitingMs?: number;
   pluginStagingRoot?: string;

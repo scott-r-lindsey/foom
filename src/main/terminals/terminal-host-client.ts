@@ -402,7 +402,7 @@ export class TerminalHostClient {
     if (result.signaled === undefined) throw new Error("Missing terminal stop result");
     return result.signaled;
   }
-  async kill(id: string, host?: string): Promise<void> {
+  async kill(id: string, host?: string, profile?: string): Promise<void> {
     if (host) {
       const artifact = process.argv
         .find((arg) => arg.startsWith("--remote-agent-artifact="))
@@ -410,7 +410,7 @@ export class TerminalHostClient {
       const client = new TerminalHostClient(
         () => {},
         {},
-        { host, cleanup: true, ...(artifact ? { artifact } : {}) },
+        { host, cleanup: true, ...(profile ? { profile } : {}), ...(artifact ? { artifact } : {}) },
       );
       try {
         await client.create({ id, command: "/bin/sh", args: [], cwd: "/", cols: 80, rows: 24 });

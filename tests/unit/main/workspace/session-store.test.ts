@@ -323,3 +323,29 @@ test("persists actual placement independently of startup mappings and rejects ma
     readSessions([{ ...record, placement: { kind: "remote", host: "fixture" } }]),
   ).toThrow();
 });
+
+test("persists private remote checkout locators and rejects forged path, identity or fields", async () => {
+  const { store } = await setup();
+  const remoteCheckout = {
+    repository: "/remote/repo",
+    path: "/remote/.foom-worktree-topic",
+    identity: "a".repeat(64),
+    branch: "topic",
+  };
+  const rows = readSessions([
+    { ...record, remote: true, placement: { kind: "remote", host: "worker" }, remoteCheckout },
+  ]);
+  await store.save(rows);
+  expect((await store.load())[0]?.remoteCheckout).toEqual(remoteCheckout);
+  for (const invalid of [
+    null,
+    {},
+    { ...remoteCheckout, repository: "relative" },
+    { ...remoteCheckout, path: "/remote/../foreign" },
+    { ...remoteCheckout, identity: "forged" },
+    { ...remoteCheckout, branch: "bad branch" },
+    { ...remoteCheckout, token: "never stored" },
+  ])
+    expect(() => readSessions([{ ...record, remote: true, remoteCheckout: invalid }])).toThrow();
+  expect(() => readSessions([{ ...record, remoteCheckout }])).toThrow();
+});

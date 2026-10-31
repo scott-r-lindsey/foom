@@ -210,7 +210,7 @@ ID. In this restricted phase, human Resume/New conversation for a remote row
 retains its live local parent after rechecking ownership and child capacity;
 local human relaunch behavior is unchanged. Taken-over/orphaned remote rows and
 missing mappings cannot launch parentless or silently fall back to local. Remote
-rows are marked in session storage; cross-hub persistence/reattach remains #757.
+rows are marked in session storage; [profile-scoped persistence](hosts.md#persistent-remote-sessions-757-pr-2) reattaches existing PTYs across hub restarts.
 
 Antigravity needs the opt-in observer version 4 on that host for Unix-socket
 hooks. In a remote shell, run the matching cached `foom-host --stage-plugin agy`
@@ -244,7 +244,7 @@ Phase-2 launches record their actual `placement` at spawn: `{kind: "local"}` or
 `{kind: "remote", host: SSH_ALIAS}`. Launch operation results and parent-facing
 session state expose this value; session storage retains it across startup mapping
 changes. A saved local session resumes locally even when its path now matches a
-remote mapping. Remote rows remain dormant after hub restart until #757; closing
+remote mapping. Remote rows reattach through profile-scoped recovery after hub restart; closing
 one still reconnects to clean up its remote process and launch assets.
 
 Launch diagnostics use the fixed `launchReasons` codes in

@@ -29,7 +29,7 @@ test.skipIf(process.platform === "win32")(
     let socket;
     try {
       await once(host.server, "listening");
-      socket = createConnection(join(root, ".foom-host/host.sock"));
+      socket = createConnection(join(root, ".foom-host/host-v2.sock"));
       await once(socket, "connect");
       const messages: unknown[] = [];
       const frames = new RemoteFrames();
@@ -44,7 +44,15 @@ test.skipIf(process.platform === "win32")(
       });
       const id = "private-terminal-capability-436d5c64";
       socket.write(
-        remoteFrame({ type: "open", reattach: false, id, request: 1, cols: 80, rows: 24 }),
+        remoteFrame({
+          type: "open",
+          profile: "9".repeat(32),
+          reattach: false,
+          id,
+          request: 1,
+          cols: 80,
+          rows: 24,
+        }),
       );
       await vi.waitFor(() => {
         expect(messages).toHaveLength(2);
@@ -53,6 +61,7 @@ test.skipIf(process.platform === "win32")(
       await vi.waitFor(async () => {
         observed = await readFile(record, "utf8");
         expect(observed).not.toContain(id);
+        expect(observed).not.toContain("9".repeat(32));
       });
       const value: unknown = JSON.parse(observed);
       expect(value).toMatchObject({

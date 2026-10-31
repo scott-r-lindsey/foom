@@ -157,3 +157,15 @@ system tools needed for shell, Git and observer tests. It never exposes entire
 VS Code’s Copilot shim. Fixture-provided tools take precedence. The exec/spawn
 guard and descendant process audit remain enabled; packaged smoke uses the same
 controlled PATH.
+
+
+## Startup tracing lifetime
+
+The first Linux CI app in each worker records native window events from creation.
+Its Chromium trace starts after the board document has loaded, before the shared
+compositor/rAF readiness checks finish. Starting the recorder alongside app readiness
+races cold renderer registration: Chromium can delay its start acknowledgement for
+several seconds even after the board has painted. Each worker previously charged
+that delay to fixture setup. Tracing still stops and writes its artifact before
+interaction or quit; cancelled/failed navigation starts no recording. The existing
+compositor and animation-frame assertions remain independent of trace collection.

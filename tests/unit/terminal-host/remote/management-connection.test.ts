@@ -1,7 +1,6 @@
 import { once } from "node:events";
 import { createConnection, type Socket } from "node:net";
-import { mkdir, readFile, realpath, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, readFile, realpath, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
 import { RemoteFrames, remoteFrame } from "../../../../src/shared/remote-host-protocol";
@@ -27,8 +26,7 @@ afterEach(async () => {
 });
 async function setup() {
   // The test runner owns tmpdir(); keep HOME short enough for macOS Unix sockets.
-  root = join(await realpath(tmpdir()), "mc");
-  await mkdir(root, { mode: 0o700 });
+  root = await mkdtemp(join(await realpath("/tmp"), "mc-"));
   const home = root;
   const bin = join(home, "bin");
   await mkdir(bin);
@@ -63,7 +61,7 @@ else if(!args.includes('status')) process.exit(2);
   return { home, started, release };
 }
 async function client(home: string) {
-  const socket = createConnection(join(home, ".foom-host/host.sock"));
+  const socket = createConnection(join(home, ".foom-host/host-v2.sock"));
   clients.push(socket);
   socket.on("error", () => {});
   await once(socket, "connect");

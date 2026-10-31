@@ -58,7 +58,7 @@ export interface LaunchSelection {
 export interface AgentLaunch {
   /** Main-only registered-host capability. Never accepted from IPC. */
   readonly remoteCheckout?: {
-    target: { host: string };
+    target: { host: string; unavailable?: (code: number) => void };
     repository: string;
     worktree: string;
     branch: string;
@@ -67,6 +67,8 @@ export interface AgentLaunch {
   };
   /** Main-only restoration preserves the original local placement. */
   localOnly?: boolean;
+  /** Main-only: reconnect the existing PTY; never send agent-open/start. */
+  readonly reattach?: true;
   readonly selection?: LaunchSelection;
   /** Main-only automation authority recheck immediately before the PTY spawn. */
   readonly beforeSpawn?: () => void;

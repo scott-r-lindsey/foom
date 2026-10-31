@@ -448,3 +448,116 @@ it.each([
   }
   await workspace.dispose();
 });
+
+it("reconciles remote inventory through workspace wiring without granting recovered tiles authority", async () => {
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  const checkout = {
+    host: "worker",
+    codeFolder: "/code",
+    localRepository: repo.path,
+    repository: "/code/repo",
+    path: "/code/.foom-worktree-topic",
+    branch: "topic",
+    identity: "a".repeat(64),
+  };
+  const remotePath = "/foom-remote/topic";
+  const saved = readSessions([
+    {
+      id: "parent",
+      agent: "claude",
+      repository: repo.path,
+      worktree: repo.path,
+      branch: "main",
+      conversationId: "parent-conversation",
+      running: true,
+      orchestrator: { identity: "identity", history: [] },
+    },
+    {
+      id: "remote-child",
+      agent: "claude",
+      repository: repo.path,
+      worktree: remotePath,
+      branch: "topic · worker",
+      running: true,
+      parentId: "parent",
+      remote: true,
+      placement: { kind: "remote", host: "worker" },
+      remoteCheckout: {
+        repository: checkout.repository,
+        path: checkout.path,
+        branch: checkout.branch,
+        identity: checkout.identity,
+      },
+    },
+  ]);
+  const rememberPlacement = vi.fn();
+  const hosts = {
+    registered: vi.fn(() => ({ host: "worker", codeFolder: "/code" })),
+    worktree: vi.fn(() =>
+      Promise.resolve({ ...checkout, changes: "", sourceOrigin: "git@forge.test:me/repo.git" }),
+    ),
+    placement: vi.fn((path: string) => (path === remotePath ? checkout : undefined)),
+    rememberPlacement,
+    requireAgent: vi.fn(() => Promise.resolve()),
+    fleet: vi.fn(() => Promise.resolve([])),
+    sessions: vi.fn(() => Promise.resolve([{ host: "worker", session: { id: "recovered" } }])),
+  };
+  const save = vi.fn<NonNullable<WorkspaceDependencies["sessions"]>["save"]>(async () => {});
+  const create = vi.fn<WorkspaceDependencies["terminals"]["create"]>((spec) =>
+    Promise.resolve(spec.id ?? "new"),
+  );
+  launch.mockImplementation(async (request) => {
+    if (request.reattach) request.beforeSpawn?.();
+    await request.remoteCheckout?.validate();
+    return { id: request.terminalId ?? "new", attention: "evaluator" };
+  });
+  const workspace = createWorkspace({
+    ...deps,
+    hosts,
+    terminals: { ...deps.terminals, create },
+    sessions: { load: () => Promise.resolve(saved), save, flush: async () => {} },
+  });
+  workspace.configure({ hooks: false, agents: { claude: true, codex: true, agy: true } });
+  await workspace.restore();
+  await workspace.restartSaved();
+  expect(launch.mock.calls.map(([request]) => request.terminalId)).toEqual([
+    "parent",
+    "remote-child",
+  ]);
+  expect(launch.mock.calls[1]?.[0]).toMatchObject({
+    reattach: true,
+    terminalId: "remote-child",
+    control: { parentId: "parent" },
+    defaultArguments: [],
+    remoteCheckout: { target: { host: "worker" }, worktree: checkout.path },
+  });
+  expect(create.mock.calls[0]?.[0]).toMatchObject({
+    id: "recovered",
+    remote: { reattach: true, human: true },
+  });
+  expect(deps.placeChild).toHaveBeenCalledWith("recovered", "recovered");
+  expect(workspace.orchestration.view("recovered")).toBeUndefined();
+  expect(workspace.orchestration.view("remote-child")).toMatchObject({
+    role: "child",
+    parentId: "parent",
+  });
+  expect(workspace.snapshot().terminals).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: "remote-child", exited: false, launchVersion: 1 }),
+      expect.objectContaining({ id: "recovered", exited: false, launchVersion: 1 }),
+    ]),
+  );
+  expect(rememberPlacement).toHaveBeenCalledWith(
+    repo.path,
+    remotePath,
+    "worker",
+    expect.objectContaining({ path: checkout.path }),
+  );
+  expect(
+    workspace.snapshot().terminals.find((row) => row.id === "remote-child"),
+  ).not.toHaveProperty("remoteCheckout");
+  await workspace.prepareQuit();
+  expect(save.mock.calls.at(-1)?.[0].find((row) => row.id === "remote-child")).toMatchObject({
+    remoteCheckout: { path: checkout.path },
+  });
+});

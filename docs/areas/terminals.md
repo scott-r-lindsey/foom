@@ -13,7 +13,7 @@ Linux and Windows behavior is unchanged.
 
 [Remote hosts #753](https://github.com/scott-r-lindsey/foom/issues/753) decides
 SSH-only transport and persistent remote PTYs. The older [#518 research](../research/remote-machines.md)
-is historical; the opt-in phase-1 spike is described below. Settings → Hosts owns registered-host enrollment; see [Hosts](hosts.md).
+is historical; the opt-in phase-1 spike is described below. Settings → Hosts owns registered-host enrollment and persistent recovery; see [Hosts](hosts.md).
 
 **Today:** `src/terminal-host/terminal-host.ts` runs `TerminalManager` in an Electron utility process, owning independent PTYs and headless screens by ID. `src/main/terminals/terminal-host-client.ts` brokers asynchronous operations in main over the parent port; it never imports node-pty or headless xterm. `src/main/terminals/terminal-ipc.ts` grants registered app windows access to app-owned terminals and enforces exclusive attachments. The first board opens the bundled manual after setup, with no PTY until a launch is requested. Selecting a row places its session in an available tile or focuses its existing tile; Esc remains terminal input. Hiding a tile or entering Settings detaches the stream without stopping the shell. Placing another terminal in an empty tile or returning from Settings drains pending renderer writes, resets the display, fits the visible grid, and restores a fresh host snapshot before continuing the live stream. Input and resize events are suppressed while hidden or changing attachment. The manager and ID-scoped bridge support multiple concurrent sessions; the board consumes live worktree and verdict data. Closing a window detaches its views; the last window requests quit on Windows/Linux and keeps the app alive on macOS. Running terminals require confirmation; cancellation preserves the window and sessions. Confirmed quit stops each PTY and waits for its exit before disposing sessions and closing the window. On Unix, a PTY that ignores graceful termination receives a force-kill after one second. Windows uses ConPTY termination without Unix signals; once a termination request succeeds, shutdown and retries only drain its native exit callback, because closing a ConPTY handle twice can crash the host. A throwing termination request remains retryable. Failure to exit within five seconds leaves the app open with an error so quitting can be retried. Detached sessions continue running; navigation or a renderer crash automatically detaches views. PTY termination requests retain their process handles and exit subscriptions even after a terminal is removed from the board. Confirmed quit applies the same graceful termination and force-kill deadlines to these removed processes and waits for their pending native exits before closing the window; the `will-quit` barrier remains a final safeguard against native callbacks racing Node teardown on Windows.
 
@@ -237,9 +237,12 @@ existing executable regular file, otherwise the account shell from
 valid (including unavailable account lookup). Neither hub nor protocol selects it.
 It supports at most 32 full sessions plus a separate reserve of four pending
 connections for negotiation, cleanup and takeover, with at most 36 sockets total.
-Pending connections have a ten-second deadline from acceptance, including after
-`hello`; only acquiring a live session releases the reserve slot and cancels
-that deadline. Cleanup and missing/exited-session queries retain the deadline.
+Negotiation and idle connections have a ten-second deadline. Management requests,
+including inventory and confirmed End, switch to a seven-minute budget; agent
+preparation has a separate two-minute budget. Acquiring a live session releases
+the connection reserve slot and cancels its deadline. Cleanup and missing/exited
+session queries retain the ten-second deadline. Outstanding cancelled operations
+retain a separate bounded reserve until settled; see [Hosts](hosts.md).
 The reserve cannot create a 33rd session. Operations are serialized per connection,
 and a backlog above 256 operations is rejected. Only the current connection can operate
 on its selected ID. An `open` with an existing ID transfers the session and
@@ -249,13 +252,17 @@ environment, arguments or files. Phase-2 agents preserve this with separate
 per-launch hook/control credentials and sanitized child identities.
 
 The detached per-user daemon owns PTYs, headless screens and independent parser
-backpressure. It listens only on a 0600 Unix socket `~/.foom-host/host.sock` under
+backpressure. It listens only on a 0600 Unix socket `~/.foom-host/host-v2.sock` under
 a 0700 owner-checked directory. HOME must be canonical, owned, nonlinked and not
 group/world writable. Socket paths above 100 bytes are refused. No TCP listener
-exists. A pre-existing socket is never unlinked during startup; an incompatible
-build is refused, including with live sessions. A stale socket after SIGKILL needs
-manual removal after confirming the daemon is gone. A new build never kills or
-replaces a daemon. SIGTERM/SIGINT stop its PTYs and remove the socket.
+exists. A pre-existing socket is never unlinked during startup. Protocol-2 peers
+advertise build identity and explicit compatibility. A busy compatible daemon stays
+in place for newer hubs. A sole client negotiating a different build may retire an
+idle daemon only with no sessions or outstanding operations, including cancelled
+work still settling. Shutdown gates further
+requests before listener disposal; the hub retries verified bootstrap at most twice.
+Legacy coexistence and explicitly confirmed cleanup follow [Hosts](hosts.md#persistent-remote-sessions-757-pr-2). Unnegotiable peers refuse. A stale socket after SIGKILL still requires manual removal
+after confirming the daemon is gone. SIGTERM/SIGINT stop PTYs and remove the socket.
 
 Disconnect detaches only the view, so hidden/disconnected shells keep consuming
 output. After an established SSH stream drops, the hub makes up to five reconnect
@@ -291,26 +298,16 @@ Input interrupted by disconnect is failed rather than replayed. Slow output abov
 Quit/dispose disconnects remote shells; explicit Stop or Close terminates them.
 Workspace restore already reuses each saved home-shell terminal ID, so after a hub
 restart a restored remote tile reopens its live daemon session with screen replay
-(verified on a real host). Discovering sessions the hub did not save is phase 4.
-To bound unreachable shells, a session with no connected owner
-is stopped, its PTY disposed and its slot released after a fixed **24-hour**
-grace period (`DETACHED_SESSION_GRACE_MS`). This comfortably exceeds the whole
-reconnect window (five 120-second attempts plus one-second retry delays, under
-11 minutes) and preserves shells across overnight disconnections. This is a
-phase-1 bound only: phase 4 (#757) replaces timeout reaping with hub-driven
-reconciliation of known IDs. Reattaching a live session within the grace period
-cancels reaping; a later disconnect starts a fresh grace period. Hiding a view alone does
-not start the timer while its connection remains. Exited sessions retain their
-screen while connected. Once disconnected, their PTY/headless screen is disposed
-and only a small exit-code tombstone plus expiry timer is retained. Tombstones do
-not consume the 32 full-session slots; at most 64 are kept, with the oldest exit
-record dropped first. Their expiry remains the original 24-hour detach deadline,
-including when the shell exits later during that period; querying a tombstone
-does not renew it. Once dropped or expired, reattach returns `gone`. Output that
-was never delivered before a disconnected exit cannot be recovered from an
-exit-code-only tombstone; the hub retains its last received display.
-Expiry follows explicit kill's stop/disposal path, including forced cleanup if
-graceful stop fails; shutdown cancels pending reap timers.
+(verified on a real host). Discovering unsaved sessions follows the [profile-scoped recovery rules](hosts.md#persistent-remote-sessions-757-pr-2).
+Live sessions never end automatically and have no detach expiry timer (#757).
+Profile-scoped reconciliation and confirmed cleanup of foreign/untagged sessions
+follow [Hosts](hosts.md#persistent-remote-sessions-757-pr-2). Disconnected exited
+sessions dispose their PTY/headless screen and retain only an exit code, profile
+tag and bounded expiry timer. At most 64 tombstones survive, oldest first,
+independently of the 32 live-session slots. They expire 24 hours after exit/disposal
+starts; querying does not renew expiry. Missing/dropped IDs report `gone`.
+Output never delivered before a disconnected exit is not recoverable from a
+code-only tombstone. Shutdown cancels tombstone timers.
 See [measurements and fixture verification](../../spikes/remote-host/phase-1.md).
 
 
@@ -368,7 +365,8 @@ a shell ID or foreign operation is refused. The ID retains the existing private
 socket/unguessable-ID protection and never enters the agent's environment or argv.
 If connection or cleanup fails, Close retains the row and reports
 `remote_host_unreachable`; session state carries that reason until cleanup succeeds.
-The 24-hour detached reaper remains the unreachable-host backstop.
+An unreachable host retains its live sessions until an explicit stop or close;
+there is no detached-session reaper.
 
 Agent preparation/start failures return only validated `agent-failed {id, reason}`
 frames using the fixed [launch reason enum](../contracts/control-mutations.md#launch-failure-reasons).

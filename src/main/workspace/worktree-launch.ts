@@ -154,6 +154,13 @@ export async function launchAgent(
       bypass: result.bypass ?? hasBypassArgument(request.agent, defaultArguments),
       state: null,
     });
+    if (extra.remoteCheckout)
+      this.sessions.rememberRemote(result.id, {
+        repository: extra.remoteCheckout.repository,
+        path: extra.remoteCheckout.worktree,
+        branch: extra.remoteCheckout.branch,
+        identity: extra.remoteCheckout.identity,
+      });
     this.executionOwner.launched(result.id);
     this.persist();
     this.refresh();
@@ -380,7 +387,9 @@ export async function startExisting(
               old.remote && control && "parentId" in control ? control.parentId : undefined,
             );
           await this.queues.get(old.id);
-          if (!old.dormant) await this.deps.terminals.kill(old.id);
+          if (old.remote && old.placement?.kind === "remote")
+            await this.deps.terminals.kill(old.id, old.placement.host);
+          else if (!old.dormant) await this.deps.terminals.kill(old.id);
           old.dormant = true;
           this.executionOwner.reset(old.id);
           this.deps.verdicts.forget(old.id);

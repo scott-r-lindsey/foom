@@ -31,7 +31,7 @@ export function hostSocket(home: string): string {
     throw new Error("Unsafe home directory");
   const root = join(home, ".foom-host");
   privateDirectory(root);
-  const socket = join(root, "host.sock");
+  const socket = join(root, "host-v2.sock");
   if (Buffer.byteLength(socket) > 100) throw new Error("Host socket path too long");
   return socket;
 }

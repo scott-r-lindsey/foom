@@ -46,3 +46,12 @@ availability and CPU/memory observations to the local orchestrator. Remote
 filesystem paths and raw management/probe output do not enter session metadata.
 Remote processes still receive no hub terminal IDs or hub control credentials;
 their tool authority remains handoff, manual and sanitized identity.
+
+Profile-scoped remote recovery (#757) exchanges opaque owning-profile tags and
+bounded main-owned session/checkout metadata over the existing SSH channel.
+These tags and terminal takeover IDs never enter remote process environments,
+arguments, launch files or child tool results. Newly recovered human sessions gain
+no orchestration authority. Legacy process-list observations stay on the host and
+are discarded after reducing them to an exact daemon identity and session count;
+no raw process list or arguments enter the hub, logs or renderer. Remote screens
+remain in daemon memory and are replayed without local screen persistence.

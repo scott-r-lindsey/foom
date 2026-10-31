@@ -1,3 +1,4 @@
+import type { DialogContent } from "../../shared/confirmation";
 import type { Hosts } from "./hosts";
 import type { UpdateState } from "../../shared/updates";
 import type { ReadinessReport } from "../../shared/readiness";
@@ -20,6 +21,7 @@ import type { WorktreeService } from "../workspace/worktrees";
 
 export interface SetupDependencies {
   hosts?: Hosts;
+  confirmRemoteSessions?: (content: DialogContent) => Promise<boolean>;
   updates?: () => UpdateState;
   restartToUpdate?: () => Promise<void>;
   gitReadiness?: () => Promise<ReadinessReport>;
@@ -62,7 +64,7 @@ export class Setup {
 
   hosts(input: unknown) {
     if (!this.deps.hosts) throw new Error("Hosts unavailable");
-    return this.deps.hosts.action(input);
+    return this.deps.hosts.action(input, this.deps.confirmRemoteSessions);
   }
 
   readiness() {

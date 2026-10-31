@@ -83,32 +83,38 @@ function recordBoardStartup({ app, contentTracing }, trace) {
   app.on("gpu-info-update", () => recordApp("gpu-info-update", app.getGPUFeatureStatus()));
   app.on("child-process-gone", (_event, details) => recordApp("child-process-gone", details));
   globalThis.boardStartup = state;
-  // Start alongside main's readiness continuation, without gating its startup.
-  // Stop through the API before interaction/quit: CLI tracing can hang Electron
-  // shutdown while flushing a cold renderer on window-manager-less Xvfb.
+  // Start once the board document is loaded, when its renderer has registered
+  // with Chromium tracing. Starting alongside app readiness races cold child
+  // registration and can make startRecording wait for its acknowledgement timeout.
+  // Keep compositor/rAF diagnostics and stop before interaction or quit.
   state.traceReady = trace
-    ? app.whenReady().then(async () => {
-        if (state.stopRequested) return;
-        await contentTracing.startRecording({
-          included_categories: [
-            "cc",
-            "gpu",
-            "toplevel",
-            "viz",
-            "blink",
-            "navigation",
-            "devtools.timeline",
-            "blink.user_timing",
-            "renderer.scheduler",
-            "disabled-by-default-cc.debug*",
-            "disabled-by-default-viz.debug*",
-          ],
-          excluded_categories: ["*"],
-          recording_mode: "record-until-full",
-          trace_buffer_size_in_kb: 16384,
-        });
-        state.tracing = true;
-      })
+    ? documentReady.then(
+        async () => {
+          if (state.stopRequested) return;
+          await contentTracing.startRecording({
+            included_categories: [
+              "cc",
+              "gpu",
+              "toplevel",
+              "viz",
+              "blink",
+              "navigation",
+              "devtools.timeline",
+              "blink.user_timing",
+              "renderer.scheduler",
+              "disabled-by-default-cc.debug*",
+              "disabled-by-default-viz.debug*",
+            ],
+            excluded_categories: ["*"],
+            recording_mode: "record-until-full",
+            trace_buffer_size_in_kb: 16384,
+          });
+          state.tracing = true;
+        },
+        () => {
+          // Document readiness owns the navigation error; no trace was started.
+        },
+      )
     : Promise.resolve();
   app.on("browser-window-created", (_event, window) => {
     const record = (event) => {

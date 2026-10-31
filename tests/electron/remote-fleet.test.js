@@ -8,6 +8,7 @@ const {
   mkdtemp,
   readFile,
   realpath,
+  rm,
   rename,
   stat,
   symlink,
@@ -20,13 +21,16 @@ const { launchTrustedParent } = require("./agent-fixture.js");
 const { deadline, expect } = require("./test-policy.js");
 const {
   FAKE_ORCHESTRATED_CLAUDE,
+  boardPage,
+  launchApp,
+  quitAndWait,
   confirmationPage,
   fixtureCleanup,
   removeAfterApps,
 } = require("./harness.js");
 const { auditProcesses } = require("./process-audit.js");
 
-async function remoteFleet(context, agents) {
+async function remoteFleet(context, agents, restart = false) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "rfl-")));
   removeAfterApps(context, root);
   const remoteHome = await mkdtemp(path.join(await realpath("/tmp"), "rfh-"));
@@ -58,7 +62,16 @@ async function remoteFleet(context, agents) {
     `repository-${createHash("sha256").update(origin).digest("hex").slice(0, 24)}`,
   );
   await mkdir(path.join(remoteRepo, ".git"), { recursive: true, mode: 0o700 });
-  await writeFile(path.join(bin, "claude"), FAKE_ORCHESTRATED_CLAUDE, { mode: 0o700 });
+  await writeFile(
+    path.join(bin, "claude"),
+    FAKE_ORCHESTRATED_CLAUDE +
+      `
+const notify = require('node:http').request(process.env.FOOM_HOOK_URL, {method:'POST', headers:{Authorization:process.env.FOOM_TOKEN,'X-Foom-Session':process.env.FOOM_SESSION,'X-Foom-Channel':process.env.FOOM_CHANNEL_lifecycle,'Content-Type':'application/json'}}, response => response.resume());
+notify.on('error', () => {});
+notify.end(JSON.stringify({session_id:'fleet-parent-conversation',hook_event_name:'Stop'}));
+`,
+    { mode: 0o700 },
+  );
   await symlink(process.execPath, path.join(bin, "node"));
   for (const tool of [
     "sh",
@@ -205,46 +218,53 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
   cleanup.audit.add(daemon.pid);
   daemon.stdout.resume();
   daemon.stderr.resume();
-  cleanup.apps.push(async () => {
+  const closeDaemon = async () => {
     if (daemon.exitCode === null && daemon.signalCode === null) {
       const closed = once(daemon, "close");
       daemon.kill("SIGTERM");
       await closed;
     }
-  });
+  };
+  cleanup.apps.push(closeDaemon);
   await expect
     .poll(async () => {
       try {
-        return (await stat(path.join(remoteHome, ".foom-host/host.sock"))).isSocket();
+        return (await stat(path.join(remoteHome, ".foom-host/host-v2.sock"))).isSocket();
       } catch {
         return false;
       }
     })
     .toBe(true);
   const credentials = path.join(root, "credentials");
+  const profile = path.join(root, "profile");
+  const launchOptions = {
+    fixture: "agent",
+    args: [`--user-data-dir=${profile}`],
+    env: { HOME: home, PATH: bin, TEST_FAKE_CREDENTIALS: credentials },
+  };
   const { app, page, parent } = await launchTrustedParent(context, {
     repo,
     credentials,
-    options: {
-      fixture: "agent",
-      env: { HOME: home, PATH: bin, TEST_FAKE_CREDENTIALS: credentials },
-    },
+    options: launchOptions,
   });
   cleanup.apps.push(cleanup.apps.shift());
-  const call = async (method, params = {}) => {
-    const response = await fetch(parent.controlUrl, {
+  const controlCall = async (actor, method, params = {}) => {
+    const response = await fetch(actor.controlUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${parent.controlToken}`,
+        Authorization: `Bearer ${actor.controlToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
+      body: JSON.stringify({ version: 1, instanceId: actor.instanceId, method, params }),
     });
     const result = await response.json();
     assert.equal(response.status, 200, JSON.stringify(result));
     return result.result;
   };
+  const call = (method, params) => controlCall(parent, method, params);
   const parentId = (await call("whoami")).terminalId;
+  await page.evaluate(() => window.desktop.saveSetup({ closeFinishedAgents: false }));
+  let persistent;
   const elevate = page.evaluate(
     (id) => window.desktop.sidebarCommand({ kind: "make-orchestrator", id }),
     parentId,
@@ -384,6 +404,14 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
     await expect
       .poll(async () => (await call("read_handoff", { id: launched.resultId })).summary)
       .toBe(`${agent} fixture complete`);
+    if (restart && agent === "codex") {
+      persistent = {
+        id: launched.resultId,
+        pid: record.pid,
+        alias: JSON.parse(report.identity.output).alias,
+      };
+      continue;
+    }
     await call("stop", { id: launched.resultId, idempotencyKey: `stop-${agent}` });
     await expect
       .poll(async () => (await call("session_state", { id: launched.resultId })).state)
@@ -437,23 +465,112 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
       assert.ok(!Object.hasOwn(JSON.parse(await readFile(gitState, "utf8")), record.cwd));
     }
   }
-  context.diagnostic(`Remote fixture completed ${agents.join(", ")}`);
+  if (!restart) return;
+  assert.ok(persistent);
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.id === parentId,
+        )?.conversationId,
+    )
+    .toBe("fleet-parent-conversation");
+  await quitAndWait(app, async () => {
+    await app.evaluate(({ app }) => app.quit());
+    await (await confirmationPage(app)).getByRole("button", { name: "Stop all and quit" }).click();
+  });
+  const restarted = await launchApp(context, { ...launchOptions, fixture: "restored" }).finally(
+    () => {
+      cleanup.apps.splice(cleanup.apps.indexOf(closeDaemon), 1);
+      cleanup.apps.push(closeDaemon);
+    },
+  );
+  const restored = await boardPage(restarted);
+  // The parent must complete its new launch before child re-grant can finish.
+  await expect
+    .poll(
+      async () =>
+        JSON.parse(await readFile(`${credentials}.app`, "utf8")).controlToken !==
+        parent.controlToken,
+    )
+    .toBe(true);
+  const newParent = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
+  await expect
+    .poll(
+      async () =>
+        (await restored.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.id === persistent.id,
+        )?.orchestration?.role,
+    )
+    .toBe("child")
+    .catch(async (error) => {
+      console.error(
+        "Remote restore state:",
+        await restored.evaluate(() => window.desktop.workspace()),
+      );
+      throw error;
+    });
+  await expect
+    .poll(
+      async () =>
+        (await restored.evaluate(() => window.desktop.workspace())).terminals.find(
+          (row) => row.id === persistent.id,
+        )?.dormant,
+    )
+    .toBe(false);
+  assert.equal(
+    JSON.parse(await readFile(path.join(root, "codex-launch.json"), "utf8")).pid,
+    persistent.pid,
+  );
+  await expect
+    .poll(async () =>
+      (await restored.evaluate((id) => window.desktop.tail(id, 40), persistent.id)).join("\n"),
+    )
+    .toContain("REMOTE_CODEX_READY");
+  const restoredCall = (method, params) => controlCall(newParent, method, params);
+  await rm(path.join(root, "codex-report.json"));
+  await restoredCall("send_keys", {
+    id: persistent.id,
+    keys: ["1"],
+    idempotencyKey: "after-restart-report",
+  });
+  await expect
+    .poll(async () => {
+      try {
+        return (
+          JSON.parse(await readFile(path.join(root, "codex-report.json"), "utf8")).identity.code ===
+          0
+        );
+      } catch {
+        return false;
+      }
+    })
+    .toBe(true);
+  const renewed = JSON.parse(await readFile(path.join(root, "codex-report.json"), "utf8"));
+  assert.equal(JSON.parse(renewed.identity.output).role, "child");
+  assert.ok(JSON.parse(renewed.identity.output).alias !== persistent.alias);
+  await restoredCall("stop", { id: persistent.id, idempotencyKey: "stop-after-restart" });
+  await expect
+    .poll(async () => (await restoredCall("session_state", { id: persistent.id })).state)
+    .toBe("exited");
 }
 
+const fleetOptions = { skip: process.platform === "win32", timeout: deadline(90000) };
+for (const agent of ["codex", "copilot", "agy"]) {
+  test(
+    `registered-host ${agent} lifecycle uses host inventory and restricted child tools`,
+    fleetOptions,
+    (context) => remoteFleet(context, [agent]),
+  );
+}
 test(
-  "registered-host orchestration launches Codex, Copilot and Antigravity using host inventory and restricted child tools",
-  {
-    skip: process.platform === "win32",
-    timeout: deadline(90000),
-  },
-  (context) => remoteFleet(context, ["codex", "copilot", "agy"]),
+  "registered-host restart reattaches a live child with screen replay and fresh restricted authority",
+  fleetOptions,
+  (context) => remoteFleet(context, ["codex"], true),
 );
 
 test(
   "registered-host Pi and OpenCode consume private extensions, context, MCP and resume attachments",
-  {
-    skip: process.platform === "win32",
-    timeout: deadline(90000),
-  },
+  fleetOptions,
   (context) => remoteFleet(context, ["pi", "opencode"]),
 );

@@ -35,6 +35,7 @@ test("plans only previously running shells and agents with conversations, includ
   ];
   expect(restorePlan(entries, true).map((entry) => entry.id)).toEqual([
     "agent",
+    "remote",
     "codex",
     "agy",
     "shell",

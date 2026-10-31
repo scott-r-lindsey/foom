@@ -61,6 +61,7 @@ export async function initializeWorkspace(
           base: inheritedEnvironment(),
         }).env,
       () => wiring.settings.get().copyOnSelect,
+      wiring.settings.profileTag(),
     );
   else wiring.terminals.addWindow(window);
   if (!wiring.initialized) {

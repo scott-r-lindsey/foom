@@ -41,7 +41,7 @@ export interface WorktreeLaunchContext {
   readonly replacementVersion: WorkspaceMethods["replacementVersion"];
   readonly resumeStarts: Map<string, Promise<void>>;
   readonly scanAgents: WorkspaceMethods["scanAgents"];
-  readonly sessions: Pick<SessionOwner, "rememberIdentity">;
+  readonly sessions: Pick<SessionOwner, "rememberIdentity" | "rememberRemote">;
   readonly shellEnvironment: WorkspaceMethods["shellEnvironment"];
   readonly startExisting: WorkspaceMethods["startExisting"];
   readonly startShell: WorkspaceMethods["startShell"];

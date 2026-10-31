@@ -24,6 +24,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
       identity: string;
     }
   >();
+  const remoteTree = (path: string) => remote.get(path) ?? caps.deps.hosts?.placement?.(path);
   const hosts = () => {
     if (!caps.deps.hosts) throw new ControlError("not_found");
     return caps.deps.hosts;
@@ -124,13 +125,13 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
         ),
       ];
     },
-    worktreeHost: (path) => remote.get(path)?.host,
+    worktreeHost: (path) => remoteTree(path)?.host,
     worktreeLabel: (path) => {
-      const tree = remote.get(path);
+      const tree = remoteTree(path);
       return tree ? `${tree.host}:${tree.path}` : path;
     },
     remoteCheckout: async (path, agent) => {
-      const tree = remote.get(path);
+      const tree = remoteTree(path);
       if (!tree) return undefined;
       await hosts().requireAgent(tree.host, agent);
       const current = await inspect(tree.localRepository, tree);
@@ -212,7 +213,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
         }
       }),
     launch: (parentId, repository, worktree, identity, agent, prompt, step) => {
-      const tree = remote.get(worktree);
+      const tree = remoteTree(worktree);
       if (!tree)
         return caps.launchChild(parentId, repository, worktree, identity, agent, prompt, step);
       return caps.withRepository(repository, () =>
@@ -259,7 +260,10 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     reviewSnapshot: (repository, worktree, identity) =>
       reviewSnapshot(caps.deps.worktrees, repository, worktree, identity),
     reviewAvailable: async (agent, worktree) => {
-      if (worktree && (remote.has(worktree) || remoteAgentTarget(process.argv, worktree)))
+      if (
+        worktree &&
+        (remoteTree(worktree) !== undefined || remoteAgentTarget(process.argv, worktree))
+      )
         throw new ControlError("remote_review_unsupported");
       return (await caps.scanAgents(false)).agents.some(
         (item) => item.id === agent && item.path !== null && item.resume === true,
@@ -267,6 +271,12 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     },
     bypassDefaults: (agent) => hasBypassArgument(agent, caps.defaultArguments[agent] ?? []),
     restoreWorktree: async (repository, path) => {
+      const saved = remoteTree(path);
+      if (saved) {
+        if (saved.localRepository !== repository) return undefined;
+        const current = await inspect(repository, saved);
+        return { branch: current.branch, identity: saved.identity };
+      }
       if (path === repository) return undefined;
       const tree = (await caps.deps.worktrees.listWorktrees(repository)).find(
         (item) => item.path === path,
@@ -299,7 +309,7 @@ export function workspaceOrchestrationHost(caps: OrchestrationHostContext): Orch
     reveal: (id) => caps.deps.reveal?.(id),
     tail: (id, lines) => caps.deps.terminals.tail(id, lines),
     remove: async (repository, worktree, identity, confirm, revalidate) => {
-      const tree = remote.get(worktree);
+      const tree = remoteTree(worktree);
       if (!tree)
         return caps.cleanup.removeOwnedTree(repository, worktree, identity, confirm, revalidate);
       return caps.withRepository(repository, () =>

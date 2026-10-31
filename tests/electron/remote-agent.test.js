@@ -210,7 +210,7 @@ child.stdin.on('error',()=>{}); process.on('SIGTERM',()=>child.kill('SIGTERM'));
   await expect
     .poll(async () => {
       try {
-        return (await stat(path.join(remoteHome, ".foom-host/host.sock"))).isSocket();
+        return (await stat(path.join(remoteHome, ".foom-host/host-v2.sock"))).isSocket();
       } catch {
         return false;
       }

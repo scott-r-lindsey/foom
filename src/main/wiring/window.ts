@@ -264,6 +264,7 @@ export async function buildWindow(
     confirmations.refresh();
   };
   const setup = new Setup({
+    confirmRemoteSessions: (content) => confirmations.request(content),
     hosts: hostsForStore(
       wiring.settings,
       wiring.worktrees.listRepositories.bind(wiring.worktrees),
