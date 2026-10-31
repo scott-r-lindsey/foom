@@ -255,6 +255,12 @@ process.on('exit',()=>cleanup?.());
   const sshCalls = path.join(root, "ssh-calls");
   const launchCalls = path.join(root, "ssh-launch-calls");
   await writeFile(launchCalls, "");
+  const snapshots = async () =>
+    (await readFile(launchCalls, "utf8")).split("snapshot-complete\n").length - 1;
+  const verifiedCompletion = async (before) => {
+    // Main reads evidence, then independently revalidates it before sending stop.
+    for (const count of [1, 2]) await expect.poll(snapshots).toBeGreaterThanOrEqual(before + count);
+  };
   await writeFile(
     path.join(bin, "ssh"),
     `#!${process.execPath}
@@ -265,9 +271,10 @@ appendFileSync(${JSON.stringify(sshCalls)},'ssh\\n');
 if(args.at(-1)==='uname -s; uname -m') {process.stdout.write(require('node:os').type()+'\\n'+(process.arch==='x64'?'x86_64':process.platform==='darwin'?'arm64':'aarch64')+'\\n');process.exit(0);}
 const child=spawn('/bin/sh',['-c','exec '+args.slice(split+2).join(' ')],{env:{HOME:${JSON.stringify(remoteHome)},PATH:${JSON.stringify(remoteBin)},SHELL:${JSON.stringify(shell)},LANG:'C',FIXTURE_REMOTE_GIT_ROOT:${JSON.stringify(remoteRepo)},FIXTURE_REMOTE_ORIGIN:${JSON.stringify(origin)},FIXTURE_REMOTE_HEAD:'a'.repeat(40)},stdio:['pipe','pipe','pipe']});
 const {RemoteFrames}=require(${JSON.stringify(path.resolve("build/shared/remote-host-protocol.js"))});
-const frames=new RemoteFrames(); let ready=false, header='';
-child.stdout.on('data',bytes=>{if(!ready){const next=header+bytes.toString('ascii');ready=next.includes('FOOM-READY\\n');header=next.slice(-128);}});
-process.stdin.on('data',bytes=>{if(ready)frames.push(bytes,message=>{if(message.type.startsWith('agent-'))appendFileSync(${JSON.stringify(launchCalls)},message.type+'\\n');});});
+const frames=new RemoteFrames(), responses=new RemoteFrames(); let ready=false, header=Buffer.alloc(0), operation;
+const received=bytes=>responses.push(bytes,message=>{if(message.type==='managed' && operation==='snapshot-worktree')appendFileSync(${JSON.stringify(launchCalls)},message.result.ok?'snapshot-complete\\n':'snapshot-refused\\n');});
+child.stdout.on('data',bytes=>{if(ready){received(bytes);return;} header=Buffer.concat([header,bytes]); const marker=Buffer.from('FOOM-READY\\n'), end=header.indexOf(marker); if(end<0)return; ready=true; received(header.subarray(end+marker.length)); header=Buffer.alloc(0);});
+process.stdin.on('data',bytes=>{if(ready)frames.push(bytes,message=>{if(message.type==='manage')operation=message.operation; if(message.type.startsWith('agent-'))appendFileSync(${JSON.stringify(launchCalls)},message.type+'\\n');});});
 process.stdin.pipe(child.stdin);child.stdout.pipe(process.stdout);child.stderr.pipe(process.stderr);child.stdin.on('error',()=>{});
 process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.exit(code??1));
 `,
@@ -464,6 +471,7 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
           throw error;
         });
     }
+    const initialSnapshots = reviewLoop ? await snapshots() : 0;
     await call("send_keys", {
       id: launched.resultId,
       keys: ["1"],
@@ -514,6 +522,7 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
       .poll(async () => (await call("read_handoff", { id: launched.resultId })).summary)
       .toBe(`${agent} fixture complete`);
     if (reviewLoop) {
+      await verifiedCompletion(initialSnapshots);
       await expect
         .poll(async () => (await call("session_state", { id: launched.resultId })).state)
         .toBe("exited");
@@ -601,6 +610,7 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
           assert.ok(current.args.includes("author-conversation"));
         }
         await rm(path.join(root, `${agent}-report.json`));
+        const completedSnapshots = await snapshots();
         await call("send_keys", {
           id: participant,
           keys: ["1"],
@@ -623,10 +633,12 @@ process.on('SIGTERM',()=>child.kill('SIGTERM'));child.on('close',code=>process.e
         aliases.add(identity.alias);
         assert.equal(JSON.parse(next.forbidden.output).error, "phase_2_restricted");
         assert.equal(next.handoff.code, 0);
-        if (stage !== "fix")
+        if (stage !== "fix") {
+          await verifiedCompletion(completedSnapshots);
           await expect
             .poll(async () => (await call("session_state", { id: participant })).state)
             .toBe("exited");
+        }
         assert.ok(!JSON.stringify(next).includes(participant));
         previous = current;
       }
