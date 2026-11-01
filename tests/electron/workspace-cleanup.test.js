@@ -564,9 +564,9 @@ for (const { front, queued, sameBoard, checking } of [
         pending.push(result);
       } else {
         await app.evaluate(
-          (_, { root, repo, source }) => {
+          (_, { worktree, repo, source }) => {
             const owner = globalThis.overlapOwner;
-            const path = root + "/" + source;
+            const path = worktree;
             const abort = new AbortController();
             globalThis.overlapAborts[source] = abort;
             void (async () => {
@@ -603,7 +603,7 @@ for (const { front, queued, sameBoard, checking } of [
               },
             );
           },
-          { root, repo, source },
+          { worktree: path.join(root, source), repo, source },
         );
       }
       await expect
@@ -657,7 +657,13 @@ for (const { front, queued, sameBoard, checking } of [
     await app.evaluate(() => {
       const dialog = [...globalThis.overlapDialogs].find((dialog) => dialog.pending);
       dialog.window.focus();
+      dialog.window.webContents.focus();
     });
+    await assertConfirmationFocus(
+      app,
+      frontPage,
+      frontPage.getByRole("button", { name: "Cancel", exact: true }),
+    );
     if (checking) {
       await frontPage.getByRole("button", { name: "Cancel", exact: true }).click();
       assert.equal(
