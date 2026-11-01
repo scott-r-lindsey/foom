@@ -221,7 +221,7 @@ if(agent==='pi') {
  extension({on(name, handler){const previous=handlers.get(name); handlers.set(name, async (...args)=>{await previous?.(...args); await handler(...args);});},
  registerMcpServer(name, config){attachment={name,...config};}, unregisterMcpServer(){attachment=undefined;}});
  const ctx={sessionManager:{getSessionId:()=>conversation},isIdle:()=>true};
- for (const name of ['session_start','agent_start','agent_before_settle','agent_settled'])
+ for (const name of ['session_start','before_agent_start','agent_start','agent_before_settle','agent_settled'])
    await handlers.get(name)?.({outcome:'completed',aborted:false},ctx);
  if(!attachment) throw new Error('Pi did not consume extension');
 } else if(agent==='opencode') {
@@ -443,7 +443,12 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
           return null;
         }
       })
-      .not.toBeNull();
+      .not.toBeNull()
+      .catch(async (error) => {
+        const { state } = await call("session_state", { id: launched.resultId });
+        console.error("Remote fleet launch readiness", JSON.stringify({ agent, state }));
+        throw error;
+      });
     const record = JSON.parse(await readFile(path.join(root, `${agent}-launch.json`), "utf8"));
     assert.ok(record.cwd.startsWith(folder + "/.foom-worktree-"));
     const serialized = JSON.stringify(record);

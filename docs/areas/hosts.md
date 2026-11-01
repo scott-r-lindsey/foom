@@ -197,11 +197,12 @@ local Git, in addition to the 10,000-file / 32 MiB content bounds. Other probe
 stdout and every stderr stream retain their 256 KiB limits.
 Compatible older daemons that cannot supply this evidence refuse remote review;
 ordinary sessions and reattachment remain usable.
-Read-only inspection and snapshots validate the canonical clone and worktree in
+Inspection, snapshots and confirmed removal validate the canonical clone and worktree in
 one management request. The hub derives the clone path from the registered origin;
-it does not open a separate repository-preflight SSH connection for these reads.
+it does not open a separate repository-preflight SSH connection for these operations.
 The daemon still checks clone origin, HEAD, membership, provenance and identity.
-Creation and removal retain their existing repository preflight.
+Removal still compares the confirmed changes and identity again before deletion.
+Creation retains its repository preflight and indeterminate-result handling.
 
 
 ## Worktrees without sessions (#941)

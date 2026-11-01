@@ -332,7 +332,7 @@ export class Hosts {
     if (!this.repositories().some((repo) => repo.path === repository))
       throw new ControlError("not_found");
     let sourcePath: string | undefined;
-    if (action.operation === "create-worktree" || action.operation === "remove-worktree") {
+    if (action.operation === "create-worktree") {
       const source = await this.repository(host, entry.codeFolder, repository, false);
       this.registered(host, entry.codeFolder);
       if (!source.ok || !source.checkout || source.checkout.state === "absent")
@@ -341,7 +341,7 @@ export class Hosts {
     }
     const origin = await this.origin(repository);
     this.registered(host, entry.codeFolder);
-    // Read-only management already validates the clone and worktree together.
+    // Existing-worktree management validates the clone and worktree together.
     // A separate repository connection repeats bootstrap and the same Git reads.
     const source =
       sourcePath ??

@@ -462,7 +462,12 @@ if(agent==='pi') {
  extension({on(name,handler){const previous=handlers.get(name);handlers.set(name,async (...args)=>{await previous?.(...args);await handler(...args);});},
  registerMcpServer(name,config){registered={name,...config};}, unregisterMcpServer(){registered=undefined;}});
  const ctx={sessionManager:{getSessionId:()=>conversation},isIdle:()=>false};
+ const token=process.env.FOOM_REMOTE_TOKEN;
+ process.env.FOOM_REMOTE_TOKEN='f'.repeat(64);
  await handlers.get('session_start')({},ctx);
+ assert.equal(registered,undefined);
+ process.env.FOOM_REMOTE_TOKEN=token;
+ await handlers.get('before_agent_start')({},ctx);
  assert.deepEqual(Object.keys(registered.toolExposure),['whoami','manual','handoff']);
  assert.deepEqual(registered.args,['--mcp']);
  assert.equal(registered.command,process.execPath);

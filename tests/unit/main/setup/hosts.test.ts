@@ -384,7 +384,7 @@ test("remote worktree commands never clone and only use the registered origin an
   ).rejects.toMatchObject({ reason: "remote_worktree_unavailable" });
 });
 
-test.each(["inspect-worktree", "snapshot-worktree"] as const)(
+test.each(["inspect-worktree", "snapshot-worktree", "remove-worktree"] as const)(
   "%s validates the canonical checkout in one management connection",
   async (operation) => {
     settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: facts.codeFolder }] };
@@ -408,6 +408,7 @@ test.each(["inspect-worktree", "snapshot-worktree"] as const)(
         operation,
         path: tree.path,
         identity: tree.identity,
+        ...(operation === "remove-worktree" ? { changes: "" } : {}),
       }),
     ).resolves.toMatchObject({
       repository: `${facts.codeFolder}/${directory}`,
