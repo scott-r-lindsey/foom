@@ -81,6 +81,7 @@ export function createShell(
   let disposed = false;
   const isDisposed = () => disposed;
   let activeId: string | undefined;
+  let lastLiveViewId: string | undefined;
   let shellId: string | undefined;
   let pendingId: string | undefined;
   const exits = new Map<string, number>();
@@ -215,6 +216,7 @@ export function createShell(
   };
   let suspended: { id: string; request: number } | undefined;
   const release = (id: string) => {
+    if (lastLiveViewId === id) lastLiveViewId = undefined;
     exits.delete(id);
     removed.delete(id);
     if (pendingId === id) {
@@ -265,6 +267,7 @@ export function createShell(
     view.status = terminalStatus;
     view.state = code === 0 ? "done" : "failed";
     exited = true;
+    lastLiveViewId = undefined;
     terminal.write("\x1b[?25l");
     if (hostFailed) {
       activeId = undefined;
@@ -396,9 +399,12 @@ export function createShell(
     wheel.reset();
     terminal.reset();
     terminal.options.cursorBlink = !exited;
-    // xterm reset retains cursor hiding. Older compatible daemons omit DECTCEM,
-    // so start live replays visible; newer snapshots can explicitly hide it again.
-    terminal.write(exited ? "\x1b[?25l" : "\x1b[?25h");
+    // xterm reset retains cursor hiding. Preserve it for the same live session
+    // on older hosts without DECTCEM; a different session starts visible.
+    // Explicit modes in newer snapshots remain authoritative in either case.
+    if (exited) terminal.write("\x1b[?25l");
+    else if (lastLiveViewId !== id) terminal.write("\x1b[?25h");
+    lastLiveViewId = exited ? undefined : id;
     controls();
     updateTheme();
     visibility(true);

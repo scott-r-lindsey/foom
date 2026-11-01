@@ -1644,3 +1644,76 @@ test.each([
     view.dispose();
   }
 });
+
+// Frozen snapshots captured with the 0e051540 helper. That host never emits
+// DECTCEM, so same-session replay must retain application visibility locally.
+test.each([
+  { alternate: false, snapshot: "app screen\x1b[?12h\x1b[0 q" },
+  { alternate: true, snapshot: "\x1b[?1049h\x1b[Happ screen\x1b[?12h\x1b[0 q" },
+])(
+  "compatible old host keeps application cursor hidden on reattach (alternate=$alternate)",
+  async ({ alternate, snapshot }) => {
+    const view = new HeadlessTerminal({ cursorBlink: true, allowProposedApi: true });
+    const write = (data: string) =>
+      new Promise<void>((resolve) => {
+        view.write(data, resolve);
+      });
+    const expectHidden = async (hidden: boolean) => {
+      let reply = "";
+      const subscription = view.onData((data) => {
+        reply += data;
+      });
+      try {
+        await write("\x1b[?25$p");
+        expect(reply).toBe(`\x1b[?25;${hidden ? "2" : "1"}$y`);
+      } finally {
+        subscription.dispose();
+      }
+    };
+    mock.write.mockImplementation((data, done) => {
+      view.write(data, done);
+    });
+    mock.reset.mockImplementation(() => {
+      view.reset();
+    });
+    const controller = createShell(
+      document.createElement("div"),
+      vi.fn(),
+      false,
+      undefined,
+      false,
+      false,
+    );
+    try {
+      const receive = mock.onData.mock.calls[0]?.[0];
+      if (!receive) throw new Error("Missing terminal data subscription");
+      let replay = "";
+      mock.attach.mockImplementation((id: string) => {
+        receive(id, "snapshot", `\x1bc${replay}`);
+        return Promise.resolve();
+      });
+      await controller.open("live");
+      receive("live", "output", `${alternate ? "\x1b[?1049h" : ""}app screen\x1b[?25l`);
+      await expectHidden(true);
+      expect(snapshot).not.toContain("\x1b[?25");
+      replay = snapshot;
+      await controller.hide();
+      await controller.open("live");
+      await expectHidden(true);
+      // A different live session must not inherit the previous application's hide.
+      await controller.open("another-live");
+      await expectHidden(false);
+      // An exited view must not transfer its forced hide to a relaunched live PTY.
+      mock.onExit.mock.calls[0]?.[0]("another-live", 0);
+      await expectHidden(true);
+      mock.onTerminalAvailability.mock.calls[0]?.[0]("another-live", true, true);
+      await controller.hide();
+      await controller.open("another-live");
+      await expectHidden(false);
+    } finally {
+      controller.dispose();
+      mock.reset.mockReset();
+      view.dispose();
+    }
+  },
+);
