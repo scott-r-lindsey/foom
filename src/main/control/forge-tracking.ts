@@ -196,14 +196,14 @@ export class ForgeTracking {
       if (!resolved.sameRepository) throw new ControlError("pr_from_fork");
       if (!forgeBranch(resolved.branch)) throw new ControlError("invalid_branch");
       const pr = pullRequest(await provider?.lookup(resolved.branch, number));
-      if (!pr || pr.number !== number || pr.state !== "OPEN")
+      if (!pr || pr.number !== number || pr.state !== "OPEN" || head !== pr.headSha)
         throw new ControlError("pr_binding_unresolved");
       if (
         this.closed ||
         this.generation !== generation ||
         this.entries.get(path) !== entry ||
         (await this.inspect(entry, true).catch(() => undefined)) !== remote ||
-        (entry.remoteCheckout !== undefined && entry.inspectedHead !== head)
+        entry.inspectedHead !== head
       )
         throw new ControlError("pr_binding_unresolved");
       this.bind(entry, provider);
@@ -248,8 +248,10 @@ export class ForgeTracking {
 
   private async inspect(tree: Entry, orchestrator?: boolean): Promise<string | undefined> {
     const result = await this.inspectCheckout(tree, orchestrator);
-    if (typeof result === "string" || result === undefined)
+    if (typeof result === "string" || result === undefined) {
+      delete tree.inspectedHead;
       return tree.remoteCheckout ? undefined : result;
+    }
     tree.inspectedHead = result.head;
     return result.remote;
   }

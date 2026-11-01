@@ -334,7 +334,7 @@ export class OrchestrationAuthority {
     const worktreeId = locationId(entry.worktree);
     const owned = parent.worktrees.get(worktreeId);
     if (owned && owned.identity !== tree.identity) return false;
-    parent.worktrees.set(worktreeId, { ...tree, path: entry.worktree, state: "used" });
+    parent.worktrees.set(worktreeId, { ...owned, ...tree, path: entry.worktree, state: "used" });
     this.host.forge?.track({ repository: parent.repository, path: entry.worktree, ...tree });
     parent.children.set(entry.id, {
       worktreeId,

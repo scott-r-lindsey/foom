@@ -69,6 +69,7 @@ export interface WorkspaceMethods {
       | "conversationId"
       | "pinConversation"
       | "beforeSpawn"
+      | "prepareSpawn"
       | "loop"
       | "selection"
       | "remoteCheckout"

@@ -49,6 +49,7 @@ export interface OrchestrationHost {
       resume?: { id: string; conversationId: string };
       loop?: AgentLaunch["loop"];
       snapshot?: ReviewSnapshot;
+      validateSnapshot?: () => Promise<void>;
       validate(): void;
     },
   ): Promise<string>;

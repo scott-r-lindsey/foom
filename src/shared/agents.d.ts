@@ -74,6 +74,8 @@ export interface AgentLaunch {
   readonly selection?: LaunchSelection;
   /** Main-only automation authority recheck immediately before the PTY spawn. */
   readonly beforeSpawn?: () => void;
+  /** Main-only asynchronous checkout evidence check, followed by beforeSpawn authority validation. */
+  readonly prepareSpawn?: () => Promise<void>;
   /** Main-only metadata written before the first session save, never process authority. */
   readonly loop?: ReviewOptions | ReviewState;
   readonly terminalId?: string;

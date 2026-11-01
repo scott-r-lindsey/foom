@@ -70,15 +70,16 @@ export function harness(
       Promise.resolve({ path: join(repo, "trees", branch), branch, identity: `id-${branch}` }),
     ),
     launch: vi.fn(
-      (
+      async (
         _parent: string,
         _repository: string,
         worktree: string,
         _identity: string,
         _agent: string,
         _prompt: string | undefined,
-        step?: { resume?: { id: string; conversationId: string }; validate(): void },
+        step?: Parameters<OrchestrationHost["launch"]>[6],
       ) => {
+        await step?.validateSnapshot?.();
         step?.validate();
         const id = step?.resume?.id ?? `child-${String(++next)}`;
         rows.set(id, row(id, worktree, worktree.split("/").at(-1) ?? ""));

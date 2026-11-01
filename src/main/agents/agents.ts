@@ -448,6 +448,7 @@ export class AgentService {
           checkoutIdentity
       )
         throw new Error("Worktree has changed. Select it and try again.");
+      await request.prepareSpawn?.();
       if (agentProvider(request.agent) !== provider)
         throw new Error("Agent plugin changed. Review it again.");
       this.ensureOpen();

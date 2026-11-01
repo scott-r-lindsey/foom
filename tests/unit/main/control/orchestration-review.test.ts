@@ -3,6 +3,86 @@ import { describe, expect, it, vi } from "vitest";
 import { AUTHOR_REVIEW_BRIEF } from "../../../../src/main/control/review-loops";
 import { harness, other, repo } from "./orchestration-helpers";
 import type { Handoff } from "../../../../src/shared/handoff";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ForgeTracking } from "../../../../src/main/control/forge-tracking";
+import type { ForgeWorktree } from "../../../../src/main/control/forge.d";
+
+it("refuses an explicit PR binding when the owned checkout is at a different commit, before spawning", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "review-binding-"));
+  const h = harness();
+  const tracker = new ForgeTracking(
+    directory,
+    () => Promise.resolve({ remote: "https://github.com/o/r", head: "b".repeat(40) }),
+    () => {},
+    () => ({
+      resolve: () =>
+        Promise.resolve({ branch: "actual-pr-branch", state: "OPEN", sameRepository: true }),
+      lookup: () =>
+        Promise.resolve({
+          number: 7,
+          headSha: "a".repeat(40),
+          state: "OPEN",
+          requiredChecks: "success",
+        }),
+    }),
+  );
+  h.host.forge.track.mockImplementation((tree: ForgeWorktree) => {
+    tracker.track(tree);
+  });
+  h.host.forge.bindPullRequest.mockImplementation((repository, path, number) =>
+    tracker.bindPullRequest(repository, path, number),
+  );
+  try {
+    const tree = await h.mutate("create_worktree", { branch: "unrelated-scratch-branch" });
+    await expect(
+      h.mutate("launch", {
+        worktreeId: tree.resultId,
+        agent: "claude",
+        pullRequest: 7,
+        review: {},
+      }),
+    ).rejects.toThrow("pr_binding_unresolved");
+    expect(h.host.launch).not.toHaveBeenCalled();
+    expect(h.orchestration.ownedWorktrees("parent")[0]?.state).toBe("unused");
+  } finally {
+    h.orchestration.disposeUnreadChildren();
+    await tracker.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it("refuses a one-shot reviewer when HEAD changes after snapshot but before the spawn callback", async () => {
+  const original = { head: "a".repeat(40), digest: "original" };
+  let checkout = original;
+  const snapshot = vi.fn(() => Promise.resolve({ ...checkout }));
+  const h = harness({ reviewSnapshot: snapshot });
+  h.host.forge.read.mockReturnValue({
+    number: 7,
+    headSha: original.head,
+    state: "OPEN",
+    requiredChecks: "success",
+  });
+  let spawnedAt: string | undefined;
+  h.host.launch.mockImplementationOnce(
+    async (_parent, _repo, _tree, _identity, _agent, _prompt, step) => {
+      checkout = { head: "b".repeat(40), digest: "changed" };
+      await step?.validateSnapshot?.();
+      step?.validate();
+      spawnedAt = checkout.head;
+      return "unexpected-reviewer";
+    },
+  );
+  try {
+    await expect(h.mutate("review", { pullRequest: 7 })).rejects.toThrow("pr_binding_unresolved");
+    expect(spawnedAt).toBeUndefined();
+    expect(snapshot).toHaveBeenCalledTimes(2);
+    expect(h.host.launch.mock.calls[0]?.[6]?.snapshot).toEqual(original);
+  } finally {
+    h.orchestration.disposeUnreadChildren();
+  }
+});
 
 function fixture() {
   const snapshot = vi.fn(() => Promise.resolve({ head: "head", digest: "initial" }));

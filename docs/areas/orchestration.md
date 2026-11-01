@@ -252,7 +252,7 @@ Claude launch under a durable outer launch operation. Its key reconciles the
 entire action; internal operations have derived keys. It supplies the standard
 read-only verdict brief, optional full-SHA `since` and quoted `focus`. It validates
 that the detached checkout head matches the resolved PR before launch and checks
-cached head evidence again before spawn. It does not attach to any author's loop
+the checkout snapshot again after agent preparation, then rechecks cached PR head and live authority immediately before spawn. It does not attach to any author's loop
 or resume an author. The parent reads the handoff and stops/closes the reviewer;
 posting requires explicit `postFindings`. See the [mutation contract](../contracts/control-mutations.md#review-continuation-and-explicit-binding-972).
 

@@ -357,6 +357,24 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         {
           selection,
           ...(review ? { loop: review } : {}),
+          ...(snapshot
+            ? {
+                snapshot,
+                validateSnapshot: async () => {
+                  const current = await this.host.reviewSnapshot?.(
+                    parent.repository,
+                    tree.path,
+                    tree.identity,
+                  );
+                  if (
+                    !current ||
+                    current.head !== snapshot.head ||
+                    current.digest !== snapshot.digest
+                  )
+                    throw new ControlError("pr_binding_unresolved");
+                },
+              }
+            : {}),
           validate: () => {
             parentCurrent();
             const current = operations.lookup(actor, { operationId: operation.operationId });

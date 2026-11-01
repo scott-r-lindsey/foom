@@ -1428,6 +1428,36 @@ it("refuses stale remote HEAD and revoked bindings after a query, retaining retr
   expect(tracker.read(tree.repository, remoteTree.path)).toBeUndefined();
 });
 
+it.each(["missing-head", "different-head", "moving-head"])(
+  "refuses local explicit binding with %s",
+  async (mode) => {
+    let head = mode === "different-head" ? "b".repeat(40) : pending.headSha;
+    const tracker = new ForgeTracking(
+      directory,
+      () =>
+        Promise.resolve(
+          mode === "missing-head"
+            ? "https://github.com/o/r"
+            : { remote: "https://github.com/o/r", head },
+        ),
+      vi.fn(),
+      () => ({
+        resolve: () => Promise.resolve({ branch: "pr-head", state: "OPEN", sameRepository: true }),
+        lookup: () => {
+          if (mode === "moving-head") head = "b".repeat(40);
+          return Promise.resolve(pending);
+        },
+      }),
+    );
+    trackers.push(tracker);
+    tracker.track(tree);
+    await expect(
+      tracker.bindPullRequest(tree.repository, tree.path, pending.number),
+    ).rejects.toThrow("pr_binding_unresolved");
+    expect(tracker.read(tree.repository, tree.path)).toBeUndefined();
+  },
+);
+
 it.each([false, true])(
   "remote publication refuses invalidation during the final inspection (batch=%s)",
   async (batched) => {
@@ -1481,7 +1511,9 @@ it.each([false, true])(
 );
 
 it("binds a PR on a different branch while inspecting the original checkout, persisting and polling the explicit target", async () => {
-  const inspect = vi.fn((_tree: ForgeWorktree) => Promise.resolve("https://github.com/o/r"));
+  const inspect = vi.fn((_tree: ForgeWorktree) =>
+    Promise.resolve({ remote: "https://github.com/o/r", head: pending.headSha }),
+  );
   const lookup = vi.fn(() => Promise.resolve(pending));
   const resolve = vi.fn(() =>
     Promise.resolve({ branch: "pr-head", state: "OPEN" as const, sameRepository: true }),

@@ -215,7 +215,7 @@ inform placement; there is no Foom validation lock or busy classification.
 
 `launch` accepts optional `pullRequest: N` (console `--pull-request N`). Main
 resolves an open same-repository PR before spawning, independently of the actual
-checkout branch. Unresolvable bindings return `pr_binding_unresolved`; closed PRs
+checkout branch, and requires the checkout commit to match the PR head both before and after resolution. Unresolvable bindings return `pr_binding_unresolved`; closed PRs
 and forks return `pr_not_open` and `pr_from_fork`. Identity inspection still uses
 the actual checkout branch. Review steps follow the bound number and require its
 current head to match the checkout HEAD and green required checks at every existing gate.

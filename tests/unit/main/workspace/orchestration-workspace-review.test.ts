@@ -15,6 +15,58 @@ import {
   createWorkspace,
 } from "./orchestration-workspace-fixture";
 
+it("revalidates a standalone snapshot after preparation through the workspace launch request", async () => {
+  const original = { head: "a".repeat(40), digest: "original" };
+  const snapshot = vi.spyOn(reviewSnapshots, "reviewSnapshot").mockResolvedValue(original);
+  const forge = new ForgeTracking(
+    "/unused",
+    () => Promise.resolve(undefined),
+    () => {},
+  );
+  vi.spyOn(forge, "track").mockImplementation(() => {});
+  vi.spyOn(forge, "bindPullRequest").mockResolvedValue();
+  vi.spyOn(forge, "read").mockReturnValue({
+    number: 7,
+    headSha: original.head,
+    state: "OPEN",
+    requiredChecks: "success",
+  });
+  const workspace = createWorkspace({ ...deps, forge });
+  await orchestrate(workspace);
+  vi.mocked(deps.worktrees.adoptWorktree).mockResolvedValue({
+    path: child.path,
+    branch: child.branch,
+    identity: "identity",
+  });
+  const spawned = vi.fn();
+  launch.mockImplementationOnce(async (request) => {
+    snapshot.mockResolvedValue({ head: "b".repeat(40), digest: "changed" });
+    expect(request.prepareSpawn).toBeTypeOf("function");
+    await request.prepareSpawn?.();
+    request.beforeSpawn?.();
+    spawned();
+    return { id: "unexpected-reviewer", attention: "evaluator" };
+  });
+  const operations = new Operations(
+    () => Promise.resolve(),
+    () => {},
+  );
+  try {
+    await expect(
+      workspace.orchestration.call(
+        principal(),
+        "review",
+        { pullRequest: 7, idempotencyKey: "standalone" },
+        operations,
+      ),
+    ).rejects.toThrow("pr_binding_unresolved");
+    expect(snapshot).toHaveBeenCalledTimes(2);
+    expect(spawned).not.toHaveBeenCalled();
+  } finally {
+    await workspace.dispose();
+  }
+});
+
 const runs: {
   resumeFails: boolean;
   remote: boolean;

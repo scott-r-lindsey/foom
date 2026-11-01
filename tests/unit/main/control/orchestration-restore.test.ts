@@ -6,6 +6,57 @@ import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 
 import { harness, other, repo } from "./orchestration-helpers";
 
+it("keeps archived reviewer handoffs and continuation settings when restoring an author row in the same worktree", async () => {
+  const h = harness();
+  const path = join(repo, "trees", "continue");
+  const saved = {
+    path,
+    identity: "id-continue",
+    state: "used" as const,
+    reviewer: true as const,
+    pullRequest: 7,
+    review: { rounds: 2, agent: "claude", postFindings: false },
+    closedReviews: [
+      {
+        id: "closed-reviewer",
+        handoffs: [
+          {
+            seq: 1,
+            status: "done" as const,
+            summary: "Retained result",
+            links: [],
+            timestamp: new Date(0).toISOString(),
+            review: { verdict: "clean" as const },
+          },
+        ],
+      },
+    ],
+  };
+  try {
+    await h.orchestration.restoreWorktrees("parent", [saved]);
+    expect(await h.call("read_handoff", { id: "closed-reviewer" })).toMatchObject({
+      summary: "Retained result",
+    });
+    const parent = h.rows.get("parent");
+    if (!parent) throw new Error("missing parent");
+    expect(
+      await h.orchestration.restoreChild("parent", {
+        ...parent,
+        id: "restored-author",
+        worktree: path,
+        branch: "continue",
+        exited: true,
+      }),
+    ).toBe(true);
+    expect(await h.call("read_handoff", { id: "closed-reviewer" })).toMatchObject({
+      summary: "Retained result",
+    });
+    expect(h.orchestration.ownedWorktrees("parent")).toEqual([saved]);
+  } finally {
+    h.orchestration.disposeUnreadChildren();
+  }
+});
+
 it("rejects stop while a restored child is queued instead of claiming it stopped", async () => {
   const fixture = harness();
   const starting = vi.fn(() => true);
