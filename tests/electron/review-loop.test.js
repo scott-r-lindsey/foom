@@ -185,21 +185,32 @@ for (const scenario of [
     });
     let parent = initialParent;
     const call = async (method, params = {}, error) => {
-      const response = await fetch(parent.controlUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${parent.controlToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
-        // Worktree creation and launch include Git, persistence and startup.
-        // Await completion under the case deadline; reads/input retain their
-        // short responsiveness bound as well as cancellation with the case.
-        signal:
-          method === "create_worktree" || method === "launch" || method === "review"
+      const started = performance.now();
+      let response;
+      try {
+        response = await fetch(parent.controlUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${parent.controlToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ version: 1, instanceId: parent.instanceId, method, params }),
+          // Mutations include Git, durable writes, startup or host-observed exit.
+          // In particular, close proves a detached review checkout is unchanged
+          // and removes it; it is not a five-second responsiveness read.
+          // Await completion under the case deadline; reads/input retain their
+          // short responsiveness bound as well as cancellation with the case.
+          signal: ["create_worktree", "launch", "review", "stop", "close"].includes(method)
             ? context.signal
             : AbortSignal.any([context.signal, AbortSignal.timeout(deadline(5000))]),
-      });
+        });
+      } catch (cause) {
+        throw new Error(
+          `Control request ${method} failed after ${Math.round(performance.now() - started)}ms`,
+          { cause },
+        );
+      }
+      context.diagnostic(`Control request ${method}: ${Math.round(performance.now() - started)}ms`);
       const body = await response.json();
       if (error) {
         assert.equal(response.ok, false);
@@ -455,7 +466,12 @@ for (const scenario of [
       await expect
         .poll(async () => (await call("session_state", { id: reviewed.resultId })).state)
         .toBe("exited");
-      await call("close", { id: reviewed.resultId, idempotencyKey: "close-one-shot" });
+      assert.equal(
+        (await call("close", { id: reviewed.resultId, idempotencyKey: "close-one-shot" })).status,
+        "succeeded",
+      );
+      assert.equal(existsSync(worktree), false);
+      await expect(page.locator(`[data-drag-session="${reviewed.resultId}"]`)).toHaveCount(0);
       assert.deepEqual(await state(), before);
       return;
     }
