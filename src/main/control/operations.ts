@@ -18,6 +18,8 @@ const actions: readonly string[] = [
   "prompt",
   "send_keys",
   "reply",
+  "board_post",
+  "board_resolve",
 ];
 function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");

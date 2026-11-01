@@ -97,6 +97,10 @@
         "close",
         "remove_worktree",
         "tail",
+        "board_threads",
+        "board_read",
+        "board_post",
+        "board_resolve",
         "wait_for",
         "operation_status"
       ],

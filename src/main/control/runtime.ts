@@ -1,3 +1,5 @@
+import { MessageBoard } from "./message-board";
+import type { BoardRepository } from "../../shared/message-board";
 import type { McpConnection, WorkspaceTerminal } from "../../shared/workspace";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -27,6 +29,7 @@ export class ControlRuntime {
     connectionChanged?: (id: string, state: McpConnection | undefined) => void,
     auditChanged?: () => void,
     previews?: PreviewBackend,
+    repositories: () => BoardRepository[] = () => [],
   ): Promise<ControlRuntime> {
     const directory = await privateDirectory(userData);
     const store = new ControlStore(directory, auditChanged);
@@ -38,6 +41,10 @@ export class ControlRuntime {
         service.assertActive(actor);
       },
     );
+    const board = await MessageBoard.open(directory, repositories, () => {
+      auditChanged?.();
+      service.boardChanged();
+    });
     const service = new ControlService(
       operations,
       source,
@@ -56,6 +63,7 @@ export class ControlRuntime {
             auditChanged,
           )
         : undefined,
+      board,
     );
     const http = await ControlHttp.listen(service, pairing);
     try {
@@ -69,6 +77,9 @@ export class ControlRuntime {
       await http.close();
       throw error;
     }
+  }
+  get board(): MessageBoard | undefined {
+    return this.service.board;
   }
   /** Roles come from main only: a restored orchestrator, or a child naming its parent. */
   prepare(
