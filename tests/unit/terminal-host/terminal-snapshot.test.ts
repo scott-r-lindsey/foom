@@ -333,6 +333,42 @@ test.each([false, true])(
   },
 );
 
+test.each([false, true])(
+  "restores default and application cursor visibility in a reused view (alternate=%s)",
+  async (alternate) => {
+    const host = new Terminal({ cursorBlink: true, allowProposedApi: true });
+    const view = new Terminal({ cursorBlink: true, allowProposedApi: true });
+    const addon = new SerializeAddon();
+    host.loadAddon(addon);
+    try {
+      if (alternate) await write(host, "\x1b[?1049h");
+      for (const [data, hidden] of [
+        ["", false],
+        ["\x1b[?25l", true],
+        ["\x1b[?25h", false],
+      ] as const) {
+        await write(host, data);
+        await write(view, hidden ? "\x1b[?25h" : "\x1b[?25l");
+        view.reset();
+        await write(view, terminalSnapshot(host, addon));
+        let reply = "";
+        const subscription = view.onData((data) => {
+          reply += data;
+        });
+        try {
+          await write(view, "\x1b[?25$p");
+          expect(reply).toBe(`\x1b[?25;${hidden ? "2" : "1"}$y`);
+        } finally {
+          subscription.dispose();
+        }
+      }
+    } finally {
+      host.dispose();
+      view.dispose();
+    }
+  },
+);
+
 test("rejects incompatible pinned cursor state", () => {
   const host = new Terminal();
   const addon = new SerializeAddon();
@@ -345,9 +381,25 @@ test("rejects incompatible pinned cursor state", () => {
       {},
       { coreService: null },
       { coreService: {} },
-      { coreService: { decPrivateModes: {} } },
-      { coreService: { decPrivateModes: { cursorBlink: "yes", cursorStyle: undefined } } },
-      { coreService: { decPrivateModes: { cursorBlink: undefined, cursorStyle: "beam" } } },
+      {
+        coreService: {
+          isCursorHidden: "yes",
+          decPrivateModes: { cursorBlink: undefined, cursorStyle: undefined },
+        },
+      },
+      { coreService: { isCursorHidden: false, decPrivateModes: {} } },
+      {
+        coreService: {
+          isCursorHidden: false,
+          decPrivateModes: { cursorBlink: "yes", cursorStyle: undefined },
+        },
+      },
+      {
+        coreService: {
+          isCursorHidden: false,
+          decPrivateModes: { cursorBlink: undefined, cursorStyle: "beam" },
+        },
+      },
     ]) {
       Object.defineProperty(host, "_core", { value, configurable: true });
       expect(() => terminalSnapshot(host, addon)).toThrow("cursor state");

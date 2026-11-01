@@ -10,10 +10,13 @@ function cursorSnapshot(screen: Terminal): string {
       throw new Error("Unsupported xterm cursor state");
     return Reflect.get(value, key);
   };
-  const modes = field(field(field(screen, "_core"), "coreService"), "decPrivateModes");
+  const core = field(field(screen, "_core"), "coreService");
+  const hidden = field(core, "isCursorHidden");
+  const modes = field(core, "decPrivateModes");
   const blink = field(modes, "cursorBlink");
   const style = field(modes, "cursorStyle");
   if (
+    typeof hidden !== "boolean" ||
     (blink !== undefined && typeof blink !== "boolean") ||
     (style !== undefined && style !== "block" && style !== "underline" && style !== "bar")
   )
@@ -26,7 +29,9 @@ function cursorSnapshot(screen: Terminal): string {
       : base + ((blink ?? screen.options.cursorBlink) ? 0 : 1);
   // Preserve the option separately: CSI 0 SP q must still return to it, and
   // subsequent DEC mode 12 changes must work when DECSCUSR has no override.
-  return `\x1b[?12${screen.options.cursorBlink ? "h" : "l"}\x1b[${String(code)} q`;
+  // reset() and RIS leave isCursorHidden intact in xterm 6. Restore DECTCEM
+  // explicitly, including visible cursors, when an exited view is reused.
+  return `\x1b[?25${hidden ? "l" : "h"}\x1b[?12${screen.options.cursorBlink ? "h" : "l"}\x1b[${String(code)} q`;
 }
 
 function restore(

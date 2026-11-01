@@ -1,3 +1,6 @@
+import { Terminal as HeadlessTerminal } from "@xterm/headless";
+import { SerializeAddon } from "@xterm/addon-serialize";
+import { terminalSnapshot } from "../../../../src/terminal-host/terminal-snapshot";
 import { terminalSelectionBuffer } from "../../../../src/renderer/terminal/middle-click";
 import { terminalThemes } from "../../../../src/shared/terminal-themes";
 // @vitest-environment jsdom
@@ -825,6 +828,7 @@ test("board selection waits for a replacement shell's pending attachment", async
   await Promise.resolve();
   await Promise.resolve();
   expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ toggleDisabled: true }));
+  expect(mock.options.disableStdin).toBe(true);
   mock.onInput.mock.calls[0]?.[0]("early");
   expect(mock.input).not.toHaveBeenCalled();
   expect(mock.attach).toHaveBeenCalledTimes(2);
@@ -835,6 +839,7 @@ test("board selection waits for a replacement shell's pending attachment", async
   expect(update).toHaveBeenLastCalledWith(
     expect.objectContaining({ visible: true, toggleDisabled: false }),
   );
+  expect(mock.options.disableStdin).toBe(false);
   mock.onInput.mock.calls[0]?.[0]("echo HOST_RESTART_OK\r");
   expect(mock.input).toHaveBeenCalledWith("replacement", "echo HOST_RESTART_OK\r");
   controller.dispose();
@@ -1567,3 +1572,148 @@ test("image-only platform paste shortcut never reaches the raw terminal control 
   controller.dispose();
   platform.mockRestore();
 });
+
+// Exercise the real parser behind the browser/layout adapter. Compatible older
+// daemons can keep sessions alive across a UI upgrade and omit DECTCEM in replay.
+test.each([
+  { name: "older compatible host", legacy: true, hidden: false },
+  { name: "current visible host", legacy: false, hidden: false },
+  { name: "current hidden alternate-buffer TUI", legacy: false, hidden: true },
+])("reused cursor visibility follows $name snapshots", async ({ legacy, hidden }) => {
+  const host = new HeadlessTerminal({ cursorBlink: true, allowProposedApi: true });
+  const view = new HeadlessTerminal({ cursorBlink: true, allowProposedApi: true });
+  const serialize = new SerializeAddon();
+  host.loadAddon(serialize);
+  const write = (terminal: HeadlessTerminal, data: string) =>
+    new Promise<void>((resolve) => {
+      terminal.write(data, resolve);
+    });
+  const expectHidden = async (hidden: boolean) => {
+    let reply = "";
+    const subscription = view.onData((data) => {
+      reply += data;
+    });
+    try {
+      await write(view, "\x1b[?25$p");
+      expect(reply).toBe(`\x1b[?25;${hidden ? "2" : "1"}$y`);
+    } finally {
+      subscription.dispose();
+    }
+  };
+  mock.write.mockImplementation((data, done) => {
+    view.write(data, done);
+  });
+  mock.reset.mockImplementation(() => {
+    view.reset();
+  });
+  const controller = createShell(
+    document.createElement("div"),
+    vi.fn(),
+    false,
+    undefined,
+    false,
+    false,
+    () => true,
+    (id) => id === "exited",
+  );
+  try {
+    await controller.open("exited");
+    await expectHidden(true);
+    await write(host, `${hidden ? "\x1b[?1049h\x1b[?25l" : ""}prompt$ `);
+    // Wire fixture from the 0e051540 helper for this default-margin normal
+    // screen. Freeze the old bytes so future addon changes cannot mask compatibility.
+    const snapshot = legacy ? "prompt$ \x1b[?12h\x1b[0 q" : terminalSnapshot(host, serialize);
+    const receive = mock.onData.mock.calls[0]?.[0];
+    if (!receive) throw new Error("Missing terminal data subscription");
+    mock.attach.mockImplementation((id: string) => {
+      receive(id, "snapshot", `\x1bc${snapshot}`);
+      return Promise.resolve();
+    });
+    await controller.open("live-remote");
+    await expectHidden(hidden);
+    expect(mock.options.disableStdin).toBe(false);
+    expect(mock.options.cursorBlink).toBe(true);
+    // Reattachment resets the same view too; explicit application hiding wins.
+    await controller.hide();
+    await controller.open("live-remote");
+    await expectHidden(hidden);
+  } finally {
+    controller.dispose();
+    mock.reset.mockReset();
+    host.dispose();
+    view.dispose();
+  }
+});
+
+// Frozen snapshots captured with the 0e051540 helper. That host never emits
+// DECTCEM, so same-session replay must retain application visibility locally.
+test.each([
+  { alternate: false, snapshot: "app screen\x1b[?12h\x1b[0 q" },
+  { alternate: true, snapshot: "\x1b[?1049h\x1b[Happ screen\x1b[?12h\x1b[0 q" },
+])(
+  "compatible old host keeps application cursor hidden on reattach (alternate=$alternate)",
+  async ({ alternate, snapshot }) => {
+    const view = new HeadlessTerminal({ cursorBlink: true, allowProposedApi: true });
+    const write = (data: string) =>
+      new Promise<void>((resolve) => {
+        view.write(data, resolve);
+      });
+    const expectHidden = async (hidden: boolean) => {
+      let reply = "";
+      const subscription = view.onData((data) => {
+        reply += data;
+      });
+      try {
+        await write("\x1b[?25$p");
+        expect(reply).toBe(`\x1b[?25;${hidden ? "2" : "1"}$y`);
+      } finally {
+        subscription.dispose();
+      }
+    };
+    mock.write.mockImplementation((data, done) => {
+      view.write(data, done);
+    });
+    mock.reset.mockImplementation(() => {
+      view.reset();
+    });
+    const controller = createShell(
+      document.createElement("div"),
+      vi.fn(),
+      false,
+      undefined,
+      false,
+      false,
+    );
+    try {
+      const receive = mock.onData.mock.calls[0]?.[0];
+      if (!receive) throw new Error("Missing terminal data subscription");
+      let replay = "";
+      mock.attach.mockImplementation((id: string) => {
+        receive(id, "snapshot", `\x1bc${replay}`);
+        return Promise.resolve();
+      });
+      await controller.open("live");
+      receive("live", "output", `${alternate ? "\x1b[?1049h" : ""}app screen\x1b[?25l`);
+      await expectHidden(true);
+      expect(snapshot).not.toContain("\x1b[?25");
+      replay = snapshot;
+      await controller.hide();
+      await controller.open("live");
+      await expectHidden(true);
+      // A different live session must not inherit the previous application's hide.
+      await controller.open("another-live");
+      await expectHidden(false);
+      // An exited view must not transfer its forced hide to a relaunched live PTY.
+      mock.onExit.mock.calls[0]?.[0]("another-live", 0);
+      await expectHidden(true);
+      mock.onTerminalAvailability.mock.calls[0]?.[0]("another-live", true, true);
+      await controller.hide();
+      await controller.open("another-live");
+      await expectHidden(false);
+    } finally {
+      controller.dispose();
+      mock.reset.mockReset();
+      view.dispose();
+    }
+  },
+);

@@ -123,7 +123,10 @@ modal hide may blur the opener to the document body; that implicit fallback does
 not revoke a later dismissal's restoration request.
 Trusted scrims, About, legal views, action errors
 and menu dismissal share `board/focus-restore.ts` for detached or unfocusable
-opener fallback. A coalesced prepare/dismiss pair still commits its dismissal effect, even when
+opener fallback. Pointer pinning of a hovered panel leaves focus to the pressed control so the
+launcher cannot scroll away between pointer-down and click; keyboard pinning
+still focuses the first enabled command. A coalesced prepare/dismiss pair still
+commits its dismissal effect, even when
 the final visible flag is unchanged. Serial handoffs retain the original focus
 until the scrim is actually removed, with a stable native-popover ref.
 Scrim restoration runs in a layout effect after removing the top-layer popover;
