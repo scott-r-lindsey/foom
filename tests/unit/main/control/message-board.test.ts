@@ -153,7 +153,7 @@ describe("main-owned message history", () => {
     expect(save).toHaveBeenCalledTimes(6);
   });
   it("enforces scope, open recipients, author identities and exact read/resolve payloads", async () => {
-    const board = new MessageBoard(async () => {}, repos);
+    const board = new MessageBoard(() => Promise.resolve(), repos);
     const first = await board.append("orchestrator:a", "a", post());
     expect(board.threads({}, "c").threads).toEqual([]);
     expect(() => board.read({ thread: first.thread }, "c")).toThrow("not_found");
@@ -212,7 +212,7 @@ describe("main-owned message history", () => {
     await expect(failing.append("orchestrator:a", "a", post())).rejects.toThrow("unavailable");
   });
   it("pages threads and posts without losing append order", async () => {
-    const board = new MessageBoard(async () => {}, repos);
+    const board = new MessageBoard(() => Promise.resolve(), repos);
     let id = "";
     for (let i = 0; i < 101; i++)
       id = (await board.append("orchestrator:a", "a", post(`thread-${String(i)}`))).thread;
@@ -342,4 +342,125 @@ it("refuses oversized discovery metadata even without thread rows", () => {
     () => [{ id: "a", name: '"'.repeat(65536) }],
   );
   expect(() => board.threads({})).toThrow("capacity");
+});
+
+describe("main-owned child threads", () => {
+  it("orders structured events, bounds Unicode, marks truncation and keeps human notes while refusing agent writes", async () => {
+    const board = new MessageBoard(() => Promise.resolve(), repos);
+    const child = { id: "child", worktreeId: "tree" };
+    const writes = [
+      board.childEvent("a", child, "branch", "launch", { prompt: "Build\nfeature" }, "launch"),
+      board.childEvent(
+        "a",
+        child,
+        "branch",
+        "prompt",
+        { text: "Continue", automatic: true },
+        "prompt",
+      ),
+      board.childEvent(
+        "a",
+        child,
+        "branch",
+        "handoff",
+        { summary: "Done", status: "done" },
+        "handoff",
+      ),
+      board.childEvent(
+        "a",
+        child,
+        "branch",
+        "review verdict",
+        { verdict: "findings", findings: ["bad zero"] },
+        "review",
+      ),
+      board.childEvent("a", child, "branch", "close", { status: "closed" }, "close"),
+    ];
+    await Promise.all(writes);
+    const thread = board.threads({ category: "children" }, "a").threads[0];
+    if (!thread) throw new Error("missing thread");
+    expect(thread.child).toEqual(child);
+    expect(board.threads({ category: "topics" }).threads).toEqual([]);
+    expect(() => board.threads({ category: "bad" })).toThrow("invalid_request");
+    expect(() => board.read({ thread: thread.id }, "b")).toThrow("not_found");
+    const posts = board.read({ thread: thread.id }).posts;
+    expect(posts.map((row) => row.text.split(" · ")[0])).toEqual([
+      "launch",
+      "prompt",
+      "handoff",
+      "review verdict",
+      "close",
+    ]);
+    expect(posts[0]?.text).toContain("Build\\nfeature");
+    expect(board.read({ thread: thread.id }).untrusted).toBe(true);
+    await board.childEvent("a", child, "branch", "close", { status: "closed" }, "close");
+    expect(board.read({ thread: thread.id }).posts).toHaveLength(5);
+    const input = { thread: thread.id, kind: "fyi", text: "note", idempotencyKey: "note" };
+    await expect(board.append("orchestrator:a", "agent", input)).rejects.toThrow("forbidden");
+    await expect(
+      board.resolve("agent", { thread: thread.id, idempotencyKey: "resolve" }, "a"),
+    ).rejects.toThrow("forbidden");
+    await board.append("human", "human", input);
+    await board.resolve("human", { thread: thread.id, idempotencyKey: "resolved" });
+    await board.childEvent("a", child, "branch", "exit", "é".repeat(8000) + "\u202e", "large");
+    const large = board.read({ thread: thread.id }).posts.at(-1);
+    expect(large?.text).toContain("⟨truncated⟩");
+    expect(Buffer.byteLength(large?.text ?? "")).toBeLessThanOrEqual(8192);
+    expect(board.read({ thread: thread.id }).thread.state).toBe("resolved");
+  });
+  it("restores child history after close and prunes only thirty days after removal, including receipts", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01"));
+      const path = await directory();
+      const board = await MessageBoard.open(path, repos, () => {});
+      const child = { id: "child", worktreeId: "tree" };
+      await board.childEvent("a", child, "branch", "launch", "Task", "launch");
+      vi.advanceTimersByTime(60 * 86400000);
+      await board.prune();
+      expect(board.childThreads()).toHaveLength(1);
+      await board.childEvent(
+        "a",
+        { ...child, removedAt: new Date().toISOString() },
+        "branch",
+        "worktree removal",
+        { status: "succeeded" },
+        "removed",
+      );
+      const restored = await MessageBoard.open(path, repos, () => {});
+      vi.advanceTimersByTime(30 * 86400000 - 1);
+      expect(restored.threads({}).threads).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      expect(restored.threads({}).threads).toHaveLength(0);
+      const pruned = await MessageBoard.open(path, repos, () => {});
+      expect(pruned.childThreads()).toHaveLength(0);
+      expect(JSON.parse(await readFile(join(path, "board.json"), "utf8"))).toMatchObject({
+        threads: [],
+        posts: [],
+        receipts: [],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("refuses later event writes after persistence failure and exposes failure to mutation flushes", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const board = new MessageBoard(() => Promise.reject(new Error("disk")), repos);
+      await expect(
+        board.childEvent(
+          "a",
+          { id: "child", worktreeId: "tree" },
+          "branch",
+          "launch",
+          "task",
+          "launch",
+        ),
+      ).rejects.toThrow("unavailable");
+      await expect(board.flushChildren()).rejects.toThrow("unavailable");
+      expect(board.childThreads()).toEqual([]);
+    } finally {
+      log.mockRestore();
+    }
+  });
 });

@@ -221,7 +221,9 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     tree.state = "starting";
     parent.starting++;
     this.note(parent, this.entry(operation, label));
+    let launchedId: string | undefined;
     try {
+      await this.board?.flushChildren();
       const parentCurrent = this.remoteParentGuard(actor.terminalId);
       const id = await this.host.launch(
         actor.terminalId,
@@ -241,6 +243,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
           },
         },
       );
+      launchedId = id;
       tree.state = "used";
       parent.children.set(id, {
         worktreeId,
@@ -248,6 +251,12 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         takenOver: false,
         tailAt: 0,
       });
+      await this.recordChild(
+        id,
+        "launch",
+        { prompt: prompt ?? "", automatic: false },
+        `launch-${operation.operationId}`,
+      );
       if (review) this.startReview(id, review, actor, operations);
       this.changed();
       this.host.place?.(id, actor.terminalId);
@@ -265,6 +274,16 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       this.note(parent, this.entry(record, label));
       return record;
     } catch (error) {
+      if (launchedId)
+        return await this.finish(
+          actor,
+          parent,
+          operations,
+          operation,
+          label,
+          "indeterminate",
+          launchedId,
+        );
       tree.state = "unused";
       const reason =
         error instanceof LaunchFailure

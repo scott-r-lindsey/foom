@@ -145,3 +145,13 @@ upstream Chromium vulnerabilities remain possible. Electron 44 removed raw
 Foom performs no additional `nativeImage`/`readImage` conversion. Encoded bytes go
 directly to the disposable worker for Foom's bounded normalization, and the encoded
 result is validated again. See the [accepted residual](../design/937-image-paste.md#accepted-clipboard-decode-residual-user-decision-2026-10-30).
+
+
+## Child conversation records (#974)
+
+Main records structured child conversations in local Board threads. Sensitive prompt
+replies omit text before writing, and keys retain only a count and delivery status.
+The existing credential/provider attention classification defaults replies to sensitive;
+callers must explicitly tag other credential answers. No new terminal-text heuristic
+is added. Retained history is readable by later repository orchestrators and expires
+30 days after successful worktree removal. See [the privacy contract](../contracts/control-privacy.md#child-thread-recording-974).

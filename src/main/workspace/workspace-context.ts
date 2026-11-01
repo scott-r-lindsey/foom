@@ -249,6 +249,7 @@ export class WorkspaceContext {
       removed: (id) => {
         this.removed(id);
       },
+      worktreeRemoved: (worktree) => this.orchestration.worktreeRemoved(worktree),
       ...(prepareWorktreeRemoval ? { prepareWorktreeRemoval } : {}),
       closed: () => this.closed,
       refresh: () => {

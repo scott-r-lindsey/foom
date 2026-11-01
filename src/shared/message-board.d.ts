@@ -12,6 +12,7 @@ export interface MessageThread {
   state: ThreadState;
   createdAt: string;
   updatedAt: string;
+  child?: { id: string; worktreeId: string; removedAt?: string };
 }
 export interface MessagePost {
   id: string;
@@ -52,6 +53,7 @@ export interface BoardMutation {
 export interface MessageBoardApi {
   threads: (query: {
     repository?: string;
+    category?: "topics" | "children";
     state?: ThreadState;
     after?: string;
   }) => Promise<BoardThreads>;

@@ -48,6 +48,10 @@ export class ReviewLoops {
       busy: false,
     });
     this.participants.set(authorId, authorId);
+    this.host.event?.(
+      this.loops.get(authorId)?.state ?? { ...options, authorId, round: 0, phase: "building" },
+      "review loop start",
+    );
     this.host.changed();
   }
 
@@ -170,6 +174,7 @@ export class ReviewLoops {
     loop.authorPhase = loop.state.phase === "fixing" ? "fixing" : "building";
     loop.afterSeq = seq;
     loop.state = { ...loop.state, phase: "waiting-on-parent", waiting: false };
+    this.host.event?.(loop.state, "review waiting on parent");
     loop.parentTimer = setTimeout(
       () => {
         delete loop.parentTimer;
@@ -222,6 +227,7 @@ export class ReviewLoops {
       waiting: false,
     };
     loop.unreadAt = this.now();
+    this.host.event?.(loop.state, "review transition", this.host.report(loop.currentId)?.review);
     delete loop.prompt;
     this.host.changed();
   }
@@ -387,6 +393,7 @@ export class ReviewLoops {
       loop.afterSeq = this.host.report(loop.state.authorId)?.seq ?? 0;
       loop.state = { ...loop.state, phase: "fixing", waiting: true };
       loop.prompt = findingsBrief(loop.number ?? 0, fresh.review);
+      this.host.event?.(loop.state, "findings forwarded", fresh.review);
     } else {
       const snapshot = await this.host.snapshot(loop.state.authorId);
       if (this.finished(loop) || !this.observed(loop, fresh.seq, row)) return;
@@ -409,6 +416,7 @@ export class ReviewLoops {
         waiting: true,
       };
       loop.prompt = reviewerBrief(checks.number, loop.state.postFindings);
+      this.host.event?.(loop.state, "review round start");
     }
     this.host.changed();
     await this.launch(loop);

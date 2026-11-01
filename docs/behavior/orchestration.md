@@ -267,3 +267,20 @@ launching the reviewer or resuming the author. Disconnects or changed evidence
 end automation safely. Remote reviewers have only handoff, manual and sanitized
 identity, just like remote authors; remote previews remain unavailable. Detached
 remote review checkouts and developer spike mappings remain unsupported.
+
+
+### Child conversation history (#974)
+
+Board → Children shows a thread for each child. It includes structured prompts,
+delivery status, handoffs, review findings and transitions, PR links, stops, closes
+and worktree removal outcomes. Threads survive session close/restart and are readable
+by the repository's current orchestrator. The human can add notes; agents can only
+read child threads, and children have no board access. Posts remain untrusted data.
+Records expire 30 days after successful worktree removal.
+
+Orchestrators must use `prompt` with `sensitive: true` (CLI `--sensitive`) for
+credential answers, or use `send_keys`. Sensitive prompt text is delivered but
+omitted from Foom's persistent records; existing credential/provider attention
+also defaults to sensitive. Keys record only a count and delivery status. Ordinary
+prompts are retained; tag automatic capacity nudges `automatic: true` / `--automatic`.
+No terminal output, tails or screens are recorded in these threads.

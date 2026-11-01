@@ -429,7 +429,9 @@ export class ControlService {
         authorize();
         const refused =
           error instanceof ControlError &&
-          ["not_found", "conflict", "capacity", "invalid_request"].includes(error.code);
+          ["not_found", "conflict", "capacity", "invalid_request", "forbidden"].includes(
+            error.code,
+          );
         return this.operations.finish(
           actor,
           operation.operationId,

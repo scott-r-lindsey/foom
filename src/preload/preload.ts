@@ -981,6 +981,7 @@ const validGitPanelFacts: Validator<GitPanelFacts> = shape({
 } satisfies Contract<GitPanelFacts>);
 
 const validMessageThread: Validator<MessageThread> = shape({
+  child: either(absent, shape({ id: text, worktreeId: text, removedAt: either(absent, text) })),
   id: text,
   title: text,
   repository: text,

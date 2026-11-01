@@ -24,6 +24,7 @@ export interface ReviewLoopHost {
     id: string,
     validate: (snapshot: ReviewSnapshot) => boolean,
   ) => Promise<"stopped" | "changed" | "exited">;
+  event?: (state: ReviewState, event: string, content?: unknown) => void;
   changed: () => void;
   save: () => Promise<void>;
 }

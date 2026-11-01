@@ -50,6 +50,7 @@ export interface CleanupOwnerDependencies {
   exited: (id: string, code: number) => Promise<void>;
   kill: (id: string, remoteHost?: string) => Promise<void>;
   removed: (id: string) => void;
+  worktreeRemoved?: (worktree: string) => Promise<void>;
   prepareWorktreeRemoval?: (worktree: string) => Promise<() => void>;
   closed: () => boolean;
   refresh: () => void;
@@ -301,6 +302,7 @@ export class CleanupOwner {
     } finally {
       release?.();
     }
+    await this.deps.worktreeRemoved?.(entry.worktree);
     for (const item of entries) {
       if (!item.remote && !item.dormant) await this.deps.kill(item.id);
       this.deps.removed(item.id);

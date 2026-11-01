@@ -117,6 +117,17 @@ function orchestration(name: string | undefined, words: string[]): Command {
     words.splice(words.indexOf("--review"), 1);
     params["review"] = true;
   }
+  if (name === "prompt") {
+    for (let i = 0; i < words.length; ) {
+      const flag = words[i];
+      if (flag === "--sensitive" || flag === "--automatic") {
+        const field = flag.slice(2);
+        if (params[field] !== undefined) throw new ControlError("invalid_request");
+        params[field] = true;
+        words.splice(i, 1);
+      } else i += 2;
+    }
+  }
   const flags = new Map<string, string>();
   for (let i = 0; i < words.length; i += 2) {
     const flag = words[i];

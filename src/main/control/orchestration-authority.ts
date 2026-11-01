@@ -1,3 +1,6 @@
+import { basename } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import type { MessageBoard } from "./message-board";
 import { FinishedChildCloser } from "./finished-child-closer";
 import { ReviewEffects } from "./review-effects";
 import { OrchestrationAutomation } from "./orchestration-automation";
@@ -28,6 +31,52 @@ const HISTORY = 20;
  * before async work; authority ends with the parent's exit, children stay for the human.
  */
 export class OrchestrationAuthority {
+  protected board: MessageBoard | undefined;
+  private readonly boardPrs = new Map<string, string>();
+  setBoard(board: MessageBoard): void {
+    this.board = board;
+  }
+  protected recordChild(
+    id: string,
+    event: string,
+    content: unknown,
+    key: string = randomUUID(),
+    links: string[] = [],
+  ): Promise<void> {
+    if (!this.board) return Promise.resolve();
+    const saved = this.board.childThreads().find((row) => row.child?.id === id);
+    const row = this.host.terminals().find((row) => row.id === id);
+    const parent = [...this.parents.values()].find((parent) => parent.children.has(id));
+    const child = parent?.children.get(id);
+    const repository = saved?.repository ?? (row ? locationId(row.repository) : undefined);
+    const worktreeId = saved?.child?.worktreeId ?? child?.worktreeId;
+    if (!repository || !worktreeId) return Promise.resolve();
+    return this.board.childEvent(
+      repository,
+      { id, worktreeId },
+      saved?.title ?? row?.branch ?? (row ? basename(row.worktree) : id),
+      event,
+      content,
+      key,
+      links,
+    );
+  }
+  async worktreeRemoved(worktree: string): Promise<void> {
+    if (!this.board) return;
+    const worktreeId = locationId(worktree);
+    for (const thread of this.board.childThreads()) {
+      if (!thread.child || thread.child.worktreeId !== worktreeId || thread.child.removedAt)
+        continue;
+      await this.board.childEvent(
+        thread.repository,
+        { ...thread.child, removedAt: new Date(this.now()).toISOString() },
+        thread.title,
+        "worktree removal",
+        { status: "succeeded" },
+        `removed-${worktreeId}`,
+      );
+    }
+  }
   readonly reviews: ReviewLoops;
   private readonly reviewEffects: ReviewEffects;
   private readonly finishedChildren: FinishedChildCloser;
@@ -66,6 +115,7 @@ export class OrchestrationAuthority {
       },
       host,
       () => this.reviews,
+      (id, event, content) => this.recordChild(id, event, content),
     );
     this.reviews = new ReviewLoops(
       {
@@ -82,7 +132,11 @@ export class OrchestrationAuthority {
         changed: () => {
           this.changed();
         },
+        event: (state, event, content) => {
+          void this.recordChild(state.authorId, event, { ...state, content });
+        },
         save: async () => {
+          await this.board?.flushChildren();
           await host.saveHandoffs?.();
         },
       },
@@ -109,6 +163,7 @@ export class OrchestrationAuthority {
       this.childEvents,
       () => {
         this.syncUnreadChildEvents();
+        this.syncBoardPrs();
         this.reviews.sync();
         this.finishedChildren.sync();
       },
@@ -174,7 +229,28 @@ export class OrchestrationAuthority {
     if (this.unreadChildren.read(actor.terminalId, id)) this.changed();
   }
 
+  private syncBoardPrs(): void {
+    if (this.board)
+      for (const parent of this.parents.values())
+        for (const id of parent.children.keys()) {
+          const row = this.host.terminals().find((row) => row.id === id);
+          const pr = row && this.pullRequest(row);
+          const link = pr?.url ?? (pr ? `#${String(pr.number)}` : undefined);
+          if (pr && link && this.boardPrs.get(id) !== link) {
+            this.boardPrs.set(id, link);
+            void this.recordChild(
+              id,
+              "pull request",
+              { number: pr.number },
+              `pr-${createHash("sha256").update(link).digest("hex")}`,
+              [link],
+            );
+          }
+        }
+  }
+
   protected changed(): void {
+    this.syncBoardPrs();
     this.childEvents.publish();
     this.host.changed();
   }
@@ -367,6 +443,7 @@ export class OrchestrationAuthority {
     }
     const child = this.child(id);
     if (child) {
+      void this.recordChild(id, "exit", { status: "exited" });
       this.finishedChildren.observeExit(id);
       child.exited = true;
       this.changed();
@@ -378,6 +455,7 @@ export class OrchestrationAuthority {
 
   /** The session left the board. A parent's history goes with its row. */
   removed(id: string): void {
+    void this.recordChild(id, "close", { status: "closed" });
     this.childEvents.publish();
     if (!this.reviews.verdictRecorded(id)) this.reviews.stop(id);
     this.reviews.forget(id);
@@ -643,6 +721,38 @@ export class OrchestrationAuthority {
   }
 
   protected entry(operation: Operation, label: string): OrchestrationEntry {
+    if (
+      operation.targetId &&
+      ["stop", "close", "remove_worktree"].includes(operation.action) &&
+      !["running", "pending_confirmation"].includes(operation.status)
+    ) {
+      const content = { status: operation.status, reason: operation.reason };
+      if (operation.action === "remove_worktree" && this.board) {
+        for (const thread of this.board.childThreads())
+          if (thread.child?.worktreeId === operation.targetId) {
+            const child = {
+              ...thread.child,
+              ...(operation.status === "succeeded"
+                ? { removedAt: new Date(this.now()).toISOString() }
+                : {}),
+            };
+            void this.board.childEvent(
+              thread.repository,
+              child,
+              thread.title,
+              "worktree removal",
+              content,
+              `${operation.operationId}-${operation.status}`,
+            );
+          }
+      } else
+        void this.recordChild(
+          operation.targetId,
+          operation.action,
+          content,
+          `${operation.operationId}-${operation.status}`,
+        );
+    }
     return {
       id: operation.operationId,
       action: operation.action,

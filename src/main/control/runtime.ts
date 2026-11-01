@@ -111,6 +111,7 @@ export class ControlRuntime {
   }
   async close(): Promise<void> {
     await this.http.close();
+    await this.board?.flushChildren();
     await rm(join(this.directory, "discovery.json"), { force: true });
   }
 }

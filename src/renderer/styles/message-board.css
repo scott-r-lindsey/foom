@@ -176,3 +176,14 @@
 .sidebar-footer-bar:has(.message-board-toggle) .master-volume {
   min-width: 80px;
 }
+
+.message-thread-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.message-thread-categories button[aria-pressed="true"] {
+  border-color: var(--highlight);
+  font-weight: 600;
+}

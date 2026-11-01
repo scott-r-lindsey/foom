@@ -40,6 +40,12 @@ export async function boardCommand(
   const key = take("--idempotency-key");
   const path = take("--text-file");
   if (name === "threads") {
+    const category = take("--category");
+    if (category !== undefined) {
+      if (category !== "topics" && category !== "children")
+        throw new ControlError("invalid_request");
+      params["category"] = category;
+    }
     const state = take("--state");
     if (state !== undefined) params["state"] = threadState(state);
     const after = take("--after");

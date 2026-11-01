@@ -35,6 +35,7 @@ interface Data {
   posts: MessagePost[];
   receipts: Receipt[];
 }
+const CHILD_RETENTION = 30 * 24 * 60 * 60 * 1000;
 const LIMIT = 32 * 1024 * 1024;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 function pageRows<T extends { id: string }, R>(
@@ -70,6 +71,7 @@ const envelope = { untrusted: true, notice: BOARD_NOTICE } as const;
 export class MessageBoard {
   private data: Data = { version: 1, threads: [], posts: [], receipts: [] };
   private failed = false;
+  private childWrites: Promise<unknown> = Promise.resolve();
   private writes: Promise<unknown> = Promise.resolve();
   constructor(
     private readonly save: (data: unknown) => Promise<void>,
@@ -125,6 +127,7 @@ export class MessageBoard {
     } finally {
       await file.close();
     }
+    await board.prune();
     return board;
   }
   private restore(value: unknown): void {
@@ -148,7 +151,7 @@ export class MessageBoard {
     };
     const threads = data["threads"].map((value: unknown): MessageThread => {
       const row = object(value);
-      exact(row, ["id", "title", "repository", "to", "state", "createdAt", "updatedAt"]);
+      exact(row, ["id", "title", "repository", "to", "state", "createdAt", "updatedAt", "child"]);
       const input = boardPost({
         to: row["to"],
         title: row["title"],
@@ -157,6 +160,21 @@ export class MessageBoard {
         idempotencyKey: "restore",
       });
       return {
+        ...(row["child"] === undefined
+          ? {}
+          : {
+              child: (() => {
+                const child = object(row["child"]);
+                exact(child, ["id", "worktreeId", "removedAt"]);
+                return {
+                  id: identifier(child["id"]),
+                  worktreeId: identifier(child["worktreeId"]),
+                  ...(child["removedAt"] === undefined
+                    ? {}
+                    : { removedAt: timestamp(child["removedAt"]) }),
+                };
+              })(),
+            }),
         id: identifier(row["id"]),
         title: boardText(row["title"], 200),
         repository: identifier(row["repository"]),
@@ -213,7 +231,13 @@ export class MessageBoard {
   }
   private visible(thread: MessageThread, repository?: string): boolean {
     return (
-      repository === undefined || thread.repository === repository || thread.to.includes(repository)
+      !(
+        thread.child?.removedAt &&
+        Date.now() - Date.parse(thread.child.removedAt) >= CHILD_RETENTION
+      ) &&
+      (repository === undefined ||
+        thread.repository === repository ||
+        thread.to.includes(repository))
     );
   }
   private thread(id: string, repository?: string): MessageThread {
@@ -223,14 +247,18 @@ export class MessageBoard {
   }
   threads(value: unknown, repository?: string): BoardThreads {
     const input = object(value);
-    exact(input, ["repository", "state", "after"]);
+    exact(input, ["repository", "state", "after", "category"]);
+    const category = input["category"];
+    if (category !== undefined && category !== "children" && category !== "topics")
+      throw new ControlError("invalid_request");
     const filter = input["repository"] === undefined ? undefined : identifier(input["repository"]);
     const state = input["state"] === undefined ? undefined : threadState(input["state"]);
     const rows = this.data.threads.filter(
       (row) =>
         this.visible(row, repository) &&
         this.visible(row, filter) &&
-        (state === undefined || row.state === state),
+        (state === undefined || row.state === state) &&
+        (category === undefined || (category === "children") === (row.child !== undefined)),
     );
     const after = input["after"] === undefined ? undefined : identifier(input["after"]);
     const start = after === undefined ? 0 : rows.findIndex((row) => row.id === after) + 1;
@@ -285,6 +313,7 @@ export class MessageBoard {
     scope: string,
     value: unknown,
     active: () => void = () => {},
+    child?: MessageThread["child"],
   ): Promise<BoardMutation> {
     const input = boardPost(value);
     const identity = this.author(author);
@@ -294,7 +323,9 @@ export class MessageBoard {
       let thread: MessageThread;
       if (input.thread !== undefined) {
         thread = structuredClone(this.thread(input.thread, repository));
-        if (thread.state === "resolved") throw new ControlError("conflict");
+        if (thread.child && identity !== "human" && child === undefined)
+          throw new ControlError("forbidden");
+        if (thread.state === "resolved" && child === undefined) throw new ControlError("conflict");
       } else {
         if (!repository || !input.to || !input.title) throw new ControlError("invalid_request");
         const open = this.repositories().map((row) => row.id);
@@ -310,6 +341,7 @@ export class MessageBoard {
           updatedAt: now,
         };
       }
+      if (child) thread.child = { ...child };
       const post: MessagePost = {
         id: randomUUID(),
         thread: thread.id,
@@ -320,9 +352,10 @@ export class MessageBoard {
         timestamp: now,
       };
       thread.updatedAt = now;
-      thread.state =
-        identity !== "human" &&
-        (input.kind === "decision-needed" || thread.state === "waiting-human")
+      thread.state = child
+        ? thread.state
+        : identity !== "human" &&
+            (input.kind === "decision-needed" || thread.state === "waiting-human")
           ? "waiting-human"
           : identity === "human" || input.kind === "request"
             ? "waiting-repo"
@@ -343,10 +376,99 @@ export class MessageBoard {
     const input = boardResolve(value);
     return this.mutate(scope, input.idempotencyKey, ["resolve", input], active, (data) => {
       const thread = this.thread(input.thread, repository);
+      if (thread.child && repository !== undefined) throw new ControlError("forbidden");
       const index = data.threads.findIndex((row) => row.id === thread.id);
       data.threads[index] = { ...thread, state: "resolved", updatedAt: new Date().toISOString() };
       return { thread: thread.id, post: null };
     });
+  }
+  /** Structured main-owned events only. The transport never receives this capability. */
+  childEvent(
+    repository: string,
+    child: NonNullable<MessageThread["child"]>,
+    title: string,
+    event: string,
+    content: unknown,
+    key: string,
+    links: string[] = [],
+  ): Promise<void> {
+    // Escape controls/format characters as visible data, then bound at a code point boundary.
+    const visible = (text: string) =>
+      text.replace(
+        /[\p{Cc}\p{Cf}\p{Cs}]/gu,
+        (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+      );
+    const raw = visible(`${event} · ${JSON.stringify(content)}`);
+    const bounded = (text: string, bytes: number) => {
+      if (Buffer.byteLength(text) <= bytes) return text;
+      let result = "";
+      for (const char of text) {
+        if (Buffer.byteLength(result + char + " ⟨truncated⟩") > bytes) break;
+        result += char;
+      }
+      return result + " ⟨truncated⟩";
+    };
+    const text = bounded(raw, 8192);
+    const task = this.childWrites.then(async () => {
+      const thread = this.data.threads.find((row) => row.child?.id === child.id);
+      await this.append(
+        `orchestrator:${repository}`,
+        `child:${child.id}`,
+        {
+          ...(thread
+            ? { thread: thread.id }
+            : { title: bounded(visible(title.trim() ? title : child.id), 200), to: [repository] }),
+          kind: "fyi",
+          text,
+          links,
+          idempotencyKey: key,
+        },
+        () => {},
+        { ...thread?.child, ...child },
+      );
+    });
+    this.childWrites = task;
+    // Observe asynchronous lifecycle writes without exposing any post content in diagnostics.
+    void task.catch(() => {
+      console.error("Child board recording unavailable");
+    });
+    return task;
+  }
+  flushChildren(): Promise<unknown> {
+    return this.childWrites;
+  }
+  childThreads(): MessageThread[] {
+    return structuredClone(this.data.threads.filter((row) => row.child));
+  }
+  private pruneData(data: Data): boolean {
+    const expired = new Set(
+      data.threads
+        .filter(
+          (row) =>
+            row.child?.removedAt && Date.now() - Date.parse(row.child.removedAt) >= CHILD_RETENTION,
+        )
+        .map((row) => row.id),
+    );
+    data.threads = data.threads.filter((row) => !expired.has(row.id));
+    data.posts = data.posts.filter((row) => !expired.has(row.thread));
+    data.receipts = data.receipts.filter((row) => !expired.has(row.result.thread));
+    return expired.size > 0;
+  }
+  async prune(): Promise<void> {
+    const task = this.writes.then(async () => {
+      const next = structuredClone(this.data);
+      if (!this.pruneData(next)) return;
+      if (this.failed) throw new ControlError("unavailable");
+      try {
+        await this.save(next);
+      } catch {
+        this.failed = true;
+        throw new ControlError("unavailable");
+      }
+      this.data = next;
+    });
+    this.writes = task.catch(() => undefined);
+    await task;
   }
   private mutate(
     scope: string,
@@ -365,8 +487,9 @@ export class MessageBoard {
         if (prior.hash !== fingerprint) throw new ControlError("conflict");
         return { ...prior.result };
       }
-      if (this.data.receipts.length >= this.limits.receipts) throw new ControlError("capacity");
       const next = structuredClone(this.data);
+      this.pruneData(next);
+      if (next.receipts.length >= this.limits.receipts) throw new ControlError("capacity");
       const result = change(next);
       next.receipts.push({ scope, key: hash(key), hash: fingerprint, result });
       if (Buffer.byteLength(JSON.stringify(next)) > this.limits.bytes)

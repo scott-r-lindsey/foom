@@ -25,6 +25,7 @@ export function MessageBoardPanel({
   close: () => void;
 }) {
   const [filter, setFilter] = useState("");
+  const [category, setCategory] = useState<"topics" | "children">("topics");
   const [page, setPage] = useState<BoardThreads>();
   const [thread, setThread] = useState<string>();
   const [detail, setDetail] = useState<BoardRead>();
@@ -49,10 +50,14 @@ export function MessageBoardPanel({
   useEffect(() => {
     let current = true;
     const load = async () => {
-      let next = await api.threads(filter ? { repository: filter } : {});
+      let next = await api.threads({ category, ...(filter ? { repository: filter } : {}) });
       const threads = [...next.threads];
       while (current && next.next) {
-        next = await api.threads({ ...(filter ? { repository: filter } : {}), after: next.next });
+        next = await api.threads({
+          category,
+          ...(filter ? { repository: filter } : {}),
+          after: next.next,
+        });
         threads.push(...next.threads);
       }
       if (current) {
@@ -66,7 +71,7 @@ export function MessageBoardPanel({
     return () => {
       current = false;
     };
-  }, [api, filter, revision, report, clear]);
+  }, [api, filter, category, revision, report, clear]);
   useEffect(() => {
     if (!thread) return;
     let current = true;
@@ -173,11 +178,29 @@ export function MessageBoardPanel({
               ))}
             </select>
           </label>
+          <div className="message-thread-categories" aria-label="Thread category">
+            {(["topics", "children"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={category === value}
+                onClick={() => {
+                  setCategory(value);
+                  setThread(undefined);
+                  setDetail(undefined);
+                  setReply("");
+                }}
+              >
+                {value === "children" ? "Children" : "Cross-repository"}
+              </button>
+            ))}
+          </div>
           {page?.threads.length === 0 && <p>No threads</p>}
           {page?.threads.map((row) => (
             <button
               type="button"
               key={row.id}
+              data-thread={row.id}
               aria-pressed={thread === row.id}
               data-decision={row.state === "waiting-human"}
               onClick={() => {
@@ -189,7 +212,9 @@ export function MessageBoardPanel({
             >
               <strong>{row.title}</strong>
               <span>
-                {name(row.repository)} → {row.to.map(name).join(", ")}
+                {row.child
+                  ? `${name(row.repository)} · Child`
+                  : `${name(row.repository)} → ${row.to.map(name).join(", ")}`}
               </span>
               <span className="message-thread-state">
                 {row.state === "waiting-human" ? "◇ " : ""}
