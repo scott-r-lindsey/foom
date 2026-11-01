@@ -652,11 +652,17 @@ if (fs.existsSync(gate)) {
   assert.ok(holding.scans > 0);
   assert.ok(holding.readers.some((read) => read.args[0] === "--help"));
   assert.ok(holding.readers.some((read) => String(read.pid) === awaitedPid));
+  // Verify the Windows failure mechanism with this known live image, after the
+  // ordinary unlink has already succeeded using only the lifecycle barrier.
+  const windowsImageLocked = process.platform === "win32";
+  if (windowsImageLocked) await assert.rejects(rm(executable), { code: "EPERM" });
   await rm(gate);
   await page.evaluate(() => globalThis.missingAgentRefresh);
   await waitForDiscovery();
   const afterHeldRead = await discovery();
-  context.diagnostic(JSON.stringify({ atCardReady, beforeRemove, holding, afterHeldRead }));
+  context.diagnostic(
+    JSON.stringify({ atCardReady, beforeRemove, holding, windowsImageLocked, afterHeldRead }),
+  );
   await writeFile(
     evidencePath("missing-agent-discovery.json"),
     JSON.stringify(
@@ -664,6 +670,7 @@ if (fs.existsSync(gate)) {
         atCardReady,
         beforeRemove,
         holding,
+        windowsImageLocked,
         afterHeldRead,
       },
       null,
