@@ -6,7 +6,7 @@ import { useEffect, useState, useId, useSyncExternalStore } from "react";
 import type { BoardRow } from "./board.d";
 import type { TileAction, TileLayout } from "./tiles.d";
 import type { TerminalViewSource } from "../terminal/terminal-view-source.d";
-import { splitReason } from "./tiles";
+import { tileRemovalAction, splitReason } from "./tiles";
 import { DirectionPad } from "./direction-pad";
 import { light } from "./board";
 import { RowMenu } from "./row-menu";
@@ -151,7 +151,10 @@ export function TileMenu({
             ]
           : []),
         null,
-        item(preview || row?.exited ? "close" : "hide", preview || row?.exited ? "Close" : "Hide"),
+        item(
+          tileRemovalAction(row, Boolean(preview)),
+          tileRemovalAction(row, Boolean(preview)) === "close" ? "Close" : "Hide",
+        ),
       ]}
       onAction={(selected) => {
         void selected.run();

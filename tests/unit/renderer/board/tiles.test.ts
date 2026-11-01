@@ -1,6 +1,8 @@
+import { boardRows } from "../../../fixtures/board";
 import { arrangedLayout } from "../../../fixtures/tile-layout";
 import { expect, test } from "vitest";
 import {
+  tileRemovalAction,
   placeAgentPreview,
   blankColumns,
   evenSplitRun,
@@ -957,3 +959,22 @@ test.each(["left", "up", "right", "down"] as const)(
     expect(next.focused).toBe(start.focused);
   },
 );
+
+test("tile removal chooses Hide for live sessions and exited resumable agents only", () => {
+  const row = boardRows(100)[0];
+  if (!row) throw new Error("Missing fixture row");
+  expect(tileRemovalAction(undefined)).toBe("hide");
+  for (const kind of ["agent", "shell"] as const) {
+    expect(tileRemovalAction({ ...row, kind, exited: false })).toBe("hide");
+    expect(tileRemovalAction({ ...row, kind, exited: true, conversationId: undefined })).toBe(
+      "close",
+    );
+    expect(tileRemovalAction({ ...row, kind, exited: true, conversationId: "saved" })).toBe(
+      kind === "agent" ? "hide" : "close",
+    );
+    expect(tileRemovalAction({ ...row, kind, exited: true, conversationId: "--unsafe" })).toBe(
+      "close",
+    );
+    expect(tileRemovalAction({ ...row, kind, exited: false }, true)).toBe("close");
+  }
+});

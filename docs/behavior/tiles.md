@@ -185,3 +185,13 @@ a live region announces it. Escape cancels the drag.
 Swap with the nearest tile using Command+Alt+arrow on macOS, or the tile leader
 then Shift+arrow on Windows/Linux. The View menu exposes the same four commands.
 Focus follows the moved tile.
+
+## Exited resumable agents (#975)
+
+The tile removal button and tile menu offer **Hide** for running sessions and
+exited agents with a saved conversation ID. Hide clears the tile and keeps the
+sidebar row and Resume conversation. Exited shells, agents without a saved
+conversation and previews offer **Close**. The session sidebar menu retains Close.
+A refused Close keeps the tile and shows a fixed reason. Parents with child rows
+show “Close its N children first” (singular “child” for one), counting all rows
+still naming that parent, including exited children.

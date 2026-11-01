@@ -1,7 +1,7 @@
-import { copyableErrorText } from "../../shared/application-errors";
+import { LaunchFailure } from "../../shared/launch-failure";
+import { copyableErrorText, ApplicationError } from "../../shared/application-errors";
 import { gitOrigin } from "../../shared/registered-hosts";
 import type { SidebarCommandResult } from "../../shared/workspace";
-import { LaunchFailure } from "../../shared/launch-failure";
 import { randomUUID } from "node:crypto";
 import { basename, isAbsolute } from "node:path";
 import type { AgentId, AgentLaunched } from "../../shared/agents";
@@ -265,7 +265,10 @@ export async function sidebarCommand(
     await this.revokeOrchestrator(command.id);
     return;
   }
-  if ("id" in command && this.busySessions.has(command.id)) throw new Error("Session is busy");
+  if ("id" in command && this.busySessions.has(command.id)) {
+    if (command.kind === "close") throw new ApplicationError("session-busy");
+    throw new Error("Session is busy");
+  }
   if (
     command.kind === "resume" ||
     command.kind === "new-conversation" ||
@@ -318,14 +321,22 @@ export async function sidebarCommand(
       if (!exited) await this.deps.terminals.stop(command.id);
       return;
     }
-    if (!exited) throw new Error("Session is still running");
+    if (!exited) {
+      if (command.kind === "close") throw new ApplicationError("session-running");
+      throw new Error("Session is still running");
+    }
     if (
       command.kind === "close" &&
       this.snapshot().terminals.some(
         (row) => row.orchestration?.role === "child" && row.orchestration.parentId === command.id,
       )
     )
-      throw new Error("Close the orchestrator's children first to keep their parent context");
+      throw new ApplicationError(
+        "session-has-children",
+        this.snapshot().terminals.filter(
+          (row) => row.orchestration?.role === "child" && row.orchestration.parentId === command.id,
+        ).length,
+      );
     if (command.kind === "restart") {
       if (!entry || entry.kind !== "shell") throw new Error("Only shells can restart");
       if (entry.config) await this.startConfig("shell");

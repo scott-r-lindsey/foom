@@ -159,6 +159,10 @@ it.each([
   [new ApplicationError("worktree-locked"), "locked"],
   [new ApplicationError("worktree-missing"), "not_found"],
   [new ApplicationError("remote-host-unavailable"), "git_failed"],
+  [new ApplicationError("session-has-children", 3), "git_failed"],
+  [new ApplicationError("session-busy"), "git_failed"],
+  [new ApplicationError("session-running"), "git_failed"],
+  [new ApplicationError("session-remote-unreachable"), "git_failed"],
   [new Error("secret git stderr"), "git_failed"],
 ] as const)("returns fixed removal diagnostics (%s)", async (error, reason) => {
   const h = harness();

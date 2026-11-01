@@ -176,12 +176,37 @@ if (resumed) {
     assert.ok(resumedLaunch.token);
     assert.notEqual(resumedLaunch.token, firstLaunch.token);
     await expect(restored.locator(".xterm-helper-textarea")).toBeFocused();
-    await restored.locator(".xterm-helper-textarea").press("q");
+    await restored.locator(".xterm-helper-textarea").press("Control+c");
     await expect
       .poll(() =>
         restored.evaluate(async () => (await window.desktop.workspace()).terminals[0]?.exited),
       )
       .toBe(true);
+    const exitedTile = restored.locator(".terminal-tile");
+    if (agent === "codex") {
+      for (const theme of ["eclipse-light", "eclipse-dark"]) {
+        await restored.evaluate(
+          (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
+          theme,
+        );
+        await exitedTile.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+        await expect(restored.getByRole("menuitem", { name: "Hide", exact: true })).toBeVisible();
+        await restored.screenshot({
+          path: evidencePath(`975-exited-agent-${theme}.png`),
+          animations: "disabled",
+        });
+        await restored.getByRole("dialog", { name: "Tile 1 menu", exact: true }).press("Escape");
+      }
+    }
+    await expect(exitedTile.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
+    await exitedTile.getByRole("button", { name: "Hide", exact: true }).click();
+    await expect(restored.locator('.terminal-tile[data-empty="false"]')).toHaveCount(0);
+    await expect(
+      restored.getByRole("button", {
+        name: `Actions for ${agentName} in resume-test`,
+        exact: true,
+      }),
+    ).toBeVisible();
     await restored
       .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
       .click();
@@ -218,6 +243,38 @@ if (resumed) {
       .poll(async () => JSON.parse(await readFile(path.join(profile, "sessions.json"), "utf8")))
       .toEqual([]);
     assert.equal(await realpath(resumedLaunch.cwd), resumedLaunch.cwd);
+    if (agent === "codex") {
+      const shell = await restored.evaluate(() =>
+        window.desktop.sidebarCommand({ kind: "home-shell" }),
+      );
+      await restored.locator(`[data-drag-session="${shell.terminalId}"]`).click();
+      await expect(restored.locator(".xterm-helper-textarea")).toBeVisible();
+      await restored.evaluate((id) => window.desktop.input(id, "exit\r"), shell.terminalId);
+      await expect
+        .poll(() =>
+          restored.evaluate(
+            async (id) =>
+              (await window.desktop.workspace()).terminals.find((row) => row.id === id)?.exited,
+            shell.terminalId,
+          ),
+        )
+        .toBe(true);
+      for (const theme of ["eclipse-light", "eclipse-dark"]) {
+        await restored.evaluate(
+          (interfaceTheme) => window.desktop.saveSetup({ interfaceTheme }),
+          theme,
+        );
+        await restored.getByRole("button", { name: "Tile 1 menu", exact: true }).click();
+        await expect(restored.getByRole("menuitem", { name: "Close", exact: true })).toBeVisible();
+        await restored.screenshot({
+          path: evidencePath(`975-exited-shell-${theme}.png`),
+          animations: "disabled",
+        });
+        await restored.getByRole("dialog", { name: "Tile 1 menu", exact: true }).press("Escape");
+      }
+      await restored.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(restored.locator('.terminal-tile[data-empty="false"]')).toHaveCount(0);
+    }
   });
 }
 
