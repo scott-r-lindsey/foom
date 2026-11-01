@@ -1,3 +1,4 @@
+import { LaunchFailure } from "../../shared/launch-failure";
 import { ApplicationError } from "../../shared/application-errors";
 import { knownAgentId } from "../agents/providers/registry";
 import type { PreviewOpenAction, PreviewRecord } from "../../shared/previews";
@@ -413,7 +414,15 @@ export function attachWorkspace(
           });
         }
         const confirm = confirmation(JSON.stringify(command));
-        return workspace.sidebarCommand(command, confirm);
+        return workspace.sidebarCommand(command, confirm).catch((error: unknown) => {
+          if (
+            command.kind === "close" &&
+            error instanceof LaunchFailure &&
+            error.reason === "remote_host_unreachable"
+          )
+            throw new ApplicationError("session-remote-unreachable");
+          throw error;
+        });
       },
     ],
     [

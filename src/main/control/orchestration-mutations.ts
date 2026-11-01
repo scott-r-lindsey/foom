@@ -484,6 +484,10 @@ export class OrchestrationMutations extends OrchestrationAuthority {
                       "operation-failed": "git_failed",
                       "remote-host-unavailable": "git_failed",
                       "prune-unsafe": "git_failed",
+                      "session-has-children": "git_failed",
+                      "session-busy": "git_failed",
+                      "session-running": "git_failed",
+                      "session-remote-unreachable": "git_failed",
                     } as const
                   )[error.code]
                 : "git_failed";

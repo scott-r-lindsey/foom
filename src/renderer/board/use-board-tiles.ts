@@ -1,3 +1,4 @@
+import { errorMessage } from "../../shared/application-errors";
 import { prepareMove, finishMove } from "./move-placement";
 import { useBackgroundErrors } from "./error-presentation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -374,8 +375,8 @@ export function useBoardTiles({
               setFocusRequest((value) => value + 1);
             }
           })
-          .catch(() => {
-            setRemoveError("Unable to close session.");
+          .catch((error: unknown) => {
+            setRemoveError(errorMessage(error, "Unable to close session."));
           });
         return;
       }

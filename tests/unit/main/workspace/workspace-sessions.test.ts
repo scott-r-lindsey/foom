@@ -185,7 +185,7 @@ test("reserving an exited row prevents Close or a second launch racing Resume", 
   });
   await expect(
     workspace.sidebarCommand({ kind: "close", id: "t1" }, () => Promise.resolve(true)),
-  ).rejects.toThrow("Session is busy");
+  ).rejects.toThrow("foom-error:session-busy");
   await expect(
     workspace.sidebarCommand({ kind: "new-conversation", id: "t1" }, () => Promise.resolve(true)),
   ).rejects.toThrow("Session is busy");
