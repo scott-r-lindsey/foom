@@ -310,13 +310,15 @@ export class Hosts {
     const result = await this.inventory(host);
     if (!result.ok)
       throw new LaunchFailure(
-        result.reason === "libc-too-old"
-          ? "remote_host_libc_too_old"
-          : result.reason === "libc-unsupported"
-            ? "remote_host_libc_unsupported"
-            : result.reason === "unsupported"
-              ? "remote_artifact_mismatch"
-              : "remote_host_unreachable",
+        result.reason === "facts-unavailable"
+          ? "remote_host_facts_unavailable"
+          : result.reason === "libc-too-old"
+            ? "remote_host_libc_too_old"
+            : result.reason === "libc-unsupported"
+              ? "remote_host_libc_unsupported"
+              : result.reason === "unsupported"
+                ? "remote_artifact_mismatch"
+                : "remote_host_unreachable",
       );
     if (result.facts.agents.find((entry) => entry.id === agent)?.state !== "ready")
       throw new LaunchFailure("remote_agent_unavailable");

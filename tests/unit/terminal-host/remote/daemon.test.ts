@@ -354,7 +354,7 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
     const next = await client();
     next.send({ type: "hello", build });
     await vi.waitFor(() => {
-      expect(next.messages).toContainEqual({ type: "hello", build, compatible: 2 });
+      expect(next.messages).toContainEqual({ type: "hello", build, compatible: 2, hostFacts: 1 });
     });
     if (operation === "close") {
       next.send({ type: "agent-close", id: "child", request: 2 });
@@ -1397,7 +1397,7 @@ test.skipIf(process.platform === "win32")(
     const newer = await client();
     newer.send({ type: "hello", build: "b".repeat(64) });
     await newer.wait(1);
-    expect(newer.messages[0]).toEqual({ type: "hello", build, compatible: 2 });
+    expect(newer.messages[0]).toEqual({ type: "hello", build, compatible: 2, hostFacts: 1 });
     expect(mock.stop).not.toHaveBeenCalled();
     await disconnect(newer);
     shell.send({ type: "kill", id: "one", request: 2 });
@@ -1765,7 +1765,7 @@ test.skipIf(process.platform === "win32")(
       const newer = await client();
       newer.send({ type: "hello", build: "b".repeat(64) });
       await newer.wait(1);
-      expect(newer.messages[0]).toEqual({ type: "hello", build, compatible: 2 });
+      expect(newer.messages[0]).toEqual({ type: "hello", build, compatible: 2, hostFacts: 1 });
       expect(host.server.listening).toBe(true);
     } finally {
       pending.resolve(undefined);

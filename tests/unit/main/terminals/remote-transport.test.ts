@@ -1210,3 +1210,36 @@ test("recipe reconnect reattaches the same PTY and never repeats its recipe sele
   );
   expect(JSON.stringify(next.messages)).not.toContain("digest");
 });
+
+test.each([false, true])(
+  "compatible host facts capability gates read-only requests (%s)",
+  async (supported) => {
+    transport.kill();
+    child = new Child();
+    mock.spawn.mockReturnValue(child);
+    const request = {
+      type: "manage" as const,
+      operation: "inspect" as const,
+      readOnly: true as const,
+      codeFolder: "/remote/code",
+      agents: [],
+    };
+    const pending = remoteManagement({ host: "fixture" }, "0.1.0", request);
+    await Promise.resolve();
+    child.header();
+    child.message({
+      type: "hello",
+      build: "b".repeat(64),
+      compatible: 2,
+      ...(supported ? { hostFacts: 1 as const } : {}),
+    });
+    if (supported) {
+      expect(child.messages).toContainEqual(request);
+      child.message({ type: "managed", result: { ok: false, reason: "folder-refused" } });
+      await expect(pending).resolves.toEqual({ ok: false, reason: "folder-refused" });
+    } else {
+      await expect(pending).resolves.toEqual({ ok: false, reason: "facts-unavailable" });
+      expect(child.messages).not.toContainEqual(request);
+    }
+  },
+);

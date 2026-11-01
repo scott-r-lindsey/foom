@@ -104,7 +104,7 @@ export type RemoteResponse =
   | ImagePutResult
   | { type: "managed"; result: HostResult }
   | { type: "agent-failed"; id: string; reason: LaunchReason }
-  | { type: "hello"; build: string; compatible?: 2 }
+  | { type: "hello"; build: string; compatible?: 2; hostFacts?: 1 }
   | HostResponse
   | RemoteFragment
   | RemoteOpenResult

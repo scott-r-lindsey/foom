@@ -327,3 +327,12 @@ test("session cleanup is terminal-ID and profile scoped", () => {
   ])
     expect(remoteRequest(changed)).toBe(false);
 });
+
+test("host facts capability is optional and closed", () => {
+  expect(
+    remoteResponse({ type: "hello", build: "a".repeat(64), compatible: 2, hostFacts: 1 }),
+  ).toBe(true);
+  expect(
+    remoteResponse({ type: "hello", build: "a".repeat(64), compatible: 2, hostFacts: "raw" }),
+  ).toBe(false);
+});

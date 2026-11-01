@@ -1013,6 +1013,7 @@ test("recipe clicks select main-owned data, recheck registrations, and return fi
 });
 
 test.each([
+  ["facts-unavailable", "remote_host_facts_unavailable"],
   ["libc-too-old", "remote_host_libc_too_old"],
   ["libc-unsupported", "remote_host_libc_unsupported"],
   ["unsupported", "remote_artifact_mismatch"],

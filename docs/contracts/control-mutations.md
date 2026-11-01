@@ -168,6 +168,7 @@ logged. Ownership/grant refusals retain their existing control error semantics.
 | `remote_agent_unsupported` | Agent has no supported remote launch attachments |
 | `remote_agent_unavailable` | Remote agent not installed or discoverable |
 | `remote_host_unreachable` | Remote host unreachable or BatchMode SSH authentication failed |
+| `remote_host_facts_unavailable` | The compatible running daemon needs an update for read-only host facts |
 | `remote_host_libc_too_old` | Remote Linux needs glibc 2.28 or newer |
 | `remote_host_libc_unsupported` | Remote Linux does not provide supported glibc (musl is unsupported) |
 | `remote_artifact_mismatch` | Remote platform, application or artifact mismatch |

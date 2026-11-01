@@ -304,6 +304,18 @@ export class RemoteTransport extends EventEmitter {
               (value.build !== artifact.sha256 && value.compatible !== 2)
             )
               throw new Error("Host version mismatch");
+            if (
+              this.management?.type === "manage" &&
+              this.management.operation === "inspect" &&
+              this.management.readOnly &&
+              value.build !== artifact.sha256 &&
+              value.hostFacts !== 1
+            ) {
+              this.managementFailure = "facts-unavailable";
+              this.launchFailure = new LaunchFailure("remote_host_facts_unavailable");
+              this.kill();
+              return;
+            }
             // Reconnect's deadline covers open, state restoration and the entire
             // replay. Internal requests have no TerminalHostClient request timer.
             if (!this.opened) {

@@ -30,6 +30,7 @@ function hello(value: object): boolean {
   return (
     "type" in value &&
     value.type === "hello" &&
+    (!("hostFacts" in value) || value.hostFacts === 1) &&
     "build" in value &&
     typeof value.build === "string" &&
     /^[a-f0-9]{64}$/u.test(value.build)

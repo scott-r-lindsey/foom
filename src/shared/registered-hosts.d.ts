@@ -5,6 +5,7 @@ export interface RegisteredHost {
 }
 export type HostFailure =
   | "unreachable"
+  | "facts-unavailable"
   | "libc-too-old"
   | "libc-unsupported"
   | "unsupported"

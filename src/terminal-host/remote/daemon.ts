@@ -360,7 +360,7 @@ export function serveHost(
           return;
         }
         negotiated = true;
-        await send(socket, { type: "hello", build, compatible: 2 });
+        await send(socket, { type: "hello", build, compatible: 2, hostFacts: 1 });
         return;
       }
       if (message.type === "hello") throw new Error("Repeated negotiation");

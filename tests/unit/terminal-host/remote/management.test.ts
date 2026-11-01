@@ -1187,3 +1187,26 @@ test.skipIf(process.platform === "win32")(
     );
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "read-only host facts never create a missing approved folder",
+  async () => {
+    const request = {
+      type: "manage" as const,
+      operation: "inspect" as const,
+      readOnly: true as const,
+      codeFolder: "~/missing",
+      agents: [],
+    };
+    expect(await manageHost(request, 0, "/fixture/shell", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "folder-refused",
+    });
+    await expect(lstat(join(home, "missing"))).rejects.toMatchObject({ code: "ENOENT" });
+    await mkdir(join(home, "missing"), { mode: 0o700 });
+    expect(await manageHost(request, 0, "/fixture/shell", "0.1.0", home)).toMatchObject({
+      ok: true,
+      facts: { codeFolder: join(home, "missing") },
+    });
+  },
+);

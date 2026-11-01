@@ -226,6 +226,7 @@ process.stdin.on('data', bytes => {
     )
     .toBe(1);
   await expect(page.locator(".terminal-tile[data-kind='shell']")).toHaveCount(1);
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toBeVisible();
   await expect
     .poll(async () =>
       page.evaluate(async () => {
@@ -248,6 +249,7 @@ process.stdin.on('data', bytes => {
       async () => (await readFile(recipeCalls, "utf8")).trim().split("\n").filter(Boolean).length,
     )
     .toBe(2);
+  await expect(page.locator(".terminal-tile[data-kind='shell']")).toBeVisible();
   assert.deepEqual(
     (await readFile(recipeCalls, "utf8"))
       .trim()

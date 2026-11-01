@@ -12,6 +12,7 @@ import type { Repository } from "../../shared/worktrees";
 const reasons: Record<HostFailure, string> = {
   unreachable: "Host unreachable",
   unsupported: "Unsupported host platform",
+  "facts-unavailable": "Host daemon needs an update for host facts",
   "libc-too-old": "Unsupported host: glibc 2.28 or newer is required",
   "libc-unsupported": "Unsupported host: glibc is required (musl is unsupported)",
   "artifact-unavailable": "Remote host artifact unavailable in this local build",

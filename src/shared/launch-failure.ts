@@ -5,6 +5,7 @@ export const launchReasons = {
   remote_agent_unsupported: "This agent does not support remote launch attachments.",
   remote_agent_unavailable: "The remote agent is unavailable (not installed or discoverable).",
   remote_host_unreachable: "The remote host is unreachable or SSH authentication failed.",
+  remote_host_facts_unavailable: "The running remote host daemon needs an update for host facts.",
   remote_host_libc_too_old: "The remote host requires glibc 2.28 or newer.",
   remote_host_libc_unsupported: "The remote host requires glibc; musl is unsupported.",
   remote_artifact_mismatch: "The remote host platform or artifact does not match.",

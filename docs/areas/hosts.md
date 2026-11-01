@@ -7,7 +7,7 @@ and approved absolute code folder. The agent-editable config excludes them;
 confer no later fleet authority. Host-aware orchestration (#756) uses the same registration and management service.
 
 `setup:hosts` accepts one closed action from the registered board main frame:
-list, test, add, refresh, remove, locations or clone. Main selects enabled agent
+list, test, add, refresh, remove, locations, clone, end or recipe. Main selects enabled agent
 executables from its validated manifest catalog. Renderer inputs cannot choose
 remote commands, probe arguments, origins or checkout destinations. Replies are
 validated in preload and rebuilt from declared fields. All failures are fixed
@@ -298,3 +298,9 @@ Codex declares a non-interactive login-status probe, device-code sign-in and the
 [Homebrew cask](https://formulae.brew.sh/cask/codex) install recipe. Other bundled
 agents retain unknown sign-in state until they declare a measured status probe;
 missing install/sign-in declarations remain unavailable.
+
+Protocol-3 hello advertises `hostFacts: 1`. A compatible older build without this
+capability returns `facts-unavailable` for read-only facts, with a fixed needs-update
+message. No management request is sent to its older, mutating inspect operation.
+Existing PTYs still reattach; when the daemon becomes idle the normal upgrade
+provides facts and recipes. Same-build peers are known to implement the capability.

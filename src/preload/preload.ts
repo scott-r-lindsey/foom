@@ -447,6 +447,7 @@ const validHostResult: Validator<HostResult> = either(
     reason: literal(
       "unreachable",
       "unsupported",
+      "facts-unavailable",
       "libc-too-old",
       "libc-unsupported",
       "artifact-unavailable",

@@ -187,6 +187,7 @@ export function hostResult(value: unknown): value is HostResult {
       [
         "unreachable",
         "unsupported",
+        "facts-unavailable",
         "libc-too-old",
         "libc-unsupported",
         "artifact-unavailable",
