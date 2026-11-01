@@ -133,6 +133,37 @@ process.stdin.on('data', bytes => {
     async () => (await window.desktop.workspace()).repositories[0].path,
   );
   gitSync(["remote", "add", "origin", "git@forge.test:team/project.git"], { cwd: repository });
+  const assertHostColumns = async () => {
+    const rows = await page
+      .getByRole("region", { name: "fixture-cloud", exact: true })
+      .locator(".host-agents > li")
+      .evaluateAll((rows) =>
+        rows.map((row) => ({
+          width: row.clientWidth,
+          scrollWidth: row.scrollWidth,
+          cells: [...row.children].map((cell) => ({
+            x: cell.getBoundingClientRect().x,
+            text: cell.textContent,
+            buttonX: cell.querySelector("button")?.getBoundingClientRect().x,
+          })),
+        })),
+      );
+    assert.ok(rows.length >= 4);
+    for (const row of rows) {
+      assert.equal(row.cells.length, 4);
+      assert.ok(row.scrollWidth <= row.width + 1);
+      for (let column = 0; column < 4; column++)
+        assert.ok(Math.abs(row.cells[column].x - rows[0].cells[column].x) < 1);
+      if (row.cells[3].buttonX !== undefined)
+        assert.ok(Math.abs(row.cells[3].buttonX - row.cells[3].x) < 1);
+    }
+    assert.equal(rows.find((row) => row.cells[0].text === "git").cells[2].text, "");
+    assert.equal(rows.find((row) => row.cells[0].text === "claude").cells[3].text, "");
+    assert.match(
+      rows.find((row) => row.cells[0].text === "codex").cells[3].text,
+      /^Install unavailable/u,
+    );
+  };
   const capture = async (name) => {
     for (const mode of ["light", "dark"]) {
       await page.evaluate(
@@ -145,6 +176,7 @@ process.stdin.on('data', bytes => {
       await expect
         .poll(() => page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches))
         .toBe(mode === "dark");
+      if (["host-facts-agents", "host-recipes"].includes(name)) await assertHostColumns();
       await page.screenshot({ path: evidencePath(`screenshots-757/${name}-${mode}.png`) });
     }
   };
@@ -185,6 +217,17 @@ process.stdin.on('data', bytes => {
   await card.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(card.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
   await capture("host-facts-agents");
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(960, 960),
+  );
+  await assertHostColumns();
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL() === "app://bundle/index.html")
+      .setContentSize(1280, 960),
+  );
   await assertAccessible(page);
   await page.getByRole("button", { name: "Add host", exact: true }).click();
   await page.getByLabel("SSH host", { exact: true }).fill("other-cloud");

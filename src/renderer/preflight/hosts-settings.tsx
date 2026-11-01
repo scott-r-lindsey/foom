@@ -296,54 +296,55 @@ export function HostsSettings({
                             ? "Not found"
                             : "Unable to check"}
                       </span>
-                      {agent.id !== "git" && (
-                        <span>
-                          {agent.signIn === "signed-in"
+                      <span>
+                        {agent.id !== "git" &&
+                          (agent.signIn === "signed-in"
                             ? "Signed in"
                             : agent.signIn === "signed-out"
                               ? "Not signed in"
-                              : "Sign-in unknown"}
-                        </span>
-                      )}
-                      {agent.state === "missing" &&
-                        (entry.recipes?.find((recipe) => recipe.tool === agent.id)?.install ? (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            aria-label={`Install ${agent.id}`}
-                            onClick={() => {
-                              void act({
-                                action: "recipe",
-                                host: entry.host,
-                                tool: agent.id,
-                                operation: "install",
-                              });
-                            }}
-                          >
-                            Install
-                          </button>
-                        ) : (
-                          <span>Install unavailable: no package-manager recipe</span>
-                        ))}
-                      {agent.state === "ready" &&
-                        agent.signIn !== "signed-in" &&
-                        entry.recipes?.find((recipe) => recipe.tool === agent.id)?.signIn && (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            aria-label={`Sign in ${agent.id}`}
-                            onClick={() => {
-                              void act({
-                                action: "recipe",
-                                host: entry.host,
-                                tool: agent.id,
-                                operation: "sign-in",
-                              });
-                            }}
-                          >
-                            Sign in
-                          </button>
-                        )}
+                              : "Sign-in unknown")}
+                      </span>
+                      <span className="host-agent-action">
+                        {agent.state === "missing" &&
+                          (entry.recipes?.find((recipe) => recipe.tool === agent.id)?.install ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              aria-label={`Install ${agent.id}`}
+                              onClick={() => {
+                                void act({
+                                  action: "recipe",
+                                  host: entry.host,
+                                  tool: agent.id,
+                                  operation: "install",
+                                });
+                              }}
+                            >
+                              Install
+                            </button>
+                          ) : (
+                            <span>Install unavailable: no package-manager recipe</span>
+                          ))}
+                        {agent.state === "ready" &&
+                          agent.signIn !== "signed-in" &&
+                          entry.recipes?.find((recipe) => recipe.tool === agent.id)?.signIn && (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              aria-label={`Sign in ${agent.id}`}
+                              onClick={() => {
+                                void act({
+                                  action: "recipe",
+                                  host: entry.host,
+                                  tool: agent.id,
+                                  operation: "sign-in",
+                                });
+                              }}
+                            >
+                              Sign in
+                            </button>
+                          )}
+                      </span>
                     </li>
                   ),
                 )}
