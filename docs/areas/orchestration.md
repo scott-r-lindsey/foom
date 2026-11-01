@@ -255,3 +255,10 @@ that the detached checkout head matches the resolved PR before launch and checks
 cached head evidence again before spawn. It does not attach to any author's loop
 or resume an author. The parent reads the handoff and stops/closes the reviewer;
 posting requires explicit `postFindings`. See the [mutation contract](../contracts/control-mutations.md#review-continuation-and-explicit-binding-972).
+
+## Local message board (#973)
+
+Current orchestrators and the human exchange local topic threads through the
+[message board](message-board.md). Children have no board authority. Board posts
+are untrusted data and never authorize work; only human posts count as decisions.
+The shared wait watcher also observes new addressed board posts.

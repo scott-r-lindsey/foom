@@ -1,3 +1,4 @@
+import type { MessageBoardApi } from "../../shared/message-board";
 import type { SidebarCommandResult } from "../../shared/workspace";
 import type { PreviewOpenAction } from "../../shared/previews";
 import type { PreviewApi, PreviewBounds } from "../../shared/previews";
@@ -56,6 +57,7 @@ export interface BoardSource {
     close(id: string): Promise<void>;
     onPlace?: PreviewApi["onPlace"];
   };
+  messageBoard?: MessageBoardApi;
   actionLog?: ActionLogApi;
   windows?: WindowsApi;
   appMenu?: AppMenuApi;

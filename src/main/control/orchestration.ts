@@ -1,3 +1,5 @@
+import type { MessageBoard } from "./message-board";
+import { locationId } from "./metadata";
 import type { AgentId } from "../../shared/agents";
 import { createHash } from "node:crypto";
 import { readHandoffRequest } from "../../shared/handoff-validation";
@@ -82,6 +84,13 @@ function eventCursor(row: SessionEventFacts): string {
 
 /** Dispatch, owned child input, handoff reads, terminal tails and event waits. */
 export class Orchestration extends OrchestrationMutations {
+  private board: MessageBoard | undefined;
+  setBoard(board: MessageBoard): void {
+    this.board = board;
+  }
+  authorizeBoard(actor: Principal): void {
+    this.parent(actor);
+  }
   worktreeHost(path: string): string | undefined {
     return this.host.worktreeHost?.(path);
   }
@@ -277,7 +286,9 @@ export class Orchestration extends OrchestrationMutations {
     active: () => void,
     signal?: AbortSignal,
   ): Promise<unknown> {
-    exact(params, ["ids", "after", "timeoutMs", "untilEvent"]);
+    exact(params, ["ids", "after", "timeoutMs", "untilEvent", "boardAfter"]);
+    const boardAfter =
+      params["boardAfter"] === undefined ? undefined : identifier(params["boardAfter"]);
     const untilEvent = params["untilEvent"] === true;
     if (params["untilEvent"] !== undefined && !untilEvent)
       throw new ControlError("invalid_request");
@@ -285,7 +296,7 @@ export class Orchestration extends OrchestrationMutations {
       params["ids"] === undefined && untilEvent
         ? [...this.parent(actor).children.keys()].filter((id) => this.own(this.parent(actor), id))
         : params["ids"];
-    if (!Array.isArray(ids) || ids.length < 1 || ids.length > this.childLimit())
+    if (!Array.isArray(ids) || ids.length < (this.board ? 0 : 1) || ids.length > this.childLimit())
       throw new ControlError("invalid_request");
     const targets = ids.map(identifier);
     if (new Set(targets).size !== targets.length) throw new ControlError("invalid_request");
@@ -308,16 +319,27 @@ export class Orchestration extends OrchestrationMutations {
     // Calling a validated child-specific wait acknowledges what is already pending,
     // even when its cursor asks us to keep waiting for the next event.
     for (const id of targets) this.childRead(actor, id);
+    const boardEvent = () => this.board?.event(locationId(actor.repository));
+    const initialBoard = boardAfter ?? boardEvent();
     const deadline = this.now() + timeout;
     for (;;) {
+      active();
+      if (signal?.aborted) throw new ControlError("unavailable");
       const parent = this.parent(actor);
       if (targets.some((id) => !this.own(parent, id))) throw new ControlError("not_found");
       const sessions = this.metadata.states(actor, targets);
       const changed = sessions.filter((row) => after[row.id] !== row.revision).map((row) => row.id);
       const remaining = deadline - this.now();
-      if (changed.length > 0 || remaining <= 0) {
+      const board = boardEvent();
+      const boardChanged = board !== initialBoard;
+      if (changed.length > 0 || boardChanged || remaining <= 0) {
         for (const id of targets) this.childRead(actor, id);
-        return { sessions, changed, timedOut: changed.length === 0 };
+        return {
+          sessions,
+          changed,
+          ...(board === undefined ? {} : { board: { event: board, changed: boardChanged } }),
+          timedOut: changed.length === 0 && !boardChanged,
+        };
       }
       await new Promise((resolve) => setTimeout(resolve, Math.min(250, remaining)));
     }
@@ -352,6 +374,9 @@ export class Orchestration extends OrchestrationMutations {
         event: eventCursor(row),
       }));
     };
+    const boardEvent = () => this.board?.event(locationId(actor.repository));
+    const initialBoard =
+      params["boardAfter"] === undefined ? boardEvent() : identifier(params["boardAfter"]);
     const initial = read();
     for (const id of targets) this.childRead(actor, id);
     // A still-current session revision means nothing changed yet; adopt its cursor.
@@ -374,10 +399,21 @@ export class Orchestration extends OrchestrationMutations {
           const changed = sessions
             .filter((row) => after[row.id] !== row.event)
             .map((row) => row.id);
-          if (changed.length || (deadline !== undefined && Date.now() >= deadline)) {
+          const board = boardEvent();
+          const boardChanged = board !== initialBoard;
+          if (
+            changed.length ||
+            boardChanged ||
+            (deadline !== undefined && Date.now() >= deadline)
+          ) {
             cleanup();
             for (const id of targets) this.childRead(actor, id);
-            resolve({ sessions, changed, timedOut: changed.length === 0 });
+            resolve({
+              sessions,
+              changed,
+              ...(board === undefined ? {} : { board: { event: board, changed: boardChanged } }),
+              timedOut: changed.length === 0 && !boardChanged,
+            });
           }
         } catch (error) {
           cleanup();

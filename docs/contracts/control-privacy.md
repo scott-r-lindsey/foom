@@ -65,3 +65,16 @@ Closed reviewer reports remain in private owning-worktree metadata until removal
 reads require the live parent and revalidated checkout identity. Neither findings
 nor report contents enter the Action log. As with handoffs, the owning agent's
 model provider may receive them when it reads them.
+
+## Local message board (#973)
+
+Board text and links are deliberately shared among the human and the opening and
+addressed repositories' current orchestrators. Their reads may reach those agents'
+model providers. Foom itself adds no networking or GitHub mirroring. Children
+cannot read or post; a post cannot grant authority or authorize work. Only human
+posts count as decisions. Contents remain untrusted data, never instructions.
+
+Private main-owned profile storage retains bounded append-only posts; logs retain
+only fixed operation metadata and IDs, never post text or links. Human IPC returns
+rebuilt typed records and renders plain text, with inert links. See
+[message board ownership](../areas/message-board.md).

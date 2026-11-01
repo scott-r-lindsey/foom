@@ -184,6 +184,10 @@ test("launches an agent in a managed worktree and routes its attention signals",
       "whoami",
       "sessions",
       "session_state",
+      "board_threads",
+      "board_read",
+      "board_post",
+      "board_resolve",
       "manual",
       "open_preview",
       "list_previews",
@@ -205,7 +209,7 @@ test("launches an agent in a managed worktree and routes its attention signals",
     await mcpRequest({ id: 20, method: "tools/call", params: { name: "manual" } })
   ).json();
   assert.equal(manual.result.isError, false);
-  assert.equal(manual.result.structuredContent.sections.length, 12);
+  assert.equal(manual.result.structuredContent.sections.length, 13);
   const section = await (
     await mcpRequest({
       id: 21,

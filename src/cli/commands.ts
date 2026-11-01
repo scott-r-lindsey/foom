@@ -247,12 +247,12 @@ function orchestration(name: string | undefined, words: string[]): Command {
     case "wait-for": {
       const ids = positional.map(identifier);
       if (
-        (ids.length < 1 && !params["untilEvent"]) ||
+        (ids.length < 1 && !params["untilEvent"] && !flags.has("--board-after")) ||
         ids.length > 16 ||
         new Set(ids).size !== ids.length
       )
         throw new ControlError("invalid_request");
-      if (ids.length) params["ids"] = ids;
+      if (ids.length || (!params["untilEvent"] && flags.has("--board-after"))) params["ids"] = ids;
       if (flags.has("--timeout")) {
         if (!params["untilEvent"] || flags.has("--timeout-ms"))
           throw new ControlError("invalid_request");
@@ -263,6 +263,8 @@ function orchestration(name: string | undefined, words: string[]): Command {
           take("--timeout-ms"),
           params["untilEvent"] ? 2147483647 : 30000,
         );
+      const boardAfter = take("--board-after");
+      if (boardAfter !== undefined) params["boardAfter"] = identifier(boardAfter);
       const cursor = take("--after");
       if (cursor !== undefined) {
         let after: Record<string, unknown>;

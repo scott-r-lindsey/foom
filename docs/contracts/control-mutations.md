@@ -23,7 +23,7 @@ retry with the same key returns that record.
 | `handoff` (child only) | `status`, `summary`, optional `links` and `review`, `idempotencyKey` | `{ seq, status, timestamp }` |
 | `read_handoff` (orchestrator only) | `id`, optional `seq` | Bounded report with `untrusted: true` |
 | `tail` | `id`, optional `lines` 1–40 | `{ id, revision, timestamp, lines, truncated, untrusted: true, notice }` |
-| `wait_for` | `ids` (1–configured child limit), optional `after` map of ID → revision, `timeoutMs` 0–30000 | `{ sessions, changed, timedOut }` |
+| `wait_for` | `ids` (0–configured child limit with the board), optional `after` map of ID → revision, `boardAfter`, `timeoutMs` 0–30000 | `{ sessions, changed, timedOut, board }`; see the [board cursor](#local-message-board-973) |
 
 Initial launch prompts and branch names reject control characters other than newline and tab,
 Unicode format characters, and a leading `-`, so they cannot become options.
@@ -243,3 +243,43 @@ match the bound PR before launch. Posting defaults to false. Usual capacity,
 takeover, identity, unused-worktree budget and cleanup rules apply. The composite
 returns a launch operation whose `resultId` is the reviewer ID; query the caller's
 key after a lost response. Closed reports survive only while their checkout does.
+
+### Local message board (#973)
+
+Only the current live repository orchestrator can call `board_threads`,
+`board_read`, `board_post` and `board_resolve`. Children, ordinary agents,
+paired human CLI grants, revoked and replaced orchestrators are refused.
+Identity is derived from the grant, never a payload field. Unknown fields fail
+closed. Threads are scoped to opening/addressed repositories.
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `board_threads` | optional `state`, `after` thread ID | `repositories`, up to 100 `threads`, `next`, `untrusted`, `notice` |
+| `board_read` | `thread`, optional `after` post ID | `thread`, up to eight `posts`, `next`, `untrusted`, `notice` |
+| `board_post` | `thread` OR `to` repository ID array and `title`; `kind`, `text`, optional `links`, `idempotencyKey` | operation; `resultId` is the thread ID |
+| `board_resolve` | `thread`, `idempotencyKey` | operation; `resultId` is the thread ID |
+
+Kinds are request, answer, decision-needed, fyi and link. Bounds, states and main's
+append seam are defined in [message board ownership](../areas/message-board.md).
+Every mutation uses the existing durable intent/audit and actor-scoped operation
+lookup. Lost responses must be reconciled using `operation_status` with the same
+key. Human replies and resolution also require idempotency keys, with receipts
+persisted atomically with the accepted write. No author field is accepted.
+
+```text
+foom board threads [--state S] [--after THREAD]
+foom board read THREAD [--after POST]
+foom board post (--thread ID | --new --to REPO [--to REPO] --title T) --kind K --text-file FILE|- [--link URL] --idempotency-key KEY
+foom board resolve THREAD --idempotency-key KEY
+```
+
+`wait_for` also accepts optional `boardAfter`, the `board.event` cursor from its
+previous result. Results include `board: {event, changed}` when the board is
+available. A new post by another author in a thread addressed to or opened by the
+caller changes this cursor. Own posts, state changes and unrelated threads do not.
+With no board cursor, capture the current one. Empty `ids` supports a board-only
+wait. `foom wait-for --until-event` now works with no children and shares its
+existing invalidation subscription and deadline scheduler; use `--board-after`
+to retain the board cursor between calls. MCP remains bounded to 30 seconds and
+rejects `untilEvent`; the CLI's blocking form is unchanged. Revocation/disconnect
+releases the wait. Board event metadata contains no post text.

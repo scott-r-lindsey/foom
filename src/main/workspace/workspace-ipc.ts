@@ -166,6 +166,7 @@ export function orchestratorDisclosure(id: string, replacing?: string): DialogCo
           "Send prompts and keys to its own children without asking you, including answering permission, credential and provider prompts.",
           "Close its exited children, discarding their final screens; their worktrees and branches remain.",
           "Keep its own launch flags; children do not inherit them and cannot orchestrate.",
+          "Post local Board threads for this repository.",
         ],
       },
       {
@@ -173,7 +174,8 @@ export function orchestratorDisclosure(id: string, replacing?: string): DialogCo
         items: [
           "The last 40 lines of each child's terminal, with likely secrets redacted.",
           "Child-authored handoff summaries and links, reported when a child finishes, gets blocked or fails.",
-          "Those lines and handoffs may be sent to this agent's model provider under its own settings; redaction cannot catch every secret, and repeated reads collect more.",
+          "Board posts addressed to or opened by this repository.",
+          "Those lines, handoffs and Board posts may be sent to this agent's model provider under its own settings; redaction cannot catch every secret, and repeated reads collect more.",
         ],
       },
       {
@@ -412,6 +414,14 @@ export function attachWorkspace(
         }
         const confirm = confirmation(JSON.stringify(command));
         return workspace.sidebarCommand(command, confirm);
+      },
+    ],
+    [
+      "workspace:message-board",
+      (...args) => {
+        if (args.length !== 2 || typeof args[0] !== "string")
+          throw new Error("Invalid board request");
+        return workspace.messageBoard(args[0], args[1]);
       },
     ],
     [

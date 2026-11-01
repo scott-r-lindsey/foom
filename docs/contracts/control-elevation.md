@@ -22,3 +22,8 @@ this role, and whoami shows whether you hold it"; a call without the role return
 an error naming `whoami`. Server instructions and Antigravity's fallback CLI guidance
 describe both roles. Codex's TUI asked to approve an MCP tool without
 annotations, so the tools keep accurate `readOnlyHint` and `destructiveHint`.
+
+The disclosure also names repository-scoped local Board posting and reads of
+threads opened by or addressed to the repository (#973). It explains that Board
+posts, like child tails and handoffs, may reach the orchestrator's model provider.
+Children retain no Board access. See [message board ownership](../areas/message-board.md).

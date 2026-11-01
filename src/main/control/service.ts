@@ -1,3 +1,5 @@
+import { boardPost, boardResolve } from "../../shared/message-board-validation";
+import type { MessageBoard } from "./message-board";
 import { launchReasons } from "../../shared/launch-failure";
 import { remoteChildControl } from "./remote-control";
 import { removalReasons } from "../workspace/worktree-outcome";
@@ -20,6 +22,8 @@ import type { Orchestration } from "./orchestration";
 
 /** Allow client startup and managed-policy evaluation before showing attachment failure. */
 export const MCP_CONNECTION_DEADLINE_MS = 30000;
+
+export const BOARD_METHODS = ["board_threads", "board_read", "board_post", "board_resolve"];
 
 const READ_ONLY = ["whoami", "sessions", "session_state"];
 
@@ -51,6 +55,8 @@ export class ControlService {
       Partial<
         Pick<
           Orchestration,
+          | "authorizeBoard"
+          | "setBoard"
           | "hosts"
           | "bindAutomation"
           | "childLimit"
@@ -74,7 +80,9 @@ export class ControlService {
       target: string | null,
     ) => Promise<void> = () => Promise.resolve(),
     readonly previews?: PreviewBroker,
+    readonly board?: MessageBoard,
   ) {
+    if (board) this.orchestration?.setBoard?.(board);
     this.metadata = new SessionMetadata(
       source,
       (row) => this.orchestration?.pullRequest?.(row),
@@ -82,6 +90,10 @@ export class ControlService {
       (row) => this.orchestration?.reviewMetadata?.(row) ?? row.review,
       (row, actor) => this.orchestration?.canReadReview?.(actor, row.id) ?? false,
     );
+  }
+
+  boardChanged(): void {
+    this.orchestration?.childEvents?.publish();
   }
 
   childLimit(): number {
@@ -258,7 +270,7 @@ export class ControlService {
             ...(name === "manual"
               ? {}
               : {
-                  cli: `foom ${name === "list_previews" ? "previews" : name.replaceAll("_", "-")}`,
+                  cli: `foom ${name.startsWith("board_") ? name.replace("board_", "board ") : name === "list_previews" ? "previews" : name.replaceAll("_", "-")}`,
                 }),
             ...(name === "wait_for"
               ? {
@@ -341,6 +353,7 @@ export class ControlService {
     return actor.role === "orchestrator"
       ? [
           ...READ_ONLY,
+          ...(this.board ? BOARD_METHODS : []),
           ...views,
           ...(this.orchestration ? ORCHESTRATION_METHODS.filter((name) => name !== "handoff") : []),
           "operation_status",
@@ -365,6 +378,68 @@ export class ControlService {
     this.assertActive(actor);
     const request = object(input);
     const method = request["method"];
+    if (typeof method === "string" && BOARD_METHODS.includes(method)) {
+      exact(request, ["version", "instanceId", "method", "params"]);
+      if (request["version"] !== 1 || request["instanceId"] !== this.instanceId)
+        throw new ControlError("invalid_request");
+      const authorize = () => {
+        this.assertActive(actor);
+        if (
+          actor.role !== "orchestrator" ||
+          actor.parentId !== null ||
+          !this.orchestration?.authorizeBoard
+        )
+          throw new ControlError("forbidden");
+        this.orchestration.authorizeBoard(actor);
+      };
+      authorize();
+      if (!this.board) throw new ControlError("unavailable");
+      const repository = locationId(actor.repository);
+      const params = object(request["params"]);
+      if (method === "board_threads") return this.board.threads(params, repository);
+      if (method === "board_read") return this.board.read(params, repository);
+      const input = method === "board_post" ? boardPost(params) : boardResolve(params);
+      const operation = await this.operations.begin(
+        actor,
+        method === "board_post" ? "board_post" : "board_resolve",
+        input.idempotencyKey,
+        JSON.stringify(input),
+        input.thread ?? null,
+      );
+      if (!operation.created)
+        return this.operations.lookup(actor, { operationId: operation.operationId });
+      try {
+        authorize();
+        const result =
+          method === "board_post"
+            ? await this.board.append(
+                `orchestrator:${repository}`,
+                actor.generation,
+                input,
+                authorize,
+              )
+            : await this.board.resolve(actor.generation, input, repository, authorize);
+        authorize();
+        return await this.operations.finish(
+          actor,
+          operation.operationId,
+          "succeeded",
+          "completed",
+          result.thread,
+        );
+      } catch (error) {
+        authorize();
+        const refused =
+          error instanceof ControlError &&
+          ["not_found", "conflict", "capacity", "invalid_request"].includes(error.code);
+        return this.operations.finish(
+          actor,
+          operation.operationId,
+          refused ? "failed" : "indeterminate",
+          refused ? "refused" : "uncertain",
+        );
+      }
+    }
     if (typeof method === "string" && PREVIEW_METHODS.includes(method)) {
       exact(request, ["version", "instanceId", "method", "params"]);
       if (request["version"] !== 1 || request["instanceId"] !== this.instanceId)

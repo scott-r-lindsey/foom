@@ -1,3 +1,4 @@
+import type { MessageBoard } from "../../../../src/main/control/message-board";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { vi } from "vitest";
@@ -16,7 +17,10 @@ export const history = (view: OrchestrationView | undefined) =>
   view?.role === "orchestrator" ? view.history : [];
 export const other = join(tmpdir(), "elsewhere");
 
-export function harness(overrides: Pick<OrchestrationHost, "reviewSnapshot"> = {}) {
+export function harness(
+  overrides: Pick<OrchestrationHost, "reviewSnapshot"> = {},
+  board?: MessageBoard,
+) {
   let limit = 4;
   const rows = new Map<string, WorkspaceTerminal>();
   let next = 0;
@@ -113,7 +117,15 @@ export function harness(overrides: Pick<OrchestrationHost, "reviewSnapshot"> = {
     () => now,
     () => limit,
   );
-  const service = new ControlService(operations, host.terminals, orchestration);
+  const service = new ControlService(
+    operations,
+    host.terminals,
+    orchestration,
+    undefined,
+    undefined,
+    undefined,
+    board,
+  );
   const launchParent = (terminalId: string, repository = repo) => {
     const slot = orchestration.reserve(repository);
     if ("existing" in slot) throw new Error("slot taken");

@@ -100,6 +100,7 @@ test("control startup publishes private discovery and binds trusted pairing call
       expect.any(Function),
       expect.any(Function),
       expect.any(Object),
+      expect.any(Function),
     );
     startControl.mock.calls[0]?.[5]?.();
     expect(mock.workspace.refresh).toHaveBeenCalled();
@@ -112,6 +113,7 @@ test("control startup publishes private discovery and binds trusted pairing call
     const { worktrees } = await import("../../../src/main/wiring/application");
     vi.spyOn(worktrees, "listRepositories").mockReturnValue([{ path: "/repo", name: "Repo" }]);
     expect(pairing?.repository("/repo")).toBe("/repo");
+    expect(startControl.mock.calls[0]?.[7]?.()).toMatchObject([{ name: "repo" }]);
     await pairing?.approve("/repo", "ABCD1234", new AbortController().signal, Date.now() + 60000);
     expect(mock.message).toHaveBeenCalledWith(
       expect.objectContaining({

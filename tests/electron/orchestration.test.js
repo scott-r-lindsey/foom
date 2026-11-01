@@ -84,3 +84,10 @@ test("unread child events mark the orchestrator row and tile until human focus",
 }, async (context) => {
   await runOrchestratorScenario(context, false, "unread");
 });
+
+test("local orchestrators exchange board posts and the human replies and resolves in light and dark", {
+  timeout: deadline(90_000),
+  skip: process.platform === "win32" && "The fake agent is a POSIX script",
+}, async (context) => {
+  await runOrchestratorScenario(context, false, "board");
+});

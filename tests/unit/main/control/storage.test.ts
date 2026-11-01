@@ -701,3 +701,55 @@ it("refuses malformed child input hashes", async () => {
     }),
   ).rejects.toThrow("unavailable");
 });
+
+it("wires private board persistence, change notifications and restart recovery independently of agent grants", async () => {
+  const empty = await ControlRuntime.start(root);
+  try {
+    expect(empty.board?.threads({}).repositories).toEqual([]);
+  } finally {
+    await empty.close();
+  }
+  const changed = vi.fn();
+  const runtime = await ControlRuntime.start(
+    root,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    changed,
+    undefined,
+    () => [{ id: "a", name: "App" }],
+  );
+  let thread: string;
+  try {
+    const board = runtime.board;
+    if (!board) throw new Error("Missing board");
+    thread = (
+      await board.append("orchestrator:a", "main", {
+        to: ["a"],
+        title: "Topic",
+        kind: "request",
+        text: "Question",
+        idempotencyKey: "open",
+      })
+    ).thread;
+    expect(changed).toHaveBeenCalledOnce();
+  } finally {
+    await runtime.close();
+  }
+  const restored = await ControlRuntime.start(root);
+  try {
+    const board = restored.board;
+    if (!board) throw new Error("Missing restored board");
+    expect(board.read({ thread }).posts[0]?.text).toBe("Question");
+    await board.append("human", "human", {
+      thread,
+      kind: "answer",
+      text: "Reply",
+      idempotencyKey: "reply",
+    });
+    expect(board.read({ thread }).posts).toHaveLength(2);
+  } finally {
+    await restored.close();
+  }
+});
