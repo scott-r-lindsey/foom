@@ -620,8 +620,20 @@ if (fs.existsSync(gate)) {
     (await page.evaluate(() => window.desktop.setupState())).settings.agents["late-agent"],
     undefined,
   );
-  // An enabled card is a previous scan's result, not a discovery-process barrier.
   const atCardReady = await discovery();
+  await waitForDiscovery();
+  const beforeRemove = await discovery();
+  context.diagnostic(JSON.stringify({ atCardReady, beforeRemove }));
+  // Never retry unlink: wait for the owning scan and child close events first.
+  await rm(executable);
+  await writeFile(file, JSON.stringify({ ...manifest, name: "Late agent missing" }));
+  await expect(card.getByText("Not found", { exact: true })).toBeVisible();
+  await expect(card.getByRole("switch")).toBeDisabled();
+  await install();
+  await writeFile(file, JSON.stringify({ ...manifest, name: "Late agent restored" }));
+  await expect(card.getByRole("switch")).toBeEnabled();
+  await expect(card.getByRole("switch")).toBeChecked();
+  // Prove the barrier with an enabled card and a held reader after the real unlink.
   await writeFile(gate, "hold help reader");
   await page.evaluate(() => {
     globalThis.missingAgentRefresh = window.desktop.scanAgents(true);
@@ -643,29 +655,21 @@ if (fs.existsSync(gate)) {
   await rm(gate);
   await page.evaluate(() => globalThis.missingAgentRefresh);
   await waitForDiscovery();
-  const beforeRemove = await discovery();
-  context.diagnostic(JSON.stringify({ atCardReady, holding, beforeRemove }));
+  const afterHeldRead = await discovery();
+  context.diagnostic(JSON.stringify({ atCardReady, beforeRemove, holding, afterHeldRead }));
   await writeFile(
     evidencePath("missing-agent-discovery.json"),
     JSON.stringify(
       {
         atCardReady,
-        holding,
         beforeRemove,
+        holding,
+        afterHeldRead,
       },
       null,
       2,
     ),
   );
-  // Never retry unlink: wait for the owning scan and child close events first.
-  await rm(executable);
-  await writeFile(file, JSON.stringify({ ...manifest, name: "Late agent missing" }));
-  await expect(card.getByText("Not found", { exact: true })).toBeVisible();
-  await expect(card.getByRole("switch")).toBeDisabled();
-  await install();
-  await writeFile(file, JSON.stringify({ ...manifest, name: "Late agent restored" }));
-  await expect(card.getByRole("switch")).toBeEnabled();
-  await expect(card.getByRole("switch")).toBeChecked();
   await card.getByRole("switch").uncheck();
   await expect
     .poll(

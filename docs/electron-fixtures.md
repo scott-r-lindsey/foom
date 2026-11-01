@@ -177,5 +177,7 @@ Settings-entry refresh is still probing the same executable. The missing-agent
 reload case tracks the fixture's actual discovery scans and child `close` events
 before unlinking its copied executable. Its controlled `--help` reader stays alive
 until a fixture file is removed, proving that an enabled card alone is not a process
-exit barrier. Teardown releases that reader and waits before quitting the app.
+exit barrier. The ordinary unlink happens before this controlled demonstration,
+so the held reader cannot mask the original race with extra elapsed time.
+Teardown releases that reader and waits before quitting the app.
 Windows unlink failures remain errors; the test neither retries nor ignores them.
