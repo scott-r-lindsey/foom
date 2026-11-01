@@ -182,3 +182,28 @@ export async function assembleDarwinHost(
   );
   return executable;
 }
+
+/** Prime each signed x64 code identity, never loading its embedded native assets. */
+export function primeDarwinHost(executable, arch, execute = run) {
+  assert.ok(["arm64", "x64"].includes(arch), "Invalid Darwin probe architecture");
+  assert.equal(
+    execute("/usr/bin/lipo", ["-archs", executable]).trim(),
+    arch === "x64" ? "x86_64" : "arm64",
+    "SEA must contain exactly the requested Mach-O architecture",
+  );
+  if (arch !== "x64") return;
+  const started = performance.now();
+  // Each freshly signed SEA needs its own translation; warming Node is insufficient.
+  try {
+    assert.equal(
+      execute(executable, ["--prime-rosetta"], { timeout: 60000 }).trim(),
+      "x64",
+      "Rosetta handshake must report x64",
+    );
+  } catch (cause) {
+    throw new Error("Rosetta could not prime the signed x86_64 SEA before its native-load probe", {
+      cause,
+    });
+  }
+  console.info(JSON.stringify({ phase: "prime-rosetta", elapsedMs: performance.now() - started }));
+}

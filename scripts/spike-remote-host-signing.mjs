@@ -1,11 +1,11 @@
-// Credential-free #851 feasibility proof. Runs only on the native macOS matrix.
+// Credential-free #851 feasibility proof. Both Darwin targets share one macOS runner.
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { run, signingArgs } from "./macos-sign.mjs";
-import { assembleDarwinHost, writeDarwinInputs } from "./remote-host-darwin.mjs";
+import { assembleDarwinHost, primeDarwinHost, writeDarwinInputs } from "./remote-host-darwin.mjs";
 
 assert.equal(process.platform, "darwin");
 assert.equal(process.versions.node.split(".")[0], "24");
@@ -16,7 +16,8 @@ try {
   const bundle = join(temporary, "host.cjs");
   await build({
     stdin: {
-      contents: `import { spawn } from 'node-pty';
+      contents: `if (process.argv[2] === '--prime-rosetta') { console.log(process.arch); process.exit(0); }
+const { spawn } = require('node-pty');
 const child = spawn('/bin/sh', ['-f', '-c', 'printf foom-native-signing-ok'], {
   name: 'xterm', cols: 80, rows: 24, cwd: ${JSON.stringify(temporary)},
   env: { PATH: '/usr/bin:/bin', HOME: ${JSON.stringify(temporary)} }
@@ -56,6 +57,7 @@ child.onExit(({exitCode}) => { clearTimeout(timer); if (exitCode !== 0 || output
     source,
     { identity: "-" },
   );
+  primeDarwinHost(executable, process.arch);
   assert.equal(run(executable, [], { timeout: 20000 }).trim(), "foom-native-signing-ok");
   for (const name of ["pty.node", "spawn-helper"])
     run("codesign", ["--verify", "--strict", join(output, "native", name)]);
@@ -68,6 +70,8 @@ child.onExit(({exitCode}) => { clearTimeout(timer); if (exitCode !== 0 || output
     }),
   );
   await rm(join(output, "native"), { recursive: true });
+  // Re-signing changes the code identity used by Rosetta's translation cache.
+  primeDarwinHost(executable, process.arch);
   let adhocWithoutException = "accepted";
   try {
     assert.equal(run(executable, [], { timeout: 20000 }).trim(), "foom-native-signing-ok");
