@@ -441,7 +441,9 @@ selecting the latest artifact for each platform/shard by creation timestamp and
 checking its ID against the successful job log. Artifact IDs are not chronological.
 Both runs became green after their single failed-jobs rerun; only their complete
 passing JUnit reports are inputs. The existing rebalance script accepts all 261
-current registrations across these 24 unmodified reports.
+registrations present at that refresh across these 24 unmodified reports.
+The later queued-board-close regression uses the existing name-hash fallback
+until a subsequent measurement refresh.
 
 The latter run's first macOS shard 2 attempt exhausted its 840s step budget;
 main run [41339094760](https://github.com/scott-r-lindsey/foom/actions/runs/41339094760)

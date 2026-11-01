@@ -10,7 +10,10 @@ control runtime and evaluator route for the app. Window creation is serialized.
 top frame and exact app page before dispatch; each capability retains its payload
 validation. Unknown windows and confirmation renderers cannot use board channels.
 Closing a board unregisters only its own routes and disposes its trusted dialog,
-setup IPC and menu listeners. It never disposes the workspace or terminal host.
+setup IPC and menu listeners. Disposing its trusted dialog declines queued
+requests before waiting for any other board, releasing their callers' repository
+registration reservations once their own preparation has settled. It never
+disposes the workspace or terminal host.
 
 `terminal-views.ts` holds app-wide view reservations. ID-only `windows:sync` reserves
 up to 256 known sessions for one window and returns accepted IDs. Another window's

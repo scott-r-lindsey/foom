@@ -844,3 +844,149 @@ test("merged cleanup skips Git-ignored build folders and exposes reasons when no
   );
   await assert.rejects(realpath(merged.path), { code: "ENOENT" });
 });
+
+test("closing a board declines its queued cleanup and releases its repository before another board answers", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-queued-cleanup-")));
+  removeAfterApps(context, root);
+  const home = path.join(root, "home");
+  await mkdir(home);
+  const repos = [path.join(root, "front"), path.join(root, "queued")];
+  const trees = repos.map((repo) => `${repo}-merged`);
+  for (const [index, repo] of repos.entries()) {
+    await mkdir(repo);
+    const git = (...args) =>
+      isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+        cwd: repo,
+      });
+    git("init", "-q", "-b", "main");
+    git("commit", "-q", "--allow-empty", "-m", "init");
+    git("clone", "--bare", repo, `${repo}-remote.git`);
+    git("remote", "add", "origin", `${repo}-remote.git`);
+    git("worktree", "add", "-b", "merged", trees[index]);
+  }
+  const app = await launchApp(context, { fixture: "empty-board", home });
+  fixtureCleanup(context).apps.unshift(async () => {
+    await app
+      .evaluate(() => {
+        for (const request of globalThis.queuedCleanupRequests ?? []) request.dialog.dispose();
+      })
+      .catch(() => {});
+  });
+  const first = await boardPage(app);
+  await app.evaluate(({ app, dialog }, repos) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Workspace } = load("./build/main/workspace/workspace.js");
+    const { TrustedDialog } = load("./build/main/confirmations/trusted-dialog.js");
+    const snapshot = Workspace.prototype.snapshot;
+    Workspace.prototype.snapshot = function (...args) {
+      globalThis.queuedCleanupWorkspace = this;
+      return snapshot.apply(this, args);
+    };
+    const request = TrustedDialog.prototype.request;
+    globalThis.queuedCleanupRequests = [];
+    TrustedDialog.prototype.request = function (content, ...args) {
+      if (!content.feed) return request.call(this, content, ...args);
+      const record = { dialog: this, feed: content.feed, answer: undefined };
+      globalThis.queuedCleanupRequests.push(record);
+      return request.call(this, content, ...args).then((answer) => {
+        record.answer = answer;
+        return answer;
+      });
+    };
+    let next = 0;
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repos[next++]] });
+  }, repos);
+  for (let index = 0; index < repos.length; index++)
+    await first.evaluate(() => window.desktop.addRepository());
+  await first.evaluate(() => window.desktop.workspace());
+  await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  let second;
+  await expect
+    .poll(() => {
+      second = app
+        .windows()
+        .find((page) => page !== first && page.url() === "app://bundle/index.html");
+      return Boolean(second);
+    })
+    .toBe(true);
+  await expect(second.locator(".board-home")).toBeVisible();
+  const native = await app.browserWindow(first);
+  await native.evaluate((window) => window.focus());
+  await native.dispose();
+  const front = first.evaluate(
+    (repository) => window.desktop.sidebarCommand({ kind: "delete-merged-worktrees", repository }),
+    repos[0],
+  );
+  void front.catch(() => {});
+  await expect
+    .poll(() => app.evaluate(() => globalThis.queuedCleanupRequests[0]?.feed.current().stage))
+    .toBe("ready");
+  const confirmation = await confirmationPage(app);
+  await expect(confirmation.getByRole("button", { name: "Delete 1", exact: true })).toBeEnabled();
+  const queued = second.evaluate(
+    (repository) => window.desktop.sidebarCommand({ kind: "delete-merged-worktrees", repository }),
+    repos[1],
+  );
+  // Closing the board rejects its IPC call; the main-owned request must still settle.
+  void queued.catch(() => {});
+  await expect
+    .poll(() => app.evaluate(() => globalThis.queuedCleanupRequests[1]?.feed.current().stage))
+    .toBe("ready");
+  assert.equal(
+    await app.evaluate(
+      (_, repo) => globalThis.queuedCleanupWorkspace.owner.repositoryOperations.has(repo),
+      repos[1],
+    ),
+    true,
+  );
+  assert.equal(await app.evaluate(() => globalThis.queuedCleanupRequests[0].answer), undefined);
+  const closing = await app.browserWindow(second);
+  await closing.evaluate((window) => window.close());
+  await closing.dispose();
+  await expect
+    .poll(() => app.evaluate(() => globalThis.queuedCleanupRequests[1].answer))
+    .toBe(false);
+  await expect
+    .poll(() =>
+      app.evaluate(
+        (_, repo) => globalThis.queuedCleanupWorkspace.owner.repositoryOperations.has(repo),
+        repos[1],
+      ),
+    )
+    .toBe(false);
+  // The unrelated unanswered front presentation remains untouched throughout.
+  assert.equal(await app.evaluate(() => globalThis.queuedCleanupRequests[0].answer), undefined);
+  await app.evaluate(
+    async (_, repo) => globalThis.queuedCleanupWorkspace.removeRepository(repo),
+    repos[1],
+  );
+  assert.equal(
+    (await first.evaluate(() => window.desktop.workspace())).repositories.some(
+      (repo) => repo.path === repos[1],
+    ),
+    false,
+  );
+  assert.equal(await realpath(trees[1]), trees[1], "declining cleanup must preserve its checkout");
+  await app.evaluate(() => {
+    const window = globalThis.queuedCleanupRequests[0].dialog.window;
+    window.focus();
+    window.webContents.focus();
+  });
+  await assertConfirmationFocus(
+    app,
+    confirmation,
+    confirmation.getByRole("button", { name: "Cancel", exact: true }),
+  );
+  await confirmation.getByRole("button", { name: "Delete 1", exact: true }).click();
+  await front;
+  await assert.rejects(realpath(trees[0]), { code: "ENOENT" });
+  assert.equal(await realpath(trees[1]), trees[1]);
+  assert.equal(
+    await app.evaluate(() => globalThis.queuedCleanupRequests[1].dialog.pending !== undefined),
+    false,
+  );
+});

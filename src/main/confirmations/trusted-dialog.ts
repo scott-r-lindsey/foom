@@ -9,6 +9,7 @@ import type {
   MouseInputEvent,
   Rectangle,
   WebContents,
+  WebContentsDidStartNavigationEventParams,
 } from "electron";
 import type { DialogContent, DialogRequest } from "../../shared/confirmation";
 import type { InterfaceTheme } from "../../shared/interface-theme";
@@ -18,6 +19,7 @@ import {
   RemovalPresentations,
   RemovalReview,
   removalContent,
+  declineOnAbort,
 } from "./removal-review";
 
 export const CONFIRMATION_URL = "app://confirmation/confirmation.html";
@@ -40,6 +42,7 @@ export class TrustedDialog {
   private queue: Promise<unknown> = Promise.resolve();
   private size: { width: number; height: number } | undefined;
   private disposed = false;
+  private readonly admissions = new Set<{ controller: AbortController; active: boolean }>();
   private readonly parentContents: WebContents;
   private parentEnabled = true;
   private parentFocusable = true;
@@ -57,11 +60,27 @@ export class TrustedDialog {
     private readonly removalPresentations = new RemovalPresentations(),
   ) {
     this.parentContents = parent.webContents;
+    this.parent.once("closed", this.ownerClosed);
+    this.parentContents.once("destroyed", this.ownerClosed);
+    this.parentContents.on("render-process-gone", this.cancelQueued);
+    this.parentContents.on("did-start-navigation", this.ownerNavigating);
     ipcMain.on("confirmation:answer", this.answer);
     ipcMain.on("confirmation:size", this.resize);
     ipcMain.on("confirmation:copy-path", this.copyPath);
     this.prepare();
   }
+  private readonly ownerClosed = () => {
+    this.dispose();
+  };
+  private readonly cancelQueued = () => {
+    for (const admission of this.admissions) if (!admission.active) admission.controller.abort();
+  };
+  private readonly ownerNavigating = ({
+    isMainFrame,
+    isSameDocument,
+  }: Event<WebContentsDidStartNavigationEventParams>) => {
+    if (isMainFrame && !isSameDocument) this.cancelQueued();
+  };
   private readonly answer = (event: IpcMainEvent, id: unknown, accepted: unknown) => {
     const contents = this.window?.webContents;
     if (
@@ -249,6 +268,7 @@ export class TrustedDialog {
     window.on("closed", () => {
       if (this.window !== window) return;
       this.window = undefined;
+      this.cancelQueued();
       this.finish(false);
     });
     window.on("close", (event) => {
@@ -256,6 +276,8 @@ export class TrustedDialog {
       this.finish(false, true);
     });
     window.webContents.on("render-process-gone", () => {
+      if (this.window !== window) return;
+      this.cancelQueued();
       this.finish(false);
       window.destroy();
       this.window = undefined;
@@ -263,6 +285,8 @@ export class TrustedDialog {
     this.ready = window.loadURL(CONFIRMATION_URL);
     // A failed preload/page never approves; allow the next request to retry.
     void this.ready.catch(() => {
+      if (this.window !== window) return;
+      this.cancelQueued();
       this.finish(false);
       window.destroy();
       this.window = undefined;
@@ -277,31 +301,48 @@ export class TrustedDialog {
     signal?: AbortSignal,
     { activate = false }: { activate?: boolean } = {},
   ): Promise<boolean> {
+    if (this.disposed || signal?.aborted) return Promise.resolve(false);
     if (content.removal)
       return this.removals.request(content.removal.group, content.removal.item, signal);
-    const present = () => this.enqueue(content, signal, activate);
-    return content.removalFeed || content.feed ? this.removalPresentations.run(present) : present();
+    const admission = { controller: new AbortController(), active: false };
+    this.admissions.add(admission);
+    const cancellation = signal
+      ? AbortSignal.any([signal, admission.controller.signal])
+      : admission.controller.signal;
+    const result = declineOnAbort(
+      this.enqueue(content, cancellation, activate, admission),
+      cancellation,
+    );
+    return result.finally(() => {
+      this.admissions.delete(admission);
+    });
+  }
+  private isCancelled(signal: AbortSignal): boolean {
+    return this.disposed || signal.aborted;
   }
   private enqueue(
     content: DialogContent,
-    signal: AbortSignal | undefined,
+    signal: AbortSignal,
     activate: boolean,
+    admission: { active: boolean },
   ): Promise<boolean> {
-    const result = this.queue.then(async () => {
-      if (this.disposed || this.parent.isDestroyed() || signal?.aborted) return false;
+    const present = async () => {
+      if (this.parent.isDestroyed() || this.isCancelled(signal)) return false;
       this.prepare();
       try {
-        await this.ready;
+        const ready = await declineOnAbort(
+          (this.ready ?? Promise.resolve()).then(() => true),
+          signal,
+        );
+        if (!ready) return false;
       } catch {
         return false;
       }
       const window = this.window;
-      if (!window || signal?.aborted) return false;
+      if (!window || this.isCancelled(signal)) return false;
       const id = randomUUID();
       const { feed, removalFeed, ...renderContent } = content;
       delete renderContent.removal;
-      this.removalFeed = removalFeed;
-      this.feed = feed;
       const request: DialogRequest = {
         ...renderContent,
         id,
@@ -310,10 +351,14 @@ export class TrustedDialog {
         ...(feed ? { cleanup: feed.current() } : {}),
         ...(removalFeed ? removalContent(removalFeed.current()) : {}),
       };
+      if (this.isCancelled(signal)) return false;
+      this.removalFeed = removalFeed;
+      this.feed = feed;
       this.size = undefined;
       this.settled = false;
       this.bounds = undefined;
       const answer = new Promise<boolean>((resolve) => {
+        admission.active = true;
         this.pending = { id, request, resolve, activate };
       });
       this.unsubscribe = feed?.subscribe(() => {
@@ -338,7 +383,14 @@ export class TrustedDialog {
       const cancel = () => {
         if (this.pending && this.removalFeed === removalFeed) this.finish(false, true);
       };
-      signal?.addEventListener("abort", cancel, { once: true });
+      signal.addEventListener("abort", cancel, { once: true });
+      if (this.isCancelled(signal)) {
+        cancel();
+        this.unsubscribe?.();
+        this.unsubscribe = undefined;
+        signal.removeEventListener("abort", cancel);
+        return answer;
+      }
       this.parentEnabled = this.parent.isEnabled();
       if (this.platform === "darwin") {
         // Electron disables macOS windows with an attached translucent sheet,
@@ -372,8 +424,15 @@ export class TrustedDialog {
       try {
         return await answer;
       } finally {
-        signal?.removeEventListener("abort", cancel);
+        signal.removeEventListener("abort", cancel);
       }
+    };
+    const result = this.queue.then(() => {
+      if (this.isCancelled(signal)) return false;
+      // Do not reserve the app slot while waiting for this board's own dialog.
+      return content.removalFeed || content.feed
+        ? this.removalPresentations.run(present, signal)
+        : present();
     });
     this.queue = result;
     return result;
@@ -585,7 +644,7 @@ export class TrustedDialog {
       }
       // The renderer must not select its input while the Windows board is
       // still disabled or before native web focus has been requested.
-      this.parentContents.send("confirmation:scrim", false);
+      if (!this.parentContents.isDestroyed()) this.parentContents.send("confirmation:scrim", false);
     }
     // Leave Electron's native IPC/close callback before resuming shutdown work.
     setImmediate(() => {
@@ -593,8 +652,14 @@ export class TrustedDialog {
     });
   }
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
+    for (const admission of this.admissions) admission.controller.abort();
     this.finish(false);
+    this.parent.removeListener("closed", this.ownerClosed);
+    this.parentContents.removeListener("destroyed", this.ownerClosed);
+    this.parentContents.removeListener("render-process-gone", this.cancelQueued);
+    this.parentContents.removeListener("did-start-navigation", this.ownerNavigating);
     ipcMain.removeListener("confirmation:answer", this.answer);
     ipcMain.removeListener("confirmation:size", this.resize);
     ipcMain.removeListener("confirmation:copy-path", this.copyPath);

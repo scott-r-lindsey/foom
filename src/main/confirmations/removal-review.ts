@@ -35,18 +35,46 @@ export function removalContent(items: readonly RemovalItem[]): DialogContent {
   };
 }
 
+/** Cancellation releases the caller without waiting for another presentation. */
+export function declineOnAbort(result: Promise<boolean>, signal?: AbortSignal): Promise<boolean> {
+  if (!signal) return result;
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      signal.removeEventListener("abort", cancel);
+    };
+    const cancel = () => {
+      cleanup();
+      resolve(false);
+    };
+    signal.addEventListener("abort", cancel, { once: true });
+    void result.then(
+      (answer) => {
+        cleanup();
+        resolve(answer);
+      },
+      (error: unknown) => {
+        cleanup();
+        reject(error instanceof Error ? error : new Error("Confirmation presentation failed"));
+      },
+    );
+    if (signal.aborted) cancel();
+  });
+}
+
 /** All boards share one removal presentation slot, including live cleanup reviews. */
 export class RemovalPresentations {
   private queue: Promise<void> = Promise.resolve();
 
-  run(present: () => Promise<boolean>): Promise<boolean> {
-    const result = this.queue.then(present);
+  run(present: () => Promise<boolean>, signal?: AbortSignal): Promise<boolean> {
+    const result = this.queue.then(() => (signal?.aborted ? false : present()));
     // One failed presentation must not strand later reviews on any board.
     this.queue = result.then(
       () => undefined,
       () => undefined,
     );
-    return result;
+    // Keep the slot until an active presentation has actually finished hiding.
+    // Only the caller settles early; an abandoned queued callback never starts.
+    return declineOnAbort(result, signal);
   }
 }
 
