@@ -16,6 +16,13 @@ const {
   restartShellFromSidebar,
 } = require("./harness.js");
 
+// Attachment and a painted cursor can precede interactive login readiness.
+async function expectShellPrompt(page, id) {
+  await expect
+    .poll(() => page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id))
+    .toMatch(process.platform === "win32" ? /PS [\s\S]*>\s*$/ : /[$#%>]\s*$/);
+}
+
 test("board starts with live terminals only and focuses rows without opening", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell", shell: "hidden" });
   const page = await boardPage(app);
@@ -494,6 +501,9 @@ for (const pinned of [false, true]) {
     await expect(page.locator(".board-row[data-kind='shell']")).toHaveCount(1);
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
     await expect(page.locator(".xterm-focus .xterm-cursor-blink")).toBeVisible();
+    const created = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+    assert.ok(created);
+    await expectShellPrompt(page, created.id);
     await page.keyboard.type("echo FIRST_CLICK_'985'");
     await page.keyboard.press("Enter");
     await expect(page.locator(".xterm-rows")).toContainText("FIRST_CLICK_985");
@@ -539,6 +549,8 @@ test("shell launch paths select the new shell and its blinking input cursor", as
       (terminal) => !before.has(terminal.id),
     );
     assert.ok(created);
+    await expectShellPrompt(page, created.id);
+    context.diagnostic(`Shell ${entry} is ready for input after focus`);
     await page.keyboard.type(
       process.platform === "win32" ? "echo ('FOCUSED_' + '985')" : "echo FOCUSED_'985'",
     );
