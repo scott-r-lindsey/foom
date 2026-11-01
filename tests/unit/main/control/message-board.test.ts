@@ -443,6 +443,90 @@ describe("main-owned child threads", () => {
       vi.useRealTimers();
     }
   });
+  it("reserves removal bytes for every child at the byte cap and persists expiry across restart", async () => {
+    const path = await directory();
+    const limit = { bytes: 3500, receipts: 65536 };
+    const board = new MessageBoard(
+      async (data) => {
+        await writeFile(join(path, "board.json"), JSON.stringify(data), { mode: 0o600 });
+      },
+      repos,
+      () => {},
+      limit,
+    );
+    for (const id of ["one", "two"])
+      await board.childEvent(
+        "a",
+        { id, worktreeId: "tree" },
+        "branch",
+        "launch",
+        { prompt: "Task" },
+        id,
+      );
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        board.childEvent(
+          "a",
+          { id: "one", worktreeId: "tree" },
+          "branch",
+          "handoff",
+          { summary: "x".repeat(2000) },
+          "full",
+        ),
+      ).rejects.toThrow("capacity");
+      const timestamp = new Date().toISOString();
+      await board.worktreeRemoved("unknown", timestamp);
+      await board.worktreeRemoved("tree", timestamp);
+      await board.worktreeRemoved("tree", new Date(Date.now() + 1000).toISOString());
+      expect(Buffer.byteLength(await readFile(join(path, "board.json")))).toBeLessThanOrEqual(
+        limit.bytes,
+      );
+      const restored = await MessageBoard.open(path, repos, () => {});
+      expect(restored.childThreads().map((row) => row.child?.removedAt)).toEqual([
+        timestamp,
+        timestamp,
+      ]);
+      for (const thread of restored.childThreads())
+        expect(restored.read({ thread: thread.id }).posts).toHaveLength(2);
+      const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31 * 86400000);
+      try {
+        const pruned = await MessageBoard.open(path, repos, () => {});
+        expect(pruned.childThreads()).toEqual([]);
+      } finally {
+        now.mockRestore();
+      }
+    } finally {
+      log.mockRestore();
+    }
+  });
+  it("keeps expiry retry fail-closed after an ambiguous save", async () => {
+    const save = vi.fn(async (_data: unknown) => {});
+    const board = new MessageBoard(save, repos);
+    await board.childEvent(
+      "a",
+      { id: "child", worktreeId: "tree" },
+      "branch",
+      "launch",
+      {},
+      "launch",
+    );
+    save.mockRejectedValueOnce(new Error("disk"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(board.worktreeRemoved("tree", new Date().toISOString())).rejects.toThrow(
+        "unavailable",
+      );
+      await expect(board.flushChildren()).rejects.toThrow("unavailable");
+      await expect(board.worktreeRemoved("tree", new Date().toISOString())).rejects.toThrow(
+        "unavailable",
+      );
+      expect(board.childThreads()[0]?.child?.removedAt).toBeUndefined();
+      expect(save).toHaveBeenCalledTimes(2);
+    } finally {
+      log.mockRestore();
+    }
+  });
   it("refuses later event writes after persistence failure and exposes failure to mutation flushes", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     try {

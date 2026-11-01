@@ -1,3 +1,5 @@
+import { MessageBoard } from "../../../../src/main/control/message-board";
+import { locationId } from "../../../../src/main/control/metadata";
 import { expect, test, vi } from "vitest";
 import { UncertainEffect } from "../../../../src/main/workspace/worktree-outcome";
 import {
@@ -44,6 +46,19 @@ test.each(["success", "cancel", "uncertain"])(
     };
     const kill = vi.fn(() => Promise.resolve());
     const workspace = createWorkspace({ ...deps, hosts, terminals: { ...deps.terminals, kill } });
+    const board = new MessageBoard(
+      async () => {},
+      () => [{ id: locationId(repo.path), name: "Repo" }],
+    );
+    workspace.orchestration.setBoard(board);
+    await board.childEvent(
+      locationId(repo.path),
+      { id: "closed-child", worktreeId: locationId(path) },
+      "unused",
+      "launch",
+      { prompt: "Task" },
+      "launch",
+    );
     launch.mockImplementation(() =>
       Promise.resolve({
         id: "human",
@@ -73,6 +88,15 @@ test.each(["success", "cancel", "uncertain"])(
       hosts.worktree.mock.calls.filter(([, , action]) => action.operation === "remove-worktree"),
     ).toHaveLength(outcome === "cancel" ? 0 : 1);
     expect(workspace.snapshot().terminals).toHaveLength(outcome === "success" ? 0 : 1);
+    await board.flushChildren();
+    expect(board.childThreads()[0]?.child?.removedAt !== undefined).toBe(outcome === "success");
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31 * 86400000);
+    try {
+      await board.prune();
+      expect(board.childThreads()).toHaveLength(outcome === "success" ? 0 : 1);
+    } finally {
+      now.mockRestore();
+    }
     if (outcome === "success") expect(kill).toHaveBeenCalledWith("human", "worker");
     else expect(kill).not.toHaveBeenCalled();
   },

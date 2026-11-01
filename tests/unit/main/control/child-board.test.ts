@@ -1,3 +1,7 @@
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ControlStore } from "../../../../src/main/control/store";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MessageBoard } from "../../../../src/main/control/message-board";
 import { locationId } from "../../../../src/main/control/metadata";
@@ -82,6 +86,67 @@ describe("child event board integration", () => {
       expect(JSON.stringify(h.persist.mock.calls)).not.toContain("super-private-answer");
     },
   );
+  it("omits sensitive replies and keys from actual board, audit and operation files through failures and retries", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "foom-child-board-private-"));
+    const board = await MessageBoard.open(
+      directory,
+      () => [{ id: locationId(repo), name: "Repo" }],
+      () => {},
+    );
+    const store = new ControlStore(directory);
+    const h = harness({}, board);
+    cleanups.push(() => {
+      h.orchestration.disposeUnreadChildren();
+    });
+    h.persist.mockImplementation((record) => store.persist(record));
+    try {
+      const { id } = await h.child("feature");
+      const row = h.rows.get(id);
+      if (!row) throw new Error("missing child");
+      const cases = [
+        { text: "FIXTURE_SECRET_EXPLICIT", sensitive: true },
+        { text: "FIXTURE_SECRET_CREDENTIAL", kind: "credential" as const, failure: true },
+        { text: "FIXTURE_SECRET_PROVIDER", kind: "provider" as const },
+      ];
+      for (const [index, item] of cases.entries()) {
+        row.state = item.kind
+          ? {
+              id,
+              state: "needs_input",
+              attentionKind: item.kind,
+              verdictId: null,
+              reason: "fixture",
+              signal: "fixture",
+              timestamp: Date.now(),
+              confidence: 1,
+            }
+          : null;
+        if (item.failure) h.host.reply.mockRejectedValueOnce(new Error(item.text));
+        const params = {
+          id,
+          text: item.text,
+          ...(item.sensitive ? { sensitive: true } : {}),
+          idempotencyKey: `secret-${String(index)}`,
+        };
+        const op = await h.mutate("prompt", params);
+        const calls = h.host.reply.mock.calls.length;
+        await h.mutate("prompt", params);
+        expect(h.host.reply.mock.calls).toHaveLength(calls);
+        expect(
+          await h.call("operation_status", { idempotencyKey: params.idempotencyKey }),
+        ).toMatchObject({ status: op.status });
+      }
+      await h.mutate("send_keys", { id, keys: ["ctrl+c", "enter"] });
+      await board.flushChildren();
+      for (const name of await readdir(directory)) {
+        const bytes = await readFile(join(directory, name), "utf8");
+        expect(bytes).not.toContain("FIXTURE_SECRET_");
+        expect(bytes).not.toContain("ctrl+c");
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it("records normal and automatic prompts, key count, handoff/verdict, stop, close and removal outcome", async () => {
     const h = fixture();
     const tree = await h.mutate("create_worktree", { branch: "feature" });
@@ -204,6 +269,57 @@ describe("child event board integration", () => {
     await h.orchestration.worktreeRemoved(path);
     expect(h.board.childThreads()[0]?.child?.removedAt).toBeDefined();
     expect(await h.text(id)).toContain("worktree removal");
+  });
+  it("starts retention at the receipt cap and recovers child writes after pruning", async () => {
+    const board = new MessageBoard(
+      async () => {},
+      () => [{ id: locationId(repo), name: "Repo" }],
+      () => {},
+      { bytes: 32768, receipts: 1 },
+    );
+    const h = harness({}, board);
+    h.advance(Date.now() - 1_000_000);
+    cleanups.push(() => {
+      h.orchestration.disposeUnreadChildren();
+    });
+    const { id } = await h.child("feature");
+    const row = h.rows.get(id);
+    if (!row) throw new Error("missing child");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        board.childEvent(
+          locationId(repo),
+          { id, worktreeId: locationId(row.worktree) },
+          "feature",
+          "prompt",
+          {},
+          "full",
+        ),
+      ).rejects.toThrow("capacity");
+      await h.orchestration.worktreeRemoved(row.worktree);
+      await board.flushChildren();
+      expect(board.childThreads()[0]?.child?.removedAt).toBeDefined();
+      const now = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31 * 86400000);
+      try {
+        await board.prune();
+        expect(board.childThreads()).toHaveLength(0);
+        await board.childEvent(
+          locationId(repo),
+          { id: "next", worktreeId: "next-tree" },
+          "next",
+          "launch",
+          {},
+          "next",
+        );
+        await board.flushChildren();
+        expect(board.childThreads()).toHaveLength(1);
+      } finally {
+        now.mockRestore();
+      }
+    } finally {
+      log.mockRestore();
+    }
   });
   it("keeps distinct handoffs when a fresh launch restores an older report sequence", async () => {
     const h = fixture();

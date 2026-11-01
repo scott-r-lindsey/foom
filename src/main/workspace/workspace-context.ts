@@ -631,7 +631,7 @@ export class WorkspaceContext {
       const tree = this.deps.hosts?.placement?.(worktree, repository);
       if (!tree || tree.localRepository !== repository)
         throw new Error("Remote worktree unavailable");
-      return this.orchestrationHost.remove(
+      const removed = await this.orchestrationHost.remove(
         repository,
         worktree,
         tree.identity,
@@ -654,6 +654,8 @@ export class WorkspaceContext {
           this.known(repository);
         },
       );
+      if (removed) await this.orchestration.worktreeRemoved(worktree);
+      return removed;
     }
     const key = `${repository}\0${branch ?? ""}`;
     if (this.busyWorktrees.has(key)) throw new RemovalError("busy", "This worktree is busy");

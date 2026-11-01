@@ -77,8 +77,10 @@ escalation transitions, stop/close and removal outcomes are recorded. Reviewer
 launch/resume prompts are marked automatic; callers mark capacity continuation
 nudges with `automatic: true` / `--automatic`. PR discovery adds an inert link post.
 Terminal output, tails, screens, raw hooks and key values never enter this writer.
-Events are plain-text JSON data with visible escapes for controls and formatting
-characters. Each post is at most 8192 UTF-8 bytes; oversized event text and titles
+Stored events are plain-text JSON data with visible escapes for controls and formatting
+characters. The panel renders fixed human-readable templates from validated named
+fields, omitting internal session/author/terminal IDs and raw JSON. Child rows
+include their branch/worktree title and launch time. Each post is at most 8192 UTF-8 bytes; oversized event text and titles
 end with `⟨truncated⟩` at a Unicode code-point boundary. Handoff body and review
 verdict are separate events so a long summary does not displace the verdict.
 
@@ -98,6 +100,9 @@ worktree removal records its timestamp on every associated child thread. Those
 threads become unreadable exactly 30 days later; startup and subsequent writes
 physically prune threads, posts and their idempotency receipts together. Failed,
 declined and uncertain removals do not start expiry. Before removal there is no age
-expiry. The existing 32 MiB/receipt bounds still refuse writes rather than silently
-evicting events. Serialized writes preserve event order; recording failure is exposed
+expiry. Ordinary writes reserve bytes for each child thread’s final removal post and
+timestamp. Successful removal uses that reservation without another receipt,
+even when ordinary writes have reached the 32 MiB/receipt bounds. Local and
+registered-host human removal share this expiry notification. Other writes still
+refuse at capacity rather than silently evicting events. Serialized writes preserve event order; recording failure is exposed
 through mutation flushes and a fixed diagnostic without contents.

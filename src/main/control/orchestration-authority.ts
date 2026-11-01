@@ -64,19 +64,9 @@ export class OrchestrationAuthority {
   async worktreeRemoved(worktree: string): Promise<void> {
     if (!this.board) return;
     const worktreeId = locationId(worktree);
-    for (const thread of this.board.childThreads()) {
-      if (!thread.child || thread.child.worktreeId !== worktreeId || thread.child.removedAt)
-        continue;
-      await this.board.childEvent(
-        thread.repository,
-        { ...thread.child, removedAt: new Date(this.now()).toISOString() },
-        thread.title,
-        "worktree removal",
-        { status: "succeeded" },
-        `removed-${worktreeId}`,
-      );
-    }
+    await this.board.worktreeRemoved(worktreeId, new Date(this.now()).toISOString());
   }
+
   readonly reviews: ReviewLoops;
   private readonly reviewEffects: ReviewEffects;
   private readonly finishedChildren: FinishedChildCloser;
@@ -734,15 +724,16 @@ export class OrchestrationAuthority {
       if (operation.action === "remove_worktree" && this.board) {
         for (const thread of this.board.childThreads())
           if (thread.child?.worktreeId === operation.targetId) {
-            const child = {
-              ...thread.child,
-              ...(operation.status === "succeeded"
-                ? { removedAt: new Date(this.now()).toISOString() }
-                : {}),
-            };
+            if (operation.status === "succeeded") {
+              void this.board.worktreeRemoved(
+                thread.child.worktreeId,
+                new Date(this.now()).toISOString(),
+              );
+              break;
+            }
             void this.board.childEvent(
               thread.repository,
-              child,
+              thread.child,
               thread.title,
               "worktree removal",
               content,

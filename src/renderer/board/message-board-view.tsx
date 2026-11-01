@@ -6,6 +6,7 @@ import type {
   MessagePost,
   ThreadState,
 } from "../../shared/message-board";
+import { childPostText } from "../../shared/message-board-presentation";
 import { boardText } from "../../shared/message-board-validation";
 import { ActionError, useBackgroundErrors } from "./error-presentation";
 
@@ -217,6 +218,12 @@ export function MessageBoardPanel({
                   ? `${name(row.repository)} · Child`
                   : `${name(row.repository)} → ${row.to.map(name).join(", ")}`}
               </span>
+              {row.child && (
+                <span>
+                  Started{" "}
+                  <time dateTime={row.createdAt}>{new Date(row.createdAt).toLocaleString()}</time>
+                </span>
+              )}
               <span className="message-thread-state">
                 {row.state === "waiting-human" ? "◇ " : ""}
                 {states[row.state]}
@@ -258,7 +265,11 @@ export function MessageBoardPanel({
                       {new Date(post.timestamp).toLocaleString()}
                     </time>
                   </div>
-                  <p>{post.text}</p>
+                  <p>
+                    {selected.thread.child && post.author !== "human"
+                      ? childPostText(post.text)
+                      : post.text}
+                  </p>
                   {post.links.map((link, index) => (
                     <code key={`${String(index)}:${link}`}>{link}</code>
                   ))}

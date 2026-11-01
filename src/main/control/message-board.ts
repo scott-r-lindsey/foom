@@ -409,24 +409,29 @@ export class MessageBoard {
       return result + " ⟨truncated⟩";
     };
     const text = bounded(raw, 8192);
-    const task = this.childWrites.then(async () => {
-      const thread = this.data.threads.find((row) => row.child?.id === child.id);
-      await this.append(
-        `orchestrator:${repository}`,
-        `child:${child.id}`,
-        {
-          ...(thread
-            ? { thread: thread.id }
-            : { title: bounded(visible(title.trim() ? title : child.id), 200), to: [repository] }),
-          kind: "fyi",
-          text,
-          links,
-          idempotencyKey: key,
-        },
-        () => {},
-        { ...thread?.child, ...child },
-      );
-    });
+    const task = this.childWrites
+      .catch(() => undefined)
+      .then(async () => {
+        const thread = this.data.threads.find((row) => row.child?.id === child.id);
+        await this.append(
+          `orchestrator:${repository}`,
+          `child:${child.id}`,
+          {
+            ...(thread
+              ? { thread: thread.id }
+              : {
+                  title: bounded(visible(title.trim() ? title : child.id), 200),
+                  to: [repository],
+                }),
+            kind: "fyi",
+            text,
+            links,
+            idempotencyKey: key,
+          },
+          () => {},
+          { ...thread?.child, ...child },
+        );
+      });
     this.childWrites = task;
     // Observe asynchronous lifecycle writes without exposing any post content in diagnostics.
     void task.catch(() => {
@@ -439,6 +444,62 @@ export class MessageBoard {
   }
   childThreads(): MessageThread[] {
     return structuredClone(this.data.threads.filter((row) => row.child));
+  }
+  /** No receipt is needed: the immutable timestamp makes successful removal idempotent. */
+  worktreeRemoved(worktreeId: string, timestamp: string): Promise<void> {
+    const task = this.childWrites
+      .catch(() => undefined)
+      .then(async () => {
+        const write = this.writes.then(async () => {
+          if (this.failed) throw new ControlError("unavailable");
+          const next = structuredClone(this.data);
+          let changed = false;
+          for (const thread of next.threads) {
+            if (thread.child?.worktreeId !== worktreeId || thread.child.removedAt) continue;
+            this.markRemoved(next, thread, timestamp);
+            changed = true;
+          }
+          if (!changed) return;
+          try {
+            await this.save(next);
+          } catch {
+            this.failed = true;
+            throw new ControlError("unavailable");
+          }
+          this.data = next;
+          this.changed();
+        });
+        this.writes = write.catch(() => undefined);
+        await write;
+      });
+    this.childWrites = task;
+    void task.catch(() => {
+      console.error("Child board recording unavailable");
+    });
+    return task;
+  }
+  private markRemoved(data: Data, thread: MessageThread, timestamp: string): void {
+    if (!thread.child) return;
+    thread.child.removedAt = timestamp;
+    thread.updatedAt = timestamp;
+    data.posts.push({
+      id: randomUUID(),
+      thread: thread.id,
+      author: `orchestrator:${thread.repository}`,
+      kind: "fyi",
+      text: 'worktree removal · {"status":"succeeded"}',
+      links: [],
+      timestamp,
+    });
+  }
+  /** Reserve the complete final post and expiry metadata before accepting ordinary writes. */
+  private reservedBytes(data: Data): number {
+    const reserved = structuredClone(data);
+    for (const thread of reserved.threads) {
+      if (thread.child && !thread.child.removedAt)
+        this.markRemoved(reserved, thread, "2000-01-01T00:00:00.000Z");
+    }
+    return Buffer.byteLength(JSON.stringify(reserved));
   }
   private pruneData(data: Data): boolean {
     const expired = new Set(
@@ -492,8 +553,7 @@ export class MessageBoard {
       if (next.receipts.length >= this.limits.receipts) throw new ControlError("capacity");
       const result = change(next);
       next.receipts.push({ scope, key: hash(key), hash: fingerprint, result });
-      if (Buffer.byteLength(JSON.stringify(next)) > this.limits.bytes)
-        throw new ControlError("capacity");
+      if (this.reservedBytes(next) > this.limits.bytes) throw new ControlError("capacity");
       active();
       try {
         await this.save(next);

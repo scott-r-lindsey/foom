@@ -568,7 +568,19 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
       const panel = page.getByRole("region", { name: "Message board", exact: true });
       await panel.getByRole("button", { name: "Children", exact: true }).click();
       await panel.locator(`[data-thread="${authorThread.id}"]`).click();
-      await expect(panel.getByText(/findings forwarded/)).toBeVisible();
+      await expect(panel.getByText(/Findings forwarded/)).toBeVisible();
+      await expect(panel.getByText("Launched: Fixture task", { exact: true })).toBeVisible();
+      await expect(
+        panel.getByText("Prompt · ⟨redacted⟩ · delivered", { exact: true }),
+      ).toBeVisible();
+      const bodies = await panel.locator(".message-thread li p").allTextContents();
+      assert.ok(
+        bodies.every(
+          (body) =>
+            !body.includes('"authorId"') && !body.includes('"prompt"') && !body.includes(authorId),
+        ),
+      );
+      await expect(panel.locator(".message-thread-list time")).toHaveCount(3);
       await panel.getByLabel("Reply").fill("Keep this human note");
       await panel.getByRole("button", { name: "Children", exact: true }).click();
       await expect(panel.getByLabel("Reply")).toHaveValue("Keep this human note");
@@ -579,7 +591,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
           element.scrollTop = 0;
         });
         await panel.screenshot({ path: evidencePath(`child-board-974/story-${colorScheme}.png`) });
-        await panel.getByText(/findings forwarded/).scrollIntoViewIfNeeded();
+        await panel.getByText(/Findings forwarded/).scrollIntoViewIfNeeded();
         await panel.screenshot({
           path: evidencePath(`child-board-974/findings-${colorScheme}.png`),
         });
