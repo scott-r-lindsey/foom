@@ -1,5 +1,11 @@
 import { record, keys, remotePath, remoteReviewEvidence } from "./remote-agent-protocol";
-import type { RegisteredHost, HostManagement, HostResult, HostsAction } from "./registered-hosts.d";
+import type {
+  RegisteredHost,
+  HostManagement,
+  HostResult,
+  HostsAction,
+  HostRequirements,
+} from "./registered-hosts.d";
 
 export const HOST_CLONE_TIMEOUT_MS = 5 * 60 * 1000;
 export const HOST_NETWORK_GIT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -103,7 +109,10 @@ export function hostManagement(value: unknown): value is HostManagement {
       hostProfile(value["profile"])
     );
   if (value["operation"] === "inspect")
-    return keys(value, ["type", "operation", "codeFolder", "agents"]);
+    return (
+      keys(value, ["type", "operation", "codeFolder", "agents", "readOnly"]) &&
+      (value["readOnly"] === undefined || value["readOnly"] === true)
+    );
   if (
     value["operation"] === "create-worktree" ||
     value["operation"] === "inspect-worktree" ||
@@ -148,6 +157,27 @@ export function hostManagement(value: unknown): value is HostManagement {
 }
 const number = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value >= 0;
+function closed(value: unknown, values: readonly string[]): boolean {
+  return typeof value === "string" && values.includes(value);
+}
+export function hostRequirements(value: unknown): value is HostRequirements {
+  return (
+    record(value) &&
+    keys(value, ["distro", "libc", "packageManager", "mac"]) &&
+    closed(value["distro"], ["debian", "rhel", "arch", "darwin", "unknown"]) &&
+    closed(value["libc"], ["supported", "too-old", "unsupported"]) &&
+    closed(value["packageManager"], ["apt", "dnf", "pacman", "brew", "none"]) &&
+    (value["mac"] === undefined ||
+      (record(value["mac"]) &&
+        keys(value["mac"], ["commandLineTools", "staysAwake", "protectedFolder"]) &&
+        typeof value["mac"]["commandLineTools"] === "boolean" &&
+        typeof value["mac"]["staysAwake"] === "boolean" &&
+        typeof value["mac"]["protectedFolder"] === "boolean"))
+  );
+}
+function hostSignIn(value: unknown): boolean {
+  return value === "signed-in" || value === "signed-out" || value === "unknown";
+}
 export function hostResult(value: unknown): value is HostResult {
   if (!record(value)) return false;
   if (value["ok"] === false)
@@ -157,6 +187,9 @@ export function hostResult(value: unknown): value is HostResult {
       [
         "unreachable",
         "unsupported",
+        "facts-unavailable",
+        "libc-too-old",
+        "libc-unsupported",
         "artifact-unavailable",
         "folder-refused",
         "unsafe-folder",
@@ -221,7 +254,21 @@ export function hostResult(value: unknown): value is HostResult {
       "memoryTotal",
       "memoryAvailable",
       "agents",
+      "requirements",
+      "tools",
     ]) &&
+    (facts["requirements"] === undefined || hostRequirements(facts["requirements"])) &&
+    (facts["tools"] === undefined ||
+      (Array.isArray(facts["tools"]) &&
+        facts["tools"].length <= 2 &&
+        facts["tools"].every(
+          (tool: unknown) =>
+            record(tool) &&
+            keys(tool, ["id", "state", "signIn"]) &&
+            closed(tool["id"], ["git", "gh"]) &&
+            closed(tool["state"], ["ready", "missing", "unable"]) &&
+            hostSignIn(tool["signIn"]),
+        ))) &&
     codeFolder(facts["codeFolder"]) &&
     remotePath(facts["codeFolder"]) &&
     typeof facts["version"] === "string" &&
@@ -245,7 +292,8 @@ export function hostResult(value: unknown): value is HostResult {
     facts["agents"].every(
       (agent: unknown) =>
         record(agent) &&
-        keys(agent, ["id", "state"]) &&
+        keys(agent, ["id", "state", "signIn"]) &&
+        (agent["signIn"] === undefined || hostSignIn(agent["signIn"])) &&
         agentId(agent["id"]) &&
         typeof agent["state"] === "string" &&
         ["ready", "missing", "unable"].includes(agent["state"]),
@@ -262,6 +310,12 @@ export function hostsAction(value: unknown): value is HostsAction {
   if (!record(value)) return false;
   if (value["action"] === "list" || value["action"] === "locations") return keys(value, ["action"]);
   if (!hostAlias(value["host"])) return false;
+  if (value["action"] === "recipe")
+    return (
+      keys(value, ["action", "host", "tool", "operation"]) &&
+      agentId(value["tool"]) &&
+      (value["operation"] === "install" || value["operation"] === "sign-in")
+    );
   if (value["action"] === "refresh" || value["action"] === "remove" || value["action"] === "end")
     return keys(value, ["action", "host"]);
   if (value["action"] === "add" || value["action"] === "test")

@@ -11,6 +11,20 @@ import { promisify } from "node:util";
 import { gzip, gunzip } from "node:zlib";
 import { remoteHost } from "../../shared/remote-host-protocol";
 
+export const LINUX_LIBC_CHECK = `if ! libc=$(/usr/bin/getconf GNU_LIBC_VERSION 2>/dev/null); then
+  printf 'FOOM-LIBC-UNSUPPORTED\\n'; exit 1
+fi
+case "$libc" in
+  'glibc '*) version=\${libc#glibc }; major=\${version%%.*}; minor=\${version#*.};;
+  *) printf 'FOOM-LIBC-UNSUPPORTED\\n'; exit 1;;
+esac
+case "$version" in *.*) ;; *) printf 'FOOM-LIBC-UNSUPPORTED\\n'; exit 1;; esac
+case "$minor" in *.*) printf 'FOOM-LIBC-UNSUPPORTED\\n'; exit 1;; esac
+case "$major.$minor" in *[!0-9.]*|.*|*.) printf 'FOOM-LIBC-UNSUPPORTED\\n'; exit 1;; esac
+if ! { test "$major" -gt 2 || { test "$major" -eq 2 && test "$minor" -ge 28; }; } 2>/dev/null; then
+  printf 'FOOM-LIBC-TOO-OLD\\n'; exit 1
+fi`;
+
 async function boundedFile(path: string, limit: number): Promise<Buffer> {
   const fd = await open(
     path,
@@ -113,6 +127,7 @@ umask 077
 # Recheck on every connection before touching the cache or accepting an upload.
 test "$(uname -s)" = '${platform === "linux" ? "Linux" : "Darwin"}'
 test "$(uname -m)" = '${arch === "x64" ? "x86_64" : platform === "linux" ? "aarch64" : "arm64"}'
+${platform === "linux" ? LINUX_LIBC_CHECK : ""}
 case "$HOME" in /*) ;; *) exit 1;; esac
 test ! -L "$HOME" && test -d "$HOME" && test -O "$HOME"
 test "$(CDPATH= cd -- "$HOME" && pwd -P)" = "$HOME"

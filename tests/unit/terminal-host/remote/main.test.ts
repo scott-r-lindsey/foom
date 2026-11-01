@@ -11,6 +11,7 @@ const mock = vi.hoisted(() => ({
   cli: vi.fn(),
   mcp: vi.fn(),
   stage: vi.fn(),
+  recipe: vi.fn(),
 }));
 vi.mock("../../../../src/terminal-host/remote/agent-helper", () => ({
   observeRemote: mock.observe,
@@ -20,6 +21,7 @@ vi.mock("../../../../src/terminal-host/remote/agent-helper", () => ({
 vi.mock("../../../../src/terminal-host/remote/agent-launch", () => ({
   stageRemotePlugin: mock.stage,
 }));
+vi.mock("../../../../src/terminal-host/remote/host-recipe", () => ({ runHostRecipe: mock.recipe }));
 vi.mock("node:sea", () => ({ isSea: () => false }));
 vi.mock("node:fs", () => ({ readFileSync: mock.read }));
 vi.mock("node:net", () => ({ createConnection: mock.socket }));
@@ -208,4 +210,18 @@ test("remote helpers never connect to the terminal daemon and emit only fixed di
   await vi.advanceTimersByTimeAsync(0);
   expect(errors).toHaveBeenCalledWith("Remote plugin staging unavailable\n");
   output.mockRestore();
+});
+
+test("recipe mode returns only the helper exit code or a fixed failure", async () => {
+  mock.recipe.mockResolvedValueOnce(7);
+  runHost(["node", "host", "--recipe", "git", "install", "debian", "a".repeat(64)]);
+  await vi.waitFor(() => {
+    expect(process.exitCode).toBe(7);
+  });
+  expect(mock.recipe).toHaveBeenLastCalledWith(["git", "install", "debian", "a".repeat(64)]);
+  mock.recipe.mockRejectedValueOnce(new Error("PRIVATE"));
+  runHost(["node", "host", "--recipe"]);
+  await vi.waitFor(() => {
+    expect(process.exitCode).toBe(1);
+  });
 });

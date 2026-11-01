@@ -28,6 +28,11 @@ const mock = vi.hoisted(() => ({
   read: vi.fn(),
   lstat: vi.fn(),
   login: vi.fn(),
+  requirements: vi.fn(),
+}));
+vi.mock("../../../../src/terminal-host/remote/host-facts", () => ({
+  requirements: mock.requirements,
+  signInStatus: () => Promise.resolve("unknown"),
 }));
 vi.mock("node:fs/promises", async (original) => {
   const fs = await original<typeof fsPromises>();
@@ -61,6 +66,9 @@ import {
 let home: string;
 beforeEach(async () => {
   home = await realpath(await mkdtemp(join(tmpdir(), "management-")));
+  mock.requirements
+    .mockReset()
+    .mockResolvedValue({ distro: "unknown", libc: "supported", packageManager: "none" });
   mock.login.mockReset().mockResolvedValue({ PATH: "/fixture-login" });
   mock.checkout.mockReset().mockResolvedValue("identity");
   mock.discovery.mockReset().mockResolvedValue({ version: "1.0", help: "--help" });
@@ -1142,5 +1150,63 @@ test.skipIf(process.platform === "win32").each(["redirected", "cancelled"] as co
     ).toEqual({ ok: false, reason: "checkout-refused" });
     expect(await readdir(outside)).toEqual([]);
     if (mode === "cancelled") expect(await readdir(folder)).toEqual(["repo"]);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "missing Mac CLT never invokes the system git installer shim",
+  async () => {
+    mock.requirements.mockResolvedValue({
+      distro: "darwin",
+      libc: "supported",
+      packageManager: "none",
+      mac: { commandLineTools: false, staysAwake: false, protectedFolder: false },
+    });
+    const result = await manageHost(
+      { type: "manage", operation: "inspect", codeFolder: "~/code", agents: [] },
+      0,
+      "/fixture/shell",
+      "0.1.0",
+      home,
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      facts: {
+        tools: [
+          { id: "git", state: "unable", signIn: "unknown" },
+          { id: "gh", state: "ready" },
+        ],
+      },
+    });
+    expect(mock.discovery).not.toHaveBeenCalledWith(
+      expect.objectContaining({ executables: ["git"] }),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "read-only host facts never create a missing approved folder",
+  async () => {
+    const request = {
+      type: "manage" as const,
+      operation: "inspect" as const,
+      readOnly: true as const,
+      codeFolder: "~/missing",
+      agents: [],
+    };
+    expect(await manageHost(request, 0, "/fixture/shell", "0.1.0", home)).toEqual({
+      ok: false,
+      reason: "folder-refused",
+    });
+    await expect(lstat(join(home, "missing"))).rejects.toMatchObject({ code: "ENOENT" });
+    await mkdir(join(home, "missing"), { mode: 0o700 });
+    expect(await manageHost(request, 0, "/fixture/shell", "0.1.0", home)).toMatchObject({
+      ok: true,
+      facts: { codeFolder: join(home, "missing") },
+    });
   },
 );

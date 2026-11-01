@@ -139,6 +139,7 @@ export class RemoteTransport extends EventEmitter {
           reattach: reattach || this.target.reattach === true,
           ...metadata,
           ...(this.target.human ? { human: true } : {}),
+          ...(!reattach && this.target.recipe ? { recipe: this.target.recipe } : {}),
           ...(this.target.checkout ? { checkout: this.target.checkout } : {}),
         };
   }
@@ -265,6 +266,16 @@ export class RemoteTransport extends EventEmitter {
               child.stdin.write(artifact.upload);
               continue;
             }
+            if (line === "FOOM-LIBC-TOO-OLD" || line === "FOOM-LIBC-UNSUPPORTED") {
+              this.managementFailure =
+                line === "FOOM-LIBC-TOO-OLD" ? "libc-too-old" : "libc-unsupported";
+              this.launchFailure = new LaunchFailure(
+                line === "FOOM-LIBC-TOO-OLD"
+                  ? "remote_host_libc_too_old"
+                  : "remote_host_libc_unsupported",
+              );
+              throw new Error("Unsupported host libc");
+            }
             if (line !== "FOOM-READY") throw new Error("Invalid bootstrap");
             bootstrapped = true;
             this.send({ type: "hello", build: artifact.sha256 });
@@ -293,6 +304,18 @@ export class RemoteTransport extends EventEmitter {
               (value.build !== artifact.sha256 && value.compatible !== 2)
             )
               throw new Error("Host version mismatch");
+            if (
+              this.management?.type === "manage" &&
+              this.management.operation === "inspect" &&
+              this.management.readOnly &&
+              value.build !== artifact.sha256 &&
+              value.hostFacts !== 1
+            ) {
+              this.managementFailure = "facts-unavailable";
+              this.launchFailure = new LaunchFailure("remote_host_facts_unavailable");
+              this.kill();
+              return;
+            }
             // Reconnect's deadline covers open, state restoration and the entire
             // replay. Internal requests have no TerminalHostClient request timer.
             if (!this.opened) {

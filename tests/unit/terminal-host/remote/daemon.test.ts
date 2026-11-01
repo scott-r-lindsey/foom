@@ -354,7 +354,7 @@ test.skipIf(process.platform === "win32").each(["close", "takeover"])(
     const next = await client();
     next.send({ type: "hello", build });
     await vi.waitFor(() => {
-      expect(next.messages).toContainEqual({ type: "hello", build, compatible: 2 });
+      expect(next.messages).toContainEqual({ type: "hello", build, compatible: 2, hostFacts: 1 });
     });
     if (operation === "close") {
       next.send({ type: "agent-close", id: "child", request: 2 });
@@ -1397,7 +1397,7 @@ test.skipIf(process.platform === "win32")(
     const newer = await client();
     newer.send({ type: "hello", build: "b".repeat(64) });
     await newer.wait(1);
-    expect(newer.messages[0]).toEqual({ type: "hello", build, compatible: 2 });
+    expect(newer.messages[0]).toEqual({ type: "hello", build, compatible: 2, hostFacts: 1 });
     expect(mock.stop).not.toHaveBeenCalled();
     await disconnect(newer);
     shell.send({ type: "kill", id: "one", request: 2 });
@@ -1765,7 +1765,7 @@ test.skipIf(process.platform === "win32")(
       const newer = await client();
       newer.send({ type: "hello", build: "b".repeat(64) });
       await newer.wait(1);
-      expect(newer.messages[0]).toEqual({ type: "hello", build, compatible: 2 });
+      expect(newer.messages[0]).toEqual({ type: "hello", build, compatible: 2, hostFacts: 1 });
       expect(host.server.listening).toBe(true);
     } finally {
       pending.resolve(undefined);
@@ -2153,6 +2153,30 @@ test.skipIf(process.platform === "win32")(
 );
 
 test.skipIf(process.platform === "win32")(
+  "PTY exit contains image cleanup failure without losing the exit notification",
+  async () => {
+    const { RemoteImages } = await import("../../../../src/terminal-host/remote/image-files");
+    await start();
+    const c = await open("cleanup-failure");
+    const close = vi
+      .spyOn(RemoteImages.prototype, "close")
+      .mockRejectedValueOnce(new Error("private image path must not be logged"));
+    const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mock.exited("cleanup-failure", 7);
+      await c.wait(3);
+      expect(c.messages.at(-1)).toEqual({ type: "exit", id: "cleanup-failure", code: 7 });
+      await vi.waitFor(() => {
+        expect(diagnostic).toHaveBeenCalledExactlyOnceWith("Image paste cleanup failed");
+      });
+    } finally {
+      close.mockRestore();
+      diagnostic.mockRestore();
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
   "session removal contains image cleanup failure and emits only a fixed diagnostic",
   async () => {
     const { RemoteImages } = await import("../../../../src/terminal-host/remote/image-files");
@@ -2367,3 +2391,138 @@ test.skipIf(process.platform === "win32")(
     expect(mock.manage).not.toHaveBeenCalled();
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "recipe tiles reserve mutations through disconnect until PTY exit",
+  async () => {
+    await start();
+    const c = await client();
+    c.send({ type: "hello", build });
+    await c.wait(1);
+    c.send({
+      type: "open",
+      profile: "f".repeat(32),
+      reattach: false,
+      id: "recipe",
+      request: 1,
+      cols: 80,
+      rows: 24,
+      recipe: { tool: "git", action: "install", distro: "debian", digest: "a".repeat(64) },
+    });
+    await c.wait(2);
+    expect(mock.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: process.execPath,
+        args: ["--recipe", "git", "install", "debian", "a".repeat(64)],
+      }),
+      "recipe",
+    );
+    c.socket.destroy();
+    const next = await client();
+    next.send({ type: "hello", build });
+    await next.wait(1);
+    next.send({ type: "manage", operation: "inspect", codeFolder: "~/code", agents: [] });
+    await next.wait(2);
+    expect(next.messages[1]).toEqual({
+      type: "managed",
+      result: { ok: false, reason: "checkout-refused" },
+    });
+    mock.exited("recipe", 0);
+    next.send({ type: "manage", operation: "inspect", codeFolder: "~/code", agents: [] });
+    await next.wait(3);
+    expect(mock.manage).toHaveBeenCalledTimes(1);
+  },
+);
+
+test.skipIf(process.platform === "win32").each(
+  (["kill", "session-close"] as const).flatMap((operation) =>
+    (["stop rejection", "disposal rejection", "no exit callback"] as const).map((outcome) => ({
+      operation,
+      outcome,
+    })),
+  ),
+)("recipe $operation releases its reservation after $outcome", async ({ operation, outcome }) => {
+  await start();
+  const profile = "f".repeat(32);
+  const c = await client();
+  c.send({ type: "hello", build });
+  await c.wait(1);
+  c.send({
+    type: "open",
+    profile,
+    reattach: false,
+    id: "recipe",
+    request: 1,
+    cols: 80,
+    rows: 24,
+    recipe: { tool: "git", action: "install", distro: "debian", digest: "a".repeat(64) },
+  });
+  await c.wait(2);
+  const pending = Promise.withResolvers<boolean>();
+  mock.stop.mockReturnValueOnce(pending.promise);
+  const removal = operation === "kill" ? c : await client();
+  if (operation === "session-close") {
+    removal.send({ type: "hello", build });
+    await removal.wait(1);
+  }
+  const closed = once(removal.socket, "close");
+  removal.send(
+    operation === "kill"
+      ? { type: "kill", id: "recipe", request: 2 }
+      : { type: "session-close", id: "recipe", request: 2, profile },
+  );
+  await vi.waitFor(() => {
+    expect(mock.stop).toHaveBeenCalledWith("recipe");
+  });
+  const next = await client();
+  next.send({ type: "hello", build });
+  await next.wait(1);
+  const inspect = {
+    type: "manage",
+    operation: "inspect",
+    codeFolder: "~/code",
+    agents: [],
+  } as const;
+  next.send(inspect);
+  await next.wait(2);
+  expect(next.messages[1]).toMatchObject({ result: { ok: false, reason: "checkout-refused" } });
+  expect(mock.manage).not.toHaveBeenCalled();
+  if (outcome === "disposal rejection")
+    mock.kill.mockImplementationOnce(() => {
+      throw new Error("Fixture native disposal failed");
+    });
+  if (outcome === "stop rejection")
+    pending.reject(new Error("Fixture terminal did not exit before stop deadline"));
+  else pending.resolve(true);
+  if (outcome === "no exit callback") await removal.wait(operation === "kill" ? 3 : 2);
+  else await closed;
+  expect(mock.kill).toHaveBeenCalledWith("recipe");
+  const gone = await open("recipe", true);
+  expect(gone.messages).toContainEqual({
+    type: "open-result",
+    id: "recipe",
+    request: 1,
+    state: "gone",
+  });
+  mock.manage.mockResolvedValueOnce({ ok: false, reason: "folder-refused" });
+  next.send(inspect);
+  await next.wait(3);
+  expect(mock.manage).toHaveBeenCalledOnce();
+  expect(next.messages[2]).toMatchObject({ result: { ok: false, reason: "folder-refused" } });
+  const replacement = await client();
+  replacement.send({ type: "hello", build });
+  await replacement.wait(1);
+  replacement.send({
+    type: "open",
+    profile,
+    reattach: false,
+    id: "recipe",
+    request: 1,
+    cols: 80,
+    rows: 24,
+    recipe: { tool: "git", action: "install", distro: "debian", digest: "a".repeat(64) },
+  });
+  await replacement.wait(2);
+  expect(replacement.messages[1]).toMatchObject({ type: "open-result", state: "live" });
+  expect(mock.create).toHaveBeenCalledTimes(2);
+});

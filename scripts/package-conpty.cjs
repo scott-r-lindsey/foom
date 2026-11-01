@@ -1,3 +1,5 @@
+"use strict";
+
 const { access, copyFile, mkdir } = require("node:fs/promises");
 const { join } = require("node:path");
 

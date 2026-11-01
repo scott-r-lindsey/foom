@@ -328,7 +328,11 @@ export function Sidebar(props: SidebarProps) {
                           });
                         },
                       },
-                      ...(repo.repository.canDeleteMerged || cleanup
+                      ...(repo.repository.canDeleteMerged ||
+                      cleanup ||
+                      repo.repository.worktrees.some(
+                        (tree) => tree.path !== repo.repository.path && !tree.bare,
+                      )
                         ? [
                             null,
                             {

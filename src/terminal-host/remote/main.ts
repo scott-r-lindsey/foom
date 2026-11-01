@@ -1,3 +1,4 @@
+import { runHostRecipe } from "./host-recipe";
 import { record } from "../../shared/remote-agent-protocol";
 import { stageRemotePlugin } from "./agent-launch";
 import { observeRemote, remoteCli, remoteMcp } from "./agent-helper";
@@ -13,6 +14,18 @@ import { checkSocket, hostSocket } from "./private-path";
 // Hash the SEA itself: identical application versions with different builds cannot
 // silently attach to each other or replace a daemon with live sessions.
 export function runHost(argv: readonly string[] = process.argv): void {
+  if (argv[2] === "--recipe") {
+    void runHostRecipe(argv.slice(3)).then(
+      (code) => {
+        process.exitCode = code;
+      },
+      () => {
+        process.stderr.write("Host recipe unavailable\n");
+        process.exitCode = 1;
+      },
+    );
+    return;
+  }
   if (argv[2] === "--stage-plugin" && argv.length === 4 && argv[3]) {
     void stageRemotePlugin(argv[3], homedir())
       .then((directory) => {

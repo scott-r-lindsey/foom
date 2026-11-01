@@ -1,3 +1,4 @@
+import type { RemoteTarget } from "../../shared/remote-host";
 import type { DialogContent } from "../../shared/confirmation";
 import type { Hosts } from "./hosts";
 import type { UpdateState } from "../../shared/updates";
@@ -21,6 +22,7 @@ import type { WorktreeService } from "../workspace/worktrees";
 
 export interface SetupDependencies {
   hosts?: Hosts;
+  launchHostRecipe?: (target: RemoteTarget) => Promise<void>;
   copyText?: (value: string) => void | Promise<void>;
   confirmRemoteSessions?: (content: DialogContent) => Promise<boolean>;
   updates?: () => UpdateState;
@@ -69,7 +71,11 @@ export class Setup {
   }
   hosts(input: unknown) {
     if (!this.deps.hosts) throw new Error("Hosts unavailable");
-    return this.deps.hosts.action(input, this.deps.confirmRemoteSessions);
+    return this.deps.hosts.action(
+      input,
+      this.deps.confirmRemoteSessions,
+      this.deps.launchHostRecipe,
+    );
   }
 
   readiness() {

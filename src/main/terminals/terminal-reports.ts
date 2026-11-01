@@ -1,4 +1,4 @@
-/* eslint-disable no-control-regex -- this module exists to match terminal control sequences */
+/* oxlint-disable no-control-regex -- this module exists to match terminal control sequences */
 // xterm answers terminal queries and reports focus and mouse motion through the same
 // data channel as typing. Those bytes still go to the PTY, but they are not a reply.
 const REPORTS = [

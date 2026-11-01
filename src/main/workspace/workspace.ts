@@ -1,3 +1,4 @@
+import type { RemoteTarget } from "../../shared/remote-host";
 import type { SidebarCommandResult } from "../../shared/workspace";
 import type { ActionLogPage } from "../../shared/action-log";
 import type { AgentEvidence } from "../../shared/agent-detection";
@@ -29,6 +30,9 @@ export class Workspace {
   constructor(deps: WorkspaceDependencies) {
     this.owner = new WorkspaceContext(deps);
     this.orchestration = this.owner.orchestration;
+  }
+  async startHostRecipe(target: RemoteTarget): Promise<string> {
+    return this.owner.startHomeShell(undefined, target);
   }
   async initializeControl(): Promise<void> {
     return this.owner.initializeControl();

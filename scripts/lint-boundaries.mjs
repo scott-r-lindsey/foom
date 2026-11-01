@@ -21,7 +21,7 @@ function owner(filename) {
 
 /**
  * Keep process dependencies explicit, including imports through shared helpers.
- * @type {import("eslint").Rule.RuleModule}
+ * @type {Parameters<import("oxlint/plugins-dev").RuleTester["run"]>[1]}
  */
 export const processBoundaries = {
   meta: {
@@ -112,3 +112,5 @@ export const processBoundaries = {
     };
   },
 };
+
+export default { rules: { "process-boundaries": processBoundaries } };

@@ -1,3 +1,5 @@
+"use strict";
+
 const process = require("node:process");
 const { MakerBase } = require("@electron-forge/maker-base");
 const { execFile } = require("node:child_process");

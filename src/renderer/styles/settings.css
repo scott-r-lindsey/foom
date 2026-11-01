@@ -585,16 +585,30 @@
   margin: 4px 0 0;
 }
 .host-agents {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 0.65fr) minmax(0, 1fr) minmax(0, 1.1fr)
+    minmax(0, 2.25fr);
+  column-gap: 16px;
   list-style: none;
   margin: 0;
   padding: 0;
 }
 .host-agents li {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
   padding: 8px 0;
   border-top: 1px solid var(--line);
+}
+.host-agents li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.host-agent-action {
+  justify-self: start;
 }
 .host-card h4 {
   margin: 0;

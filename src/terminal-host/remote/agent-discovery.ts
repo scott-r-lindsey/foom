@@ -5,6 +5,12 @@ import { access, lstat, realpath, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 
+export class HostProbeExit extends Error {
+  constructor(readonly code: number | null) {
+    super("Remote probe failed");
+  }
+}
+
 /** Remote-only fixed probes. Strip inherited Git/Foom selectors before every subprocess. */
 export function hostEnvironment(): NodeJS.ProcessEnv {
   return Object.fromEntries(
@@ -21,7 +27,7 @@ export async function hostProbe(
   hostGitConfig = false,
   timeoutMs = 5000,
   signal?: AbortSignal,
-  stdoutBudget: "probe" | "review-snapshot" = "probe",
+  stdoutBudget: "probe" | "review-snapshot" | "status" = "probe",
 ): Promise<string> {
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
@@ -65,7 +71,7 @@ export async function hostProbe(
       if (stdout > (stdoutBudget === "review-snapshot" ? 16 * 1024 * 1024 : 256 * 1024)) {
         failure = new Error("Remote probe output exceeded");
         kill();
-      } else chunks.push(data);
+      } else if (stdoutBudget !== "status") chunks.push(data);
     });
     child.stderr.on("data", (data: Buffer) => {
       stderr += data.length;
@@ -82,7 +88,7 @@ export async function hostProbe(
       clearTimeout(timer);
       signal?.removeEventListener("abort", cancel);
       if (failure) reject(failure);
-      else if (code !== 0) reject(new Error("Remote probe failed"));
+      else if (code !== 0) reject(new HostProbeExit(code));
       else {
         try {
           resolve(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
@@ -97,6 +103,7 @@ export async function hostLoginEnvironment(
   shell: string,
   home: string,
   signal?: AbortSignal,
+  requireLogin = false,
 ): Promise<NodeJS.ProcessEnv> {
   const env = hostEnvironment();
   let path = env["PATH"] ?? "";
@@ -110,9 +117,10 @@ export async function hostLoginEnvironment(
       5000,
       signal,
     );
-    path = output.split("\0FOOM_PATH\0")[1]?.split("\0")[0] || path;
+    path = output.split("\0FOOM_PATH\0")[1]?.split("\0")[0] || (requireLogin ? "" : path);
   } catch {
-    /* Inherited remote PATH is the conservative discovery fallback. */
+    if (requireLogin) path = "";
+    /* Inherited remote PATH is the conservative discovery fallback for ordinary discovery. */
   }
   signal?.throwIfAborted();
   return { ...env, PATH: path.split(":").filter(isAbsolute).join(":") };
@@ -122,8 +130,9 @@ export async function hostDiscovery(
   shell: string,
   home: string,
   signal?: AbortSignal,
+  environment?: NodeJS.ProcessEnv,
 ): Promise<{ command: string; env: NodeJS.ProcessEnv; version: string; help: string }> {
-  const launchEnv = await hostLoginEnvironment(shell, home, signal);
+  const launchEnv = environment ?? (await hostLoginEnvironment(shell, home, signal));
   const path = launchEnv["PATH"] ?? "";
   let command: string | undefined;
   for (const name of model.executables) {

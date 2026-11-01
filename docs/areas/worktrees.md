@@ -186,10 +186,17 @@ and system attributes. Git subprocesses
 strip inherited `GIT_*` directory/index selectors. Worktree configuration files,
 enabled `extensions.worktreeConfig`, `core.worktree` and bare configuration are
 refused, and the canonical `rev-parse --show-toplevel` must match the registered
-checkout. A streaming, non-symlink-following walk includes ignored directories,
-refuses nested `.git` markers and ambiguous filename decoding, and fails closed
-on errors, directory changes,
-more than 10,000 entries or depth over 64. For the additional detached/leftover candidates, the checkout’s own admin reflogs
+checkout. A streaming, non-symlink-following walk skips only directories reported
+by the same config-neutral Git status as `!! dir/` (#990). It validates their
+directory type and identity without descending; ignored symlinks and type changes
+fail closed. A nested repository inside such an ignored directory is disposable
+with the checkout and is deleted without warning. All other paths retain the
+nested `.git`, special-file, filename-decoding, symlink and mutation checks. The
+walk fails closed on errors, directory changes, more than 10,000 inspected entries
+or depth over 64. Git status is read before inspection to select ignored folders
+and again last; changed status refuses the snapshot. These checks repeat during
+final removal revalidation. Root containment for ignored-only leftovers is
+unchanged. For the additional detached/leftover candidates, the checkout’s own admin reflogs
 (including HEAD and per-worktree logs) must be present, readable and bounded;
 every old and new commit must be reachable from remote-tracking refs. Reflog
 reads are limited to 4 MiB in total, and reachability reads disable commit-graph caches. These guards repeat at final revalidation.

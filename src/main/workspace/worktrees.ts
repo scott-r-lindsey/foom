@@ -533,7 +533,32 @@ export class WorktreeService {
       throw new Error("Submodules prevent cleanup");
     await this.checkCleanupState(path);
     await this.checkCleanupEvidence(path, undefined, inspectReflogs, historyHead);
-    await walkCleanupDirectory(path, true);
+    const readStatus = () =>
+      read([
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignored=matching",
+        "--ignore-submodules=none",
+      ]);
+    const inspectedStatus = await readStatus();
+    const ignored = new Map<string, boolean>();
+    const statusRecords = inspectedStatus.split("\0");
+    for (let position = 0; position < statusRecords.length; position++) {
+      const entry = statusRecords[position];
+      if (!entry) continue;
+      if (entry.startsWith("!! ")) {
+        const name = entry.slice(3);
+        const directory = name.endsWith("/");
+        const target = resolve(path, directory ? name.slice(0, -1) : name);
+        assertInside(path, target);
+        ignored.set(target, directory);
+      }
+      // Porcelain -z rename/copy records have a second, unprefixed source path.
+      if (entry.slice(0, 2).includes("R") || entry.slice(0, 2).includes("C")) position++;
+    }
+    await walkCleanupDirectory(path, true, ignored);
     const paths = entries.map((entry) => entry.slice(entry.indexOf("\t") + 1));
     if (paths.length) {
       const attributes = (
@@ -562,14 +587,8 @@ export class WorktreeService {
       throw new Error("HEAD changed during cleanup checks");
     // Keep status last: a tracked save during any preceding validation await
     // must be visible to the approved-snapshot comparison next to Git removal.
-    const changes = await read([
-      "status",
-      "--porcelain=v1",
-      "-z",
-      "--untracked-files=all",
-      "--ignored=matching",
-      "--ignore-submodules=none",
-    ]);
+    const changes = await readStatus();
+    if (changes !== inspectedStatus) throw new Error("Status changed during cleanup checks");
     const records = changes.split("\0").filter(Boolean);
     // A case-sensitive read exposes names hidden by core.ignorecase. Refuse
     // collisions rather than interpreting which spelling represents tracked data.
@@ -961,9 +980,14 @@ async function exists(path: string): Promise<boolean> {
   );
 }
 
-/** Stream a bounded tree without following symlinks, including ignored directories. */
-async function walkCleanupDirectory(root: string, checkout: boolean): Promise<string[]> {
+/** Stream a bounded tree without following symlinks; only Git may exempt ignored folders. */
+async function walkCleanupDirectory(
+  root: string,
+  checkout: boolean,
+  ignored: ReadonlyMap<string, boolean> = new Map(),
+): Promise<string[]> {
   const files: string[] = [];
+  const skipped = new Map<string, string>();
   let remaining = 10_000;
   const walk = async (path: string, depth: number): Promise<void> => {
     if (depth > 64 || --remaining < 0) throw new Error("Cleanup directory walk exceeded its limit");
@@ -986,7 +1010,12 @@ async function walkCleanupDirectory(root: string, checkout: boolean): Promise<st
       }
       const child = join(path, entry.name);
       const info = await lstat(child);
-      if (info.isSymbolicLink()) {
+      if (ignored.get(child) === true) {
+        if (!info.isDirectory() || info.isSymbolicLink() || (await realpath(child)) !== child)
+          throw new Error("Ignored directory changed during cleanup checks");
+        skipped.set(child, [info.dev, info.ino, info.birthtimeMs, info.mtimeMs].join(":"));
+      } else if (info.isSymbolicLink()) {
+        if (ignored.has(child)) throw new Error("Ignored symlinks prevent cleanup");
         if (!checkout) throw new Error("Symlinked reflogs prevent cleanup");
       } else if (info.isDirectory()) await walk(child, depth + 1);
       else if (info.isFile()) files.push(child);
@@ -997,5 +1026,14 @@ async function walkCleanupDirectory(root: string, checkout: boolean): Promise<st
       throw new Error("Cleanup directory changed during inspection");
   };
   await walk(root, 0);
+  for (const [path, identity] of skipped) {
+    const info = await lstat(path);
+    if (
+      !info.isDirectory() ||
+      info.isSymbolicLink() ||
+      [info.dev, info.ino, info.birthtimeMs, info.mtimeMs].join(":") !== identity
+    )
+      throw new Error("Ignored directory changed during cleanup checks");
+  }
   return files;
 }
