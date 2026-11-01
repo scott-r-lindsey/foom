@@ -48,8 +48,11 @@ export function childPostText(text: string): string {
   };
   switch (event) {
     case "launch":
-      return `Launched${automatic}${field("prompt") ? `: ${field("prompt")}` : ""}`;
+      if (data["automatic"] === true) return "Launched · automatic review";
+      return `Launched${field("prompt") ? `: ${field("prompt")}` : ""}`;
     case "prompt": {
+      if (data["automatic"] === true && field("prompt"))
+        return "Review follow-up started · automatic";
       const prompt = field("text") || field("prompt");
       const body = prompt.startsWith("⟨redacted⟩ reply sent") ? "⟨redacted⟩" : prompt;
       const delivery = choice("delivery", ["delivered", "failed", "indeterminate"]);

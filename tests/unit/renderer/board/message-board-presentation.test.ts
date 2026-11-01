@@ -4,13 +4,13 @@ const text = (event: string, content: unknown) =>
   childPostText(`${event} · ${JSON.stringify(content)}`);
 it.each([
   ["launch", { prompt: "Fixture task", automatic: false }, "Launched: Fixture task"],
-  ["launch", { automatic: true }, "Launched · automatic"],
+  ["launch", { automatic: true }, "Launched · automatic review"],
   [
     "prompt",
     { text: "⟨redacted⟩ reply sent · delivered", delivery: "delivered" },
     "Prompt · ⟨redacted⟩ · delivered",
   ],
-  ["prompt", { prompt: "Continue", automatic: true }, "Prompt · automatic · Continue"],
+  ["prompt", { prompt: "Continue", automatic: true }, "Review follow-up started · automatic"],
   [
     "send_keys",
     { text: "keys sent (2)", delivery: "indeterminate" },
@@ -76,3 +76,13 @@ it.each(["no separator", 'handoff · {"summary":"unfinished ⟨truncated⟩'])(
     expect(childPostText(input)).toBe("Child event · ⟨truncated⟩");
   },
 );
+
+it("summarizes generated review briefs without exposing their quoted JSON", () => {
+  const prompt =
+    'Resume work. Quoted review notes (JSON): {"verdict":"findings","authorId":"private"}';
+  expect(text("prompt", { prompt, automatic: true })).toBe("Review follow-up started · automatic");
+  expect(text("launch", { prompt, automatic: true })).toBe("Launched · automatic review");
+  expect(
+    text("prompt", { text: "Continue fixture task", automatic: true, delivery: "delivered" }),
+  ).toBe("Prompt · automatic · Continue fixture task · delivered");
+});

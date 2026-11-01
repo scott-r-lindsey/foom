@@ -80,7 +80,9 @@ Terminal output, tails, screens, raw hooks and key values never enter this write
 Stored events are plain-text JSON data with visible escapes for controls and formatting
 characters. The panel renders fixed human-readable templates from validated named
 fields, omitting internal session/author/terminal IDs and raw JSON. Child rows
-include their branch/worktree title and launch time. Each post is at most 8192 UTF-8 bytes; oversized event text and titles
+include their branch/worktree title and launch time. Generated reviewer launch
+and follow-up briefs use short fixed labels; their full structured records remain
+available through Board reads. Each post is at most 8192 UTF-8 bytes; oversized event text and titles
 end with `⟨truncated⟩` at a Unicode code-point boundary. Handoff body and review
 verdict are separate events so a long summary does not displace the verdict.
 

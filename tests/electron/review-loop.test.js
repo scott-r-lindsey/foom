@@ -577,9 +577,15 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
       assert.ok(
         bodies.every(
           (body) =>
-            !body.includes('"authorId"') && !body.includes('"prompt"') && !body.includes(authorId),
+            !body.includes('"authorId"') &&
+            !body.includes('"prompt"') &&
+            !body.includes("Quoted review notes (JSON)") &&
+            !body.includes(authorId),
         ),
       );
+      await expect(
+        panel.getByText("Review follow-up started · automatic", { exact: true }),
+      ).toBeVisible();
       await expect(panel.locator(".message-thread-list time")).toHaveCount(3);
       await panel.getByLabel("Reply").fill("Keep this human note");
       await panel.getByRole("button", { name: "Children", exact: true }).click();
