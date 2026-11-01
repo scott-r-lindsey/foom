@@ -132,7 +132,27 @@ resize, maximize, unmaximize and restore events recenter it. Dismissal removes
 listeners, clears the scrim, and restores input and focus. Positioning remains
 subject to window-manager restrictions (for example native Wayland). Quit approval
 does not need the board to render.
-Main serializes requests, supplies the current
+Main serializes requests within each board. An app-owned removal presentation
+queue also serializes orchestrator removal batches, merged-worktree cleanup
+reviews and review-worktree removal across boards. A queued review starts only
+after the preceding presentation is dismissed, cancelled or completed; it reads
+its latest feed when its turn arrives. Each review stays on its selected board,
+and batching, per-item cancellation, snapshot revalidation and exact-ID approval
+checks remain in force. Repository reservations prevent forgetting a repository,
+not overlapping removal reviews; they do not replace this presentation queue.
+Cancellation is registered when main receives the request, before either queue.
+Closing/destroying its board, confirmed-shutdown disposal, or an actor/caller abort
+declines the queued caller immediately; it does not wait for another board's
+answer. Abandoned entries are skipped when their turn arrives. Board-local
+waiting does not reserve the shared removal slot, and cancellation while the
+hidden page loads releases admission without allowing a later activation.
+Board renderer loss or a full main-frame navigation cancels queued requests;
+same-document and subframe navigation do not. An already presented trusted window
+remains independent of the board renderer as above. Trusted renderer/window loss
+cancels both active and queued requests for that renderer. Late events from an old
+renderer cannot cancel its replacement. Cancellation only declines; it never
+replays approval or cancels a different board's active decision.
+Main supplies the current
 resolved theme and content, and gives each request a new ID. Content carries a glyph,
 subject, labeled disclosure sections (with optional main-authored collapsed summary
 lines and full tooltip/accessibility text), facts, argument chips and the pairing code with

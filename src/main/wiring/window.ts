@@ -193,12 +193,17 @@ export async function buildWindow(
   );
   wiring.newWindowCommand = appMenu.newWindow;
   await initializeWorkspace(wiring, window);
-  const confirmations = new TrustedDialog(window, session.fromPartition("confirmation"), () =>
-    resolveInterfaceTheme(
-      wiring.settings.get().interfaceTheme,
-      nativeTheme.shouldUseDarkColors,
-      wiring.themes.snapshot(),
-    ),
+  const confirmations = new TrustedDialog(
+    window,
+    session.fromPartition("confirmation"),
+    () =>
+      resolveInterfaceTheme(
+        wiring.settings.get().interfaceTheme,
+        nativeTheme.shouldUseDarkColors,
+        wiring.themes.snapshot(),
+      ),
+    process.platform,
+    wiring.removalPresentations,
   );
   void wiring.workspace.initializeControl().catch(() => {
     console.warn("Foom CLI discovery is unavailable.");

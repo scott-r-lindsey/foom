@@ -59,3 +59,9 @@ is not saved. A checked run closes after every selected worktree is removed;
 failed or refused removals stay visible for **Done**. Unchecking keeps the finished
 state open. **Hide** and Escape still hide a running cleanup without stopping it,
 and hidden completion follows the existing cleanup reporting behavior.
+
+Removal reviews appear one at a time across all Foom boards, including agent
+requests, **Delete merged worktrees…** and reviewer cleanup. Later reviews wait
+for the visible one to close. Checking and fetching keep Delete disabled and show
+the current checking state; neither a queued review nor a background cleanup
+grants approval to another removal.

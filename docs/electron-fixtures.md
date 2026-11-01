@@ -169,3 +169,16 @@ several seconds even after the board has painted. Each worker previously charged
 that delay to fixture setup. Tracing still stops and writes its artifact before
 interaction or quit; cancelled/failed navigation starts no recording. The existing
 compositor and animation-frame assertions remain independent of trace collection.
+
+## Executable replacement during discovery (#929)
+
+An installed agent card can retain a completed scan's result while a config or
+Settings-entry refresh is still probing the same executable. The missing-agent
+reload case tracks the fixture's actual discovery scans and child `close` events
+before unlinking its copied executable. Its controlled `--help` reader stays alive
+until a fixture file is removed, proving that an enabled card alone is not a process
+exit barrier. The ordinary unlink happens before this controlled demonstration,
+so the held reader cannot mask the original race with extra elapsed time. On
+Windows the demonstration also asserts `EPERM` while that known reader is alive.
+Teardown releases that reader and waits before quitting the app.
+Windows unlink failures remain errors; the test neither retries nor ignores them.

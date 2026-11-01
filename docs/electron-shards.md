@@ -430,3 +430,40 @@ All four Windows shards reach 544–582s in the latest run. Reassignment alone
 cannot provide comparable headroom across the platform, so no tests move and
 the plan needs no regeneration. Linux retains 600s; test deadlines, worker
 watchdog, coverage and Quality gate required jobs are unchanged.
+
+## Removal-dialog regression cases (#929)
+
+Refresh the measured plan after adding fifteen removal-dialog cases. Downloaded
+all twelve Electron artifacts from green PR runs
+[41337210641](https://github.com/scott-r-lindsey/foom/actions/runs/41337210641)
+and [41344658085](https://github.com/scott-r-lindsey/foom/actions/runs/41344658085),
+selecting the latest artifact for each platform/shard by creation timestamp and
+checking its ID against the successful job log. Artifact IDs are not chronological.
+Both runs became green after their single failed-jobs rerun; only their complete
+passing JUnit reports are inputs. The existing rebalance script accepts all 261
+registrations present at that refresh across these 24 unmodified reports.
+The later queued-board-close regression uses the existing name-hash fallback
+until a subsequent measurement refresh.
+
+The latter run's first macOS shard 2 attempt exhausted its 840s step budget;
+main run [41339094760](https://github.com/scott-r-lindsey/foom/actions/runs/41339094760)
+had already exhausted the same shard budget. Interrupted reports are diagnostic
+evidence and are excluded from this refresh. Its Windows shard 4 passed the
+fixture executable-lifetime fix; that within-case race is independent of assignment.
+Main and the two preceding failed PR attempts ran the missing-agent case third,
+with the same predecessors and common-case order. The two new shard-4 removal
+cases came later.
+
+Conservative case-duration sums, taking each case's maximum per platform across
+the two passing runs (seconds; the before plan includes hash fallback):
+
+| Platform | Before: shards 1 / 2 / 3 / 4 | After: shards 1 / 2 / 3 / 4 |
+| --- | --- | --- |
+| Linux | 486.6 / 468.0 / 487.9 / 414.3 | 464.1 / 468.4 / 461.5 / 462.8 |
+| Windows | 754.4 / 657.6 / 784.6 / 598.7 | 699.3 / 700.1 / 699.1 / 696.7 |
+| macOS | 658.1 / 779.1 / 737.2 / 667.1 | 717.2 / 692.5 / 715.4 / 716.6 |
+
+These projections exclude build/runner overhead and combine maxima from different
+runs. Validate actual step times on the refreshed PR before treating the balance
+as verified. Four shards, per-test deadlines, workflow step limits, process audit,
+coverage rules and Quality gate requirements stay unchanged.

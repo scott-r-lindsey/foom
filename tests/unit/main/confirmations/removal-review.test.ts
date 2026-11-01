@@ -1,5 +1,10 @@
 import { expect, test, vi } from "vitest";
-import { RemovalReview, removalContent } from "../../../../src/main/confirmations/removal-review";
+import {
+  RemovalReview,
+  removalContent,
+  RemovalPresentations,
+  declineOnAbort,
+} from "../../../../src/main/confirmations/removal-review";
 import type { DialogContent } from "../../../../src/shared/confirmation";
 
 function harness() {
@@ -159,4 +164,100 @@ test("copy targets are only pending worktree and displayed change paths, includi
   expect(paths.get("unknown")).toBeUndefined();
   expect([...paths.values()]).not.toContain("SECRET");
   expect(removalCopyPaths({ title: "Other", accept: "Continue" }).size).toBe(0);
+});
+
+test("removal presentation slots serialize independent boards and recover after failure", async () => {
+  const { RemovalPresentations } = await import(
+    "../../../../src/main/confirmations/removal-review"
+  );
+  const presentations = new RemovalPresentations();
+  let decline: (value: boolean) => void = () => undefined;
+  const first = presentations.run(
+    () =>
+      new Promise<boolean>((resolve) => {
+        decline = resolve;
+      }),
+  );
+  const secondPresent = vi.fn(() => Promise.reject(new Error("renderer lost")));
+  const second = presentations.run(secondPresent);
+  // Attach the rejection assertion before releasing the earlier presentation.
+  const failed = expect(second).rejects.toThrow("renderer lost");
+  const thirdPresent = vi.fn(() => Promise.resolve(true));
+  const third = presentations.run(thirdPresent);
+  await Promise.resolve();
+  expect(secondPresent).not.toHaveBeenCalled();
+  expect(thirdPresent).not.toHaveBeenCalled();
+  decline(false);
+  await expect(first).resolves.toBe(false);
+  await failed;
+  await expect(third).resolves.toBe(true);
+  expect(secondPresent).toHaveBeenCalledOnce();
+  expect(thirdPresent).toHaveBeenCalledOnce();
+});
+
+test("an abandoned queued presentation settles before the active slot and never activates", async () => {
+  const slots = new RemovalPresentations();
+  let release: (answer: boolean) => void = () => undefined;
+  const first = slots.run(
+    () =>
+      new Promise<boolean>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const abort = new AbortController();
+  const present = vi.fn(() => Promise.resolve(true));
+  let answer: boolean | undefined;
+  const queued = slots.run(present, abort.signal).then((value) => {
+    answer = value;
+  });
+  await Promise.resolve();
+  abort.abort();
+  await new Promise<void>(setImmediate);
+  const beforeRelease = answer;
+  release(true);
+  await Promise.all([first, queued]);
+  expect(beforeRelease).toBe(false);
+  expect(present).not.toHaveBeenCalled();
+  await expect(slots.run(present, abort.signal)).resolves.toBe(false);
+  expect(present).not.toHaveBeenCalled();
+});
+
+test("canceling an active caller keeps the slot until its presentation has finished", async () => {
+  const slots = new RemovalPresentations();
+  const abort = new AbortController();
+  let finish: (answer: boolean) => void = () => undefined;
+  const active = slots.run(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finish = resolve;
+      }),
+    abort.signal,
+  );
+  const next = vi.fn(() => Promise.resolve(true));
+  const queued = slots.run(next);
+  await Promise.resolve();
+  abort.abort();
+  await expect(active).resolves.toBe(false);
+  expect(next).not.toHaveBeenCalled();
+  finish(true);
+  await expect(queued).resolves.toBe(true);
+});
+
+test("abort settlement removes listeners on completion and propagates a live failure", async () => {
+  const abort = new AbortController();
+  const removed = vi.spyOn(abort.signal, "removeEventListener");
+  await expect(declineOnAbort(Promise.resolve(true), abort.signal)).resolves.toBe(true);
+  await expect(declineOnAbort(Promise.reject(new Error("failed")), abort.signal)).rejects.toThrow(
+    "failed",
+  );
+  const nonError = vi.fn<() => Promise<boolean>>().mockRejectedValue("invalid rejection");
+  await expect(declineOnAbort(nonError(), abort.signal)).rejects.toThrow(
+    "Confirmation presentation failed",
+  );
+  expect(removed).toHaveBeenCalledTimes(3);
+  abort.abort();
+  await expect(declineOnAbort(Promise.resolve(true), abort.signal)).resolves.toBe(false);
+  await expect(
+    declineOnAbort(Promise.reject(new Error("late failure")), abort.signal),
+  ).resolves.toBe(false);
 });

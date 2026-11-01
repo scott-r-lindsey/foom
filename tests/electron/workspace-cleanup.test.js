@@ -423,6 +423,303 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
   await confirmation.getByRole("button", { name: "Done", exact: true }).click();
 });
 
+// All three sources use the real cleanup/removal owners and fixture Git repositories.
+// The grouped callbacks below match the main-only remove_worktree and reviewer-close
+// routes without launching an agent or exposing consent through the board bridge.
+for (const { front, queued, sameBoard, checking } of [
+  ["cleanup", "orchestrator"],
+  ["orchestrator", "cleanup"],
+  ["cleanup", "review"],
+  ["review", "cleanup"],
+  ["orchestrator", "review"],
+  ["review", "orchestrator"],
+].flatMap(([front, queued]) => [
+  { front, queued, sameBoard: true, checking: false },
+  { front, queued, sameBoard: false, checking: false },
+  ...(front === "cleanup" ? [{ front, queued, sameBoard: false, checking: true }] : []),
+])) {
+  test(`removal reviews serialize ${front} before ${queued} ${sameBoard ? "on one board" : "across boards"}${checking ? " while checking" : ""}`, {
+    timeout: deadline(60_000),
+  }, async (context) => {
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-removal-overlap-")));
+    removeAfterApps(context, root);
+    const repo = path.join(root, "repo");
+    const home = path.join(root, "home");
+    await mkdir(repo);
+    await mkdir(home);
+    const git = (...args) =>
+      isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+        cwd: repo,
+      });
+    git("init", "-q", "-b", "main");
+    git("commit", "-q", "--allow-empty", "-m", "init");
+    git("clone", "--bare", repo, path.join(root, "remote.git"));
+    git("remote", "add", "origin", path.join(root, "remote.git"));
+    for (const branch of ["merged", "orchestrator", "review"]) {
+      const tree = path.join(root, branch);
+      git("worktree", "add", "-b", branch, tree);
+      if (branch !== "merged") {
+        // Keep the individual removal targets out of merged cleanup's approved set.
+        await writeFile(path.join(tree, "work.txt"), branch);
+        git("-C", tree, "add", "work.txt");
+        git("-C", tree, "commit", "-q", "-m", "unmerged work");
+      }
+    }
+    const app = await launchApp(context, { fixture: "empty-board", home });
+    fixtureCleanup(context).apps.unshift(async () => {
+      await app
+        .evaluate(() => {
+          globalThis.overlapFetchRelease?.();
+          for (const abort of Object.values(globalThis.overlapAborts ?? {})) abort.abort();
+          for (const dialog of globalThis.overlapDialogs ?? []) dialog.dispose();
+        })
+        .catch(() => {});
+    });
+    const first = await boardPage(app);
+    await app.evaluate(
+      ({ app, dialog }, { repo, checking }) => {
+        const load = process
+          .getBuiltinModule("node:module")
+          .createRequire(app.getAppPath() + "/package.json");
+        if (checking) {
+          const { WorktreeService } = load("./build/main/workspace/worktrees.js");
+          const fetch = WorktreeService.prototype.mergedDefault;
+          const gate = new Promise((resolve) => {
+            globalThis.overlapFetchRelease = resolve;
+          });
+          WorktreeService.prototype.mergedDefault = async function (...args) {
+            await gate;
+            return fetch.apply(this, args);
+          };
+        }
+        const { Workspace } = load("./build/main/workspace/workspace.js");
+        const { TrustedDialog } = load("./build/main/confirmations/trusted-dialog.js");
+        const snapshot = Workspace.prototype.snapshot;
+        Workspace.prototype.snapshot = function (...args) {
+          globalThis.overlapOwner = this.owner;
+          return snapshot.apply(this, args);
+        };
+        globalThis.overlapDialogs = new Set();
+        globalThis.overlapRequests = new Set();
+        globalThis.overlapAnswers = {};
+        globalThis.overlapAborts = {};
+        const request = TrustedDialog.prototype.request;
+        TrustedDialog.prototype.request = function (content, ...args) {
+          globalThis.overlapDialogs.add(this);
+          if (content.feed) globalThis.overlapRequests.add("cleanup");
+          if (content.removal)
+            globalThis.overlapRequests.add(
+              content.removal.group.startsWith("review-close-") ? "review" : "orchestrator",
+            );
+          return request.call(this, content, ...args);
+        };
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repo] });
+      },
+      { repo, checking },
+    );
+    await first.evaluate(() => window.desktop.addRepository());
+    await first.evaluate(() => window.desktop.workspace());
+    let second = first;
+    if (!sameBoard) {
+      await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
+      await expect
+        .poll(() => {
+          second = app
+            .windows()
+            .find((page) => page !== first && page.url() === "app://bundle/index.html");
+          return Boolean(second);
+        })
+        .toBe(true);
+      await expect(second.locator(".board-home")).toBeVisible();
+    }
+    await app.evaluate(({ BrowserWindow }) => {
+      globalThis.overlapVisibleMax = 0;
+      const record = () => {
+        const visible = BrowserWindow.getAllWindows().filter(
+          (window) =>
+            window.webContents.getURL() === "app://confirmation/confirmation.html" &&
+            window.isVisible(),
+        ).length;
+        globalThis.overlapVisibleMax = Math.max(globalThis.overlapVisibleMax, visible);
+      };
+      for (const window of BrowserWindow.getAllWindows())
+        if (window.webContents.getURL() === "app://confirmation/confirmation.html")
+          window.on("show", record);
+    });
+    const pending = [];
+    const start = async (source, board) => {
+      const native = await app.browserWindow(board);
+      await native.evaluate((window) => window.focus());
+      await native.dispose();
+      if (source === "cleanup") {
+        const result = board.evaluate(
+          (repo) =>
+            window.desktop.sidebarCommand({
+              kind: "delete-merged-worktrees",
+              repository: repo,
+            }),
+          repo,
+        );
+        void result.catch(() => {});
+        pending.push(result);
+      } else {
+        await app.evaluate(
+          (_, { worktree, repo, source }) => {
+            const owner = globalThis.overlapOwner;
+            const path = worktree;
+            const abort = new AbortController();
+            globalThis.overlapAborts[source] = abort;
+            void (async () => {
+              const identity = await owner.deps.worktrees.launchIdentity(repo, path);
+              return owner.cleanup.removeOwnedTree(
+                repo,
+                path,
+                identity,
+                (branch, changes) =>
+                  owner.deps.dialog(
+                    {
+                      title: "Remove worktrees?",
+                      accept: "Approve all",
+                      removal: {
+                        group: source === "review" ? "review-close-session" : "overlap-actor",
+                        item: {
+                          id: source,
+                          branch,
+                          path,
+                          changes,
+                        },
+                      },
+                    },
+                    abort.signal,
+                  ),
+                () => {},
+              );
+            })().then(
+              (answer) => {
+                globalThis.overlapAnswers[source] = answer;
+              },
+              () => {
+                globalThis.overlapAnswers[source] = "failed";
+              },
+            );
+          },
+          { worktree: path.join(root, source), repo, source },
+        );
+      }
+      await expect
+        .poll(() => app.evaluate((_, source) => globalThis.overlapRequests.has(source), source))
+        .toBe(true);
+    };
+    const dialogFor = async (source) => {
+      let page;
+      await expect
+        .poll(async () => {
+          for (const candidate of app.windows()) {
+            if (
+              source === "cleanup"
+                ? await candidate
+                    .getByRole("list", {
+                      name: checking ? "Checking worktrees" : "Cleanup checklist",
+                    })
+                    .count()
+                : await candidate.locator(".subject").filter({ hasText: source }).count()
+            ) {
+              page = candidate;
+              return true;
+            }
+          }
+          return false;
+        })
+        .toBe(true);
+      return page;
+    };
+    await start(front, first);
+    const frontPage = await dialogFor(front);
+    const frontButton = frontPage.getByRole("button", {
+      name: front === "cleanup" ? (checking ? "Delete" : "Delete 1") : "Remove worktree",
+      exact: true,
+    });
+    if (checking) {
+      await expect(frontButton).toBeDisabled();
+      await expect(frontPage.getByRole("list", { name: "Checking worktrees" })).toBeVisible();
+    } else await expect(frontButton).toBeEnabled();
+    await start(queued, second);
+    // Flush main's queued continuations, then inspect actual active presentations.
+    // On the old implementation both boards had a pending, eventually visible child.
+    const active = await app.evaluate(async () => {
+      await new Promise(setImmediate);
+      return [...globalThis.overlapDialogs].filter((dialog) => dialog.pending).length;
+    });
+    assert.equal(active, 1, "cross-type removal reviews must share one presentation slot");
+    for (const branch of ["merged", "orchestrator", "review"])
+      assert.ok(await realpath(path.join(root, branch)), "pending review must not remove anything");
+    // Selecting a source's visible approval removes exactly its displayed target.
+    await app.evaluate(() => {
+      const dialog = [...globalThis.overlapDialogs].find((dialog) => dialog.pending);
+      dialog.window.focus();
+      dialog.window.webContents.focus();
+    });
+    await assertConfirmationFocus(
+      app,
+      frontPage,
+      frontPage.getByRole("button", { name: "Cancel", exact: true }),
+    );
+    if (checking) {
+      await frontPage.getByRole("button", { name: "Cancel", exact: true }).click();
+      assert.equal(
+        await app.evaluate(
+          (_, repo) => globalThis.overlapOwner.repositoryOperations.has(repo),
+          repo,
+        ),
+        true,
+      );
+      const nextPage = await dialogFor(queued);
+      const approve = nextPage.getByRole("button", { name: "Remove worktree", exact: true });
+      await expect(approve).toBeEnabled();
+      await approve.click();
+      await expect
+        .poll(() => app.evaluate((_, source) => globalThis.overlapAnswers[source], queued))
+        .toBe(true);
+      assert.ok(await realpath(path.join(root, "merged")));
+      await app.evaluate(() => globalThis.overlapFetchRelease());
+      await Promise.all(pending);
+      assert.equal(await app.evaluate(() => globalThis.overlapVisibleMax), 1);
+      return;
+    }
+    await frontButton.click();
+    await expect
+      .poll(async () => {
+        try {
+          await realpath(path.join(root, front === "cleanup" ? "merged" : front));
+          return false;
+        } catch {
+          return true;
+        }
+      })
+      .toBe(true);
+    const queuedPage = await dialogFor(queued);
+    await expect(
+      queuedPage.getByRole("button", {
+        name: queued === "cleanup" ? "Delete 1" : "Remove worktree",
+        exact: true,
+      }),
+    ).toBeEnabled();
+    // Declining the next source must preserve its checkout and every unlisted tree.
+    await queuedPage.getByRole("button", { name: "Cancel", exact: true }).click();
+    if (queued !== "cleanup")
+      await expect
+        .poll(() => app.evaluate((_, source) => globalThis.overlapAnswers[source], queued))
+        .toBe(false);
+    await Promise.all(pending);
+    assert.ok(await realpath(path.join(root, queued === "cleanup" ? "merged" : queued)));
+    assert.equal(
+      await app.evaluate(() => globalThis.overlapVisibleMax),
+      1,
+      "no two native removal windows may be shown at the same time",
+    );
+  });
+}
+
 test("merged cleanup skips Git-ignored build folders and exposes reasons when none qualify", {
   timeout: deadline(60000),
 }, async (context) => {
@@ -546,4 +843,150 @@ test("merged cleanup skips Git-ignored build folders and exposes reasons when no
     "keep untracked changes\n",
   );
   await assert.rejects(realpath(merged.path), { code: "ENOENT" });
+});
+
+test("closing a board declines its queued cleanup and releases its repository before another board answers", {
+  timeout: deadline(60_000),
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-queued-cleanup-")));
+  removeAfterApps(context, root);
+  const home = path.join(root, "home");
+  await mkdir(home);
+  const repos = [path.join(root, "front"), path.join(root, "queued")];
+  const trees = repos.map((repo) => `${repo}-merged`);
+  for (const [index, repo] of repos.entries()) {
+    await mkdir(repo);
+    const git = (...args) =>
+      isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+        cwd: repo,
+      });
+    git("init", "-q", "-b", "main");
+    git("commit", "-q", "--allow-empty", "-m", "init");
+    git("clone", "--bare", repo, `${repo}-remote.git`);
+    git("remote", "add", "origin", `${repo}-remote.git`);
+    git("worktree", "add", "-b", "merged", trees[index]);
+  }
+  const app = await launchApp(context, { fixture: "empty-board", home });
+  fixtureCleanup(context).apps.unshift(async () => {
+    await app
+      .evaluate(() => {
+        for (const request of globalThis.queuedCleanupRequests ?? []) request.dialog.dispose();
+      })
+      .catch(() => {});
+  });
+  const first = await boardPage(app);
+  await app.evaluate(({ app, dialog }, repos) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { Workspace } = load("./build/main/workspace/workspace.js");
+    const { TrustedDialog } = load("./build/main/confirmations/trusted-dialog.js");
+    const snapshot = Workspace.prototype.snapshot;
+    Workspace.prototype.snapshot = function (...args) {
+      globalThis.queuedCleanupWorkspace = this;
+      return snapshot.apply(this, args);
+    };
+    const request = TrustedDialog.prototype.request;
+    globalThis.queuedCleanupRequests = [];
+    TrustedDialog.prototype.request = function (content, ...args) {
+      if (!content.feed) return request.call(this, content, ...args);
+      const record = { dialog: this, feed: content.feed, answer: undefined };
+      globalThis.queuedCleanupRequests.push(record);
+      return request.call(this, content, ...args).then((answer) => {
+        record.answer = answer;
+        return answer;
+      });
+    };
+    let next = 0;
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [repos[next++]] });
+  }, repos);
+  for (let index = 0; index < repos.length; index++)
+    await first.evaluate(() => window.desktop.addRepository());
+  await first.evaluate(() => window.desktop.workspace());
+  await first.evaluate(() => window.desktop.appMenu.execute("new-window"));
+  let second;
+  await expect
+    .poll(() => {
+      second = app
+        .windows()
+        .find((page) => page !== first && page.url() === "app://bundle/index.html");
+      return Boolean(second);
+    })
+    .toBe(true);
+  await expect(second.locator(".board-home")).toBeVisible();
+  const native = await app.browserWindow(first);
+  await native.evaluate((window) => window.focus());
+  await native.dispose();
+  const front = first.evaluate(
+    (repository) => window.desktop.sidebarCommand({ kind: "delete-merged-worktrees", repository }),
+    repos[0],
+  );
+  void front.catch(() => {});
+  await expect
+    .poll(() => app.evaluate(() => globalThis.queuedCleanupRequests[0]?.feed.current().stage))
+    .toBe("ready");
+  const confirmation = await confirmationPage(app);
+  await expect(confirmation.getByRole("button", { name: "Delete 1", exact: true })).toBeEnabled();
+  const queued = second.evaluate(
+    (repository) => window.desktop.sidebarCommand({ kind: "delete-merged-worktrees", repository }),
+    repos[1],
+  );
+  // Closing the board rejects its IPC call; the main-owned request must still settle.
+  void queued.catch(() => {});
+  await expect
+    .poll(() => app.evaluate(() => globalThis.queuedCleanupRequests[1]?.feed.current().stage))
+    .toBe("ready");
+  assert.equal(
+    await app.evaluate(
+      (_, repo) => globalThis.queuedCleanupWorkspace.owner.repositoryOperations.has(repo),
+      repos[1],
+    ),
+    true,
+  );
+  assert.equal(await app.evaluate(() => globalThis.queuedCleanupRequests[0].answer), undefined);
+  const closing = await app.browserWindow(second);
+  await closing.evaluate((window) => window.close());
+  await closing.dispose();
+  await expect
+    .poll(() => app.evaluate(() => globalThis.queuedCleanupRequests[1].answer))
+    .toBe(false);
+  await expect
+    .poll(() =>
+      app.evaluate(
+        (_, repo) => globalThis.queuedCleanupWorkspace.owner.repositoryOperations.has(repo),
+        repos[1],
+      ),
+    )
+    .toBe(false);
+  // The unrelated unanswered front presentation remains untouched throughout.
+  assert.equal(await app.evaluate(() => globalThis.queuedCleanupRequests[0].answer), undefined);
+  await app.evaluate(
+    async (_, repo) => globalThis.queuedCleanupWorkspace.removeRepository(repo),
+    repos[1],
+  );
+  assert.equal(
+    (await first.evaluate(() => window.desktop.workspace())).repositories.some(
+      (repo) => repo.path === repos[1],
+    ),
+    false,
+  );
+  assert.equal(await realpath(trees[1]), trees[1], "declining cleanup must preserve its checkout");
+  await app.evaluate(() => {
+    const window = globalThis.queuedCleanupRequests[0].dialog.window;
+    window.focus();
+    window.webContents.focus();
+  });
+  await assertConfirmationFocus(
+    app,
+    confirmation,
+    confirmation.getByRole("button", { name: "Cancel", exact: true }),
+  );
+  await confirmation.getByRole("button", { name: "Delete 1", exact: true }).click();
+  await front;
+  await assert.rejects(realpath(trees[0]), { code: "ENOENT" });
+  assert.equal(await realpath(trees[1]), trees[1]);
+  assert.equal(
+    await app.evaluate(() => globalThis.queuedCleanupRequests[1].dialog.pending !== undefined),
+    false,
+  );
 });

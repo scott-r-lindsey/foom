@@ -75,6 +75,8 @@ vi.mock("electron", () => ({
   },
 }));
 import { TrustedDialog, CONFIRMATION_URL } from "../../../../src/main/confirmations/trusted-dialog";
+import { RemovalPresentations } from "../../../../src/main/confirmations/removal-review";
+import { CleanupRun } from "../../../../src/main/workspace/cleanup-run";
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -138,6 +140,7 @@ beforeEach(() => {
   mock.autoSize = true;
   mock.workArea = { x: 0, y: 0, width: 1920, height: 1080 };
   parent.webContents.getZoomFactor.mockReturnValue(1);
+  parent.webContents.isDestroyed.mockReturnValue(false);
   parent.getContentBounds.mockReturnValue({ x: 10, y: 20, width: 800, height: 600 });
   mock.windows.length = 0;
   mock.ipc.clear();
@@ -148,6 +151,309 @@ beforeEach(() => {
   parent.isFocusable.mockReturnValue(true);
   parent.isVisible.mockReturnValue(true);
   parent.isMinimized.mockReturnValue(false);
+});
+
+test.each([
+  "dispose",
+  "board closed",
+  "board destroyed",
+  "board renderer crashed",
+  "board navigated",
+  "trusted renderer crashed",
+  "trusted window destroyed",
+  "actor revoked",
+] as const)("queued cleanup declines independently when %s", async (cause) => {
+  const slots = new RemovalPresentations();
+  let release: (answer: boolean) => void = () => undefined;
+  const front = slots.run(
+    () =>
+      new Promise<boolean>((resolve) => {
+        release = resolve;
+      }),
+  );
+  await Promise.resolve();
+  const dialog = new TrustedDialog(
+    parent as unknown as BrowserWindow,
+    {} as Session,
+    () => theme,
+    "linux",
+    slots,
+  );
+  const child = window();
+  const run = new CleanupRun({
+    fetch: () => Promise.resolve("base"),
+    remove: () => Promise.resolve(),
+    branches: () => Promise.resolve([]),
+    changed() {},
+  });
+  run.ready([]);
+  const actor = new AbortController();
+  let result: boolean | undefined;
+  let reservationHeld = true;
+  const queued = dialog
+    .request({ title: "Delete merged worktrees", accept: "Delete", feed: run }, actor.signal)
+    .then((answer) => {
+      result = answer;
+    })
+    .finally(() => {
+      reservationHeld = false;
+    });
+  if (cause === "dispose") dialog.dispose();
+  else if (cause === "board closed") parent.emit("closed");
+  else if (cause === "board destroyed") {
+    parent.webContents.isDestroyed.mockReturnValue(true);
+    parent.webContents.emit("destroyed");
+  } else if (cause === "board renderer crashed") parent.webContents.emit("render-process-gone");
+  else if (cause === "board navigated")
+    parent.webContents.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
+  else if (cause === "trusted renderer crashed") child.webContents.emit("render-process-gone");
+  else if (cause === "trusted window destroyed") child.emit("closed");
+  else actor.abort();
+  await new Promise<void>(setImmediate);
+  await new Promise<void>(setImmediate);
+  const afterAbandonment = { result, reservationHeld };
+  const neverShown = child.show.mock.calls.length;
+  // Release only after capturing the outcome so a failed regression cannot hang.
+  dialog.dispose();
+  release(true);
+  await front;
+  await queued;
+  expect(afterAbandonment).toEqual({ result: false, reservationHeld: false });
+  expect(neverShown).toBe(0);
+  expect(child.show).not.toHaveBeenCalled();
+});
+
+test("a board renderer crash leaves an already presented trusted decision usable", async () => {
+  const dialog = setup();
+  const pending = dialog.request(content);
+  const id = await shown();
+  parent.webContents.emit("render-process-gone");
+  parent.webContents.emit("did-start-navigation", { isMainFrame: true, isSameDocument: false });
+  answer(id, true);
+  await expect(pending).resolves.toBe(true);
+  dialog.dispose();
+});
+
+test("same-document and subframe navigation do not abandon queued decisions", async () => {
+  const slots = new RemovalPresentations();
+  let release: (answer: boolean) => void = () => undefined;
+  const front = slots.run(
+    () =>
+      new Promise<boolean>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const dialog = new TrustedDialog(
+    parent as unknown as BrowserWindow,
+    {} as Session,
+    () => theme,
+    "linux",
+    slots,
+  );
+  let result: boolean | undefined;
+  const queued = dialog
+    .request({
+      title: "Remove",
+      accept: "Remove",
+      removalFeed: { current: () => [], subscribe: () => () => {}, select() {} },
+    })
+    .then((answer) => {
+      result = answer;
+    });
+  parent.webContents.emit("did-start-navigation", { isMainFrame: true, isSameDocument: true });
+  parent.webContents.emit("did-start-navigation", { isMainFrame: false, isSameDocument: false });
+  await new Promise<void>(setImmediate);
+  const beforeDispose = result;
+  dialog.dispose();
+  release(false);
+  await Promise.all([front, queued]);
+  expect(beforeDispose).toBeUndefined();
+  expect(result).toBe(false);
+});
+
+test("queued ordinary confirmations also cancel without waiting for the active decision", async () => {
+  const dialog = setup();
+  const first = dialog.request(content);
+  const id = await shown();
+  const abort = new AbortController();
+  let result: boolean | undefined;
+  const queued = dialog.request(content, abort.signal).then((answer) => {
+    result = answer;
+  });
+  abort.abort();
+  await new Promise<void>(setImmediate);
+  const beforeFirstAnswer = result;
+  answer(id, true);
+  await first;
+  await queued;
+  expect(beforeFirstAnswer).toBe(false);
+  expect(window().show).toHaveBeenCalledOnce();
+  dialog.dispose();
+});
+
+test("canceled local admissions do not hold the app slot behind an ordinary board dialog", async () => {
+  const slots = new RemovalPresentations();
+  const dialog = new TrustedDialog(
+    parent as unknown as BrowserWindow,
+    {} as Session,
+    () => theme,
+    "linux",
+    slots,
+  );
+  const first = dialog.request(content);
+  const id = await shown();
+  const abort = new AbortController();
+  const queued = dialog.request(
+    {
+      title: "Remove",
+      accept: "Remove",
+      removalFeed: { current: () => [], subscribe: () => () => {}, select() {} },
+    },
+    abort.signal,
+  );
+  const other = vi.fn(() => Promise.resolve(true));
+  const independent = slots.run(other);
+  abort.abort();
+  await new Promise<void>(setImmediate);
+  const independentBeforeAnswer = other.mock.calls.length;
+  answer(id, true);
+  await Promise.all([first, queued, independent]);
+  expect(independentBeforeAnswer).toBe(1);
+  expect(window().show).toHaveBeenCalledOnce();
+  dialog.dispose();
+});
+
+test("aborting while the hidden page loads releases admission and cannot activate it later", async () => {
+  let loaded: () => void = () => undefined;
+  mock.load.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        loaded = resolve;
+      }),
+  );
+  const slots = new RemovalPresentations();
+  const dialog = new TrustedDialog(
+    parent as unknown as BrowserWindow,
+    {} as Session,
+    () => theme,
+    "linux",
+    slots,
+  );
+  const abort = new AbortController();
+  const waiting = dialog.request(
+    {
+      title: "Remove",
+      accept: "Remove",
+      removalFeed: { current: () => [], subscribe: () => () => {}, select() {} },
+    },
+    abort.signal,
+  );
+  await new Promise<void>(setImmediate);
+  const other = vi.fn(() => Promise.resolve(true));
+  const independent = slots.run(other);
+  abort.abort();
+  await new Promise<void>(setImmediate);
+  await new Promise<void>(setImmediate);
+  const independentBeforeLoad = other.mock.calls.length;
+  loaded();
+  await Promise.all([waiting, independent]);
+  expect(independentBeforeLoad).toBe(1);
+  expect(window().show).not.toHaveBeenCalled();
+  dialog.dispose();
+});
+
+test.each(["snapshot", "subscription"] as const)(
+  "cancellation during feed %s cannot show a late review",
+  async (during) => {
+    const abort = new AbortController();
+    const unsubscribe = vi.fn();
+    const dialog = setup();
+    const result = dialog.request(
+      {
+        title: "Remove",
+        accept: "Remove",
+        removalFeed: {
+          current: () => {
+            if (during === "snapshot") abort.abort();
+            return [];
+          },
+          subscribe: () => {
+            if (during === "subscription") abort.abort();
+            return unsubscribe;
+          },
+          select() {},
+        },
+      },
+      abort.signal,
+    );
+    await expect(result).resolves.toBe(false);
+    await new Promise<void>(setImmediate);
+    expect(window().show).not.toHaveBeenCalled();
+    if (during === "subscription") expect(unsubscribe).toHaveBeenCalledOnce();
+    dialog.dispose();
+  },
+);
+
+test("late failure and crash from an abandoned page cannot cancel its replacement", async () => {
+  let fail: (error: Error) => void = () => undefined;
+  mock.load.mockImplementationOnce(
+    () =>
+      new Promise<void>((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  const dialog = setup();
+  const old = window();
+  old.webContents.emit("render-process-gone");
+  const next = dialog.request(content);
+  const id = await shown();
+  fail(new Error("old page failed"));
+  old.webContents.emit("render-process-gone");
+  old.emit("closed");
+  await Promise.resolve();
+  answer(id, true);
+  await expect(next).resolves.toBe(true);
+  dialog.dispose();
+});
+
+test("disposing an owner declines queued actor batches without answering another board", async () => {
+  const slots = new RemovalPresentations();
+  let release: (answer: boolean) => void = () => undefined;
+  const front = slots.run(
+    () =>
+      new Promise<boolean>((resolve) => {
+        release = resolve;
+      }),
+  );
+  await Promise.resolve();
+  const dialog = new TrustedDialog(
+    parent as unknown as BrowserWindow,
+    {} as Session,
+    () => theme,
+    "linux",
+    slots,
+  );
+  let result: boolean | undefined;
+  const queued = dialog
+    .request({
+      title: "Remove",
+      accept: "Remove",
+      removal: {
+        group: "actor",
+        item: { id: "tree", branch: "feature", path: "/fixture/tree", changes: "" },
+      },
+    })
+    .then((value) => {
+      result = value;
+    });
+  dialog.dispose();
+  await new Promise<void>(setImmediate);
+  await new Promise<void>(setImmediate);
+  const beforeRelease = result;
+  release(true);
+  await Promise.all([front, queued]);
+  expect(beforeRelease).toBe(false);
+  expect(window().show).not.toHaveBeenCalled();
 });
 test.each(["darwin", "linux", "win32"] as const)(
   "%s trusted window accepts the macOS activating click",
