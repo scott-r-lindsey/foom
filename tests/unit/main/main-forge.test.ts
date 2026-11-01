@@ -9,7 +9,7 @@ import { expect, test, vi } from "vitest";
 test("forge observations require registered, managed worktrees with matching branch and identity", async () => {
   const listRepositories = vi.fn(() => [{ path: "/repo", name: "Repo" }]);
   const listWorktrees = vi.fn(() =>
-    Promise.resolve([{ path: "/tree", managed: true, branch: "child-one" }]),
+    Promise.resolve([{ path: "/tree", managed: true, branch: "child-one", head: "a".repeat(40) }]),
   );
   const launchIdentity = vi.fn(() => Promise.resolve("identity"));
   const forgeRemote = vi.fn(() => Promise.resolve<string | undefined>("https://github.com/o/r"));
@@ -24,17 +24,21 @@ test("forge observations require registered, managed worktrees with matching bra
   const inspect = forgeMock.open.mock.lastCall?.[1];
   if (!inspect) throw new Error("Missing forge validator");
   const tree = { repository: "/repo", path: "/tree", identity: "identity", branch: "child-one" };
-  expect(await inspect(tree)).toBe("https://github.com/o/r");
+  expect(await inspect(tree)).toEqual({ remote: "https://github.com/o/r", head: "a".repeat(40) });
   expect(await inspect({ ...tree, repository: "/foreign" })).toBeUndefined();
   expect(await inspect({ ...tree, path: "/foreign" })).toBeUndefined();
   expect(await inspect({ ...tree, branch: "other" })).toBeUndefined();
   expect(await inspect({ ...tree, identity: "other" })).toBeUndefined();
-  listWorktrees.mockResolvedValueOnce([{ path: "/tree", managed: false, branch: "child-one" }]);
-  expect(await inspect(tree)).toBe("https://github.com/o/r");
-  listWorktrees.mockResolvedValueOnce([{ path: "/tree", managed: false, branch: "child-one" }]);
+  listWorktrees.mockResolvedValueOnce([
+    { path: "/tree", managed: false, branch: "child-one", head: "a".repeat(40) },
+  ]);
+  expect(await inspect(tree)).toEqual({ remote: "https://github.com/o/r", head: "a".repeat(40) });
+  listWorktrees.mockResolvedValueOnce([
+    { path: "/tree", managed: false, branch: "child-one", head: "a".repeat(40) },
+  ]);
   expect(await inspect(tree, true)).toBeUndefined();
   forgeRemote.mockResolvedValueOnce(undefined);
-  expect(await inspect(tree)).toBe("");
+  expect(await inspect(tree)).toBeUndefined();
   forgeMock.open.mock.lastCall?.[2]();
   expect(mock.workspace.refresh).toHaveBeenCalled();
 });

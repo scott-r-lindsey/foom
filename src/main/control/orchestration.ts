@@ -12,6 +12,7 @@ import { OrchestrationMutations } from "./orchestration-mutations";
 
 const TAIL_BYTES = 16384;
 export const ORCHESTRATION_METHODS: readonly string[] = [
+  "review",
   "create_worktree",
   "launch",
   "stop",
@@ -129,14 +130,31 @@ export class Orchestration extends OrchestrationMutations {
     switch (method) {
       case "read_handoff": {
         const { id, seq } = readHandoffRequest(params);
-        const child = this.own(this.parent(actor), id);
-        if (!child) throw new ControlError("not_found");
+        const parent = this.parent(actor);
+        const child = this.own(parent, id);
+        const archivedTree = child
+          ? undefined
+          : [...parent.worktrees.values()].find((tree) =>
+              tree.closedReviews?.some((review) => review.id === id),
+            );
+        if (archivedTree) {
+          const current = await this.host
+            .restoreWorktree(parent.repository, archivedTree.path)
+            .catch(() => undefined);
+          this.parent(actor);
+          if (
+            current?.identity !== archivedTree.identity ||
+            ![...parent.worktrees.values()].includes(archivedTree)
+          )
+            throw new ControlError("not_found");
+        }
+        const entries = child
+          ? this.handoffs.entries(id)
+          : archivedTree?.closedReviews?.find((review) => review.id === id)?.handoffs;
         const report =
-          seq === undefined
-            ? this.handoffs.latest(id)
-            : this.handoffs.entries(id).find((entry) => entry.seq === seq);
+          seq === undefined ? entries?.at(-1) : entries?.find((entry) => entry.seq === seq);
         if (!report) throw new ControlError("not_found");
-        child.readHandoff = Math.max(child.readHandoff ?? 0, report.seq);
+        if (child) child.readHandoff = Math.max(child.readHandoff ?? 0, report.seq);
         this.childRead(actor, id);
         this.changed();
         return {
@@ -207,6 +225,8 @@ export class Orchestration extends OrchestrationMutations {
           );
         }
       }
+      case "review":
+        return this.review(actor, params, operations);
       case "create_worktree":
         return this.createWorktree(actor, params, operations);
       case "launch":

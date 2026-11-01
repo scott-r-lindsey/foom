@@ -37,6 +37,9 @@ export type ReviewReason =
   | "restored";
 
 export interface ReviewState extends ReviewOptions {
+  /** Latest accepted child-authored verdict; untrusted data. */
+  lastVerdict?: ReviewVerdict;
+  pullRequest?: number;
   authorId: string;
   round: number;
   phase: "building" | "reviewing" | "fixing" | "waiting-on-parent" | "clean" | "escalated";

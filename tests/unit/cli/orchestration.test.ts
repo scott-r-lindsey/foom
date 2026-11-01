@@ -231,3 +231,42 @@ it("accepts host selection only on the host-aware commands and rejects option/sh
   ])
     expect(() => command(args)).toThrow("invalid_request");
 });
+
+it("parses explicit PR bindings and one-shot review scope", () => {
+  expect(command(["launch", "tree", "--agent", "claude", "--pull-request", "972", ...key])).toEqual(
+    {
+      method: "launch",
+      params: { worktreeId: "tree", agent: "claude", pullRequest: 972, idempotencyKey: "retry-1" },
+    },
+  );
+  expect(
+    command([
+      "review",
+      "--pull-request",
+      "972",
+      "--since",
+      "a".repeat(40),
+      "--focus",
+      "Check zero input",
+      ...key,
+    ]),
+  ).toEqual({
+    method: "review",
+    params: {
+      pullRequest: 972,
+      since: "a".repeat(40),
+      focus: "Check zero input",
+      idempotencyKey: "retry-1",
+    },
+  });
+});
+it.each([
+  ["review", ...key],
+  ["review", "--pull-request", "0", ...key],
+  ["review", "--pull-request", "1", "--since", "HEAD;echo", ...key],
+  ["review", "--pull-request", "1", "--focus", "bad\0", ...key],
+  ["review", "--pull-request", "1", "--post-findings", "yes", ...key],
+  ["review", "--pull-request", "1", "--agent", "claude", ...key],
+])("refuses malformed review request %j", (...args) => {
+  expect(() => command(args)).toThrow("invalid_request");
+});

@@ -25,7 +25,7 @@ const {
 const REVIEW_AGENT =
   FAKE_ORCHESTRATED_CLAUDE.replace(
     'const isChild = path.basename(process.cwd()).startsWith("child-");',
-    `const isChild = path.basename(process.cwd()).startsWith("child-");
+    `const isChild = path.basename(process.cwd()).startsWith("child-") || path.basename(process.cwd()).startsWith("review-");
 if (isChild) {
   const fs = require("node:fs");
   const reviewer = args.some(arg => arg.includes("Review PR #340"));
@@ -97,7 +97,19 @@ if (process.env.TEST_REVIEW_OUTPUT === "1") {
 }
 `;
 
-for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concurrent"]) {
+for (const scenario of [
+  "clean",
+  "fix",
+  "cap",
+  "edit",
+  "blocked",
+  "red",
+  "concurrent",
+  "binding",
+  "unresolved",
+  "continue",
+  "one-shot",
+]) {
   test("owned child review loop: " + scenario, {
     timeout: deadline(90000),
     skip: process.platform === "win32" && "The fake agent is a POSIX script",
@@ -172,7 +184,7 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
       options: options,
     });
     let parent = initialParent;
-    const call = async (method, params = {}) => {
+    const call = async (method, params = {}, error) => {
       const response = await fetch(parent.controlUrl, {
         method: "POST",
         headers: {
@@ -184,12 +196,18 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         // Await completion under the case deadline; reads/input retain their
         // short responsiveness bound as well as cancellation with the case.
         signal:
-          method === "create_worktree" || method === "launch"
+          method === "create_worktree" || method === "launch" || method === "review"
             ? context.signal
             : AbortSignal.any([context.signal, AbortSignal.timeout(deadline(5000))]),
       });
-      assert.equal(response.status, 200, `Control request ${method}`);
-      return (await response.json()).result;
+      const body = await response.json();
+      if (error) {
+        assert.equal(response.ok, false);
+        assert.equal(body.error, error);
+        return body;
+      }
+      assert.equal(response.status, 200, `Control request ${method}: ${JSON.stringify(body)}`);
+      return body.result;
     };
     const parentId = (await call("whoami")).terminalId;
     const parentRow = page
@@ -207,11 +225,35 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
     await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
     await expect.poll(async () => (await call("whoami")).role).toBe("orchestrator");
 
-    const tree = await call("create_worktree", { pullRequest: 340, idempotencyKey: "tree" });
+    const tree = await call("create_worktree", {
+      ...(["binding", "unresolved"].includes(scenario)
+        ? { branch: "child-scratch" }
+        : { pullRequest: 340 }),
+      idempotencyKey: "tree",
+    });
+    if (scenario === "unresolved") {
+      await writeFile(forgeState, JSON.stringify({ error: true }));
+      await call(
+        "launch",
+        {
+          worktreeId: tree.resultId,
+          agent: "claude",
+          pullRequest: 340,
+          review: {},
+          idempotencyKey: "refused-author",
+        },
+        "pr_binding_unresolved",
+      );
+      assert.equal(existsSync(`${credentials}.build`), false);
+      const operation = await call("operation_status", { idempotencyKey: "refused-author" });
+      assert.equal(operation.status, "failed");
+      return;
+    }
     const result = await call("launch", {
       worktreeId: tree.resultId,
       agent: "claude",
       prompt: "Fixture task",
+      ...(scenario === "binding" ? { pullRequest: 340 } : {}),
       review: { rounds: scenario === "cap" ? 1 : 3 },
       idempotencyKey: "author",
     });
@@ -355,6 +397,68 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         path: evidencePath(`review-loop-${scenario}-${name}.png`),
       });
     };
+    const go = async (step, command = {}) => {
+      const file = path.join(root, step + ".go");
+      await writeFile(file + ".tmp", JSON.stringify(command));
+      await rename(file + ".tmp", file);
+    };
+    if (scenario === "continue") {
+      await waitStep("build");
+      await call("stop", { id: authorId, idempotencyKey: "stop-old-author" });
+      await expect
+        .poll(async () => (await call("session_state", { id: authorId })).state)
+        .toBe("exited");
+      await call("close", { id: authorId, idempotencyKey: "close-old-author" });
+      const continued = await call("launch", {
+        worktreeId: tree.resultId,
+        agent: "claude",
+        idempotencyKey: "continued-author",
+      });
+      assert.equal(continued.status, "succeeded");
+      assert.notEqual(continued.resultId, authorId);
+      const current = await call("session_state", { id: continued.resultId });
+      assert.equal(current.review.pullRequest, 340);
+      assert.equal(current.review.rounds, 3);
+      assert.equal(current.review.phase, "building");
+      assert.equal(current.name, "child-one");
+      return;
+    }
+    if (scenario === "one-shot") {
+      await waitStep("build");
+      const before = await state();
+      const reviewed = await call("review", {
+        pullRequest: 340,
+        since: headSha,
+        focus: "Check zero",
+        idempotencyKey: "one-shot",
+      });
+      assert.equal(reviewed.status, "succeeded");
+      await waitStep("review-1");
+      const invocation = JSON.parse(await readFile(`${credentials}.review-1`, "utf8"));
+      assert.ok(invocation.args.at(-1).includes("changes since commit " + headSha));
+      assert.ok(invocation.args.at(-1).includes('"Check zero"'));
+      assert.ok(invocation.args.at(-1).includes("Do not post a PR comment"));
+      const worktree = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+        (row) => row.id === reviewed.resultId,
+      ).worktree;
+      assert.equal(git("-C", worktree, "rev-parse", "HEAD").trim(), headSha);
+      assert.equal(git("-C", worktree, "rev-parse", "--abbrev-ref", "HEAD").trim(), "HEAD");
+      await go("review-1", { review: { verdict: "clean" } });
+      await expect
+        .poll(async () => (await call("session_state", { id: reviewed.resultId })).handoff?.status)
+        .toBe("done");
+      assert.deepEqual((await call("read_handoff", { id: reviewed.resultId })).review, {
+        verdict: "clean",
+      });
+      assert.deepEqual(await state(), before);
+      await call("stop", { id: reviewed.resultId, idempotencyKey: "stop-one-shot" });
+      await expect
+        .poll(async () => (await call("session_state", { id: reviewed.resultId })).state)
+        .toBe("exited");
+      await call("close", { id: reviewed.resultId, idempotencyKey: "close-one-shot" });
+      assert.deepEqual(await state(), before);
+      return;
+    }
     await expect(row.locator('[data-review-phase="building"]')).toHaveText("Building");
     await shot("building");
     await waitStep("build");
@@ -364,11 +468,6 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         { timeout: deadline(15000) },
       )
       .toBe(scenario === "red" ? "failure" : "success");
-    const go = async (step, command = {}) => {
-      const file = path.join(root, step + ".go");
-      await writeFile(file + ".tmp", JSON.stringify(command));
-      await rename(file + ".tmp", file);
-    };
     await go("build", scenario === "blocked" ? { status: "blocked" } : {});
     if (scenario === "blocked") {
       await expect.poll(async () => (await state())?.phase).toBe("waiting-on-parent");
@@ -455,6 +554,10 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         assert.equal((await call("session_state", { id: authorId })).state, "exited");
         await expect(row).toBeVisible();
       }
+      const firstReviewer = (await call("sessions")).sessions.find(
+        (child) => child.id !== authorId && child.review?.authorId === authorId,
+      );
+      assert.ok(firstReviewer);
       await go("review-1", {
         review: ["fix", "cap"].includes(scenario) ? findings : { verdict: "clean" },
         edit: scenario === "edit",
@@ -477,7 +580,17 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
         .poll(async () => (await state())?.phase)
         .toBe(["edit", "cap"].includes(scenario) ? "escalated" : "clean");
       if (scenario === "edit") assert.equal((await state()).reason, "worktree changed");
-      if (scenario === "cap") assert.equal((await state()).reason, "round cap");
+      if (scenario === "cap") {
+        assert.equal((await state()).reason, "round cap");
+        assert.deepEqual((await state()).lastVerdict, findings);
+        await expect
+          .poll(async () =>
+            (await call("sessions")).sessions.some((child) => child.id === firstReviewer.id),
+          )
+          .toBe(false);
+        assert.deepEqual((await call("read_handoff", { id: firstReviewer.id })).review, findings);
+        assert.deepEqual((await state()).lastVerdict, findings);
+      }
     }
     if (scenario === "clean") {
       await expect(page.locator('.session-robot-mark[data-kind="review"]')).toHaveCount(0);

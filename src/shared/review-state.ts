@@ -1,3 +1,4 @@
+import { reviewVerdict } from "./review-validation";
 import { conversationId } from "./conversation";
 import { validAgentId } from "./providers/catalog";
 import type { ReviewState } from "./review";
@@ -6,10 +7,19 @@ import type { ReviewState } from "./review";
 export function isReviewState(value: unknown): value is ReviewState {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const data: Record<string, unknown> = { ...value };
+  if (data["lastVerdict"] !== undefined) {
+    try {
+      reviewVerdict(data["lastVerdict"]);
+    } catch {
+      return false;
+    }
+  }
   return (
     Object.keys(data).every((key) =>
       [
         "authorId",
+        "lastVerdict",
+        "pullRequest",
         "round",
         "phase",
         "model",
@@ -29,6 +39,10 @@ export function isReviewState(value: unknown): value is ReviewState {
           data[key].trim() === data[key] &&
           /^[A-Za-z0-9._:/][A-Za-z0-9._:/-]{0,63}$/u.test(data[key])),
     ) &&
+    (data["pullRequest"] === undefined ||
+      (typeof data["pullRequest"] === "number" &&
+        Number.isSafeInteger(data["pullRequest"]) &&
+        data["pullRequest"] > 0)) &&
     conversationId(data["authorId"]) &&
     validAgentId(data["agent"]) &&
     typeof data["rounds"] === "number" &&

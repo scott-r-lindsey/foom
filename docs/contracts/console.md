@@ -21,7 +21,7 @@ scope denial, 4 for unavailable services, capacity, not-found or I/O errors, 5 f
 overall blocking-wait timeout (which still prints the metadata result), and 6 for
 an unknown mutation outcome.
 
-`create-worktree`, `launch`, `stop`, `close`, `remove-worktree`, `prompt` and `send-keys` wait up
+`review`, `create-worktree`, `launch`, `stop`, `close`, `remove-worktree`, `prompt` and `send-keys` wait up
 to 60 seconds for a response. A timeout, lost connection or unreadable response
 prints `{ "error": "unknown_outcome", "idempotencyKey": "KEY" }` to stderr and
 exits 6: the action may have been accepted or succeeded. With the same credentials,
@@ -40,7 +40,8 @@ Orchestrator commands (all support `--json`):
 ```text
 foom create-worktree BRANCH [--host HOST] --idempotency-key KEY
 foom create-worktree --pull-request N [--review] [--host HOST] --idempotency-key KEY
-foom launch WORKTREE_ID --agent PROVIDER [--host HOST] [--model MODEL] [--effort EFFORT] [--prompt TEXT] [--review-model MODEL] [--review-effort EFFORT] --idempotency-key KEY
+foom review --pull-request N [--since SHA] [--focus TEXT] [--post-findings true|false] --idempotency-key KEY
+foom launch WORKTREE_ID [--pull-request N] --agent PROVIDER [--host HOST] [--model MODEL] [--effort EFFORT] [--prompt TEXT] [--review-model MODEL] [--review-effort EFFORT] --idempotency-key KEY
 foom stop ID --idempotency-key KEY
 foom close ID --idempotency-key KEY
 foom remove-worktree WORKTREE_ID --idempotency-key KEY

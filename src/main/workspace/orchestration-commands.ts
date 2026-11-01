@@ -180,6 +180,7 @@ export async function launchChild(
     resume?: { id: string; conversationId: string };
     loop?: AgentLaunch["loop"];
     snapshot?: ReviewSnapshot;
+    validateSnapshot?: () => Promise<void>;
     validate(): void;
   },
   remote?: AgentLaunch["remoteCheckout"],
@@ -227,6 +228,7 @@ export async function launchChild(
           replacement,
           {
             ...(step?.selection ? { selection: step.selection } : {}),
+            ...(step?.validateSnapshot ? { prepareSpawn: step.validateSnapshot } : {}),
             ...(remote ? { remoteCheckout: remote } : {}),
             control: { parentId },
             prompt: prompt ?? "Await your assigned task.",

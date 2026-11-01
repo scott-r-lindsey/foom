@@ -76,6 +76,7 @@ export async function launchAgent(
     | "conversationId"
     | "pinConversation"
     | "beforeSpawn"
+    | "prepareSpawn"
     | "loop"
     | "selection"
     | "remoteCheckout"

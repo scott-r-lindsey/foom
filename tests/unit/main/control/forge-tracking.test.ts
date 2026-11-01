@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ForgeTracking, forgeDelay } from "../../../../src/main/control/forge-tracking";
 import { privateDirectory, atomicPrivate } from "../../../../src/node-common/private-files";
 import type { ForgeMatch, ForgeWorktree, PullRequest } from "../../../../src/main/control/forge.d";
-import { SessionMetadata } from "../../../../src/main/control/metadata";
+import { SessionMetadata, locationId } from "../../../../src/main/control/metadata";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 import type { Principal } from "../../../../src/main/control/types";
 let root: string;
@@ -832,6 +832,44 @@ it("retires removed review checkouts from the provider context before sampling",
   expect(tracker.readSettled(tree.repository, tree.path)).toEqual(pending);
 });
 
+it.each([false, true])(
+  "keeps local batch observations available when a checkout commits during sampling (%s)",
+  async (commits) => {
+    let head = pending.headSha;
+    const second = { ...tree, path: join(root, "second"), branch: "second" };
+    const tracker = new ForgeTracking(
+      directory,
+      () => Promise.resolve({ remote: "https://github.com/o/r", head }),
+      vi.fn(),
+      async (_remote, getContext) => {
+        const context = await getContext?.();
+        return {
+          lookup: () => Promise.resolve(undefined),
+          batch: async (matches) => {
+            if (commits) head = "b".repeat(40);
+            await context?.validate(matches.map((match) => match.branch));
+            return new Map(
+              matches.map((match) => [
+                match.branch,
+                {
+                  ...pending,
+                  board: { number: pending.number, state: pending.state, checks: null },
+                },
+              ]),
+            );
+          },
+        };
+      },
+    );
+    trackers.push(tracker);
+    tracker.setEnabled(true);
+    tracker.sync(tree.repository, [tree, second]);
+    await tracker.poll();
+    expect(tracker.read(tree.repository, tree.path)).toEqual(pending);
+    expect(tracker.read(tree.repository, second.path)).toEqual(pending);
+  },
+);
+
 it("revalidates the sampled chunk without publishing observations for unselected checkouts", async () => {
   let sampling = false;
   const second = { ...tree, path: join(root, "unselected"), branch: "other" };
@@ -1428,6 +1466,36 @@ it("refuses stale remote HEAD and revoked bindings after a query, retaining retr
   expect(tracker.read(tree.repository, remoteTree.path)).toBeUndefined();
 });
 
+it.each(["missing-head", "different-head", "moving-head"])(
+  "refuses local explicit binding with %s",
+  async (mode) => {
+    let head = mode === "different-head" ? "b".repeat(40) : pending.headSha;
+    const tracker = new ForgeTracking(
+      directory,
+      () =>
+        Promise.resolve(
+          mode === "missing-head"
+            ? "https://github.com/o/r"
+            : { remote: "https://github.com/o/r", head },
+        ),
+      vi.fn(),
+      () => ({
+        resolve: () => Promise.resolve({ branch: "pr-head", state: "OPEN", sameRepository: true }),
+        lookup: () => {
+          if (mode === "moving-head") head = "b".repeat(40);
+          return Promise.resolve(pending);
+        },
+      }),
+    );
+    trackers.push(tracker);
+    tracker.track(tree);
+    await expect(
+      tracker.bindPullRequest(tree.repository, tree.path, pending.number),
+    ).rejects.toThrow("pr_binding_unresolved");
+    expect(tracker.read(tree.repository, tree.path)).toBeUndefined();
+  },
+);
+
 it.each([false, true])(
   "remote publication refuses invalidation during the final inspection (batch=%s)",
   async (batched) => {
@@ -1477,5 +1545,184 @@ it.each([false, true])(
     expect(sampled).toBe(true);
     expect(tracker.read(tree.repository, remote.path)).toBeUndefined();
     expect(tracker.readSettled(tree.repository, remote.path)).toBeUndefined();
+  },
+);
+
+it("binds a PR on a different branch while inspecting the original checkout, persisting and polling the explicit target", async () => {
+  const inspect = vi.fn((_tree: ForgeWorktree) =>
+    Promise.resolve({ remote: "https://github.com/o/r", head: pending.headSha }),
+  );
+  const lookup = vi.fn(() => Promise.resolve(pending));
+  const resolve = vi.fn(() =>
+    Promise.resolve({ branch: "pr-head", state: "OPEN" as const, sameRepository: true }),
+  );
+  const tracker = new ForgeTracking(directory, inspect, vi.fn(), () => ({ lookup, resolve }));
+  trackers.push(tracker);
+  tracker.track(tree);
+  await tracker.bindPullRequest(tree.repository, tree.path, 340);
+  expect(tracker.read(tree.repository, tree.path)).toEqual(pending);
+  await tracker.poll();
+  expect(lookup).toHaveBeenLastCalledWith("pr-head", 340);
+  expect(inspect.mock.calls.every(([checkout]) => checkout.branch === tree.branch)).toBe(true);
+  await tracker.close();
+  const restored = new ForgeTracking(directory, inspect, vi.fn(), () => ({ lookup, resolve }));
+  trackers.push(restored);
+  await restored.load();
+  await restored.poll();
+  expect(lookup).toHaveBeenLastCalledWith("pr-head", 340);
+});
+
+it.each([
+  "missing",
+  "foreign",
+  "invalid-number",
+  "unavailable",
+  "unresolved",
+  "closed",
+  "fork",
+  "branch",
+  "no-lookup",
+  "wrong-number",
+  "changed",
+  "invalidated",
+])("refuses %s explicit PR bindings before exposing them", async (mode) => {
+  let remote: string | undefined = mode === "unavailable" ? undefined : "https://github.com/o/r";
+  const resolved = {
+    branch: mode === "branch" ? "-bad" : "pr-head",
+    state: mode === "closed" ? ("CLOSED" as const) : ("OPEN" as const),
+    sameRepository: mode !== "fork",
+  };
+  const lookup = vi.fn(() => {
+    if (mode === "changed") remote = undefined;
+    if (mode === "invalidated") tracker.invalidate();
+    return Promise.resolve(
+      mode === "no-lookup" ? undefined : { ...pending, number: mode === "wrong-number" ? 9 : 340 },
+    );
+  });
+  const tracker = new ForgeTracking(
+    directory,
+    () => Promise.resolve(remote),
+    vi.fn(),
+    () => ({
+      lookup,
+      resolve: () => Promise.resolve(mode === "unresolved" ? undefined : resolved),
+    }),
+  );
+  trackers.push(tracker);
+  if (mode !== "missing") tracker.track(tree);
+  await expect(
+    tracker.bindPullRequest(
+      mode === "foreign" ? "foreign" : tree.repository,
+      tree.path,
+      mode === "invalid-number" ? 0 : 340,
+    ),
+  ).rejects.toThrow(
+    mode === "closed"
+      ? "pr_not_open"
+      : mode === "fork"
+        ? "pr_from_fork"
+        : mode === "branch"
+          ? "invalid_branch"
+          : "pr_binding_unresolved",
+  );
+  expect(tracker.read(tree.repository, tree.path)).toBeUndefined();
+});
+
+it.each([false, true])(
+  "explicit remote binding retains host HEAD revalidation (changed: %s)",
+  async (changed) => {
+    const { locationId } = await import("../../../../src/main/control/metadata");
+    const binding = {
+      host: "alpha",
+      codeFolder: "/code",
+      repository: "/code/repository-fixture",
+      path: "/code/.foom-worktree-fixture",
+      origin: "https://github.com/o/r",
+    };
+    const remoteTree = {
+      ...tree,
+      path: `/foom-remote/${locationId(JSON.stringify([binding.host, binding.path]))}`,
+      remoteCheckout: binding,
+    };
+    let head = pending.headSha;
+    const tracker = new ForgeTracking(
+      directory,
+      () => Promise.resolve({ remote: binding.origin, head }),
+      vi.fn(),
+      () => ({
+        resolve: () =>
+          Promise.resolve({ branch: "pr-head", state: "OPEN" as const, sameRepository: true }),
+        lookup: () => {
+          if (changed) head = "b".repeat(40);
+          return Promise.resolve(pending);
+        },
+      }),
+    );
+    trackers.push(tracker);
+    tracker.track(remoteTree);
+    if (changed)
+      await expect(tracker.bindPullRequest(tree.repository, remoteTree.path, 340)).rejects.toThrow(
+        "pr_binding_unresolved",
+      );
+    else {
+      await tracker.bindPullRequest(tree.repository, remoteTree.path, 340);
+      expect(tracker.read(tree.repository, remoteTree.path)).toEqual(pending);
+    }
+  },
+);
+
+it.each([
+  { remote: false, action: "invalidate" },
+  { remote: true, action: "invalidate" },
+  { remote: false, action: "replace" },
+  { remote: true, action: "replace" },
+  { remote: false, action: "close" },
+  { remote: true, action: "close" },
+])(
+  "refuses stale final binding inspection ($action, remote=$remote)",
+  async ({ remote, action }) => {
+    const origin = "https://github.com/o/r";
+    const remotePath = "/code/.foom-worktree-delta";
+    const checkout = {
+      ...tree,
+      ...(remote
+        ? {
+            path: `/foom-remote/${locationId(JSON.stringify(["alpha", remotePath]))}`,
+            remoteCheckout: {
+              host: "alpha",
+              codeFolder: "/code",
+              repository: "/code/repo",
+              path: remotePath,
+              origin,
+            },
+          }
+        : {}),
+    };
+    let inspections = 0;
+    const inspect = vi.fn(async (_checkout: ForgeWorktree) => {
+      if (++inspections === 2) {
+        await Promise.resolve();
+        if (action === "invalidate") tracker.invalidate();
+        else if (action === "close") await tracker.close();
+        else tracker.track({ ...checkout, identity: "replacement" });
+      }
+      return { remote: origin, head: pending.headSha };
+    });
+    const tracker = new ForgeTracking(directory, inspect, vi.fn(), () => ({
+      binding: "old-provider",
+      resolve: () => Promise.resolve({ branch: "pr-head", state: "OPEN", sameRepository: true }),
+      lookup: () => Promise.resolve(pending),
+    }));
+    trackers.push(tracker);
+    tracker.track(checkout);
+    await expect(
+      tracker.bindPullRequest(checkout.repository, checkout.path, pending.number),
+    ).rejects.toThrow("pr_binding_unresolved");
+    expect(tracker.read(checkout.repository, checkout.path)).toBeUndefined();
+    if (action === "replace") {
+      await tracker.bindPullRequest(checkout.repository, checkout.path, pending.number);
+      expect(inspect.mock.calls.at(-1)?.[0].identity).toBe("replacement");
+      expect(tracker.read(checkout.repository, checkout.path)).toEqual(pending);
+    }
   },
 );

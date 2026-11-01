@@ -56,6 +56,16 @@ are discarded after reducing them to an exact daemon identity and session count;
 no raw process list or arguments enter the hub, logs or renderer. Remote screens
 remain in daemon memory and are replayed without local screen persistence.
 
+Retained review verdicts (#972) are bounded child-authored output. Only the live
+owning orchestrator receives `review.lastVerdict` (including findings) through
+`session_state` and owned waits; paginated `sessions` omits contents to retain
+its response bound; ordinary agents and human CLI metadata do not receive
+it, and takeover ends this access. The human board may display the saved record.
+Closed reviewer reports remain in private owning-worktree metadata until removal;
+reads require the live parent and revalidated checkout identity. Neither findings
+nor report contents enter the Action log. As with handoffs, the owning agent's
+model provider may receive them when it reads them.
+
 ## Local message board (#973)
 
 Board text and links are deliberately shared among the human and the opening and

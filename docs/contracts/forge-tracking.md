@@ -161,3 +161,10 @@ revalidation, but never restore grants or authorize a host. Missing remote HEAD
 or origin evidence fails closed. Local sidebar scans never inspect opaque remote
 checkout IDs as local paths. No merge authority, remote review snapshots or
 automatic remote worktree removal is added.
+
+Explicit review bindings (#972) retain the PR head branch separately from the
+checkout's actual branch. Inspection continues to validate the original identity
+and actual branch; lookup/batch matching uses the resolved PR branch and number.
+Binding requires an open same-repository resolve plus validated lookup before
+launch. Provider/remote invalidation retires this binding like other observations.
+The private forge envelope retains the resolved branch for restart validation.

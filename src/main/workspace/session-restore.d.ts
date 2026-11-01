@@ -1,3 +1,4 @@
+import type { ReviewOptions } from "../../shared/review";
 import type { Handoff } from "../../shared/handoff";
 import type { OrchestrationEntry, WorkspaceTerminal } from "../../shared/workspace";
 
@@ -5,6 +6,10 @@ export interface OwnedWorktree {
   path: string;
   identity: string;
   state: "unused" | "used";
+  reviewer?: boolean;
+  pullRequest?: number;
+  review?: ReviewOptions;
+  closedReviews?: readonly { id: string; handoffs: readonly Handoff[] }[];
 }
 
 /** Main-owned launch provenance. Never supplied by hooks, IPC, or conversation metadata. */

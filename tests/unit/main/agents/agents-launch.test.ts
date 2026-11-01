@@ -17,6 +17,48 @@ import { AgentService } from "../../../../src/main/agents/agents";
 import type { TerminalSpec } from "../../../../src/shared/desktop";
 
 describe("automation spawn authority", () => {
+  it("runs the final synchronous authority check after asynchronous checkout validation", async () => {
+    const checks: string[] = [];
+    await agentFixture.service.scan();
+    await agentFixture.service.launch({
+      ...request,
+      prepareSpawn: async () => {
+        await Promise.resolve();
+        checks.push("snapshot");
+      },
+      beforeSpawn: () => {
+        checks.push("authority");
+      },
+    });
+    expect(checks).toEqual(["snapshot", "authority"]);
+    expect(create).toHaveBeenCalledOnce();
+  });
+  it("awaits asynchronous checkout evidence before the final authority check and refuses spawn on failure", async () => {
+    let reject: (error: Error) => void = () => {
+      throw new Error("missing preparation");
+    };
+    let began: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    const prepareSpawn = vi.fn(() => {
+      began();
+      return new Promise<void>((_resolve, fail) => {
+        reject = fail;
+      });
+    });
+    const beforeSpawn = vi.fn();
+    await agentFixture.service.scan();
+    const launched = agentFixture.service.launch({ ...request, prepareSpawn, beforeSpawn });
+    const refused = expect(launched).rejects.toThrow("Checkout moved");
+    await started;
+    expect(create).not.toHaveBeenCalled();
+    expect(beforeSpawn).not.toHaveBeenCalled();
+    reject(new Error("Checkout moved"));
+    await refused;
+    expect(create).not.toHaveBeenCalled();
+    expect(beforeSpawn).not.toHaveBeenCalled();
+  });
   it("rechecks main-owned authority immediately before spawning and cleans up a refused launch", async () => {
     const beforeSpawn = vi.fn(() => {
       throw new Error("Automation stopped");

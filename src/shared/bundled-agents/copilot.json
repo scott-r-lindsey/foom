@@ -90,6 +90,7 @@
         "handoff",
         "read_handoff",
         "create_worktree",
+        "review",
         "launch",
         "prompt",
         "send_keys",

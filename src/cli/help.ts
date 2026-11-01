@@ -27,7 +27,8 @@ const commandHelp = [
     commands: [
       "read-handoff ID [--seq N]",
       "create-worktree BRANCH|--pull-request N [--review] [--host HOST] --idempotency-key KEY",
-      "launch WORKTREE_ID [--host HOST] --agent PROVIDER [--model MODEL] [--effort EFFORT] [--prompt TEXT] [--review-rounds 1-5] [--review-agent PROVIDER] [--review-model MODEL] [--review-effort EFFORT] [--review-post-findings true|false] [--review-parent-wait-minutes 1-1440] --idempotency-key KEY",
+      "review --pull-request N [--since SHA] [--focus TEXT] [--post-findings true|false] --idempotency-key KEY",
+      "launch WORKTREE_ID [--pull-request N] [--host HOST] --agent PROVIDER [--model MODEL] [--effort EFFORT] [--prompt TEXT] [--review-rounds 1-5] [--review-agent PROVIDER] [--review-model MODEL] [--review-effort EFFORT] [--review-post-findings true|false] [--review-parent-wait-minutes 1-1440] --idempotency-key KEY",
       "prompt ID --text TEXT --idempotency-key KEY",
       "send-keys ID --keys y,enter --idempotency-key KEY",
       "stop ID --idempotency-key KEY",
