@@ -129,6 +129,7 @@ test("the package graph and hook use only Oxlint as the linter", () => {
   assert.equal(manifest.devDependencies["typescript-eslint"], undefined);
   assert.equal(manifest.scripts.lint, "oxlint . --deny-warnings");
   assert.equal(config.options.typeAware, true);
+  assert.equal(config.options.reportUnusedDisableDirectives, "warn");
   assert.doesNotMatch(
     readFileSync("pnpm-lock.yaml", "utf8"),
     /^ {2}(?:eslint|typescript-eslint)@/m,
@@ -214,6 +215,37 @@ test("warnings from retained JavaScript safety rules fail the authoritative gate
     const ordinary = spawnSync(process.execPath, args, { encoding: "utf8" });
     assert.equal(ordinary.status, 0, ordinary.stderr);
     assert.match(ordinary.stdout, /dom-no-unsafe-iframe-sandbox/);
+    const denied = spawnSync(process.execPath, [...args, "--deny-warnings"], { encoding: "utf8" });
+    assert.equal(denied.status, 1, denied.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("unused suppression comments retain the former warning and deny-warnings failure", () => {
+  const root = mkdtempSync(join(tmpdir(), "foom-lint-directive-"));
+  try {
+    writeFileSync(
+      join(root, "input.js"),
+      "// oxlint-disable-next-line no-debugger\nconsole.log('safe');",
+    );
+    writeFileSync(
+      join(root, "lint.json"),
+      JSON.stringify({
+        categories: { correctness: "off" },
+        options: { reportUnusedDisableDirectives: config.options.reportUnusedDisableDirectives },
+        rules: { "eslint/no-debugger": "error" },
+      }),
+    );
+    const args = [
+      resolve("node_modules/oxlint/bin/oxlint"),
+      "--config",
+      join(root, "lint.json"),
+      join(root, "input.js"),
+    ];
+    const ordinary = spawnSync(process.execPath, args, { encoding: "utf8" });
+    assert.equal(ordinary.status, 0, ordinary.stderr);
+    assert.match(ordinary.stdout, /Unused oxlint-disable directive/);
     const denied = spawnSync(process.execPath, [...args, "--deny-warnings"], { encoding: "utf8" });
     assert.equal(denied.status, 1, denied.stderr);
   } finally {

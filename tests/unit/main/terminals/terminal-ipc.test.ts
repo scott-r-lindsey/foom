@@ -1577,6 +1577,23 @@ test("shared paste authorizes attached sender, keeps text precedence, and gates 
     expect(await invoke("paste", [unsupported])).toEqual({ kind: "unsupported" });
   }
 });
+test("terminal exit contains image cleanup failure and emits only a fixed diagnostic", async () => {
+  const id = await terminalControl.create({ ...spec, imagePaste: true });
+  await invoke("attach", [id]);
+  mock.imageClose.mockRejectedValueOnce(new Error("private image path must not be logged"));
+  const diagnostic = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    pty().emitExit();
+    await vi.waitFor(() => {
+      expect(diagnostic).toHaveBeenCalledExactlyOnceWith("Image paste cleanup failed");
+    });
+    expect(mock.imageClose).toHaveBeenCalledWith(expect.any(String));
+    expect(contents.send).toHaveBeenCalledWith("terminal:exit", id, 0);
+  } finally {
+    diagnostic.mockRestore();
+  }
+});
+
 test("switching attachments aborts queued paste and releases unused local files", async () => {
   const id = await terminalControl.create({ ...spec, imagePaste: true });
   await invoke("attach", [id]);

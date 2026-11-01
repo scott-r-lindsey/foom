@@ -215,7 +215,9 @@ a development machine; retain raw evidence only in ignored `test-results/`.
 Oxlint 1.90.0 is the only lint runner; oxlint-tsgolint 7.0.2005 supplies its
 native type-aware rules. `.oxlintrc.json` enables type awareness for ordinary CLI
 and editor use as well as the package scripts. `lint`, `lint:fix`, `lint:local`,
-the pre-commit check and CI all deny warnings. Biome remains the formatter.
+the pre-commit check and CI all deny warnings. Unused disable directives retain
+the former implicit warning through an explicit root option, so stale
+suppressions also fail the gate. Biome remains the formatter.
 The React and Hook rule packages run unchanged through Oxlint's JavaScript
 plugin API, alongside `foom/process-boundaries`. No ESLint engine, parser,
 configuration or fallback pass is installed. Peer auto-installation is disabled
