@@ -160,7 +160,8 @@ grid column; state and retention labels never wrap. Pairing counts down to the a
 request deadline, including time spent waiting behind another dialog. Cleanup checking
 counts come from the latest inventory; fetch ages use the successful main-owned fetch
 timestamp, never a new timer started by opening the dialog. Its sandboxed preload
-exposes only request rendering, sizing and answering; it buffers the request until the page
+exposes request rendering, sizing, answering and request-scoped removal-path copying;
+it buffers the request until the page
 subscribes. `confirmation:answer` validates the exact window, top frame, URL,
 request ID and boolean, or a nonempty, unique subset of displayed operation IDs
 for a batch removal. Main groups pending removals by orchestrator generation and
@@ -198,3 +199,10 @@ closed, the renderer falls back to the focused tile's xterm input, its tile, the
 the sidebar navigation root. That root survives sidebar snapshots which may
 remove a stale session row after terminal teardown. If the root is absent, a
 sidebar navigation control or the application menu can receive focus.
+
+Removal presentations make each displayed worktree/status path copyable, including
+rename sources. The shared copy glyph/check control is keyboard accessible and
+joins the focus trap. Copying sends the pending request and a path identifier to
+main, which resolves only that presentation's paths; it never answers or grants
+consent. Pairing codes, disclosure facts and secrets are excluded. See the
+[copy IPC contract](ipc.md#visible-fact-copy-controls-960).

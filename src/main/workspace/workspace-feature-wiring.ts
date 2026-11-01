@@ -260,7 +260,13 @@ export function workspaceFeatureWiring(owner: WorkspaceContext): {
         return owner.worktrees.bind(owner);
       },
       deps: {
+        get hosts() {
+          return owner.deps.hosts;
+        },
         worktrees: {
+          get panelFacts() {
+            return owner.deps.worktrees.panelFacts.bind(owner.deps.worktrees);
+          },
           get reviewIdentity() {
             return owner.deps.worktrees.reviewIdentity.bind(owner.deps.worktrees);
           },

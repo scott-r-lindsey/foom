@@ -1,3 +1,4 @@
+import { CopyValue } from "../ui/copy-value";
 import { agentNames } from "./sidebar-model";
 import type { PreviewSummary } from "../../shared/workspace";
 import type { WindowMovesApi, MoveContent, WindowDestination } from "../../shared/windows";
@@ -27,6 +28,7 @@ export function TileMenu({
   moveError,
   network,
   reload,
+  copyPath,
   close,
   action,
 }: {
@@ -44,6 +46,7 @@ export function TileMenu({
   moveError?: (() => void) | undefined;
   network?: (() => void) | undefined;
   reload?: (() => void) | undefined;
+  copyPath?: (() => Promise<void>) | undefined;
   close: () => void;
   action: (action: TileAction) => void;
 }) {
@@ -175,7 +178,17 @@ export function TileMenu({
             {preview && (
               <>
                 <dt>Path</dt>
-                <dd>{preview.relativePath}</dd>
+                <dd>
+                  {preview.worktree === "foom:manual" ? (
+                    preview.relativePath
+                  ) : (
+                    <CopyValue
+                      value={preview.relativePath}
+                      label="Copy opened file path"
+                      copy={() => copyPath?.() ?? Promise.reject(new Error("Copy unavailable"))}
+                    />
+                  )}
+                </dd>
                 {preview.openedBy && (
                   <>
                     <dt>Opened by</dt>

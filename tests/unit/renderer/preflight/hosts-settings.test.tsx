@@ -225,3 +225,84 @@ test("interrupted clones reconcile locations and Refresh locations can recover a
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
+
+test("registered values have named copy controls that send only host and repository identifiers", async () => {
+  const copyHost = vi.fn(async () => {});
+  const hosts = () =>
+    Promise.resolve({
+      hosts: [host],
+      locations: [
+        {
+          host: "worker",
+          repository: "/local",
+          result: {
+            ok: true as const,
+            facts,
+            checkout: { path: "/remote/repo", state: "clean" as const },
+          },
+        },
+      ],
+    });
+  const view = render(<HostsSettings source={{ hosts, copyHost }} headingRef={createRef()} />);
+  await screen.findByRole("button", { name: "Copy host alias" });
+  fireEvent.click(screen.getByRole("button", { name: "Copy host alias" }));
+  expect(copyHost).toHaveBeenLastCalledWith({ kind: "copy-host-alias", host: "worker" });
+  fireEvent.click(screen.getByRole("button", { name: "Copy code folder" }));
+  expect(copyHost).toHaveBeenLastCalledWith({ kind: "copy-host-code-folder", host: "worker" });
+  view.unmount();
+  render(
+    <RepositoryHosts
+      source={{ hosts, copyHost }}
+      repositories={[{ name: "Repo", path: "/local" }]}
+    />,
+  );
+  await screen.findByText("/remote/repo");
+  const buttons = screen.getAllByRole("button", { name: "Copy checkout path" });
+  fireEvent.click(buttons[0] ?? document.body);
+  expect(copyHost).toHaveBeenLastCalledWith({
+    kind: "copy-checkout-path",
+    host: null,
+    repository: "/local",
+  });
+  fireEvent.click(buttons[1] ?? document.body);
+  expect(copyHost).toHaveBeenLastCalledWith({
+    kind: "copy-checkout-path",
+    host: "worker",
+    repository: "/local",
+  });
+  await waitFor(() => {
+    expect(buttons[1]?.getAttribute("data-copied")).toBe("true");
+  });
+});
+
+test("unavailable copy capabilities show the fixed failure beside each value", async () => {
+  const hosts = () =>
+    Promise.resolve({
+      hosts: [host],
+      locations: [
+        {
+          host: "worker",
+          repository: "/local",
+          result: {
+            ok: true as const,
+            facts,
+            checkout: { path: "/remote/repo", state: "clean" as const },
+          },
+        },
+      ],
+    });
+  const view = render(<HostsSettings source={{ hosts }} headingRef={createRef()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Copy host alias" }));
+  fireEvent.click(screen.getByRole("button", { name: "Copy code folder" }));
+  await waitFor(() => {
+    expect(screen.getAllByText("Unable to copy")).toHaveLength(2);
+  });
+  view.unmount();
+  render(<RepositoryHosts source={{ hosts }} repositories={[{ name: "Repo", path: "/local" }]} />);
+  await screen.findByText("/remote/repo");
+  for (const button of screen.getAllByRole("button", { name: "Copy checkout path" }))
+    fireEvent.click(button);
+  await waitFor(() => {
+    expect(screen.getAllByText("Unable to copy")).toHaveLength(2);
+  });
+});

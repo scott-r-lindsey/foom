@@ -1,3 +1,4 @@
+@import "./copy-value.css";
 :root {
   font-family: var(--font-interface);
   background: var(--bg);

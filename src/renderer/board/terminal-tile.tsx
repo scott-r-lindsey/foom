@@ -470,6 +470,13 @@ export function Tile({
       )}
       {occupied && menu && !inactive && !behind && (
         <TileMenu
+          copyPath={
+            preview
+              ? () =>
+                  source.previews?.copyPath?.(preview.id) ??
+                  Promise.reject(new Error("Copy unavailable"))
+              : undefined
+          }
           anchor={menu.anchor}
           point={menu.point}
           layout={{ ...layout, focused: tile.id }}

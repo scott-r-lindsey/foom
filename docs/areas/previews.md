@@ -118,15 +118,19 @@ per stable window ID in profile JSON, with bounded validation and serialized
 atomic writes. Paths never enter layout localStorage. Opens revalidate membership
 and canonical checkout identity against registered worktrees, then validate and
 open the contained document without reading its body. `preview:pick`,
-`preview:close` and `preview:bounds` use `WindowIpcRouter` to validate the owning board, exact app URL and top frame,
+`preview:copy-path`, `preview:close` and `preview:bounds` use `WindowIpcRouter` to validate the owning board, exact app URL and top frame,
 and validate argument counts, worktree IDs and finite bounded rectangles.
 The picker command carries only the inventory worktree path that identifies the checkout.
 Main dismisses the command panel before the native picker can change focus, so
 blur cancellation cannot leave a panel covering the loaded preview. It shows the
 picker rooted there and derives the relative document path;
 the renderer never chooses or sends a document path.
-IDs grant access only within their owning window. Sidebar inventory reports those
-IDs and display facts. An unavailable repository retains the window's previously
+IDs grant access only within their owning window. The tile panel's copy control
+sends only its preview ID; main resolves the full opened path from that window's
+registry without reading file bytes. The display remains worktree-relative.
+Closed, foreign and bundled-manual IDs refuse; see the
+[copy IPC contract](ipc.md#visible-fact-copy-controls-960).
+Sidebar inventory reports those IDs and display facts. An unavailable repository retains the window's previously
 known preview associations while its records remain open. A first partial inventory
 keeps unassociated owned preview IDs with an empty display repository until membership
 is known, so restored tile assignments survive without guessing a checkout's owner.

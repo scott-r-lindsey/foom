@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import type { BrowserWindow, Session, BrowserWindowConstructorOptions } from "electron";
 import { resolveInterfaceTheme } from "../../../../src/shared/interface-themes";
 const mock = vi.hoisted(() => ({
+  copy: vi.fn<() => Promise<void>>().mockResolvedValue(),
   autoSize: true,
   workArea: { x: 0, y: 0, width: 1920, height: 1080 },
   ipc: new Map<string, (...args: unknown[]) => void>(),
@@ -23,6 +24,7 @@ class FakeWindow extends EventEmitter {
         });
     }),
     focus: vi.fn(),
+    isDestroyed: vi.fn(() => false),
     getZoomFactor: vi.fn(() => 1),
     setZoomFactor: vi.fn(),
     setWindowOpenHandler: vi.fn<(handler: () => { action: string }) => void>(),
@@ -51,6 +53,7 @@ class FakeWindow extends EventEmitter {
   }
 }
 vi.mock("electron", () => ({
+  clipboard: { writeText: mock.copy },
   app: { focus: mock.activate },
   BrowserWindow: vi.fn(function (options: BrowserWindowConstructorOptions) {
     return new FakeWindow(options);
@@ -87,6 +90,7 @@ const parent = Object.assign(new EventEmitter(), {
   webContents: Object.assign(new EventEmitter(), {
     send: vi.fn(),
     focus: vi.fn(),
+    isDestroyed: vi.fn(() => false),
     getZoomFactor: vi.fn(() => 1),
   }),
   getContentBounds: vi.fn(() => ({ x: 10, y: 20, width: 800, height: 600 })),
@@ -1143,5 +1147,60 @@ test("Windows releases native input and focuses web contents before dismissing t
   answer(id, false);
   await expect(pending).resolves.toBe(false);
   expect(parent.webContents.send).toHaveBeenLastCalledWith("confirmation:scrim", false);
+  dialog.dispose();
+});
+
+test("copying a removal path requires this presented request and trusted frame, never answers it", async () => {
+  const dialog = setup();
+  const pending = dialog.request({
+    title: "Remove?",
+    accept: "Remove",
+    worktreePath: "/tree",
+    changes: "R  new.txt\0old.txt\0",
+  });
+  const id = await shown();
+  const contents = window().webContents;
+  const trusted = { sender: contents, senderFrame: contents.mainFrame };
+  const copy = (...args: unknown[]) => mock.ipc.get("confirmation:copy-path")?.(trusted, ...args);
+  for (const [target, expected] of [
+    ["worktree", "/tree"],
+    ["change:0", "new.txt"],
+    ["change:1", "old.txt"],
+  ]) {
+    copy(id, target, 1);
+    await Promise.resolve();
+    expect(mock.copy).toHaveBeenLastCalledWith(expected);
+    expect(contents.send).toHaveBeenLastCalledWith("confirmation:copy-result", 1, true);
+  }
+  mock.copy.mockClear();
+  for (const args of [
+    ["stale", "worktree", 2],
+    [id, "unknown", 2],
+  ]) {
+    copy(...args);
+    expect(contents.send).toHaveBeenLastCalledWith("confirmation:copy-result", 2, false);
+  }
+  for (const args of [[], [id, "worktree"], [id, "worktree", -1], [id, "worktree", 1, "arbitrary"]])
+    copy(...args);
+  for (const event of [
+    { sender: {}, senderFrame: contents.mainFrame },
+    { sender: contents, senderFrame: null },
+    { sender: contents, senderFrame: { url: CONFIRMATION_URL } },
+  ])
+    mock.ipc.get("confirmation:copy-path")?.(event, id, "worktree", 3);
+  expect(mock.copy).not.toHaveBeenCalled();
+  mock.copy.mockImplementationOnce(() => {
+    throw new Error("clipboard");
+  });
+  copy(id, "worktree", 4);
+  expect(contents.send).toHaveBeenLastCalledWith("confirmation:copy-result", 4, false);
+  mock.copy.mockRejectedValueOnce(new Error("clipboard"));
+  copy(id, "worktree", 4);
+  await Promise.resolve();
+  expect(contents.send).toHaveBeenLastCalledWith("confirmation:copy-result", 4, false);
+  answer(id, false);
+  await expect(pending).resolves.toBe(false);
+  copy(id, "worktree", 5);
+  expect(contents.send).toHaveBeenLastCalledWith("confirmation:copy-result", 5, false);
   dialog.dispose();
 });

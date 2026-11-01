@@ -128,6 +128,19 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
   // Creating starts nothing; the new row's own panel offers the launchers.
   assert.deepEqual((await page.evaluate(() => window.desktop.workspace())).terminals, []);
   await page.keyboard.press("Enter");
+  const copyPanel = page.getByRole("dialog", { name: "feature/ui details and commands" });
+  const copyPath = copyPanel.getByRole("button", { name: "Copy path", exact: true });
+  await expect(copyPath).toBeVisible();
+  const expectedPath = await copyPath.textContent();
+  await copyPath.click();
+  await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(expectedPath);
+  await expect(copyPath).toHaveAttribute("data-copied", "true");
+  const branchCopy = copyPanel.getByRole("button", { name: "Copy branch", exact: true });
+  await branchCopy.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe("feature/ui");
+  await branchCopy.hover();
+  await page.screenshot({ path: evidencePath("960-worktree-panel.png"), animations: "disabled" });
   await page
     .getByRole("menuitem", { name: process.platform === "win32" ? /^Shell/u : "Claude Code" })
     .click();
@@ -163,6 +176,20 @@ test("the branch field creates a worktree by keyboard without launching; dirty r
     confirmation.getByRole("list", { name: "Uncommitted changes", exact: true }),
   ).toContainText("unsaved.txt");
   await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
+  const pathCopies = confirmation.getByRole("button", { name: "Copy path", exact: true });
+  await pathCopies.filter({ hasText: "unsaved.txt" }).click();
+  await expect
+    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe("unsaved.txt");
+  await pathCopies.filter({ hasText: terminal.worktree }).click();
+  await expect
+    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe(terminal.worktree);
+  await confirmation.screenshot({
+    path: evidencePath("960-removal-confirmation.png"),
+    animations: "disabled",
+  });
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).focus();
   await expect(page.locator(".board-confirmation-scrim")).toBeVisible();
   for (const colorMode of ["light", "dark"]) {
     await page.evaluate(

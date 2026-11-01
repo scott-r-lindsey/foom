@@ -194,10 +194,11 @@ await build({
   format: "esm",
   outfile: join(root, "build/renderer/confirmation.js"),
 });
-await copyFile(
-  join(root, "src/renderer/styles/confirmation.css"),
-  join(root, "build/renderer/confirmation.css"),
-);
+await build({
+  entryPoints: [join(root, "src/renderer/styles/confirmation.css")],
+  bundle: true,
+  outfile: join(root, "build/renderer/confirmation.css"),
+});
 
 await cp(join(root, "src/sounds"), join(root, "build/sounds"), { recursive: true });
 

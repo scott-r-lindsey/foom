@@ -38,7 +38,7 @@ test("the Foom config dock contains its sessions, shows chips, launches there an
   const panel = screen.getByRole("dialog", { name: "Foom config details and commands" });
   expect(panel.textContent).toContain("1 rejected");
   expect(panel.textContent).toContain("hooks: on → off");
-  fireEvent.click(screen.getByRole("button", { name: "/home/.foom/config" }));
+  fireEvent.click(screen.getByRole("button", { name: "Copy path" }));
   await settle();
   expect(mock.sidebarCommand).toHaveBeenCalledWith({ kind: "copy-config-path" });
   fireEvent.click(screen.getByRole("menuitem", { name: /^Shell/ }));

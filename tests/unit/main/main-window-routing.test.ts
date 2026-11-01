@@ -1,4 +1,4 @@
-import { mock, start, quitting, invokeWindow, newWindow } from "./main-fixture";
+import { previewMock, mock, start, quitting, invokeWindow, newWindow } from "./main-fixture";
 import type { Settings } from "../../../src/shared/setup";
 
 import { setupState } from "../../fixtures/setup";
@@ -161,11 +161,17 @@ test("fixed interface themes set the native base and exact background, even betw
   expect(mock.window.setBackgroundColor).toHaveBeenLastCalledWith("#f5f7fc");
 });
 
-test("session ID copying uses the main clipboard capability", async () => {
+test("session, host and preview copies share main's clipboard capability", async () => {
   await start();
   const { clipboard } = await import("electron");
   await mock.workspace.deps?.copyText?.("saved-session-id");
-  expect(vi.mocked(clipboard).writeText.mock.calls).toEqual([["saved-session-id"]]);
+  await mock.setup.deps?.copyText?.("registered-host");
+  await previewMock.copyText?.("/opened/preview.md");
+  expect(vi.mocked(clipboard).writeText.mock.calls).toEqual([
+    ["saved-session-id"],
+    ["registered-host"],
+    ["/opened/preview.md"],
+  ]);
 });
 
 test("window focus refreshes external workspace inventory", async () => {

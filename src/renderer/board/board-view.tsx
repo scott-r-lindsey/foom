@@ -67,6 +67,17 @@ const commandFailures: Readonly<Record<SidebarCommand["kind"], string>> = {
   resume: "Unable to resume conversation.",
   "resume-id": "Unable to resume conversation.",
   "new-conversation": "Unable to start conversation.",
+  "copy-default-branch": "Unable to copy",
+  "copy-worktree-branch": "Unable to copy",
+  "copy-worktree-head": "Unable to copy",
+  "copy-pull-request-number": "Unable to copy",
+  "copy-pull-request-url": "Unable to copy",
+  "copy-remote-url": "Unable to copy",
+  "copy-foom-session-id": "Unable to copy",
+  "copy-parent-id": "Unable to copy",
+  "copy-child-id": "Unable to copy",
+  "copy-handoff-summary": "Unable to copy",
+  "copy-error-text": "Unable to copy",
   "copy-session-id": "Unable to copy session ID.",
   "make-orchestrator": "Unable to make orchestrator.",
   "revoke-orchestrator": "Unable to revoke orchestrator.",
@@ -75,7 +86,12 @@ const commandFailures: Readonly<Record<SidebarCommand["kind"], string>> = {
 const emptyPreviews: readonly PreviewSummary[] = [];
 export function Board(props: ComponentProps<typeof BoardContents>) {
   return (
-    <ErrorPresentation>
+    <ErrorPresentation
+      copyError={(error) =>
+        props.source.sidebarCommand?.({ kind: "copy-error-text", error }) ??
+        Promise.reject(new Error("Copy unavailable"))
+      }
+    >
       <BoardContents {...props} />
     </ErrorPresentation>
   );

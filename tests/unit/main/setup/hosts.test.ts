@@ -658,6 +658,45 @@ test("a config provider cannot appear ready from a remote installation probe", a
   }
 });
 
+test("host copy resolves registrations and cached checkout paths without contacting a host", async () => {
+  await hosts.action({ action: "add", host: "worker", codeFolder: "~/code" });
+  expect(hosts.copyValue({ kind: "copy-host-alias", host: "worker" })).toBe("worker");
+  expect(hosts.copyValue({ kind: "copy-host-code-folder", host: "worker" })).toBe(facts.codeFolder);
+  expect(
+    hosts.copyValue({ kind: "copy-checkout-path", host: null, repository: "/local/repo" }),
+  ).toBe("/local/repo");
+  expect(() =>
+    hosts.copyValue({ kind: "copy-checkout-path", host: "worker", repository: "/local/repo" }),
+  ).toThrow();
+  const { createHash } = await import("node:crypto");
+  const checkout = `${facts.codeFolder}/repository-${createHash("sha256").update("git@forge.test:me/repo.git").digest("hex").slice(0, 24)}`;
+  run.mockResolvedValueOnce({ ok: true, facts, checkout: { path: checkout, state: "clean" } });
+  await hosts.action({ action: "locations" });
+  run.mockClear();
+  expect(
+    hosts.copyValue({ kind: "copy-checkout-path", host: "worker", repository: "/local/repo" }),
+  ).toBe(checkout);
+  expect(run).not.toHaveBeenCalled();
+  for (const input of [
+    null,
+    {},
+    { kind: "unknown", host: "worker" },
+    { kind: "copy-host-alias", host: "unknown" },
+    { kind: "copy-host-code-folder", host: "worker", value: "secret" },
+    { kind: "copy-checkout-path", host: "worker", repository: "/unknown" },
+    { kind: "copy-checkout-path", host: 1, repository: "/local/repo" },
+    { kind: "copy-checkout-path", host: "unknown", repository: "/local/repo" },
+  ])
+    expect(() => hosts.copyValue(input)).toThrow();
+  repositories = [];
+  expect(() =>
+    hosts.copyValue({ kind: "copy-checkout-path", host: "worker", repository: "/local/repo" }),
+  ).toThrow();
+  await hosts.action({ action: "remove", host: "worker" });
+  for (const kind of ["copy-host-alias", "copy-host-code-folder"])
+    expect(() => hosts.copyValue({ kind, host: "worker" })).toThrow();
+});
+
 test.each([
   "valid",
   "missing",
@@ -723,6 +762,13 @@ test("tagged inventory survives a new hub owner, last-row absence and re-registr
     localRepository: "/local/repo",
     host: "worker",
   });
+  repositories = [{ path: "/local/second", name: "second" }, ...repositories];
+  await hosts.worktrees("/local/second");
+  expect(hosts.placement(key)?.localRepository).toBe("/local/second");
+  expect(hosts.placement(key, "/local/repo")?.localRepository).toBe("/local/repo");
+  expect(hosts.placement(key, "/local/second")?.localRepository).toBe("/local/second");
+  expect(hosts.placement(key, "/local/unknown")).toBeUndefined();
+  repositories = repositories.filter((repo) => repo.path !== "/local/second");
   expect(hosts.state().hosts[0]).toMatchObject({ foreignWorktrees: 3 });
   expect(JSON.stringify(hosts.state())).not.toContain(tree.path);
   expect(

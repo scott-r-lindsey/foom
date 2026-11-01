@@ -1,8 +1,9 @@
 import { LaunchFailure } from "../../shared/launch-failure";
-import { ApplicationError } from "../../shared/application-errors";
+import { copyableErrorText, ApplicationError } from "../../shared/application-errors";
+import { gitOrigin } from "../../shared/registered-hosts";
 import type { SidebarCommandResult } from "../../shared/workspace";
 import { randomUUID } from "node:crypto";
-import { basename } from "node:path";
+import { basename, isAbsolute } from "node:path";
 import type { AgentId, AgentLaunched } from "../../shared/agents";
 import type { ConfirmWorkspace } from "../../shared/confirmation";
 import type { SidebarCommand, SidebarInventory, TerminalState } from "../../shared/workspace";
@@ -17,6 +18,30 @@ import type {
   SidebarCommandsContext,
 } from "./workspace-capabilities";
 import { homeDirectory, homeShellFacts } from "./home-shell";
+
+/** Validate clipboard metadata independently of SSH enrollment. */
+function copyableUrl(value: string, web: boolean): boolean {
+  if (/[\p{Cc}\p{Cf}]/u.test(value)) return false;
+  if (
+    !web &&
+    (isAbsolute(value) || value.startsWith("./") || value.startsWith("../") || gitOrigin(value))
+  )
+    return true;
+  try {
+    const url = new URL(value);
+    return (
+      (web
+        ? url.protocol === "https:"
+        : ["http:", "https:", "ssh:", "git:", "file:"].includes(url.protocol)) &&
+      !url.password &&
+      (url.protocol === "ssh:" || !url.username) &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
 
 export async function sidebarInventory(this: SidebarCommandsContext): Promise<SidebarInventory> {
   return {
@@ -94,6 +119,14 @@ export async function sidebarCommand(
 ): Promise<SidebarCommandResult> {
   validateClose?.();
   if (this.closed) throw new Error("Workspace is closed");
+  if (command.kind === "copy-error-text") {
+    const value = Object.hasOwn(copyableErrorText, command.error)
+      ? copyableErrorText[command.error]
+      : undefined;
+    if (!value || !this.deps.copyText) throw new Error("Copy unavailable");
+    await this.deps.copyText(value);
+    return;
+  }
   if (command.kind === "resume-id") {
     await this.resumeId(command, confirm);
     return;
@@ -122,6 +155,93 @@ export async function sidebarCommand(
   if (command.kind === "copy-worktree-path") {
     await this.deps.worktrees.launchIdentity(command.repository, command.worktree);
     await this.deps.copyText?.(command.worktree);
+    return;
+  }
+  if (command.kind === "copy-worktree-branch" && command.worktree.startsWith("/foom-remote/")) {
+    this.known(command.repository);
+    const hosts = this.deps.hosts;
+    const placement = hosts?.placement?.(command.worktree, command.repository);
+    if (
+      !hosts ||
+      !placement ||
+      placement.localRepository !== command.repository ||
+      ![...this.launched.values()].some(
+        (row) =>
+          row.repository === command.repository &&
+          row.worktree === command.worktree &&
+          row.placement?.kind === "remote" &&
+          row.placement.host === placement.host,
+      )
+    )
+      throw new Error("Unknown remote checkout");
+    hosts.registered(placement.host, placement.codeFolder);
+    if (!placement.branch || !this.deps.copyText) throw new Error("Copy value unavailable");
+    await this.deps.copyText(placement.branch);
+    return;
+  }
+  if (
+    command.kind === "copy-default-branch" ||
+    command.kind === "copy-worktree-branch" ||
+    command.kind === "copy-worktree-head" ||
+    command.kind === "copy-pull-request-number" ||
+    command.kind === "copy-pull-request-url" ||
+    command.kind === "copy-remote-url"
+  ) {
+    await this.deps.worktrees.launchIdentity(command.repository, command.worktree);
+    const tree = (await this.worktrees(command.repository)).find(
+      (tree) => tree.path === command.worktree,
+    );
+    if (!tree) throw new Error("Unknown checkout");
+    let value: string | undefined | null;
+    if (command.kind === "copy-default-branch")
+      value = (await this.deps.worktrees.panelFacts(command.repository, command.worktree))
+        .defaultBranch;
+    else if (command.kind === "copy-worktree-branch") value = tree.branch;
+    else if (command.kind === "copy-worktree-head") value = tree.branch ? undefined : tree.head;
+    else if (command.kind === "copy-remote-url")
+      value = (await this.deps.worktrees.panelFacts(command.repository, command.worktree)).remote;
+    else {
+      const pr = this.deps.forge?.readBoard(command.repository, command.worktree);
+      value =
+        command.kind === "copy-pull-request-number"
+          ? pr
+            ? String(pr.number)
+            : undefined
+          : this.deps.forge?.readUrl(command.repository, command.worktree);
+    }
+    await this.deps.worktrees.launchIdentity(command.repository, command.worktree);
+    if (!value) throw new Error("Copy value unavailable");
+    // URLs with credentials or query/fragment tokens are never clipboard targets.
+    if (command.kind === "copy-remote-url" || command.kind === "copy-pull-request-url") {
+      if (!copyableUrl(value, command.kind === "copy-pull-request-url"))
+        throw new Error("Unsafe copy URL");
+    }
+    if (!this.deps.copyText) throw new Error("Copy unavailable");
+    await this.deps.copyText(value);
+    return;
+  }
+  if (
+    command.kind === "copy-foom-session-id" ||
+    command.kind === "copy-parent-id" ||
+    command.kind === "copy-child-id" ||
+    command.kind === "copy-handoff-summary"
+  ) {
+    const row = this.snapshot().terminals.find((row) => row.id === command.id);
+    if (!row) throw new Error("Unknown session");
+    let value: string | undefined;
+    if (command.kind === "copy-foom-session-id") value = row.id;
+    else if (command.kind === "copy-parent-id")
+      value = row.orchestration?.role === "child" ? row.orchestration.parentId : undefined;
+    else if (command.kind === "copy-child-id")
+      value = this.snapshot().terminals.find(
+        (child) =>
+          child.id === command.child &&
+          child.orchestration?.role === "child" &&
+          child.orchestration.parentId === row.id,
+      )?.id;
+    else value = row.handoff?.seq === command.seq ? row.handoff.summary : undefined;
+    if (!value || !this.deps.copyText) throw new Error("Copy value unavailable");
+    await this.deps.copyText(value);
     return;
   }
   if (command.kind === "take-over") {
@@ -317,7 +437,7 @@ export async function sidebarCommand(
   await this.cleanup.removeIdleTree(command.repository, tree.path, tree.branch, (branch, changes) =>
     confirm(
       changes
-        ? { kind: "dirty-worktree", title: `Remove ${branch}?`, branch, changes }
+        ? { kind: "dirty-worktree", title: `Remove ${branch}?`, branch, path: tree.path, changes }
         : { kind: "remove" },
     ),
   );

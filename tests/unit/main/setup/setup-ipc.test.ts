@@ -17,6 +17,7 @@ const contents = { mainFrame: frame, isDestroyed: vi.fn(() => false), send: vi.f
 const window = { webContents: contents } as unknown as BrowserWindow;
 const trusted = { sender: contents, senderFrame: frame };
 const setup = {
+  copyHost: vi.fn(),
   hosts: vi.fn(() => "hosts"),
   restartToUpdate: vi.fn(() => Promise.resolve()),
   readiness: vi.fn(() => "readiness"),
@@ -47,6 +48,7 @@ test("every channel rejects untrusted senders", () => {
   expect(channels).toEqual([
     "setup:terminal-fonts",
     "setup:readiness",
+    "setup:copy-host",
     "setup:state",
     "setup:hosts",
     "setup:restart-update",
@@ -171,4 +173,12 @@ test("host management requires one payload and the trusted setup sender", () => 
   expect(setup.hosts).toHaveBeenCalledWith({ action: "list" });
   expect(() => invoke("setup:hosts")).toThrow();
   expect(() => invoke("setup:hosts", [{}, {}])).toThrow();
+});
+
+test("host copy accepts exactly one validated command and routes no raw text", () => {
+  const command = { kind: "copy-host-alias", host: "worker" };
+  invoke("setup:copy-host", [command]);
+  expect(setup.copyHost).toHaveBeenCalledExactlyOnceWith(command);
+  for (const args of [[], [command, "arbitrary"]])
+    expect(() => invoke("setup:copy-host", args)).toThrow();
 });

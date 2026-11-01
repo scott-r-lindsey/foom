@@ -55,6 +55,19 @@ test("only the closed codes select fixed messages, with or without Electron's wr
   }
 });
 
+test("copyable errors resolve closed IDs and refuse arbitrary text or inherited properties", async () => {
+  const { copyableErrorId, copyableErrorText, isCopyableErrorId } = await import(
+    "../../../src/shared/application-errors"
+  );
+  for (const [id, message] of Object.entries(copyableErrorText)) {
+    expect(isCopyableErrorId(id)).toBe(true);
+    expect(copyableErrorId(message)).toBeDefined();
+  }
+  for (const value of ["__proto__", "constructor", "token=secret", null, 3])
+    expect(isCopyableErrorId(value)).toBe(false);
+  expect(copyableErrorId("arbitrary exception text")).toBeUndefined();
+});
+
 test("child counts cross IPC only as positive safe integers with a closed reason", () => {
   for (const count of [1, 3, Number.MAX_SAFE_INTEGER]) {
     const error = new ApplicationError("session-has-children", count);

@@ -193,7 +193,13 @@ test("repository and external worktree removal confirm and protect the main chec
     );
     expect(confirm).toHaveBeenCalledWith(
       changes
-        ? { kind: "dirty-worktree", title: "Remove feature?", branch: "feature", changes }
+        ? {
+            kind: "dirty-worktree",
+            title: "Remove feature?",
+            branch: "feature",
+            path: tree.path,
+            changes,
+          }
         : { kind: "remove" },
     );
   }
@@ -469,5 +475,320 @@ test("unavailable repository inventory is isolated and never becomes successful 
   expect(workspace.snapshot().terminals).toHaveLength(1);
   vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree]);
   expect((await workspace.sidebarInventory()).repositories[0]).not.toHaveProperty("unavailable");
+  await workspace.dispose();
+});
+
+test("checkout copy commands resolve main facts and refuse missing, redirected or credential-bearing targets", async () => {
+  const { ForgeTracking } = await import("../../../../src/main/control/forge-tracking");
+  const root = deps.agentPluginDirectory;
+  if (!root) throw new Error("Missing fixture");
+  const forge = new ForgeTracking(
+    root,
+    () => Promise.resolve("https://github.com/o/r"),
+    () => {},
+  );
+  deps.forge = forge;
+  const read = vi
+    .spyOn(forge, "readBoard")
+    .mockReturnValue({ number: 960, state: "OPEN", checks: null });
+  const url = vi.spyOn(forge, "readUrl").mockReturnValue("https://github.com/o/r/pull/960");
+  const copy = vi.fn();
+  deps.copyText = copy;
+  const workspace = new Workspace(deps);
+  const command = (
+    kind:
+      | "copy-default-branch"
+      | "copy-worktree-branch"
+      | "copy-worktree-head"
+      | "copy-remote-url"
+      | "copy-pull-request-number"
+      | "copy-pull-request-url",
+  ) => ({ kind, repository: repo.path, worktree: tree.path });
+  const facts = {
+    changes: 0,
+    upstream: null,
+    commit: null,
+    remote: "git@github.com:o/r.git",
+    defaultBranch: "main",
+    lastFetch: null,
+    fetchFailed: false,
+    merged: null,
+  };
+  vi.mocked(deps.worktrees.panelFacts).mockResolvedValue(facts);
+  try {
+    for (const [kind, value] of [
+      ["copy-default-branch", "main"],
+      ["copy-worktree-branch", tree.branch],
+      ["copy-remote-url", facts.remote],
+      ["copy-pull-request-number", "960"],
+      ["copy-pull-request-url", "https://github.com/o/r/pull/960"],
+    ] as const) {
+      await workspace.sidebarCommand(command(kind), () => Promise.resolve(false));
+      expect(copy).toHaveBeenLastCalledWith(value);
+      copy.mockClear();
+      vi.mocked(deps.worktrees.launchIdentity).mockRejectedValueOnce(new Error("unknown"));
+      await expect(
+        workspace.sidebarCommand(command(kind), () => Promise.resolve(false)),
+      ).rejects.toThrow("unknown");
+      expect(copy).not.toHaveBeenCalled();
+    }
+    await expect(
+      workspace.sidebarCommand(command("copy-worktree-head"), () => Promise.resolve(false)),
+    ).rejects.toThrow("unavailable");
+    const head = "a".repeat(40);
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([{ ...tree, branch: null, head }]);
+    await workspace.sidebarCommand(command("copy-worktree-head"), () => Promise.resolve(false));
+    expect(copy).toHaveBeenLastCalledWith(head);
+    await expect(
+      workspace.sidebarCommand(command("copy-worktree-branch"), () => Promise.resolve(false)),
+    ).rejects.toThrow("unavailable");
+    read.mockReturnValue(undefined);
+    url.mockReturnValue(undefined);
+    for (const kind of ["copy-pull-request-number", "copy-pull-request-url"] as const)
+      await expect(
+        workspace.sidebarCommand(command(kind), () => Promise.resolve(false)),
+      ).rejects.toThrow("unavailable");
+    for (const remote of [
+      null,
+      "https://token@github.com/o/r.git",
+      "https://github.com/o/r?token=secret",
+      "https://github.com/o/r#secret",
+    ]) {
+      vi.mocked(deps.worktrees.panelFacts).mockResolvedValue({ ...facts, remote });
+      await expect(
+        workspace.sidebarCommand(command("copy-remote-url"), () => Promise.resolve(false)),
+      ).rejects.toThrow();
+    }
+    for (const remote of [
+      "http://forge.test/o/r.git",
+      "git://forge.test/o/r.git",
+      "file:///checkout/repo.git",
+      "/checkout/repo.git",
+      "./repo.git",
+      "../repo.git",
+      "ssh://git@forge.test/project%20name.git",
+    ]) {
+      vi.mocked(deps.worktrees.panelFacts).mockResolvedValue({ ...facts, remote });
+      await workspace.sidebarCommand(command("copy-remote-url"), () => Promise.resolve(false));
+      expect(copy).toHaveBeenLastCalledWith(remote);
+    }
+    for (const remote of [
+      "not a URL",
+      "javascript:alert(1)",
+      "ssh://git:secret@forge.test/repo",
+      "https://forge.test/repo\nsecret",
+    ]) {
+      vi.mocked(deps.worktrees.panelFacts).mockResolvedValue({ ...facts, remote });
+      await expect(
+        workspace.sidebarCommand(command("copy-remote-url"), () => Promise.resolve(false)),
+      ).rejects.toThrow("Unsafe");
+    }
+    url.mockReturnValue("https://forge.test/c/project/+/960");
+    await workspace.sidebarCommand(command("copy-pull-request-url"), () => Promise.resolve(false));
+    expect(copy).toHaveBeenLastCalledWith("https://forge.test/c/project/+/960");
+    url.mockReturnValue("https://token@github.com/o/r/pull/960");
+    await expect(
+      workspace.sidebarCommand(command("copy-pull-request-url"), () => Promise.resolve(false)),
+    ).rejects.toThrow("Unsafe");
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([]);
+    await expect(
+      workspace.sidebarCommand(command("copy-worktree-head"), () => Promise.resolve(false)),
+    ).rejects.toThrow("Unknown checkout");
+    vi.mocked(deps.worktrees.listWorktrees).mockResolvedValue([tree]);
+    delete deps.copyText;
+    await expect(
+      workspace.sidebarCommand(command("copy-worktree-branch"), () => Promise.resolve(false)),
+    ).rejects.toThrow("Copy unavailable");
+  } finally {
+    await workspace.dispose();
+  }
+});
+
+test.each([
+  "valid",
+  "unknown-row",
+  "unknown-path",
+  "foreign-repository",
+  "foreign-host",
+  "removed-host",
+  "changed-folder",
+  "removed-repository",
+  "missing-branch",
+  "missing-hosts",
+  "missing-clipboard",
+] as const)("remote branch copy authorizes the registered placement: %s", async (mode) => {
+  const { Hosts } = await import("../../../../src/main/setup/hosts");
+  const { DEFAULT_SETTINGS } = await import("../../../../src/main/setup/settings");
+  const { locationId } = await import("../../../../src/main/control/metadata");
+  const { checkoutIdentity } = await import("../../../../src/main/workspace/worktree-identity");
+  const { readSessions } = await import("../../../../src/main/workspace/session-store");
+  let settings = {
+    ...DEFAULT_SETTINGS,
+    registeredHosts: [{ host: "worker", codeFolder: "/code" }],
+  };
+  const execute = vi.fn();
+  const hosts = new Hosts(
+    { get: () => settings, update: vi.fn(() => Promise.resolve(settings)) },
+    () => deps.worktrees.listRepositories(),
+    "0.1.0",
+    execute,
+  );
+  deps.hosts = hosts;
+  const remote = {
+    repository: "/code/repository",
+    path: "/code/.foom-worktree-topic",
+    branch: "topic",
+    identity: "a".repeat(64),
+  };
+  const path = `/foom-remote/${locationId(JSON.stringify(["worker", remote.path]))}`;
+  const saved = readSessions([
+    {
+      id: "remote-child",
+      agent: "claude",
+      repository: repo.path,
+      worktree: path,
+      branch: "topic · worker",
+      remote: true,
+      placement: { kind: "remote", host: mode === "foreign-host" ? "other" : "worker" },
+      remoteCheckout: remote,
+      running: false,
+    },
+  ]);
+  expect(saved).toHaveLength(1);
+  deps.sessions = {
+    load: () => Promise.resolve(mode === "unknown-row" ? [] : saved),
+    save: vi.fn(async () => {}),
+    flush: vi.fn(async () => {}),
+  };
+  // A synthetic remote row can never pass the real local membership check.
+  vi.mocked(deps.worktrees.launchIdentity).mockImplementation((repository, worktree) =>
+    checkoutIdentity(
+      {
+        listWorktrees: (repository) => deps.worktrees.listWorktrees(repository),
+        validatePath: () => {},
+        realpath: vi.fn(),
+        git: vi.fn(),
+      },
+      repository,
+      worktree,
+      true,
+    ),
+  );
+  const placement = vi.spyOn(hosts, "placement");
+  const copy = vi.fn();
+  if (mode === "missing-clipboard") delete deps.copyText;
+  else deps.copyText = copy;
+  const workspace = new Workspace(deps);
+  try {
+    await workspace.restore();
+    hosts.rememberPlacement(repo.path, path, "worker", remote);
+    if (mode === "foreign-repository") {
+      const foreign = { path: "/repos/other", name: "other" };
+      vi.mocked(deps.worktrees.listRepositories).mockReturnValue([repo, foreign]);
+      hosts.rememberPlacement(foreign.path, path, "worker", remote);
+    }
+    if (mode === "removed-host") settings = { ...settings, registeredHosts: [] };
+    if (mode === "changed-folder")
+      settings = { ...settings, registeredHosts: [{ host: "worker", codeFolder: "/other" }] };
+    if (mode === "removed-repository")
+      vi.mocked(deps.worktrees.listRepositories).mockReturnValue([]);
+    if (mode === "missing-branch")
+      hosts.rememberPlacement(repo.path, path, "worker", { ...remote, branch: "" });
+    if (mode === "missing-hosts") delete deps.hosts;
+    const action = workspace.sidebarCommand(
+      {
+        kind: "copy-worktree-branch",
+        repository: repo.path,
+        worktree: mode === "unknown-path" ? "/foom-remote/unknown" : path,
+      },
+      () => Promise.resolve(false),
+    );
+    if (mode === "valid") {
+      await action;
+      expect(copy).toHaveBeenCalledExactlyOnceWith("topic");
+    } else {
+      await expect(action).rejects.toThrow();
+      expect(copy).not.toHaveBeenCalled();
+    }
+    if (mode === "valid") expect(placement).toHaveBeenLastCalledWith(path, repo.path);
+    expect(deps.worktrees.launchIdentity).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  } finally {
+    await workspace.dispose();
+    hosts.dispose();
+  }
+});
+
+test("session copies resolve the selected session, its relationships and the current handoff only", async () => {
+  const copy = vi.fn();
+  deps.copyText = copy;
+  const workspace = await launched();
+  agents.launch.mockResolvedValueOnce({ id: "child", attention: "hooks" });
+  await workspace.sidebarCommand(
+    { kind: "launch", repository: repo.path, worktree: tree.path, run: "claude" },
+    () => Promise.resolve(true),
+  );
+  vi.spyOn(workspace.orchestration, "view").mockImplementation((id) =>
+    id === "child"
+      ? { role: "child", parentId: "t1", takenOver: false }
+      : { role: "orchestrator", active: true, children: 1, history: [] },
+  );
+  const report = {
+    seq: 2,
+    status: "done" as const,
+    summary: "Ready for review",
+    links: [],
+    timestamp: "2026-10-31T00:00:00.000Z",
+  };
+  const latest = vi.spyOn(workspace.orchestration.handoffs, "latest").mockReturnValue(report);
+  try {
+    const commands = [
+      [{ kind: "copy-foom-session-id", id: "t1" }, "t1"],
+      [{ kind: "copy-parent-id", id: "child" }, "t1"],
+      [{ kind: "copy-child-id", id: "t1", child: "child" }, "child"],
+      [{ kind: "copy-handoff-summary", id: "child", seq: 2 }, report.summary],
+    ] as const;
+    for (const [command, value] of commands) {
+      await workspace.sidebarCommand(command, () => Promise.resolve(false));
+      expect(copy).toHaveBeenLastCalledWith(value);
+      copy.mockClear();
+      await expect(
+        workspace.sidebarCommand({ ...command, id: "unknown" }, () => Promise.resolve(false)),
+      ).rejects.toThrow("Unknown session");
+      expect(copy).not.toHaveBeenCalled();
+    }
+    for (const command of [
+      { kind: "copy-parent-id", id: "t1" },
+      { kind: "copy-child-id", id: "child", child: "t1" },
+      { kind: "copy-handoff-summary", id: "child", seq: 1 },
+    ] as const)
+      await expect(workspace.sidebarCommand(command, () => Promise.resolve(false))).rejects.toThrow(
+        "unavailable",
+      );
+    latest.mockReturnValue(undefined);
+    await expect(
+      workspace.sidebarCommand({ kind: "copy-handoff-summary", id: "child", seq: 2 }, () =>
+        Promise.resolve(false),
+      ),
+    ).rejects.toThrow("unavailable");
+  } finally {
+    await workspace.dispose();
+  }
+});
+
+test("error text copies use only closed sentence IDs", async () => {
+  const copy = vi.fn();
+  deps.copyText = copy;
+  const workspace = new Workspace(deps);
+  await workspace.sidebarCommand({ kind: "copy-error-text", error: "worktree-locked" }, () =>
+    Promise.resolve(false),
+  );
+  expect(copy).toHaveBeenCalledExactlyOnceWith("This worktree is locked.");
+  copy.mockRejectedValueOnce(new Error("clipboard"));
+  await expect(
+    workspace.sidebarCommand({ kind: "copy-error-text", error: "operation-failed" }, () =>
+      Promise.resolve(false),
+    ),
+  ).rejects.toThrow("clipboard");
   await workspace.dispose();
 });

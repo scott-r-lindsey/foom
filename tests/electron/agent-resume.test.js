@@ -133,6 +133,19 @@ if (resumed) {
     await restored
       .getByRole("button", { name: `Actions for ${agentName} in resume-test`, exact: true })
       .click();
+    const copySession = restored.getByRole("button", { name: "Copy session ID", exact: true });
+    await copySession.click();
+    await expect
+      .poll(() => restoredApp.evaluate(({ clipboard }) => clipboard.readText()))
+      .toBe(conversation);
+    await expect(copySession).toHaveAttribute("data-copied", "true");
+    await restored.getByRole("button", { name: "Copy Foom session ID", exact: true }).click();
+    await expect.poll(() => restoredApp.evaluate(({ clipboard }) => clipboard.readText())).toBe(id);
+    if (agent === "claude")
+      await restored.screenshot({
+        path: evidencePath("960-session-panel.png"),
+        animations: "disabled",
+      });
     await restored.getByRole("menuitem", { name: "Copy session ID", exact: true }).click();
     // Clipboard writing finishes before the source's inventory refresh and panel
     // dismissal. Wait for the actual details dialog to close before opening it again.
