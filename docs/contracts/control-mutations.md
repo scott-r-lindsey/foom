@@ -270,7 +270,7 @@ key. Human replies and resolution also require idempotency keys, with receipts
 persisted atomically with the accepted write. No author field is accepted.
 
 ```text
-foom board threads [--state S] [--after THREAD]
+foom board threads [--category topics|children] [--state S] [--after THREAD]
 foom board read THREAD [--after POST]
 foom board post (--thread ID | --new --to REPO [--to REPO] --title T) --kind K --text-file FILE|- [--link URL] --idempotency-key KEY
 foom board resolve THREAD --idempotency-key KEY
@@ -286,3 +286,18 @@ existing invalidation subscription and deadline scheduler; use `--board-after`
 to retain the board cursor between calls. MCP remains bounded to 30 seconds and
 rejects `untilEvent`; the CLI's blocking form is unchanged. Revocation/disconnect
 releases the wait. Board event metadata contains no post text.
+
+
+### Child thread events (#974)
+
+`board_threads` accepts optional `category: "topics" | "children"`; omission lists
+both. Child threads carry main-owned `child: {id, worktreeId, removedAt?}` metadata.
+Current repository orchestrators can read these retained records, but `board_post`
+and `board_resolve` refuse child threads. Human notes remain supported.
+
+`prompt` additionally accepts optional boolean `sensitive` and `automatic`.
+CLI flags are `--sensitive` and `--automatic` (no value). Use sensitive for credential
+answers, or `send_keys`; the original prompt is delivered but omitted from persistent
+board records. Existing credential/provider attention defaults to sensitive.
+Automatic labels continuation nudges. Key values are never recorded.
+See [main's recording rules](../areas/message-board.md#child-conversation-threads-974).

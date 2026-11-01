@@ -217,14 +217,15 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         operations,
         true,
       );
-      if (launched.status !== "succeeded") throw new ControlError("unavailable");
+      if (launched.status !== "succeeded" && launched.status !== "indeterminate")
+        throw new ControlError("unavailable");
       return await this.finish(
         actor,
         parent,
         operations,
         operation,
         label,
-        "succeeded",
+        launched.status,
         launched.resultId,
       );
     } catch (error) {
@@ -328,7 +329,9 @@ export class OrchestrationMutations extends OrchestrationAuthority {
     tree.state = startingState;
     parent.starting++;
     this.note(parent, this.entry(operation, label));
+    let launchedId: string | undefined;
     try {
+      await this.board?.flushChildren();
       const parentCurrent = this.remoteParentGuard(actor.terminalId);
       if (number !== undefined && (params["pullRequest"] !== undefined || review)) {
         if (!this.host.forge?.bindPullRequest) throw new ControlError("pr_binding_unresolved");
@@ -395,6 +398,7 @@ export class OrchestrationMutations extends OrchestrationAuthority {
           },
         },
       );
+      launchedId = id;
       tree.state = "used";
       parent.children.set(id, {
         worktreeId,
@@ -402,6 +406,12 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         takenOver: false,
         tailAt: 0,
       });
+      await this.recordChild(
+        id,
+        "launch",
+        { prompt: prompt ?? "", automatic: standalone },
+        `launch-${operation.operationId}`,
+      );
       if (review) this.startReview(id, review, actor, operations);
       this.changed();
       this.host.place?.(id, actor.terminalId);
@@ -419,6 +429,16 @@ export class OrchestrationMutations extends OrchestrationAuthority {
       this.note(parent, this.entry(record, label));
       return record;
     } catch (error) {
+      if (launchedId)
+        return await this.finish(
+          actor,
+          parent,
+          operations,
+          operation,
+          label,
+          "indeterminate",
+          launchedId,
+        );
       tree.state = priorState;
       const reason =
         error instanceof LaunchFailure

@@ -78,3 +78,22 @@ Private main-owned profile storage retains bounded append-only posts; logs retai
 only fixed operation metadata and IDs, never post text or links. Human IPC returns
 rebuilt typed records and renders plain text, with inert links. See
 [message board ownership](../areas/message-board.md).
+
+
+### Child thread recording (#974)
+
+Structured child conversations are additionally retained in the main-owned Board,
+scoped to the child's repository and readable by its current orchestrator after
+session close or role replacement. They expire 30 days after successful worktree
+removal. This is distinct from the action log's metadata-only record and the
+ownership-scoped, session-lifetime `read_handoff` interface. Children gain no board
+capability. Posts remain untrusted data and may reach a reading orchestrator's
+model provider; Foom performs no network delivery.
+
+Prompt callers must mark credential answers `sensitive: true` (CLI `--sensitive`)
+or use `send_keys`. Sensitive replies are delivered but their text is omitted
+before serialization, never masked after writing. Existing credential/provider
+attention defaults to sensitive. Key values, terminal output/tails/screens and raw
+hooks are never board sources. Normal prompt text and handoff/review data are
+recorded with bounds and visible truncation markers. See the full
+[recording and retention rules](../areas/message-board.md#child-conversation-threads-974).

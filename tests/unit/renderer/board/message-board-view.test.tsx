@@ -86,7 +86,7 @@ it("filters, reads inert posts, replies, resolves, refreshes, closes and dispose
   expect(h.view.getByRole("combobox")).toBe(document.activeElement);
   fireEvent.change(h.view.getByRole("combobox"), { target: { value: "b" } });
   await waitFor(() => {
-    expect(h.api.threads).toHaveBeenLastCalledWith({ repository: "b" });
+    expect(h.api.threads).toHaveBeenLastCalledWith({ category: "topics", repository: "b" });
   });
   fireEvent.click(h.view.getByRole("button", { name: /Nightly release/ }));
   await h.view.findByText("<script>Should we ship?</script>");
@@ -258,4 +258,68 @@ it("stops pagination when the panel closes or a thread read is superseded", asyn
     await Promise.resolve();
   });
   expect(api.read).toHaveBeenCalledOnce();
+});
+
+it("switches child/topic filters, shows child identity and keeps human notes", async () => {
+  const h = setup();
+  await h.view.findByText("Nightly release");
+  vi.mocked(h.api.threads).mockResolvedValue({
+    ...list,
+    threads: [{ ...thread, child: { id: "child", worktreeId: "tree" } }],
+  });
+  fireEvent.click(h.view.getByRole("button", { name: "Children" }));
+  await waitFor(() => {
+    expect(h.api.threads).toHaveBeenLastCalledWith({ category: "children" });
+  });
+  await h.view.findByText("App · Child");
+  fireEvent.click(h.view.getByRole("button", { name: /Nightly release/ }));
+  await h.view.findByLabelText("Reply");
+  fireEvent.change(h.view.getByLabelText("Reply"), { target: { value: "Keep this note" } });
+  fireEvent.click(h.view.getByRole("button", { name: "Children" }));
+  expect(h.view.getByLabelText("Reply")).toHaveProperty("value", "Keep this note");
+  fireEvent.click(h.view.getByRole("button", { name: "Cross-repository" }));
+  await waitFor(() => {
+    expect(h.api.threads).toHaveBeenLastCalledWith({ category: "topics" });
+  });
+  expect(h.view.queryByLabelText("Reply")).toBeNull();
+});
+
+it("renders stored child events as prose and leaves human notes literal", async () => {
+  const first = detail.posts[0];
+  const human = detail.posts[1];
+  if (!first || !human) throw new Error("Missing posts");
+  const child = { ...thread, child: { id: "child-private", worktreeId: "tree-private" } };
+  const api: MessageBoardApi = {
+    threads: vi.fn(() =>
+      Promise.resolve({
+        ...list,
+        threads: [child, { ...child, id: "second", createdAt: "2026-11-01T00:00:00.000Z" }],
+      }),
+    ),
+    read: vi.fn(() =>
+      Promise.resolve({
+        ...detail,
+        thread: child,
+        posts: [
+          { ...first, text: 'launch · {"prompt":"Fixture task","authorId":"private"}' },
+          { ...human, text: 'launch · {"prompt":"A human note"}' },
+        ],
+      }),
+    ),
+    post: vi.fn(),
+    resolve: vi.fn(),
+  };
+  const view = render(<MessageBoardPanel api={api} subscribe={() => () => {}} close={() => {}} />);
+  await view.findAllByText("Nightly release");
+  const times = view.container.querySelectorAll(".message-thread-list time");
+  expect([...times].map((time) => time.getAttribute("datetime"))).toEqual([
+    child.createdAt,
+    "2026-11-01T00:00:00.000Z",
+  ]);
+  const button = view.getAllByRole("button", { name: /Nightly release/ })[0];
+  if (!button) throw new Error("Missing thread");
+  fireEvent.click(button);
+  await view.findByText("Launched: Fixture task");
+  expect(view.container.textContent).not.toContain("private");
+  expect(view.getByText('launch · {"prompt":"A human note"}')).toBeTruthy();
 });

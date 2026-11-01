@@ -1,4 +1,3 @@
-import type { MessageBoard } from "./message-board";
 import { locationId } from "./metadata";
 import type { AgentId } from "../../shared/agents";
 import { createHash } from "node:crypto";
@@ -84,10 +83,6 @@ function eventCursor(row: SessionEventFacts): string {
 
 /** Dispatch, owned child input, handoff reads, terminal tails and event waits. */
 export class Orchestration extends OrchestrationMutations {
-  private board: MessageBoard | undefined;
-  setBoard(board: MessageBoard): void {
-    this.board = board;
-  }
   authorizeBoard(actor: Principal): void {
     this.parent(actor);
   }
@@ -118,6 +113,22 @@ export class Orchestration extends OrchestrationMutations {
         },
         async (report) => {
           await this.host.auditHandoff?.(actor, report);
+          active();
+          if (!this.canHandoff(actor)) throw new ControlError("no_parent");
+          const { review, ...body } = report;
+          await this.recordChild(
+            actor.terminalId,
+            "handoff",
+            body,
+            `handoff-${actor.generation}-${String(report.seq)}`,
+          );
+          if (review)
+            await this.recordChild(
+              actor.terminalId,
+              "review verdict",
+              review,
+              `verdict-${actor.generation}-${String(report.seq)}`,
+            );
         },
         async () => {
           await this.host.saveHandoffs?.();
@@ -167,7 +178,16 @@ export class Orchestration extends OrchestrationMutations {
       }
       case "prompt":
       case "send_keys": {
-        exact(params, ["id", "idempotencyKey", method === "prompt" ? "text" : "keys"]);
+        exact(params, [
+          "id",
+          "idempotencyKey",
+          ...(method === "prompt" ? ["text", "sensitive", "automatic"] : ["keys"]),
+        ]);
+        if (
+          (params["sensitive"] !== undefined && typeof params["sensitive"] !== "boolean") ||
+          (params["automatic"] !== undefined && typeof params["automatic"] !== "boolean")
+        )
+          throw new ControlError("invalid_request");
         const id = identifier(params["id"]);
         const key = identifier(params["idempotencyKey"]);
         const input =
@@ -176,6 +196,16 @@ export class Orchestration extends OrchestrationMutations {
             : { kind: "keys", keys: params["keys"] };
         if (!isChildInput(input)) throw new ControlError("invalid_request");
         const parent = this.parent(actor);
+        let sensitive = params["sensitive"] === true;
+        const classify = () => {
+          const row = this.host.terminals().find((row) => row.id === id);
+          if (
+            row?.state?.state === "needs_input" &&
+            ["credential", "provider"].includes(row.attentionKind ?? row.state.attentionKind ?? "")
+          )
+            sensitive = true;
+        };
+        classify();
         const authorize = () => {
           active();
           if (this.parent(actor) !== parent || !this.own(parent, id))
@@ -193,18 +223,42 @@ export class Orchestration extends OrchestrationMutations {
             throw new ControlError("conflict");
         };
         authorize();
-        const operation = await operations.begin(actor, method, key, JSON.stringify(input), id);
+        const operation = await operations.begin(
+          actor,
+          method,
+          key,
+          JSON.stringify([input, params["sensitive"] ?? false, params["automatic"] ?? false]),
+          id,
+        );
         if (!operation.created) return operation;
         let writing = false;
         try {
           authorize();
           if (!this.host.reply) throw new ControlError("unavailable");
+          await this.board?.flushChildren();
+          authorize();
+          classify();
           const delivered = method === "prompt" ? this.reviews.parentPrompt(id) : () => {};
           writing = true;
           await this.host.reply(id, input);
           active();
           if (this.parent(actor) !== parent || !this.own(parent, id))
             throw new ControlError("not_found");
+          await this.recordChild(
+            id,
+            method,
+            {
+              text:
+                input.kind === "prompt"
+                  ? sensitive
+                    ? "⟨redacted⟩ reply sent · delivered"
+                    : input.text
+                  : `keys sent (${String(input.keys.length)})`,
+              delivery: "delivered",
+              automatic: params["automatic"] === true,
+            },
+            `input-${operation.operationId}`,
+          );
           delivered();
           return await this.finish(
             actor,
@@ -215,6 +269,22 @@ export class Orchestration extends OrchestrationMutations {
             "succeeded",
           );
         } catch {
+          classify();
+          await this.recordChild(
+            id,
+            method,
+            {
+              text:
+                input.kind === "prompt"
+                  ? sensitive
+                    ? "⟨redacted⟩ reply sent"
+                    : input.text
+                  : `keys sent (${String(input.keys.length)})`,
+              delivery: writing ? "indeterminate" : "failed",
+              automatic: params["automatic"] === true,
+            },
+            `input-outcome-${operation.operationId}`,
+          ).catch(() => undefined);
           return this.finish(
             actor,
             parent,

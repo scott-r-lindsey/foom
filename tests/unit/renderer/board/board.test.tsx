@@ -689,7 +689,7 @@ test("opens the local message board from the footer and restores the terminal ar
     await Promise.resolve();
   });
   expect(view.getByRole("region", { name: "Message board" })).toBeTruthy();
-  expect(threads).toHaveBeenCalledWith({});
+  expect(threads).toHaveBeenCalledWith({ category: "topics" });
   expect(closeSettings).toHaveBeenCalledOnce();
   expect(view.getByText("No threads")).toBeTruthy();
   await act(async () => {

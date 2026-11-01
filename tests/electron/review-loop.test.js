@@ -37,6 +37,7 @@ if (isChild) {
     if (process.env.TEST_REVIEW_BLOCK === "1" && step === "build") {
       parentReplied = true;
       record("parent-replied", "received");
+    } else if (process.env.TEST_REVIEW_ALLOW_INPUT === "1" && step === "build") { record("prompt-received", "delivered");
     } else { record("unexpected-input", "PTY input received"); process.exit(2); }
   });
   const fixtureError = error => { record("fixture-error", error instanceof Error ? error.message : String(error)); process.exit(2); };
@@ -170,6 +171,7 @@ for (const scenario of [
         TEST_FAKE_CREDENTIALS: credentials,
         TEST_FORGE_STATE: forgeState,
         TEST_REVIEW_ROOT: root,
+        TEST_REVIEW_ALLOW_INPUT: scenario === "fix" ? "1" : "0",
         TEST_REVIEW_BLOCK: scenario === "blocked" ? "1" : "0",
         TEST_REVIEW_OUTPUT: scenario === "concurrent" ? "1" : "0",
       },
@@ -485,6 +487,21 @@ for (const scenario of [
         { timeout: deadline(15000) },
       )
       .toBe(scenario === "red" ? "failure" : "success");
+    if (scenario === "fix") {
+      await call("prompt", {
+        id: authorId,
+        text: "Continue fixture task",
+        automatic: true,
+        idempotencyKey: "continue",
+      });
+      await call("prompt", {
+        id: authorId,
+        text: "fixture-private-answer",
+        sensitive: true,
+        idempotencyKey: "sensitive",
+      });
+      await expect.poll(() => existsSync(`${credentials}.prompt-received`)).toBe(true);
+    }
     await go("build", scenario === "blocked" ? { status: "blocked" } : {});
     if (scenario === "blocked") {
       await expect.poll(async () => (await state())?.phase).toBe("waiting-on-parent");
@@ -637,6 +654,86 @@ for (const scenario of [
       assert.equal((await state()).phase, "clean");
       assert.ok(git("worktree", "list", "--porcelain").includes("child-one"));
       assert.equal(git("rev-parse", "--verify", "child-one").trim(), headSha);
+    }
+    if (scenario === "fix") {
+      const threads = (await call("board_threads", { category: "children" })).threads;
+      assert.equal(threads.length, 3);
+      const authorThread = threads.find((thread) => thread.child?.id === authorId);
+      assert.ok(authorThread);
+      const story = async () => {
+        let page = await call("board_read", { thread: authorThread.id });
+        const posts = [...page.posts];
+        while (page.next) {
+          page = await call("board_read", { thread: authorThread.id, after: page.next });
+          posts.push(...page.posts);
+        }
+        return posts.map((post) => post.text).join("\n");
+      };
+      await expect.poll(story).toContain('"phase":"clean"');
+      const text = await story();
+      for (const expected of [
+        "launch",
+        "Continue fixture task",
+        "⟨redacted⟩ reply sent · delivered",
+        "handoff",
+        "review round start",
+        "findings forwarded",
+        "Incorrect zero result",
+        "review transition",
+      ])
+        assert.ok(text.includes(expected), expected);
+      assert.ok(!text.includes("fixture-private-answer"));
+      assert.ok(!text.includes("Fixture output line"));
+      assert.ok(
+        !(await readFile(path.join(profile, "control", "board.json"), "utf8")).includes(
+          "fixture-private-answer",
+        ),
+      );
+      assert.equal(
+        (await call("close", { id: authorId, idempotencyKey: "close-author" })).status,
+        "succeeded",
+      );
+      await expect.poll(story).toContain("close");
+      await page.getByRole("button", { name: "Open message board" }).click();
+      const panel = page.getByRole("region", { name: "Message board", exact: true });
+      await panel.getByRole("button", { name: "Children", exact: true }).click();
+      await panel.locator(`[data-thread="${authorThread.id}"]`).click();
+      await expect(panel.getByText(/Findings forwarded/)).toBeVisible();
+      await expect(panel.getByText("Launched: Fixture task", { exact: true })).toBeVisible();
+      await expect(
+        panel.getByText("Prompt · ⟨redacted⟩ · delivered", { exact: true }),
+      ).toBeVisible();
+      const bodies = await panel.locator(".message-thread li p").allTextContents();
+      assert.ok(
+        bodies.every(
+          (body) =>
+            !body.includes('"authorId"') &&
+            !body.includes('"prompt"') &&
+            !body.includes("Quoted review notes (JSON)") &&
+            !body.includes(authorId),
+        ),
+      );
+      await expect(
+        panel.getByText("Review follow-up started · automatic", { exact: true }),
+      ).toBeVisible();
+      await expect(panel.locator(".message-thread-list time")).toHaveCount(3);
+      await panel.getByLabel("Reply").fill("Keep this human note");
+      await panel.getByRole("button", { name: "Children", exact: true }).click();
+      await expect(panel.getByLabel("Reply")).toHaveValue("Keep this human note");
+      await panel.getByLabel("Reply").fill("");
+      for (const colorScheme of ["light", "dark"]) {
+        await page.emulateMedia({ colorScheme });
+        await panel.locator(".message-thread").evaluate((element) => {
+          element.scrollTop = 0;
+        });
+        await panel.screenshot({ path: evidencePath(`child-board-974/story-${colorScheme}.png`) });
+        await panel.getByText(/Findings forwarded/).scrollIntoViewIfNeeded();
+        await panel.screenshot({
+          path: evidencePath(`child-board-974/findings-${colorScheme}.png`),
+        });
+      }
+      await assertAccessible(page);
+      await panel.getByRole("button", { name: "Close board" }).click();
     }
     await shot("finished");
     assert.deepEqual(await fixtureErrors(), []);

@@ -207,7 +207,7 @@ export function orchestratorDisclosure(id: string, replacing?: string): DialogCo
           "The last 40 lines of each child's terminal, with likely secrets redacted.",
           "Child-authored handoff summaries and links, reported when a child finishes, gets blocked or fails.",
           "Board posts addressed to or opened by this repository.",
-          "Those lines, handoffs and Board posts may be sent to this agent's model provider under its own settings; redaction cannot catch every secret, and repeated reads collect more.",
+          "Main records child launch/prompt text, handoffs and review/lifecycle events in local Board threads, readable after sessions close until 30 days after worktree removal. Sensitive replies omit text; keys retain only a count. Those lines, handoffs and Board posts may be sent to this agent's model provider under its own settings; redaction cannot catch every secret, and repeated reads collect more.",
         ],
       },
       {

@@ -24,6 +24,11 @@ export class ReviewEffects {
       | "place"
     >,
     private readonly reviews: () => Pick<ReviewLoops, "view" | "reviewReady" | "attach" | "stop">,
+    private readonly record: (
+      id: string,
+      event: string,
+      content: unknown,
+    ) => Promise<void> = async () => {},
   ) {}
 
   bind(id: string, actor: Principal, operations: Operations): void {
@@ -171,6 +176,7 @@ export class ReviewEffects {
       );
       reservation.attach(id, reviewer);
       this.reviews().attach(id, authorId);
+      await this.record(id, reviewer ? "launch" : "prompt", { prompt, automatic: true });
       const current = this.reviews().view(authorId);
       const cancelled =
         !owned.active() || current?.phase !== state.phase || current.round !== state.round;
