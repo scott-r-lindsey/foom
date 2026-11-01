@@ -197,7 +197,8 @@ export function createShell(
     publish();
   };
   const controls = () => {
-    terminal.options.disableStdin = exited;
+    // Match the input guard: focus/paint can precede the attachment RPC settling.
+    terminal.options.disableStdin = exited || busy;
     if (exited) terminal.options.cursorBlink = false;
     if (fontResizePending) resize();
     view.toggleDisabled = busy || !activeId;

@@ -828,6 +828,7 @@ test("board selection waits for a replacement shell's pending attachment", async
   await Promise.resolve();
   await Promise.resolve();
   expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ toggleDisabled: true }));
+  expect(mock.options.disableStdin).toBe(true);
   mock.onInput.mock.calls[0]?.[0]("early");
   expect(mock.input).not.toHaveBeenCalled();
   expect(mock.attach).toHaveBeenCalledTimes(2);
@@ -838,6 +839,7 @@ test("board selection waits for a replacement shell's pending attachment", async
   expect(update).toHaveBeenLastCalledWith(
     expect.objectContaining({ visible: true, toggleDisabled: false }),
   );
+  expect(mock.options.disableStdin).toBe(false);
   mock.onInput.mock.calls[0]?.[0]("echo HOST_RESTART_OK\r");
   expect(mock.input).toHaveBeenCalledWith("replacement", "echo HOST_RESTART_OK\r");
   controller.dispose();
