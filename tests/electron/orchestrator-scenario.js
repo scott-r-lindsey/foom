@@ -234,6 +234,158 @@ async function runOrchestratorScenario(context, cliOnly, phase) {
   assert.ok(whoami.body.result.capabilities.includes("launch"));
   assert.equal(whoami.body.result.terminalId, parentId);
 
+  if (phase === "board") {
+    const site = path.join(root, "site");
+    await mkdir(site);
+    isolatedGit(["init", "-q", "-b", "main"], { cwd: site });
+    isolatedGit(
+      [
+        "-c",
+        "user.name=Foom",
+        "-c",
+        "user.email=foom@example.com",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "init",
+      ],
+      { cwd: site },
+    );
+    const sitePickerPath = path.join(root, "site-picker");
+    await symlink(site, sitePickerPath, "dir");
+    await app.evaluate(({ dialog }, directory) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
+    }, sitePickerPath);
+    const sitePath = await page.evaluate(async () => (await window.desktop.addRepository()).path);
+    await page.evaluate(
+      (repository) =>
+        window.desktop.sidebarCommand({
+          kind: "launch",
+          repository,
+          worktree: repository,
+          run: "claude",
+        }),
+      sitePath,
+    );
+    await expect
+      .poll(() => existsSync(`${credentials}.site`), { timeout: deadline(15000) })
+      .toBe(true);
+    const siteAgent = await read("site");
+    const siteIdentity = await directCall(siteAgent.controlToken, "whoami");
+    const siteId = siteIdentity.body.result.terminalId;
+    assert.equal((await directCall(siteAgent.controlToken, "board_threads")).status, 403);
+    await page
+      .locator(".session-entry")
+      .filter({ has: page.locator(`[data-drag-session="${siteId}"]`) })
+      .locator(":scope > .board-row")
+      .getByRole("button", { name: /^Actions for/ })
+      .click();
+    await page.getByRole("menuitem", { name: "Make orchestrator…" }).click();
+    await expect(
+      confirmation.getByRole("heading", { name: "Make Claude Code the Foom orchestrator?" }),
+    ).toBeVisible();
+    await confirmation.getByRole("button", { name: "Make orchestrator" }).click();
+    await expect
+      .poll(async () => (await directCall(siteAgent.controlToken, "whoami")).body.result?.role)
+      .toBe("orchestrator");
+    const repositories = (await directCall(parent.controlToken, "board_threads")).body.result
+      .repositories;
+    const siteRepository = repositories.find((repo) => repo.name === "site").id;
+    const request = {
+      to: [siteRepository],
+      title: "Stable nightly release",
+      kind: "request",
+      text: "Can the site use the existing nightly URL and release metadata?",
+      links: ["#973"],
+      idempotencyKey: "board-request",
+    };
+    const created = (await directCall(parent.controlToken, "board_post", request)).body.result;
+    assert.equal(created.status, "succeeded");
+    const thread = created.resultId;
+    const received = (await directCall(siteAgent.controlToken, "board_read", { thread })).body
+      .result;
+    assert.equal(received.untrusted, true);
+    assert.equal(received.posts.length, 1);
+    assert.equal(received.posts[0].author, `orchestrator:${whoami.body.result.repository}`);
+    const decision = await directCall(siteAgent.controlToken, "board_post", {
+      thread,
+      kind: "decision-needed",
+      text: "The existing URL is stable. May I start updating the site and capture new screenshots?",
+      idempotencyKey: "board-decision",
+    });
+    assert.equal(decision.body.result.status, "succeeded");
+    const denied = await directCall(parent.controlToken, "board_post", {
+      thread,
+      kind: "answer",
+      text: "spoof",
+      author: "human",
+      idempotencyKey: "spoof",
+    });
+    assert.equal(denied.status, 400);
+    await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.getURL() === "app://bundle/index.html",
+      );
+      if (!window) throw new Error("Missing board window");
+      window.setContentSize(1280, 900);
+    });
+    await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(1280);
+    await page.getByRole("button", { name: "Open message board" }).click();
+    const panel = page.getByRole("region", { name: "Message board", exact: true });
+    await expect(panel.getByRole("button", { name: /Stable nightly release/ })).toContainText(
+      "Decision needed",
+    );
+    for (const base of ["light", "dark"]) {
+      await page.evaluate(
+        (base) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${base}` }),
+        base,
+      );
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
+        .toBe(base);
+      await panel.screenshot({ path: evidencePath(`message-board-973/list-${base}.png`) });
+    }
+    await panel.getByRole("button", { name: /Stable nightly release/ }).click();
+    await expect(panel.getByText("The existing URL is stable.", { exact: false })).toBeVisible();
+    for (const base of ["light", "dark"]) {
+      await page.evaluate(
+        (base) => window.desktop.saveSetup({ interfaceTheme: `eclipse-${base}` }),
+        base,
+      );
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
+        .toBe(base);
+      await panel.getByLabel("Reply", { exact: true }).fill("");
+      await panel.screenshot({ path: evidencePath(`message-board-973/thread-${base}.png`) });
+      await panel
+        .getByLabel("Reply", { exact: true })
+        .fill("Use the existing artifacts. Hold implementation until I approve it.");
+      await panel.screenshot({ path: evidencePath(`message-board-973/reply-${base}.png`) });
+      await assertAccessible(page);
+    }
+    await panel.getByRole("button", { name: "Post reply" }).click();
+    await expect(
+      panel
+        .locator(".message-thread ol")
+        .getByText("Use the existing artifacts. Hold implementation until I approve it.", {
+          exact: true,
+        }),
+    ).toBeVisible();
+    const human = (await directCall(parent.controlToken, "board_read", { thread })).body.result;
+    assert.equal(human.posts.at(-1).author, "human");
+    await panel.getByRole("button", { name: "Mark resolved" }).click();
+    await expect(
+      panel.locator(".message-thread > header").getByText("Resolved", { exact: true }),
+    ).toBeVisible();
+    await expect(panel.getByRole("button", { name: "Mark resolved" })).toBeDisabled();
+    assert.equal(
+      (await directCall(siteAgent.controlToken, "board_read", { thread })).body.result.thread.state,
+      "resolved",
+    );
+    await panel.getByRole("button", { name: "Close board" }).click();
+    return;
+  }
+
   const connection = async (id) =>
     (await page.evaluate(() => window.desktop.workspace())).terminals.find((row) => row.id === id)
       ?.mcpConnection;

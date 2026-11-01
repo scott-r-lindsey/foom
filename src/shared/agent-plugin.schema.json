@@ -629,11 +629,15 @@
               "close",
               "remove_worktree",
               "tail",
+              "board_threads",
+              "board_read",
+              "board_post",
+              "board_resolve",
               "wait_for",
               "operation_status"
             ]
           },
-          "maxItems": 19,
+          "maxItems": 23,
           "minItems": 0
         },
         "fileRules": {

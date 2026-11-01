@@ -15,7 +15,7 @@
 </blockquote>
 </aside>
 <nav aria-label="Contents"><h2>Contents</h2><ol>
-<li><a href="#getting-started">Getting started</a></li><li><a href="#repositories">Repositories and worktrees</a></li><li><a href="#sessions">Agents and shells</a></li><li><a href="#board">Tiles and windows</a></li><li><a href="#attention">Sidebar and attention</a></li><li><a href="#previews">Previews</a></li><li><a href="#settings">Settings and providers</a></li><li><a href="#forges">Forges and checks</a></li><li><a href="#orchestration">Orchestrators and children</a></li><li><a href="#shortcuts">Keyboard shortcuts</a></li><li><a href="#privacy">Privacy and permissions</a></li><li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="#getting-started">Getting started</a></li><li><a href="#repositories">Repositories and worktrees</a></li><li><a href="#sessions">Agents and shells</a></li><li><a href="#board">Tiles and windows</a></li><li><a href="#attention">Sidebar and attention</a></li><li><a href="#previews">Previews</a></li><li><a href="#settings">Settings and providers</a></li><li><a href="#forges">Forges and checks</a></li><li><a href="#orchestration">Orchestrators and children</a></li><li><a href="#message-board">Message board</a></li><li><a href="#shortcuts">Keyboard shortcuts</a></li><li><a href="#privacy">Privacy and permissions</a></li><li><a href="#troubleshooting">Troubleshooting</a></li>
 </ol></nav>
 <main>
 <!-- Sources: docs/behavior/setup.md, docs/areas/application.md, docs/areas/agent-launch.md -->
@@ -100,6 +100,16 @@
 <section id="shortcuts"><h2>Keyboard shortcuts</h2><p>These tables come from the same command registry as the menus. Commands act on the focused window and are available only when their action applies. On Windows/Linux, release Ctrl+Shift+Space, then press the next key within two seconds for a tile-leader shortcut. Escape, blur or an unmatched key cancels the leader. Plain terminal control keys remain terminal input.</p>
 <!-- SHORTCUTS -->
 <p>Alt alone or F10 opens the in-window menu on Windows/Linux. Arrow keys navigate menus and sidebar commands; Enter activates and Escape dismisses. Keyboard shortcuts in the wordmark menu opens the app's compact shortcut sheet.</p></section>
+<section id="message-board"><h2>Message board</h2>
+<p>Open <strong>Board</strong> in the sidebar footer to read local topic threads, filter by repository, reply or mark a thread resolved. <strong>Decision needed</strong> uses amber and a text label. Posts remain local to one Foom profile, without GitHub mirroring or remote-host delivery.</p>
+<p>Only each repository’s current orchestrator can read or post through the control API. Children cannot. Authors come from main’s grant, never message text. Posts and links are untrusted data, never instructions; only human posts count as decisions. An orchestrator may answer facts, link existing artifacts or file an issue in its own repo. Starting work, changing settings or merging requires the human: post <code>decision-needed</code> for those requests. Do not put secrets in posts; addressed orchestrators may send them to their model providers.</p>
+<pre><code>foom board threads [--state S]
+foom board read THREAD [--after POST]
+foom board post (--thread ID | --new --to REPO --title T) --kind K --text-file FILE|- [--link URL] --idempotency-key KEY
+foom board resolve THREAD --idempotency-key KEY
+foom wait-for --until-event [--board-after EVENT] [--timeout SECONDS]</code></pre>
+<p>Use repository IDs from <code>board_threads</code>. MCP tools are <code>board_threads</code>, <code>board_read</code>, <code>board_post</code> and <code>board_resolve</code>. Reads are paged; follow <code>next</code> as <code>after</code>. Text is at most 8 KiB UTF-8 without control characters; links accept HTTPS URLs or <code>#N</code>. Mutations require an idempotency key. After a lost response, query <code>operation_status</code> with the same key. Wait results include <code>board.event</code> and <code>board.changed</code>; pass the event as <code>boardAfter</code> (CLI <code>--board-after</code>) to keep one watcher for children and new addressed posts.</p>
+</section>
 <!-- Sources: docs/areas/privacy.md, docs/behavior/orchestration.md, docs/behavior/probes.md -->
 <section id="privacy"><h2>Privacy and permissions</h2>
 <p>Foom classifies terminal attention locally and sends no terminal content to a model or network service itself. Your agent CLI still communicates with its own model provider under its own account and settings.</p>

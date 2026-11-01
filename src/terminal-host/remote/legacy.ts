@@ -1,8 +1,7 @@
-import { execFile } from "node:child_process";
+import { daemonHostPlatform } from "./host-platform";
 import { lstatSync, readdirSync } from "node:fs";
 import { createConnection } from "node:net";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { RemoteFrames, remoteFrame, remoteResponse } from "../../shared/remote-host-protocol";
 import { checkSocket } from "./private-path";
 
@@ -20,35 +19,6 @@ function owned(path: string, directory: boolean): boolean {
     info.uid === process.getuid?.() &&
     (info.mode & 0o022) === 0
   );
-}
-/** Exact cached executable and argv, not a process name supplied by a peer. */
-async function processIdentity(
-  executable: string,
-  signal?: AbortSignal,
-): Promise<{ pid: number; started: string } | undefined> {
-  const result = await promisify(execFile)(
-    "/bin/ps",
-    ["-ww", "-u", String(process.getuid?.() ?? -1), "-o", "pid=,lstart=,args="],
-    {
-      ...(signal ? { signal } : {}),
-      encoding: "utf8",
-      shell: false,
-      timeout: 5000,
-      maxBuffer: 256 * 1024,
-      env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" },
-    },
-  );
-  const matches = result.stdout.split("\n").flatMap((line) => {
-    const match =
-      /^\s*(\d+)\s+([A-Za-z]{3}\s+[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.+)$/u.exec(
-        line,
-      );
-    if (!match || match[3] !== `${executable} --daemon`) return [];
-    const pid = Number(match[1]);
-    return Number.isSafeInteger(pid) && pid > 1 && match[2] ? [{ pid, started: match[2] }] : [];
-  });
-  if (matches.length > 1) throw new Error("Legacy daemon identity unavailable");
-  return matches[0];
 }
 function inspect(
   socketPath: string,
@@ -148,7 +118,7 @@ export async function legacyDaemon(
     const count = await inspect(socket, candidate.build, codeFolder, signal);
     if (count === undefined) continue;
     if (!count) return undefined;
-    const identity = await processIdentity(candidate.executable, signal);
+    const identity = await daemonHostPlatform.processIdentity(candidate.executable, signal);
     if (!identity) throw new Error("Legacy daemon identity unavailable");
     return { ...identity, executable: candidate.executable, count };
   }
@@ -156,7 +126,7 @@ export async function legacyDaemon(
 }
 /** End explicitly authorizes all sessions in this exact legacy daemon. Never an upgrade path. */
 export async function endLegacyDaemon(daemon: LegacyDaemon, signal?: AbortSignal): Promise<void> {
-  const current = await processIdentity(daemon.executable, signal);
+  const current = await daemonHostPlatform.processIdentity(daemon.executable, signal);
   if (
     signal?.aborted ||
     current?.pid !== daemon.pid ||

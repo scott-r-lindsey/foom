@@ -33,6 +33,10 @@ export class Workspace {
   async initializeControl(): Promise<void> {
     return this.owner.initializeControl();
   }
+  async messageBoard(method: string, input: unknown): Promise<unknown> {
+    return this.owner.messageBoard(method, input);
+  }
+
   async actionLog(query: unknown): Promise<ActionLogPage> {
     return this.owner.actionLog(query);
   }
