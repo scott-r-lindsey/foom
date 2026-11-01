@@ -160,3 +160,32 @@ test("copy targets are only pending worktree and displayed change paths, includi
   expect([...paths.values()]).not.toContain("SECRET");
   expect(removalCopyPaths({ title: "Other", accept: "Continue" }).size).toBe(0);
 });
+
+test("removal presentation slots serialize independent boards and recover after failure", async () => {
+  const { RemovalPresentations } = await import(
+    "../../../../src/main/confirmations/removal-review"
+  );
+  const presentations = new RemovalPresentations();
+  let decline: (value: boolean) => void = () => undefined;
+  const first = presentations.run(
+    () =>
+      new Promise<boolean>((resolve) => {
+        decline = resolve;
+      }),
+  );
+  const secondPresent = vi.fn(() => Promise.reject(new Error("renderer lost")));
+  const second = presentations.run(secondPresent);
+  // Attach the rejection assertion before releasing the earlier presentation.
+  const failed = expect(second).rejects.toThrow("renderer lost");
+  const thirdPresent = vi.fn(() => Promise.resolve(true));
+  const third = presentations.run(thirdPresent);
+  await Promise.resolve();
+  expect(secondPresent).not.toHaveBeenCalled();
+  expect(thirdPresent).not.toHaveBeenCalled();
+  decline(false);
+  await expect(first).resolves.toBe(false);
+  await failed;
+  await expect(third).resolves.toBe(true);
+  expect(secondPresent).toHaveBeenCalledOnce();
+  expect(thirdPresent).toHaveBeenCalledOnce();
+});

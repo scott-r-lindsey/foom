@@ -132,7 +132,15 @@ resize, maximize, unmaximize and restore events recenter it. Dismissal removes
 listeners, clears the scrim, and restores input and focus. Positioning remains
 subject to window-manager restrictions (for example native Wayland). Quit approval
 does not need the board to render.
-Main serializes requests, supplies the current
+Main serializes requests within each board. An app-owned removal presentation
+queue also serializes orchestrator removal batches, merged-worktree cleanup
+reviews and review-worktree removal across boards. A queued review starts only
+after the preceding presentation is dismissed, cancelled or completed; it reads
+its latest feed when its turn arrives. Each review stays on its selected board,
+and batching, per-item cancellation, snapshot revalidation and exact-ID approval
+checks remain in force. Repository reservations prevent forgetting a repository,
+not overlapping removal reviews; they do not replace this presentation queue.
+Main supplies the current
 resolved theme and content, and gives each request a new ID. Content carries a glyph,
 subject, labeled disclosure sections (with optional main-authored collapsed summary
 lines and full tooltip/accessibility text), facts, argument chips and the pairing code with

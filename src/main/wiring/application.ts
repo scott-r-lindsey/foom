@@ -27,6 +27,7 @@ import { providerRevision, replaceConfigProviders } from "../agents/providers/re
 import { configPart } from "../config/approval";
 import { ConfigService } from "../config/service";
 import type { TrustedDialog } from "../confirmations/trusted-dialog";
+import { RemovalPresentations } from "../confirmations/removal-review";
 import { ForgeRuntime } from "../control/forge-runtime";
 import type { PreviewBroker } from "../control/previews";
 import { addTailSecrets } from "../evaluator/terminal-tail";
@@ -233,6 +234,7 @@ export function runApplication() {
       updateAttention(current?.window, snapshot, newWindowCommand, revealSession);
   };
   /** Keep an actor's pending removals on one board even while its dialog owns focus. */
+  const removalPresentations = new RemovalPresentations();
   const removalDialogs = new Map<string, { dialog: TrustedDialog; pending: number }>();
   /** A trusted dialog on the focused board, or the first; opens a board when none exists. */
   async function requestTrusted(content: DialogContent, signal: AbortSignal): Promise<boolean> {
@@ -473,6 +475,7 @@ export function runApplication() {
       return quitting;
     },
     removingPreviewWorktrees,
+    removalPresentations,
     requestPairing,
     requestQuit,
     requestTrusted,

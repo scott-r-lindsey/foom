@@ -35,6 +35,21 @@ export function removalContent(items: readonly RemovalItem[]): DialogContent {
   };
 }
 
+/** All boards share one removal presentation slot, including live cleanup reviews. */
+export class RemovalPresentations {
+  private queue: Promise<void> = Promise.resolve();
+
+  run(present: () => Promise<boolean>): Promise<boolean> {
+    const result = this.queue.then(present);
+    // One failed presentation must not strand later reviews on any board.
+    this.queue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+}
+
 /** Review together; each caller resumes its own independently revalidated removal. */
 export class RemovalReview {
   private readonly batches = new Map<string, Batch>();

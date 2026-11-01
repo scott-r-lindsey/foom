@@ -1232,6 +1232,180 @@ test("trusted card follows interface scale and clears its scrim on every dismiss
   });
 });
 
+test("removal review updates one live dialog as delayed requests arrive and expire", {
+  timeout: deadline(45_000),
+}, async (context) => {
+  const app = await launchApp(context, { fixture: "empty-board" });
+  await boardPage(app);
+  await app.evaluate(({ BrowserWindow, session }, mainModule) => {
+    const load = process.getBuiltinModule("node:module").createRequire(mainModule);
+    const { TrustedDialog } = load(mainModule);
+    const { resolveInterfaceTheme } = load("../../shared/interface-themes.js");
+    const parent = BrowserWindow.getAllWindows().find(
+      (w) => w.webContents.getURL() === "app://bundle/index.html",
+    );
+    globalThis.removalTheme = "eclipse-light";
+    globalThis.removalDialog = new TrustedDialog(
+      parent,
+      session.fromPartition("confirmation"),
+      () => resolveInterfaceTheme(globalThis.removalTheme, false),
+    );
+    globalThis.removalAnswers = {};
+    globalThis.removalAborts = {};
+    globalThis.queueRemoval = (id, group = "actor") => {
+      const abort = new AbortController();
+      globalThis.removalAborts[id] = abort;
+      void globalThis.removalDialog
+        .request(
+          {
+            title: "Remove worktrees?",
+            accept: "Approve all",
+            removal: { group, item: { id, branch: id, path: `/trees/${id}`, changes: "" } },
+          },
+          abort.signal,
+        )
+        .then((answer) => {
+          globalThis.removalAnswers[id] = answer;
+        });
+    };
+    globalThis.queueRemoval("one");
+  }, path.resolve("build/main/confirmations/trusted-dialog.js"));
+  try {
+    let page;
+    await expect
+      .poll(async () => {
+        for (const candidate of app.windows()) {
+          if (
+            await candidate
+              .getByRole("alertdialog", { name: "Remove worktree?", exact: true })
+              .count()
+          ) {
+            page = candidate;
+            return true;
+          }
+        }
+        return false;
+      })
+      .toBe(true);
+    await assertConfirmationFocus(
+      app,
+      page,
+      page.getByRole("button", { name: "Cancel", exact: true }),
+    );
+    await expect(page.getByRole("button", { name: "Remove worktree", exact: true })).toBeEnabled();
+    for (const theme of ["light", "dark"]) {
+      await app.evaluate((_, theme) => {
+        globalThis.removalTheme = `eclipse-${theme}`;
+        globalThis.removalDialog.refresh();
+      }, theme);
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
+        .toBe(theme);
+      await page.screenshot({ path: evidencePath(`929-single-${theme}.png`) });
+    }
+    const stale = await app.evaluate(() => globalThis.removalDialog.pending.id);
+    await app.evaluate(() => globalThis.queueRemoval("two"));
+    await expect(page.getByRole("checkbox")).toHaveCount(2);
+    await page.getByRole("checkbox", { name: "one", exact: true }).check();
+    await app.evaluate(() => {
+      for (const id of ["three", "four", "five", "six"]) globalThis.queueRemoval(id);
+    });
+    await expect(page.getByRole("checkbox")).toHaveCount(6);
+    await expect(page.getByRole("alertdialog")).toHaveCount(1);
+    await expect(page.getByRole("checkbox", { name: "one", exact: true })).not.toBeChecked();
+    await page.evaluate((id) => window.confirmation.answer(id, ["one", "two"]), stale);
+    await expect.poll(() => app.evaluate(() => globalThis.removalAnswers)).toEqual({});
+    for (const theme of ["light", "dark"]) {
+      await app.evaluate((_, theme) => {
+        globalThis.removalTheme = `eclipse-${theme}`;
+        globalThis.removalDialog.refresh();
+      }, theme);
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.style.colorScheme))
+        .toBe(theme);
+      await page.screenshot({ path: evidencePath(`929-multi-${theme}.png`) });
+    }
+    await app.evaluate(() => globalThis.removalAborts.two.abort());
+    await expect(page.getByRole("checkbox")).toHaveCount(5);
+    await expect.poll(() => app.evaluate(() => globalThis.removalAnswers)).toEqual({ two: false });
+    await page.getByRole("button", { name: "Approve all", exact: true }).click();
+    await expect
+      .poll(() => app.evaluate(() => globalThis.removalAnswers))
+      .toEqual({
+        one: true,
+        two: false,
+        three: true,
+        four: true,
+        five: true,
+        six: true,
+      });
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    // Expire a whole queued batch while another actor's review owns the window.
+    await app.evaluate(() => {
+      globalThis.queueRemoval("front", "front");
+      globalThis.queueRemoval("expired-one", "expired");
+      globalThis.queueRemoval("expired-two", "expired");
+      globalThis.queueRemoval("next", "next");
+    });
+    await expect(
+      page.getByRole("heading", { name: "Remove worktree?", exact: true }),
+    ).toBeVisible();
+    await expect(page.locator(".subject")).toHaveText("front");
+    await app.evaluate(() => {
+      globalThis.removalAborts["expired-one"].abort();
+      globalThis.removalAborts["expired-two"].abort();
+      globalThis.queueRemoval("fresh-one", "expired");
+      globalThis.queueRemoval("fresh-two", "expired");
+    });
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.locator(".subject")).toHaveText("next");
+    await page.getByRole("button", { name: "Remove worktree", exact: true }).click();
+    await expect(page.getByRole("checkbox")).toHaveCount(2);
+    await expect(page.getByRole("checkbox", { name: "fresh-one", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Decline", exact: true }).click();
+    await expect
+      .poll(() => app.evaluate(() => globalThis.removalAnswers))
+      .toMatchObject({
+        front: false,
+        "expired-one": false,
+        "expired-two": false,
+        next: true,
+        "fresh-one": false,
+        "fresh-two": false,
+      });
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    // Expire the displayed generation, then immediately start a new generation.
+    await app.evaluate(() => {
+      globalThis.queueRemoval("old-one", "old");
+      globalThis.queueRemoval("old-two", "old");
+    });
+    await expect(page.getByRole("checkbox")).toHaveCount(2);
+    const expiredId = await app.evaluate(() => globalThis.removalDialog.pending.id);
+    await app.evaluate(() => {
+      globalThis.removalAborts["old-one"].abort();
+      globalThis.removalAborts["old-two"].abort();
+      globalThis.queueRemoval("new-one", "old");
+      globalThis.queueRemoval("new-two", "old");
+    });
+    await expect(page.getByRole("checkbox", { name: "new-one", exact: true })).toBeVisible();
+    await expect(page.getByRole("checkbox")).toHaveCount(2);
+    await page.evaluate((id) => window.confirmation.answer(id, ["old-one", "old-two"]), expiredId);
+    await page.getByRole("button", { name: "Approve all", exact: true }).click();
+    await expect
+      .poll(() => app.evaluate(() => globalThis.removalAnswers))
+      .toMatchObject({
+        "old-one": false,
+        "old-two": false,
+        "new-one": true,
+        "new-two": true,
+      });
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  } finally {
+    await app.evaluate(() => globalThis.removalDialog.dispose());
+    await quitAndWait(app, () => app.evaluate(({ app }) => app.quit()));
+  }
+});
+
 test("config file agent arguments require trusted Allow before a fake Codex launch", {
   timeout: deadline(60_000),
 }, async (context) => {

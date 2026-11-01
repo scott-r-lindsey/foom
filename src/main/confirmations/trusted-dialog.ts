@@ -13,7 +13,12 @@ import type {
 import type { DialogContent, DialogRequest } from "../../shared/confirmation";
 import type { InterfaceTheme } from "../../shared/interface-theme";
 
-import { removalCopyPaths, RemovalReview, removalContent } from "./removal-review";
+import {
+  removalCopyPaths,
+  RemovalPresentations,
+  RemovalReview,
+  removalContent,
+} from "./removal-review";
 
 export const CONFIRMATION_URL = "app://confirmation/confirmation.html";
 /** Dedicated session and origin prevent process sharing or board access to this page. */
@@ -49,6 +54,7 @@ export class TrustedDialog {
     private readonly session: Session,
     private readonly theme: () => InterfaceTheme,
     private readonly platform = process.platform,
+    private readonly removalPresentations = new RemovalPresentations(),
   ) {
     this.parentContents = parent.webContents;
     ipcMain.on("confirmation:answer", this.answer);
@@ -273,6 +279,14 @@ export class TrustedDialog {
   ): Promise<boolean> {
     if (content.removal)
       return this.removals.request(content.removal.group, content.removal.item, signal);
+    const present = () => this.enqueue(content, signal, activate);
+    return content.removalFeed || content.feed ? this.removalPresentations.run(present) : present();
+  }
+  private enqueue(
+    content: DialogContent,
+    signal: AbortSignal | undefined,
+    activate: boolean,
+  ): Promise<boolean> {
     const result = this.queue.then(async () => {
       if (this.disposed || this.parent.isDestroyed() || signal?.aborted) return false;
       this.prepare();
