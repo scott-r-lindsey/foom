@@ -144,7 +144,7 @@ test("Help Manual opens a contained offline guide and focuses the existing tile"
   assert.ok(document.rows > 50);
   assert.equal(document.bridge, "undefined");
   assert.equal(document.node, "undefined");
-  assert.equal(new Set(document.sections).size, 12);
+  assert.equal(new Set(document.sections).size, 13);
   const blocked = await page.evaluate(
     (id) =>
       window.desktop.previews.network(id, true).then(
@@ -282,7 +282,7 @@ test("bundled manual search supports keyboard navigation and section jumps", asy
     .poll(() => run("typeof document.querySelector('#manual-query')?.oninput"))
     .toBe("object");
   const index = JSON.parse(await readFile("build/manual/sections.json", "utf8"));
-  assert.equal(index.length, 12);
+  assert.equal(index.length, 13);
   assert.deepEqual(
     index.map((section) => section.id),
     await run("Array.from(document.querySelectorAll('main section[id]'), section => section.id)"),

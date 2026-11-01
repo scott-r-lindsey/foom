@@ -1,3 +1,4 @@
+import { boardCommand } from "./message-board";
 import { mcpCommand } from "./mcp";
 import { hookCommand } from "./hook";
 import { probeCommand, probeRequest } from "../node-common/agent-probe";
@@ -30,7 +31,7 @@ export async function execute(
   };
   try {
     if (
-      args.length > 32 ||
+      args.length > (args[0] === "board" ? 64 : 32) ||
       args.some((value) => Buffer.byteLength(value) > 16384) ||
       args.filter((value) => value === "--json").length > 1
     )
@@ -174,7 +175,9 @@ export async function execute(
       ? undefined
       : words[0] === "handoff"
         ? await handoffCommand(words, io.input)
-        : command(words);
+        : words[0] === "board"
+          ? await boardCommand(words.slice(1), io.input)
+          : command(words);
     if (connection && (profile || repository || persistent)) throw new ControlError("forbidden");
     if (!connection && !repository) throw new ControlError("unauthorized");
     const authenticated =

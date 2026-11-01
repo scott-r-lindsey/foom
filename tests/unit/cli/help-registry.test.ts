@@ -53,7 +53,10 @@ test("help lists every control parser command, including alternate forms", () =>
     lines[3]?.replace("Orchestrators only: ", ""),
   ];
   expect(documented(entries.map((entry) => entry ?? ""))).toEqual(
-    dispatched("src/cli/commands.ts", "name"),
+    [
+      ...dispatched("src/cli/commands.ts", "name"),
+      ...dispatched("src/cli/execute.ts", "words[0]").filter((name) => name === "board"),
+    ].sort(),
   );
 });
 
@@ -74,4 +77,9 @@ test("help lists every probe action and top-level console route", () => {
     expect(help()).toContain(`${route === "probe" ? "agent" : "config"} ${route}`);
   const consoleRoutes = dispatched("src/cli/execute.ts", "words[0]");
   for (const route of consoleRoutes) expect(help()).toContain(route);
+});
+
+test("help lists every board subcommand", () => {
+  const names = [...new Set([...help().matchAll(/board (\S+)/gu)].map((match) => match[1]))].sort();
+  expect(names).toEqual(dispatched("src/cli/message-board.ts", "name"));
 });

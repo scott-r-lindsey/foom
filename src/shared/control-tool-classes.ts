@@ -17,6 +17,10 @@ export const CONTROL_TOOL_CLASSES = {
   close: "orchestration",
   remove_worktree: "orchestration",
   tail: "orchestration",
+  board_threads: "orchestration",
+  board_read: "orchestration",
+  board_post: "orchestration",
+  board_resolve: "orchestration",
   wait_for: "orchestration",
   operation_status: "orchestration",
 } as const;
