@@ -206,6 +206,10 @@ export class ForgeTracking {
         entry.inspectedHead !== head
       )
         throw new ControlError("pr_binding_unresolved");
+      // The inspection may yield to Settings invalidation or checkout replacement.
+      // Recheck the captured tracker state before publishing any binding.
+      if (this.stopped() || this.generation !== generation || this.entries.get(path) !== entry)
+        throw new ControlError("pr_binding_unresolved");
       this.bind(entry, provider);
       // Retire in-flight samples captured before this explicit binding.
       const bound: Entry = {

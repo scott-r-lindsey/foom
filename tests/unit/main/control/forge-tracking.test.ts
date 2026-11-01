@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ForgeTracking, forgeDelay } from "../../../../src/main/control/forge-tracking";
 import { privateDirectory, atomicPrivate } from "../../../../src/node-common/private-files";
 import type { ForgeMatch, ForgeWorktree, PullRequest } from "../../../../src/main/control/forge.d";
-import { SessionMetadata } from "../../../../src/main/control/metadata";
+import { SessionMetadata, locationId } from "../../../../src/main/control/metadata";
 import type { WorkspaceTerminal } from "../../../../src/shared/workspace";
 import type { Principal } from "../../../../src/main/control/types";
 let root: string;
@@ -1667,6 +1667,62 @@ it.each([false, true])(
     else {
       await tracker.bindPullRequest(tree.repository, remoteTree.path, 340);
       expect(tracker.read(tree.repository, remoteTree.path)).toEqual(pending);
+    }
+  },
+);
+
+it.each([
+  { remote: false, action: "invalidate" },
+  { remote: true, action: "invalidate" },
+  { remote: false, action: "replace" },
+  { remote: true, action: "replace" },
+  { remote: false, action: "close" },
+  { remote: true, action: "close" },
+])(
+  "refuses stale final binding inspection ($action, remote=$remote)",
+  async ({ remote, action }) => {
+    const origin = "https://github.com/o/r";
+    const remotePath = "/code/.foom-worktree-delta";
+    const checkout = {
+      ...tree,
+      ...(remote
+        ? {
+            path: `/foom-remote/${locationId(JSON.stringify(["alpha", remotePath]))}`,
+            remoteCheckout: {
+              host: "alpha",
+              codeFolder: "/code",
+              repository: "/code/repo",
+              path: remotePath,
+              origin,
+            },
+          }
+        : {}),
+    };
+    let inspections = 0;
+    const inspect = vi.fn(async (_checkout: ForgeWorktree) => {
+      if (++inspections === 2) {
+        await Promise.resolve();
+        if (action === "invalidate") tracker.invalidate();
+        else if (action === "close") await tracker.close();
+        else tracker.track({ ...checkout, identity: "replacement" });
+      }
+      return { remote: origin, head: pending.headSha };
+    });
+    const tracker = new ForgeTracking(directory, inspect, vi.fn(), () => ({
+      binding: "old-provider",
+      resolve: () => Promise.resolve({ branch: "pr-head", state: "OPEN", sameRepository: true }),
+      lookup: () => Promise.resolve(pending),
+    }));
+    trackers.push(tracker);
+    tracker.track(checkout);
+    await expect(
+      tracker.bindPullRequest(checkout.repository, checkout.path, pending.number),
+    ).rejects.toThrow("pr_binding_unresolved");
+    expect(tracker.read(checkout.repository, checkout.path)).toBeUndefined();
+    if (action === "replace") {
+      await tracker.bindPullRequest(checkout.repository, checkout.path, pending.number);
+      expect(inspect.mock.calls.at(-1)?.[0].identity).toBe("replacement");
+      expect(tracker.read(checkout.repository, checkout.path)).toEqual(pending);
     }
   },
 );
