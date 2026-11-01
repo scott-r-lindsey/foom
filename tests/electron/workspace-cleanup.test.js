@@ -422,3 +422,120 @@ test("group cleanup reviews untracked files and removes detached checkouts insid
   for (const tree of trees) await assert.rejects(realpath(tree.path), { code: "ENOENT" });
   await confirmation.getByRole("button", { name: "Done", exact: true }).click();
 });
+
+test("merged cleanup skips Git-ignored build folders and exposes reasons when none qualify", {
+  timeout: deadline(60000),
+}, async (context) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "foom-cleanup-990-")));
+  removeAfterApps(context, root);
+  const app = await launchApp(context, { fixture: "repository" });
+  const page = await boardPage(app);
+  const repository = await page.evaluate(
+    async () => (await window.desktop.workspace()).repositories[0].path,
+  );
+  const git = (...args) =>
+    isolatedGit(["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd: repository,
+    });
+  await writeFile(path.join(repository, ".gitignore"), "packages/\n");
+  await writeFile(path.join(repository, "tracked.txt"), "initial\n");
+  git("add", ".gitignore", "tracked.txt");
+  git("commit", "-m", "initial");
+  const merged = await page.evaluate(
+    async (repository) => window.desktop.createWorktree(repository, "merged-build", "root"),
+    repository,
+  );
+  await writeFile(path.join(merged.path, "feature.txt"), "merged feature\n");
+  isolatedGit(["add", "feature.txt"], { cwd: merged.path });
+  isolatedGit(
+    ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "feature"],
+    { cwd: merged.path },
+  );
+  git("merge", "--no-ff", "merged-build", "-m", "merge feature");
+  const remote = path.join(root, "remote.git");
+  git("clone", "--bare", repository, remote);
+  git("remote", "add", "origin", remote);
+  const packages = path.join(merged.path, "packages");
+  await mkdir(packages);
+  for (let start = 0; start < 10_100; start += 100) {
+    await Promise.all(
+      Array.from({ length: 100 }, (_, offset) =>
+        writeFile(path.join(packages, `package-${start + offset}.js`), ""),
+      ),
+    );
+  }
+  // The explicit policy also permits repositories inside Git-ignored folders.
+  isolatedGit(["init", "-q", "-b", "main", path.join(packages, "nested")], { cwd: merged.path });
+  const dirty = await page.evaluate(
+    async (repository) => window.desktop.createWorktree(repository, "keep-changes", "root"),
+    repository,
+  );
+  await writeFile(path.join(dirty.path, "tracked.txt"), "keep tracked changes\n");
+  await writeFile(path.join(dirty.path, "untracked.txt"), "keep untracked changes\n");
+  await page.reload();
+  await boardPage(app);
+  await expect
+    .poll(
+      async () =>
+        (await page.evaluate(() => window.desktop.sidebarInventory())).repositories[0]?.mergedCount,
+    )
+    .toBe(1);
+  const openCleanup = async () => {
+    await page
+      .getByRole("button", { name: `Actions for ${path.basename(repository)}`, exact: true })
+      .click();
+    await page.getByRole("menuitem", { name: /Delete merged worktrees…/ }).click();
+    return confirmationPage(app);
+  };
+  const confirmation = await openCleanup();
+  await expect(
+    confirmation.getByRole("button", { name: "Force delete 1", exact: true }),
+  ).toBeEnabled();
+  await expect(confirmation.getByRole("list", { name: "Uncommitted changes" })).toContainText(
+    "packages/",
+  );
+  await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
+    "keep-changesuncommitted changes",
+  );
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(await readFile(path.join(packages, "package-10000.js"), "utf8"), "");
+  await openCleanup();
+  await assertConfirmationFocus(
+    app,
+    confirmation,
+    confirmation.getByRole("button", { name: "Cancel" }),
+  );
+  await confirmation.getByRole("button", { name: "Force delete 1", exact: true }).click();
+  await expect
+    .poll(async () =>
+      (await page.evaluate((repository) => window.desktop.worktrees(repository), repository)).some(
+        (tree) => tree.path === merged.path,
+      ),
+    )
+    .toBe(false);
+  await expect
+    .poll(() =>
+      app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()
+          .find((window) => window.webContents.getURL() === "app://confirmation/confirmation.html")
+          .isVisible(),
+      ),
+    )
+    .toBe(false);
+  await openCleanup();
+  await expect(confirmation.getByRole("list", { name: "Kept worktrees" })).toContainText(
+    "keep-changesuncommitted changes",
+  );
+  await expect(confirmation.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
+  await confirmation.screenshot({ path: evidencePath("990-no-eligible-worktrees.png") });
+  await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(
+    await readFile(path.join(dirty.path, "tracked.txt"), "utf8"),
+    "keep tracked changes\n",
+  );
+  assert.equal(
+    await readFile(path.join(dirty.path, "untracked.txt"), "utf8"),
+    "keep untracked changes\n",
+  );
+  await assert.rejects(realpath(merged.path), { code: "ENOENT" });
+});
