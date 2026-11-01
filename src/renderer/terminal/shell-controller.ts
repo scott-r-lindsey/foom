@@ -395,7 +395,9 @@ export function createShell(
     wheel.reset();
     terminal.reset();
     terminal.options.cursorBlink = !exited;
-    if (exited) terminal.write("\x1b[?25l");
+    // xterm reset retains cursor hiding. Older compatible daemons omit DECTCEM,
+    // so start live replays visible; newer snapshots can explicitly hide it again.
+    terminal.write(exited ? "\x1b[?25l" : "\x1b[?25h");
     controls();
     updateTheme();
     visibility(true);
