@@ -264,10 +264,9 @@ export class ForgeTracking {
     // A healthy checkout must not retry another host before its backoff expires.
     rows = rows.filter((row) => !this.remoteRetryDeferred(row));
     for (const row of rows) {
-      if (
-        row.remoteCheckout &&
-        (await this.inspect(row, row.orchestrator).catch(() => undefined)) !== remote
-      )
+      // Every row now carries HEAD evidence, including local checkouts. Pin it
+      // before constructing the context, not during its first validation.
+      if ((await this.inspect(row, row.orchestrator).catch(() => undefined)) !== remote)
         retired.add(row);
     }
     const heads = new Map(rows.map((row) => [row, row.inspectedHead]));
