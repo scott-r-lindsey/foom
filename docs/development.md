@@ -235,6 +235,14 @@ default; its cause-preservation behavior has an invalid/valid fixture.
 `strict-boolean-expressions` was not enabled by the former strict preset and is
 not silently added or counted as a preserved rule.
 
+Core rules cover `.js`, `.mjs` and `.cjs`, including both CommonJS packaging
+modules (`scripts/maker-dmg.cjs` and `scripts/package-conpty.cjs`). Both are
+representatives in the rule inventory. A production-config regression fixture
+requires an undefined helper and a debugger statement in `.cjs` to fail lint,
+while its valid CommonJS counterpart passes. CommonJS retains its original
+globals and unused-argument defaults rather than inheriting the broader Node
+globals and underscore-argument exception used for `.js` and `.mjs`.
+
 The user explicitly accepted these two gaps in #981:
 
 | Former rule | Remaining gap | Rationale |
@@ -242,8 +250,8 @@ The user explicitly accepted these two gaps in #981:
 | `no-dupe-args` | Duplicate parameters in sloppy-mode CommonJS `tests/**/*.js` | TypeScript's compiler and strict ESM parsing reject them elsewhere. |
 | `no-octal` | Legacy octal literals in sloppy-mode CommonJS `tests/**/*.js` | TypeScript and strict ESM parsing reject them elsewhere; explicit `0o` literals remain valid. |
 
-Forge's CommonJS configuration has an explicit `use strict` directive, keeping
-this exception confined to tests. No workaround rule or lint suppression hides
+Forge's CommonJS configuration and both `.cjs` packaging modules have explicit
+`use strict` directives, keeping this exception confined to tests. No workaround rule or lint suppression hides
 these gaps. Syntax/parser fixtures exercise the accepted sloppy-JS behavior and
 strict-module rejection. The native safety corpus checks invalid and valid
 programs, including unsafe values, promises, enum assignments, conditions,

@@ -1,7 +1,12 @@
 {
   "constructor-super": {
     "config": [2],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "for-direction": {
@@ -12,7 +17,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -23,7 +30,12 @@
         "allowImplicit": false
       }
     ],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-async-promise-executor": {
@@ -34,7 +46,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -46,13 +60,20 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
   "no-class-assign": {
     "config": [2],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-compare-neg-zero": {
@@ -63,7 +84,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -75,13 +98,20 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
   "no-const-assign": {
     "config": [2],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-constant-binary-expression": {
@@ -97,7 +127,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -114,7 +146,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -126,7 +160,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -138,7 +174,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -150,18 +188,30 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
   "no-dupe-args": {
     "config": [2],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-dupe-class-members": {
     "config": [2],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-dupe-else-if": {
@@ -172,13 +222,20 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
   "no-dupe-keys": {
     "config": [2],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-duplicate-case": {
@@ -189,7 +246,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -206,7 +265,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -218,7 +279,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -235,7 +298,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -247,7 +312,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -259,7 +326,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -271,7 +340,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -289,13 +360,20 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
   "no-func-assign": {
     "config": [2],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-global-assign": {
@@ -311,13 +389,20 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
   "no-import-assign": {
     "config": [2],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-invalid-regexp": {
@@ -328,7 +413,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -349,7 +436,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -361,7 +450,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -378,13 +469,20 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
   "no-new-native-nonconstructor": {
     "config": [2],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-nonoctal-decimal-escape": {
@@ -395,13 +493,20 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
   "no-obj-calls": {
     "config": [2],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-octal": {
@@ -412,7 +517,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -424,7 +531,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -435,7 +544,12 @@
         "builtinGlobals": true
       }
     ],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-regex-spaces": {
@@ -446,7 +560,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -463,13 +579,20 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
   "no-setter-return": {
     "config": [2],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-shadow-restricted-names": {
@@ -485,7 +608,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -497,13 +622,20 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
   "no-this-before-super": {
     "config": [2],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-unassigned-vars": {
@@ -514,7 +646,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -525,7 +659,12 @@
         "typeof": false
       }
     ],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-unexpected-multiline": {
@@ -536,13 +675,20 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
   "no-unreachable": {
     "config": [2],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-unsafe-finally": {
@@ -553,7 +699,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -564,7 +712,12 @@
         "enforceForOrderingRelations": false
       }
     ],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "no-unsafe-optional-chaining": {
@@ -580,7 +733,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -592,7 +747,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -604,7 +761,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -622,8 +781,30 @@
         "argsIgnorePattern": "^_"
       }
     ],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
-    "typed": false
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
+    "typed": false,
+    "fileOverrides": [
+      {
+        "files": ["scripts/maker-dmg.cjs", "scripts/package-conpty.cjs"],
+        "config": [
+          2,
+          {
+            "vars": "all",
+            "args": "after-used",
+            "ignoreRestSiblings": false,
+            "caughtErrors": "all",
+            "ignoreClassWithStaticInitBlock": false,
+            "ignoreUsingDeclarations": false,
+            "reportUsedIgnorePattern": false
+          }
+        ]
+      }
+    ]
   },
   "no-useless-assignment": {
     "config": [2],
@@ -633,7 +814,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -645,7 +828,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -657,7 +842,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -674,13 +861,20 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
   "no-with": {
     "config": [2],
-    "files": ["scripts/build.mjs", "tests/electron/harness.js"],
+    "files": [
+      "scripts/build.mjs",
+      "tests/electron/harness.js",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
+    ],
     "typed": false
   },
   "preserve-caught-error": {
@@ -697,7 +891,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -709,7 +905,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -727,7 +925,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },
@@ -744,7 +944,9 @@
       "src/main/main.ts",
       "src/renderer/renderer.tsx",
       "tests/unit/main/profile.test.ts",
-      "src/shared/desktop.d.ts"
+      "src/shared/desktop.d.ts",
+      "scripts/maker-dmg.cjs",
+      "scripts/package-conpty.cjs"
     ],
     "typed": false
   },

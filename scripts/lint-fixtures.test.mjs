@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { basename, join, matchesGlob, resolve } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { lintFixtures } from "./lint-fixtures.mjs";
 
 const config = JSON.parse(readFileSync(new URL("../.oxlintrc.json", import.meta.url), "utf8"));
@@ -39,13 +40,84 @@ test("all 221 original rule severities/options survive except the two approved p
   assert.equal(Object.keys(inventory).length, 221);
   for (const [name, original] of Object.entries(inventory)) {
     if (acceptedGaps.has(name)) continue;
-    const expected = structuredClone(original.config);
-    if (name === "preserve-caught-error") delete expected[1].errorClassNames; // Native default is the same empty list.
     for (const file of original.files) {
+      const expected = structuredClone(
+        original.fileOverrides?.find((override) => override.files.includes(file))?.config ??
+          original.config,
+      );
+      if (name === "preserve-caught-error") delete expected[1].errorClassNames; // Native default is the same empty list.
       let actual = effective(file)[target(name)];
       if (actual === "error") actual = [2];
       assert.deepEqual(actual, expected, `${name} in ${file}`);
     }
+  }
+});
+
+test("CommonJS packaging modules retain core safety rules through the production config", () => {
+  const root = mkdtempSync(join(tmpdir(), "foom-lint-commonjs-"));
+  try {
+    const scripts = join(root, "scripts");
+    mkdirSync(scripts);
+    const invalid = join(scripts, "invalid.cjs");
+    const valid = join(scripts, "valid.cjs");
+    const settings = join(scripts, "settings.cjs");
+    writeFileSync(
+      invalid,
+      '"use strict";\nmodule.exports = () => { debugger; return missingRuntimeHelper(); };',
+    );
+    writeFileSync(
+      valid,
+      '"use strict";\nconst helper = require("node:os").platform;\nmodule.exports = () => helper();',
+    );
+    writeFileSync(
+      settings,
+      '"use strict";\nmodule.exports = (_unused) => { console.log(process.pid); };',
+    );
+    writeFileSync(
+      join(root, "lint.json"),
+      JSON.stringify({
+        ...config,
+        jsPlugins: config.jsPlugins.map((plugin) => ({
+          ...plugin,
+          specifier: plugin.specifier.startsWith(".")
+            ? resolve(plugin.specifier)
+            : fileURLToPath(import.meta.resolve(plugin.specifier)),
+        })),
+      }),
+    );
+    const args = [
+      resolve("node_modules/oxlint/bin/oxlint"),
+      "--config",
+      join(root, "lint.json"),
+      "--format=json",
+      "--deny-warnings",
+    ];
+    const result = spawnSync(process.execPath, [...args, root], { encoding: "utf8" });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    const { diagnostics } = JSON.parse(result.stdout);
+    assert.deepEqual(
+      diagnostics
+        .filter((item) => basename(item.filename) === "invalid.cjs")
+        .map((item) => item.code)
+        .sort(),
+      ["eslint(no-debugger)", "eslint(no-undef)"],
+    );
+    assert.deepEqual(
+      diagnostics.filter((item) => basename(item.filename) === "valid.cjs"),
+      [],
+    );
+    assert.deepEqual(
+      diagnostics
+        .filter((item) => basename(item.filename) === "settings.cjs")
+        .map((item) => item.code)
+        .sort(),
+      ["eslint(no-undef)", "eslint(no-undef)", "eslint(no-unused-vars)"],
+    );
+    const accepted = spawnSync(process.execPath, [...args, valid], { encoding: "utf8" });
+    assert.equal(accepted.status, 0, accepted.stderr || accepted.stdout);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -138,7 +210,8 @@ test("the package graph and hook use only Oxlint as the linter", () => {
 });
 
 test("the accepted sloppy-CommonJS gaps do not extend to Forge or ESM files", () => {
-  assert.match(readFileSync("forge.config.js", "utf8"), /^"use strict";/);
+  for (const file of ["forge.config.js", "scripts/maker-dmg.cjs", "scripts/package-conpty.cjs"])
+    assert.match(readFileSync(file, "utf8"), /^"use strict";/, file);
   const root = mkdtempSync(join(tmpdir(), "foom-lint-parser-"));
   try {
     mkdirSync(join(root, "esm"));
@@ -169,9 +242,11 @@ test("the accepted sloppy-CommonJS gaps do not extend to Forge or ESM files", ()
       writeFileSync(join(root, "sloppy.js"), bad);
       writeFileSync(join(root, "esm", "strict.mjs"), bad);
       writeFileSync(join(root, "strict.js"), `"use strict";\n${bad}`);
+      writeFileSync(join(root, "strict.cjs"), `"use strict";\n${bad}`);
       assert.equal(run(join(root, "sloppy.js")).status, 0);
       assert.equal(run(join(root, "esm", "strict.mjs")).status, 1);
       assert.equal(run(join(root, "strict.js")).status, 1);
+      assert.equal(run(join(root, "strict.cjs")).status, 1);
       writeFileSync(join(root, "strict.ts"), `${bad}\nexport {};`);
       const compiler = spawnSync(
         process.execPath,

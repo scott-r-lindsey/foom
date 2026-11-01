@@ -31,7 +31,7 @@
   ],
   "overrides": [
     {
-      "files": ["**/*.{js,mjs}"],
+      "files": ["**/*.{js,mjs,cjs}"],
       "rules": {
         "eslint/constructor-super": [2],
         "eslint/for-direction": [2],
@@ -211,6 +211,27 @@
       },
       "env": {
         "node": true
+      }
+    },
+    {
+      "files": ["**/*.cjs"],
+      "env": {
+        "node": false,
+        "commonjs": true
+      },
+      "rules": {
+        "eslint/no-unused-vars": [
+          2,
+          {
+            "vars": "all",
+            "args": "after-used",
+            "ignoreRestSiblings": false,
+            "caughtErrors": "all",
+            "ignoreClassWithStaticInitBlock": false,
+            "ignoreUsingDeclarations": false,
+            "reportUsedIgnorePattern": false
+          }
+        ]
       }
     },
     {
