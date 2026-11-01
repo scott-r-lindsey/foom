@@ -10,6 +10,7 @@ const {
   assertAccessible,
   boardPage,
   confirmationPage,
+  fixtureCleanup,
   launchApp,
   openSettingsScreen,
   removeAfterApps,
@@ -503,8 +504,83 @@ test("missing agent cards recover on Settings entry and manifest reload without 
   const bin = path.join(root, "bin");
   const home = path.join(root, "home");
   await Promise.all([bin, home].map((directory) => mkdir(directory)));
+  const gate = path.join(root, "discovery-gate");
+  const started = path.join(root, "discovery-started");
+  const preload = path.join(root, "discovery.cjs");
+  await writeFile(
+    preload,
+    `
+const fs = require("node:fs");
+const gate = ${JSON.stringify(gate)};
+if (fs.existsSync(gate)) {
+  const watcher = fs.watch(require("node:path").dirname(gate), () => {
+    if (!fs.existsSync(gate)) watcher.close();
+  });
+  fs.writeFileSync(${JSON.stringify(started)}, String(process.pid));
+}
+`,
+  );
   const app = await launchApp(context, { fixture: "agent", env: { HOME: home, PATH: bin } });
   const page = await boardPage(app);
+  await app.evaluate(({ app }, preload) => {
+    const load = process
+      .getBuiltinModule("node:module")
+      .createRequire(app.getAppPath() + "/package.json");
+    const { AgentService } = load("./build/main/agents/agents.js");
+    const children = load("node:child_process");
+    const scan = AgentService.prototype.scan;
+    const spawn = children.spawn;
+    const scans = new Set();
+    const reads = [];
+    AgentService.prototype.scan = function (...args) {
+      const result = scan.apply(this, args);
+      scans.add(result);
+      void result.then(
+        () => scans.delete(result),
+        () => scans.delete(result),
+      );
+      return result;
+    };
+    children.spawn = function (file, args, options) {
+      const fixture = /late-agent(?:\.exe)?$/.test(file);
+      const child = spawn.call(
+        this,
+        file,
+        args,
+        fixture
+          ? {
+              ...options,
+              env: {
+                ...options.env,
+                NODE_OPTIONS: [options.env.NODE_OPTIONS, `--require=${JSON.stringify(preload)}`]
+                  .filter(Boolean)
+                  .join(" "),
+              },
+            }
+          : options,
+      );
+      if (fixture) {
+        const read = { file, pid: child.pid, args, closed: false };
+        reads.push(read);
+        child.once("close", () => {
+          read.closed = true;
+        });
+      }
+      return child;
+    };
+    globalThis.missingAgentDiscovery = { scans, reads };
+  }, preload);
+  const discovery = () =>
+    app.evaluate(() => ({
+      scans: globalThis.missingAgentDiscovery.scans.size,
+      readers: globalThis.missingAgentDiscovery.reads.filter((read) => !read.closed),
+    }));
+  const waitForDiscovery = () => expect.poll(discovery).toEqual({ scans: 0, readers: [] });
+  // Release a held probe before quitting even when a test assertion fails.
+  fixtureCleanup(context).apps.unshift(async () => {
+    await rm(gate, { force: true });
+    await waitForDiscovery();
+  });
   const openAgents = async () => {
     await openSettingsScreen(page);
     await page
@@ -544,6 +620,44 @@ test("missing agent cards recover on Settings entry and manifest reload without 
     (await page.evaluate(() => window.desktop.setupState())).settings.agents["late-agent"],
     undefined,
   );
+  // An enabled card is a previous scan's result, not a discovery-process barrier.
+  const atCardReady = await discovery();
+  await writeFile(gate, "hold help reader");
+  await page.evaluate(() => {
+    globalThis.missingAgentRefresh = window.desktop.scanAgents(true);
+  });
+  await expect
+    .poll(() =>
+      readFile(started, "utf8").catch((error) => {
+        if (error.code !== "ENOENT") throw error;
+        return "";
+      }),
+    )
+    .toMatch(/^\d+$/);
+  const awaitedPid = await readFile(started, "utf8");
+  const holding = await discovery();
+  await expect(card.getByRole("switch")).toBeEnabled();
+  assert.ok(holding.scans > 0);
+  assert.ok(holding.readers.some((read) => read.args[0] === "--help"));
+  assert.ok(holding.readers.some((read) => String(read.pid) === awaitedPid));
+  await rm(gate);
+  await page.evaluate(() => globalThis.missingAgentRefresh);
+  await waitForDiscovery();
+  const beforeRemove = await discovery();
+  context.diagnostic(JSON.stringify({ atCardReady, holding, beforeRemove }));
+  await writeFile(
+    evidencePath("missing-agent-discovery.json"),
+    JSON.stringify(
+      {
+        atCardReady,
+        holding,
+        beforeRemove,
+      },
+      null,
+      2,
+    ),
+  );
+  // Never retry unlink: wait for the owning scan and child close events first.
   await rm(executable);
   await writeFile(file, JSON.stringify({ ...manifest, name: "Late agent missing" }));
   await expect(card.getByText("Not found", { exact: true })).toBeVisible();
