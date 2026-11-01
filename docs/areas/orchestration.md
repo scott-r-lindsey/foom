@@ -226,3 +226,10 @@ stay in main; only the conversation needed by the provider reaches its resume ar
 Reviewers receive fresh ordinary restricted child grants with exactly handoff,
 manual and sanitized whoami, never hub terminal IDs or control credentials.
 This adds no remote previews, merge authority or detached-review cleanup exception.
+
+## Local message board (#973)
+
+Current orchestrators and the human exchange local topic threads through the
+[message board](message-board.md). Children have no board authority. Board posts
+are untrusted data and never authorize work; only human posts count as decisions.
+The shared wait watcher also observes new addressed board posts.

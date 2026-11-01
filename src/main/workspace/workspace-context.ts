@@ -63,7 +63,7 @@ export class WorkspaceContext {
   control:
     | Promise<
         Pick<ControlRuntime, "prepare" | "close" | "setRole"> &
-          Partial<Pick<ControlRuntime, "audit" | "takeOver">>
+          Partial<Pick<ControlRuntime, "audit" | "takeOver" | "board">>
       >
     | undefined;
   receiver: ReturnType<WorkspaceDependencies["receiver"]> | undefined;
@@ -92,6 +92,17 @@ export class WorkspaceContext {
       throw error;
     });
     await this.control;
+  }
+
+  async messageBoard(method: string, input: unknown): Promise<unknown> {
+    await this.initializeControl();
+    const board = (await this.control)?.board;
+    if (!board) throw new Error("Board unavailable");
+    if (method === "threads") return board.threads(input);
+    if (method === "read") return board.read(input);
+    if (method === "post") return board.append("human", "human", input);
+    if (method === "resolve") return board.resolve("human", input);
+    throw new Error("Invalid board method");
   }
 
   async actionLog(query: unknown): Promise<ActionLogPage> {

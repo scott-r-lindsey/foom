@@ -7,6 +7,10 @@ import { ControlHttp } from "../../../src/main/control/http";
 import { ControlService } from "../../../src/main/control/service";
 import { Operations } from "../../../src/main/control/operations";
 import { ManualMcp } from "../../../src/main/control/manual-mcp";
+import { MessageBoard } from "../../../src/main/control/message-board";
+import { locationId } from "../../../src/main/control/metadata";
+import { object } from "../../../src/shared/control-validation";
+import { harness, repo, other } from "../main/control/orchestration-helpers";
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
@@ -131,6 +135,90 @@ it("relays a config session's manual-only endpoint without granting control tool
   expect(replies[1]).toMatchObject({ result: { tools: [{ name: "manual" }] } });
   expect(replies[2]).toMatchObject({ error: { code: -32602 } });
   expect(JSON.stringify(replies)).not.toContain(manual.token);
+});
+it("reads every page of escaped Board posts through the bounded MCP bridge", async () => {
+  const a = locationId(repo),
+    b = locationId(other);
+  const board = new MessageBoard(
+    () => Promise.resolve(),
+    () => [
+      { id: a, name: "A" },
+      { id: b, name: "B" },
+    ],
+  );
+  const h = harness({}, board);
+  cleanup.push(() => {
+    h.service.close();
+    h.orchestration.disposeUnreadChildren();
+    return Promise.resolve();
+  });
+  const http = await ControlHttp.listen(h.service);
+  cleanup.push(() => http.close());
+  const input = {
+    kind: "link",
+    text: '"'.repeat(8192),
+    links: Array.from({ length: 10 }, () => "https://example.org/" + '"'.repeat(2000)),
+  };
+  const first = await board.append(`orchestrator:${a}`, "fixture", {
+    ...input,
+    to: [b],
+    title: '"'.repeat(200),
+    idempotencyKey: "first",
+  });
+  const expected = [first.post];
+  for (let i = 1; i < 8; i++)
+    expected.push(
+      (
+        await board.append(`orchestrator:${a}`, "fixture", {
+          ...input,
+          thread: first.thread,
+          idempotencyKey: `post-${String(i)}`,
+        })
+      ).post,
+    );
+  const received: unknown[] = [];
+  let after: string | null = null;
+  let pages = 0;
+  do {
+    const result = await run({ ...base, ...h.grant.env, FOOM_CONTROL_URL: http.endpoint }, [
+      initialize,
+      initialized,
+      {
+        jsonrpc: "2.0",
+        id: "\u0000".repeat(200),
+        method: "tools/call",
+        params: {
+          name: "board_read",
+          arguments: { thread: first.thread, ...(after ? { after } : {}) },
+        },
+      },
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.error).not.toHaveBeenCalled();
+    const line = result.out.mock.calls[1]?.[0] ?? "";
+    expect(Buffer.byteLength(line.trimEnd())).toBeLessThanOrEqual(262144);
+    const tool = object(object(JSON.parse(line))["result"]);
+    const value = object(tool["structuredContent"]);
+    expect(tool).toMatchObject({
+      isError: false,
+      content: [{ type: "text", text: JSON.stringify(value) }],
+    });
+    expect(value).toMatchObject({ untrusted: true, thread: { id: first.thread } });
+    const posts = value["posts"];
+    if (!Array.isArray(posts)) throw new Error("Missing post page");
+    expect(posts.length).toBeGreaterThan(0);
+    for (const post of posts.map((raw: unknown) => object(raw))) {
+      expect(post).toMatchObject(input);
+      received.push(post["id"]);
+    }
+    const next = value["next"];
+    if (next !== null && typeof next !== "string") throw new Error("Missing cursor");
+    expect(next).not.toBe(after);
+    after = next;
+    expect(++pages).toBeLessThanOrEqual(8);
+  } while (after !== null);
+  expect(pages).toBeGreaterThan(1);
+  expect(received).toEqual(expected);
 });
 it("refuses extra arguments before reading stdin", async () => {
   expect((await run(base, [], ["mcp", "--repository", "/repo"])).code).toBe(2);

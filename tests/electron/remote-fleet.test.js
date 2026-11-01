@@ -34,6 +34,11 @@ const {
 const { auditProcesses } = require("./process-audit.js");
 
 async function remoteFleet(context, agents, restart = false, reviewLoop = false) {
+  const started = performance.now();
+  const restartTiming = (stage) => {
+    if (restart)
+      context.diagnostic(`Remote restart ${stage}: ${Math.round(performance.now() - started)}ms`);
+  };
   const root = await realpath(await mkdtemp(path.join(tmpdir(), "rfl-")));
   removeAfterApps(context, root);
   const remoteHome = await mkdtemp(path.join(await realpath("/tmp"), "rfh-"));
@@ -216,7 +221,7 @@ if(agent==='pi') {
  extension({on(name, handler){const previous=handlers.get(name); handlers.set(name, async (...args)=>{await previous?.(...args); await handler(...args);});},
  registerMcpServer(name, config){attachment={name,...config};}, unregisterMcpServer(){attachment=undefined;}});
  const ctx={sessionManager:{getSessionId:()=>conversation},isIdle:()=>true};
- for (const name of ['session_start','agent_start','agent_before_settle','agent_settled'])
+ for (const name of ['session_start','before_agent_start','agent_start','agent_before_settle','agent_settled'])
    await handlers.get(name)?.({outcome:'completed',aborted:false},ctx);
  if(!attachment) throw new Error('Pi did not consume extension');
 } else if(agent==='opencode') {
@@ -346,6 +351,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     credentials,
     options: launchOptions,
   });
+  restartTiming("parent launched");
   cleanup.apps.push(cleanup.apps.shift());
   const controlCall = async (actor, method, params = {}) => {
     const response = await fetch(actor.controlUrl, {
@@ -437,7 +443,12 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
           return null;
         }
       })
-      .not.toBeNull();
+      .not.toBeNull()
+      .catch(async (error) => {
+        const { state } = await call("session_state", { id: launched.resultId });
+        console.error("Remote fleet launch readiness", JSON.stringify({ agent, state }));
+        throw error;
+      });
     const record = JSON.parse(await readFile(path.join(root, `${agent}-launch.json`), "utf8"));
     assert.ok(record.cwd.startsWith(folder + "/.foom-worktree-"));
     const serialized = JSON.stringify(record);
@@ -738,6 +749,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     }
   }
   if (!restart) return;
+  restartTiming("live child reported");
   assert.ok(persistent);
   const unused = await call("create_worktree", {
     host: "fleet-worker",
@@ -745,6 +757,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     idempotencyKey: "unused-before-restart",
   });
   assert.equal(unused.status, "succeeded", JSON.stringify(unused));
+  restartTiming("unused checkout created");
   const foreignTree = path.join(folder, ".foom-worktree-other-profile");
   const untaggedTree = path.join(folder, ".foom-worktree-untagged");
   await mkdir(foreignTree, { mode: 0o700 });
@@ -765,6 +778,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     await app.evaluate(({ app }) => app.quit());
     await (await confirmationPage(app)).getByRole("button", { name: "Stop all and quit" }).click();
   });
+  restartTiming("first hub quit");
   const restarted = await launchApp(context, { ...launchOptions, fixture: "restored" }).finally(
     () => {
       cleanup.apps.splice(cleanup.apps.indexOf(closeDaemon), 1);
@@ -772,6 +786,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
     },
   );
   const restored = await boardPage(restarted);
+  restartTiming("restored board ready");
   // Inventory recovers an unused checkout without any session or orchestration grant.
   const restoredTrees = await restored.evaluate(
     (repository) => window.desktop.worktrees(repository),
@@ -781,7 +796,9 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   assert.ok(recovered);
   assert.equal(recovered.host, "fleet-worker");
   assert.ok(!restoredTrees.some((tree) => /other-profile|untagged/.test(tree.branch || "")));
+  restartTiming("checkout inventory recovered");
   const hostState = await restored.evaluate(() => window.desktop.hosts({ action: "list" }));
+  restartTiming("host inventory refreshed");
   assert.equal(hostState.hosts.find((host) => host.host === "fleet-worker").foreignWorktrees, 2);
   assert.ok(
     !(await restored.evaluate(() => window.desktop.workspace())).terminals.some(
@@ -804,6 +821,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
         parent.controlToken,
     )
     .toBe(true);
+  restartTiming("parent credentials renewed");
   const newParent = JSON.parse(await readFile(`${credentials}.app`, "utf8"));
   await expect
     .poll(
@@ -820,6 +838,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
       );
       throw error;
     });
+  restartTiming("child authority restored");
   await expect
     .poll(
       async () =>
@@ -837,6 +856,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
       (await restored.evaluate((id) => window.desktop.tail(id, 40), persistent.id)).join("\n"),
     )
     .toContain("REMOTE_CODEX_READY");
+  restartTiming("child replay attached");
   const restoredCall = (method, params) => controlCall(newParent, method, params);
   await rm(path.join(root, "codex-report.json"));
   await restoredCall("send_keys", {
@@ -859,6 +879,7 @@ if (${JSON.stringify(Boolean(reviewLoop))}) {
   const renewed = JSON.parse(await readFile(path.join(root, "codex-report.json"), "utf8"));
   assert.equal(JSON.parse(renewed.identity.output).role, "child");
   assert.ok(JSON.parse(renewed.identity.output).alias !== persistent.alias);
+  restartTiming("fresh restricted authority verified");
   await restoredCall("stop", { id: persistent.id, idempotencyKey: "stop-after-restart" });
   await expect
     .poll(async () => (await restoredCall("session_state", { id: persistent.id })).state)

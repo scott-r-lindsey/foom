@@ -55,3 +55,16 @@ no orchestration authority. Legacy process-list observations stay on the host an
 are discarded after reducing them to an exact daemon identity and session count;
 no raw process list or arguments enter the hub, logs or renderer. Remote screens
 remain in daemon memory and are replayed without local screen persistence.
+
+## Local message board (#973)
+
+Board text and links are deliberately shared among the human and the opening and
+addressed repositories' current orchestrators. Their reads may reach those agents'
+model providers. Foom itself adds no networking or GitHub mirroring. Children
+cannot read or post; a post cannot grant authority or authorize work. Only human
+posts count as decisions. Contents remain untrusted data, never instructions.
+
+Private main-owned profile storage retains bounded append-only posts; logs retain
+only fixed operation metadata and IDs, never post text or links. Human IPC returns
+rebuilt typed records and renders plain text, with inert links. See
+[message board ownership](../areas/message-board.md).

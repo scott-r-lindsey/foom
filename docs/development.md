@@ -257,6 +257,6 @@ not a claim of exhaustive equivalence between two independent implementations.
 runs with identical rule/plugin settings and warnings denied; syntax timing is
 not a substitute for the type-aware gate. It creates and removes a temporary
 config beside the real config so ignores and plugin paths remain identical.
-CI prints both measurements after its required type-aware lint. Compare with
-the pre-migration cold-process measurements in the #981 PR; OS caches are not
-flushed, and shared-machine/runner variation limits comparisons.
+This optional local command does not run in CI. Local and CI measurements are
+recorded in the #981 PR body; OS caches are not flushed, and
+shared-machine/runner variation limits comparisons.

@@ -1,3 +1,4 @@
+import type { MessageBoardApi } from "./message-board";
 import type { LaunchSelection } from "./agents";
 import type { ReviewState } from "./review";
 import type { Handoff } from "./handoff";
@@ -100,6 +101,8 @@ export interface OrchestrationEntry {
     | "remove_worktree"
     | "prompt"
     | "send_keys"
+    | "board_post"
+    | "board_resolve"
     | "reply"
     | "take_over";
   label: string;
@@ -150,6 +153,7 @@ export interface StartWorktreeRequest {
 
 export interface WorkspaceApi {
   onFocusWorktree?(callback: (path: string) => void): () => void;
+  messageBoard: MessageBoardApi;
   actionLog(query: ActionLogQuery): Promise<ActionLogPage>;
   clearActionLog(): Promise<void>;
   confirmations: ConfirmationClient;
