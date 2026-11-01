@@ -81,6 +81,26 @@ describe("child event board integration", () => {
       }
     },
   );
+  it("keeps standalone review indeterminate when its child spawned before recording failed", async () => {
+    const h = fixture();
+    h.host.forge.read.mockReturnValue({
+      number: 7,
+      headSha: "head",
+      requiredChecks: "success",
+      state: "OPEN",
+    });
+    h.save.mockRejectedValueOnce(new Error("recording unavailable"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await h.mutate("review", { pullRequest: 7 });
+      expect(result.status).toBe("indeterminate");
+      expect(result.resultId).toBeDefined();
+      expect(h.rows.has(result.resultId ?? "")).toBe(true);
+      expect(h.orchestration.ownedWorktrees("parent")[0]?.state).toBe("used");
+    } finally {
+      log.mockRestore();
+    }
+  });
   it("records standalone reviews as automatic generated launches", async () => {
     const h = fixture();
     h.host.forge.read.mockReturnValue({

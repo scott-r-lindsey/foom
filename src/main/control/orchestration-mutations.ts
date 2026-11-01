@@ -217,14 +217,15 @@ export class OrchestrationMutations extends OrchestrationAuthority {
         operations,
         true,
       );
-      if (launched.status !== "succeeded") throw new ControlError("unavailable");
+      if (launched.status !== "succeeded" && launched.status !== "indeterminate")
+        throw new ControlError("unavailable");
       return await this.finish(
         actor,
         parent,
         operations,
         operation,
         label,
-        "succeeded",
+        launched.status,
         launched.resultId,
       );
     } catch (error) {
