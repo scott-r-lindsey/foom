@@ -133,9 +133,20 @@ for (const mode of [
           async (request) => {
             if (request.kind !== "merged-worktrees" || !request.feed)
               throw new Error("Missing feed");
-            await vi.waitFor(() => {
-              expect(request.feed?.current().stage).toBe("ready");
+            const feed = request.feed;
+            // The real Git/directory scan can outlast waitFor's one-second default.
+            // Subscribe before reading so completion cannot race the listener.
+            await new Promise<void>((resolve) => {
+              const completed = () => {
+                if (feed.current().stage !== "checking") {
+                  unsubscribe();
+                  resolve();
+                }
+              };
+              const unsubscribe = feed.subscribe(completed);
+              completed();
             });
+            expect(feed.current().stage).toBe("ready");
             reviewed = true;
             const item = request.feed
               .current()
