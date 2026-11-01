@@ -832,35 +832,43 @@ it("retires removed review checkouts from the provider context before sampling",
   expect(tracker.readSettled(tree.repository, tree.path)).toEqual(pending);
 });
 
-it("initializes local HEAD evidence for every checkout before pinning the first batch context", async () => {
-  const second = { ...tree, path: join(root, "second"), branch: "second" };
-  const tracker = new ForgeTracking(
-    directory,
-    () => Promise.resolve({ remote: "https://github.com/o/r", head: pending.headSha }),
-    vi.fn(),
-    async (_remote, getContext) => {
-      const context = await getContext?.();
-      return {
-        lookup: () => Promise.resolve(undefined),
-        batch: async (matches) => {
-          await context?.validate(matches.map((match) => match.branch));
-          return new Map(
-            matches.map((match) => [
-              match.branch,
-              { ...pending, board: { number: pending.number, state: pending.state, checks: null } },
-            ]),
-          );
-        },
-      };
-    },
-  );
-  trackers.push(tracker);
-  tracker.setEnabled(true);
-  tracker.sync(tree.repository, [tree, second]);
-  await tracker.poll();
-  expect(tracker.read(tree.repository, tree.path)).toEqual(pending);
-  expect(tracker.read(tree.repository, second.path)).toEqual(pending);
-});
+it.each([false, true])(
+  "keeps local batch observations available when a checkout commits during sampling (%s)",
+  async (commits) => {
+    let head = pending.headSha;
+    const second = { ...tree, path: join(root, "second"), branch: "second" };
+    const tracker = new ForgeTracking(
+      directory,
+      () => Promise.resolve({ remote: "https://github.com/o/r", head }),
+      vi.fn(),
+      async (_remote, getContext) => {
+        const context = await getContext?.();
+        return {
+          lookup: () => Promise.resolve(undefined),
+          batch: async (matches) => {
+            if (commits) head = "b".repeat(40);
+            await context?.validate(matches.map((match) => match.branch));
+            return new Map(
+              matches.map((match) => [
+                match.branch,
+                {
+                  ...pending,
+                  board: { number: pending.number, state: pending.state, checks: null },
+                },
+              ]),
+            );
+          },
+        };
+      },
+    );
+    trackers.push(tracker);
+    tracker.setEnabled(true);
+    tracker.sync(tree.repository, [tree, second]);
+    await tracker.poll();
+    expect(tracker.read(tree.repository, tree.path)).toEqual(pending);
+    expect(tracker.read(tree.repository, second.path)).toEqual(pending);
+  },
+);
 
 it("revalidates the sampled chunk without publishing observations for unselected checkouts", async () => {
   let sampling = false;

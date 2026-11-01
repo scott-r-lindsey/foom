@@ -264,9 +264,10 @@ export class ForgeTracking {
     // A healthy checkout must not retry another host before its backoff expires.
     rows = rows.filter((row) => !this.remoteRetryDeferred(row));
     for (const row of rows) {
-      // Every row now carries HEAD evidence, including local checkouts. Pin it
-      // before constructing the context, not during its first validation.
-      if ((await this.inspect(row, row.orchestrator).catch(() => undefined)) !== remote)
+      if (
+        row.remoteCheckout &&
+        (await this.inspect(row, row.orchestrator).catch(() => undefined)) !== remote
+      )
         retired.add(row);
     }
     const heads = new Map(rows.map((row) => [row, row.inspectedHead]));
@@ -279,7 +280,7 @@ export class ForgeTracking {
           branch,
           remote,
           remoteCheckout,
-          inspectedHead,
+          remoteCheckout ? inspectedHead : undefined,
         ]),
       ),
       validate: async (branches?: readonly string[]) => {
@@ -292,7 +293,9 @@ export class ForgeTracking {
             this.stopped() ||
             this.entries.get(row.path) !== row ||
             (await this.inspect(row, row.orchestrator)) !== remote ||
-            row.inspectedHead !== heads.get(row)
+            // Remote heads are polling provenance. Local numeric binding pins
+            // HEAD independently; ordinary local polls tolerate author commits.
+            (row.remoteCheckout !== undefined && row.inspectedHead !== heads.get(row))
           )
             throw new Error("Forge worktree changed");
         }
