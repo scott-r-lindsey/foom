@@ -44,6 +44,12 @@ export async function handoffCommand(
   handoffRequest({ ...params, summary: "validate before reading" });
   const path = flags.get("--summary-file");
   if (!path || path.includes("\0")) throw new ControlError("invalid_request");
+  const summary = await boundedText(path, input);
+  return { method: "handoff", params: handoffRequest({ ...params, summary }) };
+}
+
+/** Shared bounded UTF-8 reader for local text-file commands. */
+export async function boundedText(path: string, input: ConsoleIo["input"]): Promise<string> {
   const chunks: Buffer[] = [];
   if (path === "-") {
     let size = 0;
@@ -80,5 +86,5 @@ export async function handoffCommand(
   } catch {
     throw new ControlError("invalid_request");
   }
-  return { method: "handoff", params: handoffRequest({ ...params, summary }) };
+  return summary;
 }

@@ -2,6 +2,7 @@ import { StringDecoder } from "node:string_decoder";
 import { request } from "node:http";
 import { endpoint } from "./client";
 import { object } from "../shared/control-validation";
+import { MCP_RESPONSE_LIMIT } from "../node-common/mcp-response";
 import type { ConsoleIo } from "./types";
 
 /** No discovery or pairing: this transport is available only to a launching session. */
@@ -50,7 +51,7 @@ export async function mcpCommand(
           res.setEncoding("utf8");
           res.on("data", (chunk: string) => {
             bytes += Buffer.byteLength(chunk);
-            if (bytes > 262144) {
+            if (bytes > MCP_RESPONSE_LIMIT) {
               reject(new Error("MCP transport failed"));
               req.destroy();
               return;
