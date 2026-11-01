@@ -101,7 +101,7 @@ export class ReviewLoops {
   restore(id: string, saved: ReviewState): void {
     const state: ReviewState = { ...saved, phase: "escalated", reason: "restored", waiting: false };
     this.participants.set(id, state.authorId);
-    if (!this.loops.has(state.authorId))
+    if (!this.loops.has(state.authorId)) {
       this.loops.set(state.authorId, {
         state,
         currentId: id,
@@ -109,6 +109,8 @@ export class ReviewLoops {
         busy: false,
         unreadAt: this.now(),
       });
+      this.host.event?.(state, "review restored");
+    }
     this.host.changed();
   }
 
@@ -165,6 +167,7 @@ export class ReviewLoops {
       clearTimeout(loop.parentTimer);
       delete loop.parentTimer;
       loop.state = { ...loop.state, phase: loop.authorPhase ?? "building" };
+      this.host.event?.(loop.state, "review resumed by parent");
       this.host.changed();
       this.syncLoop(loop);
     };

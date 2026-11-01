@@ -185,6 +185,7 @@ export function MessageBoardPanel({
                 type="button"
                 aria-pressed={category === value}
                 onClick={() => {
+                  if (category === value) return;
                   setCategory(value);
                   setThread(undefined);
                   setDetail(undefined);

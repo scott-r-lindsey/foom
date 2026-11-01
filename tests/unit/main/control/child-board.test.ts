@@ -125,6 +125,7 @@ describe("child event board integration", () => {
     ])
       expect(text).toContain(event);
     expect(text).not.toContain("ctrl+c");
+    expect(h.host.tail).not.toHaveBeenCalled();
     expect(h.board.childThreads()).toHaveLength(1);
     await expect(
       h.call("board_post", {
@@ -244,6 +245,51 @@ describe("child event board integration", () => {
       expect(await h.text(id)).toContain('"status":"failed"');
     });
     expect(h.board.childThreads()[0]?.child?.removedAt).toBeUndefined();
+  });
+  it("records the parent resume and restored escalation transitions", async () => {
+    const h = fixture();
+    const tree = await h.mutate("create_worktree", { branch: "waiting" });
+    const launch = await h.mutate("launch", {
+      worktreeId: tree.resultId,
+      agent: "claude",
+      review: {},
+    });
+    const id = launch.resultId ?? "";
+    await h.report(id, { status: "blocked", summary: "Need a scope decision" });
+    await vi.waitFor(() => {
+      expect(h.orchestration.reviews.view(id)?.phase).toBe("waiting-on-parent");
+    });
+    await h.mutate("prompt", { id, text: "Proceed" });
+    expect(await h.text(id)).toContain("review resumed by parent");
+    const other = await h.child("restored");
+    const saved = {
+      authorId: other.id,
+      round: 1,
+      phase: "reviewing" as const,
+      rounds: 3,
+      agent: "claude",
+      postFindings: false,
+    };
+    h.orchestration.reviews.restore(other.id, saved);
+    h.orchestration.reviews.restore(other.id, saved);
+    const text = await h.text(other.id);
+    expect(text).toContain("review restored");
+    expect(text).toContain('"reason":"restored"');
+    expect(text.match(/review restored/gu)).toHaveLength(1);
+  });
+  it("keeps PR links within board bounds without breaking later records", async () => {
+    const h = fixture();
+    h.host.forge.read.mockReturnValue({
+      number: 8,
+      headSha: "head",
+      requiredChecks: "success",
+      state: "OPEN",
+      url: "https://example.org/" + "x".repeat(3000),
+    });
+    const { id } = await h.child("feature");
+    expect(await h.text(id)).toContain("#8");
+    await h.mutate("prompt", { id, text: "Continue" });
+    expect(await h.text(id)).toContain("Continue");
   });
   it("parses explicit sensitive and automatic console flags, refusing duplicates", () => {
     expect(

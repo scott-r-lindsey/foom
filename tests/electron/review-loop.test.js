@@ -569,9 +569,20 @@ for (const scenario of ["clean", "fix", "cap", "edit", "blocked", "red", "concur
       await panel.getByRole("button", { name: "Children", exact: true }).click();
       await panel.locator(`[data-thread="${authorThread.id}"]`).click();
       await expect(panel.getByText(/findings forwarded/)).toBeVisible();
+      await panel.getByLabel("Reply").fill("Keep this human note");
+      await panel.getByRole("button", { name: "Children", exact: true }).click();
+      await expect(panel.getByLabel("Reply")).toHaveValue("Keep this human note");
+      await panel.getByLabel("Reply").fill("");
       for (const colorScheme of ["light", "dark"]) {
         await page.emulateMedia({ colorScheme });
+        await panel.locator(".message-thread").evaluate((element) => {
+          element.scrollTop = 0;
+        });
         await panel.screenshot({ path: evidencePath(`child-board-974/story-${colorScheme}.png`) });
+        await panel.getByText(/findings forwarded/).scrollIntoViewIfNeeded();
+        await panel.screenshot({
+          path: evidencePath(`child-board-974/findings-${colorScheme}.png`),
+        });
       }
       await assertAccessible(page);
       await panel.getByRole("button", { name: "Close board" }).click();

@@ -274,6 +274,9 @@ it("switches child/topic filters, shows child identity and keeps human notes", a
   await h.view.findByText("App · Child");
   fireEvent.click(h.view.getByRole("button", { name: /Nightly release/ }));
   await h.view.findByLabelText("Reply");
+  fireEvent.change(h.view.getByLabelText("Reply"), { target: { value: "Keep this note" } });
+  fireEvent.click(h.view.getByRole("button", { name: "Children" }));
+  expect(h.view.getByLabelText("Reply")).toHaveProperty("value", "Keep this note");
   fireEvent.click(h.view.getByRole("button", { name: "Cross-repository" }));
   await waitFor(() => {
     expect(h.api.threads).toHaveBeenLastCalledWith({ category: "topics" });

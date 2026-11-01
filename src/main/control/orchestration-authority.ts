@@ -235,7 +235,11 @@ export class OrchestrationAuthority {
         for (const id of parent.children.keys()) {
           const row = this.host.terminals().find((row) => row.id === id);
           const pr = row && this.pullRequest(row);
-          const link = pr?.url ?? (pr ? `#${String(pr.number)}` : undefined);
+          const link = pr
+            ? pr.url && Buffer.byteLength(pr.url) <= 2048
+              ? pr.url
+              : `#${String(pr.number)}`
+            : undefined;
           if (pr && link && this.boardPrs.get(id) !== link) {
             this.boardPrs.set(id, link);
             void this.recordChild(
