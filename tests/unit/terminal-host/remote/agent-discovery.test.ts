@@ -15,6 +15,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { gitSync } from "../../../helpers/git.js";
 import {
   hostEnvironment,
+  hostLoginEnvironment,
   hostProbe,
   hostDiscovery,
   remoteCheckout,
@@ -225,5 +226,33 @@ test.skipIf(process.platform === "win32")(
       command: join(root, "claude"),
       env: { PATH: root },
     });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "status probes discard undecodable output and never include it in an exit failure",
+  async () => {
+    const command = await script(
+      "status",
+      "process.stdout.write(Buffer.from([255]));process.stderr.write('PRIVATE TOKEN');process.exit(Number(process.argv[2]));",
+    );
+    expect(
+      await hostProbe(command, ["0"], root, { PATH: root }, false, 5000, undefined, "status"),
+    ).toBe("");
+    await expect(
+      hostProbe(command, ["1"], root, { PATH: root }, false, 5000, undefined, "status"),
+    ).rejects.toMatchObject({ code: 1, message: "Remote probe failed" });
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "strict login PATH refuses inherited fallbacks for Homebrew discovery",
+  async () => {
+    vi.stubEnv("PATH", root);
+    for (const source of ["process.exit(1)", "console.log('no path marker')"]) {
+      const shell = await script("empty-shell", source);
+      expect((await hostLoginEnvironment(shell, root, undefined, true))["PATH"]).toBe("");
+      expect((await hostLoginEnvironment(shell, root))["PATH"]).toBe(root);
+    }
   },
 );

@@ -714,6 +714,25 @@ export function setup(v: unknown, p: string) {
     offer: optional(offer)(d["offer"], `${p}.offer`),
   };
 }
+const hostRecipeArgv = array(shortText, 32, 1);
+const hostStatusArgv = array(shortText, 8, 1);
+function hostRecipeMap(v: unknown, p: string) {
+  const d = object(v, p, [], ["debian", "rhel", "arch", "darwin"]);
+  return {
+    debian: optional(hostRecipeArgv)(d["debian"], `${p}.debian`),
+    rhel: optional(hostRecipeArgv)(d["rhel"], `${p}.rhel`),
+    arch: optional(hostRecipeArgv)(d["arch"], `${p}.arch`),
+    darwin: optional(hostRecipeArgv)(d["darwin"], `${p}.darwin`),
+  };
+}
+function hostSetup(v: unknown, p: string) {
+  const d = object(v, p, [], ["status", "install", "signIn"]);
+  return {
+    status: optional(hostStatusArgv)(d["status"], `${p}.status`),
+    install: optional(hostRecipeMap)(d["install"], `${p}.install`),
+    signIn: optional(hostRecipeMap)(d["signIn"], `${p}.signIn`),
+  };
+}
 export function v2(v: unknown, p: string) {
   const d = object(
     v,
@@ -735,7 +754,7 @@ export function v2(v: unknown, p: string) {
       "attention",
       "execution",
     ],
-    ["files", "hooks", "health", "setup"],
+    ["files", "hooks", "health", "setup", "hostSetup"],
   );
   return {
     kind: literal("agent")(d["kind"], `${p}.kind`),
@@ -757,5 +776,6 @@ export function v2(v: unknown, p: string) {
     execution: execution(d["execution"], `${p}.execution`),
     health: optional(health)(d["health"], `${p}.health`),
     setup: optional(setup)(d["setup"], `${p}.setup`),
+    hostSetup: optional(hostSetup)(d["hostSetup"], `${p}.hostSetup`),
   };
 }

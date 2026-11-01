@@ -508,3 +508,68 @@ test.each([
   expect(states.at(-1)).toBe(state);
   await workspace.dispose();
 });
+
+test("host recipes are human-owned remote shells without hub environment or orchestration grants", async () => {
+  const create = vi.spyOn(deps.terminals, "create");
+  const workspace = new Workspace(deps);
+  const target = {
+    host: "worker",
+    profile: "f".repeat(32),
+    human: true as const,
+    recipe: {
+      tool: "git",
+      action: "install" as const,
+      distro: "debian" as const,
+      digest: "a".repeat(64),
+    },
+  };
+  await workspace.startHostRecipe(target);
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ remote: target, env: {} }));
+  expect(workspace.snapshot().terminals[0]).toMatchObject({
+    kind: "shell",
+    home: true,
+    remote: true,
+    placement: { kind: "remote", host: "worker" },
+  });
+});
+
+test.each([true, false])(
+  "remote recipe restart preserves its host and never replays installation (registered: %s)",
+  async (registered) => {
+    const create = vi.spyOn(deps.terminals, "create");
+    const target = { host: "worker", profile: "f".repeat(32), human: true as const };
+    const shellTarget = vi.fn(() => target);
+    const workspace = new Workspace({
+      ...deps,
+      ...(registered
+        ? {
+            hosts: {
+              fleet: () => Promise.resolve([]),
+              worktree: vi.fn(),
+              registered: () => ({ host: "worker", codeFolder: "/remote/code" }),
+              requireAgent: () => Promise.resolve(),
+              shellTarget,
+            },
+          }
+        : {}),
+    });
+    await workspace.startHostRecipe({
+      ...target,
+      recipe: { tool: "git", action: "install", distro: "debian", digest: "a".repeat(64) },
+    });
+    await workspace.exited("t1", 0);
+    create.mockResolvedValue("t2");
+    const restart = workspace.sidebarCommand({ kind: "restart", id: "t1" }, () =>
+      Promise.resolve(true),
+    );
+    if (registered) {
+      await restart;
+      expect(shellTarget).toHaveBeenCalledWith("worker");
+      expect(create).toHaveBeenLastCalledWith(expect.objectContaining({ remote: target, env: {} }));
+      expect(workspace.snapshot().terminals.map((row) => row.id)).toEqual(["t2"]);
+    } else {
+      await expect(restart).rejects.toMatchObject({ reason: "remote_host_unreachable" });
+      expect(create).toHaveBeenCalledTimes(1);
+    }
+  },
+);

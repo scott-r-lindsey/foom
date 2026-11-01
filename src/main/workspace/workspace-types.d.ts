@@ -1,3 +1,4 @@
+import type { RemoteTarget } from "../../shared/remote-host";
 import type { ReviewSnapshot } from "../control/review-loops.d";
 import type { Orchestration } from "../control/orchestration";
 import type { Hosts } from "../setup/hosts";
@@ -84,8 +85,9 @@ export interface WorkspaceMethods {
     pathFirst?: string,
     configEnvironment?: Readonly<Record<string, string>>,
     checkout?: Awaited<ReturnType<Orchestration["remoteCheckout"]>>,
+    remoteOverride?: RemoteTarget,
   ): Promise<string>;
-  startHomeShell(restoreId?: string): Promise<string>;
+  startHomeShell(restoreId?: string, remote?: RemoteTarget): Promise<string>;
   resumeId(
     command: Extract<SidebarCommand, { kind: "resume-id" }>,
     confirm: ConfirmWorkspace,
@@ -179,7 +181,9 @@ export type Agents = Pick<
 >;
 export interface WorkspaceDependencies {
   hosts?: Pick<Hosts, "fleet" | "worktree" | "registered" | "requireAgent"> &
-    Partial<Pick<Hosts, "sessions" | "placement" | "rememberPlacement" | "worktrees">>;
+    Partial<
+      Pick<Hosts, "sessions" | "placement" | "rememberPlacement" | "worktrees" | "shellTarget">
+    >;
   /** Main-owned clock budget; tests may inject a shorter probe reminder. */
   probeWaitingMs?: number;
   pluginStagingRoot?: string;

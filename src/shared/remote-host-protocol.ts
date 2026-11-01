@@ -1,3 +1,4 @@
+import { recipeLaunch } from "./registered-host-recipes";
 import { imagePut, imagePutResult, imageNonce } from "./image-paste";
 import { hostAlias, hostManagement, hostResult } from "./registered-hosts";
 import { isLaunchReason } from "./launch-failure";
@@ -29,6 +30,7 @@ function hello(value: object): boolean {
   return (
     "type" in value &&
     value.type === "hello" &&
+    (!("hostFacts" in value) || value.hostFacts === 1) &&
     "build" in value &&
     typeof value.build === "string" &&
     /^[a-f0-9]{64}$/u.test(value.build)
@@ -119,6 +121,10 @@ export function remoteRequest(value: unknown): value is RemoteRequest {
     );
   if (value["type"] === "open")
     return (
+      (value["recipe"] === undefined ||
+        (recipeLaunch(value["recipe"]) &&
+          value["checkout"] === undefined &&
+          value["context"] === undefined)) &&
       (value["checkout"] === undefined ||
         (record(value["checkout"]) &&
           keys(value["checkout"], ["repository", "path", "identity"]) &&

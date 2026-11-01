@@ -7,6 +7,7 @@ import { gzipSync, gunzipSync } from "node:zlib";
 import { afterEach, expect, test } from "vitest";
 import {
   bootstrapArguments,
+  LINUX_LIBC_CHECK,
   hostArtifact,
   remoteSpikeTarget,
   remotePlatform,
@@ -217,3 +218,39 @@ test("compressed catalogs validate both compressed and expanded bytes", async ()
   await writeFile(path, "corrupt gzip");
   await expect(hostArtifact(path)).rejects.toThrow();
 });
+
+test.skipIf(process.platform === "win32")(
+  "libc bootstrap emits closed reasons before any cache writes",
+  async () => {
+    const f = await fixture();
+    const getconf = join(f.root, "getconf");
+    await writeFile(
+      getconf,
+      '#!/bin/sh\nprintf "%s\\n" "$FIXTURE_LIBC"\nexit "${FIXTURE_EXIT:-0}"\n',
+      { mode: 0o700 },
+    );
+    for (const [libc, expected, code] of [
+      ["glibc 2.28", ""],
+      ["glibc 2.40", ""],
+      ["glibc 3.0", ""],
+      ["glibc 2.17", "FOOM-LIBC-TOO-OLD"],
+      ["musl 1.2", "FOOM-LIBC-UNSUPPORTED"],
+      ["glibc 2.28.1", "FOOM-LIBC-UNSUPPORTED"],
+      ["glibc 2", "FOOM-LIBC-UNSUPPORTED"],
+      ["glibc a.b", "FOOM-LIBC-UNSUPPORTED"],
+      ["glibc 2.28", "FOOM-LIBC-UNSUPPORTED", "1"],
+    ]) {
+      let output: unknown;
+      try {
+        output = execFileSync(
+          "/bin/sh",
+          ["-c", LINUX_LIBC_CHECK.replace("/usr/bin/getconf", getconf)],
+          { env: { FIXTURE_LIBC: libc, FIXTURE_EXIT: code ?? "0" }, encoding: "utf8" },
+        );
+      } catch (error) {
+        output = error && typeof error === "object" && "stdout" in error ? error.stdout : undefined;
+      }
+      expect(typeof output === "string" ? output.trim() : output).toBe(expected);
+    }
+  },
+);

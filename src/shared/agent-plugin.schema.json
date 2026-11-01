@@ -121,6 +121,9 @@
         },
         "setup": {
           "$ref": "#/$defs/setup"
+        },
+        "hostSetup": {
+          "$ref": "#/$defs/hostSetup"
         }
       }
     },
@@ -1663,6 +1666,57 @@
       "minLength": 1,
       "maxLength": 80,
       "pattern": "^[^\\p{Cc}\\p{Cf}\\p{Co}\\p{Cs}\\u2028\\u2029]*$"
+    },
+    "hostSetup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/hostStatusArgv"
+        },
+        "install": {
+          "$ref": "#/$defs/hostRecipeMap"
+        },
+        "signIn": {
+          "$ref": "#/$defs/hostRecipeMap"
+        }
+      }
+    },
+    "hostStatusArgv": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/shortText"
+      },
+      "maxItems": 8,
+      "minItems": 1
+    },
+    "hostRecipeMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "debian": {
+          "$ref": "#/$defs/hostRecipeArgv"
+        },
+        "rhel": {
+          "$ref": "#/$defs/hostRecipeArgv"
+        },
+        "arch": {
+          "$ref": "#/$defs/hostRecipeArgv"
+        },
+        "darwin": {
+          "$ref": "#/$defs/hostRecipeArgv"
+        }
+      }
+    },
+    "hostRecipeArgv": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/shortText"
+      },
+      "maxItems": 32,
+      "minItems": 1
     }
   }
 }
