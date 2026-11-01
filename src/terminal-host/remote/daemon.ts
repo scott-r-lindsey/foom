@@ -204,37 +204,42 @@ export function serveHost(
       try {
         await manager.stop(id);
       } finally {
-        // Release the stopped PTY immediately; keep the daemon session reserved
-        // until pending publication and private-file cleanup have settled.
-        manager.kill(id);
-        // Reconnects must observe the known exit even while files are closing.
-        const code = session.exited;
-        if (
-          rememberExit &&
-          !shuttingDown &&
-          code !== undefined &&
-          remoteResponse({ type: "exit", id, code })
-        ) {
-          const expiry = session.expiry ?? scheduleExpiry(id);
-          if (!expiry.expired)
-            tombstones.set(id, {
-              code,
-              expiry,
-              ...(session.profile ? { profile: session.profile } : {}),
-            });
-          // Map insertion order is exit/disposal order; reads never renew it.
-          for (const [oldId, old] of tombstones) {
-            if (tombstones.size <= MAX_EXIT_TOMBSTONES) break;
-            cancelExpiry(old.expiry);
-            tombstones.delete(oldId);
-          }
-        } else cancelExpiry(session.expiry);
-        await session.imageUpload?.catch(() => {});
-        await images.close(id).catch(() => {
-          console.error("Image paste cleanup failed");
-        });
-        sessions.delete(id);
-        worktrees.delete(session);
+        try {
+          // Release the stopped PTY immediately; keep the daemon session reserved
+          // until pending publication and private-file cleanup have settled.
+          manager.kill(id);
+          // Reconnects must observe the known exit even while files are closing.
+          const code = session.exited;
+          if (
+            rememberExit &&
+            !shuttingDown &&
+            code !== undefined &&
+            remoteResponse({ type: "exit", id, code })
+          ) {
+            const expiry = session.expiry ?? scheduleExpiry(id);
+            if (!expiry.expired)
+              tombstones.set(id, {
+                code,
+                expiry,
+                ...(session.profile ? { profile: session.profile } : {}),
+              });
+            // Map insertion order is exit/disposal order; reads never renew it.
+            for (const [oldId, old] of tombstones) {
+              if (tombstones.size <= MAX_EXIT_TOMBSTONES) break;
+              cancelExpiry(old.expiry);
+              tombstones.delete(oldId);
+            }
+          } else cancelExpiry(session.expiry);
+          await session.imageUpload?.catch(() => {});
+          await images.close(id).catch(() => {
+            console.error("Image paste cleanup failed");
+          });
+        } finally {
+          // Disposal can suppress the native exit callback, including after a stop timeout.
+          recipeSessions.delete(id);
+          sessions.delete(id);
+          worktrees.delete(session);
+        }
       }
     });
     return session.removing;

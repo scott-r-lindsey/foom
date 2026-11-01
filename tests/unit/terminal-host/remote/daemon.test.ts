@@ -2409,3 +2409,96 @@ test.skipIf(process.platform === "win32")(
     expect(mock.manage).toHaveBeenCalledTimes(1);
   },
 );
+
+test.skipIf(process.platform === "win32").each(
+  (["kill", "session-close"] as const).flatMap((operation) =>
+    (["stop rejection", "disposal rejection", "no exit callback"] as const).map((outcome) => ({
+      operation,
+      outcome,
+    })),
+  ),
+)("recipe $operation releases its reservation after $outcome", async ({ operation, outcome }) => {
+  await start();
+  const profile = "f".repeat(32);
+  const c = await client();
+  c.send({ type: "hello", build });
+  await c.wait(1);
+  c.send({
+    type: "open",
+    profile,
+    reattach: false,
+    id: "recipe",
+    request: 1,
+    cols: 80,
+    rows: 24,
+    recipe: { tool: "git", action: "install", distro: "debian", digest: "a".repeat(64) },
+  });
+  await c.wait(2);
+  const pending = Promise.withResolvers<boolean>();
+  mock.stop.mockReturnValueOnce(pending.promise);
+  const removal = operation === "kill" ? c : await client();
+  if (operation === "session-close") {
+    removal.send({ type: "hello", build });
+    await removal.wait(1);
+  }
+  const closed = once(removal.socket, "close");
+  removal.send(
+    operation === "kill"
+      ? { type: "kill", id: "recipe", request: 2 }
+      : { type: "session-close", id: "recipe", request: 2, profile },
+  );
+  await vi.waitFor(() => {
+    expect(mock.stop).toHaveBeenCalledWith("recipe");
+  });
+  const next = await client();
+  next.send({ type: "hello", build });
+  await next.wait(1);
+  const inspect = {
+    type: "manage",
+    operation: "inspect",
+    codeFolder: "~/code",
+    agents: [],
+  } as const;
+  next.send(inspect);
+  await next.wait(2);
+  expect(next.messages[1]).toMatchObject({ result: { ok: false, reason: "checkout-refused" } });
+  expect(mock.manage).not.toHaveBeenCalled();
+  if (outcome === "disposal rejection")
+    mock.kill.mockImplementationOnce(() => {
+      throw new Error("Fixture native disposal failed");
+    });
+  if (outcome === "stop rejection")
+    pending.reject(new Error("Fixture terminal did not exit before stop deadline"));
+  else pending.resolve(true);
+  if (outcome === "no exit callback") await removal.wait(operation === "kill" ? 3 : 2);
+  else await closed;
+  expect(mock.kill).toHaveBeenCalledWith("recipe");
+  const gone = await open("recipe", true);
+  expect(gone.messages).toContainEqual({
+    type: "open-result",
+    id: "recipe",
+    request: 1,
+    state: "gone",
+  });
+  mock.manage.mockResolvedValueOnce({ ok: false, reason: "folder-refused" });
+  next.send(inspect);
+  await next.wait(3);
+  expect(mock.manage).toHaveBeenCalledOnce();
+  expect(next.messages[2]).toMatchObject({ result: { ok: false, reason: "folder-refused" } });
+  const replacement = await client();
+  replacement.send({ type: "hello", build });
+  await replacement.wait(1);
+  replacement.send({
+    type: "open",
+    profile,
+    reattach: false,
+    id: "recipe",
+    request: 1,
+    cols: 80,
+    rows: 24,
+    recipe: { tool: "git", action: "install", distro: "debian", digest: "a".repeat(64) },
+  });
+  await replacement.wait(2);
+  expect(replacement.messages[1]).toMatchObject({ type: "open-result", state: "live" });
+  expect(mock.create).toHaveBeenCalledTimes(2);
+});
