@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { digest } from "./remote-host-artifacts.mjs";
-import { assembleDarwinHost, darwinInputNames, verifyDarwinInputs } from "./remote-host-darwin.mjs";
+import {
+  assembleDarwinHost,
+  darwinInputNames,
+  primeDarwinHost,
+  verifyDarwinInputs,
+} from "./remote-host-darwin.mjs";
 
 const source = "a".repeat(40);
 async function fixture(t, arch = "arm64") {
@@ -214,4 +219,41 @@ test("Darwin assembly signs native copies before embedding and enforces host ent
         );
       }
     }
+});
+
+test("Darwin probes require genuine target architecture and prime each x64 identity before native loading", () => {
+  const calls = [];
+  const execute = (command, args, options) => {
+    calls.push([command, args, options]);
+    return command === "/usr/bin/lipo" ? "x86_64\n" : "x64\n";
+  };
+  // Re-signing requires another handshake, even when the executable path is unchanged.
+  primeDarwinHost("/fixture/foom-host", "x64", execute);
+  primeDarwinHost("/fixture/foom-host", "x64", execute);
+  assert.deepEqual(
+    calls,
+    Array.from({ length: 2 }, () => [
+      ["/usr/bin/lipo", ["-archs", "/fixture/foom-host"], undefined],
+      ["/fixture/foom-host", ["--prime-rosetta"], { timeout: 60000 }],
+    ]).flat(),
+  );
+  primeDarwinHost("/fixture/foom-host", "arm64", (command) => {
+    assert.equal(command, "/usr/bin/lipo");
+    return "arm64\n";
+  });
+  for (const output of ["arm64", "arm64 x86_64", ""]) {
+    assert.throws(() => primeDarwinHost("/fixture/foom-host", "x64", () => output), /Mach-O/);
+  }
+  assert.throws(() => primeDarwinHost("/fixture/foom-host", "other", execute), /architecture/);
+  for (const failure of ["timeout", "absent", "wrong architecture"]) {
+    assert.throws(
+      () =>
+        primeDarwinHost("/fixture/foom-host", "x64", (command) => {
+          if (command === "/usr/bin/lipo") return "x86_64";
+          if (failure === "wrong architecture") return "arm64";
+          throw new Error(failure);
+        }),
+      /Rosetta could not prime/,
+    );
+  }
 });

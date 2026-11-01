@@ -169,7 +169,15 @@ The `Remote host` matrix builds native Node 24 SEAs on `ubuntu-24.04` (linux-x64
 Darwin architectures, from the same checkout as the desktop app. The Mac first
 builds and probes arm64, then selects the same pinned x64 Node version and builds
 and probes x64 under the hosted image’s Rosetta. Both architectures retain the
-embedded-native signing/PTY spike and SEA startup check. The x64 build reuses the
+embedded-native signing/PTY spike and SEA startup check. The spike checks each SEA's
+Mach-O architecture with `lipo -archs`. Before each x64 PTY/library-load probe it
+primes that freshly signed SEA with a fixture-only architecture handshake (no
+native load), reporting the translation/startup duration. This includes the second
+code identity after re-signing without the library-validation exception. Priming
+has a separate 60-second bound and must return `x64`; failure stops the job with
+the executable's diagnostics. The actual native-load probes retain their 20-second
+bounds and exact success/error assertions. Merely launching x64 Node does not
+prime a newly assembled or re-signed SEA. The x64 build reuses the
 installed arm64 esbuild service, whose JavaScript output is architecture independent.
 Each target writes a version/protocol/source-revision/size/SHA-256 manifest and gzip
 metadata, verifies native SEA startup with invalid arguments (no daemon or
