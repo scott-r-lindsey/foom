@@ -116,7 +116,7 @@ test.each([
   expect(view.getByRole("menuitem", { name: "New conversation here" })).toBeTruthy();
 });
 
-test("merged cleanup appears only when eligible, below repository removal", async () => {
+test("merged cleanup stays available for linked worktrees, below repository removal", async () => {
   repository.canDeleteMerged = true;
   repository.mergedError = "Fetch failed";
   const view = setup();
@@ -144,16 +144,27 @@ test("merged cleanup appears only when eligible, below repository removal", asyn
     await Promise.resolve();
   });
   fireEvent.click(hidden.getByRole("button", { name: "Actions for Foom" }));
-  expect(hidden.queryByRole("menuitem", { name: "Delete merged worktrees…" })).toBeNull();
+  expect(hidden.getByRole("menuitem", { name: "Delete merged worktrees…" })).toBeTruthy();
+  hidden.unmount();
+  const original = repository.worktrees;
+  repository.worktrees = original.filter((tree) => tree.path === repository.path);
+  const mainOnly = setup(true);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  fireEvent.click(mainOnly.getByRole("button", { name: "Actions for Foom" }));
+  expect(mainOnly.queryByRole("menuitem", { name: "Delete merged worktrees…" })).toBeNull();
+  mainOnly.unmount();
+  repository.worktrees = original;
 });
 
-test("open menus receive eligibility published after opening", async () => {
+test("open cleanup menus remain available when eligibility changes", async () => {
   const view = setup();
   await act(async () => {
     await Promise.resolve();
   });
   fireEvent.click(view.getByRole("button", { name: "Actions for Foom" }));
-  expect(view.queryByRole("menuitem", { name: "Delete merged worktrees…" })).toBeNull();
+  expect(view.getByRole("menuitem", { name: "Delete merged worktrees…" })).toBeTruthy();
   repository.canDeleteMerged = true;
   act(() => {
     view.base.update("a", { state: "quiet_ok" });
@@ -163,7 +174,7 @@ test("open menus receive eligibility published after opening", async () => {
   act(() => {
     view.base.update("a", { state: "working" });
   });
-  expect(view.queryByRole("menuitem", { name: "Delete merged worktrees…" })).toBeNull();
+  expect(view.getByRole("menuitem", { name: "Delete merged worktrees…" })).toBeTruthy();
 });
 
 test("worktree menus offer only enabled launchers and deletion with an agent running", async () => {

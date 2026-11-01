@@ -590,7 +590,7 @@ it.each([
   "enabled worktree config",
   "clean filter",
   "safe symlink",
-])("fails closed on cleanup evidence: %s", async (mode) => {
+])("checks cleanup evidence: %s", async (mode) => {
   const { path } = await service.createWorktree(repo, "evidence");
   await git("clone", "--bare", repo, join(temporary, "remote.git"));
   await git("remote", "add", "origin", join(temporary, "remote.git"));
@@ -652,6 +652,9 @@ it.each([
   if (mode === "safe symlink") {
     await symlink(repo, join(path, "external"), "junction");
     expect(await service.cleanupChanges(repo, path)).toContain("?? external");
+  } else if (mode === "ignored nested repo") {
+    // #990: Git-ignored folders, including nested repositories, are disposable.
+    expect(await service.cleanupChanges(repo, path)).toContain("!! nested/");
   } else await expect(service.cleanupChanges(repo, path)).rejects.toThrow();
   expect(await stat(path)).toBeTruthy();
 });

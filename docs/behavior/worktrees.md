@@ -5,7 +5,8 @@ Decided user-visible behavior. Implementation owners and security rules: [file m
 ### Delete merged worktrees
 
 The repository menu offers **Delete merged worktrees…** below Remove repository
-when at least one linked worktree is eligible, regardless of which tool created it. Foom fetches the remote
+when linked worktrees exist, regardless of which tool created them. When none
+qualify, opening it shows each checkout's fixed reason with Delete disabled. Foom fetches the remote
 (`origin`, or the sole remote) and resolves its advertised default branch. A
 branch is merged when `git merge-tree --write-tree <default> <branch>` produces
 the default branch's tree: merging it would change nothing. This works for merge,
