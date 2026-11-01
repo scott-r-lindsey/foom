@@ -513,8 +513,40 @@ test("packaged utility host runs native PTYs with RunAsNode disabled", {
     await page.evaluate((id) => window.desktop.kill(id), id);
     // Keyboard input is exercised above. After the standalone probe, address
     // the original shell by ID so focus changes cannot misroute its exit command.
-    await page.evaluate((id) => window.desktop.input(id, "exit\r"), primary);
+    await page.evaluate((id) => {
+      window.packagedCursorView = document.querySelector(".tile-terminal .xterm");
+      window.desktop.input(id, "exit\r");
+    }, primary);
     await page.getByRole("status").filter({ hasText: "Shell exited" }).waitFor();
+    await expect(page.locator(".xterm-cursor")).toHaveCount(0);
+    await page
+      .locator(".terminal-tile")
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await expect(page.locator(".board-row[data-kind='shell']")).toHaveCount(0);
+    await page
+      .getByRole("treeitem", { name: "Home shell", exact: true })
+      .locator(".tree-name")
+      .click();
+    await expect(page.locator(".board-row[data-kind='shell']")).toHaveCount(1);
+    const replacement = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+    assert.notEqual(replacement.id, primary);
+    await expect
+      .poll(() =>
+        page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), replacement.id),
+      )
+      .toMatch(process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/);
+    assert.equal(
+      await page.evaluate(
+        () => window.packagedCursorView === document.querySelector(".tile-terminal .xterm"),
+      ),
+      true,
+    );
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+    const cursor = page.locator(".xterm-focus .xterm-cursor-blink");
+    await expect(cursor).toBeVisible();
+    await expect(cursor).toHaveCSS("animation-name", /blink_block_/);
+    console.info("Packaged new shell restores a rendered blinking cursor after exit");
     console.info(
       `Packaged ${process.platform}/${process.arch}: native PTY, detached headless snapshot, RunAsNode=false passed`,
     );

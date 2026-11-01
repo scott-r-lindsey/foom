@@ -3,7 +3,7 @@ const { gitSync: isolatedGit } = require("../helpers/git.js");
 const { test } = require("./test-shard.js");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { mkdir, mkdtemp, readFile, writeFile } = require("node:fs/promises");
+const { chmod, mkdir, mkdtemp, readFile, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { deadline, expect } = require("./test-policy.js");
 const {
@@ -15,6 +15,14 @@ const {
   removeAfterApps,
   restartShellFromSidebar,
 } = require("./harness.js");
+
+// A painted/focused cursor can precede both login and attachment readiness.
+async function expectShellReady(page, id, input) {
+  await expect
+    .poll(() => page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), id))
+    .toMatch(process.platform === "win32" ? /PS [\s\S]*>\s*$/ : /[$#%>]\s*$/);
+  await expect(input).toBeEditable();
+}
 
 test("board starts with live terminals only and focuses rows without opening", async (context) => {
   const app = await launchApp(context, { fixture: "running-shell", shell: "hidden" });
@@ -432,6 +440,129 @@ test("sidebar preferences sync between windows without losing independent edits"
   await expect(second.locator(".board-row")).toContainText("Shared helper");
   await second.evaluate(() => window.desktop.appMenu.execute("close-window"));
   await expect.poll(() => second.isClosed()).toBe(true);
+});
+
+for (const pinned of [false, true]) {
+  test(`scrolled shell launcher ${pinned ? "pinned" : "hovered"} creates and focuses on the first click`, {
+    skip: process.platform === "win32" && "Fixture CLI discovery uses POSIX executables",
+  }, async (context) => {
+    const root = await mkdtemp(path.join(tmpdir(), "foom-first-click-"));
+    removeAfterApps(context, root);
+    const bin = path.join(root, "bin");
+    await mkdir(bin);
+    // Fill the real launcher list without exposing any installed agent CLI.
+    for (const [name, version] of [
+      ["claude", "2.1.300 (Claude Code)"],
+      ["codex", "codex-cli 0.161.0"],
+      ["agy", "1.0.0"],
+      ["copilot", "GitHub Copilot CLI 1.0.0."],
+      ["opencode", "opencode v2.0.32"],
+      ["pi", "1.4.0"],
+    ]) {
+      await writeFile(
+        path.join(bin, name),
+        `#!/usr/bin/env node\nconsole.log(${JSON.stringify(version)});\n`,
+      );
+      await chmod(path.join(bin, name), 0o755);
+    }
+    const app = await launchApp(context, { fixture: "repository", env: { PATH: bin } });
+    const page = await boardPage(app);
+    await page.evaluate(async () => {
+      await window.desktop.scanAgents(false);
+      await window.desktop.saveSetup({
+        agents: {
+          ...(await window.desktop.setupState()).settings.agents,
+          claude: true,
+          codex: true,
+          agy: true,
+        },
+      });
+    });
+    // Model a short screen / large interface: the launcher must scroll to Shell.
+    await app.evaluate(({ BrowserWindow }) => {
+      const board = BrowserWindow.getAllWindows().find(
+        (entry) => entry.webContents.getURL() === "app://bundle/index.html",
+      );
+      board.setMinimumSize(900, 300);
+      board.setSize(900, 300);
+    });
+    const anchor = page.getByRole("button", { name: "Actions for Main checkout", exact: true });
+    if (pinned) await anchor.click();
+    else await anchor.hover();
+    const panel = page.getByRole("dialog", { name: /details and commands/ });
+    await expect(panel).toHaveAttribute("data-pinned", String(pinned));
+    await expect(panel.getByRole("menuitem", { name: "Pi", exact: true })).toBeAttached();
+    const launcher = panel.getByRole("menuitem", { name: /^Shell \(/ });
+    await launcher.scrollIntoViewIfNeeded();
+    await expect
+      .poll(() => panel.locator(".panel-body").evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+    // A real press has time between down and up for the pinning layout effect.
+    await launcher.click({ delay: 100 });
+    await expect(page.locator(".board-row[data-kind='shell']")).toHaveCount(1);
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+    await expect(page.locator(".xterm-focus .xterm-cursor-blink")).toBeVisible();
+    const created = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+    assert.ok(created);
+    await expectShellReady(page, created.id, page.locator(".xterm-helper-textarea"));
+    await page.keyboard.type("echo FIRST_CLICK_'985'");
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".xterm-rows")).toContainText("FIRST_CLICK_985");
+    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  });
+}
+
+test("shell launch paths select the new shell and its blinking input cursor", async (context) => {
+  const app = await launchApp(context, { fixture: "repository" });
+  const page = await boardPage(app);
+  for (const entry of ["checkout", "home-menu", "home-row", "space"]) {
+    const before = new Set(
+      (await page.evaluate(() => window.desktop.workspace())).terminals.map((entry) => entry.id),
+    );
+    if (entry === "checkout") {
+      await page.getByRole("button", { name: "Actions for Main checkout", exact: true }).click();
+      await page.getByRole("menuitem", { name: /^Shell \(/ }).click();
+    } else if (entry === "home-menu") {
+      await page.getByRole("button", { name: "Actions for Home shell", exact: true }).click();
+      await page.getByRole("menuitem", { name: "New shell", exact: true }).click();
+    } else if (entry === "home-row") {
+      await page
+        .getByRole("treeitem", { name: "Home shell", exact: true })
+        .locator(".tree-name")
+        .click();
+    } else {
+      await page
+        .locator(".terminal-tile[data-focused='true']")
+        .getByRole("button", { name: /Tile \d+ menu/ })
+        .click();
+      await page.getByRole("menuitem", { name: "Split terminal left", exact: true }).click();
+      // Move away from sidebar rows before opening the space menu.
+      await page.mouse.move(0, 0);
+      await expect(page.locator(".sidebar-panel")).toHaveCount(0);
+      await page.locator(".terminal-tile[data-empty='true']").first().click({ button: "right" });
+      await page.getByRole("menuitem", { name: "New shell here", exact: true }).click();
+    }
+    await expect(page.locator(".board-row[data-kind='shell']")).toHaveCount(before.size + 1);
+    const shell = page.locator(".terminal-tile[data-kind='shell'][data-focused='true']");
+    await expect(shell.locator(".xterm-helper-textarea")).toBeFocused();
+    await expect(shell.locator(".xterm-focus .xterm-cursor-blink")).toBeVisible();
+    const created = (await page.evaluate(() => window.desktop.workspace())).terminals.find(
+      (terminal) => !before.has(terminal.id),
+    );
+    assert.ok(created);
+    await expectShellReady(page, created.id, shell.locator(".xterm-helper-textarea"));
+    context.diagnostic(`Shell ${entry} is editable with an interactive prompt after focus`);
+    await page.keyboard.type(
+      process.platform === "win32" ? "echo ('FOCUSED_' + '985')" : "echo FOCUSED_'985'",
+    );
+    await page.keyboard.press("Enter");
+    await expect
+      .poll(() =>
+        page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), created.id),
+      )
+      .toContain("FOCUSED_985");
+    await expect(shell.locator(".xterm-helper-textarea")).toBeFocused();
+  }
 });
 
 test("sidebar panels hover, pin, rename and launch a home shell", async (context) => {

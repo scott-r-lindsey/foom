@@ -20,6 +20,63 @@ const {
   stopSession,
 } = require("./harness.js");
 
+test("a new shell has a rendered blinking cursor after reusing an exited terminal view", async (context) => {
+  const app = await launchApp(context, { fixture: "running-shell" });
+  const page = await boardPage(app);
+  const hostPid = await app.evaluate(
+    ({ app }) =>
+      app.getAppMetrics().find((metric) => metric.name?.startsWith("Foom terminal host "))?.pid,
+  );
+  assert.ok(hostPid);
+  const previous = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  const prompt = process.platform === "win32" ? /PS [\s\S]*>/ : /[$#%>]\s*$/;
+  await expect
+    .poll(() =>
+      page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), previous.id),
+    )
+    .toMatch(prompt);
+  await page.evaluate((id) => {
+    window.cursorReuseElement = document.querySelector(".tile-terminal .xterm");
+    window.desktop.input(id, "exit\r");
+  }, previous.id);
+  await expect(page.locator(".board-row[data-kind='shell']")).toHaveAttribute(
+    "data-exited",
+    "true",
+  );
+  await expect(page.locator(".xterm-cursor")).toHaveCount(0);
+  await page.locator(".terminal-tile").getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.locator(".board-row[data-kind='shell']")).toHaveCount(0);
+  await page
+    .getByRole("treeitem", { name: "Home shell", exact: true })
+    .locator(".tree-name")
+    .click();
+  await expect(page.locator(".board-row[data-kind='shell']")).toHaveCount(1);
+  const created = (await page.evaluate(() => window.desktop.workspace())).terminals[0];
+  assert.notEqual(created.id, previous.id);
+  assert.equal(
+    await app.evaluate(
+      ({ app }) =>
+        app.getAppMetrics().find((metric) => metric.name?.startsWith("Foom terminal host "))?.pid,
+    ),
+    hostPid,
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(async (id) => (await window.desktop.tail(id, 40)).join("\n"), created.id),
+    )
+    .toMatch(prompt);
+  assert.equal(
+    await page.evaluate(
+      () => window.cursorReuseElement === document.querySelector(".tile-terminal .xterm"),
+    ),
+    true,
+  );
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  const cursor = page.locator(".xterm-focus .xterm-cursor-blink");
+  await expect(cursor).toBeVisible();
+  await expect(cursor).toHaveCSS("animation-name", /blink_block_/);
+});
+
 test("fresh focused terminal cursor blinks and preserves application style on reattach", {
   timeout: deadline(45000),
 }, async (context) => {
