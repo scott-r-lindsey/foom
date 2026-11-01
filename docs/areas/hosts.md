@@ -31,6 +31,11 @@ not atomic traversal or protection from a compromised account/root. Repository a
 worktree inspection never create missing components: a missing approved folder or
 ancestor refuses the read. Rechecks before mutation also validate without creation.
 
+The daemon selects its HostPlatform once at startup. Linux reads bounded procfs
+files directly for memory and legacy process identity; it needs no `ps`/procps
+installation. macOS uses the built-in `/bin/ps` and `/usr/bin/vm_stat`. Bootstrap
+remains POSIX `sh`, before the daemon exists. Raw observations stay on the host.
+
 Host rows expose daemon version, live session count, CPU cores and three load
 averages, memory total/available and fixed agent states with Refresh. Linux uses
 `MemAvailable` from `/proc/meminfo`. macOS available is the sum of free, inactive
@@ -131,7 +136,8 @@ cached build identities against the old management API; it creates no PTY and
 runs no cached executable. Legacy sessions appear as one untagged count. End
 explicitly confirms all sessions in that legacy daemon, including sessions started
 during confirmation. It matches a single process's exact cached executable,
-`--daemon` argv, PID and start time from fixed `/bin/ps` output, rechecks before
+`--daemon` argv, PID and start time (Linux procfs start ticks and owner uid, or macOS fixed
+`/bin/ps` output), rechecks before
 SIGTERM, and never unlinks the old socket. Process observation and signaling are
 separate OS operations, with the same-user PID-reuse race; this is not isolation
 from another process running as the account. Unverifiable or unsupported legacy
@@ -203,6 +209,13 @@ local Git, in addition to the 10,000-file / 32 MiB content bounds. Other probe
 stdout and every stderr stream retain their 256 KiB limits.
 Compatible older daemons that cannot supply this evidence refuse remote review;
 ordinary sessions and reattachment remain usable.
+Inspection, snapshots and confirmed removal validate the canonical clone and worktree in
+one management request. The hub derives the clone path from the registered origin;
+it does not open a separate repository-preflight SSH connection for these operations.
+The daemon still checks clone origin, HEAD, membership, provenance and identity.
+Removal still compares the confirmed changes and identity again before deletion.
+Creation retains its repository preflight and indeterminate-result handling.
+
 
 ## Worktrees without sessions (#941)
 

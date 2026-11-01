@@ -1,4 +1,12 @@
 import type {
+  BoardRead,
+  BoardThreads,
+  BoardMutation,
+  MessagePost,
+  MessageThread,
+  BoardRepository,
+} from "../shared/message-board";
+import type {
   HostsState,
   HostResult,
   HostFacts,
@@ -608,6 +616,8 @@ const validOrchestrationEntry: Validator<OrchestrationEntry> = shape({
     "remove_worktree",
     "prompt",
     "send_keys",
+    "board_post",
+    "board_resolve",
     "reply",
     "take_over",
   ),
@@ -969,6 +979,45 @@ const validGitPanelFacts: Validator<GitPanelFacts> = shape({
   fetchFailed: boolean,
   merged: literal(null, false, true),
 } satisfies Contract<GitPanelFacts>);
+
+const validMessageThread: Validator<MessageThread> = shape({
+  id: text,
+  title: text,
+  repository: text,
+  to: array(text),
+  state: literal("open", "waiting-repo", "waiting-human", "resolved"),
+  createdAt: text,
+  updatedAt: text,
+} satisfies Contract<MessageThread>);
+const validMessagePost: Validator<MessagePost> = shape({
+  id: text,
+  thread: text,
+  author: (value): value is MessagePost["author"] =>
+    typeof value === "string" &&
+    (value === "human" || /^orchestrator:[a-zA-Z0-9_-]{1,200}$/u.test(value)),
+  kind: literal("request", "answer", "decision-needed", "fyi", "link"),
+  text,
+  links: array(text),
+  timestamp: text,
+} satisfies Contract<MessagePost>);
+const validBoardThreads: Validator<BoardThreads> = shape({
+  repositories: array(shape({ id: text, name: text } satisfies Contract<BoardRepository>)),
+  threads: array(validMessageThread),
+  next: either(nil, text),
+  untrusted: literal(true),
+  notice: text,
+} satisfies Contract<BoardThreads>);
+const validBoardRead: Validator<BoardRead> = shape({
+  thread: validMessageThread,
+  posts: array(validMessagePost),
+  next: either(nil, text),
+  untrusted: literal(true),
+  notice: text,
+} satisfies Contract<BoardRead>);
+const validBoardMutation: Validator<BoardMutation> = shape({
+  thread: text,
+  post: either(nil, text),
+} satisfies Contract<BoardMutation>);
 
 const validActionLogEntry: Validator<ActionLogEntry> = shape({
   path: either(absent, text),
@@ -1671,6 +1720,12 @@ const desktop: DesktopApi = {
     };
     ipcRenderer.on("terminal:activity", listener);
     return () => ipcRenderer.removeListener("terminal:activity", listener);
+  },
+  messageBoard: {
+    threads: (query) => reply("workspace:message-board", validBoardThreads, "threads", query),
+    read: (query) => reply("workspace:message-board", validBoardRead, "read", query),
+    post: (input) => reply("workspace:message-board", validBoardMutation, "post", input),
+    resolve: (input) => reply("workspace:message-board", validBoardMutation, "resolve", input),
   },
   actionLog: (query) => reply("workspace:action-log", validActionLogPage, query),
   clearActionLog: () => invokeVoid("workspace:clear-action-log"),

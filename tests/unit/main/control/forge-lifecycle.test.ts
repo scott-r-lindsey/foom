@@ -8,6 +8,7 @@ import { ForgeLifecycle } from "../../../../src/main/control/forge-lifecycle";
 import { parseForgeManifest } from "../../../../src/shared/forge-manifest";
 import github from "../../../../src/shared/bundled-forges/github.json";
 import { githubManifest } from "../../../../src/main/control/forge-manifests";
+import * as forgeProcess from "../../../../src/main/control/forge-process";
 import { executeForge, resolveForgeExecutable } from "../../../../src/main/control/forge-process";
 import type { ForgeSelection } from "../../../../src/main/control/forge-lifecycle-types";
 
@@ -287,6 +288,45 @@ posix(
     }
   },
 );
+
+posix("remote checkout revalidation does not spend the forge execution budget", async () => {
+  const { lifecycle, selection } = await fixture(3000, 0);
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  selection.context.validate = async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  };
+  try {
+    expect(await lifecycle.provider(selection).lookup("feature", 42, "all")).toMatchObject({
+      number: 42,
+      requiredChecks: "none",
+    });
+    expect(lifecycle.state()).toBe("ready");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+posix("forge commands share one execution budget across checkout revalidations", async () => {
+  const { lifecycle, selection } = await fixture(3000, 0);
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+  selection.context.validate = async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  };
+  const execute = vi
+    .spyOn(forgeProcess, "executeForge")
+    .mockImplementation(async (_exe, args, _cwd, _env, signal) => {
+      await vi.advanceTimersByTimeAsync(1500);
+      if (signal.aborted) throw new forgeProcess.ForgeExecutionError("cancelled");
+      return { code: 0, stdout: args[0] === "auth" ? "" : "{}", stderr: "" };
+    });
+  try {
+    expect(await lifecycle.provider(selection).lookup("feature", 42)).toBeUndefined();
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(lifecycle.state()).toBe("timeout");
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 it("process execution rejects pre-aborted signals and missing binaries with fixed errors", async () => {
   await expect(executeForge("/absent", [], tmpdir(), {}, AbortSignal.abort())).rejects.toThrow(

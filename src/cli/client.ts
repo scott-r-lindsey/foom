@@ -173,6 +173,8 @@ export async function call(connection: Connection, command: Command): Promise<un
     "remove_worktree",
     "prompt",
     "send_keys",
+    "board_post",
+    "board_resolve",
   ].includes(command.method);
   let value: Record<string, unknown>;
   try {

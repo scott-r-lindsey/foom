@@ -1,3 +1,4 @@
+import type * as hostPlatform from "../../../../src/terminal-host/remote/host-platform";
 import { beforeEach, afterEach, expect, test, vi } from "vitest";
 import { createServer, type Server } from "node:net";
 import { chmod, mkdir, mkdtemp, rm, rename, symlink, writeFile } from "node:fs/promises";
@@ -8,6 +9,11 @@ const mock = vi.hoisted(() => ({ ps: vi.fn(), kill: vi.fn<typeof process.kill>()
 vi.mock("node:child_process", () => ({
   execFile: Object.assign(vi.fn(), { [Symbol.for("nodejs.util.promisify.custom")]: mock.ps }),
 }));
+// Keep the legacy protocol/End regression cases on their captured ps fixtures.
+vi.mock("../../../../src/terminal-host/remote/host-platform", async (original) => {
+  const platform = await original<typeof hostPlatform>();
+  return { ...platform, daemonHostPlatform: platform.createHostPlatform("darwin") };
+});
 import * as paths from "../../../../src/terminal-host/remote/private-path";
 import { legacyDaemon, endLegacyDaemon } from "../../../../src/terminal-host/remote/legacy";
 import { remoteFrame, RemoteFrames } from "../../../../src/shared/remote-host-protocol";
@@ -225,6 +231,36 @@ test.skipIf(process.platform === "win32")(
     await expect(
       endLegacyDaemon({ executable, pid: 424242, started, count: 2 }, cancellation.signal),
     ).rejects.toThrow("changed");
+    expect(mock.kill).not.toHaveBeenCalled();
+  },
+);
+
+// The OS implementation changes, while the confirmed End guard stays the same.
+test.skipIf(process.platform === "win32")(
+  "Linux start-time mismatch refuses legacy End",
+  async () => {
+    const { daemonHostPlatform } = await import(
+      "../../../../src/terminal-host/remote/host-platform"
+    );
+    const { linuxHostPlatform } = await import(
+      "../../../../src/terminal-host/remote/host-platform-linux"
+    );
+    const proc = join(home, "proc");
+    await mkdir(join(proc, "424242"), { recursive: true });
+    const stat = (ticks: string) =>
+      `424242 (foom host) S ${[...Array<string>(18).fill("0"), ticks].join(" ")}\n`;
+    await writeFile(join(proc, "424242", "stat"), stat("1234"));
+    await writeFile(join(proc, "424242", "cmdline"), `${executable}\0--daemon\0`);
+    const platform = linuxHostPlatform(proc);
+    vi.spyOn(daemonHostPlatform, "processIdentity").mockImplementation((executable, signal) =>
+      platform.processIdentity(executable, signal),
+    );
+    await serve();
+    const observed = await legacyDaemon(home, "/code");
+    expect(observed?.started).toBe("1234");
+    if (!observed) throw new Error("No daemon");
+    await writeFile(join(proc, "424242", "stat"), stat("5678"));
+    await expect(endLegacyDaemon(observed)).rejects.toThrow("changed");
     expect(mock.kill).not.toHaveBeenCalled();
   },
 );

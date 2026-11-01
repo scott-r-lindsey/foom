@@ -1571,3 +1571,75 @@ test("host copies discard reply contents and expose no clipboard text capability
     host: "worker",
   });
 });
+
+test("projects board records and rejects malformed board replies", async () => {
+  const api = await bridge();
+  const thread = {
+    id: "t",
+    title: "Release",
+    repository: "a",
+    to: ["b"],
+    state: "waiting-human",
+    createdAt: "now",
+    updatedAt: "now",
+  };
+  const post = {
+    id: "p",
+    thread: "t",
+    author: "orchestrator:a",
+    kind: "decision-needed",
+    text: "Approve?",
+    links: ["#973"],
+    timestamp: "now",
+  };
+  const list = {
+    repositories: [{ id: "a", name: "App" }],
+    threads: [thread],
+    next: null,
+    untrusted: true,
+    notice: "Data",
+  };
+  mock.invoke.mockResolvedValue({
+    ...list,
+    secret: "omit",
+    threads: [{ ...thread, token: "omit" }],
+  });
+  expect(await api.messageBoard.threads({})).toEqual(list);
+  const read = { thread, posts: [post], next: null, untrusted: true, notice: "Data" };
+  mock.invoke.mockResolvedValue({ ...read, posts: [{ ...post, token: "omit" }] });
+  expect(await api.messageBoard.read({ thread: "t" })).toEqual(read);
+  for (const author of ["human", "orchestrator:a"]) {
+    mock.invoke.mockResolvedValue({ ...read, posts: [{ ...post, author }] });
+    await expect(api.messageBoard.read({ thread: "t" })).resolves.toMatchObject({
+      posts: [{ author }],
+    });
+  }
+  for (const value of [
+    null,
+    {},
+    { ...read, posts: [{ ...post, author: "child:a" }] },
+    { ...read, posts: [{ ...post, kind: "execute" }] },
+    { ...read, thread: { ...thread, state: "bad" } },
+  ]) {
+    mock.invoke.mockResolvedValue(value);
+    await expect(api.messageBoard.read({ thread: "t" })).rejects.toThrow();
+  }
+  mock.invoke.mockResolvedValue({ thread: "t", post: "p", author: "omit" });
+  expect(
+    await api.messageBoard.post({
+      thread: "t",
+      kind: "answer",
+      text: "Yes",
+      links: [],
+      idempotencyKey: "k",
+    }),
+  ).toEqual({ thread: "t", post: "p" });
+  mock.invoke.mockResolvedValue({ thread: "t", post: null });
+  expect(await api.messageBoard.resolve({ thread: "t", idempotencyKey: "r" })).toEqual({
+    thread: "t",
+    post: null,
+  });
+  mock.invoke.mockResolvedValue({ threads: [] });
+  await expect(api.messageBoard.threads({})).rejects.toThrow();
+  await expect(api.messageBoard.resolve({ thread: "t", idempotencyKey: "r" })).rejects.toThrow();
+});

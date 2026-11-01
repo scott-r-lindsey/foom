@@ -1,0 +1,178 @@
+.message-board {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 24px;
+  color: var(--ink);
+  background: var(--bg);
+}
+.message-board > header,
+.message-thread > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.message-board h1 {
+  font-size: 22px;
+  margin: 0 0 20px;
+}
+.message-board button,
+.message-board select,
+.message-board textarea {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 8px 12px;
+}
+.message-board button {
+  cursor: pointer;
+}
+.message-board button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.message-board :focus-visible {
+  outline: 2px solid var(--highlight);
+  outline-offset: 2px;
+}
+.message-board-columns {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 24px;
+}
+.message-thread-list {
+  width: 280px;
+  flex-shrink: 0;
+  overflow: auto;
+}
+.message-thread-list label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.message-thread-list > button {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 8px;
+}
+.message-thread-list > button[aria-pressed="true"] {
+  border-color: var(--highlight);
+}
+.message-thread-list > button > span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.message-thread-list > button[data-decision="true"] .message-thread-state,
+.message-thread > header [data-decision="true"],
+.message-thread li[data-decision="true"] .message-post-meta > span {
+  color: var(--attention-ink);
+}
+.message-thread-list > button[data-decision="true"] .message-thread-state::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--attention);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--attention) 20%, transparent);
+}
+.message-thread {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+.message-thread h2 {
+  font-size: 18px;
+  margin: 0 0 8px;
+}
+.message-thread ol {
+  list-style: none;
+  margin: 24px 0;
+  padding: 0;
+}
+.message-thread li {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+.message-post-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.message-post-meta strong {
+  color: var(--ink);
+}
+.message-post-meta time {
+  margin-left: auto;
+}
+.message-thread p,
+.message-thread code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.message-thread code {
+  display: block;
+  margin: 8px 0;
+  font-family: var(--font-mono);
+}
+.message-thread form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.message-thread textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+.message-thread form button {
+  align-self: flex-end;
+}
+@media (max-width: 900px) {
+  .message-board-columns {
+    gap: 16px;
+  }
+  .message-thread-list {
+    width: 200px;
+  }
+  .message-board {
+    padding: 16px;
+  }
+}
+
+.message-board strong {
+  font-family: var(--font-interface);
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.sidebar-footer-bar:has(.message-board-toggle) {
+  flex-wrap: wrap;
+}
+.message-board-toggle {
+  flex-shrink: 0;
+  height: 24px;
+  padding: 0 6px;
+  font: 11px var(--font-interface);
+  color: var(--muted);
+}
+.message-board-toggle[aria-pressed="true"] {
+  border-color: var(--highlight);
+  color: var(--ink);
+}
+.sidebar-footer-bar:has(.message-board-toggle) .master-volume {
+  min-width: 80px;
+}

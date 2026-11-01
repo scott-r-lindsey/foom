@@ -1,3 +1,4 @@
+import { MessageBoard } from "../../../../src/main/control/message-board";
 import type { ChildInput } from "../../../../src/shared/child-input";
 import { expect, it, vi } from "vitest";
 import type { WorkspaceDependencies } from "../../../../src/main/workspace/workspace-types";
@@ -89,10 +90,35 @@ it("exposes durable history and clearing and refuses authority changes when inte
   const human = vi.spyOn(audit, "human").mockResolvedValue();
   const read = vi.spyOn(audit, "read").mockResolvedValue({ entries: [], total: 0 });
   const clear = vi.spyOn(audit, "clearAudit").mockResolvedValue();
+  const board = new MessageBoard(
+    () => Promise.resolve(),
+    () => [{ id: "a", name: "App" }],
+  );
+  const first = await board.append("orchestrator:a", "a", {
+    to: ["a"],
+    title: "Topic",
+    kind: "fyi",
+    text: "Hello",
+    idempotencyKey: "open",
+  });
   const original = deps.control;
   if (!original) throw new Error("Missing control");
-  deps.control = async () => ({ ...(await original()), audit });
+  deps.control = async () => ({ ...(await original()), audit, board });
   const workspace = createWorkspace(deps);
+  expect(await workspace.messageBoard("threads", {})).toMatchObject({
+    threads: [{ id: first.thread }],
+  });
+  expect(await workspace.messageBoard("read", { thread: first.thread })).toMatchObject({
+    posts: [{ text: "Hello" }],
+  });
+  await workspace.messageBoard("post", {
+    thread: first.thread,
+    kind: "answer",
+    text: "Human",
+    idempotencyKey: "human",
+  });
+  await workspace.messageBoard("resolve", { thread: first.thread, idempotencyKey: "resolve" });
+  await expect(workspace.messageBoard("unknown", {})).rejects.toThrow("Invalid board method");
   const query = { search: "child", action: "reply", status: "", offset: 0 };
   expect(await workspace.actionLog(query)).toEqual({ entries: [], total: 0 });
   expect(read).toHaveBeenCalledWith(query);
@@ -131,6 +157,7 @@ it("reports unavailable history when the control service is absent", async () =>
   const unavailable = { ...deps };
   delete unavailable.control;
   const workspace = createWorkspace(unavailable);
+  await expect(workspace.messageBoard("threads", {})).rejects.toThrow("Board unavailable");
   await expect(workspace.actionLog({})).rejects.toThrow("Action log unavailable");
   await expect(workspace.clearActionLog()).rejects.toThrow("Action log unavailable");
 });

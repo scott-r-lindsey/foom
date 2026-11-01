@@ -34,6 +34,8 @@ export type Action =
   | "remove_worktree"
   | "prompt"
   | "send_keys"
+  | "board_post"
+  | "board_resolve"
   | "reply";
 export type Status =
   | "pending_confirmation"

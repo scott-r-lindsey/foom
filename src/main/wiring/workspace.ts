@@ -1,3 +1,4 @@
+import { locationId, metadataName } from "../control/metadata";
 import { hostsForStore } from "../setup/hosts";
 import type { BrowserWindow } from "electron";
 import { app, clipboard, Notification, powerMonitor, shell } from "electron";
@@ -234,6 +235,11 @@ export async function initializeWorkspace(
             (id) =>
               wiring.workspace.snapshot().terminals.find((row) => row.id === id)?.agent ?? "agent",
           ),
+          () =>
+            wiring.worktrees.listRepositories().map((repo) => ({
+              id: locationId(repo.path),
+              name: metadataName(path.basename(repo.path)),
+            })),
         ).then((runtime) => {
           wiring.agentPreviews = runtime.service.previews;
           return runtime;

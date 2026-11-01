@@ -418,6 +418,7 @@ test("terminal runs an interactive shell behind an isolated bridge", {
           "acknowledge",
           "tail",
           "onActivity",
+          "messageBoard",
           "actionLog",
           "clearActionLog",
           "onWorkspaceChange",

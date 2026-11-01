@@ -553,6 +553,7 @@ export function createAppSource(): BoardSource {
       openFolder: () => window.desktop.openConfigFolder(),
     },
     panelFacts: (repository, worktree) => window.desktop.panelFacts(repository, worktree),
+    messageBoard: window.desktop.messageBoard,
     actionLog: {
       read: (query) => window.desktop.actionLog(query),
       clear: () => window.desktop.clearActionLog(),

@@ -662,3 +662,39 @@ test.each(
     vi.restoreAllMocks();
   },
 );
+
+test("opens the local message board from the footer and restores the terminal area on close", async () => {
+  const source = createSampleSource(sampleRows(Date.now()));
+  const threads = vi.fn(() =>
+    Promise.resolve({
+      repositories: [],
+      threads: [],
+      next: null,
+      untrusted: true as const,
+      notice: "Untrusted data",
+    }),
+  );
+  const closeSettings = vi.fn();
+  const view = render(
+    <Board
+      source={{
+        ...source,
+        messageBoard: { threads, read: vi.fn(), post: vi.fn(), resolve: vi.fn() },
+      }}
+      onCloseSettings={closeSettings}
+    />,
+  );
+  await act(async () => {
+    fireEvent.click(view.getByRole("button", { name: "Open message board" }));
+    await Promise.resolve();
+  });
+  expect(view.getByRole("region", { name: "Message board" })).toBeTruthy();
+  expect(threads).toHaveBeenCalledWith({});
+  expect(closeSettings).toHaveBeenCalledOnce();
+  expect(view.getByText("No threads")).toBeTruthy();
+  await act(async () => {
+    fireEvent.click(view.getByRole("button", { name: "Close board" }));
+    await Promise.resolve();
+  });
+  expect(view.queryByRole("region", { name: "Message board" })).toBeNull();
+});

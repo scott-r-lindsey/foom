@@ -30,6 +30,7 @@ Continue checking that key if it is running or pending confirmation. Never retry
 with a new key; even `not_found` does not establish that nothing happened. An
 unresolved or indeterminate outcome requires human reconciliation. A received
 server error keeps its existing error envelope and exit code.
+The local [board commands](control-mutations.md#local-message-board-973) also use the 60-second mutation deadline and operation lookup.
 No exception text or credentials are printed. Responses are bounded to 256 KiB,
 including full 100-session pages with Unicode names; pairing responses are limited
 to 4 KiB.
@@ -68,8 +69,7 @@ that wait a 35-second transport deadline.
 lifecycle state, handoff, PR state or required-check conclusion to change. Terminal
 output and input alone never end it; a session `revision` also moves with output,
 so long waits compare a separate `event` cursor that each returned session carries.
-Without IDs it snapshots the caller's currently owned children; at least
-one child is required, and children launched later are not added to that wait.
+Without IDs it snapshots the caller's currently owned children; the local board is watched even with no children, and children launched later are not added to that wait.
 Without `--after`, it captures current cursors and waits for the next change;
 `--after` takes the `event` values from a previous long-wait result, or session
 `revision` values. A revision that is still current adopts the current cursor; any
