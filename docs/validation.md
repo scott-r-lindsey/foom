@@ -165,9 +165,13 @@ nightly publication dependencies; its isolated real-CLI policy is documented in
 ## Bundled remote host artifacts (#825)
 
 The `Remote host` matrix builds native Node 24 SEAs on `ubuntu-24.04` (linux-x64),
-`ubuntu-24.04-arm` (linux-arm64), `macos-15-intel` (darwin-x64) and `macos-15`
-(darwin-arm64), from the same checkout as the desktop app. No cross-build is used.
-Each job writes a version/protocol/source-revision/size/SHA-256 manifest and gzip
+`ubuntu-24.04-arm` (linux-arm64), and one `macos-15` runner for both
+Darwin architectures, from the same checkout as the desktop app. The Mac first
+builds and probes arm64, then selects the same pinned x64 Node version and builds
+and probes x64 under the hosted image’s Rosetta. Both architectures retain the
+embedded-native signing/PTY spike and SEA startup check. The x64 build reuses the
+installed arm64 esbuild service, whose JavaScript output is architecture independent.
+Each target writes a version/protocol/source-revision/size/SHA-256 manifest and gzip
 metadata, verifies native SEA startup with invalid arguments (no daemon or
 network), and uploads its catalog entry with three-day retention. Nightly version
 stamping uses the same condition and deterministic stamp as desktop packaging.
@@ -187,7 +191,7 @@ Quality gate's required-job rules, coverage thresholds, permissions and Release
 configuration are unchanged: a failed host build blocks packaging, which remains
 required. Electron shards still start independently after change detection.
 
-Darwin native jobs also upload credential-free SEA inputs (#851): the bundled
+The combined Darwin job also uploads credential-free SEA inputs (#851): the bundled
 JavaScript, target Node executable, node-pty addon and spawn helper, plus a
 format/version/protocol/source-revision manifest with each file's size and SHA-256.
 The Node patch is pinned in `.nvmrc`: the blob generator must exactly match the
@@ -208,8 +212,8 @@ runtime, secure timestamps and allow-jit only; the signer reads back the host
 entitlements and requires both native assets and host to have the same Team ID.
 Only ad-hoc host signatures use the library-validation exception.
 
-PR CI exercises that same assembly path with the ad-hoc identity on both native
-Darwin architectures, including a fixture PTY and verification of the extracted
+PR CI exercises that same assembly path with the ad-hoc identity on both
+Darwin architectures (x64 under Rosetta), including a fixture PTY and verification of the extracted
 native signatures. The downloaded tested-ZIP round trip also rebuilds both hosts
 from this run's verified inputs. Fixture Apple tools cover both signing identities,
 failures and mismatched Team IDs without credentials. Ad-hoc loading behavior is
